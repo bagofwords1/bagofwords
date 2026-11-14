@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from app.models.report import report_folder_ids
 from app.services.conversation_surface import is_app_conversation, is_dashboard_chat
 
 from app.data_sources.clients.base import Capability
@@ -1275,6 +1276,12 @@ class AgentV2:
             except Exception:
                 logger.warning("Failed to load project files", exc_info=True)
                 self._project_files_cache = []
+        if getattr(self.report, "agent_folder_id", None):
+            from app.ai.context.agent_files import merge_files
+            from app.services.folder_knowledge import report_folder_files
+            folder_files = await report_folder_files(self.db, self.organization, getattr(self.head_completion, "user", None), self.report)
+            self._has_folder_files = bool(folder_files)
+            return merge_files(self._project_files_cache, folder_files)
         return self._project_files_cache
 
     async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
@@ -1657,14 +1664,19 @@ class AgentV2:
                 [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
                 if self.report else []
             )
-            focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
+            if getattr(self.report, "agent_folder_id", None):
+                if len(roster_ids) == 1:
+                    explicit = list(roster_ids)
+                focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids), threshold=1)
+            else:
+                focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
             if mode == "all":
                 return full_scope
             loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
             return sorted(((set(focus_ids) | loaded) & roster_ids) | connector_ids)
         except Exception:
             logger.exception("instruction scope resolve failed; using full attached scope")
-            return [str(d.id) for d in (self.data_sources or [])] or None
+            return [str(d.id) for d in (self.data_sources or [])] or ([] if getattr(self.report, "agent_folder_id", None) else None)
 
     def _connector_ids(self) -> set:
         """Ids of the run's connectors (each person's own accounts/tools — see
@@ -1755,6 +1767,9 @@ class AgentV2:
                 _rtk = 10
             _rtk = max(1, min(100, _rtk))
             _loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
+            folder_scope = getattr(self.report, "agent_folder_id", None)
+            if folder_scope and len(_roster_sources) == 1:
+                report_focus = [str(_roster_sources[0].id)]
             focus_ids, roster_xml, _mode = await build_focus_and_roster(
                 self.db,
                 self.organization,
@@ -1764,7 +1779,20 @@ class AgentV2:
                 report_focus,
                 top_k=_rtk,
                 loaded_ids=list(_loaded),
+                **({"threshold": 1} if folder_scope else {}),
             )
+            if folder_scope and roster_xml:
+                from app.ai.context.agent_roster import FOLDER_ROUTING_GUIDANCE
+                roster_xml += "\n<folder_routing>" + FOLDER_ROUTING_GUIDANCE + "</folder_routing>"
+            # Cached schemas can be shared across users. Add visible paths on
+            # private copies only, after resolving this reader's permissions.
+            from app.services.folder_service import visible_agent_paths
+            paths = await visible_agent_paths(self.db, self.organization, user, _roster_sources)
+            if paths:
+                schemas_ctx = schemas_ctx.model_copy(update={"data_sources": [
+                    section.model_copy(update={"info": section.info.model_copy(update={"folder_path": paths[str(section.info.id)]})})
+                    if str(section.info.id) in paths else section for section in schemas_ctx.data_sources
+                ]})
             if _mode == "all":
                 # Few agents attached (manual selection or small Auto scope):
                 # full schema as always. A manual selection is a hard scope —
@@ -5438,6 +5466,10 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
+            if getattr(self.report, "agent_folder_id", None):
+                self.current_execution.starting_folder_ids = report_folder_ids(self.report)
+                self.current_execution.starting_folder_id = self.report.agent_folder_id
+                await self.db.commit()
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_agent:
@@ -6000,6 +6032,7 @@ class AgentV2:
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
                                     organization_settings=self.organization_settings,
                                     data_source_ids=_instr_scope,
+                                    folder_id=report_folder_ids(self.report),
                                     mode=self._instruction_mode,
                                     channel=getattr(self.context_hub, "instruction_channel", None),
                                     application_id=getattr(self.context_hub, "application_id", None),
@@ -8113,6 +8146,10 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
+                            if getattr(self.report, "agent_folder_id", None):
+                                from app.services.folder_monitoring import record_used_agents
+                                await record_used_agents(self.db, self.current_execution.id, self.data_sources,
+                                                         outcomes, self.used_agent_ids)
                             self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
@@ -9482,6 +9519,7 @@ class AgentV2:
             bool(getattr(self.report, "files", None))
             or bool(getattr(self, "agent_files", None))
             or bool(getattr(self, "_project_files_cache", None))
+            or bool(getattr(self, "_has_folder_files", False))
         )
 
     def _run_pool_key(self) -> tuple:

@@ -283,6 +283,8 @@
                                             </span>
                                         </label>
                                         <div v-if="agentsMode === 'limited'" class="ms-6 space-y-1" data-testid="agents-choices">
+                                            <AgentFolderFilter :agents="agentChoices" :selected="chatAgentIds" :disabled="!canSettings"
+                                                @select="ids => chatAgentIds = [...new Set([...chatAgentIds, ...ids])]" />
                                             <label v-for="agent in agentChoices" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
                                                 <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="!canSettings" />
                                                 <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
@@ -653,10 +655,7 @@ const saved = ref<Record<string, any>>({})
 function chatIdsPayload(): string[] | null {
     if (bubbleDataOnly.value) return []
     if (agentsMode.value === 'auto') return ['*']
-    const all = agentChoices.value.map(a => a.id)
-    const picked = chatAgentIds.value.filter(id => all.includes(id))
-    // Nothing picked is not a limit: back to Auto (["*"] resets it server-side).
-    return picked.length ? picked : ['*']
+    return [...chatAgentIds.value]
 }
 
 function current(): Record<string, any> {

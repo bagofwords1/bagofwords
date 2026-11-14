@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "Em que posso ajudar?"
   },
   "prompt": {
+    "searchAgentFolders": "Pesquisar agentes e pastas…",
+    "expandDirectory": "Expandir {name}",
+    "collapseDirectory": "Recolher {name}",
     "placeholderDefault": "Peça dados, um painel ou uma análise aprofundada",
     "thinking": "Pensando",
     "working": "Trabalhando",
@@ -2134,13 +2137,14 @@
     "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
     "includedWith": "Incluído com {name}",
     "searchResources": "Pesquisar…",
-    "addAccess": "Adicionar agente, conexão ou modelo",
-    "accessEmpty": "Ainda não há agentes, conexões ou modelos. Agentes públicos estão sempre disponíveis.",
+    "addAccess": "Selecionar recurso",
+    "accessEmpty": "Selecionar recurso",
     "publicAgents": "{n} agentes públicos estão disponíveis para todos.",
     "types": {
       "data_source": "Agente",
       "connection": "Conexão",
-      "llm_model": "Modelo"
+      "llm_model": "Modelo",
+      "folder": "Pasta"
     },
     "levels": {
       "use": "Pode usar",
@@ -2158,7 +2162,9 @@
       "connectionsMany": "{n} conexões",
       "modelsOne": "1 modelo",
       "modelsMany": "{n} modelos",
-      "everything": "Todas as permissões"
+      "everything": "Todas as permissões",
+      "foldersOne": "1 Pasta",
+      "foldersMany": "{n} pastas"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7161,34 @@
     "settingsTitle": "Novidades do produto",
     "toggleLabel": "Receber novidades do produto por e-mail",
     "sentTo": "Enviado para {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Ver pasta",
+    "activity": "Atividade da pasta",
+    "viewTrace": "Ver rastreamento",
+    "attach": "Vincular existente",
+    "addCase": "Adicionar caso",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Pode consultar",
+    "manager": "Pode gerir",
+    "hints": "A consulta inclui os agentes da pasta. A gestão também permite editar e compartilhar.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Raiz da organização",
+    "inherit": "Herdar acesso da pasta superior",
+    "direct": "Acesso direto de {name}",
+    "stopConfirm": "Desativar herança? As permissões herdadas de {names} deixarão de ser aplicadas."
   }
 }

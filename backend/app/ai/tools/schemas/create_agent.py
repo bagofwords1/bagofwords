@@ -10,6 +10,8 @@ class CreateAgentInput(BaseModel):
     same call, and attaches it to the current training session.
     """
 
+    folder_id: str | None = None
+
     name: str = Field(..., description="Agent name (unique per organization).", min_length=1, max_length=120)
 
     connection_ids: List[str] = Field(

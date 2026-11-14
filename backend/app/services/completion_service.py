@@ -348,6 +348,8 @@ class CompletionService:
             waiter.cancel()
         if not answer_ready.is_set() and run_outcome.get("error") is not None:
             e = run_outcome["error"]
+            if isinstance(e, HTTPException):
+                raise e
             raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
         async with create_async_session_factory()() as s:
             return await self._build_v2_response(s, head_completion_id=head_completion_id, report_id=report_id)
@@ -725,6 +727,7 @@ class CompletionService:
         trigger_source: str = None,
         return_on_answer: bool = False,
         run_data_source_ids: list = None,
+        run_folder_ids: list = None,
     ):
         """``run_data_source_ids``: the agents this run uses instead of the
         report's (a scheduled task with its own agents). None = the report's."""
@@ -740,7 +743,7 @@ class CompletionService:
                     webhook_id=webhook_id,
                     trigger_source=trigger_source,
                     return_on_answer=return_on_answer,
-                    run_data_source_ids=run_data_source_ids,
+                    run_data_source_ids=run_data_source_ids, run_folder_ids=run_folder_ids,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -768,6 +771,7 @@ class CompletionService:
         trigger_source: str = None,
         return_on_answer: bool = False,
         run_data_source_ids: list = None,
+        run_folder_ids: list = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -1002,7 +1006,7 @@ class CompletionService:
                             run_agents, clients = await prepare_run_agents(
                                 session, organization_obj, user_obj, report_obj,
                                 self.data_source_service,
-                                agent_ids=run_data_source_ids,
+                                agent_ids=run_data_source_ids, folder_ids=run_folder_ids,
                                 exclude_personal_connectors=_exclude_personal_connectors,
                             )
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
@@ -1101,7 +1105,7 @@ class CompletionService:
                     with tracer.start_as_current_span("completion.construct_clients") as clients_span:
                         run_agents, clients = await prepare_run_agents(
                             db, organization, current_user, report, self.data_source_service,
-                            agent_ids=run_data_source_ids,
+                            agent_ids=run_data_source_ids, folder_ids=run_folder_ids,
                             exclude_personal_connectors=_exclude_personal_connectors,
                         )
                         clients_span.set_attribute("data_sources.count", len(run_agents))
@@ -1154,6 +1158,8 @@ class CompletionService:
                     # keep the traceback, it's the only record of what killed the run.
                     logging.exception("Agent execution failed for report %s", report.id)
                     await self._create_error_completion(db, head_completion, str(e))
+                    if isinstance(e, HTTPException):
+                        raise
                     raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
 
         except HTTPException as he:
@@ -2628,6 +2634,7 @@ class CompletionService:
                                 select(Report)
                                 .options(
                                     lazyload("*"),
+                                    selectinload(Report.additional_folders),
                                     # These are the only Report relationships
                                     # consumed synchronously by AgentV2/tools.
                                     selectinload(Report.files).options(

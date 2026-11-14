@@ -1,4 +1,43 @@
 {
+  "sharedFolders": {
+    "chooseScope": "Choose agents or folders",
+    "moveAgent": "Move agent",
+    "moveFolder": "Move folder",
+    "moveNamed": "Move {name}?",
+    "from": "From",
+    "to": "To",
+    "chooseDestination": "Choose a destination",
+    "parentAccess": "Access inherited from folders",
+    "sameParentAccess": "Inherited access stays the same.",
+    "directUnchanged": "Direct grants and access from other sources still apply.",
+    "viewFolder": "View folder",
+    "activity": "Folder activity",
+    "viewTrace": "View trace",
+    "attach": "Attach existing",
+    "addCase": "Add case",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Can query",
+    "manager": "Can manage",
+    "hints": "Query access includes agents in this folder. Manage access also allows editing and sharing.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Organization root",
+    "inherit": "Inherit access from parent",
+    "direct": "Direct access for {name}",
+    "stopConfirm": "Turn off inheritance? Parent grants from {names} will stop applying."
+  },
   "agentLanding": {
     "actions": "Agent actions",
     "countTasks": "{n} task | {n} tasks",
@@ -625,6 +664,9 @@
     "whatCanIHelpWith": "What can I help with?"
   },
   "prompt": {
+    "searchAgentFolders": "Search agents and folders…",
+    "expandDirectory": "Expand {name}",
+    "collapseDirectory": "Collapse {name}",
     "placeholderDefault": "Ask for data, dashboard or a deep analysis",
     "thinking": "Thinking",
     "working": "Working",
@@ -2349,13 +2391,14 @@
     "fullAdminAccessTab": "Full admin access includes every agent, connection and model.",
     "includedWith": "Included with {name}",
     "searchResources": "Search…",
-    "addAccess": "Add agent, connection or model",
-    "accessEmpty": "No agents, connections or models yet. Public agents are always available.",
+    "addAccess": "Choose a resource",
+    "accessEmpty": "Choose a resource",
     "publicAgents": "{n} public agents are available to everyone.",
     "types": {
       "data_source": "Agent",
       "connection": "Connection",
-      "llm_model": "Model"
+      "llm_model": "Model",
+      "folder": "Folder"
     },
     "levels": {
       "use": "Can use",
@@ -2373,7 +2416,9 @@
       "connectionsMany": "{n} connections",
       "modelsOne": "1 model",
       "modelsMany": "{n} models",
-      "everything": "All permissions"
+      "everything": "All permissions",
+      "foldersOne": "1 Folder",
+      "foldersMany": "{n} Folders"
     },
     "resourcePermissions": {
       "data_source": {

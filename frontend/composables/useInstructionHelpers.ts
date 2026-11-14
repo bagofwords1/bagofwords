@@ -22,6 +22,9 @@ export interface User {
 }
 
 export interface Instruction {
+  can_review_scope?: boolean | null
+  scope_mode?: string
+  folders?: {id:string, name:string}[]
   id: string
   text: string
   title?: string | null

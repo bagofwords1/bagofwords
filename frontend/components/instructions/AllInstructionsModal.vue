@@ -34,6 +34,7 @@
             icon="i-heroicons-magnifying-glass-20-solid"
             :placeholder="$t('allInstructions.searchInstructions')"
           />
+          <AgentFolderFilter :agents="props.agents || []" :selected="agentFilter" @select="ids => agentFilter = ids" />
           <MultiSelectFilter
             v-if="agentOptions.length > 1"
             v-model="agentFilter" :options="agentOptions"
@@ -117,6 +118,7 @@
       <!-- ============ Changelog ============ -->
       <div v-else class="flex flex-col" style="height: 62vh; min-height: 380px;">
         <div class="px-4 pt-3 pb-2 flex gap-2 flex-wrap flex-shrink-0 items-center">
+          <AgentFolderFilter :agents="props.agents || []" :selected="logAgent" @select="ids => logAgent = ids" />
           <MultiSelectFilter
             v-if="agentOptions.length > 1"
             v-model="logAgent" :options="agentOptions"

@@ -10,7 +10,10 @@
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
                 <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
             </div>
-            <div class="mt-2 space-y-2">
+            <USelectMenu v-if="folderId && folderSuites?.length && !isEditing" v-model="selectedSuiteIdLocal"
+              :options="folderSuites" option-attribute="name" value-attribute="id" size="xs" class="mt-2 md:w-64"
+              :aria-label="$t('evals.tests.colSuite')" />
+            <div v-if="!folderId" class="mt-2 space-y-2">
                 <div class="flex flex-col md:flex-row md:items-center gap-2">
                     <div class="text-xs text-gray-600 dark:text-gray-400 md:w-20">Suite</div>
                     <div class="flex-1">
@@ -67,6 +70,8 @@
             <div class="px-3 py-2 border-b border-gray-200 dark:border-gray-700 text-xs text-gray-600 dark:text-gray-400">Prompt</div>
             <div class="p-2">
                 <TestPromptBox
+                    :folder-id="folderId"
+                    :folder-name="folderName"
                     :textareaContent="promptText"
                     :selectedDataSources="testSelectedDataSources"
                     :selectedModelId="testSelectedModelId"
@@ -336,7 +341,7 @@ const toast = useToast()
 const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
-  modelValue?: boolean, suiteId: string, caseId?: string, agentId?: string,
+  modelValue?: boolean, suiteId: string, caseId?: string, agentId?: string, folderId?: string, folderName?: string, folderSuites?: {id:string, name:string}[],
   /** Show the title row's dismiss button. The right-hand pane has its own. */
   closable?: boolean,
 }>(), { modelValue: true, closable: true })
@@ -604,6 +609,7 @@ watch([() => props.caseId, isOpen], async ([cid, open]) => {
 // a real destination, not clutter. They are just labelled as such — which also
 // disambiguates two suites that happen to share a name.
 async function loadSuites() {
+  if (props.folderId) return
   suitesLoading.value = true
   try {
     const scoped = props.agentId
@@ -625,6 +631,7 @@ async function loadSuites() {
 }
 
 async function loadBuilds() {
+  if (props.folderId) return
   buildsLoading.value = true
   try {
     const res = await useMyFetch<{ items: BuildItem[] }>('/api/builds?limit=20')
@@ -641,6 +648,7 @@ async function loadBuilds() {
 // Narrowing the list would otherwise blank the Suite box for it and hide where
 // the case actually lives, so the row is added back, named and tagged.
 async function ensureSuiteListed(suiteId: string) {
+  if (props.folderId) return
   if (!suiteId || (suites.value || []).some(s => s.id === suiteId)) return
   try {
     const res: any = await useMyFetch(`/api/tests/suites/${suiteId}`)
@@ -906,6 +914,7 @@ const close = () => { emit('update:modelValue', false); emit('close') }
 // the same tick, and anything it reads after four awaited API calls arrives too
 // late to be the selector's initial value.
 function seedAgentSelection() {
+  if (props.folderId) { testSelectedDataSources.value = []; return }
   const agentSelection = selectedAgentObjects.value || []
   if (props.agentId) {
     const match = agentSelection.find((a: any) => a.id === props.agentId)
@@ -968,6 +977,7 @@ const save = async () => {
 }
 
 // Helper used by both save() and runNow()
+const folderCasesPath = computed(() => `/folders/${props.folderId}/knowledge/evals/${selectedSuiteIdLocal.value || props.suiteId}/cases`)
 const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
   const flatRules: any[] = serializeRules()
   const expectations = { spec_version: 1, rules: flatRules }
@@ -988,7 +998,7 @@ const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
   ]
   const fileIds = (testUploadedFiles.value || []).map((f: any) => f.id).filter(Boolean)
   const suiteId = await ensureSuiteId()
-  const res = await useMyFetch(`/api/tests/suites/${suiteId}/cases`, {
+  const res = await useMyFetch(props.folderId ? folderCasesPath.value : `/api/tests/suites/${suiteId}/cases`, {
     method: 'POST',
     body: {
       name,
@@ -1010,7 +1020,7 @@ const updateCase = async (caseId: string): Promise<{ case: any | null, raw: any 
   const mentions = testMentions.value || []
   const fileIds = (testUploadedFiles.value || []).map((f: any) => f.id).filter(Boolean)
   const suiteId = await ensureSuiteId()
-  const res = await useMyFetch(`/api/tests/cases/${caseId}`, {
+  const res = await useMyFetch(props.folderId ? folderCasesPath.value + "/" + caseId : `/api/tests/cases/${caseId}`, {
     method: 'PATCH',
     body: {
       name,
@@ -1050,7 +1060,7 @@ const runNow = async () => {
     const buildId = selectedBuildId.value === 'latest' ? null : selectedBuildId.value
     const runRes: any = await useMyFetch('/api/tests/runs', {
       method: 'POST',
-      body: { case_ids: [caseId], trigger_reason: 'manual', build_id: buildId }
+      body: { case_ids: [caseId], folder_id: props.folderId, trigger_reason: 'manual', build_id: buildId }
     })
     if (runRes?.error?.value) throw runRes.error.value
     const run = runRes?.data?.value
@@ -1069,8 +1079,8 @@ const runNow = async () => {
 async function loadCaseForEdit(caseId: string) {
   caseLoading.value = true
   try {
-    const res: any = await useMyFetch(`/api/tests/cases/${caseId}`)
-    const c = res?.data?.value
+    const res: any = await useMyFetch(props.folderId ? folderCasesPath.value : `/api/tests/cases/${caseId}`)
+    const c = props.folderId ? res?.data?.value?.find((item:any) => item.id === caseId) : res?.data?.value
     if (!c) return
     // Suite
     selectedSuiteIdLocal.value = c.suite_id || selectedSuiteIdLocal.value

@@ -272,7 +272,7 @@
             <div class="flex items-start gap-2">
               <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.agents') }}</dt>
               <dd class="text-xs text-gray-700 dark:text-gray-300" data-testid="trigger-view-agents">
-                <span v-if="(current?.data_sources || []).length">{{ current.data_sources.map((d) => d.name).join(', ') }}</span>
+                <span v-if="currentScopeNames.length">{{ currentScopeNames.join(', ') }}</span>
                 <span v-else class="text-ink-muted">{{ $t('triggers.noAgents') }}</span>
               </dd>
             </div>
@@ -323,6 +323,7 @@
             ref="promptBoxRef"
             :key="current?.id || 'new'"
             :initialSelectedDataSources="initialDataSources"
+            :initial-folder-ids="current?.agent_folder_ids"
             :initialMode="current?.mode || 'chat'"
             :initialModel="current?.model_id || ''"
             :initialEffort="current?.reasoning_effort || ''"
@@ -444,6 +445,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import Spinner from '~/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 
@@ -480,6 +482,11 @@ const showModal = ref(false)
 // The trigger open in the modal. Always a persisted row: "New trigger"
 // provisions an inactive one up front so its delivery URL exists immediately,
 // which is what the whole setup flow is built around. No create-vs-edit modes.
+const folderOptions = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
+const currentScopeNames = computed(() => [
+  ...(current.value?.agent_folder_ids || []).map((id: string) => folderOptions.value.find(f => f.id === id)?.path || t('sharedFolders.title')),
+  ...(current.value?.data_sources || []).map((d: any) => d.name),
+])
 const current = ref<any | null>(null)
 // Signing secret for the hmac/token modes. Held in memory only for the session
 // that minted it (creation or rotation) — the server never returns it again.
@@ -746,6 +753,7 @@ function readRunSpec() {
     reasoning_effort: box ? (box.getEffort?.() ?? null) : (fallback.reasoning_effort ?? null),
     // "" clears the binding server-side; the box returns null for "no project".
     project_id: box ? (box.getProject?.() ?? '') : (fallback.project_id ?? ''),
+    agent_folder_ids: box?.getFolderIds?.() ?? fallback.agent_folder_ids ?? [],
     data_source_ids: ((box?.getDataSources?.() as any[]) || fallback.data_sources || [])
       .map((d: any) => d?.id).filter(Boolean),
   }
@@ -833,6 +841,7 @@ function copy(text: string, what: string = 'url') {
 }
 
 onMounted(async () => {
+  loadAgentFolderOptions().then(rows => { folderOptions.value = rows }).catch(() => {})
   await Promise.all([fetchTriggers(), fetchModels()])
 })
 </script>

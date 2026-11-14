@@ -32,6 +32,7 @@ class WebhookUpdate(BaseModel):
 
 
 class TriggerCreate(BaseModel):
+    agent_folder_ids: Optional[List[str]] = None
     """Standalone trigger (spawn mode): user-owned, carries its own run spec."""
     name: str = "Trigger"
     source: WebhookSource = "generic"
@@ -63,6 +64,7 @@ class TriggerCreate(BaseModel):
 
 
 class TriggerUpdate(BaseModel):
+    agent_folder_ids: Optional[List[str]] = None
     name: Optional[str] = None
     source: Optional[WebhookSource] = None
     auth_mode: Optional[AuthMode] = None
@@ -113,6 +115,7 @@ class WebhookSchema(BaseModel):
     last_event: Optional[dict] = None
 
     # Trigger run spec (spawn mode)
+    agent_folder_ids: Optional[List[str]] = None
     task_template: Optional[str] = None
     mode: TriggerMode = "chat"
 

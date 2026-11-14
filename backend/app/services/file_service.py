@@ -82,6 +82,7 @@ class FileService:
         organization: Organization,
         report_id: Optional[str] = None,
         data_source_id: Optional[str] = None,
+        folder_id: Optional[str] = None,
     ) -> FileSchema:
         # Generate a unique filename to prevent overwriting existing files.
         # The multipart name is scrubbed first: it reaches us as whatever the
@@ -109,6 +110,7 @@ class FileService:
 
         # Create the database entry
         db_file = File(
+            owner_folder_id=folder_id,
             filename=filename,
             content_type=file.content_type,
             path=file_location,
@@ -117,6 +119,10 @@ class FileService:
         )
 
         db.add(db_file)
+        if folder_id:
+            from app.models.folder import folder_files
+            await db.flush()
+            await db.execute(folder_files.insert().values(folder_id=folder_id, file_id=db_file.id))
         await db.commit()
         await db.refresh(db_file)
 
@@ -310,12 +316,22 @@ class FileService:
         }
         in_use = await files_in_use(db, ids)
 
+        from app.models.folder import folder_files
+        from app.core.permission_resolver import resolve_permissions
+        placements = {}
+        for fid, folder in (await db.execute(select(folder_files.c.file_id, folder_files.c.folder_id)
+                                             .where(folder_files.c.file_id.in_(ids)))).all():
+            placements.setdefault(fid, set()).add(folder)
+        rights = await resolve_permissions(db, current_user.id, organization.id)
         doomed = []
         for fid in ids:
             f = rows.get(fid)
             # Another org's id, or someone else's file: same answer, so ids
             # from elsewhere do not leak.
-            if f is None or str(f.user_id) != str(current_user.id):
+            folders = placements.get(fid, set()) | ({f.owner_folder_id} if f and f.owner_folder_id else set())
+            if f is None or str(f.user_id) != str(current_user.id) or any(
+                not rights.has_resource_permission("folder", folder, "manage_files") for folder in folders
+            ):
                 result["failed"].append({"id": fid, "error_code": ErrorCode.FILE_NOT_FOUND.value, "reason": "not found"})
             elif fid in in_use or f.source_kind == "artifact_resource":
                 result["failed"].append({"id": fid, "error_code": ErrorCode.FILE_IN_USE.value, "reason": "used by a dashboard"})
@@ -345,9 +361,11 @@ class FileService:
         report they belong to, not listed here. Dashboard-owned files are
         left out: the dashboard manages them.
         """
+        from app.services import file_access_service
         stmt = select(File).where(
             File.organization_id == str(organization.id),
             File.user_id == str(current_user.id),
+            await file_access_service.visible_files_clause(db, current_user, organization),
             or_(File.source_kind.is_(None), File.source_kind != "artifact_resource"),
         ).order_by(File.created_at.desc())
         files = (await db.execute(stmt)).scalars().all()

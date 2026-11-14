@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "Come posso aiutarti?"
   },
   "prompt": {
+    "searchAgentFolders": "Cerca agenti e cartelle…",
+    "expandDirectory": "Espandi {name}",
+    "collapseDirectory": "Comprimi {name}",
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
     "thinking": "Sto pensando",
     "working": "Sto lavorando",
@@ -2134,13 +2137,14 @@
     "fullAdminAccessTab": "L'accesso amministrativo completo include tutti gli agenti, le connessioni e i modelli.",
     "includedWith": "Incluso con {name}",
     "searchResources": "Cerca…",
-    "addAccess": "Aggiungi agente, connessione o modello",
-    "accessEmpty": "Ancora nessun agente, connessione o modello. Gli agenti pubblici sono sempre disponibili.",
+    "addAccess": "Seleziona una risorsa",
+    "accessEmpty": "Seleziona una risorsa",
     "publicAgents": "{n} agenti pubblici sono disponibili per tutti.",
     "types": {
       "data_source": "Agente",
       "connection": "Connessione",
-      "llm_model": "Modello"
+      "llm_model": "Modello",
+      "folder": "Cartella"
     },
     "levels": {
       "use": "Può usare",
@@ -2158,7 +2162,9 @@
       "connectionsMany": "{n} connessioni",
       "modelsOne": "1 modello",
       "modelsMany": "{n} modelli",
-      "everything": "Tutti i permessi"
+      "everything": "Tutti i permessi",
+      "foldersOne": "1 Cartella",
+      "foldersMany": "{n} cartelle"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7161,34 @@
     "settingsTitle": "Aggiornamenti del prodotto",
     "toggleLabel": "Ricevi gli aggiornamenti del prodotto via email",
     "sentTo": "Inviati a {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Apri cartella",
+    "activity": "Attività della cartella",
+    "viewTrace": "Visualizza traccia",
+    "attach": "Collega esistente",
+    "addCase": "Aggiungi caso",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Può interrogare",
+    "manager": "Può gestire",
+    "hints": "La consultazione include gli agenti della cartella. La gestione consente anche modifiche e condivisione.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Radice organizzazione",
+    "inherit": "Eredita accesso dalla cartella superiore",
+    "direct": "Accesso diretto per {name}",
+    "stopConfirm": "Disattivare l’ereditarietà? I permessi ereditati da {names} non saranno più applicati."
   }
 }

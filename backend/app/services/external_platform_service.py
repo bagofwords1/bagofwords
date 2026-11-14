@@ -210,12 +210,21 @@ class ExternalPlatformService:
         result = await db.execute(stmt)
         return {str(row) for row in result.scalars().all()}
 
+    async def folder_scope_map(self, db, platform_id):
+        from app.models.external_platform_agent import platform_folder_scopes as scopes
+        rows = await db.execute(select(scopes.c.external_channel_id, scopes.c.folder_id).where(
+            scopes.c.platform_id == platform_id))
+        result = {}
+        for channel, fid in rows:
+            result.setdefault(channel, []).append(fid)
+        return result
+
     async def resolve_scope_agent_ids(
         self,
         db: AsyncSession,
         platform_id: str,
         routing_channel_id: Optional[str] = None,
-    ) -> Set[str]:
+    ) -> Optional[Set[str]]:
         """Resolve the effective agent scope for an incoming message.
 
         Most-specific wins: if ``routing_channel_id`` is given and that channel
@@ -225,13 +234,16 @@ class ExternalPlatformService:
         caller's list — it is intersected with the user's own access downstream.
         """
 
-        if routing_channel_id:
-            channel_scope = await self.get_scope_agent_ids(
-                db, platform_id, routing_channel_id
-            )
-            if channel_scope:
-                return channel_scope
-        return await self.get_scope_agent_ids(db, platform_id, "")
+        folders = await self.folder_scope_map(db, platform_id)
+        for channel in dict.fromkeys([routing_channel_id or "", ""]):
+            agents = await self.get_scope_agent_ids(db, platform_id, channel)
+            if folders.get(channel):
+                from app.services.folder_service import allowed_folder_agents
+                org_id = await db.scalar(select(ExternalPlatform.organization_id).where(ExternalPlatform.id == platform_id))
+                return agents | await allowed_folder_agents(db, org_id, folders[channel])
+            if agents:
+                return agents
+        return None
 
     async def filter_org_data_source_ids(
         self, db: AsyncSession, organization_id: str, data_source_ids: List[str]
@@ -269,6 +281,7 @@ class ExternalPlatformService:
         platform: ExternalPlatform,
         data_source_ids: List[str],
         external_channel_id: str = "",
+        folder_ids=None,
     ) -> Set[str]:
         """Replace one scope key's agent set with ``data_source_ids``.
 
@@ -281,6 +294,13 @@ class ExternalPlatformService:
         """
 
         channel_key = external_channel_id or ""
+        from app.models.external_platform_agent import platform_folder_scopes as scopes
+        if folder_ids is not None:
+            await db.execute(delete(scopes).where(scopes.c.platform_id == platform.id,
+                                                  scopes.c.external_channel_id == channel_key))
+            if folder_ids:
+                await db.execute(scopes.insert(), [dict(platform_id=platform.id, external_channel_id=channel_key,
+                                                        folder_id=fid) for fid in folder_ids])
         await db.execute(
             delete(ExternalPlatformAgent).where(
                 and_(

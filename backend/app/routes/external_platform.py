@@ -146,7 +146,8 @@ async def get_integration_agent_scope(
     agent_ids = await external_platform_service.get_scope_agent_ids(
         db, platform_id, channel
     )
-    return PlatformAgentScope(agent_ids=sorted(agent_ids))
+    folders = await external_platform_service.folder_scope_map(db, platform_id)
+    return PlatformAgentScope(agent_ids=sorted(agent_ids), agent_folder_ids=folders.get(channel, []))
 
 @router.put("/settings/integrations/{platform_id}/agents", response_model=PlatformAgentScope)
 @requires_permission('manage_settings', model=ExternalPlatform)
@@ -173,6 +174,10 @@ async def set_integration_agent_scope(
     valid_ids = await external_platform_service.filter_org_data_source_ids(
         db, organization.id, data.agent_ids
     )
+    from app.services.folder_service import validate_scope_folders
+    folders = await validate_scope_folders(db, organization.id, current_user.id, data.agent_folder_ids)
+    if set(valid_ids) != set(data.agent_ids):
+        raise HTTPException(422, "Agent unavailable")
     if channel:
         # Manual-add / relabel: make sure the channel is in the picker.
         await external_platform_service.record_seen_channel(
@@ -180,9 +185,9 @@ async def set_integration_agent_scope(
             name=data.channel_name, overwrite_name=bool(data.channel_name),
         )
     saved = await external_platform_service.set_scope_agents(
-        db, platform, valid_ids, external_channel_id=channel
+        db, platform, valid_ids, external_channel_id=channel, folder_ids=folders
     )
-    return PlatformAgentScope(agent_ids=sorted(saved))
+    return PlatformAgentScope(agent_ids=sorted(saved), agent_folder_ids=folders)
 
 @router.get(
     "/settings/integrations/{platform_id}/channels",
@@ -203,7 +208,9 @@ async def list_integration_channels(
     await external_platform_service.get_platform_by_id(db, platform_id, organization)
     scope_map = await external_platform_service.get_scope_map(db, platform_id)
     channels = await external_platform_service.list_channels(db, platform_id)
+    folders = await external_platform_service.folder_scope_map(db, platform_id)
     return PlatformChannelList(
+        default_folder_ids=folders.get("", []),
         default_agent_ids=sorted(scope_map.get("", set())),
         channels=[
             PlatformChannel(
@@ -211,6 +218,7 @@ async def list_integration_channels(
                 name=ch.name,
                 channel_type=ch.channel_type,
                 last_seen_at=ch.last_seen_at,
+                agent_folder_ids=folders.get(ch.external_channel_id, []),
                 agent_ids=sorted(scope_map.get(ch.external_channel_id, set())),
             )
             for ch in channels

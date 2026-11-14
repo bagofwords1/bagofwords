@@ -1,11 +1,11 @@
 <template>
   <div class="space-y-5">
     <!-- Uploaded files -->
-    <section>
+    <section @dragover.prevent @drop.prevent="uploadFiles(Array.from($event.dataTransfer?.files || []))">
       <div class="flex items-center justify-between mb-2">
         <div>
           <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-200">Uploaded</h3>
-          <p class="text-xs text-gray-500 dark:text-gray-400">Files attached directly to this agent.</p>
+          <p v-if="!folderId" class="text-xs text-gray-500 dark:text-gray-400">Files attached directly to this agent.</p>
         </div>
         <input ref="fileInput" type="file" class="hidden" multiple @change="onFileInput" />
         <button v-if="canUpdate" :disabled="uploading" @click="triggerUpload"
@@ -16,7 +16,7 @@
       <div v-if="files.length === 0" class="text-xs text-ink-muted py-2">No uploaded files yet.</div>
       <ul v-else class="divide-y divide-gray-100 dark:divide-gray-800">
         <li v-for="f in files" :key="f.id" class="flex items-center justify-between py-1.5 text-sm group">
-          <span class="flex items-center gap-2 min-w-0"><UIcon name="i-heroicons-document" class="w-4 h-4 text-ink-muted shrink-0" /><span class="truncate text-gray-700 dark:text-gray-300">{{ f.filename }}</span></span>
+          <span class="flex items-center gap-2 min-w-0"><UIcon name="i-heroicons-document" class="w-4 h-4 text-ink-muted shrink-0" /><button v-if="folderId" class="truncate hover:underline" @click="emit('open', f)">{{ f.filename }}</button><span v-else class="truncate text-gray-700 dark:text-gray-300">{{ f.filename }}</span></span>
           <button v-if="canUpdate" @click="removeFile(f)" class="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
         </li>
       </ul>
@@ -47,21 +47,21 @@
         </div>
       </div>
       <div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
-        <ConnectionFileBrowser :ds-id="dsId" :connection-id="conn.id" :connection-type="conn.type" />
+        <ConnectionFileBrowser :ds-id="dsId!" :connection-id="conn.id" :connection-type="conn.type" />
       </div>
     </section>
 
-    <div v-if="fileConnections.length === 0 && files.length === 0" class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No files or file connections yet.</div>
+    <div v-if="!folderId && fileConnections.length === 0 && files.length === 0" class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No files or file connections yet.</div>
   </div>
 </template>
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ConnectionFileBrowser from '~/components/datasources/ConnectionFileBrowser.vue'
-const props = defineProps<{ dsId: string; canUpdate?: boolean }>()
+const props = defineProps<{ dsId?: string; folderId?: string; canUpdate?: boolean }>()
 // `changed` tells the host tree to re-read the uploaded-file list: the two
 // views keep separate copies and neither can see the other's mutations.
-const emit = defineEmits(['edit-connection', 'changed'])
+const emit = defineEmits(['edit-connection', 'changed', 'open'])
 const toast = useToast()
 
 const connections = ref<any[]>([])
@@ -89,7 +89,14 @@ const indexModeOf = (c: any) => LIVE_TYPES.includes(c.type) ? 'none'
 const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: keywords', fulltext: 'Indexed: full text' } as any)[m] || m
 const badgeClass = (m: string) => ({ none: 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', metadata: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', content: 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300', fulltext: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' } as any)[m] || 'bg-gray-100 text-gray-600'
 
+const filesPath = computed(() => props.folderId ? `/folders/${props.folderId}/knowledge/files` : `/data_sources/${props.dsId}/files`)
 async function loadAll() {
+  if (props.folderId) {
+    const {data, error} = await useMyFetch<any[]>(filesPath.value)
+    if (error.value) toast.add({title: error.value.message, color:'red'})
+    files.value = (data.value || []).map(f => ({...f, filename:f.name}))
+    return
+  }
   if (!props.dsId) return
   const [reg, conns, ups] = await Promise.all([
     useMyFetch('/available_data_sources', { method: 'GET' }),
@@ -103,28 +110,35 @@ async function loadAll() {
 function triggerUpload() { fileInput.value?.click() }
 async function onFileInput(e: Event) {
   const input = e.target as HTMLInputElement
-  if (!input.files?.length) return
+  const selected = Array.from(input.files || [])
+  input.value = ''
+  await uploadFiles(selected)
+}
+async function uploadFiles(selected: File[]) {
+  if (!props.canUpdate || uploading.value || !selected.length) return
   uploading.value = true
   let ok = 0
   try {
-    for (const file of Array.from(input.files)) {
+    for (const file of selected) {
       const fd = new FormData(); fd.append('file', file)
-      const { data, error } = await useMyFetch(`/data_sources/${props.dsId}/files`, { method: 'POST', body: fd })
+      const { data, error } = await useMyFetch(filesPath.value, { method: 'POST', body: fd })
       if (error.value || !data.value) { toast.add({ title: 'Upload failed', description: file.name, color: 'red' }); continue }
-      files.value.push(data.value as any)
+      const item = data.value as any
+      files.value.push({...item, filename: item.filename || item.name})
       ok++
     }
-  } finally { uploading.value = false; if (input) input.value = '' }
+  } finally { uploading.value = false }
   if (ok) emit('changed')
 }
 async function removeFile(f: any) {
   try {
-    await useMyFetch(`/data_sources/${props.dsId}/files/${f.id}`, { method: 'DELETE' })
+    const {error} = await useMyFetch(filesPath.value + '/' + f.id, { method: 'DELETE' })
+    if (error.value) throw error.value
     files.value = files.value.filter((x) => x.id !== f.id)
     emit('changed')
   } catch { toast.add({ title: 'Failed to remove file', color: 'red' }) }
 }
 // Scope lives on the connection — let the host open the ConnectionDetailModal.
 function editScope(conn: any) { emit('edit-connection', conn) }
-watch(() => props.dsId, loadAll, { immediate: true })
+watch(filesPath, loadAll, { immediate: true })
 </script>

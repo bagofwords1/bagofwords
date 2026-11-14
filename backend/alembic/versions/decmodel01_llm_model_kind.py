@@ -1,7 +1,7 @@
 """add llm_models.model_kind (chat | decision)
 
 Revision ID: decmodel01
-Revises: dashacc01
+Revises: folder12
 Create Date: 2026-11-14 00:00:00.000000
 
 Decision models (typed questions in, calibrated probabilities out) are a
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'decmodel01'
-down_revision: Union[str, None] = 'dashacc01'
+down_revision: Union[str, None] = 'folder12'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

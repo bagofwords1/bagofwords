@@ -13,6 +13,7 @@ def describe_schedule(cron_schedule, run_once_at) -> str:
 
 class ScheduledPrompt(BaseSchema):
     __tablename__ = 'scheduled_prompts'
+    agent_folder_ids = Column(JSON, nullable=True)
 
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)

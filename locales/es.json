@@ -1,4 +1,43 @@
 {
+  "sharedFolders": {
+    "chooseScope": "Elegir agentes o carpetas",
+    "moveAgent": "Mover agente",
+    "moveFolder": "Mover carpeta",
+    "moveNamed": "¿Mover {name}?",
+    "from": "Desde",
+    "to": "Hasta",
+    "chooseDestination": "Elige un destino",
+    "parentAccess": "Acceso heredado de carpetas",
+    "sameParentAccess": "El acceso heredado se mantiene.",
+    "directUnchanged": "Los permisos directos y el acceso por otras vías siguen vigentes.",
+    "viewFolder": "Ver carpeta",
+    "activity": "Actividad de la carpeta",
+    "viewTrace": "Ver traza",
+    "attach": "Vincular existente",
+    "addCase": "Añadir caso",
+    "sameAccess": "El acceso se mantiene.",
+    "edit": "Opciones de carpeta",
+    "move": "Mover",
+    "preview": "Vista previa",
+    "rename": "Renombrar",
+    "delete": "Eliminar carpeta",
+    "via": "Por {name}",
+    "title": "Carpetas",
+    "back": "Atrás",
+    "create": "Nueva carpeta",
+    "share": "Compartir",
+    "name": "Nombre de la carpeta",
+    "noDirect": "Sin rol directo",
+    "viewer": "Puede consultar",
+    "manager": "Puede administrar",
+    "hints": "El acceso de consulta incluye los agentes de esta carpeta. Administrar permite editar y compartir.",
+    "limit": "Acceso limitado",
+    "stops": "Los roles superiores terminan aquí.",
+    "root": "Raíz de la organización",
+    "inherit": "Heredar acceso de la carpeta superior",
+    "direct": "Acceso directo de {name}",
+    "stopConfirm": "¿Desactivar la herencia? Dejarán de aplicarse los permisos de {names}."
+  },
   "agentLanding": {
     "actions": "Acciones del agente",
     "countTasks": "{n} tarea | {n} tareas",
@@ -608,6 +647,9 @@
     "whatCanIHelpWith": "¿En qué puedo ayudarte?"
   },
   "prompt": {
+    "searchAgentFolders": "Buscar agentes y carpetas…",
+    "expandDirectory": "Expandir {name}",
+    "collapseDirectory": "Contraer {name}",
     "placeholderDefault": "Pida datos, un panel o un análisis detallado",
     "thinking": "Pensando",
     "working": "Trabajando",
@@ -2323,13 +2365,14 @@
     "fullAdminAccessTab": "El acceso de administrador total incluye todos los agentes, conexiones y modelos.",
     "includedWith": "Incluido con {name}",
     "searchResources": "Buscar…",
-    "addAccess": "Añadir agente, conexión o modelo",
-    "accessEmpty": "Aún no hay agentes, conexiones ni modelos. Los agentes públicos siempre están disponibles.",
+    "addAccess": "Seleccionar recurso",
+    "accessEmpty": "Seleccionar recurso",
     "publicAgents": "{n} agentes públicos están disponibles para todos.",
     "types": {
       "data_source": "Agente",
       "connection": "Conexión",
-      "llm_model": "Modelo"
+      "llm_model": "Modelo",
+      "folder": "Carpeta"
     },
     "levels": {
       "use": "Puede usar",
@@ -2347,7 +2390,9 @@
       "connectionsMany": "{n} conexiones",
       "modelsOne": "1 modelo",
       "modelsMany": "{n} modelos",
-      "everything": "Todos los permisos"
+      "everything": "Todos los permisos",
+      "foldersOne": "1 Carpeta",
+      "foldersMany": "{n} Carpetas"
     },
     "resourcePermissions": {
       "data_source": {

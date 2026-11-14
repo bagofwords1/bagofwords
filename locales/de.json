@@ -588,6 +588,9 @@
     "whatCanIHelpWith": "Womit kann ich helfen?"
   },
   "prompt": {
+    "searchAgentFolders": "Agenten und Ordner suchen…",
+    "expandDirectory": "{name} ausklappen",
+    "collapseDirectory": "{name} einklappen",
     "placeholderDefault": "Fragen Sie nach Daten, einem Dashboard oder einer detaillierten Analyse",
     "thinking": "Denkt nach",
     "working": "Arbeitet",
@@ -2134,13 +2137,14 @@
     "fullAdminAccessTab": "Voller Admin-Zugriff umfasst alle Agenten, Verbindungen und Modelle.",
     "includedWith": "Enthalten in {name}",
     "searchResources": "Suchen…",
-    "addAccess": "Agent, Verbindung oder Modell hinzufügen",
-    "accessEmpty": "Noch keine Agenten, Verbindungen oder Modelle. Öffentliche Agenten sind immer verfügbar.",
+    "addAccess": "Ressource auswählen",
+    "accessEmpty": "Ressource auswählen",
     "publicAgents": "{n} öffentliche Agenten stehen allen zur Verfügung.",
     "types": {
       "data_source": "Agent",
       "connection": "Verbindung",
-      "llm_model": "Modell"
+      "llm_model": "Modell",
+      "folder": "Ordner"
     },
     "levels": {
       "use": "Darf nutzen",
@@ -2158,7 +2162,9 @@
       "connectionsMany": "{n} Verbindungen",
       "modelsOne": "1 Modell",
       "modelsMany": "{n} Modelle",
-      "everything": "Alle Berechtigungen"
+      "everything": "Alle Berechtigungen",
+      "foldersOne": "1 Ordner",
+      "foldersMany": "{n} Ordner"
     },
     "resourcePermissions": {
       "data_source": {
@@ -7155,5 +7161,34 @@
     "settingsTitle": "Produkt-Updates",
     "toggleLabel": "Produkt-Updates per E-Mail erhalten",
     "sentTo": "Gesendet an {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Ordner anzeigen",
+    "activity": "Ordneraktivität",
+    "viewTrace": "Trace anzeigen",
+    "attach": "Vorhandenes verknüpfen",
+    "addCase": "Testfall hinzufügen",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Darf abfragen",
+    "manager": "Darf verwalten",
+    "hints": "Abfragen umfasst die Agenten im Ordner. Verwalten erlaubt auch Bearbeiten und Teilen.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Organisationsstamm",
+    "inherit": "Zugriff vom übergeordneten Ordner erben",
+    "direct": "Direkter Zugriff für {name}",
+    "stopConfirm": "Vererbung beenden? Die geerbten Rechte von {names} entfallen."
   }
 }

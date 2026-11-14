@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import logging
@@ -35,6 +36,7 @@ async def _require_authority_over_instructions(
     instruction_ids,
     user_id: str,
     org_id: str,
+    *, folder_permission="manage_instructions",
 ) -> None:
     """``manage_instructions`` over every listed instruction.
 
@@ -50,7 +52,17 @@ async def _require_authority_over_instructions(
             db, user_id, org_id, "data_source", ds_ids, "manage_instructions",
             name_resource=False,
         )
-    if any(not ds for ds in scopes.values()):
+    from sqlalchemy import select
+    from app.models.folder import folder_instructions
+    from app.models.instruction import Instruction
+    rows = (await db.execute(select(folder_instructions.c.instruction_id, folder_instructions.c.folder_id,
+        Instruction.scope_mode).join(Instruction, Instruction.id == folder_instructions.c.instruction_id)
+        .where(folder_instructions.c.instruction_id.in_(scopes)))).all()
+    if rows:
+        await check_resource_permissions(db, user_id, org_id, "folder", list({r.folder_id for r in rows}),
+                                         folder_permission, name_resource=False)
+    targeted = {r.instruction_id for r in rows if r.scope_mode == "targeted"}
+    if any(not ds and iid not in targeted for iid, ds in scopes.items()):
         await require_org_permission(db, user_id, org_id, "manage_instructions")
 
 
@@ -89,6 +101,46 @@ async def _enforce_build_ds_access(
         await require_org_permission(db, user_id, org_id, "manage_instructions")
 
 
+async def _require_publish_authority(db, build, user, org):
+    from app.core.permission_resolver import resolve_permissions
+    from app.models.build_content import BuildContent
+    from app.models.instruction import Instruction
+    from app.models.instruction_version import InstructionVersion
+
+    rights = await resolve_permissions(db, user.id, org.id)
+    changed = await build_service.get_build_changed_instruction_ids(db, build.id)
+    if not changed:
+        await require_org_permission(db, user.id, org.id, "manage_instructions")
+        return
+    # Check both ends of a scope change. A build can move an instruction or
+    # remove it, and unrelated instructions are carried over from main.
+    await _require_authority_over_instructions(
+        db, changed, user.id, org.id,
+        folder_permission="manage_instructions" if rights.has_org_permission("manage_instructions") else "manage",
+    )
+    snapshots = [build.id]
+    if build.base_build_id:
+        snapshots.append(build.base_build_id)
+    versions = (await db.execute(select(
+        InstructionVersion.scope_mode, InstructionVersion.folder_ids, InstructionVersion.data_source_ids,
+    ).join(BuildContent, BuildContent.instruction_version_id == InstructionVersion.id).where(
+        BuildContent.build_id.in_(snapshots), BuildContent.instruction_id.in_(changed),
+    ))).all()
+    folders = set(await db.scalars(select(Instruction.owner_folder_id).where(
+        Instruction.id.in_(changed), Instruction.owner_folder_id.is_not(None),
+    )))
+    agents = set()
+    for mode, folder_ids, agent_ids in versions:
+        folders.update(folder_ids or ())
+        agents.update(agent_ids or ())
+        if not agent_ids and not (mode == "targeted" and folder_ids):
+            await require_org_permission(db, user.id, org.id, "manage_instructions")
+    await check_resource_permissions(db, user.id, org.id, "data_source", list(agents),
+                                     "manage_instructions", name_resource=False)
+    if not rights.has_org_permission("manage_instructions"):
+        await check_resource_permissions(db, user.id, org.id, "folder", list(folders), "manage", name_resource=False)
+
+
 async def _instruction_read_filter(
     db: AsyncSession,
     user: User,
@@ -109,7 +161,8 @@ async def _instruction_read_filter(
         return None
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if "manage_instructions" in resolved.org_permissions:
-        return None
+        from app.models.data_source import DataSource
+        accessible = list(await db.scalars(select(DataSource.id).where(DataSource.organization_id == organization.id)))
 
     async def _visible(instruction_ids) -> set[str]:
         return await build_service.visible_instruction_ids(
@@ -126,6 +179,7 @@ async def list_builds(
     limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None, description="Filter by status: draft | pending_approval | approved | rejected (defaults to approved)"),
     created_by: Optional[str] = Query(None, description="Filter by creator: 'me' for current user's builds only"),
+    folder_id: Optional[str] = Query(None),
     data_source_id: Optional[str] = Query(None, description="Restrict to builds that touch this data source"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
@@ -154,7 +208,19 @@ async def list_builds(
     )
     accessible_filter = None if is_admin else accessible_ds_ids
 
+    from app.core.permission_resolver import resolve_permissions
+    from app.services.folder_knowledge import visible_instruction_folders, instruction_scope
+    rights = await resolve_permissions(db, current_user.id, organization.id)
+    folder_filter = None
+    if not rights.has_org_permission("full_admin_access"):
+        folder_filter = (await visible_instruction_folders(db, organization, current_user)) | instruction_scope(accessible_ds_ids)
+
+    branch = None
+    if folder_id:
+        from app.services.folder_service import visible_branch
+        branch = await visible_branch(db, organization.id, current_user.id, folder_id)
     result = await build_service.list_builds(
+        folder_branch=branch,
         db=db,
         org_id=organization.id,
         status=effective_status,
@@ -162,6 +228,7 @@ async def list_builds(
         limit=limit,
         created_by_user_id=created_by_user_id,
         accessible_data_source_ids=accessible_filter,
+        folder_read_filter=folder_filter,
         data_source_id=data_source_id,
     )
     
@@ -524,7 +591,7 @@ async def rollback_to_build(
 
 
 @router.post("/{build_id}/publish", response_model=InstructionBuildSchema)
-@requires_permission('manage_instructions', resource_scoped=True)
+@requires_permission('manage_instructions', resource_scoped=True, folder_scoped=True)
 async def publish_build(
     build_id: str,
     publish_data: Optional[BuildPublishSchema] = Body(None),
@@ -568,7 +635,7 @@ async def publish_build(
     if build.is_main:
         raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
 
-    await _enforce_build_ds_access(db, build_id, str(current_user.id), str(organization.id))
+    await _require_publish_authority(db, build, current_user, organization)
 
     # Extract instruction_ids if provided
     instruction_ids = publish_data.instruction_ids if publish_data else None

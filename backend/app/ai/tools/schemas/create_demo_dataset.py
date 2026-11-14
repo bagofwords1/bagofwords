@@ -15,6 +15,8 @@ class CreateDemoDatasetInput(DemoDatasetSpec):
     (keys, foreign keys, types, nulls, dates) before the file is written.
     """
 
+    folder_id: str | None = None
+
 
 class CreatedDemoAgent(BaseModel):
     data_source_id: str

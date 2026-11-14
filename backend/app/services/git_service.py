@@ -967,7 +967,7 @@ class GitService:
             repo.git.checkout('-b', branch_name)
 
             # Write build contents to files
-            await self._write_build_to_repo(db, build, temp_dir)
+            await self._write_build_to_repo(db, build, temp_dir, user_id=user_id)
 
             # Commit changes
             repo.git.add('-A')
@@ -1152,7 +1152,8 @@ class GitService:
     @staticmethod
     def _slugify(value: str) -> str:
         """Filesystem-safe slug: keep word chars (Unicode-aware), spaces -> '-', lower."""
-        return re.sub(r'[^\w\s-]', '', value or '').strip().replace(' ', '-').lower()
+        from app.services.git_folder_layout import slug
+        return slug(value)
 
     @staticmethod
     def _is_within(path: Path, root: Path) -> bool:
@@ -1164,72 +1165,16 @@ class GitService:
         except (OSError, ValueError):
             return False
 
-    async def _resolve_agent_folders(
-        self, db: AsyncSession, organization_id: str, used_ds_ids: set
-    ) -> Tuple[Dict[str, str], Dict[str, str]]:
-        """
-        Resolve the agents (data sources) referenced by a build into a stable
-        folder name per agent.
-
-        Returns (ds_id_to_name, ds_folder):
-        - ds_id_to_name: {data_source_id: "Original Agent Name"} - live, non-deleted
-        - ds_folder: {data_source_id: "safe-folder-name"}
-
-        Folder names are derived from the agent name and are STABLE across pushes:
-        collisions are resolved against every agent in the org (not just those in
-        this build), so an unchanged agent is never renamed because another
-        same-named agent appeared later. Reserved names ("shared"/"global") and
-        genuine duplicates get a short id suffix. Soft-deleted agents are excluded
-        so a deleted agent never claims a folder or an `agents:` entry.
-        """
-        ds_id_to_name: Dict[str, str] = {}
-        base_names: Dict[str, str] = {}
-
-        stmt = select(DataSource.id, DataSource.name).where(
-            DataSource.organization_id == organization_id,
-            DataSource.deleted_at.is_(None),
-        )
-        result = await db.execute(stmt)
-        for ds_id, ds_name in result:
-            ds_id_to_name[ds_id] = ds_name
-            base_names[ds_id] = self._slugify(ds_name) or ds_id
-
-        # Count collisions across the whole org so folder names stay stable
-        # push-to-push, not just within the set of agents in this build. The
-        # legacy category names are reserved too, so an agent can never own one.
-        reserved = {"shared", "global", *self._LEGACY_DIRS}
-        name_counts: Dict[str, int] = {}
-        for safe in base_names.values():
-            name_counts[safe] = name_counts.get(safe, 0) + 1
-
-        ds_folder: Dict[str, str] = {}
-        for ds_id, safe in base_names.items():
-            if name_counts[safe] > 1 or safe in reserved:
-                ds_folder[ds_id] = f"{safe}-{ds_id[:8]}"
-            else:
-                ds_folder[ds_id] = safe
-
-        # Keep only the agents this build references.
-        if used_ds_ids:
-            ds_id_to_name = {k: v for k, v in ds_id_to_name.items() if k in used_ds_ids}
-            ds_folder = {k: v for k, v in ds_folder.items() if k in used_ds_ids}
-
-        return ds_id_to_name, ds_folder
-
     async def _write_build_to_repo(
-        self, db: AsyncSession, build: InstructionBuild, repo_path: str
+        self, db: AsyncSession, build: InstructionBuild, repo_path: str, user_id: str | None = None
     ):
         """
         Write build contents to the repository directory as markdown files.
         
-        Path logic:
-        - Linked git instructions (source_sync_enabled=True): SKIP, already in Git
-        - Unlinked git instructions (source_sync_enabled=False): Write to original source_file_path
-        - User-created instructions (no source_file_path):
-          - linked to one agent   -> bow/{agent}/{filename}.md
-          - linked to no agent     -> bow/global/{filename}.md (applies to all)
-          - linked to several      -> bow/shared/{filename}.md, with the agent
-            names recorded in the file's `agents:` frontmatter
+        Linked files stay in Git. Unlinked files retain their source path.
+        A single folder target uses bow/folders/<hierarchy>/; an agent there
+        uses its agents/<name>/ subdirectory. Multi-target rules have one file
+        under bow/shared and carry precise targets in YAML frontmatter.
         """
         from app.services.build_service import BuildService
 
@@ -1243,18 +1188,11 @@ class GitService:
         # placement to each version's snapshot (data_source_ids), not the live
         # associations, so old / rollback builds keep the scope they were cut
         # with. Resolve agent names + stable folder names once up front.
-        instr_to_ds_ids: Dict[str, List[str]] = {}
-        used_ds_ids: set = set()
-        for content in contents:
-            if not (content.instruction_version and content.instruction):
-                continue
-            ids = content.instruction_version.data_source_ids or []
-            instr_to_ds_ids[content.instruction.id] = list(ids)
-            used_ds_ids.update(ids)
-        ds_id_to_name, ds_folder = await self._resolve_agent_folders(
-            db, build.organization_id, used_ds_ids
-        )
+        from app.services.git_folder_layout import GitFolderLayout
+        layout = await GitFolderLayout.load(db, build.organization_id)
 
+        from app.core.permission_resolver import resolve_permissions
+        rights = await resolve_permissions(db, user_id, build.organization_id) if user_id else None
         bow_root = Path(repo_path) / "bow"
         # Paths this push writes under bow/ (repo-relative, posix) - used both as
         # the next manifest and to decide what the prune may remove.
@@ -1287,11 +1225,29 @@ class GitService:
             
             # agents are written to frontmatter only for instructions shared
             # across multiple agents (a single agent is implied by its folder).
-            agent_names: List[str] = []
+            ds_ids = [d for d in version.data_source_ids or [] if d in layout.agents]
+            folder_ids = version.folder_ids or []
+            if rights and any(not rights.has_resource_permission("folder", fid, "view") for fid in folder_ids):
+                raise ValueError("Cannot export an unavailable folder")
+            if any(fid not in layout.folders for fid in folder_ids):
+                raise ValueError("Cannot export an instruction with an unavailable folder")
+            if rights:
+                # A directory path discloses every ancestor, including for agent-only rules.
+                paths = [layout.folders[fid] for fid in folder_ids] + [layout.agents[aid] for aid in ds_ids]
+                for fid, parent_path in layout.folders.items():
+                    if any(path == parent_path or path.startswith(parent_path + '/') for path in paths):
+                        if not rights.has_resource_permission("folder", fid, "view"):
+                            raise ValueError("Cannot export an unavailable folder path")
+            targets = sorted([layout.folders[f] for f in folder_ids] + [layout.agents[d] for d in ds_ids])
+            if not targets and version.scope_mode == "targeted":
+                raise ValueError("Cannot export a targeted instruction with no available targets")
+            agent_names = sorted(layout.names[d] for d in ds_ids) if len(targets) > 1 else []
 
             # RULE 2: Unlinked git instruction - write to original path (preserve extension)
             if instruction.source_file_path:
                 filepath = Path(repo_path) / instruction.source_file_path
+                if not self._is_within(filepath, Path(repo_path)):
+                    raise ValueError('Invalid Git export path')
                 filepath.parent.mkdir(parents=True, exist_ok=True)
             else:
                 # RULE 3: User-created instruction - organize by agent (data source).
@@ -1299,16 +1255,11 @@ class GitService:
                 # One agent -> that agent's folder; none (applies to all, or every
                 # linked agent was deleted) -> "global"; several -> "shared", with
                 # the agent names recorded in the frontmatter.
-                ds_ids = [d for d in instr_to_ds_ids.get(instruction.id, []) if d in ds_folder]
-                if len(ds_ids) == 1:
-                    folder = ds_folder[ds_ids[0]]
-                elif len(ds_ids) == 0:
-                    folder = 'global'
-                else:
-                    folder = 'shared'
-                    agent_names = sorted(ds_id_to_name[d] for d in ds_ids)
+                folder = targets[0] if len(targets) == 1 else ('shared' if targets else 'global')
 
                 bow_dir = bow_root / folder
+                if not self._is_within(bow_dir, Path(repo_path)):
+                    raise ValueError("Invalid Git export directory")
                 bow_dir.mkdir(parents=True, exist_ok=True)
 
                 safe_title = self._slugify(version.title or instruction.title or '') or str(instruction.id)
@@ -1332,12 +1283,16 @@ class GitService:
             # Emit frontmatter via yaml.safe_dump so names/refs with YAML-special
             # characters (":", leading "-"/"#", "777", "yes", ...) stay valid and
             # re-parse cleanly on sync-back.
-            frontmatter: Dict[str, Any] = {}
+            frontmatter: Dict[str, Any] = {"bow_instruction_id": str(instruction.id)}
+            if targets:
+                frontmatter['bow_targets'] = targets
             if agent_names:
                 frontmatter['agents'] = agent_names
             if simple_refs:
                 frontmatter['references'] = simple_refs
 
+            if not self._is_within(filepath, Path(repo_path)):
+                raise ValueError("Invalid Git export path")
             with open(filepath, 'w') as f:
                 if frontmatter:
                     f.write("---\n")

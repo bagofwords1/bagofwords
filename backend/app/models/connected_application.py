@@ -17,6 +17,7 @@ def application_channel(application_id) -> str:
 
 class ConnectedApplication(BaseSchema):
     __tablename__ = "connected_applications"
+    agent_folder_ids = Column(JSON, nullable=True)
 
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     name = Column(String(255), nullable=False)

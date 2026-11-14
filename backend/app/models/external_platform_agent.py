@@ -1,5 +1,5 @@
-from sqlalchemy import Column, String, ForeignKey, UniqueConstraint
-from app.models.base import BaseSchema
+from sqlalchemy import Column, String, ForeignKey, UniqueConstraint, Table
+from app.models.base import Base, BaseSchema
 
 
 class ExternalPlatformAgent(BaseSchema):
@@ -69,3 +69,14 @@ class ExternalPlatformAgent(BaseSchema):
             f"<ExternalPlatformAgent platform={self.platform_id} "
             f"channel={self.external_channel_id!r} agent={self.data_source_id}>"
         )
+
+
+
+# Keep the folder ID after folder deletion so a configured but empty scope
+# cannot become an unrestricted channel.
+platform_folder_scopes = Table(
+    "external_platform_folder_scopes", Base.metadata,
+    Column("platform_id", String(36), ForeignKey("external_platforms.id", ondelete="CASCADE"), primary_key=True),
+    Column("external_channel_id", String(255), primary_key=True),
+    Column("folder_id", String(36), primary_key=True),
+)
