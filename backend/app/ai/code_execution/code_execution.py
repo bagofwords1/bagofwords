@@ -1284,6 +1284,11 @@ class QueryCapturingClientWrapper:
                 except ReadOnlyViolation as e:
                     self._capture(capture, reads)
                     raise UnsafeSQLError(str(e)) from e
+                except DuckdbQueryError:
+                    # Text the agent fixes and retries; recorded like a
+                    # refusal, so the attempt is seen.
+                    self._capture(capture, reads)
+                    raise
                 if guarded:
                     capture = self._guarded_capture(checked, kwargs)
                 captured = self._capture(capture, reads)

@@ -723,7 +723,7 @@ def _duckdb_tables(sql: str) -> tuple[str | None, list[Name]]:
     """A DuckDB statement as DuckDB reads it: (the SELECT left for the
     sqlglot checks, or None when there is none; the tables it reads).
 
-    A listing read (SHOW, a listing PRAGMA, PRAGMA show) and EXPLAIN are
+    A listing read (SHOW, a listing PRAGMA) and EXPLAIN are
     refused; DESCRIBE / DESC / PRAGMA table_info of a name read that name;
     a SELECT, or the one DESCRIBE describes, reads the tables DuckDB's
     parser finds in it (its own CTEs left out), and may call no function

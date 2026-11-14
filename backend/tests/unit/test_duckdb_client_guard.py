@@ -16,14 +16,21 @@ Contract:
   PRAGMAs) and EXPLAIN are refused, and DESCRIBE / DESC / PRAGMA table_info
   and the tables of a SELECT are checked against it (`TableScopeViolation`);
 - the query connection is locked to the connection's own files: a
-  statement that skipped every check still cannot read another file.
+  statement that skipped every check still cannot read another file;
+- DuckDB's own catalog views are refused on both kinds of connection, and
+  a CTE never stands in for one: CTE names are plain ASCII names, compared
+  the way DuckDB folds names (ASCII letters only).
 
-Real embedded DuckDB over scratch CSV and parquet files under `tmp_path`;
-nothing touches the network.
+Real embedded DuckDB over scratch CSV and parquet files under `tmp_path`,
+and a local HTTP server on 127.0.0.1 for an http URI; nothing else touches
+the network.
 """
 
 from __future__ import annotations
 
+import functools
+import http.server
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +38,7 @@ import duckdb
 import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, TableAccessError, UnsafeSQLError
+from app.ai.code_execution.duckdb_guard import DuckdbQueryError, DuckdbSyntaxError
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import (
     TABLE_SCOPE_ATTR,
@@ -229,6 +237,8 @@ def test_the_read_verbs_return_rows_on_an_unscoped_connection(client, sql):
     "PRAGMA memory_limit='1GB'",
     "PRAGMA enable_profiling",
     "PRAGMA storage_info('sales')",
+    "PRAGMA show('sales')",
+    "PRAGMA show(sales)",
     "PRAGMA table_info('{secret}')",
     "DESCRIBE read_csv('{secret}')",
     "DESCRIBE '{secret}'",
@@ -295,7 +305,6 @@ def test_with_a_table_selection_listing_commands_and_explain_stay_refused(scoped
     "PRAGMA database_list",
     "PRAGMA version",
     "PRAGMA platform",
-    "PRAGMA show('sales')",
 ])
 def test_with_a_table_selection_listing_pragmas_are_refused(scoped, sql):
     with pytest.raises(TableScopeViolation):
@@ -403,3 +412,187 @@ def test_view_names_are_the_views_the_connection_creates(tmp_path):
         ).fetchall()]
     assert sorted(client.view_names()) == created
     assert _run(client, "SELECT count(*) AS n FROM SALES_2024")["n"].tolist() == [1]
+
+
+# ------------------------------------------------------------ CTE names and the catalog
+
+# Python's lower() folds this letter to "k"; DuckDB folds ASCII letters only.
+KELVIN = chr(0x212A)
+FAKE_TOKEN = "sig=FAKE-TOKEN"
+
+
+@pytest.fixture
+def http_base(tmp_path):
+    """A local HTTP server over scratch files: remote.csv, which the
+    connection names, and other.csv, which it does not."""
+    served = tmp_path / "served"
+    served.mkdir()
+    (served / "remote.csv").write_text("id,amount\n1,5\n")
+    (served / "other.csv").write_text("token\nhidden-value\n")
+
+    class Quiet(http.server.SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(served)))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+@pytest.fixture
+def remote(files, http_base) -> DuckDBClient:
+    """A connection over a local file and an http URI carrying a token."""
+    return DuckDBClient(uris=f"{files.data / 'sales.csv'}\n{http_base}/remote.csv?{FAKE_TOKEN}")
+
+
+def _connection(mode: str, request) -> DuckDBClient:
+    if mode == "uris":
+        return request.getfixturevalue("remote")
+    return DuckDBClient(database=str(request.getfixturevalue("db_file")))
+
+
+@pytest.mark.parametrize("mode", ["uris", "database"])
+@pytest.mark.parametrize("view", ["duckdb_views", "duckdb_columns", "duckdb_databases"])
+def test_a_cte_named_with_a_non_ascii_letter_does_not_stand_in_for_a_catalog_view(mode, view, request):
+    client = _connection(mode, request)
+    shadow = view.replace("k", KELVIN)
+    sql = f"WITH {shadow} AS (SELECT 1 AS x) SELECT * FROM {view}"
+    try:
+        rows = _run(client, sql)
+    except ReadOnlyViolation:
+        pass
+    else:
+        text = rows.to_string()
+        pytest.fail(f"the catalog view {view} was read ({len(rows)} rows; "
+                    f"configured URI returned: {FAKE_TOKEN in text})")
+
+
+@pytest.mark.parametrize("mode", ["uris", "database"])
+@pytest.mark.parametrize("sql,refusal", [
+    ("WITH duckdb_views AS (SELECT 1 AS x) SELECT * FROM duckdb_views", ReadOnlyViolation),
+    ("WITH pg_settings AS (SELECT 1 AS x) SELECT * FROM pg_settings", ReadOnlyViolation),
+    ("WITH Sqlite_Master AS (SELECT 1 AS x) SELECT * FROM sqlite_master", ReadOnlyViolation),
+    ('WITH "a/b" AS (SELECT 1 AS x) SELECT * FROM "a/b"', DuckdbQueryError),
+    ('WITH "a.b" AS (SELECT 1 AS x) SELECT * FROM "a.b"', DuckdbQueryError),
+    (f'WITH "{KELVIN}" AS (SELECT 1 AS x) SELECT * FROM "{KELVIN}"', DuckdbQueryError),
+    (f'WITH "mine{chr(10)}" AS (SELECT 1 AS x) SELECT * FROM "mine{chr(10)}"', DuckdbQueryError),
+])
+def test_a_cte_has_a_plain_name_that_is_not_a_catalog_name(mode, sql, refusal, request):
+    client = _connection(mode, request)
+    with pytest.raises(refusal):
+        _run(client, sql)
+    own = "sales" if mode == "uris" else "orders"
+    assert _run(client, f"WITH mine AS (SELECT * FROM {own}) SELECT count(*) AS n FROM mine")["n"].tolist()[0] > 0
+
+
+def _internal_views() -> list[tuple[str, str]]:
+    con = duckdb.connect()
+    try:
+        return con.execute(
+            "SELECT schema_name, view_name FROM duckdb_views() WHERE internal ORDER BY 1, 2").fetchall()
+    finally:
+        con.close()
+
+
+INTERNAL_VIEWS = _internal_views()
+
+
+def test_duckdb_has_the_internal_views_these_tests_name():
+    names = {view for _schema, view in INTERNAL_VIEWS}
+    assert {"duckdb_views", "pg_settings", "sqlite_master", "pragma_database_list", "tables"} <= names
+    assert {schema for schema, _view in INTERNAL_VIEWS} == {"information_schema", "main", "pg_catalog"}
+
+
+@pytest.mark.parametrize("mode", ["uris", "database"])
+@pytest.mark.parametrize("schema,view", INTERNAL_VIEWS)
+def test_an_internal_catalog_view_is_refused_without_a_table_selection(mode, schema, view, request):
+    client = _connection(mode, request)
+    reads = [f"SELECT * FROM {schema}.{view}", f"SELECT * FROM system.{schema}.{view}",
+             f'SELECT * FROM "{schema.upper()}"."{view.upper()}"', f"DESCRIBE {schema}.{view}"]
+    if schema != "information_schema":
+        reads.append(f"SELECT * FROM {view}")
+    for sql in reads:
+        with pytest.raises(ReadOnlyViolation):
+            ensure_read_only(client, sql)
+
+
+# ------------------------------------------------------------ what the engine is locked to
+
+def test_an_http_uri_with_a_query_string_is_allowed_exactly(remote, http_base):
+    assert _run(remote, "SELECT sum(amount) AS total FROM remote")["total"].tolist() == [5]
+    with remote.connect() as con:
+        assert con.execute("SELECT count(*) FROM remote").fetchone() == (1,)
+        for other in (f"{http_base}/other.csv", f"{http_base}/remote.csv"):
+            with pytest.raises(duckdb.Error):
+                con.execute(f"SELECT * FROM read_csv_auto('{other}')").fetchall()
+
+
+def test_the_lockdown_targets_of_each_uri_shape(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cwd = Path.cwd()
+    client = DuckDBClient(uris="\n".join([
+        "https://host.example/x.csv?sig=abc",
+        "https://host.example/y[1].csv",
+        "s3://bucket/part?.csv",
+        "s3://bucket/daily/*.parquet",
+        "data/*.csv",
+        "data*/x.csv",
+        "*.csv",
+        "sub*/../x.csv",
+        "../shared/*.csv",
+        str(tmp_path / "abs.csv"),
+    ]))
+    paths, directories = client._lockdown_targets()
+    assert paths == ["https://host.example/x.csv?sig=abc", "https://host.example/y[1].csv", str(tmp_path / "abs.csv")]
+    assert directories == ["s3://bucket/", "s3://bucket/daily/", f"{cwd}/data/", f"{cwd}/", f"{cwd}/", f"{cwd}/",
+                           f"{cwd.parent}/shared/"]
+
+
+@pytest.mark.parametrize("uri", ["*.csv", "data*/x.csv"])
+def test_a_relative_glob_uri_reads_its_files_and_nothing_outside_even_without_the_checks(uri, tmp_path, monkeypatch):
+    work = tmp_path / "work"
+    (work / "data1").mkdir(parents=True)
+    (work / "data1" / "x.csv").write_text("id\n1\n")
+    (work / "part.csv").write_text("id\n2\n")
+    secret = tmp_path / "other.csv"
+    secret.write_text("token\nhidden-value\n")
+    monkeypatch.chdir(work)
+    client = DuckDBClient(uris=uri)
+    with client.connect() as con:
+        assert con.execute(f"SELECT count(*) FROM {client.view_names()[0]}").fetchone() == (1,)
+        for outside in ("../other.csv", str(secret)):
+            with pytest.raises(duckdb.Error):
+                con.execute(f"SELECT * FROM read_csv_auto('{_sq(outside)}')").fetchall()
+
+
+ROOT_REFUSAL = ("Error while connecting to DuckDB: A URI of this connection is a glob at the root of a file "
+                "system, bucket or host. Name the directory its files are in.")
+
+
+@pytest.mark.parametrize("uri", [
+    "/*.csv", "/*/x.csv", "file:///*.csv", "file://*.csv", "s3://*/x.csv", "s3://bucket*/x.csv", "gs://*",
+    "https://*.example.com/x.csv",
+])
+def test_a_glob_at_a_root_is_refused_before_the_connection_opens_anything(uri):
+    with pytest.raises(RuntimeError) as refused:
+        with DuckDBClient(uris=uri).connect():
+            pass
+    assert str(refused.value) == ROOT_REFUSAL
+
+
+# ------------------------------------------------------------ the wrapper
+
+def test_text_duckdb_cannot_parse_is_captured_before_its_error_reaches_the_code(inprocess, client):
+    sql = "SELEC amount FROM sales"
+    queries: list = []
+    code = f"def generate_df(ds_clients, excel_files):\n    return ds_clients['duck'].execute_query({sql!r})\n"
+    with pytest.raises(DuckdbSyntaxError):
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"duck": client}, excel_files=[],
+                                             captured_queries=queries)
+    assert [str(q) for q in queries] == [sql]

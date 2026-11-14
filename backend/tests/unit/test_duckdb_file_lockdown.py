@@ -284,6 +284,17 @@ def test_a_statement_with_a_cte_name_that_is_not_plain_never_passes(sql):
         check_duckdb_file_query(sql, _VIEWS)
 
 
+def test_a_cte_name_is_compared_the_way_duckdb_folds_names():
+    """DuckDB folds ASCII letters only: a CTE named with a letter that
+    Python's lower() folds into an ASCII one is another name, so the table
+    the statement reads is the catalog view and is refused."""
+    shadow = "duc" + chr(0x212A) + "db_views"
+    with pytest.raises(TableScopeViolation):
+        check_duckdb_file_query(f"WITH {shadow} AS (SELECT 1 AS x) SELECT * FROM duckdb_views", _VIEWS)
+    with pytest.raises(ValueError, match="plain"):
+        check_duckdb_file_query(f'WITH "sales{chr(10)}" AS (SELECT 1 AS x) SELECT * FROM "sales{chr(10)}"', _VIEWS)
+
+
 @pytest.mark.parametrize("sql, refusal", [
     ('WITH "my cte" AS (SELECT 1 AS x) SELECT * FROM "my cte", secret', TableScopeViolation),
     ('SELECT * FROM (WITH "x.csv" AS (SELECT 1 AS x) SELECT * FROM "x.csv") s, "x.csv"', TableScopeViolation),

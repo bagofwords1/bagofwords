@@ -286,6 +286,15 @@ _OTHER_DIALECTS = {
         "SELECT * FROM orders WHERE created_at >= current_date - INTERVAL 7 DAY",
         "SELECT * FROM customers WHERE name = 'O''Brien'",
         "SELECT * FROM users WHERE login = 'DOMAIN" + BS + "user'",
+        "SELECT id, unnest(tags) AS tag FROM orders",
+        "SELECT d.range AS day, count(o.id) FROM range(DATE '2026-01-01', DATE '2026-02-01', INTERVAL 1 DAY) d "
+        "LEFT JOIN orders o ON o.created_at::DATE = d.range GROUP BY 1 ORDER BY 1",
+        "SELECT g.generate_series AS n FROM generate_series(1, 12) g",
+        "SELECT * FROM orders QUALIFY row_number() OVER (PARTITION BY customer_id ORDER BY amount DESC) = 1",
+        "SELECT * FROM (SELECT status, amount FROM orders) PIVOT (sum(amount) FOR status IN ('open', 'paid'))",
+        "SELECT [x * 2 FOR x IN amounts IF x > 0] AS doubled FROM orders",
+        "WITH RECURSIVE days(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM days WHERE n < 7) "
+        "SELECT n, count(o.id) FROM days LEFT JOIN orders o ON dayofweek(o.created_at) = n GROUP BY n",
     ],
 }
 

@@ -3,6 +3,7 @@ from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients._duckdb_lockdown import lock_down
 
 import duckdb
+import os
 import pandas as pd
 import re
 from contextlib import contextmanager
@@ -10,8 +11,13 @@ from typing import Generator, List
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 import urllib.parse
 
-# Characters that make a URI a glob pattern to DuckDB.
+# Characters that make a URI a glob pattern to DuckDB. In an http(s) URL `?`
+# starts the query string and `[` is an ordinary character: only `*` globs.
 _GLOB_CHAR = re.compile(r"[*?\[]")
+_HTTP_GLOB_CHAR = re.compile(r"\*")
+_SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://")
+_ROOT_GLOB = ("A URI of this connection is a glob at the root of a file system, bucket or host. "
+              "Name the directory its files are in.")
 
 
 class DuckDBClient(DataSourceClient):
@@ -148,18 +154,29 @@ class DuckDBClient(DataSourceClient):
 
     def _lockdown_targets(self) -> tuple[List[str], List[str]]:
         """(the URIs the views read, as exact paths; the directories of
-        glob URIs, up to the last '/' before the first glob character)."""
+        glob URIs, up to the last '/' before the first glob character).
+        A local glob's directory is made absolute. Raises ValueError when
+        a glob's directory is the root of a file system, bucket or host."""
         paths: List[str] = []
         directories: List[str] = []
         for pattern in self.uri_patterns:
             uri = self._normalize_uri(pattern)
-            glob = _GLOB_CHAR.search(uri)
+            scheme = _SCHEME.match(uri)
+            http = uri.lower().startswith(("http://", "https://"))
+            glob = (_HTTP_GLOB_CHAR if http else _GLOB_CHAR).search(uri)
             if glob is None:
                 paths.append(uri)
                 if uri.lower().startswith("file://"):
                     paths.append(uri[len("file://"):])
-            else:
-                directories.append(uri[:uri.rfind("/", 0, glob.start()) + 1] or uri[:glob.start()])
+                continue
+            directory = uri[:uri.rfind("/", 0, glob.start()) + 1]
+            if scheme is None:
+                # A local directory, absolute and ending in '/'.
+                directory = os.path.join(os.path.abspath(directory), "")
+            # What the directory names after its scheme: '' or '/' is a root.
+            if directory[scheme.end() if scheme else 0:] in ("", "/"):
+                raise ValueError(_ROOT_GLOB)
+            directories.append(directory)
         return paths, directories
 
     def _find_local_duckdb_file(self) -> str | None:
@@ -192,13 +209,15 @@ class DuckDBClient(DataSourceClient):
                 con = duckdb.connect(database=local_db, read_only=True)
                 lock_down(con)
             else:
+                # What the connection will be locked to, worked out before
+                # anything opens: a glob at a root is refused here.
+                paths, directories = self._lockdown_targets()
                 # In-memory database with views from URI patterns
                 con = duckdb.connect(database=":memory:")
                 self._configure_httpfs(con)
                 self._create_views(con)
                 # The views read their URIs lazily: from here on the
                 # connection may read those and nothing else.
-                paths, directories = self._lockdown_targets()
                 lock_down(con, allowed_paths=paths, allowed_directories=directories)
             yield con
         except IndexingCancelled:
