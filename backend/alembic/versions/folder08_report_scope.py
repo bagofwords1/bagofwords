@@ -9,6 +9,8 @@ branch_labels = depends_on = None
 
 
 def upgrade():
+    if sa.inspect(op.get_bind()).has_table("report_additional_folders"):
+        return
     op.create_table(
         "report_additional_folders",
         sa.Column("report_id", sa.String(36), sa.ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True),

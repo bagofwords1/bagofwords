@@ -10,8 +10,12 @@ tables = ("connected_applications", "webhooks", "scheduled_prompts")
 
 
 def upgrade():
+    inspector = sa.inspect(op.get_bind())
     for table in tables:
-        op.add_column(table, sa.Column("agent_folder_ids", sa.JSON(), nullable=True))
+        if "agent_folder_ids" not in {c["name"] for c in inspector.get_columns(table)}:
+            op.add_column(table, sa.Column("agent_folder_ids", sa.JSON(), nullable=True))
+    if inspector.has_table("external_platform_folder_scopes"):
+        return
     op.create_table(
         "external_platform_folder_scopes",
         sa.Column("platform_id", sa.String(36), sa.ForeignKey("external_platforms.id", ondelete="CASCADE"), primary_key=True),

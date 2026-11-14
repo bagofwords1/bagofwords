@@ -1,6 +1,7 @@
 # Release Notes
 
 ## Version 0.0.619 (November 14, 2026)
+- Added agent folders: organize agents and knowledge in nested folders, share a folder with users and groups, and start a report or routing eval from it (#1723)
 - Added decision models as a new model kind, and an option for the Auto router to pick a request's starting model upfront with one (#1721) — Auto router → "Decision model" (default: Small model)
 - Added inviting a member with several roles and groups in one step (#1718)
 - Fixed image-generation models appearing in chat model pickers; a saved pick falls back to the next default (#1722)

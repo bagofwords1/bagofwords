@@ -8,6 +8,8 @@ branch_labels = depends_on = None
 
 
 def upgrade():
+    if "starting_folder_ids" in {c["name"] for c in sa.inspect(op.get_bind()).get_columns("agent_executions")}:
+        return
     op.add_column("agent_executions", sa.Column("starting_folder_ids", sa.JSON(), nullable=True))
 
 
