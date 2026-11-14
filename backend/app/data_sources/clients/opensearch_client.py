@@ -35,6 +35,13 @@ class OpenSearchClient(DataSourceClient):
     # endpoint (e.g. `orders/_delete_by_query?`).
     _INDEX_EXPR_RE = re.compile(r"[A-Za-z0-9_.*,:+-]+")
 
+    # The SQL forms the `sql` key's check reads, for its refusals and the guide.
+    SQL_FORMS_HINT = (
+        "In the sql key, put an index name holding -, * or . in backticks "
+        "(FROM `logs-2024.*`), and search full text with match_query(field, 'text') "
+        'or with the DSL "query" key instead of the sql key.'
+    )
+
     # Bucket-level keys that are not sub-aggregations.
     _BUCKET_META_KEYS = {"key", "key_as_string", "doc_count", "from", "to",
                          "from_as_string", "to_as_string",
@@ -429,9 +436,13 @@ class OpenSearchClient(DataSourceClient):
 
         Only one SELECT is sent. The text is read as MySQL, the closest
         dialect sqlglot has; the plugin's own reader is not ours, so what the
-        two could read differently is refused (`check_one_select`).
+        two could read differently is refused (`check_one_select`), with a
+        message naming the forms that are read (`SQL_FORMS_HINT`).
         """
-        check_one_select(sql, "mysql")
+        try:
+            check_one_select(sql, "mysql")
+        except ReadOnlyViolation as e:
+            raise ReadOnlyViolation(f"{e} {self.SQL_FORMS_HINT}") from e
         result = self._request("POST", "/_plugins/_sql", json_body={"query": sql})
         schema = result.get("schema") or []
         cols = [c.get("alias") or c.get("name") for c in schema]
@@ -568,6 +579,7 @@ df = client.execute_query('''{{
     "sql": "SELECT status, COUNT(*) AS n FROM orders GROUP BY status"
 }}''')
 ```
+{self.SQL_FORMS_HINT} Only one SELECT is sent: no comments, backslashes or [ ].
 
 WRONG - Do NOT do this:
 ```

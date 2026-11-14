@@ -1617,11 +1617,14 @@ class QueryCapturingClientWrapper:
         return query, capture, unrendered_note
 
     def _takes_no_free_text(self) -> bool:
-        """A connector the guard neither checks nor exempts (`classify`):
-        a statement of any type to it is refused (`_passes_a_statement`), so
-        a connector added without a decision cannot receive free text
-        unchecked. Keyword-only calls and objects that are not connectors
-        keep today's behaviour."""
+        """A connector the guard neither checks nor exempts (`classify`).
+        A call to it is refused when a parameter of its `execute_query` that
+        can be passed by position receives a value other than None, of any
+        type, by position or by name, or when the call does not fit that
+        signature (`_passes_a_statement`). A value passed by keyword to a
+        keyword-only parameter or into `**kwargs` is forwarded unchecked, so
+        a connector whose statement parameter is keyword-only needs its own
+        decision. Objects that are not connectors keep today's behaviour."""
         from app.ai.code_execution.client_profiles import classify
         from app.data_sources.clients.discovery import DiscoveryClient
 

@@ -51,7 +51,8 @@ Policy, per client:
     passed by position receives a value other than None, whatever its type
     and however it was passed (by position or by name), and when the call
     does not fit that signature; it forwards only calls whose values all go
-    to keyword-only parameters or `**kwargs`.
+    to keyword-only parameters or `**kwargs`, unchecked: a statement passed
+    that way to an `unknown` connector is not refused.
     Connections are expected to use read-only credentials regardless.
 
 A NUL character is refused in every checked statement: some drivers and
@@ -949,15 +950,27 @@ def check_one_select(sql, dialect: str) -> None:
     known, so nothing is guessed at: text sqlglot cannot parse is refused
     (no unparsed fallback, unlike `check_sql`), and so is a backslash or a
     comment mark (`--`, `/*`, `*/`, `#`, `//`) outside a string or a quoted
-    name. Raises ReadOnlyViolation."""
+    name, and a name in [ ] or ` ` holding its own closing mark (sqlglot
+    reads `]]` and a doubled backtick as the mark itself; SQLite ends a
+    bracketed name at the first `]`, and the OpenSearch SQL docs do not say).
+    Raises ReadOnlyViolation."""
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.dialects.dialect import Dialect
+    from sqlglot.tokens import TokenType
 
     if type(sql) is not str:
         raise ReadOnlyViolation(f"The query must be text, not {type(sql).__name__}.")
     check_engine_reading(sql, dialect, unknown_lexer=True)
-    masked = _masked(sql, _literal_spans(sql, Dialect.get_or_raise(dialect).tokenize(sql)))
+    tokens = Dialect.get_or_raise(dialect).tokenize(sql)
+    for token in tokens:
+        close = {"[": "]", "`": "`"}.get(sql[token.start]) if token.token_type == TokenType.IDENTIFIER else None
+        if close and close in sql[token.start + 1:token.end]:
+            raise ReadOnlyViolation(
+                f"The query has a name in {sql[token.start]}{close} holding '{close}', which this source may read "
+                "as the end of the name. Remove it from the name."
+            )
+    masked = _masked(sql, _literal_spans(sql, tokens))
     mark = _COMMENT_MARKS.search(masked)
     if mark:
         raise ReadOnlyViolation(

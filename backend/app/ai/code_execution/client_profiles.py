@@ -173,7 +173,7 @@ _ID = "positional id, not query text"
 
 PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("elasticsearch_client", "ElasticsearchClient", f"{_JSON}, elasticsearch_client.py:1136"),
-    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:368"),
+    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:375"),
     _refused("brocade_client", "BrocadeClient", f"{_JSON}, brocade_client.py:448"),
     _refused("appdynamics_client", "AppDynamicsClient", f"{_JSON}, appdynamics_client.py:458"),
     _refused("aria_operations_client", "AriaOperationsClient", f"{_JSON}, aria_operations_client.py:634"),
@@ -195,8 +195,8 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("vcenter_client", "VCenterClient", f"{_JSON}, vcenter_client.py:805"),
     _refused("zabbix_client", "ZabbixClient", f"{_JSON}, zabbix_client.py:341"),
     _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:160"),
-    _refused("sap_bw_xmla_client", "SapBwXmlaClient", f"{_MDX}, inherited from xmla_base.py:465"),
-    _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:465"),
+    _refused("sap_bw_xmla_client", "SapBwXmlaClient", f"{_MDX}, inherited from xmla_base.py:467"),
+    _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("analysis_services_client", "AnalysisServicesClient", f"{_MDX}, analysis_services_client.py:673"),
     _refused("powerbi_client", "PowerBIClient", f"{_MDX}, powerbi_client.py:2114"),
     _refused("infor_epm_client", "InforEpmClient", f"{_MDX}, infor_epm_client.py:466"),
@@ -265,7 +265,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             f"{_DISPATCH}: management commands refused, azure_data_explorer_client.py:115"),
     _exempt("aws_cost_client", "AwsCostClient", f"{_DISPATCH}: get_, list_ and describe_ operations only, aws_cost_client.py:159"),
     _exempt("zabbix_client", "ZabbixClient", f"{_DISPATCH}: <object>.get methods only, zabbix_client.py:362"),
-    _exempt("xmla_base", "XmlaClient", f"{_DISPATCH}: read verbs only, configured catalog only, xmla_base.py:475"),
+    _exempt("xmla_base", "XmlaClient", f"{_DISPATCH}: read verbs only, configured catalog only, xmla_base.py:477"),
     _exempt("analysis_services_client", "AnalysisServicesClient",
             f"{_DISPATCH}: read verbs only, configured catalog only, analysis_services_client.py:693"),
     _exempt("powerbi_client", "PowerBIClient",
@@ -275,13 +275,15 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             f"{_DISPATCH}: the XMLA read rules plus LF or CR LF line ends, on the configured OLAP database, "
             "before the MDX process, infor_epm_client.py:475"),
     _exempt("oracle_bi_client", "OracleBIClient",
-            f"{_DISPATCH}: one Logical SQL SELECT, EXECUTE PHYSICAL and the EVALUATE functions refused, "
-            "oracle_bi_client.py:368"),
+            f"{_DISPATCH}: one Logical SQL SELECT as an exact str (a WITH reaching a SELECT); refused in code: "
+            "EXECUTE, SELECT_PHYSICAL, AGGREGATES, any word starting with EVALUATE, '#' right after a name; "
+            "'@{' refused anywhere, oracle_bi_client.py:408"),
     _exempt("opensearch_client", "OpenSearchClient",
-            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:387), an index to _search, "
-            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:434"),
+            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:394), an index to _search, "
+            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:443"),
     _exempt("sisense_client", "SisenseClient",
-            f"{_DISPATCH}: one parsed SQL SELECT before the /sql endpoint, sisense_client.py:474"),
+            f"{_DISPATCH}: one parsed SQL SELECT before any request, the table lookup included, "
+            "sisense_client.py:445"),
     # A remote agent trusted by decision, on the condition its code enforces.
     _exempt("timbr_a2a_client", "TimbrA2aClient",
             "remote agent with SQL validation enforced: should-validate-sql is always sent true "

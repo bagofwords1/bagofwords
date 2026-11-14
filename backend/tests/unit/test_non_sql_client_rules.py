@@ -716,6 +716,19 @@ _ORACLE_BI_REFUSED = {
     "insert": 'INSERT INTO "A" VALUES (1)',
     "no statement": "/* only a comment */",
     "not text": {"logicalSQL": 'SELECT "P"."P" FROM "A"'},
+    # Every EVALUATE function, including the script one and any added later.
+    "physical script": """SELECT EVALUATE_SCRIPT('s', "P"."P") FROM "A\"""",
+    "a later evaluate function in lower case": """SELECT evaluate_other('f(%1)', "P"."P") FROM "A\"""",
+    "aggregates": 'SELECT "P"."P" FROM "A" WHERE 1 = (CREATE AGGREGATES x)',
+    "physical select inside a select": 'SELECT "P"."P" FROM "A" WHERE "P"."P" IN (SELECT_PHYSICAL a FROM db.t)',
+    "with list followed by another verb": 'WITH x AS (SELECT "P"."P" FROM "A") CALL SAPurgeAllCache()',
+    "with list followed by nothing": 'WITH x AS (SELECT "P"."P" FROM "A")',
+    "with list with columns followed by another verb": (
+        'WITH x (c) AS (SELECT "P"."P" FROM "A"), y AS (SELECT c FROM x) CALL SAPurgeAllCache()'),
+    # Presentation variables are substituted before the BI Server reads the text.
+    "presentation variable in a string": """SELECT "P"."P" FROM "A" WHERE "P"."P" = '@{v}'""",
+    "presentation variable in a comment": 'SELECT "P"."P" FROM "A" /* @{v} */',
+    "hash right after a name": 'SELECT "P"."P" FROM "A" WHERE x#\n= 1',
 }
 
 
@@ -734,11 +747,67 @@ def test_oracle_bi_refuses_statements_outside_one_select(oracle_bi, statement):
     '(SELECT "P"."P" FROM "A") UNION ALL (SELECT "P"."Q" FROM "A")',
     'SELECT "P"."P" FROM "A" WHERE "P"."T" = TIMESTAMP \'2024-01-01 10:00:00\'',
     'SELECT "P"."P" FROM "A" WHERE "P"."P" IN (SELECT "P"."P" FROM "A" EXCEPT SELECT "P"."Q" FROM "A")',
+    'WITH s (c) AS (SELECT "P"."P" FROM "A"), t AS (SELECT c FROM s) SELECT * FROM t',
+    'WITH s AS (SELECT "P"."P" FROM "A") (SELECT * FROM s)',
+    """SELECT INSERT("P"."P", 1, 2, 'x'), "Aggregates"."Evaluate_Script" FROM "A" # note""",
+    'SELECT "P"."P" FROM "A" WHERE "P"."P" = \'#1 and @ {}\'',
 ])
 def test_oracle_bi_sends_a_select_unchanged(oracle_bi, statement):
     client, sent = oracle_bi
     client.execute_query(statement)
     assert sent == [statement]
+
+
+# In-process mode hands the client the object the code built. A str subclass
+# can answer the string methods the check or the request builder call with
+# something other than its text, so only an exact str is checked.
+
+@pytest.fixture
+def in_process(monkeypatch):
+    monkeypatch.setenv("BOW_CODE_SANDBOX", "inprocess")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+
+
+def _run_in_process(clients, body: str):
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    code = "def generate_df(ds_clients, excel_files):\n" + "".join(
+        f"    {line}\n" for line in body.strip().splitlines())
+    return StreamingCodeExecutor().execute_code(code=code, ds_clients=clients, excel_files=[])
+
+
+_TEXT_SUBCLASS = """
+class Statement(str):
+    pass
+"""
+
+
+def test_oracle_bi_refuses_a_str_subclass_in_process(in_process, oracle_bi):
+    client, sent = oracle_bi
+    _assert_refused_in_process(lambda: _run_in_process({"bi": client}, _TEXT_SUBCLASS + """
+return ds_clients['bi'].execute_query(Statement('SELECT "P"."P" FROM "A"'))
+"""), sent)
+
+
+def test_infor_epm_refuses_a_str_subclass_in_process(in_process, infor_epm):
+    client, sent = infor_epm
+    _assert_refused_in_process(lambda: _run_in_process({"epm": client}, _TEXT_SUBCLASS + """
+return ds_clients['epm'].execute_query(Statement('SELECT {} ON 0 FROM [Sales]'), 'DEMO_OLAP/Sales')
+"""), sent)
+
+
+def _assert_refused_in_process(call, sent):
+    """The sandbox reports the client's refusal as its own error type."""
+    from app.ai.code_execution.code_execution import UnsafeSQLError
+
+    error = None
+    try:
+        call()
+    except Exception as exc:  # noqa: BLE001 - the type is asserted below
+        error = exc
+    assert sent == [], f"request sent: {sent!r}"
+    assert isinstance(error, (ReadOnlyViolation, UnsafeSQLError)), f"not refused: {error!r}"
+    assert "text" in str(error), error
 
 
 # ---------------------------------------------------------------------------
@@ -778,6 +847,7 @@ _OPENSEARCH_REFUSED = {
     "empty": {"sql": "  "},
     "unknown key beside the search": {"index": "orders", "query": {"match_all": {}}, "script": {"source": "x"}},
     "unknown key beside the sql": {"sql": "SELECT 1 FROM orders", "pipeline": "p"},
+    "doubled backtick in a name": {"sql": "SELECT `a``b` FROM orders"},
 }
 
 
@@ -793,11 +863,33 @@ def test_opensearch_refuses_sql_outside_one_select_and_unknown_envelope_keys(ope
     "WITH big AS (SELECT * FROM orders WHERE total > 10) SELECT COUNT(*) FROM big",
     "SELECT status FROM orders UNION SELECT status FROM returns",
     "SELECT status FROM orders WHERE note = 'DELETE; -- #'",
+    "SELECT status FROM `logs-2024.*` WHERE match_query(message, 'timeout')",
 ])
 def test_opensearch_sends_a_select_unchanged(opensearch, sql):
     client, sent = opensearch
     client.execute_query(json.dumps({"sql": sql}))
     assert sent == [("POST", "_plugins/_sql", {"query": sql})]
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT status FROM logs-2024",
+    "SELECT status FROM orders WHERE match(message, 'timeout')",
+    "SELECT status FROM orders WHERE multi_match(['message', 'title'], 'timeout')",
+])
+def test_opensearch_refuses_unread_sql_with_a_message_that_names_the_fix(opensearch, sql):
+    client, sent = opensearch
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(json.dumps({"sql": sql}))
+    assert sent == []
+    message = str(refused.value)
+    assert "backticks" in message and "match_query" in message and '"query"' in message, message
+
+
+def test_opensearch_guide_names_the_sql_forms_it_accepts():
+    from app.data_sources.clients.opensearch_client import OpenSearchClient
+
+    guide = OpenSearchClient(host="http://search.example:9200").description
+    assert "backticks" in guide and "match_query" in guide, guide
 
 
 def test_opensearch_sends_a_search_unchanged(opensearch):
@@ -818,7 +910,8 @@ def sisense():
     sent: list = []
 
     def _get(url, params=None, **kwargs):
-        sent.append((url.split("/api/", 1)[1], params["query"]))
+        # Every GET, the schema lookups included.
+        sent.append((url.split("/api/", 1)[1], (params or {}).get("query")))
         return _json_response({"headers": ["n"], "values": [[1]]})
 
     session = MagicMock()
@@ -843,6 +936,8 @@ _SISENSE_REFUSED = {
     "hash": "SELECT * FROM Customers # note",
     "backslash": "SELECT * FROM Customers WHERE Status = 'a\\''",
     "not text": ["SELECT * FROM Customers"],
+    # SQLite ends a bracketed name at the first ']'; sqlglot reads ']]' as one.
+    "closing bracket inside a bracketed name": "SELECT [a]]b] FROM Customers",
 }
 
 
@@ -850,6 +945,20 @@ _SISENSE_REFUSED = {
 def test_sisense_refuses_sql_outside_one_select(sisense, sql):
     client, sent = sisense
     _assert_refused(lambda: client.execute_query(sql, datasource_title="Sales Model"), sent)
+
+
+@pytest.mark.parametrize("sql", ["DELETE FROM Customers", ["SELECT * FROM Customers"]], ids=["delete", "not text"])
+def test_sisense_refuses_before_the_table_lookup(sisense, sql):
+    client, sent = sisense
+    _assert_refused(lambda: client.execute_query(sql, table_name="Sales Model/Customers"), sent)
+
+
+def test_sisense_reports_a_failed_table_lookup(sisense):
+    client, _ = sisense
+    client.get_schema = MagicMock(side_effect=RuntimeError("Table not found for 'Nowhere/Customers'"))
+    with pytest.raises(ValueError, match="Nowhere/Customers") as failed:
+        client.execute_query("SELECT * FROM Customers", table_name="Nowhere/Customers")
+    assert "datasource_title is required" not in str(failed.value)
 
 
 @pytest.mark.parametrize("sql", [

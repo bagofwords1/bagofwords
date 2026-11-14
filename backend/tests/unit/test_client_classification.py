@@ -270,37 +270,105 @@ def test_no_class_awaits_a_decision():
 
 # A class that is exempt only through a parent's declaration. Its own code
 # may change what the parent's execute_query sends (a helper it overrides),
-# so each one is a decision: the parent whose declaration it inherits, and
-# what the subclass overrides, with the file:line that shows it.
-_GIT_REPO = ("NetworkDirClient", "through GitRepoClient: read_file is NetworkDirClient's with its result scrubbed "
+# so each one is a decision, keyed by (module, qualname): the parent whose
+# declaration it inherits, every name it and the classes between it and that
+# parent define (`_overrides`: a new override fails until it is decided
+# again), and what those overrides do, with the file:line that shows it.
+_C = "app.data_sources.clients"
+_GIT_REPO_OVERRIDES = frozenset({
+    "_checkout", "_excluded", "_is_junk", "_iter_files", "_repo_url", "_resolve", "_root", "_root_policy_exempt",
+    "capabilities", "cheap_live_listing", "default_host", "default_username", "grep_files", "provider",
+    "read_file", "refresh", "test_connection",
+})
+_GIT_REPO = ("NetworkDirClient", _GIT_REPO_OVERRIDES,
+             "through GitRepoClient: read_file is NetworkDirClient's with its result scrubbed "
              "(git_repo_client.py:184), _resolve only narrows the path inside the clone (git_repo_client.py:171), "
              "_root clones the configured repository (git_repo_client.py:138)")
 _NO_EXECUTE_QUERY = "defines no execute_query; its tools run through call_tool, not the query path"
-_INHERITS_EXEMPTION: dict[str, tuple[str, str]] = {
-    "SapBwXmlaClient": ("XmlaClient", "overrides construction (sap_bw_xmla_client.py:46), the endpoint URL "
-                                      "(sap_bw_xmla_client.py:84) and prompt text (sap_bw_xmla_client.py:110) only"),
-    "InforOlapClient": ("XmlaClient", "overrides the transport only: connect (infor_olap_client.py:95), _soap_call "
-                                      "adding a gateway token to the body it is given (infor_olap_client.py:153), "
-                                      "request context (infor_olap_client.py:217); XmlaClient.execute_query checks "
-                                      "the statement before any of them runs"),
-    "GitHubRepoClient": _GIT_REPO,
-    "GitLabRepoClient": _GIT_REPO,
-    "BitbucketRepoClient": _GIT_REPO,
-    "SharepointClient": ("GraphDriveClient", "presets the mode (graph_drive_client.py:1563) and lists folders by GET "
-                                             "(graph_drive_client.py:1567); read_file is GraphDriveClient's"),
-    "OnedriveClient": ("GraphDriveClient", "presets the mode and recursion only (graph_drive_client.py:1638)"),
-    "OnenoteClient": ("GraphDriveClient", "through GraphOneNoteClient: read_file reads one page by GET "
-                                          "(graph_onenote_client.py:520, graph_onenote_client.py:428), get_schemas "
-                                          "lists pages (graph_onenote_client.py:717)"),
-    "GraphMailClient": ("GraphDriveClient", "read_file reads one message by GET (graph_mail_client.py:344), "
-                                            "get_schemas returns no tables (graph_mail_client.py:373)"),
-    "GraphTeamsClient": ("GraphDriveClient", "read_file reads one thread or chat window by GET "
-                                             "(graph_teams_client.py:798, graph_teams_client.py:714), get_schemas "
-                                             "returns no tables (graph_teams_client.py:824)"),
-    "McpClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (mcp_client.py:141)"),
-    "CustomApiClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (custom_api_client.py:45)"),
-    "RemoteServerClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (remote_server_client.py:37)"),
-    "RemoteSMBClient": ("ToolProviderClient", f"{_NO_EXECUTE_QUERY} (remote_server_client.py:452)"),
+_REMOTE_SERVER_OVERRIDES = frozenset({
+    "_auth_workspace", "_inspect", "_inspect_agentless", "_pool_fingerprint", "_shell", "_ssh", "_ssh_session",
+    "_validate", "acall_authorized", "acall_human_approved", "call_tool", "config_class", "credential_classes",
+    "list_tools", "server_url", "test_connection",
+})
+_INHERITS_EXEMPTION: dict[tuple[str, str], tuple[str, frozenset[str], str]] = {
+    (f"{_C}.sap_bw_xmla_client", "SapBwXmlaClient"): (
+        "XmlaClient",
+        frozenset({"DEFAULT_XMLA_PATH", "EMPTY_NOTE", "META_KEY", "PATH_HINT", "PRODUCT_NAME", "QUERY_REQUIRED_MSG",
+                   "_build_endpoint", "description", "system_prompt"}),
+        "overrides construction (sap_bw_xmla_client.py:46), the endpoint URL "
+        "(sap_bw_xmla_client.py:84) and prompt text (sap_bw_xmla_client.py:110) only"),
+    (f"{_C}.infor_olap_client", "InforOlapClient"): (
+        "XmlaClient",
+        frozenset({"EMPTY_NOTE", "META_KEY", "PATH_HINT", "PRODUCT_NAME", "QUERY_REQUIRED_MSG", "_connect_gateway",
+                   "_discover_datasources", "_ensure_gateway_token", "_pick_datasource", "_property_list_xml",
+                   "_resolve_worker_url", "_rewrite_host", "_soap_call", "connect", "description", "system_prompt",
+                   "test_connection"}),
+        "overrides the transport only: connect (infor_olap_client.py:95), _soap_call "
+        "adding a gateway token to the body it is given (infor_olap_client.py:153), "
+        "request context (infor_olap_client.py:217); XmlaClient.execute_query checks "
+        "the statement before any of them runs"),
+    (f"{_C}.git_repo_client", "GitHubRepoClient"): _GIT_REPO,
+    (f"{_C}.git_repo_client", "GitLabRepoClient"): _GIT_REPO,
+    (f"{_C}.git_repo_client", "BitbucketRepoClient"): _GIT_REPO,
+    (f"{_C}.graph_drive_client", "SharepointClient"): (
+        "GraphDriveClient",
+        frozenset({"_iter_listing_files", "alist_files_bounded", "list_files_bounded"}),
+        "presets the mode (graph_drive_client.py:1563) and lists folders by GET "
+        "(graph_drive_client.py:1567); read_file is GraphDriveClient's"),
+    (f"{_C}.graph_drive_client", "OnedriveClient"): (
+        "GraphDriveClient", frozenset(),
+        "presets the mode and recursion only (graph_drive_client.py:1638)"),
+    (f"{_C}.graph_onenote_client", "OnenoteClient"): (
+        "GraphDriveClient",
+        frozenset({"_base", "_by_id", "_enforce_page_scope", "_get_all", "_group_chain", "_has_user_token",
+                   "_page_html", "_page_media", "_prior_meta", "_public", "_resource_bytes", "_section_groups",
+                   "_section_pages", "_sections", "_walk", "capabilities", "catalog_identity_available",
+                   "description", "file_version", "get_schema", "get_schemas", "grep_files", "is_document_based",
+                   "list_files", "page_text", "read_file", "read_raw_bytes", "search_files", "test_connection"}),
+        "through GraphOneNoteClient: read_file reads one page by GET "
+        "(graph_onenote_client.py:520, graph_onenote_client.py:428), get_schemas "
+        "lists pages (graph_onenote_client.py:717)"),
+    (f"{_C}.graph_mail_client", "GraphMailClient"): (
+        "GraphDriveClient",
+        frozenset({"_addr", "_collect", "_folder_path_by_id", "_messages_base", "_msg_to_item", "capabilities",
+                   "get_schemas", "list_files", "list_mail_folders", "list_messages", "read_file", "read_raw_bytes",
+                   "resolve_mail_folder", "search_files", "search_messages", "test_connection"}),
+        "read_file reads one message by GET (graph_mail_client.py:344), "
+        "get_schemas returns no tables (graph_mail_client.py:373)"),
+    (f"{_C}.graph_teams_client", "GraphTeamsClient"): (
+        "GraphDriveClient",
+        frozenset({"_annotate_chat", "_annotate_thread", "_channel_base", "_channel_threads", "_chat_row",
+                   "_context_line", "_conv_name", "_conversation_by_id", "_conversation_rows", "_find_root",
+                   "_folder", "_hit_row", "_is_user_message", "_read_channel_thread", "_read_chat_window",
+                   "_read_recent", "_row", "_search_page", "_search_walk", "_sender", "_text", "_whoami",
+                   "capabilities", "description", "get_schemas", "list_conversations", "list_files",
+                   "list_messages", "read_file", "read_raw_bytes", "resolve_conversation", "search_files",
+                   "search_messages", "test_connection"}),
+        "read_file reads one thread or chat window by GET "
+        "(graph_teams_client.py:798, graph_teams_client.py:714), get_schemas "
+        "returns no tables (graph_teams_client.py:824)"),
+    (f"{_C}.mcp_client", "McpClient"): (
+        "ToolProviderClient",
+        frozenset({"_MAX_RESOURCES", "_acall_tool", "_alist_tools", "_atest_connection", "_block_part",
+                   "_build_headers", "_call_once", "_call_session", "_connect", "_detect_content_type",
+                   "_extract_binaries", "_extract_error_message", "_extract_result_data", "_merge_structured",
+                   "_parse_text", "_unwrap_exception", "acall_tool", "alist_resource_templates", "alist_resources",
+                   "alist_tools", "aread_resource", "atest_connection", "call_tool", "list_tools",
+                   "test_connection"}),
+        f"{_NO_EXECUTE_QUERY} (mcp_client.py:141)"),
+    (f"{_C}.custom_api_client", "CustomApiClient"): (
+        "ToolProviderClient",
+        frozenset({"_BEARER_AUTH_TYPES", "_BODYLESS_METHODS", "_DEFAULT_TIMEOUT_S", "_MAGIC", "_MAX_TIMEOUT_S",
+                   "_PER_USER_OAUTH_TYPES", "_WRITE_METHODS", "_build_headers", "_build_result", "_csrf_rejected",
+                   "_detect_content_type", "_endpoint_default_policy", "_extract_error_message",
+                   "_fetch_csrf_token", "_find_endpoint", "_is_pinned", "_is_texty", "_param_json_schema",
+                   "_prepare_request", "_sniff_mime", "_timeout_for", "call_tool", "list_tools", "server_url",
+                   "test_connection"}),
+        f"{_NO_EXECUTE_QUERY} (custom_api_client.py:45)"),
+    (f"{_C}.remote_server_client", "RemoteServerClient"): (
+        "ToolProviderClient", _REMOTE_SERVER_OVERRIDES, f"{_NO_EXECUTE_QUERY} (remote_server_client.py:37)"),
+    (f"{_C}.remote_server_client", "RemoteSMBClient"): (
+        "ToolProviderClient", _REMOTE_SERVER_OVERRIDES, f"{_NO_EXECUTE_QUERY} (remote_server_client.py:452)"),
 }
 
 
@@ -309,20 +377,32 @@ def _declared_owner(cls):
     return next((base for base in cls.__mro__ if (base.__module__, base.__qualname__) in EXEMPT_CLIENTS), None)
 
 
-def _undecided_inheritors(classes, decided) -> set[str]:
-    return {cls.__name__ for cls in classes
+def _overrides(cls) -> frozenset[str]:
+    """Every name `cls` and the classes between it and its declared owner
+    define, but dunders and ABCMeta's own `_abc_impl`."""
+    below = cls.__mro__[: cls.__mro__.index(_declared_owner(cls))]
+    return frozenset(name for base in below for name in vars(base)
+                     if not (name.startswith("__") and name.endswith("__")) and name != "_abc_impl")
+
+
+def _undecided_inheritors(classes, decided) -> set[tuple[str, str]]:
+    """The exempt classes with no declaration of their own and no decision,
+    or whose overrides are not the ones decided."""
+    return {(cls.__module__, cls.__qualname__) for cls in classes
             if classify(object.__new__(cls)) == "exempt"
             and (cls.__module__, cls.__qualname__) not in EXEMPT_CLIENTS
-            and cls.__name__ not in decided}
+            and ((cls.__module__, cls.__qualname__) not in decided
+                 or decided[(cls.__module__, cls.__qualname__)][1] != _overrides(cls))}
 
 
 def test_every_class_exempt_through_a_parent_is_decided(classes):
     assert _undecided_inheritors(classes + [BowClient], _INHERITS_EXEMPTION) == set()
-    by_name = {cls.__name__: cls for cls in classes}
-    for name, (parent, grounding) in _INHERITS_EXEMPTION.items():
-        cls = by_name.get(name)
-        assert cls is not None, f"declared for no class production builds: {name}"
-        assert (cls.__module__, cls.__qualname__) not in EXEMPT_CLIENTS, f"{name} has its own declaration"
+    by_key = {(cls.__module__, cls.__qualname__): cls for cls in classes}
+    for key, (parent, _, grounding) in _INHERITS_EXEMPTION.items():
+        name = key[1]
+        cls = by_key.get(key)
+        assert cls is not None, f"declared for no class production builds: {key}"
+        assert key not in EXEMPT_CLIENTS, f"{name} has its own declaration"
         owner = _declared_owner(cls)
         assert owner is not None and owner.__name__ == parent, (name, parent, owner)
         # Grounded in the subclass's own source: where its overrides are.
@@ -332,6 +412,20 @@ def test_every_class_exempt_through_a_parent_is_decided(classes):
         assert all(1 <= line <= len(source.read_text().splitlines()) for line in lines), (name, lines)
 
 
+def test_a_decided_class_that_gains_an_override_needs_a_new_decision():
+    # A subclass standing in for GitHubRepoClient after an edit that adds a
+    # helper: same module and name, one more override than was decided.
+    from app.data_sources.clients.git_repo_client import GitHubRepoClient
+
+    edited = type("GitHubRepoClient", (GitHubRepoClient,), {
+        "__module__": GitHubRepoClient.__module__,
+        "_list_refs": lambda self: [],
+    })
+    assert _undecided_inheritors([edited], _INHERITS_EXEMPTION) == {(GitHubRepoClient.__module__, "GitHubRepoClient")}
+    unchanged = type("GitHubRepoClient", (GitHubRepoClient,), {"__module__": GitHubRepoClient.__module__})
+    assert _undecided_inheritors([unchanged], _INHERITS_EXEMPTION) == set()
+
+
 def test_a_new_subclass_of_an_exempt_class_needs_a_decision():
     from app.data_sources.clients.network_dir_client import NetworkDirClient
 
@@ -339,7 +433,8 @@ def test_a_new_subclass_of_an_exempt_class_needs_a_decision():
         def read_file(self, *args, **kwargs):
             raise AssertionError("never called")
 
-    assert _undecided_inheritors([_NewSubclass], _INHERITS_EXEMPTION) == {"_NewSubclass"}
+    assert _undecided_inheritors([_NewSubclass], _INHERITS_EXEMPTION) == {
+        (_NewSubclass.__module__, _NewSubclass.__qualname__)}
 
 
 def test_the_accelerated_client_is_exempt_as_checked_at_its_dispatch_point(classes):

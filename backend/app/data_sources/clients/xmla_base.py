@@ -73,10 +73,12 @@ def check_xmla_statement(statement: str) -> None:
     (`_READ_VERBS`); no word of `_REFUSED_WORDS` may appear; nothing but
     comments may follow a ';'. A nested or unterminated comment, an
     unterminated literal and a line end other than LF or CR
-    (`_AMBIGUOUS_LINE_ENDS`) are refused rather than guessed at.
+    (`_AMBIGUOUS_LINE_ENDS`) are refused rather than guessed at. The
+    statement must be an exact str: a subclass could answer the string
+    methods this check or the request builder call differently.
     """
-    if not isinstance(statement, str):
-        raise _xmla_refuse("the statement must be text")
+    if type(statement) is not str:
+        raise _xmla_refuse("the statement must be text (a plain str)")
     if _AMBIGUOUS_LINE_ENDS.search(statement):
         raise _xmla_refuse("use only LF or CR LF line ends")
     first = None

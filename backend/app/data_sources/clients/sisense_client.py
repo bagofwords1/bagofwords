@@ -441,15 +441,20 @@ class SisenseClient(DataSourceClient):
         """
         if not query:
             raise ValueError("SQL query is required")
+        # Checked before any request, the schema lookup for table_name too.
+        check_one_select(query, "sqlite")
 
         # Resolve datasource title from table_name if needed
         if table_name and not datasource_title:
             try:
                 table = self.get_schema(table_name)
-                sis = (table.metadata_json or {}).get("sisense") or {}
-                datasource_title = sis.get("datamodelTitle")
-            except Exception:
-                pass
+            except Exception as e:
+                raise ValueError(
+                    f"Could not find the data model of table_name {table_name!r} ({e}); "
+                    "pass datasource_title instead"
+                ) from e
+            sis = (table.metadata_json or {}).get("sisense") or {}
+            datasource_title = sis.get("datamodelTitle")
 
         if not datasource_title:
             raise ValueError("datasource_title is required (pass table_name or datasource_title)")
