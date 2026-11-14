@@ -97,12 +97,16 @@ def test_the_edit_gate_runs_every_page_check_the_create_gate_runs():
     impl = BACKEND_ROOT / "app" / "ai" / "tools" / "implementations"
 
     def checks(path):
+        import ast
         src = path.read_text(encoding="utf-8")
-        imported = set()
-        for m in re.finditer(r"from app\.ai\.tools\.implementations\._artifact_refs import ([^\n]+)", src):
-            imported.update(n.strip() for n in m.group(1).split(","))
+        imported = {
+            alias.name
+            for node in ast.walk(ast.parse(src))
+            if isinstance(node, ast.ImportFrom) and (node.module or "").endswith("_artifact_refs")
+            for alias in node.names
+        }
         return {n for n in imported if n.endswith("_errors") and re.search(re.escape(n) + r"\(", src)}
 
     create, edit = checks(impl / "create_artifact.py"), checks(impl / "edit_artifact.py")
-    assert "chart_prop_errors" in create
+    assert {"chart_prop_errors", "file_reference_errors"} <= create
     assert create <= edit, f"edit_artifact skips {sorted(create - edit)}"
