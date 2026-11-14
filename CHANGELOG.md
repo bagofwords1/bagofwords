@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.619 (November 14, 2026)
+- Added decision models as a new model kind, and an option for the Auto router to pick a request's starting model upfront with one (#1721) — Auto router → "Decision model" (default: Small model)
+- Added inviting a member with several roles and groups in one step (#1718)
+- Fixed image-generation models appearing in chat model pickers; a saved pick falls back to the next default (#1722)
+- Fixed invites with a custom role leaving the new member with no role, and group assignment failing for existing accounts (#1718)
+- Fixed agent-built pages saving with a "File not found" image or PDF when the agent forgot to attach it (#1720)
+- Added detaching a file from an agent-built page, so a replaced logo stops being readable by its viewers (#1720)
+
 ## Version 0.0.618 (November 13, 2026)
 - Added an admin console: Admin swaps the sidebar for the admin menu, and every settings page shares one layout (#1710)
 - Added requesting view access to a dashboard you can't open; editors approve or deny from the share settings (#1706) — "Allow access requests" in AI settings (default: on)
