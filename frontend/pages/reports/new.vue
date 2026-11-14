@@ -45,7 +45,7 @@
 					:projectSelectable="true"
 					:initialSelectedDataSources="initialAgents"
 					:initialMode="initialMode"
-                    :initial-folder-id="typeof route.query.folder === 'string' ? route.query.folder : undefined"
+                    :initial-folder-ids="initialFolders"
 					:textareaContent="prefill"
 					:compact="isExcel"
 					@update:modelValue="(v: string) => prefill = v"
@@ -89,7 +89,7 @@ definePageMeta({
 
 const route = useRoute()
 const { isExcel } = useExcel()
-const { agents, selectedAgentObjects, effectiveAgentObjects } = useAgent()
+const { agents, selectedAgentObjects, effectiveAgentObjects, selectedFolders } = useAgent()
 const { projects, fetchProjects } = useProjects()
 
 // ── Draft context, all carried in the query string ──────────────────────
@@ -132,6 +132,10 @@ const draftProject = computed(() => {
 // and misses agents created since. Dropping the id would leave the selection
 // empty — which is Auto — and a prompt sent then would create an Auto report.
 // The selector fills in the full object from its own fetch (alignSelection).
+const initialFolders = computed(() => {
+    if (typeof route.query.folder === 'string' && route.query.folder) return [route.query.folder]
+    return projectId.value || agentIds.value.length ? [] : [...selectedFolders.value]
+})
 const initialAgents = computed(() => {
 	if (route.query.folder) return []
 	if (agentIds.value.length) {

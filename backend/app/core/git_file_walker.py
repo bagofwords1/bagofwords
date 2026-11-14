@@ -153,6 +153,9 @@ def walk_repo_files(
             if ext not in ALLOWED_EXTENSIONS:
                 continue
 
+            if fpath.relative_to(repo_root).as_posix() == "bow/.bow-manifest.json":
+                continue
+
             # .bowignore check (before expensive I/O)
             rel = fpath.relative_to(repo_root)
             if bowignore_spec and bowignore_spec.match_file(rel.as_posix()):

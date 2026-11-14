@@ -25,7 +25,7 @@
         </p>
       </div>
       <div class="mt-4">
-        <PromptBoxV2 allow-folder-scope
+        <PromptBoxV2 allow-folder-scope :initial-folder-ids="[...selectedFolders]" @update:folder-ids="selectFolders"
           :textareaContent="textareaContent"
           :initialSelectedDataSources="selectedDataSources"
           :compact="true"
@@ -77,7 +77,7 @@
            then snapped to the report column the moment the report existed.
            The box you type into should not resize when you press enter. -->
       <div class="w-full max-w-chat mx-auto mt-5 rounded-lg relative z-20">
-          <PromptBoxV2 allow-folder-scope
+          <PromptBoxV2 allow-folder-scope :initial-folder-ids="[...selectedFolders]" @update:folder-ids="selectFolders"
               :textareaContent="textareaContent"
               :initialSelectedDataSources="selectedDataSources"
               @update:modelValue="handlePromptUpdate"
@@ -184,7 +184,7 @@ import McpIcon from '~/components/icons/McpIcon.vue';
 import { useCan } from '~/composables/usePermissions'
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
-const { selectedAgentObjects, effectiveAgentObjects, selectedAgents, selectAgents } = useAgent()
+const { selectedAgentObjects, effectiveAgentObjects, selectedAgents, selectAgents, selectedFolders, selectFolders } = useAgent()
 const previous_reports = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)

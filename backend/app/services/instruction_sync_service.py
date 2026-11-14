@@ -1061,6 +1061,53 @@ class InstructionSyncService:
     # NEW: Instruction-first flow (1 file = 1 instruction)
     # ========================================
     
+    async def _git_targets(self, db, path, frontmatter, org, repo, data_source):
+        """Resolve managed directories against this workspace before publishing any content."""
+        from pathlib import PurePosixPath
+        from app.services.git_folder_layout import GitFolderLayout
+        from app.core.permission_resolver import resolve_permissions
+
+        parts = PurePosixPath(path).parts
+        # The file walker prefixes repository-relative paths with the repo name.
+        if len(parts) > 1 and parts[1] == 'bow':
+            parts = parts[1:]
+        directory = '/'.join(parts[1:-1]) if parts and parts[0] == 'bow' else ''
+        targets = frontmatter.get('bow_targets')
+        if directory.startswith('folders/'):
+            targets = [directory]
+        elif targets is None:
+            return None
+        if not isinstance(targets, list) or not targets or not all(isinstance(t, str) for t in targets):
+            raise ValueError("Invalid Git instruction targets")
+        layout = await GitFolderLayout.load(db, org.id)
+        folder_ids = {path: fid for fid, path in layout.folders.items()}
+        agent_ids = {path: aid for aid, path in layout.agents.items()}
+        folders, agents = [], []
+        rights = await resolve_permissions(db, repo.user_id, org.id)
+        for target in dict.fromkeys(targets):
+            fid, aid = folder_ids.get(target), agent_ids.get(target)
+            if fid and rights.has_resource_permission('folder', fid, 'manage_instructions'):
+                folders.append(fid)
+            elif aid and rights.has_resource_permission('data_source', aid, 'manage_instructions'):
+                agents.append(aid)
+            else:
+                raise ValueError("Git instruction target is unavailable")
+        if data_source and (folders or agents != [data_source.id]):
+            raise ValueError("Git instruction targets exceed repository agent scope")
+        return folders, agents
+
+    async def _apply_git_targets(self, db, instruction, targets):
+        from app.models.folder import folder_instructions
+        folders, agents = targets
+        instruction.scope_mode = 'targeted'
+        await db.refresh(instruction, ['data_sources'])
+        instruction.data_sources = list(await db.scalars(select(DataSource).where(
+            DataSource.organization_id == instruction.organization_id, DataSource.id.in_(agents))))
+        await db.execute(folder_instructions.delete().where(folder_instructions.c.instruction_id == instruction.id))
+        if folders:
+            await db.execute(folder_instructions.insert(), [
+                {'instruction_id': instruction.id, 'folder_id': fid} for fid in folders])
+
     async def sync_file_to_instruction(
         self,
         db: AsyncSession,
@@ -1107,11 +1154,27 @@ class InstructionSyncService:
 
         # Rule 4: Linked -> Update text field directly
         # Check if content actually changed (using hash)
-        if existing.content_hash == content_hash:
+        frontmatter = self._parse_frontmatter_from_content(file_content)
+        targets = await self._git_targets(db, file_path, frontmatter, organization, git_repo, data_source)
+        scoped_before = self._parse_frontmatter_from_content(existing.text or '').get('bow_targets')
+        if scoped_before and targets is None:
+            raise ValueError("Missing targets for scoped Git instruction")
+        if existing.content_hash == content_hash and targets is None:
             existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
             await db.commit()
             return existing
 
+        if targets is not None:
+            from app.services.folder_knowledge import instruction_folder_ids
+            await db.refresh(existing, ['data_sources'])
+            unchanged = (existing.scope_mode == 'targeted'
+                and set(await instruction_folder_ids(db, existing.id)) == set(targets[0])
+                and {ds.id for ds in existing.data_sources} == set(targets[1]))
+            if existing.content_hash == content_hash and unchanged:
+                existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
+                await db.commit()
+                return existing
+            await self._apply_git_targets(db, existing, targets)
         # Content changed - update
         ext = PurePath(file_path).suffix.lower()
         existing.text = file_content
@@ -1278,7 +1341,11 @@ class InstructionSyncService:
             },
         )
 
+        targets = await self._git_targets(db, file_path, frontmatter, organization, git_repo, data_source)
         db.add(instruction)
+        await db.flush()
+        if targets is not None:
+            await self._apply_git_targets(db, instruction, targets)
         await db.commit()
         # Explicitly load the data_sources collection — Instruction.data_sources
         # is lazy="raise", so any access (including .append) without an
@@ -1286,7 +1353,7 @@ class InstructionSyncService:
         await db.refresh(instruction, ['data_sources'])
 
         # Associate instruction with the data source
-        if data_source:
+        if data_source and targets is None:
             instruction.data_sources.append(data_source)
             await db.commit()
 

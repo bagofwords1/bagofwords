@@ -851,6 +851,9 @@ class MetadataIndexingJobService:
 
                 logger.info(f"Job {job_id}: Synced {synced_count}/{total_files} files ({sync_errors} errors)")
 
+                if sync_errors:
+                    raise ValueError(f"Git sync failed for {sync_errors} file(s). Check the indexing log before retrying.")
+
                 # Phase 4: Archive deleted files (scoped to this repo)
                 current_paths = {f.relative_path for f in files}
                 path_prefix = f"{repo_name}/"

@@ -496,3 +496,16 @@ In a seeded organization with Marketing → Acquisition, open the scheduled-task
 Repeat the search in a new report. In Connected applications, save Marketing and Acquisition together and inspect the response for both folder IDs. In the role editor, search for Marketing / Acquisition and add the matching folder. Its access row should identify the full path. These four flows were exercised in Chrome against a seeded sandbox.
 
 Use `AgentFolderTree.vue` for folder rows. Callers supply eligible folders and selected IDs and handle selection separately from expansion. `AgentFolderChoices.vue` adapts selectors that operate on the folder’s eligible member agents.
+
+### Git round trip and personal folder selection
+
+From `backend/`, run the two checks against a disposable SQLite database:
+
+    TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db .venv/bin/pytest -q tests/unit/test_git_write_layout.py tests/e2e/test_git_sync_builds.py
+    TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db .venv/bin/pytest -q tests/e2e/rbac/test_user_default_agents.py
+
+Before this change, the layout test could only find a folder-only rule under `bow/global`, and the preference response omitted `agent_folder_ids`. The regression cases verify a nested folder round trip, a rule shared across two folders and an agent, rejection when a target becomes unavailable, a mixed personal selection, and isolation between workspace members.
+
+The Git hierarchy mirrors existing workspace folders containing instructions in the build. A marketing rule can live at `bow/folders/marketing/brand/route.md`. An agent there uses `agents/<agent-name>/` beneath the folder. A shared rule has one file under `bow/shared/` with its targets in frontmatter. Import resolves the targets against the organization and checks the repository owner's instruction-management access. An unresolved target fails the sync. Empty directories have no Git representation. Git sync continues to operate on instruction builds.
+
+On Home, select a folder and reload. Open the picker again and check its selection, then open a new report with no explicit project or agent. Chrome showed the folder selected in both places. Existing reports retain their own scope.
