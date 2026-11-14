@@ -1,4 +1,12 @@
 {
+  "folderRemoval": {
+    "danger": "Danger zone",
+    "title": "Delete {name}?",
+    "keep": "Delete folder only",
+    "keepHint": "Move its contents to the destination below. Folder knowledge needs a destination folder.",
+    "contents": "Delete folder and contents",
+    "contentsHint": "Delete descendant agents and exclusive knowledge. Keep shared items."
+  },
   "sharedFolders": {
     "chooseScope": "Choose agents or folders",
     "moveAgent": "Move agent",

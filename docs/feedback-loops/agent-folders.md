@@ -517,3 +517,9 @@ In the seeded workspace, set the personal scope to Auto. Open an existing report
 For Git sync, run `tests/unit/test_git_write_layout.py` and `tests/e2e/test_git_sync_builds.py` from the backend. The tests cover a same-workspace export returning through the importer, a shared rule missing its targets, loss of permission on a former target, and an agent nested beneath a hidden ancestor. The rollback test rejects the second file after the first file's normal import path commits, then checks both the instruction list and the main build.
 
 Run `tests/e2e/rbac/test_agent_folders.py` for the 300-agent roster and folder eval cases. A pinned eval retains its folder context and limits planner discovery to the case targets. Run `tests/e2e/rbac/test_rbac_console_scope.py::test_folder_activity_only_discloses_observed_managed_agent` for multi-folder trace attribution. Migration `folder12` records starting folders on new executions. Older executions retain their recorded primary folder.
+
+### Folder settings and removal
+
+Open a folder as a manager. The overview ends with its access list and a collapsed danger zone. Open the share dialog from a member row to change that grant. A query-only member should see neither management control. Expand the danger zone and choose whether to move the contents or delete the branch.
+
+Run `tests/e2e/rbac/test_folder_removal.py` against SQLite and PostgreSQL. It checks moving agents, subfolders and knowledge to the parent, preserving externally shared instructions, denying deletion at a limited-access boundary, and deleting exclusive instructions and eval suites. The failure-injection step interrupts deletion after agent cleanup and checks that the agent, folder instruction and uploaded file content are still available.
