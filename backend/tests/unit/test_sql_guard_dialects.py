@@ -457,6 +457,156 @@ def test_a_function_that_reads_a_join_table_or_a_dictionary_by_name_is_refused_b
         check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
 
 
+def _sqlglot_cte_names(sql: str, dialect: str) -> set:
+    """The WITH entry names sqlglot reads in `sql`, lowered as sqlglot
+    compares them."""
+    return {cte.alias_or_name.lower() for s in parse_guard_sql(sql, dialect) if s is not None
+            for cte in s.find_all(exp.CTE)}
+
+
+# A WITH entry stands for a table of its name only when it is a query named
+# exactly as the table is written; otherwise ClickHouse reads the table
+# (live dialect tests). sqlglot reads a CTE named `secret`.
+CLICKHOUSE_WITH_NAMES_A_TABLE = [
+    "WITH SECRET AS (SELECT 7 AS x) SELECT x FROM secret",
+    "WITH Secret AS (SELECT 7 AS x) SELECT id FROM orders JOIN secret ON 1 = 1",
+    "WITH 1 AS secret SELECT x FROM secret",
+    "WITH (SELECT 7) AS secret SELECT x FROM secret",
+    "WITH 'a' AS secret SELECT x FROM orders JOIN secret ON 1 = 1",
+    "WITH 1 AS secret SELECT * FROM (SELECT x FROM secret)",
+    "WITH 1 AS secret SELECT id FROM orders WHERE 42 IN (SELECT x FROM secret)",
+    "WITH secret AS (SELECT 1), 1 AS secret SELECT x FROM secret",
+    "WITH secret AS (SELECT 1) SELECT * FROM (WITH 1 AS secret SELECT x FROM secret)",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_WITH_NAMES_A_TABLE)
+def test_a_scalar_or_differently_named_with_entry_does_not_stand_for_the_table_on_clickhouse(sql):
+    assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+# IN sets ClickHouse reads from the disabled table: an alias around the
+# name, WITH entries followed through every entry of the WITH by exact name,
+# and words sqlglot reads as keywords after IN (live dialect tests).
+CLICKHOUSE_IN_SET_TABLE = [
+    "SELECT id FROM orders WHERE globalIn(42, secret AS s)",
+    "SELECT id FROM orders WHERE globalIn(42, (secret AS s))",
+    "SELECT id FROM orders WHERE notIn(42, secret AS s)",
+    "SELECT arrayMap(v -> globalIn(v, secret AS s), [42]) FROM orders",
+    "SELECT arrayExists(v -> v IN secret, [42]) FROM orders",
+    "WITH (secret AS x) AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH secret AS s, (s AS q) AS t SELECT id FROM orders WHERE 42 IN t",
+    "WITH orders AS t, secret AS orders SELECT 42 IN t",
+    "WITH 1 AS SECRET SELECT id FROM orders WHERE 42 IN secret",
+    "WITH 1 AS SECRET, secret AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH 1 AS s, secret AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH secret AS s, 1 AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH secret AS s SELECT * FROM (WITH 1 AS s SELECT id FROM orders WHERE 42 IN s)",
+    "WITH secret AS s SELECT id FROM orders WHERE 42 IN `s`",
+    "WITH secret AS s SELECT id FROM orders WHERE id IN (s, 1)",
+    "WITH secret AS s SELECT id FROM orders WHERE (id, 1) IN ((s, 1))",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_IN_SET_TABLE)
+def test_an_in_set_that_names_a_disabled_table_through_aliases_or_with_entries_is_refused_on_clickhouse(sql):
+    _hidden_from_sqlglot("ClickhouseClient", sql)
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+# IN sets table scope cannot read as one of its shapes: sqlglot left the
+# set empty or read something else there, an IN function with another
+# number of arguments, a WITH entry that holds neither a value, a name nor
+# a query, a loop of WITH entries.
+CLICKHOUSE_IN_SET_UNREAD = [
+    "SELECT id FROM orders WHERE 42 IN sample",
+    "SELECT id FROM orders WHERE 42 IN tablesample",
+    "SELECT id FROM orders WHERE 42 IN fetch",
+    "SELECT id FROM orders WHERE 42 IN notnull",
+    "SELECT id FROM orders WHERE 42 IN current_date",
+    "SELECT id FROM orders WHERE globalIn(42, current_date)",
+    "SELECT id FROM orders WHERE id IN ()",
+    "SELECT id FROM orders WHERE id IN tuple(1, 2)",
+    "SELECT id FROM orders WHERE id IN (1, today())",
+    "SELECT id FROM orders WHERE globalIn(42)",
+    "SELECT id FROM orders WHERE globalIn(42, events, 1)",
+    "WITH concat('se', 'cret') AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH t AS s, s AS t SELECT id FROM orders WHERE 42 IN s",
+    "SELECT id FROM orders WHERE 42 IN a.b.c.d",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_IN_SET_UNREAD)
+def test_an_in_set_outside_the_shapes_table_scope_reads_is_refused_on_clickhouse(sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH 5 AS n SELECT id FROM orders WHERE id IN (n, 1)",
+    "WITH -5 AS n, n AS m SELECT id FROM orders WHERE id NOT IN m",
+    "WITH [1, 2] AS ids SELECT id FROM orders WHERE id IN ids",
+    "WITH ('a', 'b') AS ss SELECT id FROM orders WHERE status GLOBAL IN (ss)",
+    "SELECT id FROM orders WHERE (id, 'a') IN ((1, 'a'), (2, 'b'))",
+    "SELECT id FROM orders WHERE id IN [1, -2] AND flag IN (TRUE, NULL)",
+    "WITH o AS (SELECT id FROM events) SELECT id FROM orders WHERE globalIn(id, o)",
+    "WITH (SELECT max(id) FROM events) AS m SELECT id FROM orders WHERE id IN m",
+    "SELECT id FROM orders WHERE id IN (SELECT id FROM events) AND notIn(id, events)",
+    "WITH Orders AS (SELECT id FROM events) SELECT * FROM Orders",
+])
+def test_in_over_values_names_of_values_queries_and_active_tables_still_reads_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+def test_the_tables_read_on_clickhouse_follow_every_with_entry_of_an_in_set_name():
+    sql = "WITH events AS t, secret AS events SELECT id FROM orders WHERE 42 IN t"
+    statement = parse_guard_sql(sql, "clickhouse")[0]
+    assert tables_read(statement, "clickhouse") == [("orders",), ("secret",)]
+
+
+# Query settings that hold SQL (or anything outside the common ones) are
+# refused, wherever the SELECT stands (live dialect tests).
+CLICKHOUSE_SETTINGS_REFUSED = [
+    "SELECT count() FROM orders SETTINGS additional_table_filters = {'orders': '42 IN secret'}",
+    "SELECT count() FROM orders SETTINGS additional_result_filter = '1 IN secret'",
+    "SELECT count() FROM orders SETTINGS parallel_replicas_custom_key = 'x IN secret'",
+    "SELECT * FROM (SELECT count() FROM orders SETTINGS additional_table_filters = {'orders': '1'})",
+    "SELECT id FROM orders WHERE id IN (SELECT id FROM events SETTINGS additional_result_filter = '1')",
+    "SELECT count() FROM orders SETTINGS max_threads = 2, readonly = 0",
+    "SELECT count() FROM orders SETTINGS max_threads = (SELECT 2)",
+    "SELECT count() FROM orders SETTINGS MAX_THREADS = 2",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_SETTINGS_REFUSED)
+def test_a_query_setting_outside_the_common_ones_is_refused_by_table_scope_on_clickhouse(sql):
+    with pytest.raises(TableScopeViolation, match="setting"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT count() FROM orders SETTINGS max_execution_time = 5",
+    "SELECT count() FROM orders SETTINGS max_threads = 2, max_result_rows = 100, result_overflow_mode = 'break'",
+    "SELECT * FROM (SELECT id FROM orders SETTINGS max_rows_to_read = 1000) SETTINGS join_use_nulls = 1",
+])
+def test_common_query_settings_still_read_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT hasColumnInTable('default', 'secret', 'x') FROM orders",
+    "SELECT `hasColumnInTable`('db', 'secret', 'x') FROM orders",
+    "SELECT dictGetAll('secret_dict', 'x', toUInt64(1)) FROM orders",
+])
+def test_a_function_that_reads_a_table_s_metadata_by_name_is_refused_by_table_scope_on_clickhouse(sql):
+    _hidden_from_sqlglot("ClickhouseClient", sql)
+    with pytest.raises(TableScopeViolation, match="not allowed"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
 @pytest.mark.parametrize("sql", [
     "SELECT x, -.5from secret",
     "SELECT id FROM orders UNION ALL SELECT 1-.5from secret",

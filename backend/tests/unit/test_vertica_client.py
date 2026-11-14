@@ -212,6 +212,39 @@ def test_a_failed_connect_is_raised_with_the_driver_error_as_its_cause(server, m
     assert raised.value.__cause__ is refused
 
 
+def test_a_failed_connect_names_the_driver_error_by_type_only(server, monkeypatch):
+    # A driver message may hold connection details; the cause keeps it.
+    def connect(**params):
+        raise vertica_python.errors.ConnectionError("host vertica-a.invalid user reader password=pw refused")
+
+    monkeypatch.setattr(vertica_python, "connect", connect)
+    with pytest.raises(RuntimeError) as raised:
+        _client().execute_query("SELECT 1")
+    assert str(raised.value) == "Failed to connect to Vertica (ConnectionError)"
+
+
+def test_a_catalog_read_that_falls_back_to_the_basic_one_is_logged_by_type_only(server, monkeypatch, caplog):
+    import logging
+
+    execute = FakeCursor.execute
+
+    def refuse_comments(self, operation, *args, **kwargs):
+        if "v_catalog.comments" in operation:
+            raise vertica_python.errors.ProgrammingError("Permission denied for v_catalog.comments password=pw")
+        return execute(self, operation, *args, **kwargs)
+
+    monkeypatch.setattr(FakeCursor, "execute", refuse_comments)
+    server.columns = ["table_schema", "table_name", "object_type", "column_name", "data_type"]
+    server.rows = [("public", "orders", "TABLE", "id", "int")]
+    logger = logging.getLogger("app.data_sources.clients.vertica_client")
+    logger.disabled = False
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        tables = _client().get_tables()
+    assert [(t.name, [c.name for c in t.columns]) for t in tables] == [("orders", ["id"])]
+    assert [r.getMessage() for r in caplog.records] == [
+        "vertica: reading the catalog with comments failed (ProgrammingError); reading it without them"]
+
+
 def test_a_failed_close_is_logged_by_type_only_and_the_result_still_returned(server, monkeypatch, caplog):
     import logging
 

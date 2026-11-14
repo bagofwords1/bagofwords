@@ -55,7 +55,9 @@ class VerticaClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Vertica: {e}") from e
+            # The type only: a driver message may hold connection details
+            # (the cause keeps it).
+            raise RuntimeError(f"Failed to connect to Vertica ({type(e).__name__})") from e
         try:
             yield conn
         finally:
@@ -98,7 +100,9 @@ class VerticaClient(DataSourceClient):
             return self._get_tables_enriched()
         except IndexingCancelled:
             raise
-        except Exception:
+        except Exception as e:
+            logger.warning("vertica: reading the catalog with comments failed (%s); reading it without them",
+                           type(e).__name__)
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:

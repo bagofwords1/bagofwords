@@ -244,6 +244,11 @@ _OTHER_DIALECTS = {
         "SELECT * FROM orders WHERE status IN ('open', 'paid') AND id NOT IN (1, 2)",
         "SELECT * FROM orders WHERE customer_id GLOBAL IN (SELECT id FROM customers WHERE region = 'EU')",
         "WITH c AS (SELECT id FROM customers) SELECT * FROM orders WHERE customer_id IN c",
+        "WITH [1, 2] AS ids, 'open' AS s SELECT * FROM orders WHERE id IN ids AND status IN (s, 'paid')",
+        "SELECT * FROM orders WHERE (id, status) IN ((1, 'open'), (2, 'paid')) AND id NOT IN [3, -4]",
+        "WITH Recent AS (SELECT id FROM orders WHERE created_at >= today() - 7) SELECT count() FROM Recent",
+        "SELECT count() FROM orders SETTINGS max_execution_time = 30, max_threads = 4",
+        "SELECT * FROM orders LIMIT 100 SETTINGS max_result_rows = 1000, result_overflow_mode = 'break'",
     ],
     "databricks": [
         "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY 1",

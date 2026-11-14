@@ -100,6 +100,36 @@ def test_no_table_read_passes_and_every_query_must_be_scoped():
                   v, "PostgresqlClient") is not None
 
 
+# ClickHouse reads rows without naming a table in FROM: the set of an IN
+# (a table name, also through a WITH alias or an IN function) and the
+# functions that read a dictionary or a Join table by name. Such a query
+# reads rows, so it is not "a query that reads no table".
+CLICKHOUSE_ROW_READS_WITHOUT_FROM = [
+    "SELECT dictGet('users_dict', 'region', toUInt64(1)) AS region",
+    "SELECT joinGet('users_join', 'region', toUInt64(1)) AS region",
+    "SELECT '{v}' IN users AS is_user",
+    "SELECT globalIn('{v}', users) AS is_user",
+    "WITH users AS u SELECT '{v}' IN u AS is_user",
+    "SELECT 1 AS hit WHERE globalIn('{v}', users AS s)",
+    "SELECT * FROM (SELECT dictGet('users_dict', 'region', toUInt64(1)) AS region)",
+]
+
+
+@pytest.mark.parametrize("query", CLICKHOUSE_ROW_READS_WITHOUT_FROM)
+def test_a_clickhouse_query_that_reads_rows_without_a_from_table_is_not_counted_as_reading_nothing(query):
+    assert _check([query], "sarah@example.com", "ClickhouseClient") is not None
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT 1",
+    "SELECT '{v}' IN ('{v}', 'x') AS mine",
+    "WITH (1, 2) AS ids SELECT 3 IN ids",
+    "SELECT * FROM users WHERE email = '{v}'",
+])
+def test_a_clickhouse_query_that_reads_no_rows_or_is_scoped_still_passes(query):
+    assert _check([query], "sarah@example.com", "ClickhouseClient") is None
+
+
 def test_multiple_identity_params_each_must_bind():
     specs = [ParamSpec.model_validate(s) for s in (
         {"name": "email", "type": "string", "source": "identity"},

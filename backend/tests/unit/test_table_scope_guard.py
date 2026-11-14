@@ -318,6 +318,54 @@ def test_ctes_in_scope_still_run(dialect, sql):
     check_table_scope(sql, dialect, SCOPE)
 
 
+# A table reference is a CTE only when it is written exactly as the CTE's
+# name: same letters, same case, same quoting. Engines differ in how they
+# compare the two (ClickHouse and MySQL 8 compare CTE names case by case;
+# Snowflake and Oracle fold unquoted names to upper case and keep quoted
+# ones), so any other spelling is checked as the table it may be.
+CTE_NAMED_OTHERWISE = [
+    "WITH PAYROLL AS (SELECT 1) SELECT * FROM payroll",
+    "WITH Payroll AS (SELECT 1) SELECT * FROM sales.orders JOIN payroll ON 1 = 1",
+    "WITH payroll AS (SELECT 1) SELECT * FROM (SELECT * FROM PAYROLL) t",
+]
+
+
+@pytest.mark.parametrize("dialect", ["mysql", "clickhouse", "snowflake", "oracle", "tsql", "bigquery", "duckdb",
+                                     "trino", "databricks", "sqlite"])
+@pytest.mark.parametrize("sql", CTE_NAMED_OTHERWISE)
+def test_a_cte_written_in_another_case_does_not_stand_for_a_table(dialect, sql):
+    with pytest.raises(TableScopeViolation, match="PAYROLL"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["snowflake", "oracle", "redshift"])
+@pytest.mark.parametrize("sql", [
+    'WITH payroll AS (SELECT 1) SELECT * FROM "payroll"',
+    'WITH "PAYROLL" AS (SELECT 1) SELECT * FROM PAYROLL',
+])
+def test_a_cte_quoted_otherwise_does_not_stand_for_a_table(dialect, sql):
+    with pytest.raises(TableScopeViolation, match="PAYROLL"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH PAYROLL AS (SELECT 1) SELECT * FROM payroll",
+    'WITH payroll AS (SELECT 1) SELECT * FROM "payroll"',
+])
+def test_postgres_compares_a_cte_name_as_postgres_folds_it(sql):
+    # Postgres folds unquoted names (ASCII letters) to lower case and keeps
+    # quoted ones: these name the CTE, as table scope compares Postgres
+    # names; a quoted name in another case does not.
+    check_table_scope(sql, "postgres", SCOPE)
+    with pytest.raises(TableScopeViolation, match="PAYROLL"):
+        check_table_scope('WITH "PAYROLL" AS (SELECT 1) SELECT * FROM payroll', "postgres", SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["mysql", "clickhouse", "snowflake", "oracle", "tsql", "postgres"])
+def test_a_cte_written_as_its_name_still_runs(dialect):
+    check_table_scope("WITH Payroll AS (SELECT * FROM sales.orders) SELECT * FROM Payroll", dialect, SCOPE)
+
+
 def test_tables_read_lists_the_tables_a_statement_reads_by_name_without_its_cte_references():
     """The one walk table scope and the lexer oracle share: every table
     named as an identifier, in order, once each; a CTE reference visible

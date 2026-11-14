@@ -18,7 +18,12 @@ How it works:
 Names are compared the way the engine reads them: Postgres names folded
 as Postgres folds them (unquoted ones with their ASCII letters lowered,
 quoted ones as written) against the names as the catalog stores them;
-other dialects' names case-insensitively.
+other dialects' names case-insensitively. A table reference is set aside
+as a CTE only when a WITH entry holding a query has exactly the name as
+written (for Postgres, as Postgres folds it); any other spelling is
+checked as a table. On ClickHouse, the set of an IN is read only in the
+shapes `_set_item_tables` lists, and a SETTINGS clause only with the
+settings `_CLICKHOUSE_QUERY_SETTINGS` lists; anything else is refused.
 
 The check fails closed. If sqlglot cannot parse the query, reads it
 differently from the engine (`sql_guard.check_engine_reading`), or the query reads
@@ -169,13 +174,24 @@ _DENIED_FUNCTION = re.compile(
     r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_scan|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
     r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc|"
-    r"joinget.*|dictget.*|dicthas|dictisin)$",
+    r"joinget.*|dictget.*|dicthas|dictisin|hascolumnintable)$",
     re.IGNORECASE,
 )
 
 # ClickHouse's IN operators written as functions (globalIn, notNullIn,
 # inIgnoreSet, ...): the second argument is the set, as on the right of IN.
 _IN_FUNCTION = re.compile(r"(global)?(not)?(null)?in(ignoreset)?", re.IGNORECASE)
+
+# ClickHouse query settings an agent query may change (SETTINGS name =
+# value), each with a plain value. Every other setting is refused: some
+# hold SQL text, which table scope cannot check, and a list of those would
+# have to keep up with every server release.
+_CLICKHOUSE_QUERY_SETTINGS = frozenset({
+    "max_execution_time", "max_threads", "max_block_size", "max_memory_usage",
+    "max_rows_to_read", "max_bytes_to_read", "read_overflow_mode",
+    "max_result_rows", "max_result_bytes", "result_overflow_mode",
+    "timeout_overflow_mode", "join_use_nulls", "session_timezone",
+})
 
 
 def _unverifiable_function(name: str) -> TableScopeViolation:
@@ -221,8 +237,13 @@ def _table_ref(table, dialect: str | None) -> Name:
 
 
 def _resolves_to_cte(table, dialect: str | None = None) -> bool:
-    """True when an unqualified table reference names a CTE visible where it
-    stands, the two names compared as `dialect`'s engine compares them.
+    """True when an unqualified table reference names a CTE where it
+    stands: at least one WITH entry visible there has the name as written
+    (`_same_name`), and every such entry holds a query. Anything else is
+    checked as a table: a name written in another case or quoted otherwise
+    (engines differ in how they compare the two), and a WITH entry that
+    holds a value rather than a query (ClickHouse's `WITH 1 AS name`, or
+    `WITH (SELECT ...) AS name`), which does not stand for a table.
 
     A WITH clause is visible only inside the query it belongs to (and the
     queries nested in it), so a CTE defined in a subquery must not exempt a
@@ -230,15 +251,16 @@ def _resolves_to_cte(table, dialect: str | None = None) -> bool:
     a CTE's own body only the CTEs defined before it are visible, plus itself
     when the WITH is RECURSIVE.
     """
-    return _visible_cte(table, dialect) is not None
+    entries = _visible_ctes(table, dialect)
+    return bool(entries) and all(_holds_query(entry) for entry in entries)
 
 
-def _visible_cte(table, dialect: str | None = None):
-    """The CTE an unqualified reference names where it stands (see
-    `_resolves_to_cte`), or None."""
+def _visible_ctes(table, dialect: str | None) -> list:
+    """The WITH entries visible where `table` stands (see
+    `_resolves_to_cte`) whose name is the reference as written."""
     from sqlglot import exp
 
-    name = _name_part(table.this, dialect)
+    found = []
     child, inside_cte = table, None
     node = table.parent
     while node is not None:
@@ -252,28 +274,48 @@ def _visible_cte(table, dialect: str | None = None):
                 visible = ctes[:i] + ([inside_cte] if w.args.get("recursive") else [])
             else:
                 visible = ctes
-            for c in visible:
-                if _cte_name(c, dialect) == name:
-                    return c
+            found += [c for c in visible if _same_name(_cte_ident(c), table.this, dialect)]
         child, node = node, node.parent
-    return None
+    return found
 
 
-def _cte_name(cte, dialect: str | None) -> str:
+def _cte_ident(cte):
+    """The name of a WITH entry (an Identifier), or None."""
     from sqlglot import exp
 
     alias = cte.args.get("alias")
     ident = alias.this if isinstance(alias, exp.TableAlias) else None
-    return _name_part(ident, dialect) if isinstance(ident, exp.Identifier) else str(cte.alias_or_name).lower()
+    return ident if isinstance(ident, exp.Identifier) else None
+
+
+def _same_name(ident, written, dialect: str | None) -> bool:
+    """Whether a WITH entry's name `ident` is the name `written`: for
+    Postgres, as Postgres folds both (`_name_part`); elsewhere written
+    alike, letter for letter, and quoted alike."""
+    from sqlglot import exp
+
+    if not isinstance(ident, exp.Identifier) or not isinstance(written, exp.Identifier):
+        return False
+    if dialect in _ENGINE_FOLDED:
+        return _name_part(ident, dialect) == _name_part(written, dialect)
+    return ident.name == written.name and bool(ident.quoted) == bool(written.quoted)
+
+
+def _holds_query(cte) -> bool:
+    """Whether a WITH entry is a query its name stands for as a table."""
+    from sqlglot import exp
+
+    return not cte.args.get("scalar") and isinstance(cte.this, (exp.Query, exp.Values))
 
 
 def tables_read(statement, dialect: str | None = None) -> list[Name]:
     """The tables `statement` reads by name, each once: every
     table reference that is an identifier (not a table function), except a
     one-part name that refers to a CTE visible where it stands, and on
-    ClickHouse every name used as an IN set (`_in_tables`), resolved
-    through the WITH entries it names (`_in_set_table`). Name parts
-    lowered, or for Postgres (`dialect`) folded as Postgres folds them."""
+    ClickHouse every table read as the set of an IN (`_in_set_tables`).
+    Name parts lowered, or for Postgres (`dialect`) folded as Postgres
+    folds them. Raises TableScopeViolation for a ClickHouse IN set outside
+    the shapes it reads."""
     from sqlglot import exp
 
     out: list[Name] = []
@@ -285,68 +327,148 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
             continue
         out.append(ref)
     if dialect == "clickhouse":
-        for column in _in_tables(statement):
-            ref = _in_set_table(column, dialect)
-            if ref is None or ref in out:
-                continue
-            out.append(ref)
+        for ref in _in_set_tables(statement):
+            if ref not in out:
+                out.append(ref)
     return out
 
 
-def _in_tables(statement) -> list:
-    """The names (sqlglot Columns) on the right of an IN, GLOBAL IN or NOT
-    IN, or second to an IN function (globalIn(x, name), ...), bare or alone
-    in parentheses: ClickHouse reads such a name as a table whose rows are
-    the set, where sqlglot reads a column."""
+def reads_rows(statement, dialect: str | None = None) -> bool:
+    """Whether `statement` may read rows of a table: it names a table or a
+    table function, calls a function that reads a table, a dictionary or a
+    file by name (`_DENIED_FUNCTION`), or (ClickHouse) uses a table, or a
+    set table scope cannot read, as the set of an IN."""
     from sqlglot import exp
 
-    sets = []
+    if any(True for _ in statement.find_all(exp.Table)):
+        return True
+    for fn in statement.find_all(exp.Func):
+        name = _func_name(fn)
+        if name and _DENIED_FUNCTION.match(name):
+            return True
+    try:
+        return bool(tables_read(statement, dialect))
+    except TableScopeViolation:
+        return True
+
+
+def _unread_in_set() -> TableScopeViolation:
+    return TableScopeViolation(
+        "Could not verify which table this IN reads, so the query was not run. Write the set "
+        "as a list of values, a subquery over the agent's enabled tables, or an enabled table's name."
+    )
+
+
+def _in_set_tables(statement) -> list[Name]:
+    """The tables ClickHouse reads as the set of an IN (GLOBAL IN, NOT IN)
+    or of an IN function (globalIn(x, set), notNullIn, ...), where sqlglot
+    reads a column. Only these set shapes are read (`_set_item_tables`);
+    any other, a set sqlglot left empty, and an IN function with other
+    than two arguments are refused."""
+    from sqlglot import exp
+
+    out: list[Name] = []
     for node in statement.find_all(exp.In):
-        field = node.args.get("field")
-        items = node.expressions
-        if field is None and node.args.get("query") is None and len(items) == 1:
-            field = items[0]
-        sets.append(field)
-    for node in statement.find_all(exp.Anonymous):
-        if _IN_FUNCTION.fullmatch(_func_name(node)) and len(node.expressions) > 1:
-            sets.append(node.expressions[1])
-    return [name for name in map(_bare_name, sets) if name is not None]
+        query, field, items = node.args.get("query"), node.args.get("field"), list(node.expressions)
+        if node.args.get("unnest") is not None or [query is not None, field is not None, bool(items)].count(True) != 1:
+            raise _unread_in_set()
+        if query is not None:
+            if not isinstance(query, exp.Query):
+                raise _unread_in_set()
+            continue  # its tables are read where it stands
+        for item in [field] if field is not None else items:
+            out += _set_item_tables(item, frozenset())
+    for node in statement.find_all(exp.Func):
+        if _IN_FUNCTION.fullmatch(_func_name(node)):
+            if not isinstance(node, exp.Anonymous) or len(node.expressions) != 2:
+                raise _unread_in_set()
+            out += _set_item_tables(node.expressions[1], frozenset())
+    return out
 
 
-def _bare_name(node):
-    """`node` without the parentheses around it, when that is a name (a
-    sqlglot Column); else None."""
+def _set_item_tables(node, followed: frozenset) -> list[Name]:
+    """The tables ClickHouse reads for one item of an IN set, with any
+    parentheses and alias around it unwrapped:
+
+      * a value (a literal, NULL, TRUE/FALSE, a negative number) reads none;
+        a tuple or an array reads what its items read;
+      * a query reads none here (its tables are read where it stands);
+      * a name: a one-part name with WITH entries of that exact name
+        (`_with_entries`) reads what every one of them holds, read as an
+        item in turn; any other name is the table of that name.
+
+    Anything else, or WITH entries that name each other in a loop, is
+    refused."""
     from sqlglot import exp
 
-    while isinstance(node, exp.Paren):
+    while isinstance(node, (exp.Paren, exp.Alias)):
         node = node.this
-    if isinstance(node, exp.Column) and isinstance(node.this, exp.Identifier):
-        return node
-    return None
+    if _is_value(node) or isinstance(node, exp.Query):
+        return []
+    if isinstance(node, (exp.Tuple, exp.Array)):
+        return [ref for item in node.expressions for ref in _set_item_tables(item, followed)]
+    if isinstance(node, exp.Identifier):
+        parts = [node]
+    elif isinstance(node, exp.Column) and all(isinstance(p, exp.Identifier) for p in node.parts):
+        parts = node.parts
+    else:
+        raise _unread_in_set()
+    entries = _with_entries(node, parts[0].name) if len(parts) == 1 else []
+    if not entries:
+        return [tuple(str(p.name).lower() for p in parts)]
+    out: list[Name] = []
+    for entry in entries:
+        if id(entry) in followed:
+            raise _unread_in_set()
+        out += _set_item_tables(entry.this, followed | {id(entry)})
+    return out
 
 
-def _in_set_table(column, dialect: str | None) -> Name | None:
-    """The table ClickHouse reads for the name `column` used as an IN set.
-
-    A one-part name that names a visible WITH entry is that entry: a query
-    (its tables are read where it stands, so None), or on ClickHouse an
-    alias of the expression it holds, followed while that is a name (the
-    table it names); any other expression (`WITH (1, 2) AS ids`) is a
-    value, not a table (None)."""
+def _with_entries(node, name: str) -> list:
+    """Every entry of every WITH around `node` (in any position) named
+    `name`, letter for letter (ClickHouse compares names case by case and
+    reads a quoted name as the same name)."""
     from sqlglot import exp
 
-    seen = set()
-    while True:
-        ref = tuple(str(part.name).lower() for part in column.parts)
-        cte = _visible_cte(column, dialect) if len(ref) == 1 else None
-        if cte is None or id(cte) in seen:
-            return ref
-        seen.add(id(cte))
-        if isinstance(cte.this, exp.Query):
-            return None
-        column = _bare_name(cte.this)
-        if column is None:
-            return None
+    found = []
+    parent = node.parent
+    while parent is not None:
+        w = parent.args.get("with")
+        if isinstance(w, exp.With):
+            found += [c for c in w.expressions if (ident := _cte_ident(c)) is not None and ident.name == name]
+        parent = parent.parent
+    return found
+
+
+def _is_value(node) -> bool:
+    from sqlglot import exp
+
+    if isinstance(node, exp.Neg):
+        node = node.this
+        return isinstance(node, exp.Literal) and not node.is_string
+    return isinstance(node, (exp.Literal, exp.Null, exp.Boolean))
+
+
+def _check_clickhouse_settings(statement) -> None:
+    """Refuse a ClickHouse SETTINGS clause, anywhere in `statement`, that
+    sets anything but one of `_CLICKHOUSE_QUERY_SETTINGS` to a plain
+    value."""
+    from sqlglot import exp
+
+    for node in statement.walk():
+        settings = node.args.get("settings")
+        if settings is None:
+            continue
+        for setting in settings if isinstance(settings, list) else [settings]:
+            name = setting.this if isinstance(setting, exp.EQ) else None
+            known = (isinstance(name, exp.Column) and isinstance(name.this, exp.Identifier) and not name.table
+                     and name.name in _CLICKHOUSE_QUERY_SETTINGS and _is_value(setting.expression))
+            if not known:
+                shown = name.name if isinstance(name, exp.Column) else str(setting.sql(dialect="clickhouse"))[:60]
+                raise TableScopeViolation(
+                    f"The query setting {shown} is not allowed in agent queries, because table scope cannot "
+                    f"check what it reads. Allowed settings: {', '.join(sorted(_CLICKHOUSE_QUERY_SETTINGS))}."
+                )
 
 
 def _display(ref: Name) -> str:
@@ -387,6 +509,8 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
             name = _func_name(fn)
             if name and _DENIED_FUNCTION.match(name):
                 raise _unverifiable_function(name)
+        if dialect == "clickhouse":
+            _check_clickhouse_settings(stmt)
         # A denied name as a column or a field: the read-only guard's list,
         # which holds every Postgres entry above that takes one argument
         # (the large-object ones by exact name, so a column such as lo_price

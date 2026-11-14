@@ -27,6 +27,9 @@ from the query's structure instead, per connector language:
       - Set operations: UNION — every branch; INTERSECT — any branch;
         EXCEPT — the left branch.
       - A statement that reads no table at all (``SELECT 1``) is scoped.
+        Table scope's `reads_rows` decides, so a table read without FROM
+        (a ClickHouse IN set, a dictionary or Join table read by name)
+        counts as a read.
 
   * **Splunk SPL**: see `_spl_binds` — ``field=value`` in the base search
     (or a later ``| search``), implicitly AND-connected, not inside an OR
@@ -98,6 +101,8 @@ def _sql_binds(sql: str, dialect: Optional[str], needles: Tuple[str, ...]) -> Op
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
+    from app.ai.code_execution.table_scope import reads_rows
+
     try:
         statements = [s for s in sqlglot.parse(sql, read=dialect) if s is not None]
     except SqlglotError:
@@ -109,7 +114,7 @@ def _sql_binds(sql: str, dialect: Optional[str], needles: Tuple[str, ...]) -> Op
     root = statements[0]
     if not isinstance(root, (exp.Select, exp.SetOperation, exp.Subquery)):
         return None
-    if not any(True for _ in root.find_all(exp.Table)):
+    if not reads_rows(root, dialect):
         return True  # reads no table: no rows to leak
 
     ctes = {}
@@ -192,7 +197,7 @@ def _sql_binds(sql: str, dialect: Optional[str], needles: Tuple[str, ...]) -> Op
         for j in joins:
             if not (j.side or "") and (j.kind or "").upper() in inner_kinds and source_scoped(j.this, seen):
                 return True
-        if frm is None and not any(True for _ in sel.find_all(exp.Table)):
+        if frm is None and not reads_rows(sel, dialect):
             return True
         return False
 
