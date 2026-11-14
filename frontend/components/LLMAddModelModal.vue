@@ -18,6 +18,29 @@
             </div>
 
             <div class="mt-4 divide-y divide-gray-100 dark:divide-gray-800 border-y border-gray-100 dark:border-gray-800">
+                <!-- Kind: chat model, or decision model (typed questions in,
+                     probabilities out — used by the Auto router, never chat). -->
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.decision.kindTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.decision.kindLabel') }}</span>
+                    </UTooltip>
+                    <div class="inline-flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden text-sm" data-testid="add-model-kind">
+                        <button
+                            type="button"
+                            class="px-3 py-1"
+                            :class="kind === 'chat' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300'"
+                            data-testid="add-model-kind-chat"
+                            @click="kind = 'chat'"
+                        >{{ $t('settings.llms.decision.kindChat') }}</button>
+                        <button
+                            type="button"
+                            class="px-3 py-1"
+                            :class="kind === 'decision' ? 'bg-blue-600 text-white' : 'text-gray-700 dark:text-gray-300'"
+                            data-testid="add-model-kind-decision"
+                            @click="kind = 'decision'"
+                        >{{ $t('settings.llms.decision.kindDecision') }}</button>
+                    </div>
+                </div>
                 <!-- Provider (select with provider icon) -->
                 <div class="flex items-center justify-between py-2.5">
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.providerLabel') }}</span>
@@ -40,7 +63,7 @@
                             data-testid="add-model-provider-options"
                         >
                             <button
-                                v-for="p in providers"
+                                v-for="p in visibleProviders"
                                 :key="p.id"
                                 type="button"
                                 class="w-full flex items-center gap-2 px-2.5 py-1.5 text-sm text-start text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
@@ -83,6 +106,16 @@
                         class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded-lg px-2.5 py-1.5 w-56 text-sm text-end focus:outline-none focus:border-blue-500"
                     />
                 </div>
+                <!-- Decision wire format (decision models only) -->
+                <div v-if="kind === 'decision'" class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.decision.formatTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.decision.formatLabel') }}</span>
+                    </UTooltip>
+                    <select v-model="decisionFormat" class="bow-native-control w-56" data-testid="add-model-decision-format">
+                        <option value="openai">{{ $t('settings.llms.decision.formatOpenai') }}</option>
+                        <option value="systemone">{{ $t('settings.llms.decision.formatSystemone') }}</option>
+                    </select>
+                </div>
                 <!-- Vision -->
                 <div class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.visionTooltip')">
@@ -91,7 +124,7 @@
                     <UToggle v-model="supportsVision" data-testid="add-model-vision-toggle" />
                 </div>
                 <!-- Image generation -->
-                <div class="flex items-center justify-between py-2.5">
+                <div v-if="kind === 'chat'" class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.imageGenTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colImageGen') }}</span>
                     </UTooltip>
@@ -111,8 +144,9 @@
                     />
                 </div>
                 <!-- Temperature. Tri-state on purpose: empty = no temperature
-                     parameter is ever sent (provider default). Never pre-fill. -->
-                <div class="flex items-center justify-between py-2.5">
+                     parameter is ever sent (provider default). Never pre-fill.
+                     Decision models have no temperature at all. -->
+                <div v-if="kind === 'chat'" class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.temperatureTooltip')">
                         <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colTemperature') }}</span>
                     </UTooltip>
@@ -136,7 +170,7 @@
                                 data-testid="add-model-cost-input"
                                 class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-1.5 py-1 w-16 text-xs text-gray-700 dark:text-gray-200 text-end normal-case focus:outline-none focus:border-blue-500" />
                         </label>
-                        <label class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
+                        <label v-if="kind === 'chat'" class="flex items-center gap-1 text-2xs text-ink-muted uppercase tracking-wide">
                             {{ $t('settings.llms.costOutput') }}
                             <input v-model.number="costOut" type="number" min="0" step="0.01"
                                 data-testid="add-model-cost-output"
@@ -175,6 +209,8 @@ const props = defineProps<{
     providers: OrgProvider[];
     // Installed models — used to catch duplicates client-side before the 409.
     models: any[];
+    // Opened from the Auto-router modal's "Add a decision model" link.
+    initialKind?: 'chat' | 'decision';
 }>();
 
 const emit = defineEmits(['update:modelValue', 'added']);
@@ -201,9 +237,26 @@ const temperature = ref<string>('');
 const costIn = ref<number | null>(null);
 const costOut = ref<number | null>(null);
 const isSubmitting = ref(false);
+const kind = ref<'chat' | 'decision'>('chat');
+const decisionFormat = ref<'openai' | 'systemone'>('systemone');
+// Providers with a decision API (Bedrock, Anthropic, Google and Vertex have none).
+const DECISION_PROVIDER_TYPES = ['openai', 'azure', 'custom'];
+const visibleProviders = computed(() =>
+    kind.value === 'decision' ? props.providers.filter(p => DECISION_PROVIDER_TYPES.includes(p.provider_type)) : props.providers);
+
+watch(kind, (k) => {
+    if (k === 'decision' && selectedProvider.value && !DECISION_PROVIDER_TYPES.includes(selectedProvider.value.provider_type)) {
+        selectedProviderId.value = visibleProviders.value[0]?.id ?? null;
+    }
+    if (k === 'decision') {
+        const t = selectedProvider.value?.provider_type;
+        decisionFormat.value = t === 'openai' || t === 'azure' ? 'openai' : 'systemone';
+    }
+});
 
 watch(open, (isOpen) => {
     if (isOpen) {
+        kind.value = props.initialKind || 'chat';
         modelId.value = '';
         displayName.value = '';
         supportsVision.value = false;
@@ -256,14 +309,18 @@ const submit = async () => {
                 is_custom: true,
                 supports_vision: supportsVision.value,
                 supports_vision_override: supportsVision.value ? true : null,
-                supports_image_generation: supportsImageGeneration.value,
-                supports_image_generation_override: supportsImageGeneration.value ? true : null,
+                supports_image_generation: kind.value === 'chat' && supportsImageGeneration.value,
+                supports_image_generation_override: kind.value === 'chat' && supportsImageGeneration.value ? true : null,
                 context_window_tokens: norm(contextWindowTokens.value),
                 context_window_tokens_override: norm(contextWindowTokens.value),
                 input_cost_per_million_tokens_usd: norm(costIn.value),
-                output_cost_per_million_tokens_usd: norm(costOut.value),
+                // Decision APIs charge input only.
+                output_cost_per_million_tokens_usd: kind.value === 'decision' ? 0 : norm(costOut.value),
+                model_kind: kind.value,
                 // Empty field → no config key → no temperature is ever sent.
-                config: temp != null ? { temperature: temp } : null,
+                config: kind.value === 'decision'
+                    ? { decision_format: decisionFormat.value }
+                    : (temp != null ? { temperature: temp } : null),
             },
         });
         if (response.status.value === 'success') {

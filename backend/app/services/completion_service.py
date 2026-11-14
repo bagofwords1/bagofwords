@@ -475,6 +475,8 @@ class CompletionService:
         # Explicit per-message pick — never routed.
         if prompt_model_id:
             model = await self.llm_service.get_model_by_id(db, organization, current_user, prompt_model_id)
+            if getattr(model, "model_kind", "chat") == "decision":
+                raise HTTPException(status_code=400, detail="Decision models cannot run a chat completion.")
             return model, (small_model or model), {}
 
         # Baseline: what runs today without routing (report/user/org default).

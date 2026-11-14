@@ -1393,7 +1393,8 @@ const { isExcel, excelSelection } = useExcel()
 // catalog on direct report loads without delaying the first prompt.
 const { rememberModels, modelLabel: responseModelName } = useModelLabels()
 onMounted(async () => {
-    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true } })
+    // kind=all so a decision model (Auto router upfront pick) has a label too.
+    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
     if (Array.isArray(data.value)) rememberModels(data.value)
 })
 

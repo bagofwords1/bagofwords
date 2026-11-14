@@ -100,6 +100,28 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 0.50
     },
     {
+        # https://developers.openai.com/api/docs/guides/decisions
+        # Decision model (typed questions in, probabilities out — never chat).
+        # Same wire id as the chat GPT-6 Luna above, served on POST /v1/decisions;
+        # the catalog key differs so the two rows never collide. Input-only
+        # pricing: Decisions charges $0.10/M uncached input, output is free.
+        "name": "GPT-6 Luna Decisions",
+        "model_id": "gpt-6-luna-decisions",
+        "provider_type": "openai",
+        "model_kind": "decision",
+        "api_model_id": "gpt-6-luna",
+        "decision_format": "openai",
+        "max_questions": 400,
+        "question_types": ["predicate", "choice", "score"],
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "input_cost_per_million_tokens_usd": 0.10,
+        "output_cost_per_million_tokens_usd": 0.0
+    },
+    {
         "name": "GPT-5.6 Sol",
         "model_id": "gpt-5.6-sol",
         "provider_type": "openai",
@@ -549,6 +571,11 @@ class LLMModel(BaseSchema):
     # = admin-set (e.g. marking a custom model as an image model), persisted across
     # catalog re-syncs. `supports_image_generation` above is the resolved value.
     supports_image_generation_override = Column(Boolean, nullable=True)
+    # "chat" (default) or "decision". Decision models answer typed questions with
+    # calibrated probabilities (POST /v1/decisions or /v1/systemone) and are never
+    # offered for chat: every chat-model query filters on this. Settings for the
+    # decision wire format live in ``config`` (see app.ai.llm.decisions).
+    model_kind = Column(String(16), nullable=False, default="chat", server_default="chat")
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
     # Manual admin override for the context window. NULL = follow the catalog (LLM_MODEL_DETAILS);
@@ -570,6 +597,10 @@ class LLMModel(BaseSchema):
     provider = relationship("LLMProvider", back_populates="models", lazy="selectin")
     organization_id = Column(String, ForeignKey('organizations.id'), nullable=False)
     organization = relationship("Organization", back_populates="llm_models", lazy="selectin")
+
+    @property
+    def is_decision(self) -> bool:
+        return (self.model_kind or "chat") == "decision"
 
     # Pricing helpers -----------------------------------------------------
     def _get_static_details(self) -> dict | None:

@@ -288,7 +288,7 @@ const load = async () => {
     const [runRes, resRes, modelsRes, dsRes] = await Promise.all([
       useMyFetch<TestRun>(`/api/tests/runs/${runId.value}`),
       useMyFetch<TestResult[]>(`/api/tests/runs/${runId.value}/results`),
-      useMyFetch<any[]>(`/api/llm/models?is_enabled=true`),
+      useMyFetch<any[]>(`/api/llm/models?is_enabled=true&kind=all`),
       useMyFetch<any[]>(`/data_sources/active`),
     ])
     run.value = runRes.data.value as any

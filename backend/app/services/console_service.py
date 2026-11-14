@@ -1045,12 +1045,32 @@ class ConsoleService:
 
         savings = compute_routing_savings_usd(routed_rows, rates)
         routed_calls = len(routed_rows)
+
+        # Upfront decisions are routing overhead: count them and net their cost
+        # out of the savings so the KPI stays honest.
+        from app.ai.model_router import DECISION_USAGE_SCOPE
+        decision_query = (
+            select(func.count(LLMUsageRecord.id), func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0))
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMUsageRecord.created_at >= start_date,
+                LLMUsageRecord.created_at <= end_date,
+                LLMUsageRecord.scope == DECISION_USAGE_SCOPE,
+            )
+        )
+        if ds_report_ids is not None:
+            decision_query = decision_query.where(LLMUsageRecord.report_id.in_(ds_report_ids))
+        decision_calls, decision_cost = (await db.execute(decision_query)).one()
+        decision_cost = float(decision_cost or 0)
         return RoutingSavings(
             enabled=enabled,
-            savings_usd=round(savings, 6),
+            savings_usd=round(savings - decision_cost, 6),
             routed_calls=routed_calls,
             total_calls=int(total_calls or 0),
             routed_share=(routed_calls / total_calls) if total_calls else 0.0,
+            decision_calls=int(decision_calls or 0),
+            decision_cost_usd=round(decision_cost, 6),
         )
 
     # Providers whose pricing we can only estimate (no first-party price feed):
