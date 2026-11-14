@@ -3036,6 +3036,7 @@
       "emailLabel": "אימייל",
       "emailPlaceholder": "member{'@'}example.com",
       "roleLabel": "תפקיד",
+      "rolesLabel": "תפקידים",
       "cancel": "ביטול",
       "sendInvitation": "שליחת הזמנה",
       "allStatus": "כל הסטטוסים",
