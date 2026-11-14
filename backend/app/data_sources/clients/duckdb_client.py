@@ -23,22 +23,38 @@ _RELATIVE_GLOB = ("A URI of this connection is a glob or a directory relative to
                   "names no directory under it. Name the directory its files are in.")
 
 
+def _expanded(uri: str) -> str:
+    """A local path or file URI with its file prefix removed and its home
+    directory expanded, as DuckDB does both: `file://localhost/` and
+    `file:/` keep their '/', `file://` goes (DuckDB matches these prefixes
+    in lower case only); only a bare `~` or a leading `~/` is the home
+    directory."""
+    if uri.startswith("file://localhost/"):
+        uri = uri[len("file://localhost"):]
+    elif uri.startswith("file://"):
+        uri = uri[len("file://"):]
+    elif uri.startswith("file:/"):
+        uri = uri[len("file:"):]
+    if uri == "~" or uri.startswith("~/"):
+        uri = os.path.expanduser(uri)
+    return uri
+
+
 def _local_path(uri: str) -> str:
-    """A local path or file:// URI as DuckDB resolves it: file:// stripped,
-    `~` expanded, made absolute with `..` resolved, one leading '/'."""
-    path = uri[len("file://"):] if uri.lower().startswith("file://") else uri
-    return "/" + os.path.abspath(os.path.expanduser(path)).lstrip("/")
+    """A local path or file URI as DuckDB resolves it (`_expanded`), made
+    absolute with `..` resolved, one leading '/'."""
+    return "/" + os.path.abspath(_expanded(uri)).lstrip("/")
 
 
 def _local_directory(directory: str) -> str:
-    """`directory` (a local path or file:// URI ending in '/') resolved as
-    DuckDB resolves it (`_local_path`), ending in '/'. Raises ValueError
-    for a relative directory that names none under the working directory
-    (only '.' and '..' segments, or none) and for the root."""
-    path = directory[len("file://"):] if directory.lower().startswith("file://") else directory
-    if not path.startswith(("/", "~")) and not set(path.split("/")) - {"", ".", ".."}:
-        raise ValueError(_RELATIVE_GLOB)
-    resolved = _local_path(path)
+    """`directory` (a local path or file URI) resolved as DuckDB resolves
+    it (`_local_path`), ending in '/'. Raises ValueError for the root and
+    for a relative directory that resolves to the working directory or
+    one above it."""
+    resolved = _local_path(directory)
+    if not _expanded(directory).startswith("/"):
+        if os.path.commonpath([resolved, os.getcwd()]) == resolved:
+            raise ValueError(_RELATIVE_GLOB)
     if resolved == "/":
         raise ValueError(_ROOT_GLOB)
     return os.path.join(resolved, "")
@@ -179,15 +195,16 @@ class DuckDBClient(DataSourceClient):
     def _lockdown_targets(self) -> tuple[List[str], List[str]]:
         """(the exact paths the views read; the directories they may read
         under). A URI without a glob character is an exact path, and a
-        non-http(s) one ending in '/' (a directory DuckDB reads every file
-        under) is both an exact path and a directory. A glob URI's directory
-        is the part up to the last '/' before its first glob character.
+        non-http(s) one ending in '/', or a local one that is a directory
+        (DuckDB reads every file under either), is both an exact path and a
+        directory. A glob URI's directory is the part up to the last '/'
+        before its first glob character.
 
-        A local directory (a path or file:// URI) is resolved as DuckDB
-        resolves it: file:// stripped, `~` expanded, `..` and repeated
-        slashes resolved, made absolute. Raises ValueError when it resolves
-        to the root or, relative, names no directory under the working
-        directory; and when another scheme's directory is empty after the
+        A local directory (a path or file URI) is resolved as DuckDB
+        resolves it (`_local_path`): file prefix stripped, `~` expanded,
+        `..` and repeated slashes resolved, made absolute. Raises ValueError
+        when it resolves to the root or, relative, to the working directory
+        or one above it; and when another scheme's directory is empty after the
         scheme or holds a '..' segment. A bucket or a host on its own is
         a directory like any other."""
         paths: List[str] = []
@@ -195,7 +212,7 @@ class DuckDBClient(DataSourceClient):
         for pattern in self.uri_patterns:
             uri = self._normalize_uri(pattern)
             scheme = _SCHEME.match(uri)
-            local = scheme is None or uri.lower().startswith("file://")
+            local = scheme is None or uri.startswith("file:")
             http = uri.lower().startswith(("http://", "https://"))
             glob = (_HTTP_GLOB_CHAR if http else _GLOB_CHAR).search(uri)
             if glob is None and (http or not uri.endswith("/")):
@@ -203,6 +220,13 @@ class DuckDBClient(DataSourceClient):
                 resolved = _local_path(uri) if local else uri
                 if resolved != uri:
                     paths.append(resolved)
+                if not (local and os.path.isdir(resolved)):
+                    continue
+                # A directory written without its '/': DuckDB reads every
+                # file under it, as it does for the '/' form.
+                directory = _local_directory(uri)
+                paths.append(directory)
+                directories.append(directory)
                 continue
             directory = uri if glob is None else uri[:uri.rfind("/", 0, glob.start()) + 1]
             if local:

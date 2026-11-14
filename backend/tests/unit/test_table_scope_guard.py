@@ -409,6 +409,21 @@ def test_recursive_cte_can_reference_itself():
     )
 
 
+def test_a_duckdb_scope_without_its_duckdb_folded_names_is_unverified_and_refused():
+    # A scope built by hand, not by from_names, has no names folded the way
+    # DuckDB folds them: nothing is allowed rather than comparing otherwise.
+    scope = TableScope(active=frozenset({("sales", "orders")}))
+    with pytest.raises(TableScopeViolation) as refused:
+        check_table_scope("SELECT * FROM sales.orders", "duckdb", scope)
+    assert str(refused.value).startswith("Could not verify which tables this query reads")
+
+
+def test_a_scope_from_names_carries_duckdb_folded_names():
+    scope = TableScope.from_names(active=["Sales.Orders"], inactive=[])
+    assert scope.ascii_folded is not None and scope.ascii_folded.active == frozenset({("sales", "orders")})
+    check_table_scope("SELECT * FROM SALES.ORDERS", "duckdb", scope)
+
+
 NESTED_CTE_SHADOW_CODE = (
     "def generate_df(ds_clients, excel_files):\n"
     "    return ds_clients['clinic'].execute_query(\n"

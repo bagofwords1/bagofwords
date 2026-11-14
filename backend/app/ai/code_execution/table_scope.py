@@ -126,8 +126,9 @@ class TableScope:
     # their engine folds them (`_ENGINE_FOLDED`).
     exact: TableScope | None = None
     # The same selection with each name as the catalog stores it, its ASCII
-    # letters lowered and nothing else (`duckdb_guard.ascii_lower`), the way
-    # DuckDB compares names; for DuckDB, whose names are read that way.
+    # letters lowered and nothing else (`_ASCII_LOWER`), the way DuckDB
+    # compares names; for DuckDB, whose names are read that way. A DuckDB
+    # query against a scope without it is refused as unverified.
     ascii_folded: TableScope | None = None
 
     @classmethod
@@ -151,13 +152,12 @@ class TableScope:
             legacy = cls.from_names(active, inactive, lower=lower)
         exact = ascii_folded = None
         if lower:
-            from app.ai.code_execution.duckdb_guard import ascii_lower
-
             exact = cls.from_names(active, inactive, default_database=default_database,
                                    enforce_databases=enforce_databases, lower=False)
             ascii_folded = cls.from_names(
-                [ascii_lower(str(x)) for x in active], [ascii_lower(str(x)) for x in inactive],
-                default_database=ascii_lower(default_database) if isinstance(default_database, str) else None,
+                [str(x).translate(_ASCII_LOWER) for x in active], [str(x).translate(_ASCII_LOWER) for x in inactive],
+                default_database=(default_database.translate(_ASCII_LOWER)
+                                  if isinstance(default_database, str) else None),
                 enforce_databases=enforce_databases, lower=False)
         return cls(active=act, inactive=ina, default_database=db, legacy=legacy, exact=exact,
                    ascii_folded=ascii_folded)
@@ -786,7 +786,9 @@ def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str]) ->
     compared = scope
     if dialect in _ENGINE_FOLDED and scope.exact is not None:
         compared = scope.exact
-    elif dialect == "duckdb" and scope.ascii_folded is not None:
+    elif dialect == "duckdb":
+        if scope.ascii_folded is None:
+            raise TableScopeViolation(f"{_UNVERIFIED} Rewrite it as a plain SELECT over the agent's enabled tables.")
         compared = scope.ascii_folded
     for ref in refs:
         if not is_allowed(_qualify(ref, compared.default_database), compared):

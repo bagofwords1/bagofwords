@@ -632,6 +632,7 @@ def _opened_or_refused(client: DuckDBClient, outside: str) -> str:
 @pytest.mark.parametrize("uri", [
     "/*.csv", "/*/x.csv", "file:///*.csv", "s3://*/x.csv", "s3://bucket*/x.csv", "gs://*",
     "https://*.example.com/x.csv", "s3://bucket/../*.csv", "s3://bucket/a/../../*.csv", "/", "file:///", "s3://",
+    "file:/*.csv", "file://localhost/*.csv", "file:/", "file://localhost/", "/.", "file:///.",
 ])
 def test_a_glob_at_a_root_is_refused_before_the_connection_opens_anything(uri):
     with pytest.raises(RuntimeError) as refused:
@@ -665,6 +666,67 @@ def test_a_relative_glob_that_names_no_directory_is_refused(uri, tmp_path, monke
     (work / "private" / "other.csv").write_text("token\nhidden-value\n")
     monkeypatch.chdir(work)
     assert _opened_or_refused(DuckDBClient(uris=uri), str(work / "private" / "other.csv")) == RELATIVE_REFUSAL
+
+
+@pytest.fixture
+def scratch_cwd(tmp_path, monkeypatch) -> SimpleNamespace:
+    """A working directory holding a file no URI names, under private/,
+    a CSV in it and in its parent (so a glob there finds files), and a
+    directory sub2/ with one CSV."""
+    work = tmp_path / "work"
+    (work / "private").mkdir(parents=True)
+    (work / "private" / "p.csv").write_text("token\nhidden-value\n")
+    (work / "top.csv").write_text("id\n1\n")
+    (tmp_path / "up.csv").write_text("id\n1\n")
+    for name in ("x", "data", "sub"):
+        (work / name).mkdir()
+    (work / "sub2").mkdir()
+    (work / "sub2" / "x.csv").write_text("id\n1\n")
+    monkeypatch.chdir(work)
+    return SimpleNamespace(work=work, private=work / "private" / "p.csv")
+
+
+@pytest.mark.parametrize("uri", ["x/../*.csv", "data/../*.csv", "./data/../*.csv", "data/../", "x/../../*.csv",
+                                 "file:data/../*.csv", "data/..", "."])
+def test_a_relative_uri_that_resolves_to_the_working_directory_or_above_is_refused(uri, scratch_cwd):
+    assert _opened_or_refused(DuckDBClient(uris=uri), str(scratch_cwd.private)) == RELATIVE_REFUSAL
+
+
+def test_a_relative_glob_that_resolves_under_the_working_directory_reads_its_files_and_nothing_outside(scratch_cwd):
+    client = DuckDBClient(uris="sub/../sub2/*.csv")
+    assert _run(client, "SELECT count(*) AS n FROM sub2")["n"].tolist() == [1]
+    with client.connect() as con:
+        with pytest.raises(duckdb.Error):
+            con.execute(f"SELECT * FROM read_csv_auto('{_sq(scratch_cwd.private)}')").fetchall()
+
+
+@pytest.mark.parametrize("prefix", ["file:", "file://localhost"])
+def test_a_file_uri_glob_reads_its_directory_and_nothing_outside(prefix, files):
+    client = DuckDBClient(uris=f"{prefix}{files.data}/*.csv")
+    assert _run(client, "SELECT count(*) AS n FROM data")["n"].tolist() == [3]
+    with client.connect() as con:
+        with pytest.raises(duckdb.Error):
+            con.execute(f"SELECT * FROM read_csv_auto('{_sq(files.secret)}')").fetchall()
+
+
+def test_a_tilde_followed_by_a_name_is_not_a_home_directory(scratch_cwd, monkeypatch, tmp_path):
+    # DuckDB expands only `~` and `~/`: `~root/` is a directory under the
+    # working directory, not another user's home.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    paths, directories = DuckDBClient(uris="~root/*.csv")._lockdown_targets()
+    assert (paths, directories) == ([], [f"{scratch_cwd.work}/~root/"])
+
+
+def test_a_directory_uri_without_its_slash_reads_the_files_under_it_and_nothing_outside(tmp_path, files):
+    clean = tmp_path / "clean"
+    (clean / "2026").mkdir(parents=True)
+    (clean / "a.csv").write_text("id\n1\n")
+    (clean / "2026" / "b.csv").write_text("id\n2\n")
+    client = DuckDBClient(uris=str(clean))
+    assert _run(client, "SELECT count(*) AS n FROM clean")["n"].tolist() == [2]
+    with client.connect() as con:
+        with pytest.raises(duckdb.Error):
+            con.execute(f"SELECT * FROM read_csv_auto('{_sq(files.secret)}')").fetchall()
 
 
 # ------------------------------------------------------------ table selection, names as DuckDB folds them
