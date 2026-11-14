@@ -466,14 +466,11 @@
                                             <span class="text-base text-gray-600 dark:text-gray-400 font-medium">Custom</span>
                                         </div>
                                     </template>
-                                    <!-- TypeSafe (decision models only): no brand logo is bundled, so name it. -->
+                                    <!-- TypeSafe: logo plus a hint that it serves decision models only. -->
                                     <template v-else-if="provider.type === 'typesafe'">
                                         <div class="flex flex-col items-center leading-tight" data-testid="provider-tile-typesafe">
-                                            <span class="flex items-center gap-1.5">
-                                                <Icon name="heroicons-scale" class="w-5 h-5 text-ink-muted" />
-                                                <span class="text-base text-ink-2 font-medium">TypeSafe</span>
-                                            </span>
-                                            <span class="text-2xs text-ink-muted mt-0.5">{{ $t('settings.llms.decision.providerTileHint') }}</span>
+                                            <LLMProviderIcon provider="typesafe" class="w-24 h-6" />
+                                            <span class="text-2xs text-ink-muted mt-1">{{ $t('settings.llms.decision.providerTileHint') }}</span>
                                         </div>
                                     </template>
                                     <!-- Other providers: show logo -->
