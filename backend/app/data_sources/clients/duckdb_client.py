@@ -1,6 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
-from app.data_sources.clients._duckdb_lockdown import lock_down
+from app.data_sources.clients._duckdb_lockdown import _list_literal, lock_down
 
 import duckdb
 import os
@@ -21,43 +21,50 @@ _ROOT_GLOB = ("A URI of this connection is a glob or a directory at the root of 
               "Name the directory its files are in.")
 _RELATIVE_GLOB = ("A URI of this connection is a glob or a directory relative to the working directory that "
                   "names no directory under it. Name the directory its files are in.")
+_FILE_HOST = ("A URI of this connection names a host after file://. "
+              "Write a local file as file:///path or file://localhost/path.")
+_NO_WORKING_DIRECTORY = ("A URI of this connection is relative, and the working directory it is relative to "
+                         "no longer exists. Name its files from the root.")
 
 
-def _expanded(uri: str) -> str:
-    """A local path or file URI with its file prefix removed and its home
-    directory expanded, as DuckDB does both: `file://localhost/` and
-    `file:/` keep their '/', `file://` goes (DuckDB matches these prefixes
-    in lower case only); only a bare `~` or a leading `~/` is the home
-    directory."""
-    if uri.startswith("file://localhost/"):
-        uri = uri[len("file://localhost"):]
-    elif uri.startswith("file://"):
-        uri = uri[len("file://"):]
-    elif uri.startswith("file:/"):
-        uri = uri[len("file:"):]
-    if uri == "~" or uri.startswith("~/"):
-        uri = os.path.expanduser(uri)
-    return uri
+def _spelled_absolute(uri: str) -> bool:
+    """Whether a local path or file URI names its file from the root as
+    written: '/...', 'file:/...', 'file:///...' or 'file://localhost/...'.
+    Every other local URI, a `~` one included, is resolved against
+    something else."""
+    return uri.startswith(("/", "file:/"))
 
 
-def _local_path(uri: str) -> str:
-    """A local path or file URI as DuckDB resolves it (`_expanded`), made
-    absolute with `..` resolved, one leading '/'."""
-    return "/" + os.path.abspath(_expanded(uri)).lstrip("/")
+def _working_directory() -> str:
+    try:
+        return os.path.realpath(os.getcwd())
+    except FileNotFoundError:
+        raise ValueError(_NO_WORKING_DIRECTORY) from None
 
 
-def _local_directory(directory: str) -> str:
-    """`directory` (a local path or file URI) resolved as DuckDB resolves
-    it (`_local_path`), ending in '/'. Raises ValueError for the root and
-    for a relative directory that resolves to the working directory or
-    one above it."""
-    resolved = _local_path(directory)
-    if not _expanded(directory).startswith("/"):
-        if os.path.commonpath([resolved, os.getcwd()]) == resolved:
-            raise ValueError(_RELATIVE_GLOB)
-    if resolved == "/":
+def _read_back(con: duckdb.DuckDBPyConnection, setting: str, uri: str) -> str:
+    """`uri` as DuckDB itself resolves it in `setting` (allowed_paths or
+    allowed_directories): set on its own on `con`, then read back. The
+    setting is left empty."""
+    con.execute(f"SET {setting} = {_list_literal([uri])}")
+    entries = con.execute(f"SELECT current_setting('{setting}')").fetchone()[0]
+    con.execute(f"SET {setting} = []")
+    if len(entries) != 1:
+        raise ValueError(f"DuckDB resolved a URI of this connection to {len(entries)} entries in {setting}.")
+    return entries[0]
+
+
+def _resolved_directory(con: duckdb.DuckDBPyConnection, directory: str, cwd: str | None) -> str:
+    """`directory` (a local path or file URI) as DuckDB resolves it,
+    ending in '/'. Raises ValueError when that is the root, or, for a
+    directory not spelled absolute (`cwd` given), the working directory
+    `cwd` or one above it."""
+    resolved = _read_back(con, "allowed_directories", directory)
+    if not resolved.strip("/"):
         raise ValueError(_ROOT_GLOB)
-    return os.path.join(resolved, "")
+    if cwd is not None and os.path.commonpath([resolved, cwd]) == resolved.rstrip("/"):
+        raise ValueError(_RELATIVE_GLOB)
+    return resolved
 
 
 class DuckDBClient(DataSourceClient):
@@ -192,45 +199,51 @@ class DuckDBClient(DataSourceClient):
             created.append(view)
         return created
 
-    def _lockdown_targets(self) -> tuple[List[str], List[str]]:
+    def _lockdown_targets(self, con: duckdb.DuckDBPyConnection) -> tuple[List[str], List[str]]:
         """(the exact paths the views read; the directories they may read
-        under). A URI without a glob character is an exact path, and a
-        non-http(s) one ending in '/', or a local one that is a directory
-        (DuckDB reads every file under either), is both an exact path and a
-        directory. A glob URI's directory is the part up to the last '/'
-        before its first glob character.
+        under), for locking `con`, which has no views yet. A URI without a
+        glob character is an exact path, and a non-http(s) one ending in
+        '/', or a local one that is a directory (DuckDB reads every file
+        under either), is both an exact path and a directory. A glob URI's
+        directory is the part up to the last '/' before its first glob
+        character.
 
-        A local directory (a path or file URI) is resolved as DuckDB
-        resolves it (`_local_path`): file prefix stripped, `~` expanded,
-        `..` and repeated slashes resolved, made absolute. Raises ValueError
-        when it resolves to the root or, relative, to the working directory
-        or one above it; and when another scheme's directory is empty after the
-        scheme or holds a '..' segment. A bucket or a host on its own is
-        a directory like any other."""
+        A local path or file URI is taken in the form DuckDB itself
+        resolves it to (set on `con`, then read back: links, `~`, `..`,
+        file prefixes and the working directory all resolved). Raises
+        ValueError when a local directory resolves to the root or, not
+        spelled absolute, to the working directory or one above it; when
+        a file URI names a host; and when another scheme's directory is
+        empty after the scheme or holds a '..' segment. A bucket or a host
+        on its own is a directory like any other."""
         paths: List[str] = []
         directories: List[str] = []
         for pattern in self.uri_patterns:
             uri = self._normalize_uri(pattern)
+            if uri.startswith("file://") and not uri.startswith(("file:///", "file://localhost/")):
+                raise ValueError(_FILE_HOST)
             scheme = _SCHEME.match(uri)
             local = scheme is None or uri.startswith("file:")
+            cwd = None if not local or _spelled_absolute(uri) else _working_directory()
             http = uri.lower().startswith(("http://", "https://"))
             glob = (_HTTP_GLOB_CHAR if http else _GLOB_CHAR).search(uri)
             if glob is None and (http or not uri.endswith("/")):
-                paths.append(uri)
-                resolved = _local_path(uri) if local else uri
-                if resolved != uri:
-                    paths.append(resolved)
-                if not (local and os.path.isdir(resolved)):
+                if not local:
+                    paths.append(uri)
+                    continue
+                path = _read_back(con, "allowed_paths", uri)
+                paths.append(path)
+                if not os.path.isdir(path):
                     continue
                 # A directory written without its '/': DuckDB reads every
                 # file under it, as it does for the '/' form.
-                directory = _local_directory(uri)
+                directory = _resolved_directory(con, uri, cwd)
                 paths.append(directory)
                 directories.append(directory)
                 continue
             directory = uri if glob is None else uri[:uri.rfind("/", 0, glob.start()) + 1]
             if local:
-                directory = _local_directory(directory)
+                directory = _resolved_directory(con, directory, cwd)
             else:
                 after = directory[scheme.end():]
                 if not after.strip("/") or ".." in after.split("/"):
@@ -270,16 +283,23 @@ class DuckDBClient(DataSourceClient):
                 con = duckdb.connect(database=local_db, read_only=True)
                 lock_down(con)
             else:
-                # What the connection will be locked to, worked out before
-                # anything opens: a glob at a root is refused here.
-                paths, directories = self._lockdown_targets()
-                # In-memory database with views from URI patterns
+                # In-memory database with views from URI patterns.
                 con = duckdb.connect(database=":memory:")
+                # Secrets come from this connection's settings only, never
+                # from files on disk, which the lock would refuse anyway.
+                # Set first: DuckDB refuses the change once anything (an
+                # extension download included) has used its secrets.
+                con.execute("SET allow_persistent_secrets = false")
+                # Extensions and their settings: none can change once locked.
                 self._configure_httpfs(con)
-                self._create_views(con)
-                # The views read their URIs lazily: from here on the
-                # connection may read those and nothing else.
+                # What the connection is locked to, in the form DuckDB
+                # resolves each URI to; a glob at a root is refused here,
+                # before anything is read.
+                paths, directories = self._lockdown_targets(con)
                 lock_down(con, allowed_paths=paths, allowed_directories=directories)
+                # Views are created on the locked connection: one over
+                # anything else fails at once instead of reading it.
+                self._create_views(con)
             yield con
         except IndexingCancelled:
             raise
