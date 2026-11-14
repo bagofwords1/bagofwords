@@ -580,8 +580,7 @@ def test_clickhouse_reads_the_table_a_with_entry_names_inside_its_own_body(click
     assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
     code, out = clickhouse_local(sql)
     assert code == 0 and out == shown
-    # An entry naming itself outside a recursive part is a loop.
-    with pytest.raises(TableScopeViolation, match="refer to each other"):
+    with pytest.raises(TableScopeViolation, match="SECRET"):
         check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
 
 
@@ -648,6 +647,20 @@ def test_clickhouse_reads_the_table_named_by_with_entries_that_name_each_other_i
     assert code == 0 and out == shown
     with pytest.raises(TableScopeViolation, match="refer to each other"):
         check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
+def test_clickhouse_reads_the_table_an_entry_named_after_it_reads_and_scope_checks_that_table(clickhouse_local):
+    # An entry that names itself is not a loop: inside its body the name is
+    # the table, checked against the scope.
+    sql = "WITH secret AS (SELECT x FROM secret) SELECT x FROM secret"
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == str(SECRET)
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+    sql = "WITH orders AS (SELECT id FROM orders WHERE id > 0) SELECT id FROM orders"
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == "1"
+    check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
 
 
 def test_mysql_reads_the_table_a_differently_cased_cte_is_named_after(mysql):

@@ -588,8 +588,7 @@ CLICKHOUSE_OWN_NAME_IN_BODY = [
 @pytest.mark.parametrize("sql", CLICKHOUSE_OWN_NAME_IN_BODY)
 def test_a_with_entry_s_own_name_inside_its_body_is_the_table_on_clickhouse(sql):
     assert "secret" in _sqlglot_cte_names(sql, "clickhouse")
-    # An entry naming itself outside a recursive part is a loop.
-    with pytest.raises(TableScopeViolation, match="refer to each other"):
+    with pytest.raises(TableScopeViolation, match="SECRET"):
         check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
 
 
@@ -600,7 +599,7 @@ def test_a_with_entry_s_own_name_inside_its_body_is_the_table_on_clickhouse(sql)
     "WITH RECURSIVE secret AS (SELECT x FROM secret EXCEPT SELECT x FROM secret) SELECT x FROM secret",
 ])
 def test_a_recursive_entry_s_own_name_outside_the_recursive_part_of_its_union_is_the_table(family, sql):
-    with pytest.raises(TableScopeViolation, match="refer to each other"):
+    with pytest.raises(TableScopeViolation, match="SECRET"):
         check_table_scope(ensure_read_only(_client(family), sql),
                           dialect_for_client(_client(family)), SCOPE)
 
@@ -641,27 +640,15 @@ def _nested_repeats(levels: int, bottom: str) -> str:
 
 
 @pytest.mark.timeout(60)
-def test_an_in_set_reached_through_30_levels_of_with_entries_is_read_once_per_entry():
+@pytest.mark.parametrize("build", [_alias_chain, _nested_repeats])
+def test_an_in_set_reached_through_30_levels_of_with_entries_is_read_once_per_entry(build):
     import time
 
     # CPU time of this process, so other workers (-n 8) do not count.
     started = time.process_time()
-    check_table_scope(_alias_chain(30, "orders"), "clickhouse", SCOPE)
+    check_table_scope(build(30, "orders"), "clickhouse", SCOPE)
     with pytest.raises(TableScopeViolation, match="SECRET"):
-        check_table_scope(_alias_chain(30, "secret"), "clickhouse", SCOPE)
-    assert time.process_time() - started < 1.0
-
-
-@pytest.mark.timeout(60)
-@pytest.mark.parametrize("bottom", ["orders", "secret"])
-def test_30_nested_with_entries_that_each_name_themselves_are_refused_quickly(bottom):
-    # Each nested entry `a` names `a` in its own body: a WITH entry that
-    # names itself outside a recursive part is refused.
-    import time
-
-    started = time.process_time()
-    with pytest.raises(TableScopeViolation, match="refer to each other"):
-        check_table_scope(_nested_repeats(30, bottom), "clickhouse", SCOPE)
+        check_table_scope(build(30, "secret"), "clickhouse", SCOPE)
     assert time.process_time() - started < 1.0
 
 
@@ -716,15 +703,31 @@ def test_with_entries_that_name_each_other_in_a_loop_are_refused_on_clickhouse(s
     "WITH secret AS (SELECT x FROM orders), c AS (SELECT x FROM secret), orders AS (SELECT x FROM c) "
     "SELECT x FROM secret",
     "SELECT * FROM (WITH a AS (SELECT x FROM (SELECT x FROM B)), b AS (SELECT x FROM a) SELECT x FROM a) s",
-    # An entry that names itself outside a recursive part.
-    "WITH orders AS (SELECT id FROM orders WHERE id > 1) SELECT id FROM orders",
-    "WITH RECURSIVE orders AS (SELECT id FROM orders UNION ALL SELECT id FROM orders WHERE 1 = 0) "
-    "SELECT id FROM orders",
+    # An entry that names itself next to two that name each other.
+    "WITH orders AS (SELECT x FROM orders), a AS (SELECT x FROM b), b AS (SELECT x FROM a) SELECT x FROM a",
 ])
 def test_the_tables_read_refuse_with_entries_that_name_each_other_in_every_dialect(dialect, sql):
     statement = parse_guard_sql(sql, dialect)[0]
     with pytest.raises(TableScopeViolation, match="refer to each other"):
         tables_read(statement, dialect)
+
+
+# An entry that names itself is not a loop: inside its own body the name
+# is the table of that name, checked against the scope like any table.
+SHADOWING = "WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders"
+
+
+@pytest.mark.parametrize("family", ["PostgresqlClient", "MysqlClient", "ClickhouseClient"])
+def test_an_entry_named_after_the_table_it_reads_passes_when_that_table_is_enabled(family):
+    _passes(family, SHADOWING)
+
+
+@pytest.mark.parametrize("family", ["PostgresqlClient", "MysqlClient", "ClickhouseClient"])
+def test_an_entry_named_after_the_table_it_reads_is_refused_when_that_table_is_disabled(family):
+    client = _client(family)
+    disabled = TableScope.from_names(active=["events"], inactive=["orders"])
+    with pytest.raises(TableScopeViolation, match="ORDERS is not enabled"):
+        check_table_scope(ensure_read_only(client, SHADOWING), dialect_for_client(client), disabled)
 
 
 @pytest.mark.parametrize("dialect", ["postgres", "clickhouse"])

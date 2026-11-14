@@ -367,16 +367,17 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
 def _check_with_loops(statement) -> None:
     """Refuse, in every dialect, a WITH whose entries refer to each other
     in a loop: an entry whose body (nested queries and WITHs included)
-    names, compared case-insensitively, an entry that leads back to it. An
-    entry naming itself is such a loop, except inside the recursive part
-    of a WITH RECURSIVE entry (`_in_recursive_part`).
+    names, compared case-insensitively, another entry that leads back to
+    it. An entry naming itself is not a loop: inside its own body its name
+    is the table of that name, or the entry in the recursive part of a
+    WITH RECURSIVE (`_visible_with_entries`), and is checked as such.
 
     While ClickHouse reads an entry, it reads that entry's name as the
     table of that name, so which entry or table a name stands for depends
     on the way it was reached; within a loop the visibility rules of
     `_visible_with_entries` cannot say which. Every name that may refer to
     an entry counts (a one-part table name, a column, a bare name), so a
-    column that only shares an entry's name also makes a loop."""
+    column that only shares another entry's name also makes a loop."""
     from sqlglot import exp
 
     for w in statement.find_all(exp.With):
@@ -386,7 +387,6 @@ def _check_with_loops(statement) -> None:
             ident = _cte_ident(entry)
             if ident is not None:
                 by_name.setdefault(str(ident.name).lower(), []).append(k)
-        recursive = bool(w.args.get("recursive"))
         edges: list[set[int]] = []
         for k, entry in enumerate(entries):
             named: set[int] = set()
@@ -395,17 +395,13 @@ def _check_with_loops(statement) -> None:
                 targets = by_name.get(str(ident.name).lower())
                 if not targets or _defines_name(ident):
                     continue
-                for j in targets:
-                    if j == k and recursive and _in_recursive_part(entry, _ancestor_ids(ident, entry)):
-                        continue
-                    named.add(j)
+                named.update(j for j in targets if j != k)
             edges.append(named)
         if _has_loop(edges):
             raise TableScopeViolation(
-                "WITH entries that refer to each other (or an entry that refers to itself outside the "
-                "recursive part of a WITH RECURSIVE) are not allowed in agent queries, because the table "
-                "each name reads cannot be checked. Give each WITH entry a name the entries it uses do not "
-                "use, or write the query without the loop."
+                "WITH entries that refer to each other are not allowed in agent queries, because the "
+                "table each name reads cannot be checked. Give each WITH entry a name the entries it "
+                "uses do not use, or write the query without the loop."
             )
 
 
@@ -424,15 +420,6 @@ def _defines_name(ident) -> bool:
     if isinstance(parent, exp.Lambda) and ident.arg_key == "expressions":
         return True
     return isinstance(parent, exp.Table) and bool(parent.args.get("db") or parent.args.get("catalog"))
-
-
-def _ancestor_ids(node, top) -> set[int]:
-    """The ids of `node` and its ancestors below `top`."""
-    out: set[int] = set()
-    while node is not None and node is not top:
-        out.add(id(node))
-        node = node.parent
-    return out
 
 
 def _has_loop(edges: list[set[int]]) -> bool:

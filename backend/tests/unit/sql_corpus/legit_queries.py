@@ -86,6 +86,7 @@ _POSTGRES = [
     "SELECT * FROM orders o WHERE EXISTS (SELECT 1 FROM order_items i WHERE i.order_id = o.id)",
     "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10) SELECT i FROM n",
     "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
+    "WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders",
     # A hierarchy walk, and the SEARCH and CYCLE clauses.
     "WITH RECURSIVE tree AS (SELECT id, parent_id, name FROM customers WHERE parent_id IS NULL "
     "UNION ALL SELECT c.id, c.parent_id, c.name FROM customers c JOIN tree t ON c.parent_id = t.id) "
@@ -155,6 +156,7 @@ _OTHER_DIALECTS = {
         "SELECT * FROM orders WHERE note = '--x' OR note = '/*!x*/'",
         "SELECT * FROM orders --",
         "WITH t AS (SELECT * FROM orders) SELECT COUNT(*) FROM t",
+        "WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders",
         "SELECT JSON_EXTRACT(doc, '$[0].name') AS first_name FROM orders -- [note]",
     ],
     "tsql": [
@@ -262,6 +264,7 @@ _OTHER_DIALECTS = {
         "SELECT * FROM orders LIMIT 100 SETTINGS max_result_rows = 1000, result_overflow_mode = 'break'",
         "WITH RECURSIVE r AS (SELECT 1 AS x UNION ALL SELECT x+1 FROM r WHERE x<3) SELECT sum(x) FROM r",
         "WITH a AS (SELECT 42 IN c AS r), c AS (SELECT id FROM orders) SELECT r FROM a",
+        "WITH orders AS (SELECT * FROM orders WHERE x > 0) SELECT * FROM orders",
         "WITH RECURSIVE tree AS (SELECT id, parent_id FROM customers WHERE parent_id = 0 "
         "UNION ALL SELECT c.id, c.parent_id FROM customers c JOIN tree t ON c.parent_id = t.id) SELECT count() FROM tree",
     ],
