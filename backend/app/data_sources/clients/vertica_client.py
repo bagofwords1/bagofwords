@@ -1,6 +1,8 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
+import logging
+
 import pandas as pd
 from contextlib import contextmanager
 from typing import List
@@ -12,6 +14,8 @@ try:
     import vertica_python
 except ImportError:
     vertica_python = None
+
+logger = logging.getLogger(__name__)
 
 
 class VerticaClient(DataSourceClient):
@@ -51,14 +55,15 @@ class VerticaClient(DataSourceClient):
         except IndexingCancelled:
             raise
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Vertica: {e}")
+            raise RuntimeError(f"Failed to connect to Vertica: {e}") from e
         try:
             yield conn
         finally:
             try:
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                # The type only: a driver message may hold connection details.
+                logger.warning("vertica: closing the connection failed (%s)", type(e).__name__)
 
     def _frame(self, sql: str) -> pd.DataFrame:
         """Run `sql` once on a connection of this client's own and return
@@ -265,7 +270,7 @@ class VerticaClient(DataSourceClient):
     @property
     def description(self):
         system_prompt = """
-        You can call the execute_query method to run SQL queries using verticapy.
+        You can call the execute_query method to run SQL queries using vertica_python.
         
         The below are examples for how to use the execute_query method. Note that the actual SQL will vary based on the schema.
         Notice only the SQL syntax and instructions on how to use the execute_query method, not the actual SQL queries.

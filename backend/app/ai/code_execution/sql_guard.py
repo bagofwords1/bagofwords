@@ -1213,6 +1213,7 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
     if dialect == "mysql":
         _check_mysql_comments(sql, tokens, comments)
         _check_mysql_escaped_quotes(sql, tokens)
+        _check_mysql_brackets(masked, comments)
     if dialect in _UNNESTED_COMMENT_DIALECTS:
         if any(mark == "/*" and "/*" in sql[start + 2:end] for mark, start, end in comments):
             raise _comment_inside_comment()
@@ -1393,6 +1394,19 @@ def _check_mysql_escaped_quotes(sql: str, tokens) -> None:
             else:
                 # A quote inside the literal is doubled.
                 i += 2 if raw[i] == quote else 1
+
+
+def _check_mysql_brackets(masked: str, comments) -> None:
+    """MariaDB in MSSQL mode reads [...] as a quoted name, where sqlglot
+    reads a bracket and then whatever follows, strings included. Every
+    other MySQL and MariaDB mode rejects a bracket outside a literal or a
+    comment, so one there is refused."""
+    for match in re.finditer(r"[\[\]]", masked):
+        if not any(start <= match.start() < end for _mark, start, end in comments):
+            raise ReadOnlyViolation(
+                "The query has a square bracket outside a string or a comment, which MariaDB in MSSQL mode reads "
+                "as quoting a name. Quote names with backticks."
+            )
 
 
 def _check_glued_constants(sql: str, code) -> None:

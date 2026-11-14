@@ -198,3 +198,36 @@ def test_the_catalog_is_read_on_a_connection_of_the_client_s_own(server):
 def test_the_connection_test_runs_on_a_connection_of_the_client_s_own(server):
     assert _client().test_connection()["success"] is True
     assert server.connections[0].sent == ["SELECT 1 as test"] and server.connections[0].released.is_set()
+
+
+def test_a_failed_connect_is_raised_with_the_driver_error_as_its_cause(server, monkeypatch):
+    refused = vertica_python.errors.ConnectionError("refused")
+
+    def connect(**params):
+        raise refused
+
+    monkeypatch.setattr(vertica_python, "connect", connect)
+    with pytest.raises(RuntimeError, match="Failed to connect to Vertica") as raised:
+        _client().execute_query("SELECT 1")
+    assert raised.value.__cause__ is refused
+
+
+def test_a_failed_close_is_logged_by_type_only_and_the_result_still_returned(server, monkeypatch, caplog):
+    import logging
+
+    def close(self):
+        raise vertica_python.errors.ConnectionError("password=pw lost")
+
+    monkeypatch.setattr(FakeConnection, "close", close)
+    logger = logging.getLogger("app.data_sources.clients.vertica_client")
+    logger.disabled = False
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        df = _client().execute_query("SELECT 1")
+    assert df.to_dict("records") == [{"a": 1}]
+    assert [r.getMessage() for r in caplog.records] == [
+        "vertica: closing the connection failed (ConnectionError)"]
+
+
+def test_the_description_names_the_driver_the_client_uses():
+    text = _client().description
+    assert "verticapy" not in text and "vertica_python" in text

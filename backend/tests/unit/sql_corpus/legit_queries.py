@@ -144,6 +144,7 @@ _OTHER_DIALECTS = {
         "SELECT * FROM orders WHERE note = '--x' OR note = '/*!x*/'",
         "SELECT * FROM orders --",
         "WITH t AS (SELECT * FROM orders) SELECT COUNT(*) FROM t",
+        "SELECT JSON_EXTRACT(doc, '$[0].name') AS first_name FROM orders -- [note]",
     ],
     "tsql": [
         "SELECT TOP 10 [id], [amount] FROM [dbo].[orders] ORDER BY [amount] DESC",
@@ -237,6 +238,12 @@ _OTHER_DIALECTS = {
         "SELECT toStartOfMonth(created_at) AS m, count() FROM orders GROUP BY m",
         "SELECT * FROM orders WHERE created_at >= now() - INTERVAL 7 DAY LIMIT 10",
         "SELECT uniqExact(customer_id) FROM orders",
+        "WITH 5 AS n SELECT * FROM orders WHERE id IN (n)",
+        "WITH (1, 2, 3) AS ids SELECT * FROM orders WHERE id IN ids",
+        "WITH toDate('2026-01-01') AS start SELECT count() FROM orders WHERE created_at >= start",
+        "SELECT * FROM orders WHERE status IN ('open', 'paid') AND id NOT IN (1, 2)",
+        "SELECT * FROM orders WHERE customer_id GLOBAL IN (SELECT id FROM customers WHERE region = 'EU')",
+        "WITH c AS (SELECT id FROM customers) SELECT * FROM orders WHERE customer_id IN c",
     ],
     "databricks": [
         "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY 1",

@@ -168,9 +168,14 @@ _DENIED_FUNCTION = re.compile(
     r"system\$.*|external_query|"
     r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_scan|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
-    r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc)$",
+    r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc|"
+    r"joinget.*|dictget.*|dicthas|dictisin)$",
     re.IGNORECASE,
 )
+
+# ClickHouse's IN operators written as functions (globalIn, notNullIn,
+# inIgnoreSet, ...): the second argument is the set, as on the right of IN.
+_IN_FUNCTION = re.compile(r"(global)?(not)?(null)?in(ignoreset)?", re.IGNORECASE)
 
 
 def _unverifiable_function(name: str) -> TableScopeViolation:
@@ -225,6 +230,12 @@ def _resolves_to_cte(table, dialect: str | None = None) -> bool:
     a CTE's own body only the CTEs defined before it are visible, plus itself
     when the WITH is RECURSIVE.
     """
+    return _visible_cte(table, dialect) is not None
+
+
+def _visible_cte(table, dialect: str | None = None):
+    """The CTE an unqualified reference names where it stands (see
+    `_resolves_to_cte`), or None."""
     from sqlglot import exp
 
     name = _name_part(table.this, dialect)
@@ -241,10 +252,11 @@ def _resolves_to_cte(table, dialect: str | None = None) -> bool:
                 visible = ctes[:i] + ([inside_cte] if w.args.get("recursive") else [])
             else:
                 visible = ctes
-            if any(_cte_name(c, dialect) == name for c in visible):
-                return True
+            for c in visible:
+                if _cte_name(c, dialect) == name:
+                    return c
         child, node = node, node.parent
-    return False
+    return None
 
 
 def _cte_name(cte, dialect: str | None) -> str:
@@ -257,9 +269,10 @@ def _cte_name(cte, dialect: str | None) -> str:
 
 def tables_read(statement, dialect: str | None = None) -> list[Name]:
     """The tables `statement` reads by name, each once: every
-    table reference that is an identifier (not a table function), and on
-    ClickHouse every name on the right of IN (`_in_tables`), except a
-    one-part name that refers to a CTE visible where it stands. Name parts
+    table reference that is an identifier (not a table function), except a
+    one-part name that refers to a CTE visible where it stands, and on
+    ClickHouse every name used as an IN set (`_in_tables`), resolved
+    through the WITH entries it names (`_in_set_table`). Name parts
     lowered, or for Postgres (`dialect`) folded as Postgres folds them."""
     from sqlglot import exp
 
@@ -273,8 +286,8 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
         out.append(ref)
     if dialect == "clickhouse":
         for column in _in_tables(statement):
-            ref = tuple(str(part.name).lower() for part in column.parts)
-            if (len(ref) == 1 and _resolves_to_cte(column, dialect)) or ref in out:
+            ref = _in_set_table(column, dialect)
+            if ref is None or ref in out:
                 continue
             out.append(ref)
     return out
@@ -282,21 +295,58 @@ def tables_read(statement, dialect: str | None = None) -> list[Name]:
 
 def _in_tables(statement) -> list:
     """The names (sqlglot Columns) on the right of an IN, GLOBAL IN or NOT
-    IN, bare or alone in parentheses: ClickHouse reads such a name as a
-    table whose rows are the set, where sqlglot reads a column."""
+    IN, or second to an IN function (globalIn(x, name), ...), bare or alone
+    in parentheses: ClickHouse reads such a name as a table whose rows are
+    the set, where sqlglot reads a column."""
     from sqlglot import exp
 
-    out = []
+    sets = []
     for node in statement.find_all(exp.In):
         field = node.args.get("field")
         items = node.expressions
         if field is None and node.args.get("query") is None and len(items) == 1:
             field = items[0]
-        while isinstance(field, exp.Paren):
-            field = field.this
-        if isinstance(field, exp.Column) and isinstance(field.this, exp.Identifier):
-            out.append(field)
-    return out
+        sets.append(field)
+    for node in statement.find_all(exp.Anonymous):
+        if _IN_FUNCTION.fullmatch(_func_name(node)) and len(node.expressions) > 1:
+            sets.append(node.expressions[1])
+    return [name for name in map(_bare_name, sets) if name is not None]
+
+
+def _bare_name(node):
+    """`node` without the parentheses around it, when that is a name (a
+    sqlglot Column); else None."""
+    from sqlglot import exp
+
+    while isinstance(node, exp.Paren):
+        node = node.this
+    if isinstance(node, exp.Column) and isinstance(node.this, exp.Identifier):
+        return node
+    return None
+
+
+def _in_set_table(column, dialect: str | None) -> Name | None:
+    """The table ClickHouse reads for the name `column` used as an IN set.
+
+    A one-part name that names a visible WITH entry is that entry: a query
+    (its tables are read where it stands, so None), or on ClickHouse an
+    alias of the expression it holds, followed while that is a name (the
+    table it names); any other expression (`WITH (1, 2) AS ids`) is a
+    value, not a table (None)."""
+    from sqlglot import exp
+
+    seen = set()
+    while True:
+        ref = tuple(str(part.name).lower() for part in column.parts)
+        cte = _visible_cte(column, dialect) if len(ref) == 1 else None
+        if cte is None or id(cte) in seen:
+            return ref
+        seen.add(id(cte))
+        if isinstance(cte.this, exp.Query):
+            return None
+        column = _bare_name(cte.this)
+        if column is None:
+            return None
 
 
 def _display(ref: Name) -> str:

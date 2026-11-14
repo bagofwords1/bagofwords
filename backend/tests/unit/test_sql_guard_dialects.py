@@ -272,6 +272,33 @@ def test_literals_every_server_mode_ends_at_the_same_place_still_read_on_mysql(f
     _passes(family, sql)
 
 
+# MariaDB in MSSQL mode reads [...] as a quoted name; sqlglot reads a
+# bracket and then a string (live dialect tests). Every other MySQL and
+# MariaDB mode rejects a bracket outside a literal.
+MYSQL_BRACKET_HIDDEN = [
+    "SELECT 1 AS [a'], x FROM secret -- '] FROM orders",
+    "SELECT [a'] AS v FROM (SELECT 1 AS [a']) t UNION ALL SELECT x FROM secret -- ']",
+    "SELECT id FROM orders WHERE id = 1 ]",
+]
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", MYSQL_BRACKET_HIDDEN)
+def test_a_square_bracket_outside_a_literal_is_refused_on_mysql_by_the_guard_and_by_table_scope(family, sql):
+    _refused(family, sql, match="bracket")
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "mysql", SCOPE)
+
+
+@pytest.mark.parametrize("family", ["MysqlClient", "MariadbClient"])
+@pytest.mark.parametrize("sql", [
+    "SELECT JSON_EXTRACT(doc, '$[0]') AS j, `a[1]` FROM orders",
+    "SELECT id FROM orders -- see [1]" + NL + "WHERE id = 1 /* [x] */",
+])
+def test_a_square_bracket_in_a_string_a_quoted_name_or_a_comment_still_reads_on_mysql(family, sql):
+    _passes(family, sql)
+
+
 @pytest.mark.parametrize("family", ["ClickhouseClient", "SparkConnectClient", "DatabricksSqlClient"])
 def test_a_digit_led_name_still_reads_where_the_engine_never_splits_a_number_from_a_word(family):
     # ClickHouse 25.8 refuses a decimal glued to a word ("Wrong number") and
@@ -346,6 +373,88 @@ def test_in_over_an_active_table_a_list_or_a_subquery_still_reads_on_clickhouse(
 def test_the_tables_read_on_clickhouse_include_the_table_on_the_right_of_in():
     statement = parse_guard_sql("SELECT id FROM orders WHERE 42 NOT IN db.secret", "clickhouse")[0]
     assert tables_read(statement, "clickhouse") == [("orders",), ("db", "secret")]
+
+
+# ClickHouse's IN operators as functions: the second argument is the set,
+# read as a table when it is a name (live dialect tests).
+CLICKHOUSE_IN_FUNCTIONS = [
+    "globalIn", "notIn", "nullIn", "globalNotIn", "notNullIn", "globalNullIn", "globalNotNullIn",
+    "inIgnoreSet", "globalInIgnoreSet", "notInIgnoreSet", "nullInIgnoreSet", "globalNotInIgnoreSet",
+    "notNullInIgnoreSet", "globalNullInIgnoreSet", "globalNotNullInIgnoreSet",
+]
+
+
+@pytest.mark.parametrize("name", CLICKHOUSE_IN_FUNCTIONS)
+def test_the_tables_read_on_clickhouse_include_the_set_of_an_in_function(name):
+    for sql in (f"SELECT id FROM orders WHERE {name}(42, secret)",
+                f"SELECT id FROM orders WHERE {name}(42, (db.secret))",
+                f"SELECT id FROM orders WHERE `{name}`(42, `secret`)"):
+        statement = parse_guard_sql(sql, "clickhouse")[0]
+        assert tables_read(statement, "clickhouse")[-1][-1] == "secret", sql
+        _hidden_from_sqlglot("ClickhouseClient", sql)
+        with pytest.raises(TableScopeViolation, match="SECRET"):
+            check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+# A WITH entry whose body is a name is an alias of that name on ClickHouse,
+# so IN over the alias reads the table; sqlglot reads a CTE (live dialect
+# tests).
+CLICKHOUSE_WITH_ALIAS_IN = [
+    "WITH secret AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH secret AS s SELECT id FROM orders WHERE 42 GLOBAL IN (s)",
+    "WITH (secret) AS s SELECT id FROM orders WHERE 42 NOT IN s",
+    "WITH secret AS s, s AS t SELECT id FROM orders WHERE 42 IN t",
+    "WITH db.secret AS s SELECT id FROM orders WHERE 42 IN s",
+    "WITH secret AS s SELECT id FROM orders WHERE (42, 1) IN s",
+    "SELECT * FROM (WITH secret AS s SELECT id FROM orders WHERE 42 IN s)",
+    "WITH secret AS s SELECT id FROM orders WHERE id IN (SELECT id FROM events WHERE 42 IN s)",
+    "WITH secret AS s SELECT id FROM orders WHERE globalIn(42, s)",
+    "WITH secret AS s, (s) AS t SELECT id FROM orders WHERE nullIn(42, (t))",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_WITH_ALIAS_IN)
+def test_in_over_a_with_alias_of_a_name_reads_that_table_on_clickhouse(sql):
+    _hidden_from_sqlglot("ClickhouseClient", sql)
+    statement = parse_guard_sql(sql, "clickhouse")[0]
+    assert tables_read(statement, "clickhouse")[-1][-1] == "secret"
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH 5 AS n SELECT id FROM orders WHERE id IN (n)",
+    "WITH (1, 2, 3) AS ids SELECT id FROM orders WHERE id IN ids",
+    "WITH [1, 2] AS ids SELECT id FROM orders WHERE has(ids, id)",
+    "WITH events AS e SELECT id FROM orders WHERE id GLOBAL IN e",
+    "WITH e AS (SELECT id FROM events) SELECT id FROM orders WHERE id IN e",
+    "SELECT id FROM orders WHERE globalIn(id, (1, 2)) OR notIn(id, (SELECT id FROM events))",
+    "SELECT id FROM orders WHERE nullIn(id, events)",
+])
+def test_scalar_with_aliases_and_in_functions_over_lists_queries_or_active_tables_still_read_on_clickhouse(sql):
+    _passes("ClickhouseClient", sql)
+
+
+# Functions that read a Join-engine table or a dictionary named in a string.
+CLICKHOUSE_NAMED_READERS = [
+    "SELECT joinGet('secret_join', 'x', toUInt64(1)) FROM orders",
+    "SELECT joinGetOrNull('db.secret_join', 'x', toUInt64(1)) FROM orders",
+    "SELECT dictGet('secret_dict', 'x', toUInt64(1)) FROM orders",
+    "SELECT dictGetInt32OrDefault('secret_dict', 'x', toUInt64(1), 0) FROM orders",
+    "SELECT dictHas('secret_dict', toUInt64(1)) FROM orders",
+    "SELECT dictIsIn('secret_dict', toUInt64(1), toUInt64(2)) FROM orders",
+    "SELECT dictGetHierarchy('secret_dict', toUInt64(1)) FROM orders",
+    "SELECT dictGetChildren('secret_dict', toUInt64(1)) FROM orders",
+    "SELECT dictGetDescendants('secret_dict', toUInt64(1), 0) FROM orders",
+    "SELECT `dictGet`('secret_dict', 'x', toUInt64(1)) FROM orders",
+]
+
+
+@pytest.mark.parametrize("sql", CLICKHOUSE_NAMED_READERS)
+def test_a_function_that_reads_a_join_table_or_a_dictionary_by_name_is_refused_by_table_scope_on_clickhouse(sql):
+    _hidden_from_sqlglot("ClickhouseClient", sql)
+    with pytest.raises(TableScopeViolation, match="not allowed"):
+        check_table_scope(ensure_read_only(_client("ClickhouseClient"), sql), "clickhouse", SCOPE)
 
 
 @pytest.mark.parametrize("sql", [

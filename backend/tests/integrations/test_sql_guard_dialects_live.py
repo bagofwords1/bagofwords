@@ -238,6 +238,36 @@ def test_into_outfile_hidden_by_a_server_mode_is_refused(mysql):
         ensure_read_only(object.__new__(MysqlClient), sql)
 
 
+# MariaDB in MSSQL mode reads [...] as a quoted name; sqlglot reads a
+# bracket and then a string.
+MSSQL_MODE_BRACKET_HIDDEN = [
+    ("SELECT 1 AS [a'], x FROM secret -- '] FROM orders", [(1, SECRET)]),
+    ("SELECT [a'] AS v FROM (SELECT 1 AS [a']) t UNION ALL SELECT x FROM secret -- ']", [(1,), (SECRET,)]),
+]
+
+
+@pytest.mark.parametrize("sql, rows", MSSQL_MODE_BRACKET_HIDDEN)
+def test_mariadb_in_mssql_mode_reads_brackets_as_a_quoted_name_and_reads_the_table_after_it(mariadb, sql, rows):
+    import pymysql
+
+    with pytest.raises(pymysql.err.ProgrammingError):
+        mariadb.rows(sql)
+    assert mariadb.rows_in_mode("MSSQL", sql) == rows
+    with pytest.raises(ReadOnlyViolation, match="bracket"):
+        ensure_read_only(object.__new__(MariadbClient), sql)
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "mysql", SCOPE)
+
+
+def test_into_outfile_hidden_by_brackets_in_mssql_mode_is_refused(mariadb):
+    path = "/var/lib/mysql/p5a-bracket.csv"
+    sql = "SELECT 1 AS [a'] INTO OUTFILE '" + path + "' -- '"
+    mariadb.rows_in_mode("MSSQL", sql)
+    assert mariadb.rows(f"SELECT LOAD_FILE('{path}') IS NOT NULL") == [(1,)]
+    with pytest.raises(ReadOnlyViolation, match="bracket"):
+        ensure_read_only(object.__new__(MariadbClient), sql)
+
+
 @pytest.mark.parametrize("space", NON_ASCII_SPACES, ids=lambda c: f"U+{ord(c):04X}")
 def test_mysql_reads_a_space_outside_ascii_as_part_of_a_name(mysql, space):
     import pymysql
@@ -304,7 +334,15 @@ def test_sql_server_nests_block_comments(mssql):
 _CLICKHOUSE_TABLES = (
     "CREATE TABLE orders (id Int32) ENGINE = Memory; INSERT INTO orders VALUES (1); "
     f"CREATE TABLE secret (x Int32) ENGINE = Memory; INSERT INTO secret VALUES ({SECRET}); "
+    # A Join-engine table and a dictionary over another table, both disabled.
+    "CREATE TABLE secret_join (k UInt64, x Int32) ENGINE = Join(ANY, LEFT, k); "
+    f"INSERT INTO secret_join VALUES (1, {SECRET}); "
+    f"CREATE TABLE secret_src (id UInt64, x Int32) ENGINE = Memory; INSERT INTO secret_src VALUES (1, {SECRET}); "
+    "CREATE DICTIONARY secret_dict (id UInt64, x Int32) PRIMARY KEY id "
+    "SOURCE(CLICKHOUSE(TABLE 'secret_src')) LAYOUT(FLAT()) LIFETIME(0); "
 )
+CLICKHOUSE_SCOPE = TableScope.from_names(active=["orders"],
+                                         inactive=["secret", "secret_join", "secret_src", "secret_dict"])
 
 
 @pytest.fixture(scope="module")
@@ -406,6 +444,79 @@ def test_clickhouse_takes_only_a_table_or_constants_on_the_right_of_in(clickhous
     # no query that runs.
     code, out = clickhouse_local("SELECT count() FROM orders WHERE 1 IN (id)")
     assert code != 0 and "constant or table expression" in out
+
+
+# Each IN operator as a function, with its set (42 is in the secret table:
+# 1 for an IN, 0 for a NOT IN).
+IN_FUNCTION_TABLE = [
+    ("SELECT count() FROM orders WHERE globalIn(42, secret)", "1"),
+    ("SELECT count() FROM orders WHERE notIn(42, default.secret)", "0"),
+    ("SELECT count() FROM orders WHERE nullIn(42, (secret))", "1"),
+    ("SELECT count() FROM orders WHERE `globalNotIn`(42, `secret`)", "0"),
+    ("SELECT count() FROM orders WHERE notNullIn(42, secret)", "0"),
+    ("SELECT count() FROM orders WHERE globalNullIn(42, secret)", "1"),
+    ("SELECT count() FROM orders WHERE globalNotNullIn(42, secret)", "0"),
+    ("SELECT arrayJoin([globalIn(42, secret), globalIn(7, secret)]) AS hit", "1" + NL + "0"),
+]
+
+
+@pytest.mark.parametrize("sql, shown", IN_FUNCTION_TABLE)
+def test_clickhouse_reads_the_set_of_an_in_function_from_a_table(clickhouse_local, sql, shown):
+    assert _sqlglot_tables(sql, "clickhouse") <= {("orders",)}
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == shown
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
+# A WITH entry whose body is a name is an alias of that name: IN over the
+# alias reads the table. sqlglot reads a CTE named `s`.
+WITH_ALIAS_TABLE = [
+    ("WITH secret AS s SELECT count() FROM orders WHERE 42 IN s", "1"),
+    ("WITH secret AS s SELECT count() FROM orders WHERE 42 GLOBAL IN s", "1"),
+    ("WITH (secret) AS s SELECT count() FROM orders WHERE 42 IN (s)", "1"),
+    ("WITH secret AS s, s AS t SELECT count() FROM orders WHERE 42 NOT IN t", "0"),
+    ("WITH secret AS s SELECT count() FROM orders WHERE (42) IN s", "1"),
+    ("SELECT * FROM (WITH secret AS s SELECT count() FROM orders WHERE 42 IN s)", "1"),
+    ("WITH secret AS s SELECT count() FROM orders WHERE globalIn(42, s)", "1"),
+]
+
+
+@pytest.mark.parametrize("sql, shown", WITH_ALIAS_TABLE)
+def test_clickhouse_reads_in_over_a_with_alias_of_a_table_name_as_that_table(clickhouse_local, sql, shown):
+    assert _sqlglot_tables(sql, "clickhouse") <= {("orders",)}
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == shown
+    with pytest.raises(TableScopeViolation, match="SECRET"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
+@pytest.mark.parametrize("sql, shown", [
+    ("WITH 1 AS n SELECT count() FROM orders WHERE id IN (n)", "1"),
+    ("WITH (1, 2, 3) AS ids SELECT count() FROM orders WHERE id IN ids", "1"),
+    ("SELECT count() FROM orders WHERE id IN (1, 2)", "1"),
+    ("SELECT count() FROM orders WHERE id GLOBAL IN (SELECT id FROM orders)", "1"),
+    ("WITH o AS (SELECT id FROM orders) SELECT count() FROM orders WHERE id IN o", "1"),
+    ("SELECT count() FROM orders WHERE globalIn(id, (1, 2))", "1"),
+])
+def test_clickhouse_scalar_with_aliases_and_in_over_lists_or_queries_still_read(clickhouse_local, sql, shown):
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == shown
+    check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT joinGet('secret_join', 'x', toUInt64(1))",
+    "SELECT joinGetOrNull('default.secret_join', 'x', toUInt64(1))",
+    "SELECT dictGet('secret_dict', 'x', toUInt64(1))",
+    "SELECT dictGetInt32('secret_dict', 'x', toUInt64(1))",
+])
+def test_clickhouse_reads_a_join_table_or_a_dictionary_named_in_a_string(clickhouse_local, sql):
+    assert _sqlglot_tables(sql, "clickhouse") == set()
+    code, out = clickhouse_local(sql)
+    assert code == 0 and out == str(SECRET)
+    with pytest.raises(TableScopeViolation, match="not allowed"):
+        check_table_scope(ensure_read_only(object.__new__(ClickhouseClient), sql), "clickhouse", CLICKHOUSE_SCOPE)
 
 
 # --------------------------------------------------------------- Postgres
