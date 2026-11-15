@@ -193,8 +193,14 @@ assert.equal(baseOf({ type: 'documentum', config: { rest_url: 'https://dctm', re
 assert.equal(baseOf({ type: 'network_dir', config: { root_path: '/mnt/share' } }), '/mnt/share')
 
 // The components as they render: their real templates, with the card's and the panel's real helpers.
+// A <script lang="ts"> component may use TypeScript in its template (`dsId!`), as
+// the app build allows: compile it as TS, then strip the types before running it.
 const templateOf = (sfc, id) => {
-  const { code } = compileTemplate({ source: parse(sfc).descriptor.template.content, filename: `${id}.vue`, id })
+  const { descriptor } = parse(sfc)
+  const isTS = [descriptor.script, descriptor.scriptSetup].some((s) => s && s.lang === 'ts')
+  const compiled = compileTemplate({ source: descriptor.template.content, filename: `${id}.vue`, id, isTS,
+    compilerOptions: isTS ? { expressionPlugins: ['typescript'] } : undefined }).code
+  const code = isTS ? ts.transpileModule(compiled, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, verbatimModuleSyntax: true } }).outputText : compiled
   return new Function('Vue', code
     .replace(/import \{([^}]*)\} from "vue"/, (_, names) => `const {${names.replace(/ as /g, ': ')}} = Vue`)
     .replace('export function render', 'return function render'))(Vue)
