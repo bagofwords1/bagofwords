@@ -274,9 +274,10 @@ def test_a_type_whose_client_cannot_be_resolved_is_not_offered_custom_tables(mon
         assert not service.is_accelerable_type("postgresql")
     logged = [r.getMessage() for r in caplog.records if r.name == service.__name__]
     assert logged and all("RuntimeError" in m and "detail-not-for-logs" not in m for m in logged), logged
-    # Not remembered: once the client resolves, the type is offered again.
+    # Remembered for the life of the process: the type stays refused (fails
+    # closed) even once the client resolves, until a restart.
     monkeypatch.setattr(data_source_registry, "resolve_client_class", real)
-    assert service.is_accelerable_type("postgresql")
+    assert not service.is_accelerable_type("postgresql")
 
 
 def _unresolvable(monkeypatch):
@@ -305,7 +306,7 @@ def test_a_custom_table_for_a_type_whose_client_cannot_be_loaded_is_refused_sayi
     assert "not checked yet" not in detail
 
 
-def test_a_client_that_cannot_be_loaded_is_logged_once_per_type_and_asked_again_each_time(monkeypatch, caplog):
+def test_a_client_that_cannot_be_loaded_is_logged_once_and_asked_once_per_type(monkeypatch, caplog):
     import logging
 
     service = _unresolvable(monkeypatch)
@@ -327,8 +328,8 @@ def test_a_client_that_cannot_be_loaded_is_logged_once_per_type_and_asked_again_
             assert not service.is_accelerable_type("mysql")
     logged = [r.getMessage() for r in caplog.records if r.name == service.__name__]
     assert len(logged) == 2, logged
-    # The verdict is not cached: every call asks again.
-    assert len(calls) == 6
+    # The verdict is cached for the process: each type is asked once.
+    assert len(calls) == 2
 
 
 # ---------------------------------------------------------------- DynamoDB

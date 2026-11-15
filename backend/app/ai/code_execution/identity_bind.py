@@ -495,8 +495,11 @@ def _percent_comments(client_type: Optional[str]) -> bool:
                and entry.profile.engine in _NONPARSING_PERCENT_COMMENTS for entry in _CLIENT_TABLE.values())
 
 
-# Outside a '...' string: what a plain query is written with.
-_ALLOWED_OUTSIDE_STRINGS = frozenset(string.ascii_letters + string.digits + "_ \t\n.,()=<>!*+-/|%")
+# Outside a '...' string: what a plain query is written with (`:` for a
+# cast or a named placeholder, `?` for a placeholder; neither is a literal,
+# so neither can stand for the identity value). A `;` is allowed only as
+# the last character that is not whitespace (`_outside_the_allow_list`).
+_ALLOWED_OUTSIDE_STRINGS = frozenset(string.ascii_letters + string.digits + "_ \t\n.,()=<>!*+-/|%:?")
 # Inside a "..." name.
 _ALLOWED_IN_NAMES = frozenset(string.ascii_letters + string.digits + "_ .-")
 # Sequences some engine reads as a comment mark.
@@ -540,6 +543,10 @@ def _outside_the_allow_list(text: str, percent: bool) -> Optional[str]:
             i = end + 1
         elif char == "%" and percent:
             return "percent"
+        elif char == ";":
+            if text[i + 1:].strip(" \t\n"):
+                return "char"
+            i += 1
         elif char not in _ALLOWED_OUTSIDE_STRINGS:
             return "char"
         else:

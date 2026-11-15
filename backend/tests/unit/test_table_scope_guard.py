@@ -279,6 +279,76 @@ def test_sandbox_code_reading_active_tables_still_runs(clinic_db):
 
 
 # ---------------------------------------------------------------------------
+# Clients whose SQL the check cannot parse (guard profile "nonparsing_sql")
+# ---------------------------------------------------------------------------
+
+NONPARSING_CLIENTS = [
+    ("db2_client", "Db2Client"),
+    ("ibmi_client", "IbmiClient"),
+    ("vertica_client", "VerticaClient"),
+    ("sybase_client", "SybaseClient"),
+    ("sap_hana_client", "SapHanaClient"),
+    ("pinot_client", "PinotClient"),
+]
+NONPARSING_REFUSAL = (
+    "The table selection on this connection cannot be checked for this connection type. "
+    "Enable all tables on the connection to let the agent query it."
+)
+
+
+def _nonparsing_client(module, name, scope):
+    """The real client class (so the guard knows it by type), with its
+    transport replaced: every statement it is sent is recorded."""
+    import importlib
+
+    import pandas as pd
+
+    parent = getattr(importlib.import_module(f"app.data_sources.clients.{module}"), name)
+    sent = []
+
+    def execute_query(self, sql):
+        sent.append(sql)
+        return pd.DataFrame({"n": [3]})
+
+    client = object.__new__(type("Recording" + name, (parent,), {"execute_query": execute_query}))
+    if scope is not None:
+        setattr(client, TABLE_SCOPE_ATTR, scope)
+    return client, sent
+
+
+NONPARSING_CODE = (
+    "def generate_df(ds_clients, excel_files):\n"
+    "    return ds_clients['src'].execute_query('SELECT COUNT(*) AS n FROM orders')\n"
+)
+
+
+@pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
+def test_a_client_the_check_cannot_parse_is_refused_when_any_table_is_disabled(module, name):
+    client, sent = _nonparsing_client(module, name, TableScope.from_names(active=["orders"], inactive=["payroll"]))
+    with pytest.raises(TableAccessError) as refused:
+        StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
+    assert str(refused.value) == NONPARSING_REFUSAL
+    assert sent == []
+
+
+@pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
+def test_a_client_the_check_cannot_parse_still_runs_when_no_table_is_disabled(module, name):
+    client, sent = _nonparsing_client(module, name, TableScope.from_names(active=["orders", "customers"], inactive=[]))
+    df, _, _ = StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
+    assert df["n"].iloc[0] == 3
+    assert sent == ["SELECT COUNT(*) AS n FROM orders"]
+
+
+def test_a_table_disabled_only_in_another_spelling_still_counts_as_disabled():
+    # "Orders" enabled and "ORDERS" disabled fold to one name, but an engine
+    # that compares quoted names exactly holds two tables.
+    client, sent = _nonparsing_client("db2_client", "Db2Client",
+                                      TableScope.from_names(active=["Orders"], inactive=["ORDERS"]))
+    with pytest.raises(TableScopeViolation, match="cannot be checked for this connection type"):
+        enforce_table_scope(client, "SELECT 1 FROM orders")
+
+
+# ---------------------------------------------------------------------------
 # CTE names only shadow tables where the CTE is visible
 # ---------------------------------------------------------------------------
 

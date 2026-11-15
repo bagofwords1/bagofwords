@@ -740,3 +740,24 @@ return ds_clients['shop'].{escaping}
     assert len(calls) == 1
     assert _violations(events) == ["table_access"]
     assert done["df"] is None
+
+
+def test_a_keyword_only_call_reaches_a_client_that_keeps_its_own_deadline(monkeypatch):
+    # A client that runs its own deadline is called in the caller's thread;
+    # a call that passed its statement by keyword must reach it as written.
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+    from app.data_sources.clients.bow_client import BowClient
+
+    received = []
+
+    def execute_query(self, request):
+        received.append(request)
+        return pd.DataFrame({"n": [1]})
+
+    monkeypatch.setattr(BowClient, "execute_query", execute_query)
+    client = object.__new__(BowClient)
+    spec = {"dataset": "runs", "time_range": {"relative": "7d"}}
+    # By the client's own parameter name, so no positional reaches the wrapper.
+    df = QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(request=spec)
+    assert received == [spec]
+    assert df["n"].tolist() == [1]

@@ -206,7 +206,7 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("spectrum_client", "SpectrumClient", f"{_JSON}, spectrum_client.py:658"),
     _refused("vcenter_client", "VCenterClient", f"{_JSON}, vcenter_client.py:805"),
     _refused("zabbix_client", "ZabbixClient", f"{_JSON}, zabbix_client.py:341"),
-    _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:165"),
+    _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:177"),
     _refused("sap_bw_xmla_client", "SapBwXmlaClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("analysis_services_client", "AnalysisServicesClient", f"{_MDX}, analysis_services_client.py:673"),
@@ -280,7 +280,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "before any agent SQL (fast_client.py:160), introspection refused, fast_client.py:292",
             package="app.data_sources.fast"),
     # Read-only rules at the dispatch point (P5c).
-    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:186"),
+    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:198"),
     _exempt("azure_data_explorer_client", "AzureDataExplorerClient",
             f"{_DISPATCH}: management commands refused, azure_data_explorer_client.py:122"),
     _exempt("aws_cost_client", "AwsCostClient", f"{_DISPATCH}: get_, list_ and describe_ operations only, aws_cost_client.py:159"),

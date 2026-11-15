@@ -65,6 +65,10 @@ def logins(monkeypatch):
         return sqlalchemy.create_engine("sqlite://", poolclass=StaticPool)
 
     monkeypatch.setattr("app.data_sources.clients.postgresql_client.get_engine", engine_for)
+    # The stand-in engine is SQLite, which has no Postgres session settings to
+    # set or read back; only the login is under test here.
+    monkeypatch.setattr("app.data_sources.clients.postgresql_client.prepare_pg_session", lambda conn, sql: None)
+    monkeypatch.setattr("app.data_sources.clients.postgresql_client.verify_pg_session_after", lambda conn: None)
     return seen
 
 

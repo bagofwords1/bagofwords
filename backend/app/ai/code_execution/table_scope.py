@@ -43,8 +43,10 @@ that run SQL held in a string such as Postgres `query_to_xml`), the query is
 refused rather than run unchecked.
 
 Scope: SQL clients whose dialect sqlglot knows (see `sql_guard.CLIENT_DIALECTS`).
-Non-SQL clients (Mongo, Splunk, Salesforce, API and MCP connectors) are not
-checked here. This is a second layer: the hard boundary is still the grants of
+SQL clients without one (guard profile "nonparsing_sql") cannot be checked
+table by table: while their selection disables any table, every query is
+refused (`enforce_table_scope`). Non-SQL clients (Mongo, Splunk, Salesforce,
+API and MCP connectors) are not checked here. This is a second layer: the hard boundary is still the grants of
 the database login behind the connection.
 """
 
@@ -56,6 +58,7 @@ import string
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from app.ai.code_execution.client_profiles import guard_profile
 from app.ai.code_execution.sql_guard import (
     DENIED_FUNCTIONS,
     ReadOnlyViolation,
@@ -943,12 +946,32 @@ def one_part_table_refs(sql: str, dialect: str) -> list[str]:
     return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
 
 
+NONPARSING_SCOPE_REFUSAL = (
+    "The table selection on this connection cannot be checked for this connection type. "
+    "Enable all tables on the connection to let the agent query it."
+)
+
+
+def _disables_a_table(scope: TableScope) -> bool:
+    """Whether any table is disabled in `scope`, in any of the spellings it
+    compares (a name disabled only in another case still counts)."""
+    return any(s is not None and s.inactive for s in (scope, scope.exact, scope.ascii_folded, scope.legacy))
+
+
 def enforce_table_scope(client, query) -> None:
-    """Check `query` against the scope attached to `client`, if any."""
+    """Check `query` against the scope attached to `client`, if any.
+
+    A client whose SQL the check cannot parse (guard profile
+    "nonparsing_sql") is refused every query while its scope disables any
+    table, and is not checked otherwise. Non-SQL clients are not checked.
+    """
     scope: TableScope | None = getattr(client, TABLE_SCOPE_ATTR, None)
     if not isinstance(scope, TableScope) or not isinstance(query, str) or not query.strip():
         return
     dialect = dialect_for_client(client)
     if not dialect:
+        profile = guard_profile(client)
+        if profile is not None and profile.kind == "nonparsing_sql" and _disables_a_table(scope):
+            raise TableScopeViolation(NONPARSING_SCOPE_REFUSAL)
         return
     check_table_scope(query, dialect, scope, getattr(client, "exact_table_scope_catalogs", None))

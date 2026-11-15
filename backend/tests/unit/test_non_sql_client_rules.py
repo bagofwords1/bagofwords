@@ -96,13 +96,29 @@ def _mongo_query(**spec):
 _MONGO_REFUSED = {
     "out stage": [{"$match": {}}, {"$out": "copy"}],
     "merge stage": [{"$merge": {"into": "copy"}}],
-    "union stage at the top": [{"$unionWith": {"coll": "other"}}],
+    "union stage naming another database": [{"$unionWith": {"db": "local", "coll": "other"}}],
     "stage name in another case": [{"$Out": "copy"}],
     "two operators in one stage": [{"$match": {}, "$out": "copy"}],
     "unknown stage": [{"$collStats": {}}],
+    "index stats stage": [{"$indexStats": {}}],
     "stage that is not an object": ["$out"],
     "union stage inside a lookup pipeline": [
-        {"$lookup": {"from": "other", "as": "o", "pipeline": [{"$unionWith": {"coll": "x"}}]}},
+        {"$lookup": {"from": "other", "as": "o", "pipeline": [{"$unionWith": {"db": "local", "coll": "x"}}]}},
+    ],
+    "union stage with an unknown key": [{"$unionWith": {"coll": "other", "into": "x"}}],
+    "union stage without a collection": [{"$unionWith": {"pipeline": [{"$match": {}}]}}],
+    "union stage whose collection is not a name": [{"$unionWith": {"coll": {"db": "local", "coll": "x"}}}],
+    "union stage that is a list": [{"$unionWith": ["other"]}],
+    "out stage inside a union pipeline": [{"$unionWith": {"coll": "other", "pipeline": [{"$out": "copy"}]}}],
+    "union pipeline that is not a list": [{"$unionWith": {"coll": "other", "pipeline": {"$out": "copy"}}}],
+    "where inside a union pipeline": [
+        {"$unionWith": {"coll": "other", "pipeline": [{"$match": {"$where": "true"}}]}},
+    ],
+    "function inside a search stage": [
+        {"$search": {"index": "i", "text": {"query": {"$function": {"body": "f", "args": [], "lang": "js"}}}}},
+    ],
+    "where inside a geo stage": [
+        {"$geoNear": {"near": [0, 0], "distanceField": "d", "query": {"$where": "true"}}},
     ],
     "out stage inside a facet pipeline": [
         {"$facet": {"a": [{"$match": {}}], "b": [{"$out": "copy"}]}},
@@ -196,6 +212,29 @@ def test_mongo_sends_a_read_pipeline_unchanged(mongo):
     df = client.execute_query(_mongo_query(aggregate=pipeline))
     assert isinstance(df, pd.DataFrame) and len(df) == 1
     assert sent == [("aggregate", "orders", pipeline)]
+
+
+@pytest.mark.parametrize("stage", [
+    {"$geoNear": {"near": {"type": "Point", "coordinates": [0, 0]}, "distanceField": "d"}},
+    {"$search": {"index": "default", "text": {"query": "x", "path": "name"}}},
+    {"$searchMeta": {"index": "default", "facet": {"facets": {}}}},
+    {"$vectorSearch": {"index": "v", "path": "e", "queryVector": [0.1], "numCandidates": 10, "limit": 5}},
+    {"$unionWith": "other"},
+    {"$unionWith": {"coll": "other"}},
+    {"$unionWith": {"coll": "other", "pipeline": [{"$match": {"a": 1}}, {"$project": {"a": 1}}]}},
+], ids=["geoNear", "search", "searchMeta", "vectorSearch", "union by name", "union coll", "union pipeline"])
+def test_mongo_sends_the_other_read_stages_unchanged(mongo, stage):
+    client, sent = mongo
+    client.execute_query(_mongo_query(aggregate=[stage]))
+    assert sent == [("aggregate", "orders", [stage])]
+
+
+@pytest.mark.parametrize("stage", ["$collStats", "$indexStats", "$out"])
+def test_mongo_names_a_refused_stage_in_its_message(mongo, stage):
+    client, _ = mongo
+    with pytest.raises(ReadOnlyViolation) as refused:
+        client.execute_query(_mongo_query(aggregate=[{stage: {}}]))
+    assert f"the {stage!r} stage is not on the allowed read-stage list" in str(refused.value)
 
 
 def test_mongo_sends_a_find_unchanged(mongo):

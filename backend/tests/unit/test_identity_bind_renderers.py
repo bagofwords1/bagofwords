@@ -371,7 +371,7 @@ def test_a_plain_filter_is_accepted_on_every_client_without_the_engines_reading(
 # Each character or sequence outside the allow-list, and the error kind it is
 # logged with. A quote opens a string left unterminated.
 REFUSED_OUTSIDE_A_STRING = {
-    **{c: "char" for c in "#$&:;?@[]^`{}~" + '"'},
+    **{c: "char" for c in "#$&@[]^`{}~" + '"'},
     BACKSLASH: "backslash",
     "'": "unparseable",
     chr(0): "char", chr(13): "char", chr(11): "char", chr(12): "char", chr(127): "char", chr(0x85): "char",
@@ -394,6 +394,43 @@ def test_any_refused_character_or_sequence_outside_a_string_flips_a_plain_filter
         for i in positions:
             text = PLAIN[:i] + refused + PLAIN[i:]
             assert _refusal(text, family) == UNVERIFIABLE, (refused, i)
+    # A `;` is allowed only as the last character that is not whitespace.
+    for i in positions:
+        if i < len(PLAIN):
+            assert _refusal(PLAIN[:i] + ";" + PLAIN[i:], family) == UNVERIFIABLE, (";", i)
+
+
+# `:`, `?` and a trailing `;` are plain syntax: a cast, a placeholder, the
+# end of the statement.
+ACCEPTED_PLAIN_SYNTAX = [
+    "SELECT a FROM t WHERE owner = 'v' AND d > '2024-01-01'::DATE",
+    PLAIN + ";",
+    PLAIN + " ;" + NL,
+    "SELECT a FROM t WHERE owner = 'v' AND x > ?",
+    "SELECT a FROM t WHERE owner = 'v' AND x > :lim",
+]
+
+
+@pytest.mark.parametrize("text", ACCEPTED_PLAIN_SYNTAX)
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_a_cast_a_placeholder_and_a_trailing_semicolon_are_accepted_without_the_engines_reading(family, text):
+    assert _refusal(text, family) is None
+
+
+@pytest.mark.parametrize("text", [PLAIN + "; SELECT 1", PLAIN + "; -- note", PLAIN + ";;"])
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_a_semicolon_that_is_not_last_is_refused_without_the_engines_reading(family, text):
+    assert _refusal(text, family) == UNVERIFIABLE
+
+
+@pytest.mark.parametrize("text", [
+    "SELECT a FROM t WHERE owner = :v",
+    "SELECT a FROM t WHERE owner = ?",
+    "SELECT a FROM t WHERE owner = :v;",
+])
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_a_placeholder_never_counts_as_the_identity_value(family, text):
+    assert _refusal(text, family) is not None
 
 
 @pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
@@ -429,7 +466,7 @@ def _identity_records(run):
 
 
 @pytest.mark.parametrize("text, family, kind", [
-    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND x = 1;", "SybaseClient", "char"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND x = 1; SELECT 2", "SybaseClient", "char"),
     ("SELECT a FROM t WHERE owner = 'alice@corp.io' -- note", "PostHogClient", "sequence"),
     ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND note = 'x" + BACKSLASH + "'", "OracleBIClient",
      "backslash"),

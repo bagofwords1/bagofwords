@@ -12,14 +12,18 @@ from datetime import datetime
 
 
 # Aggregation stages that only read. Any other stage (`$out`, `$merge`,
-# `$unionWith`, ...) is refused, in the top pipeline and in the pipelines a
-# `$lookup` or `$facet` stage carries.
+# `$collStats`, `$indexStats`, ...) is refused, in the top pipeline and in the
+# pipelines a `$lookup`, `$unionWith` or `$facet` stage carries.
 _READ_STAGES = frozenset({
     "$match", "$project", "$group", "$sort", "$limit", "$skip", "$unwind",
     "$count", "$addFields", "$set", "$unset", "$lookup", "$graphLookup",
     "$facet", "$bucket", "$bucketAuto", "$sortByCount", "$replaceRoot",
     "$replaceWith", "$sample", "$setWindowFields", "$densify", "$fill", "$redact",
+    "$geoNear", "$search", "$searchMeta", "$vectorSearch", "$unionWith",
 })
+# The keys a `$unionWith` object may hold: a collection of this database
+# (`coll`, required) and a pipeline run over it.
+_UNION_WITH_KEYS = frozenset({"coll", "pipeline"})
 # Operators that run server-side JavaScript; refused at any depth of the spec.
 _JS_OPERATORS = frozenset({"$where", "$function", "$accumulator"})
 
@@ -49,8 +53,16 @@ def _check_pipeline(pipeline) -> None:
             _refuse("each pipeline stage must be an object with one stage name")
         (name, spec), = stage.items()
         if name not in _READ_STAGES:
-            _refuse(f"the {name!r} stage is not a read stage")
-        if name in ("$lookup", "$graphLookup"):
+            _refuse(f"the {name!r} stage is not on the allowed read-stage list")
+        if name == "$unionWith":
+            if isinstance(spec, str):
+                continue
+            if not (isinstance(spec, dict) and set(spec) <= _UNION_WITH_KEYS and isinstance(spec.get("coll"), str)):
+                _refuse("$unionWith must name a collection of this database in 'coll', "
+                        "with at most a 'pipeline' besides it")
+            if "pipeline" in spec:
+                _check_pipeline(spec["pipeline"])
+        elif name in ("$lookup", "$graphLookup"):
             # An object in `from` names a collection of another database.
             if not (isinstance(spec, dict) and isinstance(spec.get("from"), str)):
                 _refuse(f"{name} must name a collection of this database in 'from'")
@@ -65,8 +77,8 @@ def _check_pipeline(pipeline) -> None:
 
 def check_read_only_spec(query_dict: dict) -> None:
     """Refuse a query spec that could write or run server code: an aggregate
-    stage outside `_READ_STAGES` (also inside `$lookup` / `$facet`
-    pipelines), or a JavaScript operator anywhere in the spec."""
+    stage outside `_READ_STAGES` (also inside `$lookup` / `$unionWith` /
+    `$facet` pipelines), or a JavaScript operator anywhere in the spec."""
     _check_no_javascript(query_dict)
     if "aggregate" in query_dict:
         _check_pipeline(query_dict["aggregate"])

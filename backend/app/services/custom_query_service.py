@@ -184,8 +184,9 @@ def _is_unchecked(kind: str) -> bool:
 
 def _unchecked_reason(kind: str) -> Optional[str]:
     """"unknown" when the query checks do not know a connection type's
-    client, "unresolved" when that client cannot be resolved (asked again
-    next time, logged once per type), else None."""
+    client, "unresolved" when that client cannot be resolved (kept for the
+    life of the process, so it stays refused; logged once per type), else
+    None."""
     if kind not in _UNCHECKED:
         try:
             from app.ai.code_execution.client_profiles import classify_type
@@ -193,13 +194,13 @@ def _unchecked_reason(kind: str) -> Optional[str]:
 
             key = next((k for k in REGISTRY if k.lower() == kind), None)
             cls = resolve_client_class(key) if key else None
-            _UNCHECKED[kind] = cls is not None and classify_type(cls) == "unknown"
+            _UNCHECKED[kind] = "unknown" if cls is not None and classify_type(cls) == "unknown" else None
         except Exception as e:
+            _UNCHECKED[kind] = "unresolved"
             if kind not in _UNRESOLVED_LOGGED:
                 _UNRESOLVED_LOGGED.add(kind)
                 logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
-            return "unresolved"
-    return "unknown" if _UNCHECKED[kind] else None
+    return _UNCHECKED[kind]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 

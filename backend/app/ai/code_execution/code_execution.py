@@ -1771,6 +1771,9 @@ class QueryCapturingClientWrapper:
         if getattr(self._original, "_manages_query_deadline", False):
             with query_tag.applied_query_tag(self._query_tag), observed:
                 try:
+                    if query is _NO_QUERY:
+                        # Keyword-only call, as in the threaded branch below.
+                        return self._original.execute_query(*args, **kwargs)
                     return self._original.execute_query(query, *args, **kwargs)
                 except (ReadOnlyViolation, TableScopeViolation) as exc:
                     raise _as_refusal(exc) from exc
