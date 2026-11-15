@@ -109,6 +109,12 @@ class Artifact(BaseSchema):
     # Collaboration (collab01): the dashboard's notes -- its README, carried
     # into every editing conversation.
     notes = Column(Text, nullable=True)
+    # A short, human-written blurb of what this dashboard shows and who it is
+    # for (dashdesc01). Distinct from `notes` (the long README fed to editing
+    # agents): this never reaches an LLM and is shown to readers on hover,
+    # beside the full name. Owner-editable from the General settings tab, on
+    # the same save as slug/notes. NULL = none; renders exactly as today.
+    description = Column(Text, nullable=True)
     # When the dashboard's content last changed (dashlist01): a completed
     # version, a rename, a publish, a restore. Never a data refresh, which
     # moves updated_at. NULL reads as created_at.

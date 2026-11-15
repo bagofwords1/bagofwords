@@ -59,6 +59,8 @@ export interface DashboardCardData {
   id: string
   slug?: string | null
   title?: string | null
+  // Short blurb shown beside the full name on hover (dashdesc01).
+  description?: string | null
   mode: string
   published: boolean
   is_owner?: boolean
