@@ -14,6 +14,8 @@ from app.data_sources.fast.fast_client import FastQueryClient
     "SELECT * FROM duckdb_extensions()",
     "SELECT * FROM query_table('duck' || 'db_databases')",
     "SELECT * FROM query ('SELECT 1')",
+    "SELECT name, setting FROM pg_settings",
+    "select * from PG_CATALOG.PG_SETTINGS",
 ])
 def test_path_disclosing_introspection_is_refused(sql):
     with pytest.raises(ValueError, match="introspection"):
@@ -25,6 +27,9 @@ def test_path_disclosing_introspection_is_refused(sql):
     "SELECT 42 AS query_count",
     "SELECT table_name FROM duckdb_tables()",
     "SELECT * FROM (SELECT 'settings' AS database_name) t",
+    "SELECT column_name FROM duckdb_columns()",
+    "DESCRIBE SELECT 1 AS n",
+    "SELECT 1 AS pg_settings_count",
 ])
 def test_ordinary_queries_still_run(sql):
     df = FastQueryClient([]).execute_query(sql)

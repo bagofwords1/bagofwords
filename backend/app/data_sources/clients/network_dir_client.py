@@ -1238,20 +1238,15 @@ class NetworkDirClient(DataSourceClient):
             if self.index_file_tables:
                 # Preserve the historical file-id form, including SQL-looking names.
                 # read_file enforces the directory scope even for a matching real path.
-                import duckdb
                 try:
                     is_file = (self._root() / query).is_file()
                 except (OSError, ValueError):
                     is_file = False
                 if is_file:
                     return self.read_file(query, sheet=kwargs.get("sheet"))
-                try:
-                    statements = duckdb.extract_statements(query)
-                except duckdb.ParserException:
+                from app.data_sources.clients._network_dir_tables import query_tables, reads_as_statements
+                if not reads_as_statements(query):
                     return self.read_file(query, sheet=kwargs.get("sheet"))
-                if not statements:
-                    return self.read_file(query, sheet=kwargs.get("sheet"))
-                from app.data_sources.clients._network_dir_tables import query_tables
                 return query_tables(self, query)
             return self.read_file(query, sheet=kwargs.get("sheet"))
         raise ValueError("Provide table_name or query (file id) to read a file")

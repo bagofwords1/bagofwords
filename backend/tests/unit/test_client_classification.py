@@ -579,6 +579,31 @@ def test_every_exemption_names_its_category_and_a_file_line_of_the_clients_own_c
             assert 1 <= int(line) <= len(source.read_text().splitlines()), (key, name, line)
 
 
+# What the cited lines of the DuckDB exemptions hold, in the order cited.
+_CITED_CALLS = {
+    "CSVClient": ("check_duckdb_file_query(",),
+    "QVDClient": ("check_duckdb_file_query(",),
+    "PBIXClient": ("check_duckdb_file_query(",),
+    "PowerBIReportServerClient": ("check_duckdb_file_query(",),
+    "FastQueryClient": ("lock_query_session(con)", "assert_no_blocked_introspection(sql)"),
+    "NetworkDirClient": ("def read_file(", "def execute_query(", "query_tables(self, query)"),
+}
+
+
+def test_the_duckdb_exemptions_cite_the_lines_that_lock_and_check(classes):
+    by_name = {cls.__qualname__: cls for cls in classes}
+    for (_module, name), reason in EXEMPT_CLIENTS.items():
+        if name not in _CITED_CALLS:
+            continue
+        source = Path(inspect.getsourcefile(by_name[name]))
+        lines = source.read_text().splitlines()
+        cited = [lines[int(line) - 1] for file, line in re.findall(r"\b(\w+\.py):(\d+)\b", reason)
+                 if file == source.name]
+        assert len(cited) == len(_CITED_CALLS[name]), (name, reason)
+        for text, call in zip(cited, _CITED_CALLS[name]):
+            assert call in text, (name, call, text)
+
+
 # Each exemption resting on a check at the dispatch point has a test that
 # refuses a write through that client.
 _DISPATCH_REFUSAL_TESTS = {
@@ -703,3 +728,35 @@ def test_the_network_directory_refuses_sql_outside_one_select_over_its_selected_
         with pytest.raises(ReadOnlyViolation):
             client.execute_query(refused)
     assert not (root / "out.csv").exists()
+
+    # What the text checks pass, the locked engine still stops: a file
+    # named as a table, and a Python object the module can see.
+    (root / "data.csv").write_text("v\n1\n")
+    path = str(root / "data.csv").replace("'", "''")
+    with pytest.raises(duckdb.PermissionException):
+        client.execute_query(f"SELECT * FROM '{path}'")
+
+    # Settings stay out of reach; the documented discovery reads still work.
+    for refused in ("SELECT name, setting FROM pg_settings","SELECT * FROM pg_catalog.pg_settings"):
+        with pytest.raises(ValueError, match="introspection"):
+            client.execute_query(refused)
+    assert "file_id" in client.execute_query(
+        "SELECT column_name FROM duckdb_columns() WHERE table_name = 'indexed_files'")["column_name"].tolist()
+    assert "file_id" in client.execute_query("DESCRIBE indexed_files")["column_name"].tolist()
+
+
+def test_the_network_directory_engine_does_not_read_python_objects(tmp_path, monkeypatch):
+    from app.data_sources.clients import _network_dir_tables
+    from app.data_sources.clients._network_dir_tables import attach_catalog
+    from app.data_sources.clients.network_dir_client import NetworkDirClient
+    from app.services import storage
+
+    monkeypatch.setattr(storage, "UPLOADS_ROOT", tmp_path / "cache")
+    root = tmp_path / "share"
+    root.mkdir()
+    client = NetworkDirClient(root_path=str(root), index_mode="content")
+    attach_catalog(client, [("indexed_files", [], {})], [])
+    # A frame the module running the query can see passes the text checks.
+    monkeypatch.setattr(_network_dir_tables, "visible_frame", pd.DataFrame({"v": [1]}), raising=False)
+    with pytest.raises(duckdb.CatalogException):
+        client.execute_query("SELECT * FROM visible_frame")

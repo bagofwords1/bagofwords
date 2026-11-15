@@ -819,6 +819,27 @@ def duckdb_read(sql: str) -> Optional[DuckdbRead]:
     )
 
 
+def _check_duckdb_statement_words(sql: str) -> None:
+    """Refuse DuckDB text whose statements, as DuckDB splits them, start
+    with IMPORT or EXPORT, or with a PRAGMA other than the DuckDB
+    connections' reads (`duckdb_read`). DuckDB opens the files and addresses
+    the import forms name while it parses them, so they never reach it."""
+    previous = None
+    for i, (kind, value, _end) in enumerate(_duckdb_tokens(sql)):
+        starts = i == 0 or previous == ("punct", ";")
+        previous = (kind, value)
+        if not starts or kind != "word":
+            continue
+        verb = value.upper()
+        if verb in ("IMPORT", "EXPORT"):
+            raise ReadOnlyViolation(
+                f"Statement '{verb}' is not allowed. Only SELECT queries are allowed.")
+        if verb == "PRAGMA":
+            if i:
+                raise ReadOnlyViolation("Only a single read-only statement is allowed.")
+            duckdb_read(sql)
+
+
 def _duckdb_table(name: tuple[str, ...]) -> tuple[str, str, str]:
     """(catalog, schema, table) of a name of one to three parts."""
     return ("", "", "", *name)[-3:]
@@ -922,6 +943,8 @@ def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:
         return
 
     check_engine_reading(sql, dialect, unknown_lexer=unknown_lexer)
+    if dialect == "duckdb":
+        _check_duckdb_statement_words(sql)
     teradata = dialect == "teradata"
     if teradata:
         _check_teradata(sql)

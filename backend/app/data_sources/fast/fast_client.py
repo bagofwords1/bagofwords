@@ -36,9 +36,10 @@ logger = logging.getLogger(__name__)
 # (query / query_table, a way around this list). None of it is needed to
 # query the registered relations, so it is refused before execution.
 _BLOCKED_INTROSPECTION = re.compile(
-    # Catalog functions, callable with or without parentheses.
+    # Catalog functions, callable with or without parentheses, and the
+    # settings view.
     r"\b(?:duckdb_databases|duckdb_settings|duckdb_extensions|duckdb_secrets|"
-    r"duckdb_temporary_files|duckdb_memory|duckdb_logs?|(?:pragma_)?database_list)\b"
+    r"duckdb_temporary_files|duckdb_memory|duckdb_logs?|(?:pragma_)?database_list|pg_settings)\b"
     # Scalar/table functions, only when called (a column named `query` is fine).
     r"|\b(?:current_setting|which_secret|getenv|query_table|query)\s*\("
     # The catalog an artifact is attached under. Relations are queried by

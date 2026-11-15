@@ -278,7 +278,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "powerbi_report_server_client.py:704"),
     _exempt("fast_client", "FastQueryClient",
             f"{_DISPATCH}: artifacts attached READ_ONLY, external access off and configuration locked "
-            "before any agent SQL (fast_client.py:160), introspection refused, fast_client.py:292",
+            "before any agent SQL (fast_client.py:167), introspection refused, fast_client.py:286",
             package="app.data_sources.fast"),
     # Read-only rules at the dispatch point (P5c).
     _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:198"),
@@ -356,10 +356,13 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("sap_datasphere_client", "SapDatasphereClient", f"{_SPEC}: OData options on a GET, sap_datasphere_client.py:488"),
     # A file, message or item id (or a JSON file spec) read from the source.
     # With indexed file tables, SQL text goes to one DuckDB SELECT over the
-    # agent's selected tables, checked and locked where it runs.
+    # agent's selected tables. DuckDB parses agent text only on a locked
+    # engine, and the query checks run before the query's own parse.
     _exempt("network_dir_client", "NetworkDirClient",
-            f"{_DISPATCH}: file name or JSON file spec read (network_dir_client.py:537), or one checked DuckDB "
-            "SELECT over the selected file tables on a locked engine (network_dir_client.py:1255)"),
+            f"{_DISPATCH}: file name or JSON file spec read (network_dir_client.py:537), or one DuckDB SELECT "
+            "over the selected file tables: told from a file name by a parse on a locked engine "
+            "(network_dir_client.py:1223), then checked before it is parsed and run on a locked engine "
+            "(network_dir_client.py:1250)"),
     _exempt("graph_drive_client", "GraphDriveClient", f"{_SPEC}: file id or JSON file spec read by GET, graph_drive_client.py:572"),
     _exempt("google_drive_client", "GoogleDriveClient", f"{_SPEC}: file id read by GET, google_drive_client.py:166"),
     _exempt("gmail_mail_client", "GmailMailClient", f"{_SPEC}: message id or Gmail search by GET, gmail_mail_client.py:212"),
