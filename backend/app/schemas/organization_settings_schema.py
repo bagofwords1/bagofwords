@@ -226,6 +226,7 @@ class OrganizationSettingsConfig(BaseModel):
     class GeneralConfig(BaseModel):
         ai_analyst_name: str = "AI Analyst"
         bow_credit: bool = True
+        show_world: bool = False
         # Icon storage fields (disk/object storage)
         icon_key: Optional[str] = None
         icon_url: Optional[str] = None
