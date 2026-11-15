@@ -209,7 +209,12 @@ async def authoring_targets(db, org, user, report, capability, destination, fold
         return None  # Existing non-folder authoring contract.
     destination = destination or ("folder" if folder_id else "agents" if agent_ids else None)
     target_folder = folder_id if report is None or folder_id in selected else active
-    if destination == "folder" and target_folder and not agent_ids and folder_id in (None, target_folder):
+    # `target_folder` already resolves to the report's selected/active folder when
+    # the caller's `folder_id` hint doesn't match one (e.g. a model that passes the
+    # folder NAME instead of its id) — so trust it rather than demanding the hint
+    # echo the exact id. require_capability still authorizes the resolved folder,
+    # and target_folder is never outside the report's own folder scope.
+    if destination == "folder" and target_folder and not agent_ids:
         await require_capability(db, org, user, target_folder, capability)
         return target_folder, []
     rights = await resolve_permissions(db, user.id, org.id)
