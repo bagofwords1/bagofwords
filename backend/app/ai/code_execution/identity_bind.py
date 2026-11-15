@@ -508,10 +508,10 @@ _REFUSED_SEQUENCES = ("--", "/*", "*/", "//", "??")
 # Operators that bind looser than AND/OR on a family's engine (a ternary,
 # a lambda), so a reading that is not the engine's own would group AND/OR
 # around them differently: refused outside strings for that family. A `:`
-# here is one not in a `::` cast, a `->` one not in a `->>` (on DuckDB a
-# text extraction that binds tighter than a comparison; on HogQL not
-# valid syntax). Keyed by family, else by the renderer
-# the family's parameters are written with.
+# here is one not in a `::` cast. A `->` is refused wherever it stands,
+# also inside a `->>`: DuckDB groups AND/OR into the left operand of both.
+# Keyed by family, else by the renderer the family's parameters are
+# written with.
 _LOOSE_OPERATORS_BY_FAMILY = {
     "CosmosdbClient": ("?",),
     "PostHogClient": ("?", ":", "->"),
@@ -579,8 +579,8 @@ def _outside_the_allow_list(text: str, percent: bool, loose: Tuple[str, ...] = (
     code_text = "".join(code)
     if any(sequence in code_text for sequence in _REFUSED_SEQUENCES):
         return "sequence"
-    # A `::` cast and a `->>` text extraction are operators of their own.
-    others = code_text.replace("::", "  ").replace("->>", "   ")
+    # A `::` cast is an operator of its own.
+    others = code_text.replace("::", "  ")
     for operator in loose:
         if operator in others:
             return "char" if len(operator) == 1 else "sequence"

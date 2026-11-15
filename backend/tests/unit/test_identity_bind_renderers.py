@@ -10,6 +10,11 @@ text happens to equal the value's escaped form. Connections it reads as text
 """
 from __future__ import annotations
 
+import functools
+import itertools
+import json
+
+import duckdb
 import pytest
 
 from app.ai.code_execution import query_params
@@ -404,8 +409,6 @@ def test_any_refused_character_or_sequence_outside_a_string_flips_a_plain_filter
     positions = [i for i in OUTSIDE_POSITIONS if family not in NOT_ONLY_SQL or i > len("SELECT")]
     for refused in list(REFUSED_OUTSIDE_A_STRING) + REFUSED_FOR_FAMILY.get(family, []):
         for i in positions:
-            if refused == "->" and PLAIN[i:i + 1] == ">":
-                continue  # makes `->>`, another operator
             text = PLAIN[:i] + refused + PLAIN[i:]
             assert _refusal(text, family) == UNVERIFIABLE, (refused, i)
     # A `;` is allowed only as the last character that is not whitespace.
@@ -457,7 +460,8 @@ LOOSER_THAN_AND_OR = {
     "PostHogClient": ["SELECT a FROM t WHERE owner = 'v' AND f ?? true",
                       "SELECT a FROM t WHERE owner = 'v' AND f ? 1 : 1",
                       "SELECT a FROM t WHERE z -> 1 AND owner = 'v'"],
-    **{family: ["SELECT a FROM t WHERE c -> 'k' AND owner = 'v'"] for family in DUCKDB_RENDERED},
+    **{family: ["SELECT a FROM t WHERE c -> 'k' AND owner = 'v'",
+                "SELECT a FROM t WHERE owner = 'v' AND j ->> 'k' IS NULL"] for family in DUCKDB_RENDERED},
 }
 
 
@@ -472,9 +476,66 @@ def test_a_coalesce_is_refused_on_every_client_without_the_engines_reading(famil
 
 
 @pytest.mark.parametrize("family", DUCKDB_RENDERED)
-def test_a_json_text_extraction_stays_accepted_where_an_arrow_is_refused(family):
-    # `->>` is its own operator there, binding tighter than a comparison.
-    assert _refusal("SELECT a FROM t WHERE owner = 'v' AND j ->> 'k' = 'x'", family) is None
+def test_a_json_text_extraction_is_refused_like_an_arrow(family):
+    # DuckDB groups AND/OR into the left operand of `->>`, as of `->`.
+    assert _refusal("SELECT a FROM t WHERE owner = 'v' AND j ->> 'k' = 'x'", family) == UNVERIFIABLE
+
+
+# The punctuation the allow-list takes outside strings, and every spelling of
+# one to three of them (`::`, `->>`, `<=`, `||`, ...), each written as an
+# infix, a prefix and a postfix operator ahead of a comparison.
+ALLOWED_PUNCTUATION = ".,()=<>!*+-/|%:?"
+OPERATOR_SPELLINGS = [
+    "".join(chars) for size in (1, 2, 3) for chars in itertools.product(ALLOWED_PUNCTUATION, repeat=size)]
+ORACLE_TEMPLATES = [
+    "SELECT a FROM t WHERE owner = 'v' AND x {op} 'k' = '1'",
+    "SELECT a FROM t WHERE owner = 'v' AND x {op} 'k' IS NULL",
+    "SELECT a FROM t WHERE owner = 'v' AND {op} x = 1",
+    "SELECT a FROM t WHERE owner = 'v' AND x {op} = 1",
+]
+
+
+def _keeps_the_owner_conjunct(where):
+    """Whether DuckDB's parse has `owner = 'v'` as a conjunct of the top-level AND."""
+    if where is None or where.get("type") != "CONJUNCTION_AND":
+        return False
+    return any(child.get("type") == "COMPARE_EQUAL"
+               and child["left"].get("column_names") == ["owner"]
+               and child["right"].get("value", {}).get("value") == "v" for child in where["children"])
+
+
+@functools.lru_cache(maxsize=None)
+def _texts_duckdb_parses():
+    """Each oracle text DuckDB parses, with whether its parse keeps the owner
+    conjunct: DuckDB's own reading (`json_serialize_sql`), in process."""
+    texts = [template.format(op=op) for op in OPERATOR_SPELLINGS for template in ORACLE_TEMPLATES]
+    connection = duckdb.connect()
+    try:
+        rows = connection.execute(
+            "SELECT text, json_serialize_sql(text) FROM unnest($1::VARCHAR[]) AS texts(text)", [texts]).fetchall()
+    finally:
+        connection.close()
+    parsed = {}
+    for text, serialized in rows:
+        tree = json.loads(serialized)
+        if tree.get("error") or len(tree["statements"]) != 1:
+            continue  # DuckDB refuses it: the query never runs
+        node = tree["statements"][0]["node"]
+        parsed[text] = node.get("type") == "SELECT_NODE" and _keeps_the_owner_conjunct(node.get("where_clause"))
+    return parsed
+
+
+@pytest.mark.parametrize("family", DUCKDB_RENDERED)
+def test_every_operator_spelling_the_check_accepts_keeps_the_identity_filter_in_duckdbs_own_parse(family):
+    parsed = _texts_duckdb_parses()
+    # The oracle reaches the spellings it is for: those DuckDB parses either way.
+    assert parsed["SELECT a FROM t WHERE owner = 'v' AND x || 'k' = '1'"]
+    assert parsed["SELECT a FROM t WHERE owner = 'v' AND x <= 'k' IS NULL"]
+    assert not parsed["SELECT a FROM t WHERE owner = 'v' AND x -> 'k' = '1'"]
+    assert not parsed["SELECT a FROM t WHERE owner = 'v' AND x ->> 'k' = '1'"]
+    dropped = [text for text, kept in parsed.items() if not kept]
+    accepted = [text for text in dropped if _refusal(text, family) is None]
+    assert accepted == []
 
 
 def test_a_cast_stays_accepted_where_a_lone_colon_is_refused():
@@ -501,8 +562,8 @@ def test_a_placeholder_never_counts_as_the_identity_value(family, text):
 
 @pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
 def test_inside_a_string_anything_but_a_backslash_or_a_control_character_is_allowed(family):
-    for inside in ("a -- b /* c */ # d // e % f ; g [h] `i` $j ?? k ? l : m -> n","".join(chr(c) for c in (0x5D3, 0x5E0)), "it''s",
-                   'say "hi"', "tab" + chr(9) + "lf" + NL):
+    for inside in ("a -- b /* c */ # d // e % f ; g [h] `i` $j ?? k ? l : m -> n",
+                   "".join(chr(c) for c in (0x5D3, 0x5E0)), "it''s", 'say "hi"', "tab" + chr(9) + "lf" + NL):
         assert _refusal("SELECT a FROM t WHERE owner = 'v' AND note = '" + inside + "'", family) is None, inside
     for inside in (BACKSLASH, chr(0), chr(13), chr(127)):
         assert _refusal("SELECT a FROM t WHERE owner = 'v' AND note = 'x" + inside + "'", family) == UNVERIFIABLE
