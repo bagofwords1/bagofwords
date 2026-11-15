@@ -3,7 +3,7 @@
     "tree": "Дерево",
     "usage": "Использование",
     "myReports": "Мои отчёты",
-    "usedTogether": "Отчётов с совместным использованием: {count}",
+    "usedTogether": "Отчётов организации с совместным использованием: {count}",
     "title": "World",
     "explorer": "Explorer",
     "heading": "Your world, connected.",

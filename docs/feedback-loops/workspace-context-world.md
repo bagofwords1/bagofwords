@@ -41,15 +41,15 @@ The initial overview includes the folder hierarchy, agent placements and connect
 
 Tree is the default route. The small Tree/World switch appears on both views when the organization enables World. The usage overlay starts off. Selecting an agent requests that agent's co-usage links; enabling Usage requests the workspace view. Structural links retain their original width and positions.
 
-The API groups successful table-usage observations by report and distinct visible agent. It admits reports using conversation, folder-output and source-access checks before counting agent pairs. Repeated steps add no weight within a report. A pair with no qualifying reports produces no link. The line width grows logarithmically and is capped at six pixels. Hovering shows the count; selecting the link opens its supporting reports. My reports filters report nodes and evidence by ownership. Memory remains a separate personal opt-in.
+World counts distinct, non-archived reports in the organization with successful table usage by both agents. Each viewer must be able to see both agents. SQL deduplicates each report-agent observation before joining pairs and returns only agent IDs and the count. The UI shows the count on hover and in agent details. My reports filters report nodes independently. Memory remains personal and opt-in.
 
-On the previous revision, the focused regression failed with HTTP 422 for the new usage section. Run it with:
+Run the focused regression from the repository root.
 
 ```sh
 cd backend
 TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db uv run python -m pytest -q tests/e2e/rbac/test_world.py -k usage_counts
 ```
 
-The regression covers two agents, repeated activity, an unsuccessful observation, a private report, and removal of access to one agent. The full World suite now has 12 cases. Separate browser sessions in the seeded workspace showed three supporting reports for an admin and two for a member. The member could open both evidence links and saw zero links after applying My reports to that pair of agents.
+The updated regression failed on the previous implementation because the usage edge included report IDs. The fixture exercises private reports, repeated observations, a failed observation, focused and workspace-wide queries, and removal of access to one endpoint. Each authorized viewer gets the same count. The test asserts the exact edge fields and rejects report nodes and IDs anywhere in the response.
 
-The evidence-link check also caught a distinction between the owner report route and a shared conversation. Shared-only readers now follow their authorized read-only conversation link. They cannot expand the owner report's internals through World. The API regression follows every evidence link as each actor and verifies the expansion denial.
+Live verification on the seeded workspace showed three reports for both the admin and query-only member, including after enabling My reports. The member’s report listing excluded the private report. All 12 World API tests passed on SQLite and PostgreSQL.

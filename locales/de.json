@@ -3,7 +3,7 @@
     "tree": "Baum",
     "usage": "Nutzung",
     "myReports": "Meine Berichte",
-    "usedTogether": "Gemeinsam genutzte Berichte: {count}",
+    "usedTogether": "Organisationsberichte mit gemeinsamer Nutzung: {count}",
     "title": "World",
     "explorer": "Explorer",
     "heading": "Your world, connected.",

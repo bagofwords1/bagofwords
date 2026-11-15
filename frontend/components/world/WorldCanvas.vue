@@ -27,7 +27,7 @@
 import type { WorldNode, WorldEdge } from '~/composables/useWorldGraph'
 import { layoutWorld, worldColors, type WorldPoint } from '~/utils/worldGraph'
 const props = defineProps<{ nodes: WorldNode[]; edges: WorldEdge[]; visibleIds: Set<string>; selected: string | null; showLinks: boolean }>()
-const emit = defineEmits<{ select: [id: string | null]; inspectUsage: [edge: WorldEdge] }>()
+const emit = defineEmits<{ select: [id: string | null] }>()
 const { t } = useI18n()
 const colorMode = useColorMode()
 const host = ref<HTMLDivElement>(); const canvas = ref<HTMLCanvasElement>()
@@ -44,7 +44,7 @@ let destination: { x: number; y: number; scale: number } | null = null
 let motionQuery: MediaQueryList
 let fitted = false
 watch([() => props.nodes, () => props.edges], () => {
-  points = layoutWorld(props.nodes, props.edges.filter(edge => !edge.report_ids)); byId = new Map(points.map(p => [p.node.id, p]));
+  points = layoutWorld(props.nodes, props.edges.filter(edge => edge.relation !== 'used_together')); byId = new Map(points.map(p => [p.node.id, p]));
   if (!fitted && points.length) { fit(); fitted = true }
 }, { immediate: true })
 watch([() => props.selected, () => props.edges], () => {
@@ -91,7 +91,7 @@ function hitUsage(x: number, y: number) {
   let closest: WorldEdge | null = null
   let distance = 6
   for (const edge of props.edges) {
-    if (!edge.report_ids || !props.visibleIds.has(edge.source) || !props.visibleIds.has(edge.target)) continue
+    if (edge.relation !== 'used_together' || !props.visibleIds.has(edge.source) || !props.visibleIds.has(edge.target)) continue
     const start = byId.get(edge.source), end = byId.get(edge.target)
     if (!start || !end) continue
     const a = position(start), b = position(end)
@@ -120,15 +120,14 @@ function move(e: PointerEvent) {
     const point = hit(p.x, p.y); hover.value = point ? { point, ...p } : null
     const edge = point ? null : hitUsage(p.x, p.y)
     usageHover.value = edge ? { edge, ...p } : null
-    if (canvas.value) canvas.value.style.cursor = point || edge ? 'pointer' : 'grab'
+    if (canvas.value) canvas.value.style.cursor = point ? 'pointer' : 'grab'
   }
 }
 function up(e: PointerEvent) {
   if (drag.value && !drag.value.moved) {
     const { x, y } = local(e), node = hit(x, y)
     const edge = node ? null : hitUsage(x, y)
-    if (edge) emit('inspectUsage', edge)
-    else emit('select', node?.node.id || null)
+    if (!edge) emit('select', node?.node.id || null)
   }
   drag.value = null; canvas.value?.releasePointerCapture(e.pointerId)
 }
@@ -182,7 +181,7 @@ function draw(time: number) {
     if (focus && !props.selected) continue
     ctx.beginPath()
     for (const e of props.edges) {
-      if (e.report_ids) continue
+      if (e.relation === 'used_together') continue
       const isFocus = !!props.selected && (e.source === props.selected || e.target === props.selected)
       if (isFocus !== focus || (dense && props.selected && !focus)) continue
       const a = positions.get(e.source), b = positions.get(e.target)
@@ -229,12 +228,18 @@ function draw(time: number) {
       const label = p.node.label.length > 28 ? p.node.label.slice(0, 27) + '…' : p.node.label
       ctx.font = `${(p.node.type === 'agent' || p.node.type === 'folder') ? '600' : '400'} 12px Inter, system-ui, sans-serif`
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      const w = ctx.measureText(label).width + 20, y = s.y + r + 20
+      const w = ctx.measureText(label).width + 16, y = s.y + r + 15
       if (occupied.some(box => Math.abs(box.y - y) < 28 && Math.abs(box.x - s.x) < (box.width + w) / 2 + 3)) continue
       occupied.push({ x: s.x, y, width: w })
-      ctx.fillStyle = dark ? '#1c252aee' : '#ffffffee'
-      ctx.beginPath(); ctx.roundRect(s.x - w / 2, y - 13, w, 26, 6); ctx.fill()
-      ctx.strokeStyle = dark ? '#43515a66' : '#dde5dfcc'; ctx.lineWidth = .8; ctx.stroke()
+      const anchor = p.node.type === 'agent' || p.node.type === 'folder'
+      if (anchor || p.node.id === props.selected) {
+        ctx.fillStyle = dark ? '#202c32' : '#ffffff'
+        ctx.beginPath(); ctx.roundRect(s.x - w / 2, y - 11, w, 22, 11); ctx.fill()
+        ctx.strokeStyle = worldColors[p.node.type] + '55'; ctx.lineWidth = 1; ctx.stroke()
+      } else {
+        ctx.lineJoin = 'round'; ctx.lineWidth = 4
+        ctx.strokeStyle = dark ? '#192024' : '#fafcfd'; ctx.strokeText(label, s.x, y)
+      }
       ctx.fillStyle = ink; ctx.fillText(label, s.x, y)
   }
 }
@@ -254,5 +259,5 @@ defineExpose({ fit })
 </script>
 
 <style scoped>
-.world-canvas { background-image: radial-gradient(rgb(var(--bow-line-rgb) / .65) .65px, transparent .65px); background-size: 24px 24px; }
+.world-canvas { background-image: radial-gradient(rgb(var(--bow-line-rgb) / .65) .65px, transparent .65px); background-size: 20px 20px; background-color: rgb(var(--bow-line-rgb) / .09); }
 </style>

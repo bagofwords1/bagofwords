@@ -118,12 +118,12 @@ class WorldService:
         }
         return key(kind, id)
 
-    def edge(self, source, target, relation):
+    def edge(self, source, target, relation, **metadata):
         # Both endpoints must have passed this page's own access checks.
         if source not in self.nodes or target not in self.nodes:
             return
         id = f"{source}|{relation}|{target}"
-        self.edges[id] = {"id": id, "source": source, "target": target, "relation": relation}
+        self.edges[id] = {"id": id, "source": source, "target": target, "relation": relation, **metadata}
 
     def continuation(self, section, offset, **scope):
         self.more.append({"section": section, "offset": offset + self.PAGE, **scope})
@@ -285,87 +285,40 @@ class WorldService:
         return self.node("report", report.id, report.title, url=url, expandable=direct, mine=mine)
 
     async def usage(self, focused_agent):
-        from collections import defaultdict
-        from itertools import combinations
-
         from sqlalchemy import func
 
         from app.models.report import Report
         from app.models.table_usage_event import TableUsageEvent as Event
-        from app.services.bow_source_access import visible_reports_clause
-        from app.services.file_access_service import is_full_admin, user_can_view_report
-        from app.services.report_service import ReportService
 
+        # Count a report once per pair, regardless of how many tables were used.
+        # Only the database sees the contributing reports, including private ones.
         observations = (
             select(Event.report_id, Event.data_source_id)
+            .join(Report, Report.id == Event.report_id)
             .where(
                 Event.org_id == self.org.id,
-                Event.success.is_(True),
-                Event.deleted_at.is_(None),
-                Event.data_source_id.in_(self.agent_ids),
-                Event.report_id.is_not(None),
-            )
-            .distinct()
-            .subquery()
-        )
-        candidate_ids = select(observations.c.report_id).group_by(observations.c.report_id).having(func.count() >= 2)
-        if focused_agent:
-            candidate_ids = candidate_ids.where(
-                observations.c.report_id.in_(
-                    select(Event.report_id).where(
-                        Event.org_id == self.org.id,
-                        Event.data_source_id == focused_agent,
-                        Event.success.is_(True),
-                        Event.deleted_at.is_(None),
-                    )
-                )
-            )
-        stmt = (
-            select(Report)
-            .options(lazyload("*"))
-            .where(
-                Report.id.in_(candidate_ids),
                 Report.organization_id == self.org.id,
                 Report.deleted_at.is_(None),
                 Report.status != "archived",
-                await visible_reports_clause(self.db, self.org.id, self.user),
+                Event.success.is_(True),
+                Event.deleted_at.is_(None),
+                Event.data_source_id.in_(self.agent_ids),
             )
+            .distinct()
+            .cte("usage_by_report")
         )
-        if not await is_full_admin(self.db, self.user, self.org):
-            visible = await ReportService()._visible_to_user_clause(self.db, self.user, self.org)
-            stmt = stmt.where(or_(Report.user_id == self.user.id, visible))
-        allowed = []
-        for report in await self.db.scalars(stmt):
-            if (
-                await can_read_folder_output(self.db, report, self.user)
-                and await user_can_view_report(self.db, self.user, self.org, report)
-                and await self.report_node(report)
-            ):
-                allowed.append(report.id)
-        pairs = defaultdict(list)
-        for start in range(0, len(allowed), self.PAGE):
-            sources = defaultdict(list)
-            rows = await self.db.execute(
-                select(observations).where(observations.c.report_id.in_(allowed[start : start + self.PAGE]))
-            )
-            for report_id, agent_id in rows:
-                sources[report_id].append(agent_id)
-            for report_id, agents in sources.items():
-                related = (tuple(sorted((focused_agent, agent))) for agent in agents if agent != focused_agent)
-                for pair in related if focused_agent else combinations(sorted(agents), 2):
-                    pairs[pair].append(report_id)
-        for (first, second), reports in pairs.items():
-            source, target = key("agent", first), key("agent", second)
-            relation = "used_together"
-            edge_id = f"{source}|{relation}|{target}"
-            self.edges[edge_id] = {
-                "id": edge_id,
-                "source": source,
-                "target": target,
-                "relation": relation,
-                "report_ids": sorted(reports),
-                "report_count": len(reports),
-            }
+        first, second = observations.alias("first_agent"), observations.alias("second_agent")
+        left, right = first.c.data_source_id, second.c.data_source_id
+        pairs = (
+            select(left, right, func.count())
+            .select_from(first.join(second, first.c.report_id == second.c.report_id))
+            .where(left < right)
+            .group_by(left, right)
+        )
+        if focused_agent:
+            pairs = pairs.where(or_(left == focused_agent, right == focused_agent))
+        for source, target, count in await self.db.execute(pairs):
+            self.edge(key("agent", source), key("agent", target), "used_together", report_count=count)
 
     async def reports(self, offset):
         from app.models.report import Report

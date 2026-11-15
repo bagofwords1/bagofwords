@@ -3,7 +3,7 @@
     "tree": "Tree",
     "usage": "Usage",
     "myReports": "My reports",
-    "usedTogether": "Used together in {count} report | Used together in {count} reports",
+    "usedTogether": "Used together in {count} workspace report | Used together in {count} workspace reports",
     "title": "World",
     "explorer": "Explorer",
     "heading": "Your world, connected.",

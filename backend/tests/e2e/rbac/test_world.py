@@ -288,7 +288,7 @@ def test_world_projects_300_agents_without_loading_their_internals(test_client, 
     assert not graph(test_client, member, org)["nodes"]
 
 
-def test_usage_counts_only_successful_activity_in_visible_reports(
+def test_usage_counts_workspace_reports_without_disclosing_them(
     test_client, world_cast, sqlite_data_source, create_report
 ):
     import asyncio
@@ -338,24 +338,14 @@ def test_usage_counts_only_successful_activity_in_visible_reports(
             await db.commit()
 
     asyncio.run(seed())
-    for token, expected in ((admin, set(reports[:2])), (member, set(reports[:2])), (world_cast[3], {reports[0]})):
+    for token in (admin, member, world_cast[3]):
         for scope in ({}, {"agent_id": agents[0]}):
             result = graph(test_client, token, org, section="usage", **scope)
             [edge] = result["edges"]
-            assert edge["report_count"] == len(expected)
-            assert set(edge["report_ids"]) == expected
-            assert reports[2] not in str(result)
-            for node in result["nodes"]:
-                if node["type"] == "report":
-                    assert test_client.get("/api" + node["url"], headers=headers(token, org)).is_success
-                    if node["url"].startswith("/c/"):
-                        assert not node["expandable"]
-                        response = test_client.get(
-                            "/api/world",
-                            params={"section": "report", "report_id": node["resource_id"]},
-                            headers=headers(token, org),
-                        )
-                        assert response.status_code == 404
+            assert edge["report_count"] == 2
+            assert set(edge) == {"id", "source", "target", "relation", "report_count"}
+            assert all(node["type"] == "agent" for node in result["nodes"])
+            assert all(report_id not in str(result) for report_id in reports)
 
     assert test_client.put(
         f"/api/data_sources/{agents[0]}", json={"is_public": False}, headers=headers(admin, org)

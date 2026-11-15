@@ -19,12 +19,12 @@
 
     <div class="relative flex min-h-0 flex-1 flex-col lg:flex-row">
       <div class="world-stage relative min-h-0 min-w-0 flex-1 overflow-hidden">
-        <WorldCanvas ref="map" :nodes="nodes" :edges="graphEdges" @inspect-usage="inspectUsage" :visible-ids="visibleIds" :selected="selectedId" :show-links="showLinks" @select="select" />
-        <div class="pointer-events-none absolute start-6 top-6 max-w-sm">
-          <div class="mt-5 flex items-center gap-5">
-            <div><span class="nums text-xl font-medium">{{ number(visibleNodes.length) }}</span><span class="ms-2 text-xs text-ink-muted">{{ t('world.items') }}</span></div>
-            <span class="h-5 border-s border-line-strong" />
-            <div><span class="nums text-xl font-medium">{{ number(visibleEdges.length) }}</span><span class="ms-2 text-xs text-ink-muted">{{ t('world.connections') }}</span></div>
+        <WorldCanvas ref="map" :nodes="nodes" :edges="graphEdges" :visible-ids="visibleIds" :selected="selectedId" :show-links="showLinks" @select="select" />
+        <div class="pointer-events-none absolute start-4 top-4 max-w-sm">
+          <div class="flex items-center gap-3 rounded-full border border-line bg-surface-elevated px-4 py-1.5 shadow-sm">
+            <div><span class="nums text-sm font-semibold">{{ number(visibleNodes.length) }}</span><span class="ms-2 text-xs text-ink-muted">{{ t('world.items') }}</span></div>
+            <span class="h-3 border-s border-line" />
+            <div><span class="nums text-sm font-semibold">{{ number(visibleEdges.length) }}</span><span class="ms-2 text-xs text-ink-muted">{{ t('world.connections') }}</span></div>
           </div>
         </div>
         <div v-if="!nodes.length && pending" class="absolute inset-0 flex items-center justify-center pt-28" aria-live="polite">
@@ -43,7 +43,7 @@
         </div>
         <div class="pointer-events-none absolute bottom-6 end-6 hidden text-2xs text-ink-muted sm:block">{{ t('world.canvasHint') }}</div>
         <div v-if="memory" class="pointer-events-none absolute end-5 top-5 flex items-center gap-2 rounded-full border border-purple-200/60 bg-surface-elevated/90 px-3 py-1.5 text-xs text-ink-2 dark:border-purple-800">
-          <UIcon name="i-heroicons-sparkles" class="h-3.5 w-3.5 text-purple-500" />{{ t('world.privateOverlay') }}
+          <UIcon name="i-heroicons-sparkles" class="h-3.5 w-3.5 text-ink-muted" />{{ t('world.privateOverlay') }}
         </div>
       </div>
 
@@ -80,12 +80,7 @@
                 <UButton color="gray" variant="ghost" block class="justify-start text-start" size="xs" @click="select(item.node.id)">
                   <span class="h-1.5 w-1.5 shrink-0 rounded-full" :style="{ backgroundColor: worldColors[item.node.type] }" /><span class="truncate">{{ item.node.label }}</span>
                 </UButton>
-                <details v-if="item.edge.report_ids" :open="inspectedEdge === item.edge.id" class="px-3 pb-2 text-xs">
-                  <summary class="cursor-pointer text-ink-muted">{{ t('world.usedTogether', { count: item.edge.report_count }) }}</summary>
-                  <NuxtLink v-for="id in item.edge.report_ids" :key="id" :to="reportsById.get(id)!.url!" class="block py-1 hover:underline">
-                    {{ reportsById.get(id)?.label }}
-                  </NuxtLink>
-                </details>
+                <p v-if="item.edge.relation === 'used_together'" class="px-3 pb-2 text-xs text-ink-muted">{{ t('world.usedTogether', { count: item.edge.report_count }) }}</p>
                 <p v-else class="px-3 pb-2 text-2xs text-ink-muted">{{ t(`world.relations.${item.edge.relation}`) }}</p>
               </div>
               <UButton v-if="neighbors.length > neighborLimit" color="gray" variant="ghost" size="xs" @click="neighborLimit += 30">{{ t('world.showMore') }}</UButton>
@@ -102,11 +97,11 @@
                 <UToggle v-model="mine" size="xs" :aria-label="t('world.myReports')" />
               </label>
             </div>
-            <div class="mx-5 mt-5 rounded-lg border border-purple-200/60 bg-purple-50/40 p-4 dark:border-purple-800/40 dark:bg-purple-950/10">
+            <div class="mx-5 mt-4 border-b border-line pb-4">
               <div class="flex items-center gap-2">
-                <UIcon name="i-heroicons-sparkles" class="h-4 w-4 text-purple-500" />
+                <UIcon name="i-heroicons-sparkles" class="h-4 w-4 text-ink-muted" />
                 <span class="flex-1 text-xs font-medium">{{ t('world.memory') }}</span>
-                <UToggle v-model="memory" :aria-label="t('world.memory')" size="sm" />
+                <UToggle v-model="memory" :aria-label="t('world.memory')" size="xs" />
               </div>
               <p class="mt-2 text-xs leading-relaxed text-ink-muted">{{ t('world.memoryHint') }}</p>
               <p v-if="memory" class="mt-2 text-2xs text-ink-muted">{{ t('world.memoryCount', { count: counts.memory || 0 }) }}</p>
@@ -116,7 +111,7 @@
                 <h2 class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ t('world.entityTypes') }}</h2>
                 <UButton color="gray" variant="link" size="2xs" @click="toggleAll">{{ enabled.size === worldTypes.length ? t('world.hideAll') : t('world.showAll') }}</UButton>
               </div>
-              <div v-for="type in worldTypes.filter(type => type !== 'memory')" :key="type" class="mb-1 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-surface-subtle">
+              <div v-for="type in worldTypes.filter(type => type !== 'memory')" :key="type" class="flex items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-surface-subtle">
                 <UCheckbox :model-value="enabled.has(type)" :aria-label="t(`world.types.${type}`)" @update:model-value="toggleType(type)" />
                 <UIcon :name="worldIcons[type]" class="h-4 w-4 shrink-0" :style="{ color: worldColors[type] }" />
                 <span class="flex-1 text-xs" :class="enabled.has(type) ? 'text-ink-2' : 'text-ink-muted'">{{ t(`world.types.${type}`) }}</span>
@@ -149,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { worldTypes, type WorldType, type WorldEdge } from '~/composables/useWorldGraph'
+import { worldTypes, type WorldType } from '~/composables/useWorldGraph'
 import { worldColors, worldIcons } from '~/utils/worldGraph'
 import WorldViewSwitch from './WorldViewSwitch.vue'
 import WorldCanvas from './WorldCanvas.vue'
@@ -159,15 +154,9 @@ const { nodes, edges, usageLoaded, pending, initializing, loadingAll, failures, 
 const enabled = ref(new Set<WorldType>(worldTypes))
 const showUsage = ref(false)
 const mine = ref(false)
-const inspectedEdge = ref('')
-const reportsById = computed(() => new Map(nodes.value.filter(n => n.type === 'report').map(n => [n.resource_id, n])))
-const graphEdges = computed(() => edges.value.flatMap(edge => {
-  if (!edge.report_ids) return [edge]
-  if (!showUsage.value && edge.source !== selectedId.value && edge.target !== selectedId.value) return []
-  if (!mine.value) return [edge]
-  const report_ids = edge.report_ids.filter(id => reportsById.value.get(id)?.meta.mine)
-  return report_ids.length ? [{ ...edge, report_ids, report_count: report_ids.length }] : []
-}))
+const graphEdges = computed(() => edges.value.filter(edge =>
+  edge.relation !== 'used_together' || showUsage.value || edge.source === selectedId.value || edge.target === selectedId.value
+))
 const memory = ref(false); const showLinks = ref(true); const search = ref('')
 const panel = ref<'layers' | 'browse'>('layers'); const selectedId = ref<string | null>(null)
 const map = ref<InstanceType<typeof WorldCanvas>>()
@@ -200,13 +189,7 @@ watch([showUsage, selectedId, initializing], () => {
     if (!usageLoaded.value.has(agent_id)) load({ section: 'usage', agent_id })
   }
 })
-function inspectUsage(edge: WorldEdge) {
-  select(selectedId.value === edge.target ? edge.target : edge.source)
-  neighborLimit.value = Math.max(neighborLimit.value, neighbors.value.findIndex(n => n.edge.id === edge.id) + 1)
-  inspectedEdge.value = edge.id
-}
 function select(id: string | null) {
-  inspectedEdge.value = ''
   if (id && !visibleIds.value.has(id)) {
     search.value = ''
     const node = nodes.value.find(n => n.id === id)

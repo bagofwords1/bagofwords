@@ -4,7 +4,7 @@ export interface WorldNode {
   id: string; resource_id: string; type: WorldType; label: string; description: string
   url?: string; expandable: boolean; meta: Record<string, unknown>
 }
-export interface WorldEdge { id: string; source: string; target: string; relation: string; report_ids?: string[]; report_count?: number }
+export interface WorldEdge { id: string; source: string; target: string; relation: string; report_count?: number }
 export interface WorldRequest { section: string; offset?: number; folder_id?: string; agent_id?: string; report_id?: string }
 interface WorldPage { nodes: WorldNode[]; edges: WorldEdge[]; next: WorldRequest[] }
 
