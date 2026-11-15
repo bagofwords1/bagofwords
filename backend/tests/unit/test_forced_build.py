@@ -78,11 +78,53 @@ def test_forced_tools_are_the_build_tools_offered_plus_clarify():
     assert agent(["create_data", "clarify"])._forced_tools_for({"page"}) == [], "no build tool here: nothing to force"
 
 
-def test_the_forced_set_applies_to_one_planner_call():
-    a = agent(["create_artifact", "clarify"])
-    a._forced_tools_next = ["create_artifact", "clarify"]
-    assert a._take_forced_tools() == ["create_artifact", "clarify"]
-    assert a._take_forced_tools() is None
+def _planner():
+    import types
+    from app.ai.agents.planner.planner_v3 import PlannerV3
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+    planner = PlannerV3.__new__(PlannerV3)  # skip __init__ (constructs a real LLM)
+    planner.tool_catalog = []
+    planner.prompt_builder = PromptBuilderV3()
+    planner._tool_category = {}
+    planner.llm = types.SimpleNamespace(model=types.SimpleNamespace(model_id="any-model", provider=types.SimpleNamespace(provider_type="custom")))
+    return planner
+
+
+async def _forced_decision(planner, emitted, seen):
+    import asyncio
+    from app.ai.llm.types import MessageStopEvent, ToolUseCompleteEvent, ToolUseStartEvent, UsageEvent
+    from app.schemas.ai.planner import PlannerInput, ToolDescriptor
+
+    async def stream(**kwargs):
+        seen.update(kwargs)
+        yield ToolUseStartEvent(id="tu_1", name=emitted)
+        yield ToolUseCompleteEvent(id="tu_1", name=emitted, input={"title": "x"})
+        yield MessageStopEvent(stop_reason="tool_use", raw_stop_reason="tool_use")
+        yield UsageEvent(input_tokens=100, output_tokens=20)
+    planner.llm.inference_stream_v2 = stream
+    catalog = [ToolDescriptor(name=n, description=n, schema={"type": "object"}) for n in ("create_data", "create_artifact", "clarify")]
+    final = None
+    async for evt in planner.execute(PlannerInput(user_message="Build a dashboard", tool_catalog=catalog,
+                                                  forced_tools=["create_artifact", "clarify"]), sigkill_event=asyncio.Event()):
+        if getattr(evt, "type", "") == "planner.decision.final":
+            final = evt.data
+    return final
+
+
+@pytest.mark.asyncio
+async def test_a_forced_call_offers_only_the_build_tools_and_requires_one():
+    seen = {}
+    final = await _forced_decision(_planner(), "create_artifact", seen)
+    assert sorted(t.name for t in seen["tools"]) == ["clarify", "create_artifact"]
+    assert seen["require_tool"] is True and seen["thinking"] == {"type": "disabled"}
+    assert final.error is None and final.actions[0].name == "create_artifact"
+
+
+@pytest.mark.asyncio
+async def test_a_stray_tool_on_a_forced_call_is_an_error_not_a_dispatch():
+    final = await _forced_decision(_planner(), "create_data", {})
+    assert final.error is not None and final.error.code == "tool_not_offered"
+    assert not final.actions
 
 
 class _EmptyStream:

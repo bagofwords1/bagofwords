@@ -494,6 +494,25 @@ class PlannerV3:
             state.reasoning_end_time = time.monotonic()
 
 
+        # A forced call may still name a tool it was not offered (seen with
+        # Haiku: a create_data from earlier in the transcript). Never dispatch
+        # it: return an error so the agent retries, still forced.
+        if require_tool:
+            _offered = {t.name for t in tools}
+            _stray = [a.name for a in completed_actions if getattr(a, "name", None) not in _offered]
+            if _stray:
+                logger.warning("[planner_v3] forced call named tools it was not offered: %s", _stray)
+                yield PlannerDecisionEvent(type="planner.decision.final", data=PlannerDecision(
+                    analysis_complete=False,
+                    streaming_complete=True,
+                    error=PlannerError(
+                        code="tool_not_offered",
+                        message=("Only " + ", ".join(sorted(_offered)) + " can be called now; "
+                                 + ", ".join(sorted(set(_stray))) + " is not available for this step."),
+                    ),
+                ))
+                return
+
         # Emit final decision with metrics
         final_decision = self._build_decision(
             state,

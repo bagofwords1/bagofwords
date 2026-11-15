@@ -703,6 +703,7 @@ class AgentV2:
         self._is_sub_agent = (self.mode == "subagent")
         self._forced_builds = 0          # once per turn: see forced_build_note()
         self._forced_tools_next = None   # tools the next planner call must choose from
+        self._forced_strays = 0          # forced calls that named a tool not offered
         self._turn_tools = set()         # tool names that ran this turn
         # Instructions and skills are scoped by run mode (applicable_modes);
         # a child sees the chat-mode set, never an empty "subagent" set.
@@ -4057,11 +4058,6 @@ class AgentV2:
             "  </steering_updates>"
         )
 
-    def _take_forced_tools(self):
-        """The forced tool set for this planner call (set by the forced-build gate), then cleared."""
-        forced, self._forced_tools_next = self._forced_tools_next, None
-        return forced
-
     def _build_ask_kinds_for_turn(self) -> set:
         """{"page"}/{"doc"} when a person asked in this turn for a page or document; empty otherwise."""
         try:
@@ -6170,7 +6166,7 @@ class AgentV2:
                             context_window_tokens=getattr(self.model, "context_window_tokens", None),
                             external_platform=self.platform,
                             tool_catalog=self.planner.tool_catalog,
-                            forced_tools=self._take_forced_tools(),
+                            forced_tools=self._forced_tools_next,
                             mode=self.mode,
                             platform_context=self.platform_context,
                             images=all_images if all_images else None,
@@ -6554,6 +6550,16 @@ class AgentV2:
                     
                         elif evt.type == "planner.decision.final":
                             decision = evt.data  # Already validated PlannerDecision from planner_v2
+                            # A forced build stays forced until a planner call returns a
+                            # valid decision (a stray tool name comes back as an error).
+                            if self._forced_tools_next and not getattr(decision, "error", None):
+                                self._forced_tools_next = None
+                            elif self._forced_tools_next and getattr(getattr(decision, "error", None), "code", None) == "tool_not_offered":
+                                # One forced retry; after a second stray tool the turn goes on
+                                # unforced, so forcing never turns a chat answer into a failed run.
+                                self._forced_strays += 1
+                                if self._forced_strays >= 2:
+                                    self._forced_tools_next = None
                             self._record_planner_token_metadata_from_decision(decision, view=view)
                             # Track whether analysis is complete
                             analysis_done = bool(getattr(decision, "analysis_complete", False))
