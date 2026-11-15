@@ -220,6 +220,17 @@ class PlannerV3:
             for t in v3_input.tools
         ]
 
+        # Forced build: a build was asked for and the turn tried to end in
+        # text. Offer only the build tools (and clarify, the honest exit) and
+        # require a tool call. Thinking is off for this call: Anthropic does
+        # not allow a required tool together with extended thinking.
+        require_tool = False
+        forced = [n for n in (planner_input.forced_tools or []) if any(t.name == n for t in tools)]
+        if forced:
+            tools = [t for t in tools if t.name in forced]
+            thinking = {"type": "disabled"}
+            require_tool = True
+
         # Per-tool accumulators. Anthropic supports multiple tool_use blocks
         # per response (parallel tool calls); we now collect ALL of them so
         # the agent loop can dispatch each. Indexed by tool_use_id so
@@ -254,6 +265,7 @@ class PlannerV3:
                 web_search=planner_input.web_search_enabled,
                 web_search_domains=planner_input.web_search_domains or None,
                 disable_parallel_tools=not planner_input.parallel_tools_enabled,
+                require_tool=require_tool,
                 usage_scope="planner",
                 usage_scope_ref_id=None,
                 prompt_tokens_estimate=prompt_tokens_est,

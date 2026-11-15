@@ -514,6 +514,7 @@ class Anthropic(LLMClient):
         enable_cache: bool = True,
         thinking: Optional[dict] = None,
         disable_parallel_tools: bool = True,
+        require_tool: bool = False,
     ) -> AsyncIterator[LLMStreamEvent]:
         # If images supplied, attach them to the last user message as image blocks.
         # (Most callers will embed images directly in messages; this is a back-compat path.)
@@ -587,9 +588,12 @@ class Anthropic(LLMClient):
             import os as _os_for_parallel_dbg
             if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
                 disable_parallel_tools = False
-            if disable_parallel_tools:
+            if disable_parallel_tools or require_tool:
+                # require_tool: the model must call one of the offered tools
+                # (forced build); "any" is incompatible with extended thinking,
+                # which the caller turns off for that call.
                 _eb = dict(request_kwargs.pop("extra_body", {}) or {})
-                _eb["tool_choice"] = {"type": "auto", "disable_parallel_tool_use": True}
+                _eb["tool_choice"] = {"type": "any" if require_tool else "auto", "disable_parallel_tool_use": bool(disable_parallel_tools)}
                 request_kwargs["extra_body"] = _eb
 
         # Per-tool-call accumulators keyed by content_block index
