@@ -65,8 +65,11 @@ SQL_LEGIT = [
     "SELECT * FROM orders WHERE owner_id IN (SELECT id FROM users WHERE email = '{v}')",
     "SELECT * FROM orders WHERE owner_id = (SELECT id FROM users WHERE email = '{v}')",
     "SELECT * FROM orders WHERE owner = '{v}' UNION SELECT * FROM archive WHERE owner = '{v}'",
-    "SELECT * FROM orders -- scoped below\nWHERE owner = '{v}'",
 ]
+# Scoped reads holding a comment: accepted where the reading is the engine's
+# own (a client with a guard dialect).
+SQL_LEGIT_WITH_A_COMMENT = ["SELECT * FROM orders -- scoped below\nWHERE owner = '{v}'"]
+ENGINE_READING_CLIENTS = [c for c in SQL_CLIENTS if c is not None]
 
 
 @pytest.mark.parametrize("client", SQL_CLIENTS)
@@ -81,6 +84,20 @@ def test_sql_widening_predicates_are_refused(query, value, client):
 @pytest.mark.parametrize("query", SQL_LEGIT)
 def test_sql_scoped_reads_are_accepted(query, value, client):
     assert _check([query], value, client) is None
+
+
+@pytest.mark.parametrize("client", ENGINE_READING_CLIENTS)
+@pytest.mark.parametrize("value", EMAILS)
+@pytest.mark.parametrize("query", SQL_LEGIT_WITH_A_COMMENT)
+def test_sql_scoped_reads_holding_a_comment_are_accepted_where_the_reading_is_the_engines_own(query, value, client):
+    assert _check([query], value, client) is None
+
+
+@pytest.mark.parametrize("value", EMAILS)
+@pytest.mark.parametrize("query", SQL_LEGIT_WITH_A_COMMENT)
+def test_an_untagged_capture_holding_a_comment_is_refused(query, value):
+    # No client type: read in the generic reading, not the engine's own.
+    assert _check([query], value) is not None
 
 
 def test_quoted_value_with_apostrophe_is_matched():

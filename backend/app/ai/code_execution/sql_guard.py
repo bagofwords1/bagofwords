@@ -522,9 +522,10 @@ def _opens_dollar_quote(code: str) -> bool:
     return False
 
 
-def _nonparsing_readings(sql: str, engine: Optional[str]) -> list[tuple[str, str]]:
-    """`sql` with its literals and comments emptied, in each way `engine`
-    may read it, each with the reading's name."""
+def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = False) -> list[tuple[str, str]]:
+    """`sql` with its literals and comments emptied (its comments kept as
+    written with `keep_comments`), in each way `engine` may read it, each
+    with the reading's name."""
     out = []
     for backslash in (False, True) if engine in _NONPARSING_BACKSLASH else (False,):
         for percent in (False, True) if engine in _NONPARSING_PERCENT_COMMENTS else (False,):
@@ -533,7 +534,8 @@ def _nonparsing_readings(sql: str, engine: Optional[str]) -> list[tuple[str, str
                                                ("backtick-quoted names", backticks)) if on]
                 name = "with " + " and ".join(parts) if parts else "with standard quoting"
                 out.append((name, _generic_reading(sql, False, backslash, brackets=engine in _NONPARSING_BRACKETS,
-                                                   backticks=backticks, percent_comments=percent)))
+                                                   backticks=backticks, percent_comments=percent,
+                                                   keep_comments=keep_comments)))
     return out
 
 
@@ -553,13 +555,16 @@ def _check_nonparsing(sql: str, engine: Optional[str]) -> None:
     for kind, start, end in _standard_spans(sql):
         if kind == "comment" and sql.startswith("/*", start) and "/*" in sql[start + 2:end]:
             raise _comment_inside_comment()
+    # `//` is looked for outside strings with comments kept as written: the
+    # engine's comment rules, not these readings', decide where it opens one.
+    if engine in _NONPARSING_SLASH_COMMENTS and any(
+            "//" in text for _reading, text in _nonparsing_readings(sql, engine, keep_comments=True)):
+        raise ReadOnlyViolation(
+            "The query has '//' outside a string, which this source reads as the start of a comment. "
+            "Remove it, or write the division with a space between the slashes."
+        )
     readings = _nonparsing_readings(sql, engine)
     for _reading, code_only in readings:
-        if engine in _NONPARSING_SLASH_COMMENTS and "//" in code_only:
-            raise ReadOnlyViolation(
-                "The query has '//' outside a string, which this source reads as the start of a comment. "
-                "Remove it, or write the division with a space between the slashes."
-            )
         if engine in _NONPARSING_DOLLAR_QUOTES and _opens_dollar_quote(code_only):
             raise ReadOnlyViolation(
                 "The query has a dollar-quoted string ($$...$$), which the query checks do not read. "
@@ -1236,14 +1241,16 @@ def _reading_starts(hash_comments: bool, brackets: bool, backticks: bool, percen
 
 
 def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None, *,
-                     backticks: bool = True, percent_comments: bool = False) -> str:
+                     backticks: bool = True, percent_comments: bool = False, keep_comments: bool = False) -> str:
     """`sql` with each literal, quoted name and comment replaced by a space:
     quotes doubled to escape them, `` `...` `` names unless `backticks` is
     off, plus `#` (or `%`) line comments and backslash escapes when asked
     (and `[...]` names when neither `#` nor backslashes are, or when
     `brackets` says so). In a `#` reading (MySQL's), `--` starts a comment
-    only before whitespace or a control character. From anything left open,
-    the rest is read as code. One pass."""
+    only before whitespace or a control character. With `keep_comments`,
+    each comment stays as written (read as a comment, so a quote inside it
+    opens nothing). From anything left open, the rest is read as code. One
+    pass."""
     if brackets is None:
         brackets = not (hash_comments or backslash)
     starts = _reading_starts(hash_comments, brackets, backticks, percent_comments)
@@ -1271,7 +1278,7 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
         if end < 0:
             out.append(sql[start:])
             break
-        out.append(" ")
+        out.append(sql[start:end] if keep_comments and mark in ("--", "#", "%", "/*") else " ")
         i = end
     return "".join(out)
 

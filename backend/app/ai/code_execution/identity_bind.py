@@ -373,8 +373,8 @@ _DOUBLED_LITERALS = "_bowdoubledliterals"
 # generic dialect otherwise). "backslash": only a backslash does, and a
 # string may also be in double quotes (Spark, whose other forms are syntax
 # such an engine refuses). ("standard" reads in sqlglot's generic dialect,
-# where '' is the only escape.) Whether a block comment nests is not pinned
-# by a style: see `_comment_inside_comment`.
+# where '' is the only escape.) Comments are not pinned by a style: see
+# `_may_hold_a_comment`.
 _STYLE_DIALECTS = {"doubled": _DOUBLED_LITERALS, "backslash": "spark"}
 
 
@@ -436,38 +436,67 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
         # Rewritten as standard literals: read where only '' escapes.
         literal_style = None
     renderer = _renderer(client_type)
-    if renderer is not None and renderer.name == "ansi_or_backslash":
+    two_readings = renderer is not None and renderer.name == "ansi_or_backslash"
+    readings = (None, _DOUBLED_LITERALS) if two_readings else (_dialect_for(client_type, literal_style),)
+    if not _engine_reading(client_type) and _may_hold_a_comment(text, readings, _percent_comments(client_type)):
+        # The reading is not the engine's own: where the engine starts or
+        # ends a comment is not known, so the filter is not proven.
+        return False
+    if two_readings:
         # The engine may read a backslash in a string as an escape or not
         # (a server setting): the filter counts only when it binds in both
-        # readings, which differ in that alone. Where they disagree, it is
-        # not bound.
-        if _comment_inside_comment(text, None) or _comment_inside_comment(text, _DOUBLED_LITERALS):
-            return False
+        # readings, which differ in that alone. Where they disagree, or
+        # either cannot read the text, it is not bound.
         standard = _sql_binds(text, None, needles)
         backslash = _sql_binds(text, _DOUBLED_LITERALS, needles)
-        return standard if standard == backslash else False
-    dialect = _pinned_dialect(client_type)
-    if dialect is None:
-        dialect = _STYLE_DIALECTS.get(literal_style or "")
-        if dialect is not None and _comment_inside_comment(text, dialect):
+        if standard is None or backslash is None:
             return False
-    return _sql_binds(text, dialect, needles)
+        return standard if standard == backslash else False
+    return _sql_binds(text, readings[0], needles)
 
 
-def _comment_inside_comment(text: str, dialect: Optional[str]) -> bool:
-    """Whether a block comment, as `dialect` reads it, holds another `/*`.
-    Used where the reading is not the engine's own: whether the engine ends
-    such a comment at the first `*/` or nests it is not known, so the
-    filter is not taken as proven."""
-    from app.ai.code_execution.sql_guard import _gap_comments
+def _engine_reading(client_type: Optional[str]) -> bool:
+    """Whether the identity check reads the client's captures with the
+    guard's own dialect for it."""
+    from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 
-    reader = Dialect.get_or_raise(dialect)
-    try:
-        read = reader.tokenize(text)
-    except Exception:  # unreadable text: _sql_binds does not decide it either
-        return False
-    return any(mark == "/*" and "/*" in text[start + 2:end]
-               for mark, start, end in _gap_comments(text, read, reader.tokenizer_class))
+    return CLIENT_DIALECTS.get(client_type or "") is not None
+
+
+@functools.lru_cache(maxsize=None)
+def _percent_comments(client_type: Optional[str]) -> bool:
+    """Whether the client's engine may read `%` as a line comment."""
+    from app.ai.code_execution.client_profiles import _CLIENT_TABLE
+    from app.ai.code_execution.sql_guard import _NONPARSING_PERCENT_COMMENTS
+
+    return any(entry.family == client_type and entry.profile is not None
+               and entry.profile.engine in _NONPARSING_PERCENT_COMMENTS for entry in _CLIENT_TABLE.values())
+
+
+# What may open or close a comment in some engine.
+_COMMENT_MARKS = ("--", "/*", "*/", "//", "#")
+
+
+def _may_hold_a_comment(text: str, readings: Tuple[Optional[str], ...], percent: bool) -> bool:
+    """Whether `text`, with its strings and double-quoted names emptied in
+    any of `readings` or in the generic reading with or without backslash
+    escapes, holds a comment mark (or `%`, when `percent`). A reading that
+    cannot read the text empties nothing."""
+    from app.ai.code_execution.sql_guard import _LITERAL_TOKENS, _masked
+
+    marks = _COMMENT_MARKS + (("%",) if percent else ())
+    for dialect in dict.fromkeys(readings + (None, _DOUBLED_LITERALS)):
+        try:
+            tokens = Dialect.get_or_raise(dialect).tokenize(text)
+        except Exception:
+            code = text
+        else:
+            code = _masked(text, [(t.start, t.end + 1) for t in tokens
+                                  if t.token_type.name in _LITERAL_TOKENS
+                                  or (t.token_type.name == "IDENTIFIER" and text.startswith('"', t.start))])
+        if any(mark in code for mark in marks):
+            return True
+    return False
 
 
 def _reading_of(client_type: Optional[str], literal_style: Optional[str]) -> str:
@@ -475,6 +504,9 @@ def _reading_of(client_type: Optional[str], literal_style: Optional[str]) -> str
     renderer = _renderer(client_type)
     if renderer is not None and renderer.name == "ansi_or_backslash":
         return "standard and backslash-escape"
+    if client_type in SOQL_CLIENTS:
+        # Rewritten as standard literals and read in the generic dialect.
+        return "generic"
     return _dialect_for(client_type, literal_style) or "generic"
 
 

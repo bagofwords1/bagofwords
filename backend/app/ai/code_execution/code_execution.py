@@ -1016,15 +1016,18 @@ def _execute_query_signature(client) -> Optional[inspect.Signature]:
 
 def _native_params_capture(statement, params) -> str:
     """A statement with the params its client binds itself (Cypher's $name),
-    captured as JSON text. An integer too long to write is refused with the
-    parameter error."""
+    captured as JSON text. Params JSON cannot write (an integer too long to
+    write, keys of mixed types, a circular reference, nesting too deep) are
+    refused with the parameter error."""
     from app.ai.code_execution.query_params import _INT_TOO_LONG, ParamError
 
     try:
         return json.dumps({"query": statement, "params": params}, sort_keys=True, default=str, ensure_ascii=False)
-    except ValueError:
-        # An integer past Python's integer-to-text digit limit.
-        raise ParamError(_INT_TOO_LONG) from None
+    except (TypeError, ValueError, RecursionError) as e:
+        if isinstance(e, ValueError) and "integer string conversion" in str(e):
+            # Past Python's integer-to-text digit limit.
+            raise ParamError(_INT_TOO_LONG) from None
+        raise ParamError("params cannot be written as JSON") from None
 
 
 def _params_not_rendered():

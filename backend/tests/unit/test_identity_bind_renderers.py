@@ -157,6 +157,7 @@ BINDS_IN_ONE_READING = {
 _EXEMPT_CLIENT_CLASSES = {
     "OpenSearchClient": ("app.data_sources.clients.opensearch_client", "OpenSearchClient"),
     "CosmosdbClient": ("app.data_sources.clients.cosmosdb_client", "CosmosdbClient"),
+    "ElasticsearchClient": ("app.data_sources.clients.elasticsearch_client", "ElasticsearchClient"),
 }
 
 
@@ -211,3 +212,92 @@ def test_a_filter_hidden_only_by_another_engines_string_rule_is_refused_for_a_do
 def test_a_plain_filter_is_accepted_for_a_declared_style_client(family):
     capture = _declared_capture("SELECT id FROM orders WHERE owner = 'alice'", family)
     assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is None
+
+
+# Every SQL-reading client without a guard dialect: the identity check reads
+# its captures with a reading that is not the engine's own (a renderer's,
+# a declared style's, or the generic one). There, any comment opener left
+# after strings are emptied leaves the filter unproven.
+NO_ENGINE_READING = sorted(
+    {family for family in SQL_FAMILIES if family not in CLIENT_DIALECTS} | set(_EXEMPT_CLIENT_CLASSES)
+)
+NL = chr(10)
+COMMENT_SHAPES = {
+    "a // running into a block comment":
+        "SELECT id FROM orders WHERE owner = 'alice' AND 1 = 4 //* " + NL + "OR 1 = 1 --*/ 2",
+    "a //": "SELECT id FROM orders WHERE owner = 'alice' AND 1 = 4 // 2" + NL + "OR 1 = 1",
+    "a comment inside a comment": COMMENT_INSIDE_A_COMMENT,
+    "a -- comment": "SELECT id FROM orders WHERE owner = 'alice' -- a note",
+    "a # comment": "SELECT id FROM orders WHERE owner = 'alice' # a note",
+    "a block comment": "SELECT id FROM orders WHERE owner = 'alice' /* a note */",
+}
+
+
+def test_every_client_without_a_guard_dialect_is_covered():
+    assert {"VerticaClient", "SybaseClient", "OracleBIClient", "NetsuiteClient", "PostHogClient",
+            "SalesforceClient", "ElasticsearchClient", "OpenSearchClient", "CosmosdbClient"} <= set(NO_ENGINE_READING)
+    assert not set(NO_ENGINE_READING) & set(CLIENT_DIALECTS)
+
+
+@pytest.mark.parametrize("shape", list(COMMENT_SHAPES))
+@pytest.mark.parametrize("family", NO_ENGINE_READING)
+def test_a_comment_leaves_the_filter_unproven_where_the_reading_is_not_the_engines_own(family, shape):
+    capture = _declared_capture(COMMENT_SHAPES[shape], family)
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is not None
+
+
+@pytest.mark.parametrize("family", NO_ENGINE_READING)
+def test_a_plain_filter_is_still_accepted_where_the_reading_is_not_the_engines_own(family):
+    for text in ("SELECT id FROM orders WHERE owner = 'alice'",
+                 "SELECT id FROM orders WHERE owner = 'alice' AND note = 'a -- b /* c */ # d // e % f'"):
+        capture = _declared_capture(text, family)
+        assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is None, text
+
+
+def test_a_percent_sign_leaves_the_filter_unproven_where_the_engine_may_read_it_as_a_comment():
+    # SQL Anywhere with percent_as_comment on.
+    capture = _declared_capture(
+        "SELECT id FROM orders WHERE owner = 'alice' AND 2 = 2 % (2" + NL + "OR 1 = 1 % 2)", "SybaseClient")
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is not None
+
+
+def test_a_percent_sign_in_a_string_still_binds_where_the_engine_may_read_it_as_a_comment():
+    capture = _declared_capture("SELECT id FROM orders WHERE owner = 'alice' AND note LIKE '50%'", "SybaseClient")
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is None
+
+
+# Text one of the two readings cannot parse: not proven in either.
+UNREADABLE_IN_A_READING = [
+    "SELECT id FROM orders WHERE owner = 'alice' AND note = E'x' OR 1 = 1",
+    "SELECT id FROM orders WHERE owner = 'alice' AND note = E'" + BACKSLASH + "' OR id = 'x'",
+]
+
+
+@pytest.mark.parametrize("text", UNREADABLE_IN_A_READING)
+@pytest.mark.parametrize("family", EITHER_READING)
+def test_text_a_reading_cannot_parse_leaves_the_filter_unproven_where_the_engine_may_read_either(family, text):
+    capture = _declared_capture(text, family)
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is not None
+
+
+@pytest.mark.parametrize("family", EITHER_READING)
+def test_a_plain_vertica_style_filter_is_still_accepted_where_the_engine_may_read_either(family):
+    for text in ("SELECT id FROM orders WHERE owner = 'alice' AND amount > 10",
+                 "SELECT * FROM SALES.ORDERS WHERE OWNER = 'alice' FETCH FIRST 10 ROWS ONLY"):
+        assert verify_identity_binds_in_queries([_declared_capture(text, family)], {"v": "alice"}, SPEC) is None
+
+
+def test_the_fallback_log_names_the_generic_reading_for_soql(caplog):
+    import logging
+
+    from app.ai.code_execution import identity_bind
+
+    log = logging.getLogger(identity_bind.__name__)
+    was_disabled, log.disabled = log.disabled, False  # alembic disables existing loggers
+    try:
+        with caplog.at_level(logging.WARNING, logger=identity_bind.__name__):
+            identity_bind.log_fallback("SELECT Id FROM Account", "SalesforceClient", "v", "backslash")
+    finally:
+        log.disabled = was_disabled
+    readings = [r.reading for r in caplog.records if getattr(r, "event", None) == "identity_bind_check_fallback"]
+    assert readings == ["generic"]

@@ -1692,6 +1692,22 @@ def test_a_double_slash_is_refused_on_sql_anywhere(sql):
     _refused("SybaseClient", sql, match="//")
 
 
+SLASH_COMMENT_FAMILIES = ["SybaseClient", "PinotClient"]
+
+
+@pytest.mark.parametrize("family", SLASH_COMMENT_FAMILIES)
+def test_a_double_slash_running_into_a_block_comment_is_refused_where_it_starts_a_line_comment(family):
+    # The engine reads // as a line comment; the readings here read one slash
+    # and then a block comment. The // is looked for with comments kept.
+    _refused(family, "SELECT 1 AS a FROM orders //* " + NL + "; DELETE FROM orders */", match="//")
+
+
+@pytest.mark.parametrize("family", SLASH_COMMENT_FAMILIES)
+def test_a_double_slash_inside_a_string_still_reads_where_it_starts_a_line_comment(family):
+    sql = "SELECT 'http://example.com' AS u FROM orders WHERE note = 'a // b'"
+    assert ensure_read_only(_client(family), sql) == sql
+
+
 def test_sql_anywhere_may_read_a_percent_sign_as_a_line_comment():
     # With percent_as_comment on, % starts a line comment, so the quote
     # after it opens nothing.

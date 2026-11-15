@@ -268,6 +268,7 @@ def test_a_type_whose_client_cannot_be_resolved_is_not_offered_custom_tables(mon
     log.disabled = False  # alembic's fileConfig disables existing loggers
     real = data_source_registry.resolve_client_class
     monkeypatch.setattr(service, "_UNCHECKED", {})
+    monkeypatch.setattr(service, "_UNRESOLVED_LOGGED", set())
     monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
     with caplog.at_level(logging.WARNING, logger=service.__name__):
         assert not service.is_accelerable_type("postgresql")
@@ -276,6 +277,58 @@ def test_a_type_whose_client_cannot_be_resolved_is_not_offered_custom_tables(mon
     # Not remembered: once the client resolves, the type is offered again.
     monkeypatch.setattr(data_source_registry, "resolve_client_class", real)
     assert service.is_accelerable_type("postgresql")
+
+
+def _unresolvable(monkeypatch):
+    from app.schemas import data_source_registry
+    from app.services import custom_query_service as service
+
+    def _broken(_key):
+        raise RuntimeError("detail-not-for-logs")
+
+    monkeypatch.setattr(service, "_UNCHECKED", {})
+    monkeypatch.setattr(service, "_UNRESOLVED_LOGGED", set())
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
+    return service
+
+
+def test_a_custom_table_for_a_type_whose_client_cannot_be_loaded_is_refused_saying_so(monkeypatch):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    service = _unresolvable(monkeypatch)
+    with pytest.raises(HTTPException) as refused:
+        service.CustomQueryService.ensure_accelerable(SimpleNamespace(type="postgresql", auth_policy="system_only"))
+    detail = str(refused.value.detail)
+    assert "could not be loaded" in detail
+    assert "not checked yet" not in detail
+
+
+def test_a_client_that_cannot_be_loaded_is_logged_once_per_type_and_asked_again_each_time(monkeypatch, caplog):
+    import logging
+
+    service = _unresolvable(monkeypatch)
+    calls = []
+    from app.schemas import data_source_registry
+
+    broken = data_source_registry.resolve_client_class
+
+    def _counting(key):
+        calls.append(key)
+        return broken(key)
+
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", _counting)
+    log = logging.getLogger(service.__name__)
+    log.disabled = False  # alembic's fileConfig disables existing loggers
+    with caplog.at_level(logging.WARNING, logger=service.__name__):
+        for _ in range(3):
+            assert not service.is_accelerable_type("postgresql")
+            assert not service.is_accelerable_type("mysql")
+    logged = [r.getMessage() for r in caplog.records if r.name == service.__name__]
+    assert len(logged) == 2, logged
+    # The verdict is not cached: every call asks again.
+    assert len(calls) == 6
 
 
 # ---------------------------------------------------------------- DynamoDB

@@ -171,12 +171,21 @@ def is_accelerable_type(conn_type) -> bool:
 
 
 _UNCHECKED: dict = {}
+# Types whose unresolvable client was already logged in this process.
+_UNRESOLVED_LOGGED: set = set()
 
 
 def _is_unchecked(kind: str) -> bool:
     """Whether a connection type's client is one the query checks do not
-    know (`client_profiles.classify_type` is "unknown"). A client that
-    cannot be resolved counts as unchecked, and is asked again next time."""
+    know (`client_profiles.classify_type` is "unknown"), or one that cannot
+    be resolved (`_unchecked_reason`)."""
+    return _unchecked_reason(kind) is not None
+
+
+def _unchecked_reason(kind: str) -> Optional[str]:
+    """"unknown" when the query checks do not know a connection type's
+    client, "unresolved" when that client cannot be resolved (asked again
+    next time, logged once per type), else None."""
     if kind not in _UNCHECKED:
         try:
             from app.ai.code_execution.client_profiles import classify_type
@@ -186,9 +195,11 @@ def _is_unchecked(kind: str) -> bool:
             cls = resolve_client_class(key) if key else None
             _UNCHECKED[kind] = cls is not None and classify_type(cls) == "unknown"
         except Exception as e:
-            logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
-            return True
-    return _UNCHECKED[kind]
+            if kind not in _UNRESOLVED_LOGGED:
+                _UNRESOLVED_LOGGED.add(kind)
+                logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
+            return "unresolved"
+    return "unknown" if _UNCHECKED[kind] else None
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -414,7 +425,16 @@ class CustomQueryService:
 
     @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
-        if _is_unchecked((connection.type or "").lower()):
+        reason = _unchecked_reason((connection.type or "").lower())
+        if reason == "unresolved":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"The client for '{connection.type}' connections could not be loaded, "
+                    "so custom tables are refused for them."
+                ),
+            )
+        if reason == "unknown":
             raise HTTPException(
                 status_code=400,
                 detail=(

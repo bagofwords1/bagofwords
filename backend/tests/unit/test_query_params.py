@@ -2669,6 +2669,44 @@ def test_a_native_param_integer_too_long_to_write_is_refused_with_the_param_erro
     assert len(timings) == 1 and "too long" in timings[0]["error"]
 
 
+def _circular_params():
+    looped: dict = {"name": "x"}
+    looped["self"] = looped
+    return {"n": looped}
+
+
+def _deep_params():
+    nested: list = []
+    for _ in range(100_000):
+        nested = [nested]
+    return {"n": nested}
+
+
+@pytest.mark.parametrize("make_params", [
+    lambda: {"n": 1, 2: "keyed by a number"},
+    _circular_params,
+    _deep_params,
+], ids=["mixed key types", "circular reference", "nesting too deep"])
+@pytest.mark.parametrize("make_client", [_guarded_native_client, _NativeParamsObject],
+                         ids=["guarded", "unguarded"])
+def test_native_params_json_cannot_write_are_refused_captured_and_timed(make_client, make_params, caplog):
+    import logging
+
+    logging.getLogger("app.ai.code_execution.code_execution").disabled = False  # alembic disables loggers
+    client = make_client()
+    wrapper, queries, timings = _wrapped(client)
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), \
+            pytest.raises(ParamError, match="cannot be written as JSON") as refused:
+        wrapper.execute_query("MATCH (n) WHERE n.id = $n RETURN n.name AS name", params=make_params())
+    assert "too long" not in str(refused.value)
+    assert client.received == []
+    assert len(queries) == 1
+    assert len(timings) == 1 and "cannot be written as JSON" in timings[0]["error"]
+    warnings = _structure_warnings(caplog)
+    assert len(warnings) == 1 and "ParamError" in warnings[0], warnings
+    assert "keyed by a number" not in warnings[0]
+
+
 @pytest.mark.parametrize("values", [
     {"a": 7301000000000000001, "b": 5},
     {"a": 7301000000000000000, "b": 7301000000000000001},
@@ -3337,15 +3375,19 @@ def test_identity_verification_rejects_unscoped_reads(email, queries):
     ["SELECT * FROM orders WHERE assignee = '{v}'"],
     ["SELECT * FROM orders o JOIN users u ON u.email = '{v}' AND u.id = o.uid"],
     ["WITH mine AS (SELECT * FROM orders WHERE assignee = '{v}') SELECT * FROM mine WHERE 1=1"],
-    # a statement that reads no table can't leak rows
-    ["SELECT 1", "SELECT * FROM orders WHERE assignee = '{v}' -- scoped"],
+    # a statement that reads no table can't leak rows (a comment is read
+    # where the reading is the engine's own: tagged with a guarded client)
+    ["SELECT 1", ("PostgresqlClient", "SELECT * FROM orders WHERE assignee = '{v}' -- scoped")],
     # non-SQL (structured connector) captures fall back to containment
     ['execute_query({{"filter": {{"owner": "{v}"}}}})'],
 ])
 def test_identity_verification_accepts_scoped_reads(queries):
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
     v = "sarah@example.com"
     specs = _specs(*_ID_SPECS)
-    assert verify_identity_binds_in_queries([q.format(v=v) for q in queries], {"email": v}, specs) is None
+    captures = [CapturedQuery(q[1].format(v=v), q[0]) if isinstance(q, tuple) else q.format(v=v) for q in queries]
+    assert verify_identity_binds_in_queries(captures, {"email": v}, specs) is None
 
 
 def test_identity_verification_ignores_specs_without_values():
