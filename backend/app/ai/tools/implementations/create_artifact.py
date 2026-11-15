@@ -1045,6 +1045,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         from app.models.query import Query
         from app.models.step import Step
         report_id = str(report.id) if report else None
+        # A miscopied id (an extra or missing character, a lost tail) is
+        # matched to the one visualization of this report it nearly spells,
+        # and the same slip is corrected in the authored code.
+        from app.ai.tools.implementations._viz_ids import (
+            apply_id_corrections, correct_code_viz_refs, ensure_available, resolve_visualization_ids,
+        )
+        viz_resolution = await resolve_visualization_ids(db, report_id, data.visualization_ids)
+        requested_viz_ids = viz_resolution.ids
+        warnings.extend(viz_resolution.correction_notes())
+        if data.code and viz_resolution.corrections:
+            data.code = apply_id_corrections(data.code, viz_resolution.corrections)
+        # Why each id that cannot be used was refused, in words a person can act on.
+        viz_problems: List[str] = []
+        viz_fetch_failed = False
         try:
             # populate_existing=True forces SQLAlchemy to refresh objects from DB
             # rather than returning stale identity-map copies (e.g. query.steps or
@@ -1055,7 +1069,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     selectinload(Visualization.query).selectinload(Query.default_step),
                     selectinload(Visualization.query).selectinload(Query.steps),
                 )
-                .where(Visualization.id.in_(data.visualization_ids))
+                .where(Visualization.id.in_(requested_viz_ids))
                 .execution_options(populate_existing=True)
             )
             fetched_vizs = {str(v.id): v for v in result.scalars().all()}
@@ -1063,17 +1077,22 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             logger.exception("Failed to batch-fetch visualizations")
             fetched_vizs = {}
             warnings.append(f"Error fetching visualizations: {str(e)}")
+            viz_problems.append("The visualizations could not be loaded (a temporary error).")
+            viz_fetch_failed = True
 
         # Process each requested viz in order, validating and building entries
-        for viz_id in data.visualization_ids:
+        for viz_id in requested_viz_ids:
             viz = fetched_vizs.get(viz_id)
             if viz is None:
-                warnings.append(f"Visualization {viz_id} not found")
+                if not viz_fetch_failed:
+                    warnings.append(f"Visualization {viz_id} not found")
+                    viz_problems.append(f"Visualization {viz_id} was not found in this report.")
                 continue
 
             # Validate viz belongs to the report
             if report_id and str(viz.report_id) != report_id:
                 warnings.append(f"Visualization {viz_id} does not belong to this report")
+                viz_problems.append(f"Visualization {viz_id} does not belong to this report.")
                 continue
 
             # Get the step with data (prefer default_step, fallback to latest step)
@@ -1096,6 +1115,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     f"has_default_step={_has_default}, steps_count={_steps_len}"
                 )
                 warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
+                viz_problems.append(
+                    f"Visualization \"{viz.title or 'Untitled'}\" ({viz_id}) has no successful result "
+                    f"(its step status is '{step_status or 'unknown'}')."
+                )
                 continue
 
             # Get data directly from step (like frontend does). Generation and
@@ -1213,25 +1236,36 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # Explicit analytical/file references must resolve. A page that requests
         # neither may be a static site or a resource-backed application.
         if (data.visualization_ids or data.file_ids) and not visualizations and not included_files and data.mode != "slides":
+            # Say which id failed and why, and hand back the ids that would
+            # work, so the retry is a copy from this error.
+            available = await ensure_available(db, report_id, viz_resolution)
+            problem_text = " ".join(viz_problems) or "None of the requested visualizations could be used."
+            remediation = viz_resolution.remediation()
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
                     "output": {
                         "success": False,
-                        "error": "No valid visualizations found. All requested visualization_ids were either not found, don't belong to this report, or have non-success step status.",
+                        "error": problem_text,
                     },
                     "observation": {
                         "summary": "Failed to create artifact: no valid visualizations resolved",
                         "error": {
                             "type": "no_valid_visualizations",
-                            "message": "None of the requested visualization_ids could be used. Ensure visualizations exist, belong to this report, and have successful step status.",
+                            "message": f"{problem_text} {remediation}",
                             "requested_ids": data.visualization_ids,
                             "warnings": warnings,
+                            "available_visualizations": available,
+                            "remediation": remediation,
                         },
                     },
                 },
             )
             return
+
+        # The id list can be right while the code carries the slip.
+        if data.code and included_viz_ids:
+            data.code = correct_code_viz_refs(data.code, included_viz_ids)
 
         # Build visualization profiles (privacy-aware)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_profiles"})

@@ -151,16 +151,42 @@ class EditArtifactTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edits", "ops": len(data.edits)})
         from app.ai.tools.implementations.edit_artifact_legacy import _find_closest_match
 
+        # Ids the model miscopied are matched to the visualization they
+        # nearly spell: new ones among this report's, removed ones among the
+        # artifact's own. A new id that names nothing fails here, with the
+        # ids that would work, instead of being saved as a dead reference.
+        from app.ai.tools.implementations._viz_ids import (
+            apply_id_corrections, correct_code_viz_refs, ensure_available, resolve_visualization_ids,
+        )
+        _report_id = str(artifact.report_id) if artifact.report_id else None
+        added = await resolve_visualization_ids(db, _report_id, data.visualization_ids)
+        dropped = await resolve_visualization_ids(
+            db, _report_id, data.remove_visualization_ids, pool=existing_viz_ids,
+        )
+        if added.unresolved:
+            problem = " ".join(added.unresolved_messages())
+            yield self._fail(
+                artifact, "visualization_not_found", problem,
+                {
+                    "visualization_ids": added.unresolved,
+                    "available_visualizations": await ensure_available(db, _report_id, added),
+                    "remediation": added.remediation(),
+                },
+            )
+            return
+        id_notes = added.correction_notes() + dropped.correction_notes()
+
         # Merge viz ids: (existing − removed) + new — same semantics as edit_artifact.
-        removed = {str(v) for v in (data.remove_visualization_ids or [])}
+        removed = set(dropped.ids)
         merged_viz_ids = [v for v in existing_viz_ids if v not in removed]
-        for vid in (data.visualization_ids or []):
-            if str(vid) not in merged_viz_ids and str(vid) not in removed:
-                merged_viz_ids.append(str(vid))
+        for vid in added.ids:
+            if vid not in merged_viz_ids and vid not in removed:
+                merged_viz_ids.append(vid)
 
         working = code
         for i, op in enumerate(data.edits):
-            find, replace = op.find, op.replace
+            # New code carries the same miscopied id as the id list did.
+            find, replace = op.find, apply_id_corrections(op.replace, added.corrections)
             # The agent may quote code it saw before the working copy was
             # migrated (older context still binding positionally), so run the
             # same codemod over the op. `find` describes the stored code →
@@ -194,6 +220,9 @@ class EditArtifactTool(Tool):
                 )
             return
         new_code = working
+        if artifact.mode == "page":
+            # The id list can be right while the new code carries the slip.
+            new_code = correct_code_viz_refs(new_code, merged_viz_ids)
 
         # Embedded files: existing, minus removals, plus new. Ids are compared
         # normalised. Every requested id must resolve; the same answer for
@@ -522,6 +551,7 @@ class EditArtifactTool(Tool):
                     "version": new_artifact.version,
                     "diff_applied": True,
                     "applied_ops": len(data.edits),
+                    **({"warnings": id_notes} if id_notes else {}),
                 },
             },
         )
