@@ -135,3 +135,40 @@ def test_kql_is_read_as_text_and_accepts_the_value_anywhere(value):
     assert verify_identity_binds_in_queries(
         [CapturedQuery("T | where owner == 'someone else'", "AzureDataExplorerClient")], {"v": value}, SPEC,
     ) is not None
+
+
+# Engines that may read a backslash in a string as an escape, or not (the
+# ansi_or_backslash renderer): the identity check reads the capture both
+# ways, and a filter counts only when it binds in both readings. Each text
+# below binds in one reading only.
+EITHER_READING = ["VerticaClient", "SybaseClient", "OracleBIClient"]
+BINDS_IN_ONE_READING = {
+    "with backslash escapes only":
+        "SELECT id FROM orders WHERE owner = 'alice' AND note = '" + BACKSLASH + "' OR 1 = 1 --'",
+    "with standard quoting only":
+        "SELECT id FROM orders WHERE owner = 'alice' AND note = '" + BACKSLASH + "' AND note = ' OR 1 = 1 --'",
+}
+
+
+def _declared_capture(text, family):
+    """A capture as the wrapper records it: tagged with the client's
+    declared string-literal style."""
+    from app.ai.code_execution.client_profiles import _CLIENT_TABLE
+    import importlib
+
+    (module, name), = [key for key, entry in _CLIENT_TABLE.items() if entry.family == family]
+    cls = getattr(importlib.import_module(module), name)
+    return CapturedQuery(text, family, literal_style=cls.sql_literal_style)
+
+
+@pytest.mark.parametrize("reading", list(BINDS_IN_ONE_READING))
+@pytest.mark.parametrize("family", EITHER_READING)
+def test_a_filter_that_binds_in_one_reading_only_is_refused_where_the_engine_may_read_either(family, reading):
+    capture = _declared_capture(BINDS_IN_ONE_READING[reading], family)
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is not None
+
+
+@pytest.mark.parametrize("family", EITHER_READING)
+def test_a_filter_that_binds_in_both_readings_is_accepted_where_the_engine_may_read_either(family):
+    capture = _declared_capture("SELECT id FROM orders WHERE owner = 'alice'", family)
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is None

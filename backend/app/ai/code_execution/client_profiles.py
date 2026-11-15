@@ -375,19 +375,29 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
 def classify(client) -> str:
     """"guarded" (the wrapper checks its statements), "exempt" (declared in
     EXEMPT_CLIENTS for the `execute_query` in effect) or "unknown"."""
-    if guard_profile(client) is not None:
+    return classify_type(type(client))
+
+
+def classify_type(cls: type) -> str:
+    """`classify` for a client class, before any client is built."""
+    entry = _entry_for_type(cls)
+    if entry is not None and entry.profile is not None:
         return "guarded"
-    mro = type(client).__mro__
-    owner = next((i for i, cls in enumerate(mro) if "execute_query" in cls.__dict__), len(mro) - 1)
-    if any((cls.__module__, cls.__qualname__) in EXEMPT_CLIENTS for cls in mro[: owner + 1]):
+    mro = cls.__mro__
+    owner = next((i for i, c in enumerate(mro) if "execute_query" in c.__dict__), len(mro) - 1)
+    if any((c.__module__, c.__qualname__) in EXEMPT_CLIENTS for c in mro[: owner + 1]):
         return "exempt"
     return "unknown"
 
 
 def client_entry(client) -> ClientEntry | None:
     """The entry of the most specific registered class in `client`'s MRO."""
-    for cls in type(client).__mro__:
-        entry = _CLIENT_TABLE.get((cls.__module__, cls.__qualname__))
+    return _entry_for_type(type(client))
+
+
+def _entry_for_type(cls: type) -> ClientEntry | None:
+    for c in cls.__mro__:
+        entry = _CLIENT_TABLE.get((c.__module__, c.__qualname__))
         if entry is not None:
             return entry
     return None

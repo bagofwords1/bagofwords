@@ -85,9 +85,9 @@ class MongodbClient(DataSourceClient):
     """
 
     # The query is a JSON document (find / aggregate), not SQL text: a
-    # parameter renders as a bare JSON number ({"$gt": :n}) or, inside a
-    # string value, as a literal that stays inside that string; other bare
-    # values and keys are refused (query_params._render_json_query).
+    # parameter renders only as a bare JSON number value ({"$gt": :n}); one
+    # inside a string, in a key, or with a value that is not a finite number
+    # is refused (query_params.render_json_number_params).
     
     def __init__(
         self,

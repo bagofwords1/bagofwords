@@ -1008,6 +1008,9 @@ def _misplaced_placeholders(sql: str, matches: List["re.Match[str]"], renderer: 
     return _misplaced_spans(sql, matches, _merged(lists))
 
 
+_INT_TOO_LONG = "an integer parameter is too long to write into a query"
+
+
 def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tuple[int, int]]]:
     """The text written for `value`, and where its string literals are in it
     (start, end exclusive)."""
@@ -1019,7 +1022,11 @@ def _rendered_value(value: Any, renderer: LiteralRenderer) -> Tuple[str, List[Tu
         # Guard inf/nan from reaching SQL text.
         if isinstance(value, float) and (value != value or value in (float("inf"), float("-inf"))):
             raise ParamError("non-finite number cannot be rendered into SQL")
-        return repr(value), []
+        try:
+            return repr(value), []
+        except ValueError:
+            # Past Python's integer-to-text digit limit.
+            raise ParamError(_INT_TOO_LONG) from None
     if isinstance(value, (date, datetime)):
         value = value.isoformat()
     if isinstance(value, (list, tuple, set)):
@@ -1290,6 +1297,27 @@ def is_json_document(text: str) -> bool:
     return text.lstrip()[:1] in ("{", "[")
 
 
+_JSON_STRING = re.compile(r'"(?:[^"\\]|\\.)*(?:"|\Z)', re.DOTALL)
+_JSON_LITERALS = frozenset({"true", "false", "null"})
+
+
+def _json_placeholders(text: str) -> List["re.Match[str]"]:
+    """The placeholders of a JSON query document: every `:name` match, but
+    a JSON literal whose colon ends a key (the next non-space character back
+    closes a string) is the key's value, not a placeholder."""
+    string_ends = {m.end() for m in _JSON_STRING.finditer(text)}
+    out = []
+    for m in _PLACEHOLDER_RE.finditer(text):
+        if m.group(1) in _JSON_LITERALS:
+            before = m.start()
+            while before > 0 and text[before - 1] in " \t\n\r":
+                before -= 1
+            if before in string_ends:
+                continue
+        out.append(m)
+    return out
+
+
 def render_json_number_params(text: str, values: Dict[str, Any], *, client_type_name: str = "") -> str:
     """Render the placeholders of a JSON query document, for a connector
     with no renderer for its query language (`renderer_for` is None).
@@ -1309,9 +1337,12 @@ def render_json_number_params(text: str, values: Dict[str, Any], *, client_type_
     - a placeholder in a key, a value that is not a finite number, or a
       stand-in left over (run into other digits, `:n.5`) is refused.
 
-    A document with no placeholder comes back unchanged.
+    A JSON literal right after a key's colon (`"a":true`, `:false`, `:null`
+    in compact JSON) is the literal, not a placeholder. A document with no
+    placeholder comes back unchanged.
     """
-    if not _PLACEHOLDER_RE.search(text):
+    placeholders = _json_placeholders(text)
+    if not placeholders:
         return text
     who = client_type_name or "This source"
     missing: List[str] = []
@@ -1333,7 +1364,13 @@ def render_json_number_params(text: str, values: Dict[str, Any], *, client_type_
         stand_ins[token] = name
         return token
 
-    stood = _PLACEHOLDER_RE.sub(_stand_in, text)
+    pieces, at = [], 0
+    for m in placeholders:
+        pieces.append(text[at:m.start()])
+        pieces.append(_stand_in(m))
+        at = m.end()
+    pieces.append(text[at:])
+    stood = "".join(pieces)
     if missing:
         raise ParamError(
             "query uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
@@ -1376,7 +1413,12 @@ def render_json_number_params(text: str, values: Dict[str, Any], *, client_type_
             return value
         return node
 
-    rendered = json.dumps(_walk(document), ensure_ascii=False)
+    walked = _walk(document)
+    try:
+        rendered = json.dumps(walked, ensure_ascii=False)
+    except ValueError:
+        # An integer past Python's integer-to-text digit limit.
+        raise ParamError(_INT_TOO_LONG) from None
     if used != set(stand_ins):
         _refuse("where no value can stand (run into other characters)")
     return rendered

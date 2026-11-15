@@ -130,11 +130,20 @@ def checked_source(client, sql: str) -> tuple[Optional["ExtractionSource"], str]
     resolves its source here, so this is where the definition is held to a
     single read-only statement. The text to send is what the guard returned
     (on Postgres its canonical form, which differs from `sql`): only that text
-    was checked, so callers send it and never `sql` itself.
+    was checked, so callers send it and never `sql` itself. A connector the
+    query checks neither check nor exempt (`client_profiles.classify`) is
+    refused: `ensure_read_only` returns its text unchecked. (Objects that
+    are not connectors are left as they are, as in the code wrapper.)
     """
-    from app.ai.code_execution.sql_guard import ensure_read_only
+    from app.ai.code_execution.client_profiles import classify
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+    from app.data_sources.clients.discovery import DiscoveryClient
     from app.data_sources.fast.sources import source_for
 
+    if isinstance(client, DiscoveryClient) and classify(client) == "unknown":
+        raise ReadOnlyViolation(
+            "This connection's queries are not checked by the query checks, so custom tables cannot run on it."
+        )
     checked = ensure_read_only(client, sql)
     return source_for(client), checked
 

@@ -1167,6 +1167,40 @@ def test_a_double_slash_in_a_string_or_a_comment_still_reads_on_druid(sql):
     _passes("DruidClient", sql)
 
 
+# --------------------------------------------------------------- Hive variables
+
+# HiveServer2 (and the Spark Thrift Server) replace `${...}` in the text
+# before they read it, by default: inside strings and comments too.
+HIVE_VARIABLES = [
+    "SELECT * FROM orders WHERE note = '${hivevar:x}'",
+    "SELECT ${hiveconf:x} AS a FROM orders",
+    "SELECT * FROM orders -- ${x}",
+    "SELECT * FROM orders WHERE note = '$' || '{x}' AND tag = '${'",
+]
+
+
+@pytest.mark.parametrize("sql", HIVE_VARIABLES)
+def test_a_variable_reference_is_refused_on_hive_anywhere_in_the_text(sql):
+    _refused("HiveClient", sql, match="variable")
+    with pytest.raises(TableScopeViolation, match="variable"):
+        check_table_scope(sql, "hive", SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM orders WHERE note = '$' AND tag = '{x}'",
+    "SELECT * FROM orders WHERE rlike(code, '^[0-9]+$')",
+    "SELECT `id` FROM orders WHERE status = 'open'",
+])
+def test_a_dollar_or_a_brace_alone_still_reads_on_hive(sql):
+    _passes("HiveClient", sql)
+
+
+@pytest.mark.parametrize("family", ["DremioClient", "IcebergClient"])
+def test_a_variable_reference_in_a_string_still_reads_on_dremio_and_iceberg(family):
+    # Neither engine substitutes variables in the query text.
+    _passes(family, "SELECT * FROM orders WHERE note = '${x}'")
+
+
 # --------------------------------------------------------------- BigQuery
 
 BIGQUERY_HIDDEN = "SELECT `a" + BS + "`, '`, * FROM secret --' FROM `orders`"
@@ -1423,12 +1457,20 @@ def test_hex_literals_and_names_or_strings_holding_a_currency_sign_still_read_on
 NESTED = "SELECT * FROM orders /* /* */ UNION SELECT * FROM secret -- */"
 
 
-@pytest.mark.parametrize("family", ["DruidClient", "TeradataClient", "ClickhouseClient", "MsFabricClient"])
+@pytest.mark.parametrize("family", ["DruidClient", "TeradataClient", "ClickhouseClient", "MsFabricClient",
+                                    "DremioClient"])
 def test_a_comment_inside_a_comment_is_refused_where_the_engine_may_not_nest_them(family):
     # sqlglot nests block comments here; an engine that does not reads the
-    # text after the first `*/` as code.
+    # text after the first `*/` as code. Dremio's lexer is Calcite's, as
+    # Druid's is.
     _hidden_from_sqlglot(family, NESTED)
     _refused(family, NESTED, match="comment inside")
+
+
+@pytest.mark.parametrize("dialect", ["druid", "teradata", "clickhouse", "fabric", "dremio"])
+def test_a_comment_inside_a_comment_is_refused_by_table_scope_where_the_engine_may_not_nest_them(dialect):
+    with pytest.raises(TableScopeViolation, match="comment inside"):
+        check_table_scope(NESTED, dialect, SCOPE)
 
 
 @pytest.mark.parametrize("family", ["MSSQLClient", "DuckDBClient", "SparkConnectClient", "DatabricksSqlClient",

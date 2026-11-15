@@ -1341,8 +1341,9 @@ _ENGINE_SPACES = {
     "duckdb": _NON_ASCII_SPACES - {chr(0x85), chr(0x1680), chr(0x2028), chr(0x2029)},
 }
 # Dialects whose sqlglot tokenizer nests block comments while the engine
-# may not (Calcite, Teradata, ClickHouse, Fabric are not shown to nest them).
-_UNNESTED_COMMENT_DIALECTS = frozenset({"druid", "teradata", "clickhouse", "fabric"})
+# may not (Calcite, behind Druid and Dremio, ends a block comment at its
+# first `*/`; Teradata, ClickHouse, Fabric are not shown to nest them).
+_UNNESTED_COMMENT_DIALECTS = frozenset({"druid", "dremio", "teradata", "clickhouse", "fabric"})
 # A comment MySQL and MariaDB run as code (`/*!`, `/*M!`, and any other
 # letter before the `!`), by its text after `/*`, and by its opening.
 _EXECUTABLE_COMMENT_TEXT = re.compile(r"[A-Za-z]?!")
@@ -1500,6 +1501,14 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
         return
     if _NUL in sql:
         raise ReadOnlyViolation("The query holds a NUL character, after which the source would not read it. Remove it.")
+    if dialect == "hive" and "${" in sql:
+        # HiveServer2 substitutes `${...}` variables in the text before it
+        # reads it (strings and comments included), so the engine would run
+        # text these checks never saw.
+        raise ReadOnlyViolation(
+            "The query holds '${', which this source replaces with a variable's value before it reads the "
+            "query. Remove it."
+        )
     if unknown_lexer and "\\" in sql:
         raise ReadOnlyViolation(
             "The query holds a backslash, which this source may read as an escape where the query checks do not, "

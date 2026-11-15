@@ -169,6 +169,78 @@ def test_description_tells_the_agent_it_is_read_only(type_name):
     assert "execute_query" in text
 
 
+# ------------------------------------------------- custom tables (FAST path)
+
+# Connectors whose statements the query checks neither check nor exempt
+# (client_profiles.classify == "unknown"): no custom table may run on them.
+UNCHECKED_TYPES = ["cassandra", "couchbase", "dynamodb"]
+
+
+def _built(type_name):
+    from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+    entry = REGISTRY[type_name]
+    base = {f: (fi.default if fi.default is not None and not fi.is_required() else "x")
+            for f, fi in entry.config_schema.model_fields.items()}
+    return resolve_client_class(type_name)(**base)  # constructing never connects
+
+
+@pytest.mark.parametrize("type_name", UNCHECKED_TYPES)
+def test_a_custom_table_source_is_refused_for_a_connector_whose_queries_are_not_checked(type_name):
+    from app.ai.code_execution.client_profiles import classify
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+    from app.data_sources.fast import extractor
+
+    client = _built(type_name)
+    assert classify(client) == "unknown"
+    with pytest.raises(ReadOnlyViolation, match="not checked"):
+        extractor.checked_source(client, "SELECT * FROM t")
+
+
+@pytest.mark.parametrize("type_name", UNCHECKED_TYPES)
+def test_custom_tables_are_not_offered_for_a_connector_whose_queries_are_not_checked(type_name):
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert not is_accelerable_type(type_name)
+    assert not is_accelerable_type(type_name.upper())
+
+
+def test_custom_tables_are_still_offered_for_a_checked_document_store():
+    from app.services.custom_query_service import is_accelerable_type
+
+    assert is_accelerable_type("cosmosdb")
+
+
+@pytest.mark.parametrize("type_name", UNCHECKED_TYPES)
+def test_a_custom_table_preview_is_refused_for_a_connector_whose_queries_are_not_checked(type_name):
+    import asyncio
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.services.custom_query_service import custom_query_service
+
+    import pandas as pd
+
+    connection = SimpleNamespace(type=type_name, auth_policy="system_only")
+    sent = []
+    client = _built(type_name)
+    # The source boundary: records what reaches it instead of connecting.
+    client.execute_query = lambda *a, **k: sent.append(a) or pd.DataFrame([{"a": 1}])
+
+    async def _build_client(*_a, **_k):
+        return client
+
+    service = type(custom_query_service).__new__(type(custom_query_service))
+    service.__dict__.update(custom_query_service.__dict__)
+    service.connection_service = SimpleNamespace(construct_client=_build_client)
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(service.preview(None, connection, "SELECT * FROM t"))
+    assert refused.value.status_code == 400
+    assert "not available" in str(refused.value.detail)
+    assert sent == []
+
+
 # ---------------------------------------------------------------- DynamoDB
 
 

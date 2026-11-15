@@ -2093,6 +2093,42 @@ def test_a_keyword_call_with_params_is_refused_before_it_can_time_out(mode):
     assert "value-not-for-logs" not in timings[-1]["error"]
 
 
+def test_params_a_guarded_client_cannot_render_are_refused_logged_by_structure_and_recorded(mode, caplog):
+    import logging
+
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    class _Recording(SqliteClient):
+        def __init__(self):
+            self.received: list = []
+
+        def execute_query(self, sql, *args, **kwargs):
+            self.received.append(sql)
+            return pd.DataFrame([{"rows": 1}])
+
+    logger = logging.getLogger("app.ai.code_execution.code_execution")
+    logger.disabled = False  # alembic's fileConfig disables existing loggers
+    client = _Recording()
+    timings: list = []
+    queries: list = []
+    code = ("def generate_df(ds_clients, excel_files):\n"
+            "    return ds_clients['c'].execute_query('SELECT * FROM t WHERE a = :owner', "
+            "params=['value-not-for-logs'])\n")
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), \
+            pytest.raises(ParamError, match="first argument"):
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": client}, excel_files=[],
+                                             captured_timings=timings, captured_queries=queries)
+    assert client.received == []
+    assert [str(q) for q in queries] == ["SELECT * FROM t WHERE a = :owner"]
+    assert len(timings) == 1 and "first argument" in timings[0]["error"]
+    assert "value-not-for-logs" not in timings[0]["error"]
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "params_not_rendered" in r.getMessage()]
+    assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
+    assert "statement=str" in warnings[0] and "params=list" in warnings[0]
+    assert "value-not-for-logs" not in warnings[0]
+
+
 # A statement of any type to a connector nobody declared is refused
 # (test_client_classification.py), after the params it did not render are logged.
 @pytest.mark.parametrize("call, structure", [
@@ -2486,6 +2522,56 @@ def test_a_value_holding_another_placeholders_stand_in_is_still_refused_inside_a
     filter_text = "deviceName eq :p and model eq :c and userPrincipalName eq :me"
     _refused("intune_client", "IntuneClient", json.dumps({"table": "managed_devices", "filter": filter_text}),
              values, match="inside a string")
+
+
+COMPACT_JSON_LITERALS = '{"table":"incident","active":true,"closed":false,"parent":null}'
+
+
+def test_compact_json_literals_are_not_placeholders_without_params():
+    assert query_params.render_json_number_params(COMPACT_JSON_LITERALS, {}) == COMPACT_JSON_LITERALS
+
+
+def test_compact_json_literals_are_not_placeholders_with_params():
+    import json
+
+    query = COMPACT_JSON_LITERALS[:-1] + ',"limit": :n}'
+    parsed = json.loads(_sent("servicenow_client", "ServiceNowClient", query, {"n": 5}))
+    assert parsed == {"table": "incident", "active": True, "closed": False, "parent": None, "limit": 5}
+
+
+def test_a_param_named_like_a_json_literal_does_not_replace_the_literal():
+    import json
+
+    rendered = query_params.render_json_number_params(
+        COMPACT_JSON_LITERALS, {"true": 7, "false": 8, "null": 9})
+    assert json.loads(rendered) == {"table": "incident", "active": True, "closed": False, "parent": None}
+
+
+def test_a_placeholder_named_like_a_json_literal_still_renders_where_a_value_goes():
+    import json
+
+    rendered = query_params.render_json_number_params('{"limit": :null}', {"null": 3})
+    assert json.loads(rendered) == {"limit": 3}
+
+
+def _too_long_int():
+    # Built here, never in a parametrize id: str() of it raises.
+    return 10 ** 5000
+
+
+@pytest.mark.parametrize("renderer", ["ansi", "postgres", "mysql"])
+def test_an_integer_too_long_to_write_is_refused_with_the_param_error(renderer):
+    with pytest.raises(ParamError, match="too long"):
+        render_sql_with_params("SELECT * FROM t WHERE a = :v", {"v": _too_long_int()},
+                               renderer=query_params._RENDERERS[renderer])
+    with pytest.raises(ParamError, match="too long"):
+        render_sql_with_params("SELECT * FROM t WHERE a IN :v", {"v": [1, _too_long_int()]},
+                               renderer=query_params._RENDERERS[renderer])
+
+
+def test_an_integer_too_long_to_write_is_refused_in_a_json_query():
+    with pytest.raises(ParamError, match="too long"):
+        query_params.render_json_number_params('{"table": "t", "limit": :n}', {"n": _too_long_int()})
 
 
 @pytest.mark.parametrize("values", [

@@ -164,7 +164,29 @@ def is_accelerable_type(conn_type) -> bool:
     against these lowercase sets silently excluded every SQL Server connection.
     """
     kind = (conn_type or "").lower()
+    if _is_unchecked(kind):
+        # The query checks neither check nor exempt its statements.
+        return False
     return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES or _is_queryable(kind)
+
+
+_UNCHECKED: dict = {}
+
+
+def _is_unchecked(kind: str) -> bool:
+    """Whether a connection type's client is one the query checks do not
+    know (`client_profiles.classify_type` is "unknown")."""
+    if kind not in _UNCHECKED:
+        try:
+            from app.ai.code_execution.client_profiles import classify_type
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            cls = resolve_client_class(key) if key else None
+            _UNCHECKED[kind] = cls is not None and classify_type(cls) == "unknown"
+        except Exception:
+            _UNCHECKED[kind] = False
+    return _UNCHECKED[kind]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 

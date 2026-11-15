@@ -412,6 +412,14 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
             return None
         # Rewritten as standard literals: read where only '' escapes.
         literal_style = None
+    renderer = _renderer(client_type)
+    if renderer is not None and renderer.name == "ansi_or_backslash":
+        # The engine may read a backslash in a string as an escape or not
+        # (a server setting): the filter counts only when it binds in both
+        # readings. Where they disagree, it is not bound.
+        standard = _sql_binds(text, None, needles)
+        backslash = _sql_binds(text, _STYLE_DIALECTS["doubled"], needles)
+        return standard if standard == backslash else False
     return _sql_binds(text, _dialect_for(client_type, literal_style), needles)
 
 

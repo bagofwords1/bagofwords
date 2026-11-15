@@ -1476,10 +1476,14 @@ class QueryCapturingClientWrapper:
                 attempted = _describe_keyword_call({"query": query, **kwargs})
             return query, (), {}, attempted, refusal
         statement = resolved.statement
-        if resolved.params and not isinstance(resolved.params, dict):
-            # Params that are not a name -> value dict render nothing: the
-            # statement would run with its placeholders as written.
-            raise _params_not_rendered()
+        if resolved.params and not (isinstance(resolved.params, dict) and isinstance(statement, str)):
+            # Params that are not a name -> value dict, or a statement that
+            # is not text, render nothing: the statement would run with its
+            # placeholders as written. Refused, captured and timed like any
+            # refusal; logged by structure only.
+            self._log_params_not_rendered(statement, resolved.params)
+            return (statement, (), {}, self._guarded_capture(statement, resolved.kwargs),
+                    _params_not_rendered())
         if resolved.params:
             statement = self._rendered(statement, resolved.params)
         return statement, (), resolved.kwargs, self._guarded_capture(statement, resolved.kwargs), None
@@ -1621,13 +1625,7 @@ class QueryCapturingClientWrapper:
                     # (a connector nobody declared is refused for its
                     # statement first); logged by structure only.
                     refusal = _params_not_rendered()
-                    logger.warning(
-                        "code_execution.params_not_rendered client=%s statement=%s params=%s",
-                        family_name(self._original),
-                        "keywords" if query is _NO_QUERY else _loggable_name(type(query).__name__),
-                        ",".join(sorted(_loggable_name(k) for k in param_values))
-                        if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
-                    )
+                    self._log_params_not_rendered(query, param_values)
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
@@ -1641,6 +1639,17 @@ class QueryCapturingClientWrapper:
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
         return query, capture, refusal
+
+    def _log_params_not_rendered(self, query, param_values) -> None:
+        """Log params nothing renders, by structure only: the statement's
+        type and the param names (or the params' type), never a value."""
+        logger.warning(
+            "code_execution.params_not_rendered client=%s statement=%s params=%s",
+            family_name(self._original),
+            "keywords" if query is _NO_QUERY else _loggable_name(type(query).__name__),
+            ",".join(sorted(_loggable_name(k) for k in param_values))
+            if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
+        )
 
     def _takes_no_free_text(self) -> bool:
         """A connector the guard neither checks nor exempts (`classify`).
