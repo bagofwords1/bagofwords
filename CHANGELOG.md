@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.621 (November 15, 2026)
+- Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
+
 ## Version 0.0.620 (November 15, 2026)
 - Added World view in Agents (#1726)
 
