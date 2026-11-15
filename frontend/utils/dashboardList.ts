@@ -59,6 +59,8 @@ export interface DashboardCardData {
   id: string
   slug?: string | null
   title?: string | null
+  // Not sent yet: dashboards have no description. Shown under the name on hover once they do.
+  description?: string | null
   mode: string
   published: boolean
   is_owner?: boolean

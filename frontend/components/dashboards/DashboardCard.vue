@@ -44,7 +44,7 @@
 
             <div class="p-3 text-start">
                 <h3 class="font-medium text-ink truncate text-sm flex items-center gap-1.5">
-                    <span v-text-dir class="truncate">{{ title }}</span>
+                    <TruncatedLabel :text="title" :description="dashboard.description" data-testid="dashboard-card-title" />
                     <ReportStatusDot :report-id="dashboard.report_id || dashboard.id" />
                     <span v-if="agents.length" class="ms-auto flex items-center gap-1 shrink-0">
                         <UTooltip v-for="agent in agents" :key="agent.id" :text="agent.name || ''">
@@ -147,6 +147,7 @@ import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.v
 import DashboardThumbnail from '~/components/dashboards/DashboardThumbnail.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
+import TruncatedLabel from '~/components/TruncatedLabel.vue'
 import { cardMeta, isolate, refreshLine, statusPill, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{
