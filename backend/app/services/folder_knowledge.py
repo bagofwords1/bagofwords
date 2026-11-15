@@ -152,7 +152,14 @@ async def can_read_knowledge_scope(db, report, org, user, rights, *, archived=fr
         if required_rules:
             if fid not in archived:
                 rules = await readable_folder_rules(db, org, user, fid, required_rules)
-                if {r.id for r in rules} != required_rules:
+                missing = required_rules - {r.id for r in rules}
+                # A rule this reader can't load is only a reason to refuse while
+                # it still applies in the folder (published, on, attached): then
+                # it is hidden from *them*. One since detached, turned off or
+                # deleted is gone for everyone; the recorded revisions below
+                # still decide whether its content may be shown. Refusing on it
+                # would lock every reader — the owner too — out of the report.
+                if missing and await _still_applies_in_folder(db, fid, missing):
                     return False
             required_versions = {r.item_id for r in rows if r.folder_id == fid and r.kind == "revision"}
             from app.models.instruction_version import InstructionVersion
@@ -180,6 +187,21 @@ async def can_read_knowledge_scope(db, report, org, user, rights, *, archived=fr
                     if await InstructionContextBuilder(db, org, user)._get_user_inaccessible_table_ids(table_ids):
                         return False
     return True
+
+
+async def _still_applies_in_folder(db, folder_id, instruction_ids):
+    return await db.scalar(
+        select(Instruction.id)
+        .join(folder_instructions, folder_instructions.c.instruction_id == Instruction.id)
+        .where(
+            folder_instructions.c.folder_id == folder_id,
+            Instruction.id.in_(list(instruction_ids)),
+            Instruction.deleted_at.is_(None),
+            Instruction.status == "published",
+            or_(Instruction.load_mode.is_(None), Instruction.load_mode != "disabled"),
+        )
+        .limit(1)
+    ) is not None
 
 
 async def visible_instruction_folders(db, org, user):
