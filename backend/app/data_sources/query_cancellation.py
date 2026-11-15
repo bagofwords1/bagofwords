@@ -95,6 +95,34 @@ def cancel_thread(client: Any, thread_ident: int) -> str:
         return f"failed: {type(e).__name__}"
 
 
+# Outcome detail when the login may not KILL. Named, because the fix is a grant
+# the customer's DBA has to make, and "failed: ProgrammingError" tells them
+# nothing.
+KILL_PERMISSION_DENIED = "permission denied (KILL needs ALTER ANY CONNECTION on SQL Server, CONNECTION_ADMIN or PROCESS on MySQL)"
+
+
+def _is_kill_permission_error(e: BaseException) -> bool:
+    """SQL Server 6102 ("User does not have permission to use the KILL
+    statement"), MySQL 1095 ("You are not owner of thread")."""
+    text = str(e).lower()
+    return (
+        "(6102)" in text                          # pyodbc: "... statement. (6102) (SQLExecDirectW)"
+        or "permission to use the kill" in text
+        or "(1095," in text                       # pymysql: "(1095, 'You are not owner ...')"
+        or "not owner of thread" in text
+    )
+
+
+def cancellation_failed(outcome: Optional[str]) -> bool:
+    """True when we tried to stop the query on the source and could not.
+
+    Then the query is still running there, holding whatever it holds, and
+    the user has to know: a retry adds another copy next to it. "not_running"
+    and "unsupported" are not failures of an attempt, so they return False.
+    """
+    return isinstance(outcome, str) and outcome.startswith("failed")
+
+
 def active_count() -> int:
     """Test/observability helper."""
     with _lock:
@@ -259,6 +287,8 @@ def _kill_via_side_connection(sa_conn: Any, statement: str, success: str, client
         return success
     except Exception as e:
         logger.warning("KILL failed (%s): %s", statement, e)
+        if _is_kill_permission_error(e):
+            return f"failed: {KILL_PERMISSION_DENIED}"
         return f"failed: {type(e).__name__}"
     finally:
         if side is not None:

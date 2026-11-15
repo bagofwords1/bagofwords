@@ -30,6 +30,57 @@ def _odbc_value(value):
     return value
 
 
+# Isolation level choices for the connection config -> the T-SQL name.
+# "default" keeps READ COMMITTED, the level every SQL Server session starts
+# in; with READ_COMMITTED_SNAPSHOT on in the database that is already a
+# lock-free read, so it stays the default. READ UNCOMMITTED reads rows other
+# transactions have not committed (dirty reads) and must be an admin's
+# explicit choice.
+ISOLATION_LEVELS = {
+    "default": "READ COMMITTED",
+    "snapshot": "SNAPSHOT",
+    "read_uncommitted": "READ UNCOMMITTED",
+}
+
+# How long a BOW query waits for a lock before failing with error 1222.
+# Shorter than the default 60s query timeout, so a blocked query fails on its
+# own (and releases its schema lock) instead of being timed out and KILLed.
+DEFAULT_LOCK_TIMEOUT_SECONDS = 15
+
+# SQL Server: "User does not have permission to use the KILL statement."
+_KILL_PERMISSION_HINT = (
+    "This login lacks the ALTER ANY CONNECTION permission, so BOW cannot stop "
+    "a query on SQL Server after it times out: the query keeps running and "
+    "holding locks until it finishes. Grant ALTER ANY CONNECTION to the login "
+    "to let BOW stop timed-out queries."
+)
+
+
+def _is_snapshot_refusal(e: BaseException) -> bool:
+    """SQL Server 3952: "Snapshot isolation transaction failed accessing
+    database ... because snapshot isolation is not allowed in this database"."""
+    text = str(e).lower()
+    return "(3952)" in text or "snapshot isolation is not allowed" in text
+
+
+def _session_setup_hook(sql: str):
+    """Engine `connect` hook that runs `sql` on each new physical session.
+
+    It runs before SQLAlchemy uses the connection (pre-ping included), so no
+    transaction is open yet — SNAPSHOT cannot be entered mid-transaction. A
+    failure here fails the connection: a session without these settings is
+    exactly what this exists to prevent. It closes over the SQL only, not
+    the client, because the engine outlives any one client instance.
+    """
+    def hook(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute(sql)
+        finally:
+            cursor.close()
+    return hook
+
+
 class MSSQLClient(DataSourceClient):
 
     # T-SQL: '' only, backslash is ordinary (sqlglot tsql).
@@ -58,8 +109,25 @@ class MSSQLClient(DataSourceClient):
                  use_kerberos: bool = False, kerberos_principal: Optional[str] = None,
                  kerberos_impersonate: Optional[str] = None,
                  kerberos_expected_sid: Optional[str] = None,
-                 index_routines: bool = False):
+                 index_routines: bool = False,
+                 deadlock_priority_low: bool = True,
+                 lock_timeout_seconds: Optional[int] = DEFAULT_LOCK_TIMEOUT_SECONDS,
+                 isolation_level: Optional[str] = "default"):
         self.host = host
+        # BOW is a reader on somebody else's database. These are applied to
+        # every new physical connection (see `session_setup_sql`).
+        self.deadlock_priority_low = bool(deadlock_priority_low)
+        if lock_timeout_seconds is None:
+            lock_timeout_seconds = DEFAULT_LOCK_TIMEOUT_SECONDS
+        self.lock_timeout_seconds = int(lock_timeout_seconds)
+        if self.lock_timeout_seconds < 0:
+            raise ValueError("Lock timeout cannot be negative")
+        self.isolation_level = (isolation_level or "default").strip().lower()
+        if self.isolation_level not in ISOLATION_LEVELS:
+            raise ValueError(
+                f"Unsupported isolation level: {isolation_level}. "
+                f"Supported: {sorted(ISOLATION_LEVELS)}"
+            )
         # Opt-in routine indexing (see app.data_sources.routines).
         self.index_routines = bool(index_routines)
         self.port = port
@@ -119,6 +187,9 @@ class MSSQLClient(DataSourceClient):
             params += (
                 f"UID={_odbc_value(self.user)};"
                 f"PWD={_odbc_value(self.password)};"
+                # Names BOW's sessions in sys.dm_exec_sessions and in deadlock
+                # graphs, so a DBA can tell them apart from the application's.
+                "APP=BagOfWords;"
             )
         params += (
             "TrustServerCertificate=no;"
@@ -135,6 +206,45 @@ class MSSQLClient(DataSourceClient):
                 raise ValueError("Invalid ODBC keyword")
             params += f"{k}={_odbc_value(value)};"
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(params)}"
+
+    @property
+    def session_setup_sql(self) -> str:
+        """The per-session SET batch run on every new physical connection.
+
+        SQL Server readers take shared locks under READ COMMITTED (unless the
+        database has READ_COMMITTED_SNAPSHOT on), so a BOW query can deadlock
+        with the customer's writers or block them. Three settings make BOW the
+        side that gives way:
+
+          * DEADLOCK_PRIORITY LOW — in a deadlock SQL Server kills BOW's
+            query (error 1205), not the customer's transaction. The agent can
+            retry; their application usually cannot.
+          * LOCK_TIMEOUT — a blocked BOW query fails with error 1222 after
+            this long instead of waiting forever, and so stops holding the
+            schema lock that queues DDL (and everyone behind it).
+          * TRANSACTION ISOLATION LEVEL — the admin's choice; see
+            ISOLATION_LEVELS.
+
+        SET options belong to the session and survive pool check-in (ODBC
+        driver-manager pooling, whose sp_reset_connection would clear them,
+        is off — engine_pool), so once per physical connection is enough.
+        Every setting is written out even at its server default, so the batch
+        fully describes the session.
+        """
+        lock_ms = self.lock_timeout_seconds * 1000 if self.lock_timeout_seconds > 0 else -1
+        return "\n".join((
+            f"SET DEADLOCK_PRIORITY {'LOW' if self.deadlock_priority_low else 'NORMAL'};",
+            f"SET LOCK_TIMEOUT {int(lock_ms)};",
+            f"SET TRANSACTION ISOLATION LEVEL {ISOLATION_LEVELS[self.isolation_level]};",
+        ))
+
+    def _get_engine(self, ccache: Optional[str] = None):
+        # The hook's SQL depends on this client's settings, so it is part of
+        # the pool key: two connections to one server with different lock
+        # settings must not share pooled sessions.
+        sql = self.session_setup_sql
+        key = sql if ccache is None else f"{ccache}|{sql}"
+        return get_engine(self.sql_server_uri, key_extra=key, on_connect=_session_setup_hook(sql))
 
     def _kerberos_ccache(self) -> Optional[str]:
         """Resolve the credential cache to use for this connection, if any."""
@@ -165,10 +275,10 @@ class MSSQLClient(DataSourceClient):
                 # engine before activation can observe another thread's cache.
                 # Established queries run outside this process-wide lock.
                 with get_ticket_manager().activate(ccache):
-                    engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
+                    engine = self._get_engine(str(ccache))
                     conn = engine.connect()
             else:
-                engine = get_engine(self.sql_server_uri)
+                engine = self._get_engine()
                 conn = engine.connect()
             if self.kerberos_impersonate:
                 self.verify_directory_identity(conn)
@@ -380,19 +490,86 @@ class MSSQLClient(DataSourceClient):
         return TableFormatter(schemas).table_str
 
     def test_connection(self):
-        """Test connection to SQL Server and return status information."""
+        """Test connection to SQL Server and return status information.
+
+        Beyond "can we log in", this checks the two things that decide
+        whether BOW is a safe reader on this database: that the chosen
+        isolation level can actually be used, and whether BOW will be able to
+        stop its own timed-out queries. The first fails the test; the second
+        is a warning, because the connection works without it.
+        """
         try:
             with self.connect() as conn:
                 conn.execute(text("SELECT 1"))
-                return {
-                    "success": True,
-                    "message": "Successfully connected to SQL Server"
-                }
+                if self.isolation_level == "snapshot":
+                    problem = self._snapshot_problem(conn)
+                    if problem:
+                        return {"success": False, "message": problem}
+                warnings = []
+                if self._can_kill_sessions(conn) is False:
+                    warnings.append(_KILL_PERMISSION_HINT)
+                message = "Successfully connected to SQL Server"
+                if warnings:
+                    message += ". " + " ".join(warnings)
+                result = {"success": True, "message": message}
+                if warnings:
+                    result["warnings"] = warnings
+                return result
         except Exception as e:
+            if self.isolation_level == "snapshot" and _is_snapshot_refusal(e):
+                # The refusal can come while the session is still being set
+                # up, before the explicit check below gets to run.
+                return {"success": False, "message": self._snapshot_message()}
             return {
                 "success": False,
                 "message": str(e)
             }
+
+    def _snapshot_problem(self, conn) -> Optional[str]:
+        """Why SNAPSHOT isolation cannot be used here, or None if it can.
+
+        SET TRANSACTION ISOLATION LEVEL SNAPSHOT succeeds anywhere; the
+        failure (error 3952) only comes with the first query that reads the
+        database. Catch that at test time with a message that names the fix,
+        instead of on every agent query.
+        """
+        try:
+            state = conn.execute(text(
+                "SELECT snapshot_isolation_state FROM sys.databases WHERE database_id = DB_ID()"
+            )).scalar()
+        except Exception as e:
+            if _is_snapshot_refusal(e):
+                return self._snapshot_message()
+            raise
+        # 1 = ON. 0 = OFF, 2/3 = in transition (not usable yet).
+        if state is not None and int(state) != 1:
+            return self._snapshot_message()
+        return None
+
+    def _snapshot_message(self) -> str:
+        return (
+            f"Snapshot isolation is not enabled on database '{self.database}'. "
+            f"Run ALTER DATABASE [{self.database}] SET ALLOW_SNAPSHOT_ISOLATION ON, "
+            "or choose a different isolation level for this connection."
+        )
+
+    def _can_kill_sessions(self, conn) -> Optional[bool]:
+        """Whether this login may KILL its own timed-out sessions.
+
+        True/False when the server answers, None when it cannot say (e.g. a
+        platform without server-level permissions). Never raises: this only
+        decides whether to warn.
+        """
+        try:
+            value = conn.execute(text(
+                "SELECT HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER ANY CONNECTION')"
+            )).scalar()
+        except Exception as e:
+            logger.debug("Could not check ALTER ANY CONNECTION: %s", e)
+            return None
+        if value is None:
+            return None
+        return bool(int(value))
 
     @property
     def description(self):

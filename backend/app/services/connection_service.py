@@ -1450,13 +1450,26 @@ class ConnectionService:
                 approximate=bool(schema_status.get("table_count_approximate")),
                 config=config,
             ) + unreadable_note(schema_status.get("unreadable"))
-            return {
+            # A client can connect fine and still have something the admin
+            # must know (SQL Server: the login cannot stop its own timed-out
+            # queries). Its success message is replaced above, so carry the
+            # warnings over rather than drop them.
+            warnings = [
+                w for w in (connection_status.get("warnings") or [])
+                if isinstance(w, str) and w.strip()
+            ]
+            if warnings:
+                message = message.rstrip() + " " + " ".join(warnings)
+            result = {
                 "success": True,
                 "message": message,
                 "connectivity": True,
                 "schema_access": True,
                 "table_count": table_count,
             }
+            if warnings:
+                result["warnings"] = warnings
+            return result
         except Exception as e:
             from app.errors.redact import connection_secrets, user_facing_error
             return {

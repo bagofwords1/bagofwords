@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import pytest
 import sqlalchemy
+import sqlalchemy.event
 from app.data_sources.clients.mssql_client import MSSQLClient
 from app.data_sources import engine_pool, kerberos
 from tests.unit.test_mssql_kerberos import _install_fake_gssapi
@@ -65,6 +66,9 @@ def test_only_matching_sql_identity_reaches_user_query(monkeypatch, tmp_path, si
         def connect(self): return DriverConnection()
         def dispose(self): pass
     monkeypatch.setattr(sqlalchemy, "create_engine", DriverEngine)
+    # The fake engine stands in for the driver, so it also takes the place of
+    # the session-setup hook SQLAlchemy would attach to a real one.
+    monkeypatch.setattr(sqlalchemy.event, "listen", lambda *a, **k: None)
     engine_pool.dispose_all()
     client = MSSQLClient("sql.example.test", 1433, "synthetic", use_kerberos=True,
         kerberos_impersonate="person@EXAMPLE.TEST", kerberos_expected_sid=b"expected-sid".hex())

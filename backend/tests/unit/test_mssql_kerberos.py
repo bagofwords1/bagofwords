@@ -219,6 +219,7 @@ def test_connections_preserve_requested_kerberos_identity(tmp_path, monkeypatch,
     external SQLAlchemy/driver boundary are substituted. No AD or SQL is needed.
     """
     import sqlalchemy
+    import sqlalchemy.event
     from app.data_sources import engine_pool, kerberos
 
     _install_fake_gssapi(monkeypatch, [], [])
@@ -276,6 +277,9 @@ def test_connections_preserve_requested_kerberos_identity(tmp_path, monkeypatch,
 
     engine_pool.dispose_all()
     monkeypatch.setattr(sqlalchemy, "create_engine", DriverEngine)
+    # The fake engine stands in for the driver, so it also takes the place of
+    # the session-setup hook SQLAlchemy would attach to a real one.
+    monkeypatch.setattr(sqlalchemy.event, "listen", lambda *a, **k: None)
     try:
         for _ in range(2):  # Cold engine initialization, then pool reuse.
             barrier = threading.Barrier(len(clients), timeout=10) if concurrent else None
