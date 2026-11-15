@@ -219,10 +219,11 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
              "result-object list, not query text, businessobjects_client.py:338"),
     _refused("timbr_a2a_client", "TimbrA2aClient", "natural-language prompt, not query text, timbr_a2a_client.py:224"),
     _refused("gmail_mail_client", "GmailMailClient", "Gmail search text with no declared renderer, gmail_mail_client.py:412"),
-    _refused("network_dir_client", "NetworkDirClient", f"{_FILE}, network_dir_client.py:1154"),
-    _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1154"),
-    _refused("git_repo_client", "GitLabRepoClient", f"{_FILE}, inherited from network_dir_client.py:1154"),
-    _refused("git_repo_client", "BitbucketRepoClient", f"{_FILE}, inherited from network_dir_client.py:1154"),
+    _refused("network_dir_client", "NetworkDirClient",
+             f"{_FILE}, or DuckDB SQL over the indexed file tables with no declared renderer, network_dir_client.py:1223"),
+    _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1223"),
+    _refused("git_repo_client", "GitLabRepoClient", f"{_FILE}, inherited from network_dir_client.py:1223"),
+    _refused("git_repo_client", "BitbucketRepoClient", f"{_FILE}, inherited from network_dir_client.py:1223"),
     _refused("graph_drive_client", "OnedriveClient", f"{_FILE}, graph_drive_client.py:1529"),
     _refused("graph_drive_client", "SharepointClient", f"{_FILE}, graph_drive_client.py:1529"),
     _refused("graph_onenote_client", "OnenoteClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
@@ -354,7 +355,11 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("priority_erp_client", "PriorityErpClient", f"{_SPEC}: OData options on a GET, priority_erp_client.py:243"),
     _exempt("sap_datasphere_client", "SapDatasphereClient", f"{_SPEC}: OData options on a GET, sap_datasphere_client.py:488"),
     # A file, message or item id (or a JSON file spec) read from the source.
-    _exempt("network_dir_client", "NetworkDirClient", f"{_SPEC}: file name or JSON file spec read, network_dir_client.py:523"),
+    # With indexed file tables, SQL text goes to one DuckDB SELECT over the
+    # agent's selected tables, checked and locked where it runs.
+    _exempt("network_dir_client", "NetworkDirClient",
+            f"{_DISPATCH}: file name or JSON file spec read (network_dir_client.py:537), or one checked DuckDB "
+            "SELECT over the selected file tables on a locked engine (network_dir_client.py:1255)"),
     _exempt("graph_drive_client", "GraphDriveClient", f"{_SPEC}: file id or JSON file spec read by GET, graph_drive_client.py:572"),
     _exempt("google_drive_client", "GoogleDriveClient", f"{_SPEC}: file id read by GET, google_drive_client.py:166"),
     _exempt("gmail_mail_client", "GmailMailClient", f"{_SPEC}: message id or Gmail search by GET, gmail_mail_client.py:212"),

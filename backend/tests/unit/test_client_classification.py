@@ -601,6 +601,8 @@ _DISPATCH_REFUSAL_TESTS = {
     "OpenSearchClient": ("test_non_sql_client_rules.py",
                          "test_opensearch_refuses_sql_outside_one_select_and_unknown_envelope_keys"),
     "SisenseClient": ("test_non_sql_client_rules.py", "test_sisense_refuses_sql_outside_one_select"),
+    "NetworkDirClient": ("test_client_classification.py",
+                         "test_the_network_directory_refuses_sql_outside_one_select_over_its_selected_tables"),
 }
 
 
@@ -666,3 +668,38 @@ def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_eng
         custom_table.execute_query(f"COPY (SELECT 1 AS id, 'x' AS v) TO '{artifact}'")
     assert artifact.read_bytes() == before
     assert custom_table.execute_query("SELECT count(*) AS n FROM notes")["n"].tolist() == [2]
+
+
+# ------------------------------------------------------------ the network directory's indexed file tables
+
+def test_the_network_directory_refuses_sql_outside_one_select_over_its_selected_tables(tmp_path, monkeypatch):
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
+    from app.data_sources.clients._network_dir_tables import attach_catalog
+    from app.data_sources.clients.network_dir_client import NetworkDirClient
+    from app.services import storage
+
+    monkeypatch.setattr(storage, "UPLOADS_ROOT", tmp_path / "cache")
+    root = tmp_path / "share"
+    root.mkdir()
+    (root / "notes.txt").write_text("incident timeline")
+    client = NetworkDirClient(root_path=str(root), index_mode="content")
+    assert client.index_file_tables
+
+    # Nothing selected for the agent: no SQL runs at all.
+    with pytest.raises(PermissionError):
+        client.execute_query("SELECT 1 AS n")
+
+    # Only the coverage table is selected; the packet table is not.
+    attach_catalog(client, [("indexed_files", [], {})], [])
+    assert client.execute_query("SELECT count(*) AS n FROM indexed_files")["n"].tolist() == [0]
+    with pytest.raises(duckdb.CatalogException):
+        client.execute_query("SELECT * FROM packets")
+    for refused in (
+        "SELECT * FROM read_csv_auto('notes.txt')",
+        "SELECT 1 AS n; SELECT 2 AS n",
+        "COPY (SELECT 1 AS n) TO 'out.csv'",
+        "SELECT getenv('HOME') AS h",
+    ):
+        with pytest.raises(ReadOnlyViolation):
+            client.execute_query(refused)
+    assert not (root / "out.csv").exists()
