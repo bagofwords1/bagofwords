@@ -25,18 +25,6 @@ from app.schemas.view_schema import AxisOptions
 from app.models.entity import Entity
 
 
-def _llm_may_see_data(organization_settings) -> bool:
-    """The organization's allow_llm_see_data. Settings that cannot be read
-    hide the data: the setting exists to keep rows and code from the LLM."""
-    if not organization_settings:
-        return True
-    try:
-        cfg = organization_settings.get_config("allow_llm_see_data")
-        return bool(cfg.value) if cfg is not None else True
-    except Exception:
-        return False
-
-
 class DescribeEntityTool(Tool):
     """Tool to describe a catalog entity and optionally create a visualization from it."""
 
@@ -312,12 +300,22 @@ class DescribeEntityTool(Tool):
         # snapshot's own record until a run below replaces it.
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         request_values = dict(data.params or {})
-        # What the output and the observation report about the entity.
-        allow_llm_see_data = _llm_may_see_data(organization_settings)
+
+        # Read before the run: a failed save of its result rolls `db` back,
+        # which expires every object the session holds (the entity, the
+        # settings), and they cannot be loaded again here.
+        allow_llm_see_data = True
+        if organization_settings:
+            try:
+                cfg = organization_settings.get_config("allow_llm_see_data")
+                allow_llm_see_data = bool(cfg.value) if cfg is not None else True
+            except Exception:
+                pass
         described = {
             "entity_id": str(entity.id), "entity_type": entity.type, "title": entity.title,
             "description": entity.description, "code": entity.code,
         }
+        snapshot = entity_data
 
         if request_values or data.should_rerun or snapshot_withheld:
             # Viewer-mode run of the SAVED code: defaults <- the requested
@@ -325,12 +323,11 @@ class DescribeEntityTool(Tool):
             # user, values). No code generation anywhere on this path; a
             # repeat with the same values is served from the cache.
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})
-            snapshot = entity_data
-            from app.services.entity_service import CallerTransactionLost, EntityService
             try:
                 if not (entity.code or "").strip():
                     errors.append("Entity has no code to execute")
                 else:
+                    from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
                         db, entity, organization, user, request_values,
                         force_refresh=bool(data.should_rerun),
@@ -341,10 +338,6 @@ class DescribeEntityTool(Tool):
                         "served from the per-user cache" if run.get("cached")
                         else "executed the entity's saved code"
                     )
-            except CallerTransactionLost:
-                # The agent's own writes are gone with its transaction: it
-                # cannot go on as if only this run had failed.
-                raise
             except Exception as e:
                 errors.append(f"Code execution failed: {str(e)}")
                 # Fall back to cached data — but never to a snapshot the

@@ -7,14 +7,9 @@ from sqlalchemy.orm import lazyload
 from app.models.step_user_result import StepUserResult
 
 
-async def upsert_viewer_row(db, model, key: dict, values: dict, **insert_only) -> None:
-    """Write one viewer's row of `model` at its unique `key`, not committed.
-
-    A select-then-insert races when two first runs finish together; this is
-    one INSERT ... ON CONFLICT (key) DO UPDATE, so both succeed and the later
-    one's `values` are kept. The unique slot remains viewer + subject + params;
-    a conflict must never broaden it. `insert_only` columns are written by
-    the insert alone."""
+async def store_viewer_result(db, *, step_id, user_id, params_fingerprint, **values):
+    # A select-then-insert races when two first runs finish together. The unique
+    # slot remains viewer + step + params; a conflict must never broaden it.
     dialect = db.get_bind().dialect.name
     if dialect == "postgresql":
         from sqlalchemy.dialects.postgresql import insert
@@ -23,37 +18,28 @@ async def upsert_viewer_row(db, model, key: dict, values: dict, **insert_only) -
     else:
         raise ValueError("Unsupported application database for viewer results")
 
-    stmt = insert(model).values(**key, **insert_only, **values)
+    key = dict(step_id=str(step_id), user_id=str(user_id),
+               params_fingerprint=params_fingerprint)
+    values = {**values, "updated_at": datetime.utcnow()}
+    stmt = insert(StepUserResult).values(**key, **values)
     stmt = stmt.on_conflict_do_update(
         index_elements=list(key),
         set_={name: getattr(stmt.excluded, name) for name in values},
     )
     await db.execute(stmt)
-
-
-def viewer_row(model, **key):
-    """The select of a viewer's row at `key`, columns only, refreshing an
-    instance the session already holds.
-
-    Columns only: the per-viewer models' relations are lazy="selectin" and fan
-    out to the report graph, for relations no caller reads. populate_existing:
-    the upsert bypasses the ORM (and may run on another session), so an
-    instance already in the session must take the stored values."""
-    return (select(model).filter_by(**key)
-            .options(lazyload("*"))
-            .execution_options(populate_existing=True))
-
-
-async def store_viewer_result(db, *, step_id, user_id, params_fingerprint, **values):
-    key = dict(step_id=str(step_id), user_id=str(user_id),
-               params_fingerprint=params_fingerprint)
-    await upsert_viewer_row(db, StepUserResult, key, {**values, "updated_at": datetime.utcnow()})
     await db.commit()
-    # A plain select here sent ~22 statements and fetched the step with its
-    # stored data: ~75 ms of each viewer run on a large step. On an instance the
-    # session holds, populate_existing also resets .step/.user to unloaded; no
-    # caller reads them after storing.
-    return (await db.execute(viewer_row(StepUserResult, **key))).scalar_one()
+    # Columns only. StepUserResult.step and .user are lazy="selectin", and the
+    # chain continues through Step.query to the report graph, so a plain select
+    # here sent ~22 statements and fetched the step with its stored data: ~75 ms
+    # of each viewer run on a large step, for relations no caller reads.
+    # populate_existing stays: the upsert bypassed the ORM, so an instance already
+    # in the session must take the new values. On such a held instance it also
+    # resets .step/.user to unloaded; no caller reads them after storing.
+    return (await db.execute(
+        select(StepUserResult).filter_by(**key)
+        .options(lazyload("*"))
+        .execution_options(populate_existing=True)
+    )).scalar_one()
 
 
 async def find_viewer_result(db, *, step_id, user_id, params_fingerprint):

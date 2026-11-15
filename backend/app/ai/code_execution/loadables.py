@@ -374,15 +374,11 @@ class LoadablesResolver:
             # resolve to the RUN USER's own slice (cached per viewer, executed
             # with their identity binding on a miss); other entities serve the
             # shared snapshot unless the credential policy withholds it.
-            from app.services.entity_service import CallerTransactionLost, EntityService
+            from app.services.entity_service import EntityService
             try:
                 data = await EntityService().resolve_entity_data_for_user(
                     self.db, entity, self.organization, self.current_user
                 )
-            except CallerTransactionLost:
-                # This run's own writes are gone with its transaction: it
-                # cannot go on as if only this entity were missing.
-                raise
             except Exception as e:
                 result["errors"].append(
                     f"load_entity({key!r}): failed to resolve the caller's slice: {str(e)[:200]}"
