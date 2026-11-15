@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "Ajouter des fichiers",
     "searchPlaceholder": "Rechercher des fichiers…",
-    "uploadFromComputer": "Importer depuis l'ordinateur",
+    "uploadFile": "Importer un fichier",
+    "uploadTitle": "Importer des fichiers",
     "clickOrDrag": "Cliquez ou glissez des fichiers à importer",
     "dropHere": "Déposez les fichiers ici",
-    "recentUploads": "Imports récents",
-    "browseAll": "Tout parcourir",
+    "files": "Fichiers",
+    "noFilesYet": "Aucun fichier pour l'instant",
     "connect": "Connecter",
     "searching": "Recherche…",
     "noResults": "Aucun résultat"

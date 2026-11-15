@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "إضافة ملفات",
     "searchPlaceholder": "البحث عن الملفات…",
-    "uploadFromComputer": "التحميل من الحاسوب",
+    "uploadFile": "رفع ملف",
+    "uploadTitle": "رفع الملفات",
     "clickOrDrag": "انقر أو اسحب الملفات للتحميل",
     "dropHere": "أفلت الملفات هنا",
-    "recentUploads": "التحميلات الأخيرة",
-    "browseAll": "استعراض الكل",
+    "files": "الملفات",
+    "noFilesYet": "لا توجد ملفات بعد",
     "connect": "اتصال",
     "searching": "جارٍ البحث…",
     "noResults": "لا توجد نتائج"

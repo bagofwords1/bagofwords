@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "הוספת קבצים",
     "searchPlaceholder": "חיפוש קבצים…",
-    "uploadFromComputer": "העלאה מהמחשב",
+    "uploadFile": "העלאת קובץ",
+    "uploadTitle": "העלאת קבצים",
     "clickOrDrag": "לחצו או גררו קבצים להעלאה",
     "dropHere": "שחררו כאן את הקבצים",
-    "recentUploads": "העלאות אחרונות",
-    "browseAll": "הצגת הכול",
+    "files": "קבצים",
+    "noFilesYet": "אין עדיין קבצים",
     "connect": "התחברות",
     "searching": "מחפש…",
     "noResults": "אין תוצאות"

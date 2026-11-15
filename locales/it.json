@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "Aggiungi file",
     "searchPlaceholder": "Cerca file…",
-    "uploadFromComputer": "Carica dal computer",
+    "uploadFile": "Carica file",
+    "uploadTitle": "Carica file",
     "clickOrDrag": "Clicca o trascina i file da caricare",
     "dropHere": "Rilascia i file qui",
-    "recentUploads": "Caricamenti recenti",
-    "browseAll": "Sfoglia tutti",
+    "files": "File",
+    "noFilesYet": "Nessun file ancora",
     "connect": "Connetti",
     "searching": "Ricerca…",
     "noResults": "Nessun risultato"

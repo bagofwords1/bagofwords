@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "Добавить файлы",
     "searchPlaceholder": "Поиск файлов…",
-    "uploadFromComputer": "Загрузить с компьютера",
+    "uploadFile": "Загрузить файл",
+    "uploadTitle": "Загрузка файлов",
     "clickOrDrag": "Нажмите или перетащите файлы для загрузки",
     "dropHere": "Перетащите файлы сюда",
-    "recentUploads": "Недавние загрузки",
-    "browseAll": "Показать все",
+    "files": "Файлы",
+    "noFilesYet": "Пока нет файлов",
     "connect": "Подключить",
     "searching": "Поиск…",
     "noResults": "Нет результатов"

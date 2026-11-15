@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "Add files",
     "searchPlaceholder": "Search files…",
-    "uploadFromComputer": "Upload from computer",
+    "uploadFile": "Upload file",
+    "uploadTitle": "Upload files",
     "clickOrDrag": "Click or drag files to upload",
     "dropHere": "Drop files here",
-    "recentUploads": "Recent uploads",
-    "browseAll": "Browse all",
+    "files": "Files",
+    "noFilesYet": "No files yet",
     "connect": "Connect",
     "searching": "Searching…",
     "noResults": "No results"

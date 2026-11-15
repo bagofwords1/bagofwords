@@ -1,12 +1,12 @@
 {
   "filePicker": {
-    "title": "Lägg till filer",
     "searchPlaceholder": "Sök filer…",
-    "uploadFromComputer": "Ladda upp från datorn",
+    "uploadFile": "Ladda upp fil",
+    "uploadTitle": "Ladda upp filer",
     "clickOrDrag": "Klicka eller dra filer för att ladda upp",
     "dropHere": "Släpp filerna här",
-    "recentUploads": "Senaste uppladdningar",
-    "browseAll": "Bläddra bland alla",
+    "files": "Filer",
+    "noFilesYet": "Inga filer än",
     "connect": "Anslut",
     "searching": "Söker…",
     "noResults": "Inga resultat"
