@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.622 (November 15, 2026)
+- Changed SQL Server queries to stop waiting on a row another session has locked after 15 seconds, and to be the side SQL Server gives up in a deadlock (#1739) — "Lock Timeout (seconds)" and "Yield in Deadlocks" on the connection (defaults: 15, on; 0 = no limit)
+- Added an isolation level choice for SQL Server connections (#1739) — "Isolation Level" (default: READ COMMITTED; snapshot, read uncommitted)
+- Fixed SQL Server timeouts BOW could not stop being reported only in logs; the error and the connection test name the missing permission (#1739)
+
 ## Version 0.0.621 (November 15, 2026)
 - Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
 
