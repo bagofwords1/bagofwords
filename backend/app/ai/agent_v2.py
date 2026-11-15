@@ -4058,12 +4058,35 @@ class AgentV2:
             "  </steering_updates>"
         )
 
+    def _settle_forced(self, decision) -> None:
+        """After a planner call: keep, retry or drop the forced build step.
+
+        A valid decision or a failed request ends it (a provider may reject a
+        forced request outright, and retrying would fail the turn). A call
+        that named a tool it was not offered gets one forced retry, then the
+        turn goes on unforced.
+        """
+        if not self._forced_tools_next:
+            return
+        code = getattr(getattr(decision, "error", None), "code", None)
+        if code != "tool_not_offered":
+            self._forced_tools_next = None
+            return
+        self._forced_strays += 1
+        if self._forced_strays >= 2:
+            self._forced_tools_next = None
+
     def _build_ask_kinds_for_turn(self) -> set:
         """{"page"}/{"doc"} when a person asked in this turn for a page or document; empty otherwise."""
         try:
             from app.ai.tools.implementations._memory_common import is_machine_turn
             if is_machine_turn(self.head_completion):
                 return set()
+            # A steer mid-turn overrides the original ask: the latest one decides
+            # ("never mind the dashboard, answer in chat" is not a build ask).
+            steers = [t for t in (getattr(self, "_steering_texts", None) or []) if str(t or "").strip()]
+            if steers:
+                return build_ask_kinds(steers[-1])
             prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
             message = prompt.get("content", "") if isinstance(prompt, dict) else ""
             return build_ask_kinds(message)
@@ -6550,16 +6573,7 @@ class AgentV2:
                     
                         elif evt.type == "planner.decision.final":
                             decision = evt.data  # Already validated PlannerDecision from planner_v2
-                            # A forced build stays forced until a planner call returns a
-                            # valid decision (a stray tool name comes back as an error).
-                            if self._forced_tools_next and not getattr(decision, "error", None):
-                                self._forced_tools_next = None
-                            elif self._forced_tools_next and getattr(getattr(decision, "error", None), "code", None) == "tool_not_offered":
-                                # One forced retry; after a second stray tool the turn goes on
-                                # unforced, so forcing never turns a chat answer into a failed run.
-                                self._forced_strays += 1
-                                if self._forced_strays >= 2:
-                                    self._forced_tools_next = None
+                            self._settle_forced(decision)
                             self._record_planner_token_metadata_from_decision(decision, view=view)
                             # Track whether analysis is complete
                             analysis_done = bool(getattr(decision, "analysis_complete", False))

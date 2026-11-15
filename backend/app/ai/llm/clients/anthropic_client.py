@@ -93,6 +93,17 @@ def _prefix_cache_control() -> dict[str, Any]:
     return {"type": "ephemeral", "ttl": "1h"}
 
 
+# Models that answer a forced tool_choice ("any"/"tool") with HTTP 400; see
+# the catalog notes in app/models/llm_model.py. Matched as substrings, like
+# _NO_SAMPLING_PARAM_TAGS, so dated or routed ids match too.
+_REJECTS_FORCED_TOOL_CHOICE_TAGS = ("sonnet-5-5", "fable-5-1", "opus-5-5")
+
+
+def _rejects_forced_tool_choice(model_id) -> bool:
+    mid = str(model_id or "").lower()
+    return any(tag in mid for tag in _REJECTS_FORCED_TOOL_CHOICE_TAGS)
+
+
 class Anthropic(LLMClient):
     def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
                  default_headers: Optional[dict] = None, vertex: Optional[dict] = None,
@@ -588,12 +599,15 @@ class Anthropic(LLMClient):
             import os as _os_for_parallel_dbg
             if _os_for_parallel_dbg.environ.get("BOW_FORCE_PARALLEL_TOOLS", "").lower() in ("1", "true", "yes"):
                 disable_parallel_tools = False
-            if disable_parallel_tools or require_tool:
-                # require_tool: the model must call one of the offered tools
-                # (forced build); "any" is incompatible with extended thinking,
-                # which the caller turns off for that call.
+            # require_tool: the model must call one of the offered tools (forced
+            # build); "any" is incompatible with extended thinking, which the
+            # caller turns off for that call. Some models reject a forced
+            # tool_choice outright (HTTP 400): they get the offered tools with
+            # "auto", so the restricted list still steers them.
+            force = require_tool and not _rejects_forced_tool_choice(model_id)
+            if disable_parallel_tools or force:
                 _eb = dict(request_kwargs.pop("extra_body", {}) or {})
-                _eb["tool_choice"] = {"type": "any" if require_tool else "auto", "disable_parallel_tool_use": bool(disable_parallel_tools)}
+                _eb["tool_choice"] = {"type": "any" if force else "auto", "disable_parallel_tool_use": bool(disable_parallel_tools)}
                 request_kwargs["extra_body"] = _eb
 
         # Per-tool-call accumulators keyed by content_block index

@@ -165,3 +165,60 @@ async def test_openai_requires_a_tool_call_when_asked():
     async for _ in client.inference_stream_v2("gpt-4o", [Message(role="user", content="x")], tools=TOOLS, require_tool=True):
         pass
     assert create.call_args.kwargs["tool_choice"] == "required"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_id,expected", [
+    ("claude-haiku-5-5", "any"),
+    ("claude-sonnet-5-5", "auto"),   # rejects a forced tool_choice with HTTP 400
+    ("claude-fable-5-1", "auto"),
+    ("claude-opus-5-5", "auto"),
+])
+async def test_models_that_reject_a_forced_tool_choice_get_auto(model_id, expected):
+    client = Anthropic(api_key="test-key-not-used")
+    seen = {}
+
+    async def create(**kwargs):
+        seen.update(kwargs)
+        return _EmptyStream()
+    client.async_client.messages.create = create
+    async for _ in client.inference_stream_v2(model_id=model_id, messages=[Message(role="user", content="x")],
+                                              tools=TOOLS, thinking={"type": "disabled"}, require_tool=True):
+        pass
+    assert seen["extra_body"]["tool_choice"]["type"] == expected
+
+
+def _decision(code=None):
+    return SimpleNamespace(error=SimpleNamespace(code=code) if code else None)
+
+
+def test_a_failed_forced_request_is_not_retried_forced():
+    a = agent(["create_artifact", "clarify"])
+    a._forced_strays = 0
+    a._forced_tools_next = ["create_artifact", "clarify"]
+    a._settle_forced(_decision("stream_error"))
+    assert a._forced_tools_next is None, "a provider error drops the forced step"
+
+
+def test_a_stray_tool_gets_one_forced_retry_then_the_turn_goes_on():
+    a = agent(["create_artifact", "clarify"])
+    a._forced_strays = 0
+    a._forced_tools_next = ["create_artifact", "clarify"]
+    a._settle_forced(_decision("tool_not_offered"))
+    assert a._forced_tools_next == ["create_artifact", "clarify"]
+    a._settle_forced(_decision("tool_not_offered"))
+    assert a._forced_tools_next is None
+    a._forced_tools_next = ["create_artifact"]
+    a._settle_forced(_decision())
+    assert a._forced_tools_next is None, "a valid decision ends it"
+
+
+def test_a_steer_away_from_the_build_is_not_forced():
+    a = agent(["create_artifact", "clarify"])
+    a.head_completion = SimpleNamespace(prompt={"content": "Build a sales dashboard by month"})
+    a._steering_texts = []
+    assert a._build_ask_kinds_for_turn() == {"page"}
+    a._steering_texts = ["Never mind the dashboard, just answer in chat"]
+    assert a._build_ask_kinds_for_turn() == set()
+    a._steering_texts = ["Actually make it a written report instead"]
+    assert a._build_ask_kinds_for_turn() == {"doc"}

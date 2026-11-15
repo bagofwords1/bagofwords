@@ -2326,7 +2326,7 @@ function _dtDetectDir(cols, rows) {
   // (or total, when the measure adds up): 4,320 minutes reads "3 d", not
   // "4,320". The rows are rescaled, so the axis ticks stay round.
   var _CH_DUR = { ms: 0.001, milliseconds: 0.001, seconds: 1, minutes: 60, hours: 3600, days: 86400 };
-  var _CH_DUR_INTL = { seconds: 'second', minutes: 'minute', hours: 'hour', days: 'day' };
+  var _CH_DUR_INTL = { milliseconds: 'millisecond', seconds: 'second', minutes: 'minute', hours: 'hour', days: 'day' };
   function _chDuration(unit, rows, fields, keyOf) {
     var per = _CH_DUR[unit];
     if (!per) return null;
@@ -2339,7 +2339,8 @@ function _dtDetectDir(cols, rows) {
         else max = Math.max(max, Math.abs(v) * per);
       });
     });
-    var show = max < 120 ? 'seconds' : max < 2 * 3600 ? 'minutes' : max < 2 * 86400 ? 'hours' : 'days';
+    // Under a second stays in milliseconds: 10 ms must not print as "0.0 sec".
+    var show = max < 1 ? 'milliseconds' : max < 120 ? 'seconds' : max < 2 * 3600 ? 'minutes' : max < 2 * 86400 ? 'hours' : 'days';
     var k = per / _CH_DUR[show];
     var out = k === 1 ? rows : rows.map(function(r) {
       if (!r) return r;

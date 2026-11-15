@@ -99,6 +99,7 @@ try{
    minutes: tr(ms.map((m,i)=>({month:m,t:30+i*5})),'minutes'),                          // 30–40 min
    hours:   tr(ms.map((m,i)=>({month:m,t:200+i*50})),'minutes'),                        // 200–300 min → hours
    summed:  tr(ms.flatMap((m)=>[{month:m,t:50},{month:m,t:50},{month:m,t:50}]),'minutes',true), // rows 50 min, totals 150 min → hours
+   millis:  B.buildRank({viz:v,rows:[{team:'A',t:20},{team:'B',t:10}],label:'team',value:'t',unit:'ms'},theme,'en',false).option.series[0].label.formatter({value:10}),
    rank:    B.buildRank({viz:v,rows:[{team:'A',t:40},{team:'B',t:25}],label:'team',value:'t',unit:'seconds'},theme,'en',false).option.series[0].label.formatter({value:40}),
   };
  },{VIZ});
@@ -107,6 +108,7 @@ try{
  assert.ok(dur.hours.max>4.9&&dur.hours.max<5.1,`the data is rescaled to hours, so ticks stay round (${dur.hours.max})`);
  assert.match(dur.summed.tick,/hr/,`the unit comes from the totals, not the rows (${dur.summed.tick})`);
  assert.match(dur.rank,/sec/,`RankChart: seconds (${dur.rank})`);
+ assert.match(dur.millis,/10\s*ms/,`under a second stays in milliseconds, never "0.0 sec" (${dur.millis})`);
 
  // Raw EChart, 12 line series: the 8 largest shown, the rest greyed in a scrolling legend.
  const leg=await frame.evaluate(()=>{
@@ -150,5 +152,5 @@ try{
  const pageCur=await rf.evaluate(({rows,EURVIZ})=>window.__bowCharts.buildTrend({viz:vizById(EURVIZ),rows:rows.map(r=>({month:r.month,dept:r.dept,amount:r.spend})),x:'month',y:'amount',series:'dept',unit:'currency',additive:true},window.bowTheme,'en').option.yAxis.axisLabel.formatter(2000),{rows,EURVIZ});
  assert.match(pageCur,/€/,`the page's single currency (${pageCur})`);
  assert.equal(rtlDir,'rtl','on a right-to-left page the table runs right to left, even with English cells');
- console.log('PASS: data currency on components (name, saved, viz columns, page), durations (min, hr, totals, sec), RankChart axis, 8 of 12 series (reader choice kept, dataset charts uncapped), equal card heights, RTL tables');
+ console.log('PASS: data currency on components (name, saved, viz columns, page), durations (min, hr, totals, sec, ms), RankChart axis, 8 of 12 series (reader choice kept, dataset charts uncapped), equal card heights, RTL tables');
 }finally{await browser.close()}

@@ -497,7 +497,7 @@ class PlannerV3:
         # A forced call may still name a tool it was not offered (seen with
         # Haiku: a create_data from earlier in the transcript). Never dispatch
         # it: return an error so the agent retries, still forced.
-        if require_tool:
+        if forced:
             _offered = {t.name for t in tools}
             _stray = [a.name for a in completed_actions if getattr(a, "name", None) not in _offered]
             if _stray:

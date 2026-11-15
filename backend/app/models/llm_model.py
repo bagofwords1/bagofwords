@@ -223,8 +223,9 @@ LLM_MODEL_DETAILS = [
         # (_effort_to_thinking_config) already match ``claude-fable-5-1``, so it
         # correctly gets adaptive thinking and no temperature. Its one breaking
         # change vs Fable 5 — forced tool use (``tool_choice`` ``any``/``tool``)
-        # returns a 400 — does not touch us: the only tool_choice we ever send
-        # is ``auto`` (with disable_parallel_tool_use), which stays supported.
+        # returns a 400. The forced build step asks for one; the Anthropic
+        # client sends ``auto`` instead to the models listed in
+        # _REJECTS_FORCED_TOOL_CHOICE_TAGS (this one included).
         "name": "Claude Fable 5.1",
         "model_id": "claude-fable-5-1",
         "provider_type": "anthropic",
@@ -258,8 +259,8 @@ LLM_MODEL_DETAILS = [
         # _NO_SAMPLING_PARAM_TAGS drops temperature (non-default values 400),
         # and _effort_to_thinking_config sends adaptive thinking. We never send
         # ``{type: "disabled"}`` (a 400 here) — effort "off" omits thinking and
-        # the client lowers effort instead. Forced tool_choice also 400s, but
-        # we only send auto.
+        # the client lowers effort instead. Forced tool_choice also 400s: the
+        # client sends ``auto`` here (_REJECTS_FORCED_TOOL_CHOICE_TAGS).
         "name": "Claude Sonnet 5.5",
         "model_id": "claude-sonnet-5-5",
         "provider_type": "anthropic",
@@ -293,7 +294,7 @@ LLM_MODEL_DETAILS = [
         # _NO_SAMPLING_PARAM_TAGS drops temperature, and in agent_v2's
         # _effort_to_thinking_config it gets adaptive thinking (budget_tokens
         # and ``disabled`` both 400 here; effort "off" omits the param, which
-        # runs adaptive). Forced tool_choice also 400s, but we only send auto.
+        # runs adaptive). Forced tool_choice also 400s: the client sends ``auto`` here (_REJECTS_FORCED_TOOL_CHOICE_TAGS).
         # Its 0.05x cache-read rate lives in pricing._ANTHROPIC_READ_RATE_OVERRIDES.
         "name": "Claude Opus 5.5",
         "model_id": "claude-opus-5-5",
