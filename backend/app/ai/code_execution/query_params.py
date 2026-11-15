@@ -1600,7 +1600,7 @@ def _strip_sql_comments(sql: str) -> str:
 def _heuristic_binds_value(capture: str, needles: List[str]) -> bool:
     """Legacy text heuristic: whether one executed query carries an identity
     value where it can actually filter rows. Used only when the structural
-    check (identity_bind.structural_binds) cannot decide.
+    check (identity_bind.structural_verdict) cannot decide.
 
     SQL: the value must appear AFTER a predicate keyword (WHERE/ON/HAVING/...),
     once comments are stripped — a value echoed in the SELECT list or hidden in
@@ -1644,14 +1644,15 @@ def _envelope_sql(text: str) -> tuple[bool, Optional[str]]:
     return True, sql
 
 
-def _query_binds_value(capture: str, needles: List[str], param: str = "") -> bool:
-    """Whether one executed query restricts its rows by an identity value.
+def _query_binds_value(capture: str, needles: List[str], param: str = "") -> Tuple[bool, Optional[str]]:
+    """(whether one executed query restricts its rows by an identity value,
+    the reason kind when it is refused as syntax the check cannot verify).
 
     Structural first (sqlglot for SQL/SOQL, a small tokenizer for Splunk SPL —
     see identity_bind); when the structure can't be decided (parse error,
     unsupported shape, non-SQL API capture) falls back to the legacy text
     heuristic, unchanged, and logs a structured warning."""
-    from app.ai.code_execution.identity_bind import log_fallback, structural_binds
+    from app.ai.code_execution.identity_bind import log_fallback, log_unverifiable, structural_verdict
 
     client_type = getattr(capture, "client_type", None)
     renderer = renderer_for_name(client_type or "")
@@ -1666,7 +1667,7 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
                                  else (False, None))
     if is_envelope and envelope_sql is None:
         # Its "sql" is not the statement that ran: nothing shows the filter.
-        return False
+        return False, None
     if envelope_sql is not None:
         # A JSON query envelope carrying SQL: the SQL is what filters.
         from app.ai.code_execution.identity_bind import CapturedQuery
@@ -1675,13 +1676,15 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
                                 sql_in_json_envelope=True)
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
-    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql,
-                               getattr(capture, "literal_style", None))
+    verdict, unverifiable = structural_verdict(str(capture), client_type, tuple(needles), looks_sql,
+                                               getattr(capture, "literal_style", None))
+    if unverifiable is not None:
+        log_unverifiable(str(capture), client_type, param, unverifiable)
     if verdict is not None:
-        return verdict
+        return verdict, unverifiable
     if looks_sql or client_type == "SplunkClient":
         log_fallback(str(capture), client_type, param, getattr(capture, "literal_style", None))
-    return _heuristic_binds_value(capture, needles + _rendered_needles(client_type, needles))
+    return _heuristic_binds_value(capture, needles + _rendered_needles(client_type, needles)), None
 
 
 def _rendered_needles(client_type: Optional[str], needles: List[str]) -> List[str]:
@@ -1708,6 +1711,15 @@ def odata_written_back(text: str) -> str:
     the OData captures hold it: the identity check reads them as the server
     percent-decodes them."""
     return text.replace("%", "%25").replace("#", "%23")
+
+
+# The refusal of a query whose syntax the identity check cannot verify for
+# its client (identity_bind.structural_verdict). Fixed: never the text or a
+# value.
+UNVERIFIABLE_SYNTAX_MESSAGE = (
+    "a query uses syntax the viewer filter check cannot verify on this connection type; "
+    "refusing to serve results that may be unscoped"
+)
 
 
 def verify_identity_binds_in_queries(
@@ -1750,7 +1762,10 @@ def verify_identity_binds_in_queries(
         value = values.get(spec.name)
         needles = [str(n) for n in (value if isinstance(value, list) else [value]) if n not in (None, "")]
         for q in queries:
-            if not _query_binds_value(q, needles, spec.name):
+            binds, unverifiable = _query_binds_value(q, needles, spec.name)
+            if unverifiable is not None:
+                return UNVERIFIABLE_SYNTAX_MESSAGE
+            if not binds:
                 return (
                     f"identity parameter '{spec.name}' was not applied as a filter in every "
                     "executed query; refusing to serve unscoped results"

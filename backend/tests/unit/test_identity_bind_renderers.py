@@ -71,6 +71,11 @@ def test_a_sql_filter_on_the_identity_binds_and_one_outside_a_filter_does_not(fa
     if family in QUOTE_READ_AS_TWO_STRINGS and "'" in value:
         assert _verdict(SCOPED, family, value) is not None
         return
+    if family not in CLIENT_DIALECTS and BACKSLASH in _capture(SCOPED, family, value):
+        # Without the engine's own reading, a backslash is outside the
+        # allow-list: refused as unverifiable, wherever it stands.
+        assert _verdict(SCOPED, family, value) == query_params.UNVERIFIABLE_SYNTAX_MESSAGE
+        return
     assert _verdict(SCOPED, family, value) is None
     assert _verdict(SELECT_LIST_ONLY, family, value) is not None
 
@@ -301,3 +306,146 @@ def test_the_fallback_log_names_the_generic_reading_for_soql(caplog):
         log.disabled = was_disabled
     readings = [r.reading for r in caplog.records if getattr(r, "event", None) == "identity_bind_check_fallback"]
     assert readings == ["generic"]
+
+
+# Where the reading is not the engine's own, a filter counts only when the
+# text is plain enough that every reasonable reading agrees on it: an
+# allow-list of characters and string forms. Anything else is refused with
+# a fixed message saying the syntax cannot be verified on this connection.
+UNVERIFIABLE = ("a query uses syntax the viewer filter check cannot verify on this connection type; "
+                "refusing to serve results that may be unscoped")
+PLAIN = "SELECT a, b FROM t WHERE owner = 'v' AND x > 1 ORDER BY a"
+PLAIN_FILTERS = [
+    PLAIN,
+    'SELECT "Name", b FROM t WHERE owner = ' + "'v'",
+    "SELECT t.a, u.b FROM t JOIN u ON t.id = u.id WHERE t.owner = 'v' AND u.x <> 2",
+]
+# The shapes the reviews and hunts found, each for the clients it was found on.
+UNVERIFIABLE_SHAPES = {
+    "a bracketed name": (
+        "SELECT id FROM orders WHERE owner = 'v' AND 1 = [a--] OR 1 = 1",
+        ["SybaseClient"]),
+    "a quote in a bracketed name": (
+        "SELECT id FROM orders WHERE owner = 'v' AND 1 = ['] OR 1 = 1 OR x = [']",
+        ["SybaseClient", "SisenseClient", "OracleBIClient"]),
+    "a quote in a backtick name": (
+        "SELECT id FROM orders WHERE owner = 'v' AND 1 = `'` OR 1 = 1 OR x = `'`",
+        ["OpenSearchClient", "PinotClient"]),
+    "WITH UR": ("SELECT id FROM orders WHERE owner = 'v' OR 1 = 1 WITH UR", ["Db2Client", "IbmiClient"]),
+    "OPTIMIZE FOR": ("SELECT id FROM orders WHERE owner = 'v' OR 1 = 1 OPTIMIZE FOR 10 ROWS",
+                     ["Db2Client", "IbmiClient"]),
+    "FOR READ ONLY": ("SELECT id FROM orders WHERE owner = 'v' OR 1 = 1 FOR READ ONLY", ["Db2Client", "IbmiClient"]),
+    "WITH HINT": ("SELECT id FROM orders WHERE owner = 'v' OR 1 = 1 WITH HINT(NO_CS_JOIN)", ["SapHanaClient"]),
+    "an E string": (
+        "SELECT id FROM orders WHERE owner = 'v' AND note = E'" + BACKSLASH + "'' OR 1 = 1 OR note = '",
+        ["VerticaClient"]),
+    "a backslash in a quoted name": (
+        'SELECT id FROM orders WHERE owner = ' + "'v'" + ' AND "e' + BACKSLASH + '"" = 1',
+        NO_ENGINE_READING),
+    "a doubled quote in a quoted name": (
+        'SELECT id FROM orders WHERE owner = ' + "'v'" + ' AND "a""b" = 1', NO_ENGINE_READING),
+    "a percent sign": ("SELECT id FROM orders WHERE owner = 'v' AND 2 = 2 % (2" + NL + "OR 1 = 1 % 2)",
+                       ["SybaseClient"]),
+    **{"earlier: " + name: (text.replace("'alice'", "'v'"), NO_ENGINE_READING)
+       for name, text in COMMENT_SHAPES.items()},
+}
+SHAPE_CASES = [(name, family) for name, (_, families) in UNVERIFIABLE_SHAPES.items() for family in families]
+
+
+def _refusal(text, family, value="v"):
+    capture = _declared_capture(text, family) if family is not None else text
+    return verify_identity_binds_in_queries([capture], {"v": value}, SPEC)
+
+
+@pytest.mark.parametrize("name, family", SHAPE_CASES)
+def test_a_shape_found_by_review_is_refused_as_unverifiable_where_the_reading_is_not_the_engines_own(name, family):
+    assert _refusal(UNVERIFIABLE_SHAPES[name][0], family) == UNVERIFIABLE
+
+
+@pytest.mark.parametrize("text", PLAIN_FILTERS)
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_a_plain_filter_is_accepted_on_every_client_without_the_engines_reading(family, text):
+    assert _refusal(text, family) is None
+
+
+# Each character or sequence outside the allow-list, and the error kind it is
+# logged with. A quote opens a string left unterminated.
+REFUSED_OUTSIDE_A_STRING = {
+    **{c: "char" for c in "#$&:;?@[]^`{}~" + '"'},
+    BACKSLASH: "backslash",
+    "'": "unparseable",
+    chr(0): "char", chr(13): "char", chr(11): "char", chr(12): "char", chr(127): "char", chr(0x85): "char",
+    chr(0xE9): "char", chr(0x5D0): "char",
+    "--": "sequence", "/*": "sequence", "*/": "sequence", "//": "sequence",
+}
+_STRING_START, _STRING_END = PLAIN.index("'"), PLAIN.rindex("'")
+OUTSIDE_POSITIONS = [i for i in range(len(PLAIN) + 1) if not _STRING_START < i <= _STRING_END]
+# Clients with no SQL renderer (and untagged captures) may also send text
+# that is not SQL, which is read as before: for them the gate applies once
+# the text starts as a query.
+NOT_ONLY_SQL = {"ElasticsearchClient", "OpenSearchClient", "CosmosdbClient", None}
+
+
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_any_refused_character_or_sequence_outside_a_string_flips_a_plain_filter_to_refused(family):
+    assert _refusal(PLAIN, family) is None
+    positions = [i for i in OUTSIDE_POSITIONS if family not in NOT_ONLY_SQL or i > len("SELECT")]
+    for refused in list(REFUSED_OUTSIDE_A_STRING) + (["%"] if family == "SybaseClient" else []):
+        for i in positions:
+            text = PLAIN[:i] + refused + PLAIN[i:]
+            assert _refusal(text, family) == UNVERIFIABLE, (refused, i)
+
+
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_inside_a_string_anything_but_a_backslash_or_a_control_character_is_allowed(family):
+    for inside in ("a -- b /* c */ # d // e % f ; g [h] `i` $j", "".join(chr(c) for c in (0x5D3, 0x5E0)), "it''s",
+                   'say "hi"', "tab" + chr(9) + "lf" + NL):
+        assert _refusal("SELECT a FROM t WHERE owner = 'v' AND note = '" + inside + "'", family) is None, inside
+    for inside in (BACKSLASH, chr(0), chr(13), chr(127)):
+        assert _refusal("SELECT a FROM t WHERE owner = 'v' AND note = 'x" + inside + "'", family) == UNVERIFIABLE
+
+
+def _identity_records(run):
+    """`run()`, with the records the identity check logs at WARNING."""
+    import logging
+
+    from app.ai.code_execution import identity_bind
+
+    records = []
+    handler = logging.Handler(logging.WARNING)
+    handler.emit = records.append
+    log = logging.getLogger(identity_bind.__name__)
+    was_disabled, was_level = log.disabled, log.level
+    log.disabled = False  # alembic disables existing loggers
+    log.setLevel(logging.WARNING)
+    log.addHandler(handler)
+    try:
+        result = run()
+    finally:
+        log.removeHandler(handler)
+        log.disabled = was_disabled
+        log.setLevel(was_level)
+    return result, records
+
+
+@pytest.mark.parametrize("text, family, kind", [
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND x = 1;", "SybaseClient", "char"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' -- note", "PostHogClient", "sequence"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND note = 'x" + BACKSLASH + "'", "OracleBIClient",
+     "backslash"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND 2 = 5 % 2", "SybaseClient", "percent"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' OR 1 = 1 WITH UR", "Db2Client", "unparseable"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND note = 'open", None, "unparseable"),
+])
+def test_an_unverifiable_refusal_is_logged_by_structure_and_told_with_the_fixed_message(text, family, kind):
+    value = "alice@corp.io"
+    result, records = _identity_records(lambda: _refusal(text, family, value))
+    assert result == UNVERIFIABLE
+    assert value not in result and "SELECT" not in result
+    logged = [r for r in records if getattr(r, "event", None) == "identity_bind_check_unverifiable"]
+    assert len(logged) == 1
+    record = logged[0]
+    assert (record.client_type, record.param, record.reason, record.query_length) == \
+        (family or "unknown", "v", kind, len(text))
+    everything = record.getMessage() + " " + " ".join(str(v) for v in vars(record).values())
+    assert value not in everything and "SELECT" not in everything and "alice" not in everything

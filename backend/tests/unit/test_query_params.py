@@ -2682,11 +2682,17 @@ def _deep_params():
     return {"n": nested}
 
 
+class _TextFails:
+    def __str__(self):
+        raise RuntimeError("keyed by a number")
+
+
 @pytest.mark.parametrize("make_params", [
     lambda: {"n": 1, 2: "keyed by a number"},
     _circular_params,
     _deep_params,
-], ids=["mixed key types", "circular reference", "nesting too deep"])
+    lambda: {"n": _TextFails()},
+], ids=["mixed key types", "circular reference", "nesting too deep", "a value whose text fails"])
 @pytest.mark.parametrize("make_client", [_guarded_native_client, _NativeParamsObject],
                          ids=["guarded", "unguarded"])
 def test_native_params_json_cannot_write_are_refused_captured_and_timed(make_client, make_params, caplog):
@@ -2921,6 +2927,14 @@ def test_an_identity_value_with_a_quote_still_verifies_as_applied(module, class_
     rendered = _rendered_for(module, class_name, "SELECT * FROM t WHERE owner = :v", {"v": value})
     capture = CapturedQuery(rendered, family_name(object.__new__(cls)), literal_style=cls.sql_literal_style,
                             sql_in_json_envelope=cls.sql_in_json_envelope)
+    from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
+    from app.ai.code_execution.query_params import UNVERIFIABLE_SYNTAX_MESSAGE
+
+    if "\\" in rendered and capture.client_type not in CLIENT_DIALECTS:
+        # Without the engine's own reading, a backslash is outside the
+        # identity check's allow-list: refused as unverifiable.
+        assert verify_identity_binds_in_queries([capture], {"v": value}, specs) == UNVERIFIABLE_SYNTAX_MESSAGE
+        return
     assert verify_identity_binds_in_queries([capture], {"v": value}, specs) is None
 
 

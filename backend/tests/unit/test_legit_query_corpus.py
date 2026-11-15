@@ -23,6 +23,7 @@ import pytest
 from app.ai.code_execution.client_profiles import _CLIENT_TABLE, family_name
 from app.ai.code_execution.identity_bind import CapturedQuery
 from app.ai.code_execution.query_params import (
+    UNVERIFIABLE_SYNTAX_MESSAGE,
     ParamError,
     render_sql_with_params,
     renderer_for,
@@ -203,6 +204,12 @@ def test_an_identity_scoped_query_passes_the_guard_of_a_client_checked_without_a
     rendered = render_sql_with_params(template, {"owner": value}, renderer=renderer_for(client))
     checked = ensure_read_only(client, rendered)
     capture = CapturedQuery(checked, family_name(client))
+    if BS in value:
+        # These clients are not read with the engine's own grammar: the
+        # identity check refuses a backslash anywhere in the text (accepted
+        # over-refusal).
+        assert verify_identity_binds_in_queries([capture], {"owner": value}, SPEC) == UNVERIFIABLE_SYNTAX_MESSAGE
+        return
     assert verify_identity_binds_in_queries([capture], {"owner": value}, SPEC) is None
 
 

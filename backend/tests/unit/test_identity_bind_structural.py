@@ -285,11 +285,21 @@ def _legacy(capture, needles):
     return _heuristic_binds_value(capture, needles)
 
 
+@pytest.mark.parametrize("query", [
+    "SELECT Id FROM Account WHERE Owner.Email = '{v}' AND CreatedDate = LAST_N_DAYS:30",
+    "SELECT FIELDS(ALL) FROM Account WHERE CreatedDate = LAST_N_DAYS:30",
+])
+def test_soql_the_check_cannot_read_is_refused_not_left_to_the_text_heuristic(query):
+    # SOQL is not read with the engine's own grammar: text outside the
+    # identity check's allow-list is refused.
+    from app.ai.code_execution.query_params import UNVERIFIABLE_SYNTAX_MESSAGE
+
+    assert _check([query], "sarah@example.com", "SalesforceClient") == UNVERIFIABLE_SYNTAX_MESSAGE
+
+
 @pytest.mark.parametrize("client,query", [
     # sqlglot can't parse these -> legacy heuristic decides
     ("PostgresqlClient", "SELECT * FROM t WHERE owner = '{v}' AND ((("),
-    ("SalesforceClient", "SELECT Id FROM Account WHERE Owner.Email = '{v}' AND CreatedDate = LAST_N_DAYS:30"),
-    ("SalesforceClient", "SELECT FIELDS(ALL) FROM Account WHERE CreatedDate = LAST_N_DAYS:30"),
     # SPL shapes we don't model
     ("SplunkClient", 'index=crm owner="{v}" | append [search index=other]'),
     ("SplunkClient", '| inputlookup users.csv | search owner="{v}"'),
