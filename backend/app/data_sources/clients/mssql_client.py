@@ -67,32 +67,77 @@ _KILL_PERMISSION_HINT_AZURE = (
 _AZURE_SQL_DATABASE_EDITION = 5
 
 
-class MssqlLockConflictError(RuntimeError):
-    """A query SQL Server stopped so the database's own writers could proceed.
+class MssqlQueryError(RuntimeError):
+    """A SQL Server failure explained in words, instead of the driver's text.
 
-    Raised for error 1222 (lock timeout) and for a deadlock still lost after
-    the one retry. The message says what happened and what to do, instead of
-    the driver's text. The driver error stays chained as ``__cause__``.
+    The driver error stays chained as ``__cause__``.
     """
+
+
+class MssqlLockConflictError(MssqlQueryError):
+    """A query SQL Server stopped so the database's own writers could proceed:
+    error 1222 (lock timeout), or a deadlock still lost after the one retry."""
+
+
+class MssqlSnapshotNotAllowedError(MssqlQueryError):
+    """Snapshot isolation refused by a database the query reads (3951/3952)."""
+
+
+# The native error number pyodbc puts right before the ODBC call name, e.g.
+# "...Lock request time out period exceeded. (1222) (SQLExecDirectW)".
+_NATIVE_CODE = re.compile(r"\((\d{1,6})\)\s*\(SQL[A-Za-z]+\)")
+
+
+def _driver_error(e: BaseException) -> Optional[BaseException]:
+    """The DBAPI (pyodbc) error under `e`, or None.
+
+    Only the driver's own error is safe to inspect: the wrappers around it
+    (SQLAlchemy's ``[SQL: ...]``, pandas' ``Execution failed on sql``) carry
+    the statement text, and a query may contain any number.
+    """
+    seen = set()
+    x: Optional[BaseException] = e
+    while x is not None and id(x) not in seen:
+        seen.add(id(x))
+        orig = getattr(x, "orig", None)
+        if isinstance(orig, BaseException):
+            return orig
+        x = x.__cause__ or x.__context__
+    return None
+
+
+def _driver_message(e: BaseException) -> str:
+    d = _driver_error(e)
+    if d is None:
+        return ""
+    return " ".join(str(a) for a in (getattr(d, "args", None) or ()))
 
 
 def _sql_server_error_code(e: BaseException) -> Optional[int]:
-    """The SQL Server error number in a driver error, for the few we map.
+    """The SQL Server error number of `e` among the few BOW explains, or None.
 
-    pyodbc puts it in the message as "(1222)" before "(SQLExecDirectW)".
+    Read from the driver error only (see `_driver_error`). A deadlock is also
+    recognised by its SQLSTATE, 40001.
     """
-    text = str(e)
+    d = _driver_error(e)
+    if d is None:
+        return None
+    args = getattr(d, "args", None) or ()
+    codes = {int(c) for c in _NATIVE_CODE.findall(" ".join(str(a) for a in args))}
+    if args and str(args[0]) == "40001":
+        codes.add(1205)
     for code in (1205, 1222, 3951, 3952):
-        if f"({code})" in text:
+        if code in codes:
             return code
     return None
 
 
 def _is_snapshot_refusal(e: BaseException) -> bool:
-    """SQL Server 3952: "Snapshot isolation transaction failed accessing
-    database ... because snapshot isolation is not allowed in this database"."""
-    text = str(e).lower()
-    return "(3952)" in text or "snapshot isolation is not allowed" in text
+    """SQL Server 3951/3952: snapshot isolation is not allowed in a database
+    the statement touched. Read from the driver error only."""
+    if _sql_server_error_code(e) in (3951, 3952):
+        return True
+    return "snapshot isolation is not allowed" in _driver_message(e).lower()
 
 
 def _session_setup_hook(sql: str):
@@ -424,7 +469,7 @@ class MSSQLClient(DataSourceClient):
         # verified on SQL Server 2022. This client enters SNAPSHOT before any
         # transaction starts, so 3951 cannot mean a mid-transaction switch.
         if code in (3951, 3952) or _is_snapshot_refusal(e):
-            return MssqlLockConflictError(
+            return MssqlSnapshotNotAllowedError(
                 f"SQL Server error {code or 3952}: this connection uses snapshot isolation, but a "
                 "database the query reads does not allow it. Run ALTER DATABASE "
                 "<name> SET ALLOW_SNAPSHOT_ISOLATION ON on that database, or choose a "
