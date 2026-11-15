@@ -8,7 +8,44 @@ import ctypes
 import os
 from pathlib import Path
 import resource
+import struct
 import sys
+
+# Exit status when the decoder cannot be started inside the sandbox (setup
+# failed or the exec was refused). Must match _pcap_parquet.SANDBOX_UNAVAILABLE_EXIT.
+SANDBOX_UNAVAILABLE_EXIT = 78
+CPU_LIMIT_SECONDS = 300
+
+
+def elf_interpreter(binary):
+    """Real path of the dynamic loader (PT_INTERP) the kernel runs for `binary`.
+
+    Landlock checks EXECUTE on the interpreter as well as on the binary, so a
+    dynamically linked decoder cannot start unless the loader is allowed too.
+    """
+    with open(binary, "rb") as f:
+        header = f.read(64)
+        if header[:4] != b"\x7fELF":
+            return None
+        is64, end = header[4] == 2, "<" if header[5] == 1 else ">"
+        if is64:
+            (phoff,) = struct.unpack_from(end + "Q", header, 32)
+            phentsize, phnum = struct.unpack_from(end + "HH", header, 54)
+        else:
+            (phoff,) = struct.unpack_from(end + "I", header, 28)
+            phentsize, phnum = struct.unpack_from(end + "HH", header, 42)
+        for i in range(phnum):
+            f.seek(phoff + i * phentsize)
+            entry = f.read(phentsize)
+            if struct.unpack_from(end + "I", entry, 0)[0] != 3:  # PT_INTERP
+                continue
+            if is64:  # p_offset at 8, p_filesz at 32
+                (offset,), (size,) = struct.unpack_from(end + "Q", entry, 8), struct.unpack_from(end + "Q", entry, 32)
+            else:  # p_offset at 4, p_filesz at 16
+                (offset,), (size,) = struct.unpack_from(end + "I", entry, 4), struct.unpack_from(end + "I", entry, 16)
+            f.seek(offset)
+            return os.path.realpath(f.read(size).rstrip(b"\0").decode())
+    return None
 
 
 def linux_sandbox(binary):
@@ -40,7 +77,7 @@ def linux_sandbox(binary):
     report = landlock.restrict_self(
         read_paths=["/usr/lib", "/lib", "/lib64", "/usr/lib64", "/usr/share/wireshark", "/usr/share/mime"],
         read_files=["/etc/ld.so.cache", "/dev/null", "/dev/urandom", "/etc/localtime"],
-        execute_files=[binary],
+        execute_files=[binary, *filter(None, [elf_interpreter(binary)])],
     )
     if not report.applied or report.rule_errors:
         raise RuntimeError("Decoder filesystem sandbox unavailable")
@@ -49,7 +86,7 @@ def linux_sandbox(binary):
 
 def main():
     binary = sys.argv[1]
-    resource.setrlimit(resource.RLIMIT_CPU, (300, 305))
+    resource.setrlimit(resource.RLIMIT_CPU, (CPU_LIMIT_SECONDS, CPU_LIMIT_SECONDS + 5))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
     argv = [binary, "-n", "-r", "-", "-T", "pdml"]
@@ -79,4 +116,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # setup or exec failed: nothing was decoded
+        print(f"decoder sandbox unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+        os._exit(SANDBOX_UNAVAILABLE_EXIT)
