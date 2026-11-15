@@ -42,18 +42,22 @@ cd "$repo/backend"
   tests/unit/test_network_dir_{client,incremental_index,packet_index}.py \
   tests/unit/test_qvd_client.py \
   tests/e2e/test_network_dir_{packet_index,e2e,incremental_e2e,workbook_sheets}.py \
-  tests/e2e/test_data_source.py tests/e2e/test_connection.py
+  tests/e2e/test_data_source.py tests/e2e/test_connection.py \
+  tests/unit/test_fast_{client_introspection_guard,sql_dialect}.py tests/e2e/test_connection_indexing.py
 git -C "$repo" worktree remove --force "$trial/baseline"
 ```
 
-Observed on the changed checkout with TShark 4.6.9, DuckDB 1.5.4, and PyArrow 23.0.1: **125 passed**. The API-to-agent test also passed on a disposable PostgreSQL 14 database. To repeat that leg with Docker available, run `"$py" -m pytest -q --db=postgres tests/e2e/test_network_dir_packet_index.py`.
+Observed on the changed checkout with TShark 4.6.9, DuckDB 1.5.4, and PyArrow 23.0.1: **195 passed**. The API-to-agent test also passed on a disposable PostgreSQL 14 database. To repeat that leg with Docker available, run `"$py" -m pytest -q --db=postgres tests/e2e/test_network_dir_packet_index.py`.
 
 ## Observable behavior
 
 - The two capture formats contribute rows to the same table. A quoted field such as `"dns.a"` is NULL for an ARP packet. Both answers in a DNS response survive in order as a list. `capture_id` and `frame_number` identify the original packet. The regression also puts the first DNS packet after 1,024 ARP packets to exercise late column discovery.
 - `SELECT file_id, status, reason FROM indexed_files` reports coverage for captures and QVDs in scope. Editing a capture makes its new version pending until refresh. Deleting one removes it from queries. An empty capture is ready with zero rows, and a corrupt capture reports failure. An unchanged capture remains queryable from cache with TShark off the path.
 - The mixed-file test reads real QVD rows, Word text and JPEG bytes through their respective interfaces. Live and File list indexing modes skip conversion. File and directory limits still apply, including the default 100 MiB per file.
-- The end-to-end test creates the connection through the API, waits for its indexing job, attaches an agent, inspects the planner's schema for `dns.a`, and queries three packets, including two DNS packets. It then disables the packet table and verifies the agent loses both schema visibility and query access. Verification used the planner context and SQL client directly. Large production captures and model-generated chat answers were outside this run.
+- The end-to-end test creates the connection through the API, pauses the decoder, verifies documents and pending captures are already cataloged, and then attaches an agent. Its prompt includes four frame columns. The agent discovers `dns.a` using `duckdb_columns()` and queries three packets, including two DNS packets. It then disables the packet table and verifies the agent loses both schema visibility and query access. Verification used the planner context and SQL client directly. Large production captures and model-generated chat answers were outside this run.
+
+- The payload regression compares an independent TShark decode to the queryable field catalog and reads raw bytes through SQL. PyArrow without a key is unable to open the encrypted file. Both packet captures and QVDs use Parquet modular encryption with BOW's artifact key wrapping. Files introduced after the catalog walk appear on the next refresh. If a walk hits its file cap, `indexed_files` includes a `truncated` row.
+- Linux uses Landlock, libseccomp, CPU and address-space limits. macOS uses Seatbelt, a CPU limit and resident-memory monitoring. The sandbox receives the capture on stdin with an isolated home directory. A platform that cannot install the sandbox reports a failed conversion.
 
 ## Browser evidence
 

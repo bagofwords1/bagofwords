@@ -3393,17 +3393,25 @@ class DataSourceService:
 
         network_tables = bool(getattr(client, "index_file_tables", False))
         if network_tables:
-            selected = await db.scalars(
-                select(DataSourceTable.name)
-                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+            from app.data_sources.clients._network_dir_tables import attach_catalog
+            selected = (await db.execute(
+                select(ConnectionTable.name, ConnectionTable.columns, ConnectionTable.metadata_json)
+                .join(DataSourceTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
                     DataSourceTable.datasource_id == str(data_source.id),
                     DataSourceTable.is_active.is_(True),
                     ConnectionTable.connection_id == str(connection.id),
                     ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_(True),
                 )
-            )
-            client._network_dir_relations = set(selected)
+            )).all()
+            files = (await db.execute(select(
+                ConnectionTable.name,
+                ConnectionTable.metadata_json["network_dir"]["cache_version"].as_string(),
+            ).where(
+                ConnectionTable.connection_id == str(connection.id),
+                ConnectionTable.metadata_json["network_dir"]["sql_table"].as_string().is_not(None),
+            ))).all()
+            attach_catalog(client, selected, files)
             return
         if not dialect_for_client(client):
             return
@@ -7305,6 +7313,7 @@ class DataSourceService:
                             if getattr(conn_table, "kind", None) == "bow"
                             else should_activate or (
                                 connection.type == "network_dir"
+                                and conn_table.name in {"packets", "indexed_files"}
                                 and (conn_table.metadata_json or {}).get("network_dir_relation") is True
                             )
                         ),

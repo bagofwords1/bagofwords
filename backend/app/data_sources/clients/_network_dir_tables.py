@@ -19,12 +19,13 @@ import pyarrow.parquet as pq
 from app.ai.prompt_formatters import Table, TableColumn
 from app.data_sources.clients._pcap_parquet import FRAME_SCHEMA, convert_capture
 from app.data_sources.clients.progress import IndexingCancelled
+from app.data_sources.fast.parquet_crypto import decryption_properties, encrypt_parquet
 from app.services import storage
 
 logger = logging.getLogger(__name__)
 EXTENSIONS = {"pcap", "pcapng", "qvd"}
 STATUS_SCHEMA = pa.schema([(key, pa.string()) for key in ("file_id", "table_name", "status", "reason")])
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 def _digest(*parts):
@@ -80,7 +81,7 @@ class Source:
         )
 
     def schema(self):
-        return pq.read_schema(self.artifact)
+        return pq.read_schema(self.artifact, decryption_properties=decryption_properties())
 
     def status(self):
         if self.too_large:
@@ -112,7 +113,10 @@ class Source:
                             return True
                         return False
 
-                    QVDClient(str(self.path)).convert_to_parquet(str(self.path), result, cancel_check=check_cancel)
+                    with TemporaryDirectory() as scratch:
+                        plain = Path(scratch) / "qvd.parquet"
+                        QVDClient(str(self.path)).convert_to_parquet(str(self.path), plain, cancel_check=check_cancel)
+                        encrypt_parquet(plain, result)
                 if Source.resolve(client, self.file_id).artifact != self.artifact:
                     return  # source changed during conversion; the new version is pending
                 os.replace(result, self.artifact)
@@ -137,6 +141,8 @@ class Source:
 
 
 def columns(schema):
+    if not len(schema):
+        return []
     with duckdb.connect() as con:
         relation = con.from_arrow(schema.empty_table())
         return [TableColumn(name=n, dtype=str(t)) for n, t in zip(relation.columns, relation.types)]
@@ -148,11 +154,11 @@ def catalog_relations(schemas_by_table):
     for name, file_schemas in schemas_by_table.items():
         if name == "packets":
             schemas[name] = pa.unify_schemas([FRAME_SCHEMA, *file_schemas])
-        elif file_schemas:
-            schemas[name] = file_schemas[0]
+        else:
+            schemas[name] = file_schemas[0] if file_schemas else pa.schema([])
     descriptions = {
         "indexed_files": "Coverage of packet captures and QVDs. Check status before reporting totals.",
-        "packets": "One row per frame in ready captures. Quote dotted fields; protocol values are lists.",
+        "packets": "One row per frame. Discover all decoded fields with SELECT column_name FROM duckdb_columns() WHERE table_name='packets' AND column_name LIKE 'dns.%'. Quote dotted fields; protocol values are lists.",
     }
     return [
         Table(
@@ -167,43 +173,62 @@ def catalog_relations(schemas_by_table):
     ]
 
 
+def attach_catalog(client, selected, files):
+    """Bind exactly the agent's selected connection relations and indexed file inventory."""
+    client._indexed_files = tuple(files)
+    client._network_dir_relations = {name for name, _, _ in selected}
+    client._catalog_capped = False
+    client._packet_schema = FRAME_SCHEMA
+    for name, cols, meta in selected:
+        if name == "indexed_files":
+            client._catalog_capped = bool(meta.get("catalog_capped"))
+        elif name == "packets":
+            fields = [c["name"] for c in cols if c["name"] not in FRAME_SCHEMA.names]
+            client._packet_schema = pa.schema([*FRAME_SCHEMA, *(pa.field(f, pa.list_(pa.string())) for f in fields)])
+
+
 def query_tables(client, sql):
     from app.ai.code_execution.sql_guard import check_sql
-    from app.data_sources.fast.fast_client import assert_no_blocked_introspection
+    from app.data_sources.fast.fast_client import assert_no_blocked_introspection, lock_query_session
 
+    allowed = getattr(client, "_network_dir_relations", frozenset())
+    if not allowed:
+        raise PermissionError("Select an indexed table for this agent before querying")
     check_sql(sql, "duckdb")
     assert_no_blocked_introspection(sql)
-    allowed = getattr(client, "_network_dir_relations", None)
-    # No raw paths/globs enter engine SQL. Only Arrow datasets backed by
-    # currently visible, current-version files are registered.
-    with duckdb.connect(config={"enable_external_access": "false", "python_enable_replacements": "false"}) as con:
+    with duckdb.connect() as con:
         statements = con.extract_statements(sql)
         if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
             raise ValueError("Only one read-only SELECT or DESCRIBE is supported")
         status_rows, captures = [], []
-        for f in client.list_files(recursive=client.recursive):
-            if Path(f["id"]).suffix.lower()[1:] not in EXTENSIONS:
-                continue
+        scan = ds.ParquetFragmentScanOptions(decryption_properties=decryption_properties())
+        parquet = ds.ParquetFileFormat(default_fragment_scan_options=scan)
+        for file_id, version in client._indexed_files:
             try:
-                source = Source.resolve(client, f["id"])
+                source = Source.resolve(client, file_id)
             except (OSError, ValueError):
-                # File disappeared or no longer passes the resolved-path scope.
                 continue
-            status, reason = source.status()
-            status_rows.append(dict(file_id=source.file_id, table_name=source.table_name, status=status, reason=reason))
-            if status != "ready" or (allowed is not None and source.table_name not in allowed):
+            if version != source.artifact.stem:
+                status, reason = "pending", "File changed since this catalog was indexed"
+            else:
+                status, reason = source.status()
+            status_rows.append(dict(file_id=file_id, table_name=source.table_name, status=status, reason=reason))
+            if status != "ready" or source.table_name not in allowed:
                 continue
             if source.table_name == "packets":
                 captures.append(source.artifact)
             else:
-                con.register(source.table_name, ds.dataset(source.artifact, format="parquet"))
-        if allowed is None or "indexed_files" in allowed:
+                con.register(source.table_name, ds.dataset(source.artifact, format=parquet, schema=source.schema()))
+        if "indexed_files" in allowed:
+            if client._catalog_capped:
+                status_rows.append(
+                    dict(file_id=None, table_name=None, status="truncated", reason="Directory catalog limit reached")
+                )
             con.register("indexed_files", pa.Table.from_pylist(status_rows, schema=STATUS_SCHEMA))
-        if allowed is None or "packets" in allowed:
-            if captures:
-                schema = pa.unify_schemas([pq.read_schema(p) for p in captures])
-                con.register("packets", ds.dataset(captures, format="parquet", schema=schema))
-            else:
-                con.register("packets", FRAME_SCHEMA.empty_table())
-        con.execute("SET lock_configuration=true")
+        if "packets" in allowed:
+            schema = client._packet_schema
+            con.register(
+                "packets", ds.dataset(captures, format=parquet, schema=schema) if captures else schema.empty_table()
+            )
+        lock_query_session(con)
         return con.execute(sql).df()
