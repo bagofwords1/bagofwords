@@ -110,6 +110,7 @@
             <div v-for="grp in pendingGroups" :key="grp.id">
               <div class="px-2 py-1 flex items-center gap-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400">
                 <DataSourceIcon v-if="grp.type || grp.icon || grp.icon_token" :type="grp.type" :connector-key="grp.connector_key" :icon-token="grp.icon_token" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
+                <UIcon v-else-if="grp.isFolder" name="i-heroicons-folder" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
                 <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
                 <span v-text-dir class="flex-1 truncate">{{ grp.name }}</span>
                 <span class="text-ink-muted tabular-nums">{{ grp.rows.length }}</span>
@@ -2745,12 +2746,13 @@ const loadPendingChanges = async () => {
 // collapse into one synthetic "Global" group. Each group keeps a stable label
 // and icon so the flat list reads like the tree's agent sections.
 const pendingGroups = computed(() => {
-  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; icon?: string | null; icon_token?: string | null; rows: Instruction[] }>()
+  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; icon?: string | null; icon_token?: string | null; isFolder?: boolean; rows: Instruction[] }>()
   // The pending_only list is served by the same optimistic sweep as the dots —
   // hide rows the authoritative pass has since proven resolved.
   for (const ins of pendingRows.value.filter(r => canEditInstruction(r) && !verifiedNotPending.value.has(r.id))) {
     const dss = ins.data_sources || []
-    if (!dss.length) {
+    const folders = (ins as any).folders || []
+    if (!dss.length && !folders.length) {
       const key = '__global__'
       if (!map.has(key)) map.set(key, { id: key, name: t('agentsPage.globalInstructions'), type: undefined, rows: [] })
       map.get(key)!.rows.push(ins)
@@ -2761,6 +2763,14 @@ const pendingGroups = computed(() => {
           map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, icon_token: agent?.icon_token ?? (ds as any).icon_token, connector_key: agent?.connector_key, rows: [] })
         }
         map.get(ds.id)!.rows.push(ins)
+      }
+      // Folder-scoped instructions (a folder link, no specific agents) belong
+      // under their folder here too — not the global bucket, which only holds
+      // instructions with neither an agent nor a folder.
+      for (const f of folders) {
+        const key = 'folder:' + f.id
+        if (!map.has(key)) map.set(key, { id: key, name: f.name, isFolder: true, rows: [] })
+        map.get(key)!.rows.push(ins)
       }
     }
   }
