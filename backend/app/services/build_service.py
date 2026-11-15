@@ -1355,6 +1355,7 @@ class BuildService:
                 InstructionVersion.category_ids,
                 InstructionVersion.status,
                 InstructionVersion.folder_ids, InstructionVersion.scope_mode, InstructionVersion.data_source_ids, Instruction.owner_folder_id,
+                BuildContent.is_change,
             )
             .join(
                 InstructionVersion,
@@ -1377,7 +1378,7 @@ class BuildService:
                 )
             )
         )
-        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_applicable_modes, v_applicable_channels, v_category_ids, v_status, v_folders, v_scope, v_agents, owner_folder in rows.all():
+        for instruction_id, version_id, v_text, v_title, v_description, v_load_mode, v_applicable_modes, v_applicable_channels, v_category_ids, v_status, v_folders, v_scope, v_agents, owner_folder, is_change in rows.all():
             category = None
             if v_category_ids:
                 category = v_category_ids[0] if isinstance(v_category_ids, list) else v_category_ids
@@ -1393,17 +1394,23 @@ class BuildService:
                     from app.models.instruction import instruction_data_source_association as agent_links
                     from app.models.data_source import DataSource
 
-                    rights = await resolve_permissions(db, user_id, build.organization_id) if user_id else None
-                    folder_targets = existing | target | ({owner_folder} if owner_folder else set())
-                    if not rights or any(not rights.has_resource_permission("folder", fid, "manage_instructions")
-                                         for fid in folder_targets):
-                        raise HTTPException(403, "Folder scope unavailable")
                     live_agents = set(await db.scalars(select(agent_links.c.data_source_id).where(
                         agent_links.c.instruction_id == instruction_id)))
                     target_agents = set(v_agents or [])
-                    if any(not rights.has_resource_permission("data_source", aid, "manage_instructions")
-                           for aid in live_agents | target_agents):
-                        raise HTTPException(403, "Agent scope unavailable")
+                    # Authority is needed over rules this build changes or moves.
+                    # A build also re-syncs rules it leaves untouched (e.g. one
+                    # whose live row carries someone else's pending edit);
+                    # demanding folder rights over those made one curator's open
+                    # suggestion block every author whose rights don't cover it.
+                    if is_change or existing != target or live_agents != target_agents:
+                        rights = await resolve_permissions(db, user_id, build.organization_id) if user_id else None
+                        folder_targets = existing | target | ({owner_folder} if owner_folder else set())
+                        if not rights or any(not rights.has_resource_permission("folder", fid, "manage_instructions")
+                                             for fid in folder_targets):
+                            raise HTTPException(403, "Folder scope unavailable")
+                        if any(not rights.has_resource_permission("data_source", aid, "manage_instructions")
+                               for aid in live_agents | target_agents):
+                            raise HTTPException(403, "Agent scope unavailable")
                     if live_agents != target_agents:
                         valid_agents = set(await db.scalars(select(DataSource.id).where(
                             DataSource.organization_id == build.organization_id, DataSource.deleted_at.is_(None),

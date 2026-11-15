@@ -189,7 +189,8 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "fmt(), exportCSV(). className MERGES with component defaults (layout classes add; a bg-/text-color/border-color/"
     "rounded-/shadow-/padding class replaces the default of that kind). "
     "The code is wrapped in <script type='text/babel'> and rendered into <div id='root'>. "
-    "NEVER destructure hooks from React (e.g. 'const { useState } = React') — Babel standalone cannot parse it. Use hooks directly as globals."
+    "Hooks, components and helpers are globals: use them directly. NEVER import them and NEVER take them from "
+    "React or bow (e.g. 'const { useState, KPICard } = React', 'bow.vizById(...)') — write useState(...), <KPICard />, vizById(...)."
 )
 
 

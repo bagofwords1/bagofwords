@@ -1038,6 +1038,7 @@ class ConnectionIndexingService:
                             # it alive until finalize only raises peak memory.
                             keep_fresh_tables=False,
                             diagnostics_hook=_diagnostics,
+                            **({"defer_file_conversion": True} if connection.type == "network_dir" else {}),
                         )
                     items = await _with_stage_timeout(
                         discovery, _DISCOVERY_TIMEOUT_SECONDS, "Schema discovery",
@@ -1101,16 +1102,29 @@ class ConnectionIndexingService:
                     warm_timed_out = threading.Event()
                     try:
                         _stage("warming")
-                        client = await svc.construct_client(db, connection)
-                        await _with_stage_timeout(
-                            client.awarm_all(
-                                progress_callback=progress_cb,
-                                cancel_check=lambda: cancel_event.is_set() or warm_timed_out.is_set(),
-                            ),
-                            _WARM_TIMEOUT_SECONDS,
-                            "Cache warm",
-                        )
-                        extra_stats = client.index_stats() or {}
+                        if getattr(svc, "pending_file_conversions", False):
+                            # The first catalog commit already made documents and pending
+                            # captures visible. Publish decoded schemas in a second commit.
+                            def warm_progress(*args):
+                                if warm_timed_out.is_set():
+                                    raise IndexingCancelled()
+                                return progress_cb(*args)
+                            items = await _with_stage_timeout(
+                                svc.refresh_schema(db, connection, progress_callback=warm_progress,
+                                                   keep_fresh_tables=False),
+                                _WARM_TIMEOUT_SECONDS, "File table conversion",
+                            )
+                        else:
+                            client = await svc.construct_client(db, connection)
+                            await _with_stage_timeout(
+                                client.awarm_all(
+                                    progress_callback=progress_cb,
+                                    cancel_check=lambda: cancel_event.is_set() or warm_timed_out.is_set(),
+                                ),
+                                _WARM_TIMEOUT_SECONDS,
+                                "Cache warm",
+                            )
+                            extra_stats = client.index_stats() or {}
                         await _flush(force=True)
                     except IndexingCancelled:
                         await self._finalize_cancelled(

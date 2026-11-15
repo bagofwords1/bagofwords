@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.0.622 (November 15, 2026)
+- Added MCP tools to browse agent folders, scope a report to folders or agents, and share one instruction across several folders (#1742)
+- Added an optional dashboard description, set in Settings → General and shown on hover in the dashboard list (#1732)
+- Added querying packet captures (PCAP/PCAPNG) and QVD files in network directory connections, as a packets table and a table per QVD (#1746)
+- Added a "Not render-checked" note on dashboards saved when the server cannot render them (#1745)
+- Changed the agent to stop after four failed dashboard builds in a row and say so (#1745)
+- Fixed dashboards built by smaller models failing on imports, exports, or helpers taken from `bow` or `React` (#1745)
+- Fixed scheduled tasks' reports all being named "Scheduled task"; a report now takes its task's name and follows renames (#1736)
+- Fixed reports becoming "not found" after a folder instruction they used was detached, turned off or deleted (#1742)
+- Fixed authors being unable to publish instructions while another curator's suggestion awaited review (#1742)
+- Fixed folder-scoped instructions listed under "Global instructions" in Pending changes (#1737)
+- Fixed agent-authored instructions in a folder-scoped report being pinned to the folder's agents instead of the folder (#1738)
+- Fixed the agent scope picker always showing a folder icon, even for a single agent or all agents (#1731)
+
 ## Version 0.0.621 (November 15, 2026)
 - Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
 

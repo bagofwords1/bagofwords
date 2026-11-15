@@ -20,7 +20,9 @@ DEFAULTS = {"shared_run_identity": "viewer", "include_data_tab": True, "show_wid
             # The name in its link (phase 8, test_dashboard_slug.py).
             "slug": None,
             # The dashboard's notes (collab01).
-            "notes": None}
+            "notes": None,
+            # The short blurb shown to readers on hover (dashdesc01).
+            "description": None}
 
 
 def _get(test_client, corpus, aid, by="owner"):
@@ -65,6 +67,9 @@ def test_each_setting_changes_alone_and_the_conversation_keeps_its_own(corpus, c
         ({"chat_model_id": "org_default"}, {"chat_model_id": "org_default"}),
         ({"chat_model_id": ""}, {"chat_model_id": None}),
         ({"shared_run_identity": "creator"}, {"shared_run_identity": "creator"}),
+        # The hover blurb (dashdesc01): set, trimmed, then cleared with "".
+        ({"description": "  Quarterly sales by region  "}, {"description": "Quarterly sales by region"}),
+        ({"description": ""}, {"description": None}),
     ]
     want = dict(DEFAULTS)
     for body, change in steps:

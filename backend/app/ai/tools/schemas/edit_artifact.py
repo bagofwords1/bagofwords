@@ -58,4 +58,5 @@ class EditArtifactOutput(BaseModel):
     artifact_id: str = Field(...)
     version: Optional[int] = Field(default=None)
     applied_ops: Optional[int] = Field(default=None)
+    render_checked: Optional[bool] = Field(default=None, description="Page mode: False when the edit was saved without a render check (the server could not start its browser).")
     error: Optional[str] = Field(default=None)

@@ -283,7 +283,7 @@ async def _acount_files_for_validation(client, limit: int | None = None) -> int 
         or Capability.LIST_EMAILS in caps
         or Capability.LIST_CHAT_MESSAGES in caps
     )
-    if not has_inventory or Capability.QUERY in caps:
+    if not has_inventory or (Capability.QUERY in caps and not getattr(client, "index_file_tables", False)):
         return None
     if limit is not None and _accepts_kwarg(client.list_files, "limit"):
         files = await asyncio.to_thread(client.list_files, limit=limit)
@@ -1179,6 +1179,7 @@ class ConnectionService:
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         connection = await self.get_connection(db, connection_id, organization)
+        has_file_table_cache = connection.type == "network_dir"
         linked = list(connection.data_sources or [])
         agent_count = len(linked)
         sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
@@ -1217,6 +1218,10 @@ class ConnectionService:
             organization = await db.get(Organization, organization_id)
             await _drain()
             connection_name = await _load_and_delete(organization)
+
+        if has_file_table_cache:
+            from app.data_sources.clients._network_dir_tables import clear_cache
+            await asyncio.to_thread(clear_cache, connection_id)
 
         # A generated demo dataset's SQLite file belongs to its connection.
         from app.services.demo_data.installer import remove_generated_file
@@ -2126,7 +2131,7 @@ class ConnectionService:
 
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
-                             keep_fresh_tables: bool = True, diagnostics_hook=None) -> List[ConnectionTable]:
+                             keep_fresh_tables: bool = True, diagnostics_hook=None, defer_file_conversion=False) -> List[ConnectionTable]:
         """Publish a complete connection catalog and all linked agents atomically.
 
         Discovery does no catalog writes. Reconciliation and agent sync only
@@ -2147,7 +2152,7 @@ class ConnectionService:
             ):
                 tables = await self._refresh_schema(
                     db, connection, current_user, progress_callback, introspection,
-                    keep_fresh_tables, diagnostics_hook,
+                    keep_fresh_tables, diagnostics_hook, **({"defer_file_conversion": True} if defer_file_conversion else {}),
                 )
             if self._catalog_discovery_complete:
                 from app.models.data_source import DataSource
@@ -2205,6 +2210,7 @@ class ConnectionService:
         introspection: str = "full",
         keep_fresh_tables: bool = True,
         diagnostics_hook=None,
+        defer_file_conversion=False,
     ) -> List[ConnectionTable]:
         """Refresh schema and update ConnectionTable records.
 
@@ -2327,6 +2333,8 @@ class ConnectionService:
                     index_user = None
 
             client = await self.construct_client(db, connection, index_user)
+            if defer_file_conversion:
+                client.defer_file_conversion = True
 
             # Load the existing catalog up front: it powers BOTH the upsert diff
             # below AND incremental indexing — file-source clients whose
@@ -2400,6 +2408,7 @@ class ConnectionService:
                     await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery
             fresh_tables = require_complete_discovery(client, fresh_tables)
+            self.pending_file_conversions = defer_file_conversion and getattr(client, "pending_file_conversions", False)
             if not getattr(client, "catalog_identity_available", True):
                 return []
             # Parts of the catalog the client could not read on this run (a
@@ -2850,6 +2859,8 @@ class ConnectionService:
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
         client = ClientClass(**allowed)
+        if connection.type == "network_dir":
+            client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):
             client.pool_scope = f"{connection.organization_id}:{connection.id}:{getattr(current_user, 'id', 'system')}"
         await self._attach_connection_table_metadata(db, client, connection)
