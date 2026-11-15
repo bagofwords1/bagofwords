@@ -307,7 +307,8 @@ def get_settings(artifact) -> dict:
             "refresh_on_view": bool(artifact.refresh_on_view),
             "notification_subscribers": artifact.notification_subscribers,
             "slug": artifact.slug,
-            "notes": artifact.notes}
+            "notes": artifact.notes,
+            "description": getattr(artifact, "description", None)}
 
 
 async def _data_source_ids(db, artifact) -> list[str]:
@@ -441,6 +442,8 @@ async def set_settings(db, artifact, changes: dict, *, current_user: User, organ
         await set_slug(db, artifact, changes["slug"])
     if changes.get("notes") is not None:
         artifact.notes = changes["notes"].strip() or None
+    if changes.get("description") is not None:
+        artifact.description = changes["description"].strip() or None
 
     try:
         await db.commit()
