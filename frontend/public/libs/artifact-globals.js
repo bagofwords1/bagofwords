@@ -1940,10 +1940,17 @@ function _dtDetectDir(cols, rows) {
     return m ? parseFloat(m[1]) : Infinity;   // '%' or 'auto' → leave it alone
   }
 
+  // Returns a copy: wrapping the author's formatter in place changed the
+  // option's signature on the next render (the wrapper's source, not theirs),
+  // so the chart was rebuilt for nothing and lost the reader's legend choices.
   function safeOption(opt) {
     if (opt && opt.tooltip && typeof opt.tooltip.formatter === 'function') {
       var orig = opt.tooltip.formatter;
-      opt.tooltip.formatter = function() { try { return orig.apply(this, arguments); } catch (e) { return ''; } };
+      var o = {}; for (var k in opt) o[k] = opt[k];
+      var t = {}; for (var tk in opt.tooltip) t[tk] = opt.tooltip[tk];
+      t.formatter = function() { try { return orig.apply(this, arguments); } catch (e) { return ''; } };
+      o.tooltip = t;
+      return o;
     }
     return opt;
   }
@@ -2015,6 +2022,9 @@ function _dtDetectDir(cols, rows) {
     if (!Array.isArray(s) || Array.isArray(opt.legend)) return opt;
     var cart = s.filter(function(x) { return x && (x.type === 'line' || x.type === 'bar') && x.name != null; });
     if (cart.length <= _CH_MAX_SERIES || cart.some(function(x) { return x.stack; })) return opt;
+    // Series drawn from a `dataset` carry no data of their own, so their size
+    // can't be ranked here: leave the chart as the author wrote it.
+    if (cart.some(function(x) { return !Array.isArray(x.data); })) return opt;
     var ranked = cart.map(function(x) { return { name: String(x.name), t: _chSeriesTotal(x) }; })
       .sort(function(a, b) { return b.t - a.t; });
     var selected = {};
@@ -2100,14 +2110,25 @@ function _dtDetectDir(cols, rows) {
       var opt = withPalette(props.option);
       var full = _optionSig(opt, false);
       var last = appliedRef.current;
+      // A merge keeps the chart's live legend: the reader may have switched
+      // series on or off since the 8-series default was applied, so merges
+      // drop that automatic selection (an author's own `selected` stays).
+      function keepLegend(o) {
+        var own = props.option.legend && !Array.isArray(props.option.legend) && props.option.legend.selected;
+        if (own || !o.legend || Array.isArray(o.legend) || !o.legend.selected) return o;
+        var c = {}; for (var k in o) c[k] = o[k];
+        var lg = {}; for (var lk in o.legend) if (lk !== 'selected') lg[lk] = o.legend[lk];
+        c.legend = lg;
+        return c;
+      }
       if (full !== null && full === last.full) {
         // Same source, but a formatter may close over newer state.
-        if (_hasFunction(opt)) chart.setOption(safeOption(opt), { notMerge: false, silent: true });
+        if (_hasFunction(opt)) chart.setOption(safeOption(keepLegend(opt)), { notMerge: false, silent: true });
         return;
       }
       var shape = _optionSig(opt, true);
       appliedRef.current = { full: full, shape: shape };
-      if (shape !== null && shape === last.shape) chart.setOption(safeOption(opt), { notMerge: false });
+      if (shape !== null && shape === last.shape) chart.setOption(safeOption(keepLegend(opt)), { notMerge: false });
       else chart.setOption(safeOption(opt), true);
     }, [props.option, gen]);
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' }, !window.echarts ? h(_LoadingSpinner, {size:20}) : null);

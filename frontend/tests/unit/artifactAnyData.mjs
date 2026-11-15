@@ -18,12 +18,21 @@ const VIZ='5d3b2a19-8d7e-4f6a-9b0c-1d2e3f4a5b6c', EURVIZ='6e3b2a19-8d7e-4f6a-9b0
 const months=Array.from({length:12},(_,i)=>`2025-${String(i+1).padStart(2,'0')}`);
 const rows=months.flatMap((m,i)=>['A','B'].map((d,j)=>({month:m,dept:d,amount_eur:1000*(i+1)+j,spend:500*(i+1)})));
 const lines=Array.from({length:12},(_,k)=>({name:`CC-${100+k}`,type:'line',data:months.map((_,i)=>(k+1)*100+i)}));
+const dsRows=months.map((m,i)=>Object.fromEntries([['month',m],...lines.map((l,k)=>[l.name,(k+1)*100+i])]));
 const app=`<script type="text/babel">
+const LINES=${JSON.stringify(lines)};
 function App() {
   const viz = vizById("${VIZ}");
+  const [n, setN] = React.useState(0);
+  // Inline option, rebuilt on every render: a formatter (same content) and, from the 2nd click, new data (same shape).
+  const live = { xAxis: { type: 'category', data: ${JSON.stringify(months)} }, yAxis: { type: 'value' }, tooltip: { formatter: (p) => String(p.value) },
+    series: LINES.map((l) => ({ ...l, data: l.data.map((v) => v + (n >= 2 ? 1 : 0)) })) };
   return (
     <div className="p-4 space-y-4">
+      <button id="rerender" onClick={() => setN(n + 1)}>rerender</button>
       <div id="lines"><EChart viz={viz} option={${JSON.stringify({xAxis:{type:'category',data:months},yAxis:{type:'value'},series:lines})}} height={260} /></div>
+      <div id="live"><EChart option={live} height={200} /></div>
+      <div id="dataset"><EChart option={${JSON.stringify({dataset:{source:dsRows},xAxis:{type:'category'},yAxis:{type:'value'},series:lines.map(l=>({name:l.name,type:'line',encode:{x:'month',y:l.name}}))})}} height={200} /></div>
       <div id="table"><DataTable viz={viz} rows={[{team:'Tier 1',tickets:120},{team:'Tier 2',tickets:80}]} columns={[{field:'team',headerName:'Team'},{field:'tickets',headerName:'Tickets'}]} /></div>
       <div id="grid" className="grid grid-cols-2 gap-4">
         <SectionCard title="Short"><p>one line</p></SectionCard>
@@ -54,7 +63,7 @@ try{
   const f=document.createElement('iframe');f.style.width='900px';f.style.height='1180px';f.style.border='0';f.srcdoc=html;document.body.appendChild(f);
  },{code:app,VIZ,EURVIZ,PLAIN,GBPVIZ,rows});
  const frame=page.frames().find(f=>f.parentFrame());
- await frame.waitForFunction(()=>window.__bowCharts&&window.echarts&&document.querySelector('#lines [_echarts_instance_]')&&document.querySelector('#table table'),null,{timeout:30000});
+ await frame.waitForFunction(()=>window.__bowCharts&&window.echarts&&document.querySelector('#lines [_echarts_instance_]')&&document.querySelector('#live [_echarts_instance_]')&&document.querySelector('#dataset [_echarts_instance_]')&&document.querySelector('#table table'),null,{timeout:30000});
  await frame.waitForTimeout(400);
 
  // Currency: the column name, the viz's saved format, the viz's columns, the page's columns
@@ -91,6 +100,20 @@ try{
  assert.equal(leg.off,4,'4 of 12 series start greyed');
  assert.deepEqual(leg.on,['CC-104','CC-105','CC-106','CC-107','CC-108','CC-109','CC-110','CC-111'],'the 8 largest by total stay on');
 
+ // A reader's legend choice survives the parent re-rendering the same option, and new data merged in.
+ const sel=()=>frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).getOption().legend[0].selected);
+ assert.equal((await sel())['CC-100'],false,'CC-100 (smallest) starts greyed');
+ await frame.evaluate(()=>window.echarts.getInstanceByDom(document.querySelector('#live [_echarts_instance_]')).dispatchAction({type:'legendToggleSelect',name:'CC-100'}));
+ assert.equal((await sel())['CC-100'],true);
+ await frame.click('#rerender'); await frame.waitForTimeout(300);
+ assert.equal((await sel())['CC-100'],true,'same content re-render keeps the reader\'s choice');
+ await frame.click('#rerender'); await frame.waitForTimeout(300);
+ assert.equal((await sel())['CC-100'],true,'new data merged in keeps the reader\'s choice');
+
+ // Series drawn from a dataset have no data of their own: the chart is left uncapped.
+ const dsOff=await frame.evaluate(()=>{const l=window.echarts.getInstanceByDom(document.querySelector('#dataset [_echarts_instance_]')).getOption().legend; const s=l&&l[0]&&l[0].selected; return s?Object.values(s).filter(v=>!v).length:0;});
+ assert.equal(dsOff,0,'a dataset-backed chart keeps every series on');
+
  // Equal card heights in a grid row.
  const h=await frame.evaluate(()=>[...document.querySelectorAll('#grid > section')].map(s=>Math.round(s.getBoundingClientRect().height)));
  assert.equal(h.length,2); assert.equal(h[0],h[1],`cards in a grid row are the same height (${h})`);
@@ -109,5 +132,5 @@ try{
  const pageCur=await rf.evaluate(({rows,EURVIZ})=>window.__bowCharts.buildTrend({viz:vizById(EURVIZ),rows:rows.map(r=>({month:r.month,dept:r.dept,amount:r.spend})),x:'month',y:'amount',series:'dept',unit:'currency',additive:true},window.bowTheme,'en').option.yAxis.axisLabel.formatter(2000),{rows,EURVIZ});
  assert.match(pageCur,/€/,`the page's single currency (${pageCur})`);
  assert.equal(rtlDir,'rtl','on a right-to-left page the table runs right to left, even with English cells');
- console.log('PASS: data currency on components (name, saved, viz columns, page), RankChart axis, 8 of 12 series, equal card heights, RTL tables');
+ console.log('PASS: data currency on components (name, saved, viz columns, page), RankChart axis, 8 of 12 series (reader choice kept, dataset charts uncapped), equal card heights, RTL tables');
 }finally{await browser.close()}

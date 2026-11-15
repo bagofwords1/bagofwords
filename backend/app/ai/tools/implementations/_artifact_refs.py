@@ -343,7 +343,12 @@ def _jsx_prop(body: str, name: str):
 
 
 _SERIES_KEY_RE = re.compile(r"\bseries\s*:")
-_SERIES_TYPE_RE = re.compile(r"""\btype\s*:\s*['"`](line|bar)['"`]""")
+# Every ECharts series type, so a mixed chart (a scatter with a fitted line, a
+# candlestick with a moving average) is seen as mixed, not as a line chart.
+_SERIES_TYPE_RE = re.compile(
+    r"""\btype\s*:\s*['"`](line|bar|scatter|effectScatter|pie|candlestick|boxplot|heatmap|radar|tree|treemap|"""
+    r"""sunburst|map|lines|graph|sankey|funnel|gauge|pictorialBar|themeRiver|custom|parallel)['"`]"""
+)
 
 
 def _series_values(src: str):
@@ -377,7 +382,7 @@ def _raw_line_bar_charts(src: str) -> int:
     count = 0
     for value in _series_values(src or ""):
         kinds = set(_SERIES_TYPE_RE.findall(value))
-        if len(kinds) == 1:
+        if kinds in ({"line"}, {"bar"}):
             count += 1
     return count
 

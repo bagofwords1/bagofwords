@@ -38,6 +38,9 @@ def test_other_chart_types_and_target_charts_are_allowed():
         "{ series: [{ type: 'pie', data: [] }] }",
         "{ series: [{ type: 'bar', data: [3] }, { type: 'line', data: [2] }] }",  # actual vs target
         "{ tooltip: { axisPointer: { type: 'line' } }, series: [{ type: 'heatmap', data: [] }] }",
+        # a scatter with a fitted line, a candlestick with a moving average: mixed, not a line chart
+        "{ series: [{ type: 'scatter', data: [[1, 2]] }, { type: 'line', data: [[0, 1], [2, 3]] }] }",
+        "{ series: [{ type: 'candlestick', data: [] }, { type: 'line', name: 'MA5', data: [] }] }",
     ]
     for option in allowed:
         assert raw_chart_errors(page(option), V11) == [], option
