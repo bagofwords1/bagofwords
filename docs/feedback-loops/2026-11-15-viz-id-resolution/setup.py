@@ -38,8 +38,8 @@ org = ok(c.get("/api/users/whoami", headers={"Authorization": f"Bearer {token}"}
 H = {"Authorization": f"Bearer {token}", "X-Organization-Id": org}
 
 providers = ok(c.get("/api/llm/providers", headers=H))
-wanted_type = "anthropic" if LIVE_MODEL else "custom"
-provider = next((p for p in providers if p.get("provider_type") == wanted_type), None)
+# By model, not by provider type: an org can hold several custom providers.
+provider = next((p for p in providers if any(m["model_id"] == MODEL for m in p.get("models") or [])), None)
 if provider is None:
     if LIVE_MODEL:
         key = os.environ.get("ANTHROPIC_KEY") or sys.exit("ANTHROPIC_KEY not set")

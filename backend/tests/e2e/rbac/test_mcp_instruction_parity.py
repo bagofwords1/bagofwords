@@ -100,7 +100,9 @@ def test_scope_changes_match_the_web_app(world):
         a, b, reader = _twins(world, key)
         ds = [world.agent_id(x) for x in scope]
         rest_ok = _rest(world, persona, "put", f"/api/instructions/{a}", {"data_source_ids": ds}).status_code == 200
-        res = world.mcp(persona).call("edit_instruction", {"instruction_id": b, "data_source_ids": ds})
+        # Going global is an explicit scope over MCP; [] alone never globalizes a rule.
+        target = {"data_source_ids": ds} if ds else {"scope": "global"}
+        res = world.mcp(persona).call("edit_instruction", {"instruction_id": b, **target})
         label = f"{persona} {key} → {scope or 'GLOBAL'}"
         if rest_ok != res.ok:
             mismatches.append(f"{label}: web app ok={rest_ok}, MCP ok={res.ok} ({res.summary()})")
@@ -126,7 +128,8 @@ def test_create_matches_the_web_app_for_every_persona(world):
                     "load_mode": "always", "data_source_ids": ds}
             route = "/api/instructions" if ds else "/api/instructions/global"
             r = _rest(world, persona, "post", route, body)
-            res = world.mcp(persona).call("create_instruction", {"text": text, "data_source_ids": ds})
+            target = {"data_source_ids": ds} if ds else {"scope": "global"}
+            res = world.mcp(persona).call("create_instruction", {"text": text, **target})
             label = f"{persona} on {'+'.join(scope) or 'GLOBAL'}"
             if (r.status_code == 200) != res.ok:
                 mismatches.append(f"{label}: web app {r.status_code}, MCP ok={res.ok} ({res.summary()})")

@@ -113,6 +113,22 @@ jobs:
 
     - uses: ./.github/actions/setup-backend
 
+    - name: Install offline packet decoder
+      if: matrix.name != 'postgres-dashboards'
+      run: sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
+
+    - name: Verify sandboxed packet decoding on Linux
+      if: matrix.name == 'sqlite'
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        packet_dir=$(mktemp -d)
+        .venv/bin/python -c 'from tests.fixtures.packet_captures import ARP,write_capture; from pathlib import Path; import sys; write_capture(Path(sys.argv[1]), [ARP])' "$packet_dir/test.pcap"
+        env -i HOME="$packet_dir" TZ=UTC LC_ALL=C .venv/bin/python -I -S app/data_sources/clients/_tshark_worker.py "$(command -v tshark)" < "$packet_dir/test.pcap" > "$packet_dir/decode.xml"
+        uv run pytest -q --db=sqlite tests/unit/test_network_dir_packet_index.py -k every_decoded_field
+
     - name: Check for AI file changes
       id: changes
       uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4

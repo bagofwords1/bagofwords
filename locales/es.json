@@ -1488,7 +1488,9 @@
       "failedDashboard": "Error al crear el panel",
       "copied": "Copiado",
       "copiedDesc": "ID del artefacto copiado al portapapeles",
-      "copyFailed": "Error al copiar"
+      "copyFailed": "Error al copiar",
+      "notRenderChecked": "Sin comprobar el renderizado",
+      "notRenderCheckedDesc": "Guardado sin comprobar el renderizado: el servidor no pudo iniciar su navegador. Ábrelo para confirmar que se muestra."
     },
     "createDashboard": {
       "creating": "Creando panel",
@@ -1525,7 +1527,9 @@
       "copyIdTooltip": "Haz clic para copiar el ID",
       "copied": "Copiado",
       "copiedDesc": "ID del artefacto copiado al portapapeles",
-      "copyFailed": "Error al copiar"
+      "copyFailed": "Error al copiar",
+      "notRenderChecked": "Sin comprobar el renderizado",
+      "notRenderCheckedDesc": "Guardado sin comprobar el renderizado: el servidor no pudo iniciar su navegador. Ábrelo para confirmar que se muestra."
     },
     "createWidget": {
       "creatingDataModel": "Creando modelo de datos",
@@ -4851,6 +4855,7 @@
       "search_file": "Buscar en archivos",
       "system_status": "Consultar el estado del sistema"
     },
+    "networkDirIndexDescription": "El modo en vivo lee archivos bajo demanda. La lista de archivos guarda nombres, tamaños y fechas. Los modos de palabras clave y texto completo también guardan los datos decodificados de PCAP y QVD para consultas SQL. El texto completo indexa el contenido de los documentos para búsquedas. Al actualizar, se procesan los archivos modificados.",
     "sshSetup": {
       "title": "Verificar identidad del servidor",
       "hint": "Compare la huella con la proporcionada por el administrador o registros SSH fiables. Obtener una clave no la verifica.",
@@ -7775,6 +7780,9 @@
     "unsaved": "Cambios sin guardar",
     "tabGeneral": "General",
     "nameTitle": "Nombre",
+    "descriptionTitle": "Descripción",
+    "descriptionPlaceholder": "Qué muestra este panel y para quién es",
+    "descriptionHelp": "Opcional. Se muestra a los lectores al pasar el cursor, junto al nombre.",
     "linkTitle": "Enlace",
     "refreshTitle": "Actualizar datos",
     "linkPreview": "Enlace:",
