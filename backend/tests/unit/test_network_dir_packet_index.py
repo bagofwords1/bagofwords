@@ -13,7 +13,7 @@ def bind_selection(client, catalog):
     from app.data_sources.clients._network_dir_tables import attach_catalog
 
     selected = [
-        (t.name, [c.model_dump() if hasattr(c, "model_dump") else {"name": c.name} for c in t.columns], t.metadata_json)
+        (t.name, [{"name": c.name} for c in t.columns], t.metadata_json)
         for t in catalog.values()
         if t.metadata_json.get("network_dir_relation")
     ]

@@ -67,7 +67,11 @@ class Source:
 
     @classmethod
     def resolve(cls, client, file_id):
+        if not client._allowed(file_id) or (not client.recursive and len(Path(file_id).parts) > 1):
+            raise ValueError("File is outside the current directory selection")
         path = client._resolve(file_id, must_exist=True)
+        if not path.is_file() or not client._allowed(path.name):
+            raise ValueError("Resolved file is outside the current directory selection")
         stat = path.stat()
         owner = getattr(client, "_bow_connection_id", None) or str(client._root())
         version = _digest(CACHE_VERSION, file_id, path, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
