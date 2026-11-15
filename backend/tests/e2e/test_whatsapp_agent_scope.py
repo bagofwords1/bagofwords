@@ -1,8 +1,9 @@
 """End-to-end tests for per-instance agent scoping.
 
 Contract: an admin can scope a connected WhatsApp number to a chosen set of
-agents. The scope round-trips, ignores ids that are not agents of the org, and
-can be cleared. Setting it is gated by ``manage_settings``.
+agents. The scope round-trips, refuses ids that are not agents of the org
+(leaving the saved scope as it was), and can be cleared. Setting it is gated
+by ``manage_settings``.
 
 Meta's Graph API (the credential probe) is the only boundary mocked.
 """
@@ -87,7 +88,7 @@ def test_agent_scope_roundtrip_and_clear(
 
 
 @pytest.mark.e2e
-def test_agent_scope_drops_unknown_ids(
+def test_agent_scope_refuses_unknown_ids(
     mock_whatsapp_probe, create_user, login_user, whoami,
     create_data_source, test_client, tmp_path
 ):
@@ -98,12 +99,20 @@ def test_agent_scope_drops_unknown_ids(
     platform_id = _connect_number(test_client, token, org_id)
     ds1 = _sqlite_agent(create_data_source, token, org_id, tmp_path, "sales")
 
-    # A non-existent / cross-org id is silently dropped; the real one stays.
+    r = test_client.put(f"/api/settings/integrations/{platform_id}/agents",
+                        json={"agent_ids": [ds1]}, headers=_headers(token, org_id))
+    assert r.status_code == 200, r.json()
+
+    # A non-existent / cross-org id is refused (e044240ef), and the saved
+    # scope is left as it was rather than partly replaced.
     r = test_client.put(
         f"/api/settings/integrations/{platform_id}/agents",
         json={"agent_ids": [ds1, "not-a-real-agent-" + uuid.uuid4().hex]},
         headers=_headers(token, org_id),
     )
+    assert r.status_code == 422, r.json()
+    r = test_client.get(f"/api/settings/integrations/{platform_id}/agents",
+                        headers=_headers(token, org_id))
     assert r.status_code == 200, r.json()
     assert r.json()["agent_ids"] == [ds1]
 
