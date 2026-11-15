@@ -33,8 +33,8 @@ try{
    await page.getByLabel('Password',{exact:true}).fill(process.env.BOW_CHAT_PASSWORD);
    await page.getByRole('button',{name:'Sign in',exact:true}).click();
    await page.waitForURL(url);
-   await page.getByTestId('app-menu').waitFor();await page.getByTestId('app-menu').click();
-   await page.getByRole('menuitem',{name:'Edit in my conversation'}).waitFor();
+   // Edit-in-my-conversation is now a dedicated button beside the ⋮, not a menu item.
+   await page.getByTestId('app-edit').waitFor();
    await page.screenshot({path:dir+'menu-owner.png'});
   }
   const server=http.createServer((req,res)=>{res.setHeader('Content-Type','text/html');res.end(`<html><body style="margin:0;font-family:system-ui;background:#f1f5f9"><h2 style="padding:20px">ERP customer portal</h2><button onclick="document.querySelector('iframe').hidden=!document.querySelector('iframe').hidden" style="position:fixed;bottom:12px;right:20px">Support</button><iframe hidden title="Support app" src="${url}?embed=1" style="width:450px;height:600px;float:right;margin:20px;border:1px solid #ddd;border-radius:12px"></iframe></body></html>`)});
@@ -100,8 +100,8 @@ try{
   }finally{await new Promise(resolve=>server.close(resolve));}
   await page.goto(url);
   await page.evaluate(()=>localStorage.setItem('bow.locale','he'));await page.reload();
-  await page.getByTestId('app-menu').waitFor();await page.getByTestId('app-menu').click();
-  await page.getByRole('menu').waitFor();assert.equal(await page.locator('html').getAttribute('dir'),'rtl');
+  // The corner controls flip with the locale; the Back-to-app button anchors the RTL check.
+  await page.getByTestId('app-back').waitFor();assert.equal(await page.locator('html').getAttribute('dir'),'rtl');
   await page.screenshot({path:dir+'menu-he.png'});
   assert.deepEqual(errors,[]);console.log('PASS: published page, menu permissions, sign-in return, embed and RTL');
  }
