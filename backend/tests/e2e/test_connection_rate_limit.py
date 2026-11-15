@@ -842,25 +842,32 @@ async def _session_objects(db, org_id, user_id, eid):
 
 
 @contextmanager
-def _database_refusing_slices_of(entity_id, message):
+def _database_refusing_slices_of(entity_id, message, *, whole_transaction=False):
     """The app database itself refuses every insert and update of the slices
     of `entity_id` (a trigger, as a full disk or a broken row would), with an
-    error whose text is `message`."""
+    error whose text is `message`.
+
+    `whole_transaction`: the refusal also ends the writer's whole
+    transaction, so its savepoint cannot be undone: SQLite rolls the
+    transaction back (as a full disk or an I/O error does), Postgres loses
+    the connection (its backend is terminated)."""
     from sqlalchemy import text
 
     engine = _other_engine()
     name = f"refuse_{uuid.uuid4().hex[:10]}"
     if engine.dialect.name == "sqlite":
+        how = "ROLLBACK" if whole_transaction else "ABORT"
         create = [
             f"CREATE TRIGGER {name}_{op} BEFORE {op} ON entity_user_results "
-            f"WHEN NEW.entity_id = '{entity_id}' BEGIN SELECT RAISE(ABORT, '{message}'); END"
+            f"WHEN NEW.entity_id = '{entity_id}' BEGIN SELECT RAISE({how}, '{message}'); END"
             for op in ("INSERT", "UPDATE")
         ]
         drop = [f"DROP TRIGGER IF EXISTS {name}_{op}" for op in ("INSERT", "UPDATE")]
     else:
+        terminate = "PERFORM pg_terminate_backend(pg_backend_pid()); " if whole_transaction else ""
         create = [
             f"CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-            f"IF NEW.entity_id = '{entity_id}' THEN RAISE EXCEPTION '{message}'; END IF; "
+            f"IF NEW.entity_id = '{entity_id}' THEN {terminate}RAISE EXCEPTION '{message}'; END IF; "
             f"RETURN NEW; END $$",
             f"CREATE TRIGGER {name} BEFORE INSERT OR UPDATE ON entity_user_results "
             f"FOR EACH ROW EXECUTE FUNCTION {name}()",
@@ -1134,14 +1141,16 @@ def _not_saved_error(ref):
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("whole_transaction", [False, True], ids=["savepoint", "whole_transaction"])
 def test_load_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
-    api, create_user, login_user, whoami, caplog, monkeypatch,
+    api, create_user, login_user, whoami, caplog, monkeypatch, whole_transaction,
 ):
     """A code run's load_entity() of three of another user's identity-scoped
     entities runs the reader's slice of each, and the database refuses the
     first: the error the code run (and so the LLM) sees is the fixed message,
     without the database's text, and neither is the log's. The two after it,
-    in the same code run, resolve to the reader's own slice."""
+    in the same code run, resolve to the reader's own slice, also when the
+    refusal ended the session's whole transaction."""
     import json
 
     token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
@@ -1151,7 +1160,8 @@ def test_load_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
     message = _refusal_message()
     _watch_app_logs(monkeypatch)
 
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(refs[0], message):
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(
+            refs[0], message, whole_transaction=whole_transaction):
         result = _run(_load_entities_on_the_agents_session(org_id, member_id, refs))
     assert not any("greenlet" in e.lower() for e in result["errors"]), result["errors"]
     assert result["errors"] == [_not_saved_error(refs[0])], result["errors"]
@@ -1226,6 +1236,70 @@ def test_the_fixed_error_of_a_refused_slice_carries_no_database_error(api, creat
     assert error is not None and error.message == "The run's result could not be saved.", error
     assert error.__cause__ is None, repr(error.__cause__)
     assert error.__context__ is None, repr(error.__context__)
+
+
+async def _slice_refused_with_the_whole_transaction(org_id, user_id, eid):
+    """A reader's run of `eid` on a caller's session holding a flushed new
+    row and a flushed change of its own, uncommitted; the database refuses the
+    slice and ends the whole transaction. Then the caller uses its session
+    again and commits. Returns what the caller saw and what is stored."""
+    from sqlalchemy import inspect, text
+
+    from app.errors import AppError
+    from app.models.artifact import Artifact
+    from app.models.entity import Entity
+    from app.services.entity_service import EntityService
+
+    out = {"written": f"held-{uuid.uuid4().hex[:8]}"}
+    async with async_session_maker() as db:
+        org, user, entity = await _session_objects(db, org_id, user_id, eid)
+        held = Artifact(organization_id=org_id, created_by=user_id, mode="page", visibility="none")
+        db.add(held)
+        entity.description = out["written"]
+        await db.flush()
+        held_id = str(held.id)
+        try:
+            await EntityService().run_entity_for_user(db, entity, org, user, {})
+            out["status"] = None
+        except AppError as err:
+            out["status"] = err.status_code
+        out["held_persistent"] = inspect(held).persistent
+        try:
+            await db.execute(text("SELECT 1"))
+            await db.commit()
+            out["next_use"] = "works"
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            out["next_use"] = type(err).__name__
+    async with async_session_maker() as other:
+        out["held_stored"] = (await other.get(Artifact, held_id)) is not None
+        out["stored_description"] = (await other.execute(
+            select(Entity.description).where(Entity.id == eid))).scalar_one()
+    return out
+
+
+@pytest.mark.e2e
+def test_a_slice_refusal_that_ends_the_whole_transaction_rolls_the_callers_session_back(
+    api, create_user, login_user, whoami, monkeypatch, caplog,
+):
+    """The database refuses the slice and ends the caller's whole transaction
+    (SQLite rolls it back, Postgres drops the connection): the savepoint
+    cannot be undone, so the caller's session is rolled back in full. What it
+    flushed is no longer held as stored, its next use works, and its commit
+    stores none of what was lost, rather than the part written after it."""
+    token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    (eid,) = _identity_entities(api, token, org_id, 1)
+    message = _refusal_message()
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(eid, message, whole_transaction=True):
+        out = _run(_slice_refused_with_the_whole_transaction(org_id, member_id, eid))
+    assert out["status"] == 500, out
+    assert out["next_use"] == "works", out
+    assert out["held_persistent"] is False and out["held_stored"] is False, out
+    assert out["stored_description"] != out["written"], out
+    _assert_no_database_text(message, _REFUSED_VALUE, caplog.text)
+    assert not _run(_slice_rows(eid))
 
 
 async def _email_of(user_id):
@@ -1385,6 +1459,89 @@ def test_a_published_step_that_loads_a_monitoring_entity_then_a_refused_slice_fa
                     ).scalar_one()
 
     assert bool(_run(source_refs())) is not refused
+
+
+@pytest.mark.e2e
+def test_a_published_step_that_goes_on_without_a_slice_refused_with_its_whole_transaction_stores_its_marker(
+    api, create_user, login_user, whoami, monkeypatch, caplog,
+):
+    """A copied step loads entity A (monitoring sourced), then entity B, and
+    goes on without B when B cannot be loaded. The database refuses B's slice
+    and ends the publish's whole transaction, A's marker on the release with
+    it. The step's rows, built from A's monitoring data, are never stored
+    without the release's marker: either nothing of the step is stored, or
+    the marker is stored with its rows."""
+    from app.models.artifact_release import ArtifactRelease
+
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    a, b = _identity_entities(api, token, org_id, 2)
+    _run(_monitoring_entity_with_a_snapshot(org_id, a))
+    _run(_owned_by(b, member_id))
+    code = ("def generate_df(ds_clients, excel_files, load_entity):\n"
+            f"    a = load_entity({a!r})\n"
+            "    try:\n"
+            f"        viewer = load_entity({b!r})['viewer'].iloc[0]\n"
+            "    except Exception:\n"
+            "        viewer = 'none'\n"
+            "    return a.assign(viewer=viewer)\n")
+    release_id, step_id = _run(_publishing_release_with_a_copy(org_id, admin_id, code))
+    message = _refusal_message()
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
+        try:
+            outcome = _run(_publish_the_copies(org_id, admin_id, release_id))
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            outcome = f"raised {type(err).__name__}"
+    stored = _run(_stored_step_data(step_id))
+    marker = _run(_stored_access(ArtifactRelease, release_id))
+    _assert_no_database_text(message, _REFUSED_VALUE, str(outcome), caplog.text)
+    assert not _run(_slice_rows(b))
+    if stored == _COPIED_ROWS:
+        assert outcome is not None and marker is None, (outcome, marker)
+    else:
+        assert stored["rows"] == [{"m": 1, "viewer": "none"}], (outcome, stored)
+        assert marker == _monitoring_access(org_id), (outcome, stored, marker)
+
+
+async def _load_in_one_refresh_and_commit(org_id, user_id, release_id, refs):
+    """One code run of a dashboard refresh loads `refs` on the refresh's
+    session, which then commits. Returns the load's errors."""
+    from app.ai.code_execution.loadables import LoadablesResolver
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        release = await db.get(ArtifactRelease, release_id)
+        result = await LoadablesResolver(db, org, None, user, release=release).resolve([], refs)
+        await db.commit()
+        return result["errors"]
+
+
+@pytest.mark.e2e
+def test_a_monitoring_entity_loaded_before_a_slice_refused_with_its_whole_transaction_still_marks_the_release(
+    api, create_user, login_user, whoami,
+):
+    """A refresh's code run loads entity A (monitoring sourced), then B,
+    whose slice the database refuses with the refresh's whole transaction.
+    A's rows were handed to the code: the release's marker is stored when
+    the refresh commits, though the rollback undid what was set before B."""
+    from app.models.artifact_release import ArtifactRelease
+
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    a, b = _identity_entities(api, token, org_id, 2)
+    _run(_monitoring_entity_with_a_snapshot(org_id, a))
+    _run(_owned_by(b, member_id))
+    release_id = _run(_publishing_release(org_id, admin_id))
+    with _database_refusing_slices_of(b, _refusal_message(), whole_transaction=True):
+        errors = _run(_load_in_one_refresh_and_commit(org_id, admin_id, release_id, [a, b]))
+    assert errors == [_not_saved_error(b)], errors
+    assert _run(_stored_access(ArtifactRelease, release_id)) == _monitoring_access(org_id)
 
 
 # One step of a refresh, or of a publish, may take longer than this; a step

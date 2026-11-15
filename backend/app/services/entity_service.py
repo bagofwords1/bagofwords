@@ -60,6 +60,33 @@ def _result_not_saved(entity_id, err: BaseException) -> AppError:
     return AppError(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
 
 
+def _savepoint_undone(err: BaseException, written: Optional[BaseException], driver) -> bool:
+    """Whether a slice's failed write left the caller's transaction as it
+    was: only when the database confirms its savepoint was undone.
+
+    Not when the error is not the write's own (the savepoint never opened,
+    or leaving it failed), when the connection was lost, or when undoing the
+    savepoint failed (SQLAlchemy then raises the undo's error from the
+    flush). On SQLite (`driver`, its connection) not either when no
+    transaction is open any more: a full disk, an I/O error or a trigger's
+    RAISE(ROLLBACK) end the whole transaction. A state that cannot be read
+    counts as not undone."""
+    from sqlalchemy.exc import DBAPIError
+
+    if err is not written:
+        return False
+    if isinstance(err, DBAPIError) and (
+            err.connection_invalidated
+            or str(err.statement or "").lstrip().upper().startswith("ROLLBACK TO SAVEPOINT")):
+        return False
+    if driver is None:
+        return True
+    try:
+        return driver.in_transaction is True
+    except Exception:
+        return False
+
+
 async def _roll_back_failed_save(db: AsyncSession, entity_id: str) -> None:
     """Roll the session back after a failed save of a run's result (the
     shared snapshot, or a viewer's slice whose savepoint could not be undone
@@ -182,7 +209,11 @@ class EntityService:
         fingerprint = params_fingerprint(resolved_params)
         failure = None
         written = None
+        driver = None
         try:
+            connection = await db.connection()
+            if connection.dialect.name == "sqlite":
+                driver = (await connection.get_raw_connection()).driver_connection
             # Entering flushes what the run changed on the entity, before
             # the savepoint (autoflush).
             async with db.begin_nested():
@@ -213,11 +244,10 @@ class EntityService:
                     raise
         except Exception as err:
             failure = _result_not_saved(entity_id, err)
-            if err is not written:
-                # Not the slice's write: the savepoint was not undone (the
-                # database ended the whole transaction) or never opened.
+            if not _savepoint_undone(err, written, driver):
                 await _roll_back_failed_save(db, entity_id)
         written = None
+        driver = None
         if failure is None:
             try:
                 await db.commit()
