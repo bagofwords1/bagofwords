@@ -5,6 +5,7 @@ limits never affects other threads in the application worker.
 """
 
 import ctypes
+from glob import glob
 import os
 from pathlib import Path
 import resource
@@ -40,10 +41,11 @@ def linux_sandbox(binary):
     report = landlock.restrict_self(
         read_paths=["/usr/lib", "/lib", "/lib64", "/usr/lib64", "/usr/share/wireshark", "/usr/share/mime"],
         read_files=["/etc/ld.so.cache", "/dev/null", "/dev/urandom", "/etc/localtime"],
-        execute_files=[binary],
+        # execve checks both the executable and its ELF interpreter.
+        execute_files=[binary, *glob("/lib*/ld-linux*.so.*"), *glob("/lib/*/ld-linux*.so.*")],
     )
     if not report.applied or report.rule_errors:
-        raise RuntimeError("Decoder filesystem sandbox unavailable")
+        raise RuntimeError(f"Decoder filesystem sandbox unavailable: {report.reason or report.rule_errors}")
     seccomp.install_no_process_creation()
 
 
