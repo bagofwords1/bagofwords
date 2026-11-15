@@ -2864,6 +2864,11 @@ class StreamingCodeExecutor:
                                 yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                             continue
                 except Exception as e:
+                    if getattr(e, "session_rolled_back", False):
+                        # The caller's session lost what it held: neither
+                        # running this code without its loadables nor
+                        # generating it again can go on with it.
+                        raise
                     yield {"type": "stdout", "payload": f"Loadable resolution error: {str(e)}"}
 
             yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}

@@ -599,6 +599,9 @@ class StepService:
                 db, step, ctx, db_clients=db_clients, params=params, param_specs=specs,
             )
         except Exception as e:
+            if getattr(e, "session_rolled_back", False):
+                # No row can be written on a session that lost what it held.
+                raise
             # Includes ParamError from resolution AND from the identity-bind
             # check: the viewer gets the reason on their row rather than the
             # whole report rerun aborting — and, for a failed bind check, no

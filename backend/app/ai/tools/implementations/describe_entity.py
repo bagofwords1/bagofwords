@@ -341,6 +341,10 @@ class DescribeEntityTool(Tool):
                         else "executed the entity's saved code"
                     )
             except Exception as e:
+                if getattr(e, "session_rolled_back", False):
+                    # The agent's session lost what it held: the agent must
+                    # not go on as if only this run had failed.
+                    raise
                 errors.append(f"Code execution failed: {str(e)}")
                 # Fall back to cached data — but never to a snapshot the
                 # policy withholds from this reader, and never to a snapshot

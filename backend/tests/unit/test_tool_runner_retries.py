@@ -45,3 +45,31 @@ async def test_an_ordinary_failure_is_still_retried():
     assert result["retry_exhausted"] is True
     assert "analysis_complete" not in result
     assert "terminal_execution_error" not in result
+
+
+class _SessionRolledBack(Exception):
+    """A failure marked as having rolled the caller's whole session back (a
+    viewer's slice the database refused with the whole transaction)."""
+
+    session_rolled_back = True
+
+
+@pytest.mark.asyncio
+async def test_a_failure_that_rolled_the_session_back_ends_the_tool_without_a_retry():
+    """No retry runs on the rolled-back session, and the runner reports
+    nothing through it (its events are written on that session): the
+    failure reaches the agent's loop, which reloads what it holds."""
+    error = _SessionRolledBack("The run's result could not be saved.")
+    tool = _FailingTool(error)
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    runner = ToolRunner(retry=RetryPolicy(max_attempts=3, backoff_ms=1, jitter_ms=0))
+    with pytest.raises(_SessionRolledBack) as raised:
+        await runner.run(tool, {}, {"mode": "chat"}, emit)
+
+    assert raised.value is error
+    assert tool.calls == 1
+    assert "tool.error" not in [e.get("type") for e in events]

@@ -49,15 +49,27 @@ def is_run_refusal(exc: Optional[BaseException]) -> bool:
         "RateLimitExceeded", "UsageLimitExceeded", "ConnectionBusyError")
 
 
-def _result_not_saved(entity_id, err: BaseException) -> AppError:
+class SessionRolledBack(AppError):
+    """The fixed 500 of a failed save that rolled the caller's whole session
+    back: every object it held is expired and its uncommitted writes are
+    gone. The caller's unit of work (a code run, a step, a refresh, a
+    rerun, an agent's tool) ends with it instead of going on without them;
+    each layer that would otherwise go on reads `session_rolled_back`."""
+
+    session_rolled_back = True
+
+
+def _result_not_saved(entity_id, err: BaseException, *, session_rolled_back: bool = False) -> AppError:
     """The answer to a run whose result the app database did not store.
 
     Told apart by where it happens (the save), not by the error's type: a
     warehouse client raises the same SQLAlchemy errors for a builder's own
     query. The app database's error quotes its statement and bound values, so
-    neither the answer nor the log line carries its text."""
+    neither the answer nor the log line carries its text. With
+    `session_rolled_back`, a SessionRolledBack."""
     logger.error("Entity %s: the run's result was not saved: %s", entity_id, describe_for_log(err))
-    return AppError(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
+    error_class = SessionRolledBack if session_rolled_back else AppError
+    return error_class(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
 
 
 def _savepoint_undone(err: BaseException, written: Optional[BaseException], driver) -> bool:
@@ -197,10 +209,12 @@ class EntityService:
         slice is written in a savepoint, so a write the database refuses
         undoes the slice alone. What the session holds stays loaded and its
         uncommitted writes stay its own. Only when the savepoint cannot be
-        undone, or the commit fails, is the whole session rolled back. Either
-        way the answer is the fixed 500 (_result_not_saved), raised with no
-        database error chained to it: that error quotes its statement and
-        bound values, and reaches neither the caller nor the log."""
+        undone, or the commit fails, is the whole session rolled back, and
+        the fixed 500 is then a SessionRolledBack: the caller must not go on.
+        Either way the answer is the fixed 500 (_result_not_saved), raised
+        with no database error chained to it: that error quotes its
+        statement and bound values, and reaches neither the caller nor the
+        log."""
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.entity_user_result import EntityUserResult
         entity_id = str(entity.id)
@@ -243,8 +257,9 @@ class EntityService:
                     written = err
                     raise
         except Exception as err:
-            failure = _result_not_saved(entity_id, err)
-            if not _savepoint_undone(err, written, driver):
+            undone = _savepoint_undone(err, written, driver)
+            failure = _result_not_saved(entity_id, err, session_rolled_back=not undone)
+            if not undone:
                 await _roll_back_failed_save(db, entity_id)
         written = None
         driver = None
@@ -252,7 +267,7 @@ class EntityService:
             try:
                 await db.commit()
             except Exception as err:
-                failure = _result_not_saved(entity_id, err)
+                failure = _result_not_saved(entity_id, err, session_rolled_back=True)
                 await _roll_back_failed_save(db, entity_id)
         if failure is not None:
             # Raised here, outside the handlers, so it chains no error.

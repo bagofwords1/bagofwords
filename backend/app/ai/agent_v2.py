@@ -5165,6 +5165,11 @@ class AgentV2:
             ),
             return_exceptions=True,
         )
+        for _res in results:
+            if getattr(_res, "session_rolled_back", False):
+                # The siblings shared the session it rolled back: no outcome
+                # stands. The loop reloads what it holds, as after a serial one.
+                raise _res
         for _ti, _res in enumerate(results):
             if isinstance(_res, BaseException):
                 logger.error(f"[agent] concurrent action {_ti} crashed: {_res!r}", exc_info=_res)

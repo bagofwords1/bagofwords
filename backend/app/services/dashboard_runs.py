@@ -359,6 +359,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
         data = await service._execute_step_code(db, step, ctx, db_clients=db_clients, params=params,
                                                 param_specs=specs)
     except Exception as e:
+        if getattr(e, "session_rolled_back", False):
+            raise  # no row can be written on a session that lost what it held
         status, reason = "error", (str(e)[:2000] or e.__class__.__name__)
         if is_access_denied(reason):
             reason = NO_ACCESS_REASON
@@ -438,6 +440,8 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
                                      db_clients=db_clients, sources=sources, source_errors=errors,
                                      lookup=lookup, resolved_waits=resolved_waits)
         except Exception as e:
+            if getattr(e, "session_rolled_back", False):
+                raise  # the other steps would run on a session that lost what it held
             logger.warning("Dashboard viewer run failed for step %s: %s", step_id, e)
             status = "error"
         # Waiting for the reader's input is not a failure: the app gives it.

@@ -265,7 +265,9 @@ class LoadablesResolver:
     # Resolution (indexed) — the refs the generated code actually names.   #
     # ------------------------------------------------------------------ #
     async def resolve(self, step_refs: List[str], entity_refs: List[str]) -> Dict:
-        """Resolve refs to DataFrames. Never raises; misses go in `errors`."""
+        """Resolve refs to DataFrames; misses go in `errors`. A reader's
+        slice whose failed save rolled the whole session back is not a miss:
+        its SessionRolledBack is raised, and ends the caller's unit of work."""
         result: Dict = {"steps": {}, "entities": {}, "errors": []}
 
         # Resolution is never bounded by the discovery recency window — a
@@ -386,7 +388,7 @@ class LoadablesResolver:
             # resolve to the RUN USER's own slice (cached per viewer, executed
             # with their identity binding on a miss); other entities serve the
             # shared snapshot unless the credential policy withholds it.
-            from app.services.entity_service import EntityService
+            from app.services.entity_service import EntityService, SessionRolledBack
             from app.models.organization import Organization
             from app.models.user import User
             try:
@@ -394,6 +396,10 @@ class LoadablesResolver:
                     self.db, entity, await self.db.get(Organization, org_id),
                     await self.db.get(User, user_id) if user_id is not None else None,
                 )
+            except SessionRolledBack:
+                # The session lost what it held, what this run loaded before
+                # included: the caller's whole unit of work ends with it.
+                raise
             except Exception as e:
                 result["errors"].append(
                     f"load_entity({key!r}): failed to resolve the caller's slice: {str(e)[:200]}"

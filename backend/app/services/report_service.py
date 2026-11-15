@@ -1655,6 +1655,8 @@ class ReportService:
                     )
                     steps_succeeded += 1
                 except Exception as e:
+                    if getattr(e, "session_rolled_back", False):
+                        raise  # the other steps would run on a session that lost what it held
                     steps_failed += 1
                     logger.warning(f"Failed to rerun step {step_id}: {e}; continuing")
                     first_failure = first_failure or (step_id, None, str(getattr(e, "detail", None) or e), code)
@@ -1970,6 +1972,8 @@ class ReportService:
                 else:
                     steps_failed += 1
             except Exception as e:
+                if getattr(e, "session_rolled_back", False):
+                    raise  # the other steps would run on a session that lost what it held
                 # run_step_to_user_result persists execution errors on the
                 # row; anything raised here is infrastructural.
                 steps_failed += 1
