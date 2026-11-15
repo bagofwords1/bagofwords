@@ -6,7 +6,7 @@ edits directly. Each edit call inserts a NEW artifact row (version history for
 the frontend dropdown), exactly like edit_artifact.
 """
 import logging
-from typing import Any, AsyncIterator, Dict, List, Type
+from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -28,10 +28,9 @@ from ._doc_markdown import (
     DocEditError,
     apply_find_replace_edits,
     extract_file_placeholders,
-    extract_viz_placeholders,
     heading_outline,
 )
-from .create_doc import doc_observation_snapshot, validate_doc_visualizations
+from .create_doc import doc_observation_snapshot, resolve_doc_visualizations
 
 logger = logging.getLogger(__name__)
 
@@ -145,14 +144,16 @@ class EditDocTool(Tool):
             return
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "validating_visualizations"})
-        viz_ids = extract_viz_placeholders(new_markdown)
-        valid_viz_ids, problems = await validate_doc_visualizations(db, report_id, viz_ids)
+        new_markdown, valid_viz_ids, problems, viz_error_extra = await resolve_doc_visualizations(
+            db, report_id, new_markdown,
+        )
         if problems:
             yield self._fail(
                 data.doc_id,
                 "Invalid visualization placeholders after edit: " + "; ".join(problems) + ". "
                 "No new version was saved. Fix the {{viz:...}} placeholders and retry.",
                 error_type="invalid_visualizations",
+                extra=viz_error_extra,
             )
             return
 
@@ -217,7 +218,8 @@ class EditDocTool(Tool):
         }
         yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
 
-    def _fail(self, doc_id: str, message: str, error_type: str = "validation_error") -> ToolEndEvent:
+    def _fail(self, doc_id: str, message: str, error_type: str = "validation_error",
+              extra: Optional[Dict[str, Any]] = None) -> ToolEndEvent:
         return ToolEndEvent(
             type="tool.end",
             payload={
@@ -225,7 +227,7 @@ class EditDocTool(Tool):
                 "observation": {
                     "summary": f"Failed to edit document: {message}",
                     "doc_id": doc_id,
-                    "error": {"type": error_type, "message": message},
+                    "error": {"type": error_type, "message": message, **(extra or {})},
                 },
             },
         )

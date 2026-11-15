@@ -147,6 +147,15 @@ class ReadQueryTool(Tool):
         self, db, report, organization, viz_id: str, allow_llm_see_data: bool
     ) -> ReadQueryResult:
         """Resolve a single visualization_id to a ReadQueryResult."""
+        # A miscopied id is matched to the visualization of this report it
+        # nearly spells; one that names nothing comes back with the ids that
+        # would work.
+        from app.ai.tools.implementations._viz_ids import ensure_available, resolve_visualization_ids
+        requested_id = viz_id
+        report_id = str(report.id) if report else None
+        resolution = await resolve_visualization_ids(db, report_id, [viz_id])
+        if resolution.ids:
+            viz_id = resolution.ids[0]
         try:
             result = await db.execute(
                 select(Visualization)
@@ -166,7 +175,13 @@ class ReadQueryTool(Tool):
             )
             visualization = result.scalar_one_or_none()
             if not visualization:
-                return ReadQueryResult(visualization_id=viz_id, error=f"Visualization not found: {viz_id}")
+                available = await ensure_available(db, report_id, resolution)
+                listed = "; ".join(f'"{v["title"]}" ({v["id"]})' for v in available)
+                hint = f" Visualizations in this report: {listed}." if listed else ""
+                return ReadQueryResult(
+                    visualization_id=requested_id,
+                    error=f"Visualization not found: {requested_id}.{hint}",
+                )
 
             # The target query and only its step versions were loaded with the
             # visualization above. Reusing it avoids a second unrestricted
