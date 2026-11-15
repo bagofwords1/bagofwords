@@ -87,7 +87,9 @@ export function topSeriesSelection(series: Array<{ name?: unknown; data?: unknow
     return Number.isFinite(n) ? acc + Math.abs(n) : acc;
   }, 0);
   const ranked = named.map(s => ({ name: String(s.name), t: total(s) })).sort((a, b) => b.t - a.t);
+  const top = new Set(ranked.slice(0, max).map(r => r.name));
+  // Keys in series order, so a refresh that swaps two totals keeps the same shape.
   const selected: Record<string, boolean> = {};
-  ranked.forEach((r, i) => { selected[r.name] = i < max; });
+  named.forEach(s => { selected[String(s.name)] = top.has(String(s.name)); });
   return selected;
 }
