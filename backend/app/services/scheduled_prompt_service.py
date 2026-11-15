@@ -14,6 +14,7 @@ from app.models.organization import Organization
 from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate, ScheduledPromptUpdate
 from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.services.notification_service import notification_service
+from app.services.scheduled_task_naming import synced_report_title, task_display_name
 from app.settings.config import settings
 from app.core.telemetry import telemetry
 
@@ -192,6 +193,12 @@ class ScheduledPromptService:
             raise HTTPException(status_code=400, detail="Provide cron_schedule or run_once_at")
         _apply_schedule(sp, data.cron_schedule, data.run_once_at)
         _ensure_one_time_not_past(sp)
+        # Name the host report after the task (the "New task" flow creates it
+        # with a generic placeholder), unless someone already named it.
+        report_title = synced_report_title(
+            report.title, None, task_display_name(sp.title, sp.prompt, report.title))
+        if report_title:
+            report.title = report_title
         db.add(sp)
         await db.commit()
         await db.refresh(sp)
@@ -230,11 +237,21 @@ class ScheduledPromptService:
         sp = await self._get_or_404(db, scheduled_prompt_id)
         await self._ensure_can_manage_prompt(db, sp, current_user, organization)
 
+        host_report = await db.get(Report, sp.report_id)
+        previous_name = task_display_name(sp.title, sp.prompt, host_report.title if host_report else None)
         if data.prompt is not None:
             sp.prompt = data.prompt
         if data.title is not None:
             # An explicit empty string clears the title (falls back to report title).
             sp.title = data.title.strip() or None
+        if host_report is not None:
+            # Renaming the task renames its report, unless the user renamed the
+            # report to something of their own.
+            report_title = synced_report_title(
+                host_report.title, previous_name,
+                task_display_name(sp.title, sp.prompt, host_report.title))
+            if report_title:
+                host_report.title = report_title
         _apply_schedule(sp, data.cron_schedule, data.run_once_at)
         reactivated = data.is_active is True and not sp.is_active
         if data.is_active is not None:
@@ -621,7 +638,7 @@ class ScheduledPromptService:
                     db,
                     kind="task",
                     automation_id=str(sp.id),
-                    automation_name=sp.title or report.title or "Scheduled task",
+                    automation_name=task_display_name(sp.title, sp.prompt, report.title) or "Scheduled task",
                     owner=user,
                     organization=organization,
                     outcome=outcome,
@@ -689,7 +706,8 @@ class ScheduledPromptService:
             else [str(ds.id) for ds in (host_report.data_sources or [])]
         )
         run_date = datetime.utcnow().strftime("%b %d, %Y")
-        title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
+        name = task_display_name(sp.title, sp.prompt, host_report.title) or "Scheduled run"
+        title = f"{name} — {run_date}"
 
         # Stay in the host report's project so a schedule that lives in a
         # project keeps its dated runs there instead of scattering them to the
