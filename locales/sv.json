@@ -4285,6 +4285,7 @@
       "search_file": "Sök i filer",
       "system_status": "Visa systemstatus"
     },
+    "networkDirIndexDescription": "I liveläget läses filer vid behov. Fillistan lagrar namn, storlekar och datum. Lägena för nyckelord och fulltext lagrar även avkodade PCAP- och QVD-data för SQL-frågor. Fulltextläget indexerar dokumentens innehåll för sökning. Vid uppdatering bearbetas ändrade filer.",
     "sshSetup": {
       "title": "Verifiera serverns identitet",
       "hint": "Jämför fingeravtrycket med uppgifter från administratören eller betrodda SSH-poster. Att hämta en nyckel verifierar den inte.",

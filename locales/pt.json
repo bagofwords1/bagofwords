@@ -4285,6 +4285,7 @@
       "search_file": "Pesquisar em arquivos",
       "system_status": "Verificar o estado do sistema"
     },
+    "networkDirIndexDescription": "O modo ao vivo lê os arquivos sob demanda. A lista de arquivos armazena nomes, tamanhos e datas. Os modos de palavras-chave e texto completo também armazenam dados PCAP e QVD decodificados para consultas SQL. O modo de texto completo indexa o conteúdo dos documentos para pesquisa. A atualização processa os arquivos alterados.",
     "sshSetup": {
       "title": "Verificar identidade do servidor",
       "hint": "Compare a impressão digital com a fornecida pelo administrador ou registros SSH confiáveis. Buscar uma chave não a verifica.",

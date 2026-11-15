@@ -283,7 +283,7 @@ async def _acount_files_for_validation(client, limit: int | None = None) -> int 
         or Capability.LIST_EMAILS in caps
         or Capability.LIST_CHAT_MESSAGES in caps
     )
-    if not has_inventory or Capability.QUERY in caps:
+    if not has_inventory or (Capability.QUERY in caps and not getattr(client, "index_file_tables", False)):
         return None
     if limit is not None and _accepts_kwarg(client.list_files, "limit"):
         files = await asyncio.to_thread(client.list_files, limit=limit)
@@ -1179,6 +1179,7 @@ class ConnectionService:
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         connection = await self.get_connection(db, connection_id, organization)
+        has_file_table_cache = connection.type == "network_dir"
         linked = list(connection.data_sources or [])
         agent_count = len(linked)
         sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
@@ -1217,6 +1218,10 @@ class ConnectionService:
             organization = await db.get(Organization, organization_id)
             await _drain()
             connection_name = await _load_and_delete(organization)
+
+        if has_file_table_cache:
+            from app.data_sources.clients._network_dir_tables import clear_cache
+            await asyncio.to_thread(clear_cache, connection_id)
 
         # A generated demo dataset's SQLite file belongs to its connection.
         from app.services.demo_data.installer import remove_generated_file
@@ -2850,6 +2855,8 @@ class ConnectionService:
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
         client = ClientClass(**allowed)
+        if connection.type == "network_dir":
+            client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):
             client.pool_scope = f"{connection.organization_id}:{connection.id}:{getattr(current_user, 'id', 'system')}"
         await self._attach_connection_table_metadata(db, client, connection)

@@ -4285,6 +4285,7 @@
       "search_file": "Cerca nei file",
       "system_status": "Controlla lo stato del sistema"
     },
+    "networkDirIndexDescription": "La modalità in tempo reale legge i file su richiesta. L’elenco dei file conserva nomi, dimensioni e date. Le modalità Parole chiave e Testo completo salvano anche i dati PCAP e QVD decodificati per le query SQL. Il testo completo indicizza i documenti per la ricerca. L’aggiornamento elabora i file modificati.",
     "sshSetup": {
       "title": "Verifica identità del server",
       "hint": "Confronta l’impronta con quella fornita dall’amministratore o da registri SSH attendibili. Recuperare una chiave non la verifica.",

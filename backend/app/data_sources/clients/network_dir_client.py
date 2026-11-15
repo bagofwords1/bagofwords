@@ -26,6 +26,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -148,7 +149,9 @@ class NetworkDirClient(DataSourceClient):
     # offered in the catalog whenever a network_dir is attached. A read-only
     # instance narrows `self.capabilities` in __init__ so the runtime capability
     # check (resolve_file_client) still rejects writes.
+    sql_literal_style = "standard"
     capabilities = {
+        Capability.QUERY,
         Capability.LIST_FILES,
         Capability.READ_FILE,
         Capability.SEARCH_FILES,
@@ -231,6 +234,9 @@ class NetworkDirClient(DataSourceClient):
             Capability.SEARCH_FILES,
             Capability.GREP_FILES,
         }
+        self.index_file_tables = self.index_content and not self._root_policy_exempt
+        if self.index_file_tables:
+            self.capabilities.add(Capability.QUERY)
         if self.writable:
             self.capabilities = self.capabilities | {Capability.WRITE_FILE}
 
@@ -948,7 +954,13 @@ class NetworkDirClient(DataSourceClient):
     def description(self) -> str:
         scope = self.root_path or "(unconfigured)"
         mode = "read/write" if self.writable else "read-only"
-        return f"Network directory {scope} ({mode})"
+        sql = (
+            " Use execute_query with DuckDB SELECT or DESCRIBE for indexed captures and QVDs. "
+            "Query indexed_files for file_id, table_name, status and reason. "
+            "Report pending or failed captures when reporting packet totals. "
+            "packets contains frames from ready captures; quote dotted protocol fields and UNNEST repeated values."
+        ) if self.index_file_tables else ""
+        return f"Network directory {scope} ({mode}).{sql}"
 
     @property
     def is_document_based(self) -> bool:
@@ -1016,11 +1028,16 @@ class NetworkDirClient(DataSourceClient):
         """
         from app.data_sources.clients.progress import make_reporter
 
+        from app.data_sources.clients import _network_dir_tables as derived
+
+        cache_owner = getattr(self, "_bow_connection_id", None) or self.root_path
         if self.index_mode == INDEX_NONE:
+            derived.forget_versions(cache_owner, prior_catalog, set())
             # Live mode: nothing is cached; the tool layer lists/reads directly.
             return []
-        root = self._root()
         files = self.list_files(recursive=self.recursive)
+        schemas_by_table = {}
+        current_versions = set()
         reporter = make_reporter(progress_callback)
         reporter.phase("indexing files", total=len(files))
         tables: List[Table] = []
@@ -1037,7 +1054,32 @@ class NetworkDirClient(DataSourceClient):
                 f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
             fulltext = self.index_mode == INDEX_FULLTEXT and section_sink is not None
-            if fulltext:
+            file_columns = []
+            if self.index_file_tables and _ext(name) in derived.EXTENSIONS:
+                try:
+                    source = derived.Source.resolve(self, name)
+                    source.prepare(self, lambda: reporter.item(name, done=len(tables)))
+                    source = derived.Source.resolve(self, name)
+                    status, reason = source.status()
+                    meta.update(sql_table=source.table_name, status=status, reason=reason,
+                                cache_version=source.artifact.stem)
+                    current_versions.add(source.artifact.stem)
+                    schemas = schemas_by_table.setdefault(source.table_name, [])
+                    if fulltext:
+                        version = f"{f.get('size')}:{f.get('modified_at')}"
+                        if not section_sink.is_current(name, version):
+                            section_sink.write(name, name, version,
+                                               FileSections([name_section(name)], status="no_text"))
+                    description += f" SQL table {source.table_name}: {status}."
+                    if status == "ready":
+                        schema = source.schema()
+                        schemas.append(schema)
+                        file_columns = derived.columns(schema)
+                except IndexingCancelled:
+                    raise
+                except (OSError, ValueError) as exc:
+                    meta.update(status="failed", reason=str(exc))
+            elif fulltext:
                 meta["index_version"] = 2
                 version = f"{f.get('size')}:{f.get('modified_at')}"
                 if section_sink.is_current(f["id"], version):
@@ -1114,7 +1156,7 @@ class NetworkDirClient(DataSourceClient):
             tables.append(Table(
                 name=name,
                 description=description,
-                columns=[],
+                columns=file_columns,
                 pks=[],
                 fks=[],
                 metadata_json={"network_dir": meta},
@@ -1122,6 +1164,18 @@ class NetworkDirClient(DataSourceClient):
             # Per-file progress tick — also the cancel checkpoint: the runner's
             # callback raises IndexingCancelled here once a cancel is requested.
             reporter.tick(f["id"])
+        if not self._last_walk_truncated:
+            derived.forget_versions(cache_owner, prior_catalog, current_versions)
+        if schemas_by_table:
+            by_name = {t.name: t for t in tables}
+            for relation in derived.catalog_relations(schemas_by_table):
+                # An extensionless real file may also be named "packets".
+                # Retain both the file metadata and the SQL schema on that row.
+                if relation.name in by_name:
+                    relation.metadata_json.update(by_name[relation.name].metadata_json)
+                    tables[tables.index(by_name[relation.name])] = relation
+                else:
+                    tables.append(relation)
         reporter.done()
         if section_sink is not None and self.index_mode == INDEX_FULLTEXT:
             section_sink.walk_truncated = bool(self._last_walk_truncated)
@@ -1145,8 +1199,11 @@ class NetworkDirClient(DataSourceClient):
         tables = self.get_schemas()
         if not tables:
             return "No files available in the configured directory."
-        lines = [f"Available files ({len(tables)}):"]
+        lines = [f"Directory catalog ({len(tables)} entries):"]
         for t in tables:
+            if (t.metadata_json or {}).get("network_dir_relation"):
+                lines.append(f"- {t.name} (SQL table): " + ", ".join(c.name for c in t.columns))
+                continue
             meta = (t.metadata_json or {}).get("network_dir", {})
             lines.append(f"- {t.name} ({meta.get('mime_type') or 'file'})")
         return "\n".join(lines)
@@ -1154,7 +1211,7 @@ class NetworkDirClient(DataSourceClient):
     def execute_query(
         self, query: Optional[str] = None, table_name: Optional[str] = None, **kwargs
     ):
-        """Document-based read: `table_name` or `query` names a file to read."""
+        """Read a file by id or run a read-only query against indexed tables."""
         if isinstance(query, str) and query.strip().startswith("{"):
             try:
                 spec = json.loads(query)
@@ -1166,5 +1223,8 @@ class NetworkDirClient(DataSourceClient):
         if table_name:
             return self.read_file(table_name, sheet=kwargs.get("sheet"))
         if query:
+            if self.index_file_tables and re.match(r"^\s*(?:SELECT|WITH|DESCRIBE|SHOW)\s+", query, re.I):
+                from app.data_sources.clients._network_dir_tables import query_tables
+                return query_tables(self, query)
             return self.read_file(query, sheet=kwargs.get("sheet"))
         raise ValueError("Provide table_name or query (file id) to read a file")
