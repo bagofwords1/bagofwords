@@ -96,9 +96,40 @@
     </div>
 
     <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
-        <div v-if="showTopBar && reportLoaded" class="absolute top-3 end-3 z-dropdown">
-            <UDropdown :items="appMenuItems" :popper="{ placement: 'bottom-end' }">
-                <UButton color="white" variant="ghost" icon="i-heroicons-ellipsis-vertical"
+        <!-- Back to app: a dedicated arrow at the opposite corner, so the most
+             used navigation isn't buried in the ⋮. (Flips automatically in RTL.) -->
+        <div v-if="showTopBar && reportLoaded" class="absolute top-3 start-3 z-dropdown">
+            <UTooltip :text="t('dashboardCollab.access.backToApp')">
+                <UButton to="/" color="gray" variant="soft" icon="i-heroicons-arrow-left"
+                    :ui="{ rounded: 'rounded-full' }"
+                    :aria-label="t('dashboardCollab.access.backToApp')" data-testid="app-back" />
+            </UTooltip>
+        </div>
+
+        <!-- The action cluster: Export and Open-to-edit are surfaced as their
+             own buttons instead of hiding in the ⋮; the rest stays in the
+             overflow. Soft circular buttons so the cluster reads as controls and
+             stays visible on light or colored dashboards (the old ghost ⋮ vanished). -->
+        <div v-if="showTopBar && reportLoaded" class="absolute top-3 end-3 z-dropdown flex items-center gap-1.5">
+            <UDropdown v-if="availableExports.length" :items="exportMenuItems" :popper="{ placement: 'bottom-end' }">
+                <UTooltip :text="t('exports.label')">
+                    <UButton color="gray" variant="soft" icon="i-heroicons-arrow-down-tray"
+                        :ui="{ rounded: 'rounded-full' }"
+                        :loading="isExporting" :aria-label="t('exports.label')" data-testid="app-export" />
+                </UTooltip>
+            </UDropdown>
+
+            <UTooltip v-if="showEditButton" :text="t('dashboardCollab.page.editInMyConversation')">
+                <UButton color="gray" variant="soft" icon="i-heroicons-arrow-top-right-on-square"
+                    :ui="{ rounded: 'rounded-full' }"
+                    :loading="isOpeningEditor" :disabled="isOpeningEditor"
+                    :aria-label="t('dashboardCollab.page.editInMyConversation')" data-testid="app-edit"
+                    @click="handleEdit" />
+            </UTooltip>
+
+            <UDropdown v-if="overflowMenuItems[0]?.length" :items="overflowMenuItems" :popper="{ placement: 'bottom-end' }">
+                <UButton color="gray" variant="soft" icon="i-heroicons-ellipsis-vertical"
+                    :ui="{ rounded: 'rounded-full' }"
                     :aria-label="t('artifactFrame.more')" data-testid="app-menu" />
             </UDropdown>
         </div>
@@ -519,8 +550,23 @@ const signInUrl = computed(() => '/users/sign-in?app_sso=1&redirect=' + encodeUR
 const requestSignIn = () => { signInRequested.value = true; };
 onMounted(() => window.addEventListener('bow-sign-in-required', requestSignIn));
 onUnmounted(() => window.removeEventListener('bow-sign-in-required', requestSignIn));
-const appMenuItems = computed(() => {
-    const items: any[] = [{ label: t('dashboardCollab.access.backToApp'), to: '/' }];
+// Export is surfaced as its own top-bar button; it opens the available formats.
+const isExporting = computed(() => isExportingPdf.value || isExportingHtml.value || isExportingPptx.value);
+const exportMenuItems = computed(() => [
+    availableExports.value.map(option => ({
+        label: option.label,
+        disabled: isExporting.value,
+        click: () => handleExport(option.format),
+    })),
+]);
+// The in-conversation Edit is surfaced too, for viewers who can edit a non-report.
+const showEditButton = computed(() => props.source !== 'report' && hasCap('edit'));
+
+// The ⋮ overflow holds everything that is NOT surfaced as its own button: the
+// Data/Report toggle, Run, Fork, Analytics, the report-owner edit link and
+// History. (Back to app, Exports and the in-conversation Edit are now buttons.)
+const overflowMenuItems = computed(() => {
+    const items: any[] = [];
     if (showDataTab.value && visualizationsData.value.length) items.push({
         label: activeTab.value === 'data' ? t('sharedReport.tabReport') : t('sharedReport.tabData', { count: visualizationsData.value.length }),
         click: () => { activeTab.value = activeTab.value === 'data' ? 'report' : 'data'; },
@@ -528,19 +574,11 @@ const appMenuItems = computed(() => {
     if (canRun.value && props.source !== 'draft') items.push({
         label: t('queries.run'), disabled: isRunning.value, click: handleRun,
     });
-    for (const option of availableExports.value) items.push({
-        label: option.label,
-        disabled: isExportingPdf.value || isExportingHtml.value || isExportingPptx.value,
-        click: () => handleExport(option.format),
-    });
     if (forkEligibility.value?.can_fork) items.push({
         label: t('sharedReport.fork'), disabled: isForking.value, click: handleFork,
     });
     if (hasCap('analytics')) items.push({
         label: t('artifactResources.analytics'), click: () => { analyticsOpen.value = true; },
-    });
-    if (props.source !== 'report' && hasCap('edit')) items.push({
-        label: t('dashboardCollab.page.editInMyConversation'), disabled: isOpeningEditor.value, click: handleEdit,
     });
     if (props.source === 'report' && isOwner.value && editPath.value) items.push({
         label: t('common.edit'), to: editPath.value,
