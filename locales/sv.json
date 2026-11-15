@@ -1410,7 +1410,9 @@
       "failedDashboard": "Det gick inte att skapa instrumentpanelen",
       "copied": "Kopierat",
       "copiedDesc": "Artefakt-ID kopierat till urklipp",
-      "copyFailed": "Det gick inte att kopiera"
+      "copyFailed": "Det gick inte att kopiera",
+      "notRenderChecked": "Rendering ej kontrollerad",
+      "notRenderCheckedDesc": "Sparad utan renderingskontroll: servern kunde inte starta sin webbläsare. Öppna den för att se att den visas."
     },
     "createDashboard": {
       "creating": "Skapar instrumentpanel",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "Klicka för att kopiera ID",
       "copied": "Kopierat",
       "copiedDesc": "Artefakt-ID kopierat till urklipp",
-      "copyFailed": "Det gick inte att kopiera"
+      "copyFailed": "Det gick inte att kopiera",
+      "notRenderChecked": "Rendering ej kontrollerad",
+      "notRenderCheckedDesc": "Sparad utan renderingskontroll: servern kunde inte starta sin webbläsare. Öppna den för att se att den visas."
     },
     "createWidget": {
       "creatingDataModel": "Skapar datamodell",

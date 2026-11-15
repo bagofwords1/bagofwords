@@ -36,6 +36,16 @@
         v{{ artifactVersion }}
       </span>
 
+      <!-- Saved without a render check (the server could not start its browser) -->
+      <span
+        v-if="notRenderChecked"
+        data-testid="not-render-checked"
+        class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700"
+        :title="t('tools.editArtifact.notRenderCheckedDesc')"
+      >
+        {{ t('tools.editArtifact.notRenderChecked') }}
+      </span>
+
       <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
     </div>
 
@@ -63,6 +73,10 @@
         >
           {{ viz.title }}
         </span>
+      </div>
+
+      <div v-if="notRenderChecked" class="mt-1 ms-[18px] text-chat-2 text-amber-700 dark:text-amber-500 max-w-lg">
+        {{ t('tools.editArtifact.notRenderCheckedDesc') }}
       </div>
 
       <!-- Stopped/Error message -->
@@ -292,6 +306,12 @@ async function rejectConfirmation() {
 }
 
 const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error))
+
+// The page was saved without being rendered on the server, so a tick alone
+// would promise more than was checked.
+const notRenderChecked = computed(() =>
+  status.value === 'success' && (props.toolExecution.result_json as any)?.render_checked === false
+)
 
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''

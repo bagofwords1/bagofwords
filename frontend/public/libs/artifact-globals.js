@@ -4917,4 +4917,54 @@ function _dtDetectDir(cols, rows) {
     };
   })();
 
+  // ── bow.<helper> ─────────────────────────────────────────────────────
+  // Every component and helper is a bare global (vizById, KPICard, …) and
+  // that is how pages are written. Models also reach for them through the
+  // SDK object — `bow.vizById(...)`, `<bow.KPICard>`, `const { KPICard } =
+  // bow` — because the SDK features (bow.data, bow.records, …) do live
+  // there; each of those used to be undefined and the page died with
+  // "useArtifactData is not a function". The same names are therefore
+  // readable through `bow` as well.
+  // ADDITIVE ONLY: a name the SDK already defines is never replaced, the
+  // properties are non-enumerable getters (so iterating or serialising
+  // `bow` is unchanged), and the bare globals are untouched.
+  var BOW_HELPER_NAMES = [
+    'useArtifactData', 'vizById', 'useParams', 'useParamOptions', 'useFilters', 'useCurrentUser',
+    'useConversation', 'usePresence', 'useTheme', 'setTheme', 'fmt', 'exportCSV', 'share',
+    'BOW_FONTS', 'BOW_THEMES',
+    'useState', 'useEffect', 'useMemo', 'useCallback', 'useRef',
+    'PageHeader', 'KPICard', 'SectionCard', 'DataTable', 'EChart', 'TrendChart', 'RankChart',
+    'FilterBar', 'FilterSelect', 'FilterSearch', 'FilterDateRange', 'Segmented', 'Tabs',
+    'Badge', 'Delta', 'Sparkline', 'ProgressBar', 'Icon', 'Eyebrow', 'Divider', 'EmptyState',
+    'LoadingSpinner', 'Modal', 'Drawer', 'InfoOverlay', 'InfoPopover', 'BowFile', 'BowPdfViewer',
+    'ChatComposer', 'ChatMessage', 'ChatMessages', 'ChatResult', 'ChatSuggestions', 'ChatThreads'
+  ];
+  function exposeHelpersOn(target) {
+    if (!target || (typeof target !== 'object' && typeof target !== 'function')) return;
+    BOW_HELPER_NAMES.forEach(function(name) {
+      if (name in target) return;
+      try {
+        Object.defineProperty(target, name, {
+          configurable: true, enumerable: false,
+          get: function() { return window[name]; }
+        });
+      } catch (e) { /* a frozen SDK object keeps exactly what it has */ }
+    });
+  }
+  // The SDK script assigns window.bow after this file runs, so the helpers are
+  // attached when that assignment happens (and right now if it already did).
+  (function() {
+    var existing = Object.getOwnPropertyDescriptor(window, 'bow');
+    if (existing && !existing.configurable) { exposeHelpersOn(window.bow); return; }
+    var current = existing && 'value' in existing ? existing.value : undefined;
+    exposeHelpersOn(current);
+    try {
+      Object.defineProperty(window, 'bow', {
+        configurable: true, enumerable: true,
+        get: function() { return current; },
+        set: function(next) { current = next; exposeHelpersOn(next); }
+      });
+    } catch (e) { /* leave window.bow as the host defined it */ }
+  })();
+
 })();

@@ -1566,7 +1566,9 @@
       "failedDashboard": "Failed to Create Dashboard",
       "copied": "Copied",
       "copiedDesc": "Artifact ID copied to clipboard",
-      "copyFailed": "Failed to copy"
+      "copyFailed": "Failed to copy",
+      "notRenderChecked": "Not render-checked",
+      "notRenderCheckedDesc": "Saved without a render check: the server could not start its browser. Open it to make sure it displays."
     },
     "createDashboard": {
       "creating": "Creating Dashboard",
@@ -1603,7 +1605,9 @@
       "copyIdTooltip": "Click to copy ID",
       "copied": "Copied",
       "copiedDesc": "Artifact ID copied to clipboard",
-      "copyFailed": "Failed to copy"
+      "copyFailed": "Failed to copy",
+      "notRenderChecked": "Not render-checked",
+      "notRenderCheckedDesc": "Saved without a render check: the server could not start its browser. Open it to make sure it displays."
     },
     "createWidget": {
       "creatingDataModel": "Creating Data Model",
