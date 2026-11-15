@@ -1,7 +1,8 @@
 <template>
   <UPopover :popper="{placement:'bottom-start'}">
     <button v-bind="$attrs" type="button" class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs text-ink">
-      <UIcon name="i-heroicons-folder" class="size-4 shrink-0 text-ink-muted" />
+      <DataSourceIcon v-if="triggerType" :type="triggerType" class="size-4 shrink-0" />
+      <UIcon v-else :name="triggerIcon" class="size-4 shrink-0 text-ink-muted" />
       <span class="truncate">{{ summary }}</span><UIcon name="i-heroicons-chevron-down" class="size-3 shrink-0" />
     </button>
     <template #panel="{ close }">
@@ -65,6 +66,24 @@ const summary = computed(() => {
   if (!first || props.single) return props.placeholder
   const label = first.startsWith('folder:') ? props.folders.find(f => f.id === first.slice(7))?.name : props.options.find(o => o.value === first)?.label
   return (label || (props.firstSelected && props.firstLabel) || props.placeholder) + (others.length ? ' +' + others.length : '')
+})
+// The trigger icon mirrors the dropdown items (DataSourceIcon for an agent, a
+// folder icon for a folder, the resource's own heroicon, the first-option icon
+// for a global/Auto scope) instead of always showing a folder — which made an
+// agent- or org-scoped selection read as if it lived in a folder.
+const firstSelection = computed(() => (props.single ? undefined : props.selected[0]))
+const firstSelectedOption = computed(() => {
+  const value = firstSelection.value
+  if (!value || value.startsWith('folder:')) return undefined
+  return props.options.find(o => o.value === value)
+})
+const triggerType = computed(() => firstSelectedOption.value?.type)
+const triggerIcon = computed(() => {
+  const value = firstSelection.value
+  if (value?.startsWith('folder:')) return 'i-heroicons-folder'
+  if (firstSelectedOption.value?.heroicon) return firstSelectedOption.value.heroicon
+  if (!value && props.firstSelected) return props.firstIcon || 'i-heroicons-globe-alt'
+  return 'i-heroicons-cube'
 })
 function pick(id: string, close: () => void) {
   emit('select', id)
