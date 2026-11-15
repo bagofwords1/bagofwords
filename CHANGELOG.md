@@ -3,6 +3,7 @@
 ## Version 0.0.622 (November 15, 2026)
 - Added MCP tools to browse agent folders, scope a report to folders or agents, and share one instruction across several folders (#1742)
 - Added an optional dashboard description, set in Settings → General and shown on hover in the dashboard list (#1732)
+- Added querying packet captures (PCAP/PCAPNG) and QVD files in network directory connections, as a packets table and a table per QVD (#1746)
 - Added a "Not render-checked" note on dashboards saved when the server cannot render them (#1745)
 - Changed the agent to stop after four failed dashboard builds in a row and say so (#1745)
 - Fixed dashboards built by smaller models failing on imports, exports, or helpers taken from `bow` or `React` (#1745)
