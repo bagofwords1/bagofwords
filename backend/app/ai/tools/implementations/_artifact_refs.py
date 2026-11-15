@@ -615,3 +615,57 @@ def focal_point_errors(
         "a one-line summary carrying the key number, or one lead chart wider than the rest. This note is given once: "
         "if the page should open with the charts, send it again as it is."
     ]
+
+
+_USER_VAR_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*useCurrentUser\s*\(\s*\)")
+_USER_DESTRUCT_RE = re.compile(r"\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*useCurrentUser\s*\(\s*\)")
+_USER_FIELDS = r"(?:name|email|first_name|last_name|full_name|display_name|username)"
+_HEADING_TEXT_RE = re.compile(r"<(h1|h2)\b[^>]*>([\s\S]*?)</\1>")
+# A greeting or a "signed in as" line may name the viewer.
+_GREETING_RE = re.compile(r"welcome|hello|\bhi\b|signed in|logged in|שלום|ברוכ|מחובר|bienvenid|hola|bonjour|willkommen", re.I)
+
+
+def _viewer_name_refs(src: str) -> List[str]:
+    """Titles, subtitles, eyebrows and h1/h2 headings that show the signed-in viewer's name or email."""
+    pats = [r"useCurrentUser\s*\(\s*\)\s*\??\.\s*" + _USER_FIELDS + r"\b"]
+    for m in _USER_VAR_RE.finditer(src):
+        pats.append(r"\b" + re.escape(m.group(1)) + r"\s*\??\.\s*" + _USER_FIELDS + r"\b")
+    for m in _USER_DESTRUCT_RE.finditer(src):
+        for part in m.group(1).split(","):
+            key, _, alias = part.partition(":")
+            if re.fullmatch(r"\s*" + _USER_FIELDS + r"\s*", key):
+                pats.append(r"\b" + re.escape((alias or key).strip().split("=")[0].strip()) + r"\b")
+    ref = re.compile("|".join(pats))
+    hits: List[str] = []
+    for m in re.finditer(r"<[A-Za-z][\w.]*", src):
+        body = _jsx_tag_body(src, m.start())
+        for prop in ("title", "subtitle", "eyebrow"):
+            p = _jsx_prop(body, prop)
+            if p and p[0] == "expr" and ref.search(p[1]) and not _GREETING_RE.search(p[1]):
+                hits.append(f"{prop}={{{p[1][:80]}}}")
+    for m in _HEADING_TEXT_RE.finditer(src):
+        if ref.search(m.group(2)) and not _GREETING_RE.search(m.group(2)):
+            hits.append(f"<{m.group(1)}>{m.group(2).strip()[:80]}</{m.group(1)}>")
+    return hits
+
+
+def viewer_name_errors(code: str, artifact_data: Dict[str, Any], previous_code: Optional[str] = None) -> List[str]:
+    """The signed-in viewer's name or email in a page's title, subtitle or heading.
+
+    A page is shared: whoever opens it would see the builder's (or their own)
+    name as the page's title. A greeting or "signed in as" line is fine. On an
+    edit (``previous_code``) only references the edit adds count.
+    """
+    src = code or ""
+    if "useCurrentUser" not in src:
+        return []
+    hits = _viewer_name_refs(src)
+    if previous_code is not None and len(hits) <= len(_viewer_name_refs(previous_code)):
+        return []
+    if not hits:
+        return []
+    return [
+        "[viewer] The page shows the signed-in viewer's name in its title or heading (" + "; ".join(hits[:2]) + "). "
+        "A page is shared, so its title, subtitle and headings name the subject, never the viewer. Keep current_user "
+        "for a greeting, a \"signed in as\" line, or filtering to the viewer's own rows."
+    ]
