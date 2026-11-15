@@ -1344,6 +1344,10 @@ _ENGINE_SPACES = {
 # may not (Calcite, behind Druid and Dremio, ends a block comment at its
 # first `*/`; Teradata, ClickHouse, Fabric are not shown to nest them).
 _UNNESTED_COMMENT_DIALECTS = frozenset({"druid", "dremio", "teradata", "clickhouse", "fabric"})
+# Dialects whose engines substitute `${...}` variables in the text before
+# they read it, strings and comments included, by default: HiveServer2, and
+# Spark SQL (Spark Connect, the Thrift server, Databricks).
+_VARIABLE_SUBSTITUTING_DIALECTS = frozenset({"hive", "spark", "databricks"})
 # A comment MySQL and MariaDB run as code (`/*!`, `/*M!`, and any other
 # letter before the `!`), by its text after `/*`, and by its opening.
 _EXECUTABLE_COMMENT_TEXT = re.compile(r"[A-Za-z]?!")
@@ -1501,10 +1505,9 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
         return
     if _NUL in sql:
         raise ReadOnlyViolation("The query holds a NUL character, after which the source would not read it. Remove it.")
-    if dialect == "hive" and "${" in sql:
-        # HiveServer2 substitutes `${...}` variables in the text before it
-        # reads it (strings and comments included), so the engine would run
-        # text these checks never saw.
+    if dialect in _VARIABLE_SUBSTITUTING_DIALECTS and "${" in sql:
+        # The engine substitutes variables in the text before it reads it,
+        # so it would run text these checks never saw.
         raise ReadOnlyViolation(
             "The query holds '${', which this source replaces with a variable's value before it reads the "
             "query. Remove it."

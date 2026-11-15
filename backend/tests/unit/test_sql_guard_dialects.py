@@ -1179,20 +1179,27 @@ HIVE_VARIABLES = [
 ]
 
 
+# Spark (Spark Connect, and Timbr, read as Spark SQL) and Databricks
+# substitute them the same way, env: and system: included.
+SUBSTITUTING_FAMILIES = ["HiveClient", "SparkConnectClient", "DatabricksSqlClient", "TimbrClient"]
+
+
+@pytest.mark.parametrize("family", SUBSTITUTING_FAMILIES)
 @pytest.mark.parametrize("sql", HIVE_VARIABLES)
-def test_a_variable_reference_is_refused_on_hive_anywhere_in_the_text(sql):
-    _refused("HiveClient", sql, match="variable")
+def test_a_variable_reference_is_refused_anywhere_in_the_text_where_the_engine_substitutes(sql, family):
+    _refused(family, sql, match="variable")
     with pytest.raises(TableScopeViolation, match="variable"):
-        check_table_scope(sql, "hive", SCOPE)
+        check_table_scope(sql, dialect_for_client(_client(family)), SCOPE)
 
 
+@pytest.mark.parametrize("family", SUBSTITUTING_FAMILIES)
 @pytest.mark.parametrize("sql", [
     "SELECT * FROM orders WHERE note = '$' AND tag = '{x}'",
     "SELECT * FROM orders WHERE rlike(code, '^[0-9]+$')",
     "SELECT `id` FROM orders WHERE status = 'open'",
 ])
-def test_a_dollar_or_a_brace_alone_still_reads_on_hive(sql):
-    _passes("HiveClient", sql)
+def test_a_dollar_or_a_brace_alone_still_reads_where_the_engine_substitutes(sql, family):
+    _passes(family, sql)
 
 
 @pytest.mark.parametrize("family", ["DremioClient", "IcebergClient"])

@@ -1014,6 +1014,19 @@ def _execute_query_signature(client) -> Optional[inspect.Signature]:
         return None
 
 
+def _native_params_capture(statement, params) -> str:
+    """A statement with the params its client binds itself (Cypher's $name),
+    captured as JSON text. An integer too long to write is refused with the
+    parameter error."""
+    from app.ai.code_execution.query_params import _INT_TOO_LONG, ParamError
+
+    try:
+        return json.dumps({"query": statement, "params": params}, sort_keys=True, default=str, ensure_ascii=False)
+    except ValueError:
+        # An integer past Python's integer-to-text digit limit.
+        raise ParamError(_INT_TOO_LONG) from None
+
+
 def _params_not_rendered():
     """The refusal of params nothing renders: a keyword-only call, a statement
     that is not text, or params that are not a name -> value dict."""
@@ -1296,8 +1309,10 @@ class QueryCapturingClientWrapper:
         if guarded:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
-            query, capture, refusal = self._prepare_unguarded(query, kwargs)
-            if self._takes_no_free_text() and _passes_a_statement(self._original, query, args, kwargs):
+            query, capture, refusal, render_refused = self._prepare_unguarded(query, kwargs)
+            # A refusal while rendering stands as it is (the params error).
+            if not render_refused and self._takes_no_free_text() and _passes_a_statement(
+                    self._original, query, args, kwargs):
                 refusal = UnsafeSQLError("This connection does not accept free-text queries")
         # The OData clients build their request from several arguments; what
         # the identity check reads of their calls is each request as sent
@@ -1484,9 +1499,18 @@ class QueryCapturingClientWrapper:
             self._log_params_not_rendered(statement, resolved.params)
             return (statement, (), {}, self._guarded_capture(statement, resolved.kwargs),
                     _params_not_rendered())
-        if resolved.params:
-            statement = self._rendered(statement, resolved.params)
-        return statement, (), resolved.kwargs, self._guarded_capture(statement, resolved.kwargs), None
+        from app.ai.code_execution.query_params import ParamError
+
+        try:
+            if resolved.params:
+                statement = self._rendered(statement, resolved.params)
+            capture = self._guarded_capture(statement, resolved.kwargs)
+        except ParamError as refusal:
+            # Refused while rendering: captured as written, timed and logged
+            # by structure only, like any refusal; nothing is sent.
+            self._log_params_refused(resolved.params or resolved.kwargs.get("params"), refusal)
+            return statement, (), {}, statement if isinstance(statement, str) else "", refusal
+        return statement, (), resolved.kwargs, capture, None
 
     @staticmethod
     def _guarded_capture(statement, kwargs: dict) -> str:
@@ -1507,8 +1531,7 @@ class QueryCapturingClientWrapper:
         if kwargs.get("params"):
             # Native params (Cypher's $name): captured with the query, so the
             # identity check still sees the values.
-            return json.dumps({"query": statement, "params": kwargs["params"]},
-                              sort_keys=True, default=str, ensure_ascii=False)
+            return _native_params_capture(statement, kwargs["params"])
         return statement
 
     def _capture(self, capture, identity_reads=None):
@@ -1604,10 +1627,14 @@ class QueryCapturingClientWrapper:
         calls forwarded, params rendered only into a positional str.
 
         Pops `params` from `kwargs`. Returns (query to send, capture, the
-        refusal of params that cannot be rendered, or None).
+        refusal of params that cannot be rendered, or None, whether that
+        refusal came while rendering them).
         """
+        from app.ai.code_execution.query_params import ParamError
+
         native_params = None
         refusal = None
+        render_refused = False
         if "params" in kwargs:
             if getattr(self._original, "native_query_params", False):
                 # The client binds them itself (Cypher's $name); its own syntax
@@ -1617,7 +1644,13 @@ class QueryCapturingClientWrapper:
             else:
                 param_values = kwargs.pop("params")
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
-                    query = self._rendered(query, param_values)
+                    try:
+                        query = self._rendered(query, param_values)
+                    except ParamError as e:
+                        # Refused while rendering: captured as written, timed
+                        # and logged by structure only; nothing is sent.
+                        refusal, render_refused = e, True
+                        self._log_params_refused(param_values, e)
                 elif param_values:
                     # A keyword-only call, a statement that is not text, or
                     # params that are not a dict: nothing renders them, so the
@@ -1629,8 +1662,12 @@ class QueryCapturingClientWrapper:
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         elif native_params:
-            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str,
-                                 ensure_ascii=False)
+            try:
+                capture = _native_params_capture(query, native_params)
+            except ParamError as e:
+                refusal, render_refused = e, True
+                self._log_params_refused(native_params, e)
+                capture = query
         else:
             capture = query
         if isinstance(capture, dict) and (
@@ -1638,7 +1675,7 @@ class QueryCapturingClientWrapper:
             or getattr(self._original, "capture_structured_queries", False)
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
-        return query, capture, refusal
+        return query, capture, refusal, render_refused
 
     def _log_params_not_rendered(self, query, param_values) -> None:
         """Log params nothing renders, by structure only: the statement's
@@ -1647,6 +1684,18 @@ class QueryCapturingClientWrapper:
             "code_execution.params_not_rendered client=%s statement=%s params=%s",
             family_name(self._original),
             "keywords" if query is _NO_QUERY else _loggable_name(type(query).__name__),
+            ",".join(sorted(_loggable_name(k) for k in param_values))
+            if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
+        )
+
+    def _log_params_refused(self, param_values, refusal: BaseException) -> None:
+        """Log params refused while rendering, by structure only: the
+        refusal's type and the param names (or the params' type), never a
+        value or the refusal's text."""
+        logger.warning(
+            "code_execution.params_refused client=%s error=%s params=%s",
+            family_name(self._original),
+            type(refusal).__name__,
             ",".join(sorted(_loggable_name(k) for k in param_values))
             if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
         )

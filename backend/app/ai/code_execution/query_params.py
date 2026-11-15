@@ -1377,8 +1377,12 @@ def render_json_number_params(text: str, values: Dict[str, Any], *, client_type_
         )
     try:
         document = json.loads(stood)
-    except ValueError:
+    except json.JSONDecodeError:
         raise ParamError(f"{who}: the JSON query document is not valid JSON")
+    except ValueError:
+        # An integer written in the document past Python's integer-to-text
+        # digit limit.
+        raise ParamError(f"{who}: an integer in the JSON query document is too long to read") from None
 
     def _refuse(where: str):
         raise ParamError(
@@ -1676,7 +1680,7 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
     if verdict is not None:
         return verdict
     if looks_sql or client_type == "SplunkClient":
-        log_fallback(str(capture), client_type, param)
+        log_fallback(str(capture), client_type, param, getattr(capture, "literal_style", None))
     return _heuristic_binds_value(capture, needles + _rendered_needles(client_type, needles))
 
 

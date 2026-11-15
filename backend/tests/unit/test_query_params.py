@@ -2574,6 +2574,101 @@ def test_an_integer_too_long_to_write_is_refused_in_a_json_query():
         query_params.render_json_number_params('{"table": "t", "limit": :n}', {"n": _too_long_int()})
 
 
+def test_an_integer_too_long_to_read_written_in_a_json_query_is_told_so():
+    document = '{"table": "t", "after": ' + "9" * 5000 + ', "limit": :n}'
+    with pytest.raises(ParamError, match="too long") as refused:
+        query_params.render_json_number_params(document, {"n": 5})
+    assert "not valid JSON" not in str(refused.value)
+
+
+def _wrapped(client):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    queries: list = []
+    timings: list = []
+    return QueryCapturingClientWrapper(client, queries, timings, client_key="c", query_timeout_seconds=30), \
+        queries, timings
+
+
+def _guarded_sql_client():
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    class _Recording(SqliteClient):
+        def __init__(self):
+            self.received: list = []
+
+        def execute_query(self, sql, *args, **kwargs):
+            self.received.append(sql)
+            return pd.DataFrame([{"rows": 1}])
+
+    return _Recording()
+
+
+def _structure_warnings(caplog):
+    import logging
+
+    return [r.getMessage() for r in caplog.records
+            if r.levelno == logging.WARNING and r.name == "app.ai.code_execution.code_execution"]
+
+
+@pytest.mark.parametrize("make_client", [_guarded_sql_client, _PlainObjectClient],
+                         ids=["guarded", "unguarded"])
+def test_params_refused_while_rendering_are_captured_timed_and_logged_by_structure(make_client, caplog):
+    import logging
+
+    logging.getLogger("app.ai.code_execution.code_execution").disabled = False  # alembic disables loggers
+    client = make_client()
+    wrapper, queries, timings = _wrapped(client)
+    with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), \
+            pytest.raises(ParamError, match="no value"):
+        wrapper.execute_query("SELECT * FROM t WHERE a = :owner", params={"other": "value-not-for-logs"})
+    assert client.received == []
+    assert [str(q) for q in queries] == ["SELECT * FROM t WHERE a = :owner"]
+    assert len(timings) == 1 and "no value" in timings[0]["error"]
+    warnings = _structure_warnings(caplog)
+    assert len(warnings) == 1, warnings
+    assert "ParamError" in warnings[0] and "other" in warnings[0]
+    assert "value-not-for-logs" not in warnings[0]
+
+
+class _NativeParamsObject:
+    """Not a connector; binds its own params (as Cypher's $name)."""
+
+    native_query_params = True
+
+    def __init__(self):
+        self.received: list = []
+
+    def execute_query(self, query, params=None):
+        self.received.append(query)
+        return pd.DataFrame([{"rows": 1}])
+
+
+def _guarded_native_client():
+    from app.data_sources.clients.neo4j_client import Neo4jClient
+
+    class _Recording(Neo4jClient):
+        def __init__(self):
+            self.received: list = []
+
+        def execute_query(self, query, params=None, **kwargs):
+            self.received.append(query)
+            return pd.DataFrame([{"rows": 1}])
+
+    return _Recording()
+
+
+@pytest.mark.parametrize("make_client", [_guarded_native_client, _NativeParamsObject],
+                         ids=["guarded", "unguarded"])
+def test_a_native_param_integer_too_long_to_write_is_refused_with_the_param_error(make_client):
+    client = make_client()
+    wrapper, queries, timings = _wrapped(client)
+    with pytest.raises(ParamError, match="too long"):
+        wrapper.execute_query("MATCH (n) WHERE n.id = $n RETURN n.name AS name", params={"n": _too_long_int()})
+    assert client.received == []
+    assert len(timings) == 1 and "too long" in timings[0]["error"]
+
+
 @pytest.mark.parametrize("values", [
     {"a": 7301000000000000001, "b": 5},
     {"a": 7301000000000000000, "b": 7301000000000000001},

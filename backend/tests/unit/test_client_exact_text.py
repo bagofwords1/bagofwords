@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import contextlib
 import sqlite3
+import sys
 from types import SimpleNamespace
 
 import duckdb
@@ -385,9 +386,13 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
         def __getattr__(self, name):
             return getattr(self.con, name)
 
-    monkeypatch.setattr(duckdb, "connect", lambda *a, **k: Recording(real_connect(*a, **k)))
     checked = ensure_read_only(client, query)
-    client.execute_query(checked)
+    # Only the client's own `import duckdb` sees the recording module; the
+    # DuckDB guard keeps its module (and the connection it builds) to itself.
+    with monkeypatch.context() as patch:
+        patch.setitem(sys.modules, "duckdb", SimpleNamespace(
+            connect=lambda *a, **k: Recording(real_connect(*a, **k))))
+        client.execute_query(checked)
     assert sent[-1] == checked and sent.count(checked) == 1
     assert all(s.startswith("CREATE ") for s in sent[:-1])
 

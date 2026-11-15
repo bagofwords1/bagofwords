@@ -147,6 +147,16 @@ BINDS_IN_ONE_READING = {
         "SELECT id FROM orders WHERE owner = 'alice' AND note = '" + BACKSLASH + "' OR 1 = 1 --'",
     "with standard quoting only":
         "SELECT id FROM orders WHERE owner = 'alice' AND note = '" + BACKSLASH + "' AND note = ' OR 1 = 1 --'",
+    # The backslash reading must not also take another engine's comment
+    # rules (Snowflake's // line comment): these engines read // as code.
+    "with // read as a comment only":
+        "SELECT id FROM orders WHERE owner = 'alice' AND note = '" + BACKSLASH + "' AND note = ' // 1 OR 1 = 1 --'",
+}
+
+
+_EXEMPT_CLIENT_CLASSES = {
+    "OpenSearchClient": ("app.data_sources.clients.opensearch_client", "OpenSearchClient"),
+    "CosmosdbClient": ("app.data_sources.clients.cosmosdb_client", "CosmosdbClient"),
 }
 
 
@@ -156,7 +166,9 @@ def _declared_capture(text, family):
     from app.ai.code_execution.client_profiles import _CLIENT_TABLE
     import importlib
 
-    (module, name), = [key for key, entry in _CLIENT_TABLE.items() if entry.family == family]
+    keys = [key for key, entry in _CLIENT_TABLE.items() if entry.family == family]
+    # Exempt clients (no guard, no renderer) are not in the client table.
+    (module, name), = keys or [_EXEMPT_CLIENT_CLASSES[family]]
     cls = getattr(importlib.import_module(module), name)
     return CapturedQuery(text, family, literal_style=cls.sql_literal_style)
 
@@ -170,5 +182,32 @@ def test_a_filter_that_binds_in_one_reading_only_is_refused_where_the_engine_may
 
 @pytest.mark.parametrize("family", EITHER_READING)
 def test_a_filter_that_binds_in_both_readings_is_accepted_where_the_engine_may_read_either(family):
+    capture = _declared_capture("SELECT id FROM orders WHERE owner = 'alice'", family)
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is None
+
+
+# Whether a block comment ends at the first */ or nests is not pinned for
+# the engines read with a declared literal style: a comment opened inside
+# another leaves the filter unproven.
+COMMENT_INSIDE_A_COMMENT = "SELECT id FROM orders WHERE owner = 'alice' /* /* */ OR 1 = 1 --*/"
+
+
+@pytest.mark.parametrize("family", EITHER_READING + ["OpenSearchClient", "CosmosdbClient"])
+def test_a_comment_inside_a_comment_leaves_the_filter_unproven_where_nesting_is_not_pinned(family):
+    capture = _declared_capture(COMMENT_INSIDE_A_COMMENT, family)
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is not None
+
+
+# A client with neither a guard dialect nor a renderer dialect that declares
+# the "doubled" style (OpenSearch) is read where '' and a backslash escape,
+# not with Snowflake's other rules ($$ strings, // comments).
+def test_a_filter_hidden_only_by_another_engines_string_rule_is_refused_for_a_doubled_style_client():
+    capture = _declared_capture("SELECT id FROM orders WHERE owner = 'alice' AND note = $$ OR 1 = 1 OR $$",
+                                "OpenSearchClient")
+    assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is not None
+
+
+@pytest.mark.parametrize("family", ["OpenSearchClient", "CosmosdbClient"])
+def test_a_plain_filter_is_accepted_for_a_declared_style_client(family):
     capture = _declared_capture("SELECT id FROM orders WHERE owner = 'alice'", family)
     assert verify_identity_binds_in_queries([capture], {"v": "alice"}, SPEC) is None

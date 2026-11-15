@@ -299,6 +299,12 @@ def test_unparseable_falls_back_to_legacy_and_warns(client, query):
         log.setLevel(was_level)
     assert (res is None) is _legacy(text, [v])
     assert any(getattr(r, "event", None) == "identity_bind_check_fallback" for r in records)
+    # Logged by structure only: never the query text, never the value.
+    for record in records:
+        logged = record.getMessage() + " " + " ".join(str(value) for value in vars(record).values())
+        assert v not in logged and "index=" not in logged and "SELECT" not in logged, logged
+    fallback = [r for r in records if getattr(r, "event", None) == "identity_bind_check_fallback"]
+    assert all(r.query_length == len(text) for r in fallback)
 
 
 @pytest.mark.parametrize("client,capture,ok", [

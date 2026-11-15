@@ -237,8 +237,45 @@ def test_a_custom_table_preview_is_refused_for_a_connector_whose_queries_are_not
     with pytest.raises(HTTPException) as refused:
         asyncio.run(service.preview(None, connection, "SELECT * FROM t"))
     assert refused.value.status_code == 400
-    assert "not available" in str(refused.value.detail)
+    # Says why: queries to this type are not checked yet.
+    assert "not checked" in str(refused.value.detail)
     assert sent == []
+
+
+def test_a_type_without_custom_tables_is_still_told_they_are_not_available():
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.services.custom_query_service import CustomQueryService
+
+    with pytest.raises(HTTPException) as refused:
+        CustomQueryService.ensure_accelerable(SimpleNamespace(type="no_such_type", auth_policy="system_only"))
+    assert "not available" in str(refused.value.detail)
+    assert "not checked" not in str(refused.value.detail)
+
+
+def test_a_type_whose_client_cannot_be_resolved_is_not_offered_custom_tables(monkeypatch, caplog):
+    import logging
+
+    from app.schemas import data_source_registry
+    from app.services import custom_query_service as service
+
+    def _broken(_key):
+        raise RuntimeError("detail-not-for-logs")
+
+    log = logging.getLogger(service.__name__)
+    log.disabled = False  # alembic's fileConfig disables existing loggers
+    real = data_source_registry.resolve_client_class
+    monkeypatch.setattr(service, "_UNCHECKED", {})
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
+    with caplog.at_level(logging.WARNING, logger=service.__name__):
+        assert not service.is_accelerable_type("postgresql")
+    logged = [r.getMessage() for r in caplog.records if r.name == service.__name__]
+    assert logged and all("RuntimeError" in m and "detail-not-for-logs" not in m for m in logged), logged
+    # Not remembered: once the client resolves, the type is offered again.
+    monkeypatch.setattr(data_source_registry, "resolve_client_class", real)
+    assert service.is_accelerable_type("postgresql")
 
 
 # ---------------------------------------------------------------- DynamoDB

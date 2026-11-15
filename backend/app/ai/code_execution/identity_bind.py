@@ -52,6 +52,9 @@ import logging
 import re
 from typing import List, Optional, Tuple
 
+from sqlglot.dialects.dialect import Dialect
+from sqlglot.tokens import Tokenizer as _Tokenizer
+
 logger = logging.getLogger(__name__)
 
 SPLUNK_CLIENT = "SplunkClient"
@@ -353,11 +356,26 @@ def _renderer(client_type: Optional[str]):
     return renderer_for_name(client_type or "")
 
 
+class _BowDoubledLiterals(Dialect):
+    """sqlglot's generic dialect, except that a backslash in a string also
+    escapes. Nothing else of any one engine (its comments, its other string
+    forms) comes with it."""
+
+    class Tokenizer(_Tokenizer):
+        STRING_ESCAPES = ["'", "\\"]
+
+
+# Registered with sqlglot under the class name, lowercased.
+_DOUBLED_LITERALS = "_bowdoubledliterals"
+
 # For a client with neither: a dialect whose string literals follow the
-# client's literal style. "doubled": '' and a backslash both escape;
-# "backslash": only a backslash does. ("standard" reads in sqlglot's generic
-# dialect, where '' is the only escape.)
-_STYLE_DIALECTS = {"doubled": "snowflake", "backslash": "spark"}
+# client's literal style. "doubled": '' and a backslash both escape (the
+# generic dialect otherwise). "backslash": only a backslash does, and a
+# string may also be in double quotes (Spark, whose other forms are syntax
+# such an engine refuses). ("standard" reads in sqlglot's generic dialect,
+# where '' is the only escape.) Whether a block comment nests is not pinned
+# by a style: see `_comment_inside_comment`.
+_STYLE_DIALECTS = {"doubled": _DOUBLED_LITERALS, "backslash": "spark"}
 
 
 def _dialect_for(client_type: Optional[str], literal_style: Optional[str] = None) -> Optional[str]:
@@ -365,11 +383,16 @@ def _dialect_for(client_type: Optional[str], literal_style: Optional[str] = None
     its parameter renderer writes literals for, so a rendered literal is read
     back as the value, else one whose literals follow the client's declared
     style (`_STYLE_DIALECTS`)."""
+    return _pinned_dialect(client_type) or _STYLE_DIALECTS.get(literal_style or "")
+
+
+def _pinned_dialect(client_type: Optional[str]) -> Optional[str]:
+    """The guard's dialect for the client, else its renderer's: a reading
+    pinned to the engine, not to a declared literal style."""
     from app.ai.code_execution.query_params import _sqlglot_dialect_of
     from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 
-    return (CLIENT_DIALECTS.get(client_type or "") or _sqlglot_dialect_of(_renderer(client_type))
-            or _STYLE_DIALECTS.get(literal_style or ""))
+    return CLIENT_DIALECTS.get(client_type or "") or _sqlglot_dialect_of(_renderer(client_type))
 
 
 def _as_standard_literals(text: str, client_type: Optional[str]) -> Optional[str]:
@@ -416,20 +439,57 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
     if renderer is not None and renderer.name == "ansi_or_backslash":
         # The engine may read a backslash in a string as an escape or not
         # (a server setting): the filter counts only when it binds in both
-        # readings. Where they disagree, it is not bound.
+        # readings, which differ in that alone. Where they disagree, it is
+        # not bound.
+        if _comment_inside_comment(text, None) or _comment_inside_comment(text, _DOUBLED_LITERALS):
+            return False
         standard = _sql_binds(text, None, needles)
-        backslash = _sql_binds(text, _STYLE_DIALECTS["doubled"], needles)
+        backslash = _sql_binds(text, _DOUBLED_LITERALS, needles)
         return standard if standard == backslash else False
-    return _sql_binds(text, _dialect_for(client_type, literal_style), needles)
+    dialect = _pinned_dialect(client_type)
+    if dialect is None:
+        dialect = _STYLE_DIALECTS.get(literal_style or "")
+        if dialect is not None and _comment_inside_comment(text, dialect):
+            return False
+    return _sql_binds(text, dialect, needles)
 
 
-def log_fallback(capture: str, client_type: Optional[str], param: str) -> None:
+def _comment_inside_comment(text: str, dialect: Optional[str]) -> bool:
+    """Whether a block comment, as `dialect` reads it, holds another `/*`.
+    Used where the reading is not the engine's own: whether the engine ends
+    such a comment at the first `*/` or nests it is not known, so the
+    filter is not taken as proven."""
+    from app.ai.code_execution.sql_guard import _gap_comments
+
+    reader = Dialect.get_or_raise(dialect)
+    try:
+        read = reader.tokenize(text)
+    except Exception:  # unreadable text: _sql_binds does not decide it either
+        return False
+    return any(mark == "/*" and "/*" in text[start + 2:end]
+               for mark, start, end in _gap_comments(text, read, reader.tokenizer_class))
+
+
+def _reading_of(client_type: Optional[str], literal_style: Optional[str]) -> str:
+    """Which reading the identity check took of a capture, for the log."""
+    renderer = _renderer(client_type)
+    if renderer is not None and renderer.name == "ansi_or_backslash":
+        return "standard and backslash-escape"
+    return _dialect_for(client_type, literal_style) or "generic"
+
+
+def log_fallback(capture: str, client_type: Optional[str], param: str,
+                 literal_style: Optional[str] = None) -> None:
+    """Log that the structural check could not decide a capture, by structure
+    only: the client type, the param's name, the capture's length and the
+    reading taken. Never the text: it holds the identity value."""
     logger.warning(
         "identity_bind_check.fallback",
         extra={
             "event": "identity_bind_check_fallback",
             "client_type": client_type or "unknown",
             "param": param,
-            "query_preview": capture[:200],
+            "query_length": len(capture),
+            "reading": "spl" if client_type == SPLUNK_CLIENT else _reading_of(client_type, literal_style),
         },
     )

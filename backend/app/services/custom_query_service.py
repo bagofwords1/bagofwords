@@ -175,7 +175,8 @@ _UNCHECKED: dict = {}
 
 def _is_unchecked(kind: str) -> bool:
     """Whether a connection type's client is one the query checks do not
-    know (`client_profiles.classify_type` is "unknown")."""
+    know (`client_profiles.classify_type` is "unknown"). A client that
+    cannot be resolved counts as unchecked, and is asked again next time."""
     if kind not in _UNCHECKED:
         try:
             from app.ai.code_execution.client_profiles import classify_type
@@ -184,8 +185,9 @@ def _is_unchecked(kind: str) -> bool:
             key = next((k for k in REGISTRY if k.lower() == kind), None)
             cls = resolve_client_class(key) if key else None
             _UNCHECKED[kind] = cls is not None and classify_type(cls) == "unknown"
-        except Exception:
-            _UNCHECKED[kind] = False
+        except Exception as e:
+            logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
+            return True
     return _UNCHECKED[kind]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
@@ -412,6 +414,14 @@ class CustomQueryService:
 
     @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
+        if _is_unchecked((connection.type or "").lower()):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Queries to '{connection.type}' connections are not checked yet, "
+                    "so custom tables are refused for them."
+                ),
+            )
         if not is_accelerable_type(connection.type):
             raise HTTPException(
                 status_code=400,
