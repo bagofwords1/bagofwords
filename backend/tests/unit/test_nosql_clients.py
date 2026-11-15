@@ -268,7 +268,6 @@ def test_a_type_whose_client_cannot_be_resolved_is_not_offered_custom_tables(mon
     log.disabled = False  # alembic's fileConfig disables existing loggers
     real = data_source_registry.resolve_client_class
     monkeypatch.setattr(service, "_UNCHECKED", {})
-    monkeypatch.setattr(service, "_UNRESOLVED_LOGGED", set())
     monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
     with caplog.at_level(logging.WARNING, logger=service.__name__):
         assert not service.is_accelerable_type("postgresql")
@@ -288,7 +287,6 @@ def _unresolvable(monkeypatch):
         raise RuntimeError("detail-not-for-logs")
 
     monkeypatch.setattr(service, "_UNCHECKED", {})
-    monkeypatch.setattr(service, "_UNRESOLVED_LOGGED", set())
     monkeypatch.setattr(data_source_registry, "resolve_client_class", _broken)
     return service
 

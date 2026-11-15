@@ -441,7 +441,7 @@ def structural_verdict(text: str, client_type: Optional[str], needles: Tuple[str
     if not engine_reading:
         # The reading is not the engine's own: the filter counts only when
         # the text is plain enough that every reasonable reading agrees.
-        reason = _outside_the_allow_list(text, _percent_comments(client_type))
+        reason = _outside_the_allow_list(text, _percent_comments(client_type), _loose_operators(client_type))
         if reason is not None:
             return False, reason
         if not looks_sql:
@@ -502,20 +502,44 @@ def _percent_comments(client_type: Optional[str]) -> bool:
 _ALLOWED_OUTSIDE_STRINGS = frozenset(string.ascii_letters + string.digits + "_ \t\n.,()=<>!*+-/|%:?")
 # Inside a "..." name.
 _ALLOWED_IN_NAMES = frozenset(string.ascii_letters + string.digits + "_ .-")
-# Sequences some engine reads as a comment mark.
-_REFUSED_SEQUENCES = ("--", "/*", "*/", "//")
+# Sequences some engine reads as a comment mark, and `??`, a coalesce that
+# binds looser than AND/OR where an engine has it.
+_REFUSED_SEQUENCES = ("--", "/*", "*/", "//", "??")
+# Operators that bind looser than AND/OR on a family's engine (a ternary,
+# a lambda), so a reading that is not the engine's own would group AND/OR
+# around them differently: refused outside strings for that family. A `:`
+# here is one not in a `::` cast, a `->` one not in a `->>` (on DuckDB a
+# text extraction that binds tighter than a comparison; on HogQL not
+# valid syntax). Keyed by family, else by the renderer
+# the family's parameters are written with.
+_LOOSE_OPERATORS_BY_FAMILY = {
+    "CosmosdbClient": ("?",),
+    "PostHogClient": ("?", ":", "->"),
+}
+_LOOSE_OPERATORS_BY_RENDERER = {"duckdb": ("->",)}
+
+
+@functools.lru_cache(maxsize=None)
+def _loose_operators(client_type: Optional[str]) -> Tuple[str, ...]:
+    """The operators `_outside_the_allow_list` refuses for the client on
+    top of the shared allow-list: its family's, else its renderer's."""
+    if client_type in _LOOSE_OPERATORS_BY_FAMILY:
+        return _LOOSE_OPERATORS_BY_FAMILY[client_type]
+    renderer = _renderer(client_type)
+    return _LOOSE_OPERATORS_BY_RENDERER.get(renderer.name, ()) if renderer is not None else ()
 
 
 def _is_control(char: str) -> bool:
     return char not in "\t\n" and unicodedata.category(char) == "Cc"
 
 
-def _outside_the_allow_list(text: str, percent: bool) -> Optional[str]:
+def _outside_the_allow_list(text: str, percent: bool, loose: Tuple[str, ...] = ()) -> Optional[str]:
     """None when `text` is plain enough that every reasonable reading draws
     the same string and name edges and finds no comment; else the kind of
     what is not (as in `structural_verdict`). One fixed reading: '...' is a
     string and '' inside it a quote; "..." is a name. `percent`: the engine
-    may read `%` as a comment."""
+    may read `%` as a comment. `loose`: operators the engine reads as
+    binding looser than AND/OR (`_loose_operators`)."""
     if "\\" in text:
         return "backslash"
     if any(_is_control(char) for char in text):
@@ -555,6 +579,11 @@ def _outside_the_allow_list(text: str, percent: bool) -> Optional[str]:
     code_text = "".join(code)
     if any(sequence in code_text for sequence in _REFUSED_SEQUENCES):
         return "sequence"
+    # A `::` cast and a `->>` text extraction are operators of their own.
+    others = code_text.replace("::", "  ").replace("->>", "   ")
+    for operator in loose:
+        if operator in others:
+            return "char" if len(operator) == 1 else "sequence"
     return None
 
 

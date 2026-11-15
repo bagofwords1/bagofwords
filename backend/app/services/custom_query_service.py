@@ -171,8 +171,6 @@ def is_accelerable_type(conn_type) -> bool:
 
 
 _UNCHECKED: dict = {}
-# Types whose unresolvable client was already logged in this process.
-_UNRESOLVED_LOGGED: set = set()
 
 
 def _is_unchecked(kind: str) -> bool:
@@ -196,10 +194,9 @@ def _unchecked_reason(kind: str) -> Optional[str]:
             cls = resolve_client_class(key) if key else None
             _UNCHECKED[kind] = "unknown" if cls is not None and classify_type(cls) == "unknown" else None
         except Exception as e:
+            # Kept in _UNCHECKED, so this runs (and logs) once per type.
             _UNCHECKED[kind] = "unresolved"
-            if kind not in _UNRESOLVED_LOGGED:
-                _UNRESOLVED_LOGGED.add(kind)
-                logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
+            logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
     return _UNCHECKED[kind]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")

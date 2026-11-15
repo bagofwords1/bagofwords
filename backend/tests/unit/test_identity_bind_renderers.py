@@ -377,6 +377,18 @@ REFUSED_OUTSIDE_A_STRING = {
     chr(0): "char", chr(13): "char", chr(11): "char", chr(12): "char", chr(127): "char", chr(0x85): "char",
     chr(0xE9): "char", chr(0x5D0): "char",
     "--": "sequence", "/*": "sequence", "*/": "sequence", "//": "sequence",
+    # A coalesce, which binds looser than AND/OR on the engines that have it.
+    "??": "sequence",
+}
+# Per family, what its engine reads as an operator that binds looser than
+# AND/OR: a ternary (`?`), a lambda (`:`, `->`). Refused there, outside a
+# string, on top of REFUSED_OUTSIDE_A_STRING.
+DUCKDB_RENDERED = ["CSVClient", "QVDClient", "PBIXClient", "PowerBIReportServerClient", "FastQueryClient"]
+REFUSED_FOR_FAMILY = {
+    "CosmosdbClient": ["?"],
+    "PostHogClient": ["?", ":", "->"],
+    "SybaseClient": ["%"],
+    **{family: ["->"] for family in DUCKDB_RENDERED},
 }
 _STRING_START, _STRING_END = PLAIN.index("'"), PLAIN.rindex("'")
 OUTSIDE_POSITIONS = [i for i in range(len(PLAIN) + 1) if not _STRING_START < i <= _STRING_END]
@@ -390,8 +402,10 @@ NOT_ONLY_SQL = {"ElasticsearchClient", "OpenSearchClient", "CosmosdbClient", Non
 def test_any_refused_character_or_sequence_outside_a_string_flips_a_plain_filter_to_refused(family):
     assert _refusal(PLAIN, family) is None
     positions = [i for i in OUTSIDE_POSITIONS if family not in NOT_ONLY_SQL or i > len("SELECT")]
-    for refused in list(REFUSED_OUTSIDE_A_STRING) + (["%"] if family == "SybaseClient" else []):
+    for refused in list(REFUSED_OUTSIDE_A_STRING) + REFUSED_FOR_FAMILY.get(family, []):
         for i in positions:
+            if refused == "->" and PLAIN[i:i + 1] == ">":
+                continue  # makes `->>`, another operator
             text = PLAIN[:i] + refused + PLAIN[i:]
             assert _refusal(text, family) == UNVERIFIABLE, (refused, i)
     # A `;` is allowed only as the last character that is not whitespace.
@@ -400,21 +414,73 @@ def test_any_refused_character_or_sequence_outside_a_string_flips_a_plain_filter
             assert _refusal(PLAIN[:i] + ";" + PLAIN[i:], family) == UNVERIFIABLE, (";", i)
 
 
-# `:`, `?` and a trailing `;` are plain syntax: a cast, a placeholder, the
-# end of the statement.
+# `::`, `?`, `:` and a trailing `;` are plain syntax: a cast, a placeholder,
+# the end of the statement. Not where the engine reads `?` or `:` as an
+# operator that binds looser than AND/OR (REFUSED_FOR_FAMILY).
 ACCEPTED_PLAIN_SYNTAX = [
     "SELECT a FROM t WHERE owner = 'v' AND d > '2024-01-01'::DATE",
     PLAIN + ";",
     PLAIN + " ;" + NL,
-    "SELECT a FROM t WHERE owner = 'v' AND x > ?",
-    "SELECT a FROM t WHERE owner = 'v' AND x > :lim",
 ]
+PLACEHOLDERS = {
+    "?": "SELECT a FROM t WHERE owner = 'v' AND x > ?",
+    ":": "SELECT a FROM t WHERE owner = 'v' AND x > :lim",
+}
 
 
 @pytest.mark.parametrize("text", ACCEPTED_PLAIN_SYNTAX)
 @pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
-def test_a_cast_a_placeholder_and_a_trailing_semicolon_are_accepted_without_the_engines_reading(family, text):
+def test_a_cast_and_a_trailing_semicolon_are_accepted_without_the_engines_reading(family, text):
     assert _refusal(text, family) is None
+
+
+@pytest.mark.parametrize("mark", list(PLACEHOLDERS))
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_a_placeholder_is_accepted_without_the_engines_reading_unless_the_engine_reads_it_as_an_operator(
+        family, mark):
+    expected = UNVERIFIABLE if mark in REFUSED_FOR_FAMILY.get(family, []) else None
+    assert _refusal(PLACEHOLDERS[mark], family) == expected
+
+
+def test_a_placeholder_question_mark_stays_accepted_on_the_families_that_bind_with_it():
+    for family in ["Db2Client", "IbmiClient", "VerticaClient", "SybaseClient", "SapHanaClient", "PinotClient",
+                   "NetsuiteClient", "OracleBIClient", "SisenseClient", "SalesforceClient", "OpenSearchClient",
+                   "ElasticsearchClient", *DUCKDB_RENDERED, None]:
+        assert _refusal(PLACEHOLDERS["?"], family) is None, family
+
+
+# Shapes where the engine groups AND/OR around an operator that binds looser
+# than both: the filter the reading sees is not the one the engine applies.
+LOOSER_THAN_AND_OR = {
+    "CosmosdbClient": ["SELECT * FROM c WHERE c.owner = 'v' AND c.f ?? true",
+                       "SELECT * FROM c WHERE c.owner = 'v' AND c.f ? true : true"],
+    "PostHogClient": ["SELECT a FROM t WHERE owner = 'v' AND f ?? true",
+                      "SELECT a FROM t WHERE owner = 'v' AND f ? 1 : 1",
+                      "SELECT a FROM t WHERE z -> 1 AND owner = 'v'"],
+    **{family: ["SELECT a FROM t WHERE c -> 'k' AND owner = 'v'"] for family in DUCKDB_RENDERED},
+}
+
+
+@pytest.mark.parametrize("family, text", [(f, t) for f, texts in LOOSER_THAN_AND_OR.items() for t in texts])
+def test_an_operator_that_binds_looser_than_and_or_on_the_engine_is_refused(family, text):
+    assert _refusal(text, family) == UNVERIFIABLE
+
+
+@pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
+def test_a_coalesce_is_refused_on_every_client_without_the_engines_reading(family):
+    assert _refusal("SELECT a FROM t WHERE owner = 'v' AND f ?? 1 = 1", family) == UNVERIFIABLE
+
+
+@pytest.mark.parametrize("family", DUCKDB_RENDERED)
+def test_a_json_text_extraction_stays_accepted_where_an_arrow_is_refused(family):
+    # `->>` is its own operator there, binding tighter than a comparison.
+    assert _refusal("SELECT a FROM t WHERE owner = 'v' AND j ->> 'k' = 'x'", family) is None
+
+
+def test_a_cast_stays_accepted_where_a_lone_colon_is_refused():
+    assert _refusal("SELECT a FROM t WHERE owner = 'v' AND d > '2024-01-01'::Date", "PostHogClient") is None
+    assert _refusal("SELECT a FROM t WHERE owner = 'v' AND d > '2024-01-01':::Date", "PostHogClient") \
+        == UNVERIFIABLE
 
 
 @pytest.mark.parametrize("text", [PLAIN + "; SELECT 1", PLAIN + "; -- note", PLAIN + ";;"])
@@ -435,7 +501,7 @@ def test_a_placeholder_never_counts_as_the_identity_value(family, text):
 
 @pytest.mark.parametrize("family", NO_ENGINE_READING + [None])
 def test_inside_a_string_anything_but_a_backslash_or_a_control_character_is_allowed(family):
-    for inside in ("a -- b /* c */ # d // e % f ; g [h] `i` $j", "".join(chr(c) for c in (0x5D3, 0x5E0)), "it''s",
+    for inside in ("a -- b /* c */ # d // e % f ; g [h] `i` $j ?? k ? l : m -> n","".join(chr(c) for c in (0x5D3, 0x5E0)), "it''s",
                    'say "hi"', "tab" + chr(9) + "lf" + NL):
         assert _refusal("SELECT a FROM t WHERE owner = 'v' AND note = '" + inside + "'", family) is None, inside
     for inside in (BACKSLASH, chr(0), chr(13), chr(127)):
@@ -471,6 +537,8 @@ def _identity_records(run):
     ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND note = 'x" + BACKSLASH + "'", "OracleBIClient",
      "backslash"),
     ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND 2 = 5 % 2", "SybaseClient", "percent"),
+    ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND f ?? 1 = 1", "SalesforceClient", "sequence"),
+    ("SELECT * FROM c WHERE c.owner = 'alice@corp.io' AND c.x > ?", "CosmosdbClient", "char"),
     ("SELECT a FROM t WHERE owner = 'alice@corp.io' OR 1 = 1 WITH UR", "Db2Client", "unparseable"),
     ("SELECT a FROM t WHERE owner = 'alice@corp.io' AND note = 'open", None, "unparseable"),
 ])
