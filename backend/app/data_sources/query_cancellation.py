@@ -95,10 +95,16 @@ def cancel_thread(client: Any, thread_ident: int) -> str:
         return f"failed: {type(e).__name__}"
 
 
-# Outcome detail when the login may not KILL. Named, because the fix is a grant
-# the customer's DBA has to make, and "failed: ProgrammingError" tells them
-# nothing.
-KILL_PERMISSION_DENIED = "permission denied (KILL needs ALTER ANY CONNECTION on SQL Server, CONNECTION_ADMIN or PROCESS on MySQL)"
+# Outcome detail when the login may not KILL, per engine. Named, because the
+# fix is a grant the customer's DBA has to make, and "failed:
+# ProgrammingError" tells them nothing.
+KILL_PERMISSION_DENIED = {
+    "mssql": "permission denied (KILL needs ALTER ANY CONNECTION; "
+             "KILL DATABASE CONNECTION on Azure SQL Database)",
+    "mysql": "permission denied (KILL QUERY on another user's thread needs CONNECTION_ADMIN or SUPER)",
+}
+KILL_PERMISSION_DENIED["mariadb"] = KILL_PERMISSION_DENIED["mysql"]
+KILL_PERMISSION_DENIED["sql server"] = KILL_PERMISSION_DENIED["mssql"]
 
 
 def _is_kill_permission_error(e: BaseException) -> bool:
@@ -288,7 +294,8 @@ def _kill_via_side_connection(sa_conn: Any, statement: str, success: str, client
     except Exception as e:
         logger.warning("KILL failed (%s): %s", statement, e)
         if _is_kill_permission_error(e):
-            return f"failed: {KILL_PERMISSION_DENIED}"
+            detail = KILL_PERMISSION_DENIED.get(_dialect_name(sa_conn), "permission denied")
+            return f"failed: {detail}"
         return f"failed: {type(e).__name__}"
     finally:
         if side is not None:

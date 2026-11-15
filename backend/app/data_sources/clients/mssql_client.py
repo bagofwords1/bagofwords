@@ -11,7 +11,7 @@ from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
 from contextlib import contextmanager
-from typing import Generator, List, Optional
+from typing import Generator, List, Optional, Tuple
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
@@ -54,6 +54,38 @@ _KILL_PERMISSION_HINT = (
     "holding locks until it finishes. Grant ALTER ANY CONNECTION to the login "
     "to let BOW stop timed-out queries."
 )
+# Azure SQL Database has no server-level permissions; KILL there needs the
+# database permission KILL DATABASE CONNECTION.
+_KILL_PERMISSION_HINT_AZURE = (
+    "This user lacks the KILL DATABASE CONNECTION permission, so BOW cannot "
+    "stop a query on Azure SQL Database after it times out: the query keeps "
+    "running and holding locks until it finishes. Grant KILL DATABASE "
+    "CONNECTION to the user to let BOW stop timed-out queries."
+)
+# SERVERPROPERTY('EngineEdition') of Azure SQL Database. Managed Instance (8)
+# and on-premises SQL Server keep server-level permissions.
+_AZURE_SQL_DATABASE_EDITION = 5
+
+
+class MssqlLockConflictError(RuntimeError):
+    """A query SQL Server stopped so the database's own writers could proceed.
+
+    Raised for error 1222 (lock timeout) and for a deadlock still lost after
+    the one retry. The message says what happened and what to do, instead of
+    the driver's text. The driver error stays chained as ``__cause__``.
+    """
+
+
+def _sql_server_error_code(e: BaseException) -> Optional[int]:
+    """The SQL Server error number in a driver error, for the few we map.
+
+    pyodbc puts it in the message as "(1222)" before "(SQLExecDirectW)".
+    """
+    text = str(e)
+    for code in (1205, 1222, 3951, 3952):
+        if f"({code})" in text:
+            return code
+    return None
 
 
 def _is_snapshot_refusal(e: BaseException) -> bool:
@@ -73,11 +105,21 @@ def _session_setup_hook(sql: str):
     the client, because the engine outlives any one client instance.
     """
     def hook(dbapi_connection, _connection_record):
-        cursor = dbapi_connection.cursor()
         try:
-            cursor.execute(sql)
-        finally:
-            cursor.close()
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute(sql)
+            finally:
+                cursor.close()
+        except BaseException:
+            # SQLAlchemy discards the pool record when a connect listener
+            # raises, but does not close the driver connection: without this
+            # it stays open on the server until garbage collection.
+            try:
+                dbapi_connection.close()
+            except Exception:
+                pass
+            raise
     return hook
 
 
@@ -329,15 +371,66 @@ class MSSQLClient(DataSourceClient):
             conn.invalidate()
             raise
 
+    # One retry for a lost deadlock: SQL Server rolled the victim back
+    # entirely, so running the statement again is the same as running it the
+    # first time, and the other transaction has usually finished by then.
+    DEADLOCK_RETRIES = 1
+
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
-        try:
-            with self.connect() as conn:
-                df = pd.read_sql(text(sql), conn)
-            return df
-        except Exception as e:
-            print(f"Error executing SQL: {e}")
-            raise
+        attempt = 0
+        while True:
+            try:
+                with self.connect() as conn:
+                    df = pd.read_sql(text(sql), conn)
+                return df
+            except Exception as e:
+                code = _sql_server_error_code(e)
+                if code == 1205 and attempt < self.DEADLOCK_RETRIES:
+                    attempt += 1
+                    logger.info("SQL Server chose this query as a deadlock victim; retrying once")
+                    continue
+                mapped = self._explain_server_error(e, code)
+                if mapped is not None:
+                    raise mapped from e
+                print(f"Error executing SQL: {e}")
+                raise
+
+    def _explain_server_error(self, e: BaseException, code: Optional[int]) -> Optional[Exception]:
+        """A clear error for the failures BOW's own settings produce, or None.
+
+        With DEADLOCK_PRIORITY LOW and a lock timeout, BOW now gives way on
+        purpose. The driver's text ("Lock request time out period exceeded.")
+        says neither that this was deliberate nor what to do next.
+        """
+        if code == 1222:
+            limit = f"{self.lock_timeout_seconds}s" if self.lock_timeout_seconds > 0 else "its limit"
+            return MssqlLockConflictError(
+                "SQL Server error 1222: rows this query reads are locked by another "
+                f"session, and the query gave up after waiting {limit} so it would not "
+                "block the database's own work. Retry later, or read fewer rows (a "
+                "narrower filter or TOP n). An admin can change the wait in the "
+                "connection's Lock Timeout setting."
+            )
+        if code == 1205:
+            return MssqlLockConflictError(
+                "SQL Server error 1205: this query was chosen as a deadlock victim twice "
+                "in a row, so the database's own transactions could finish. It was "
+                "rolled back and changed nothing. Retry later, when the database is "
+                "less busy."
+            )
+        # 3952 comes from the connection's own database; reading another
+        # database that does not allow snapshot (a three-part name) is 3951,
+        # verified on SQL Server 2022. This client enters SNAPSHOT before any
+        # transaction starts, so 3951 cannot mean a mid-transaction switch.
+        if code in (3951, 3952) or _is_snapshot_refusal(e):
+            return MssqlLockConflictError(
+                f"SQL Server error {code or 3952}: this connection uses snapshot isolation, but a "
+                "database the query reads does not allow it. Run ALTER DATABASE "
+                "<name> SET ALLOW_SNAPSHOT_ISOLATION ON on that database, or choose a "
+                "different isolation level for this connection."
+            )
+        return None
 
     def get_tables(self) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails."""
@@ -506,8 +599,9 @@ class MSSQLClient(DataSourceClient):
                     if problem:
                         return {"success": False, "message": problem}
                 warnings = []
-                if self._can_kill_sessions(conn) is False:
-                    warnings.append(_KILL_PERMISSION_HINT)
+                can_kill, azure = self._can_kill_sessions(conn)
+                if can_kill is False:
+                    warnings.append(_KILL_PERMISSION_HINT_AZURE if azure else _KILL_PERMISSION_HINT)
                 message = "Successfully connected to SQL Server"
                 if warnings:
                     message += ". " + " ".join(warnings)
@@ -553,23 +647,37 @@ class MSSQLClient(DataSourceClient):
             "or choose a different isolation level for this connection."
         )
 
-    def _can_kill_sessions(self, conn) -> Optional[bool]:
-        """Whether this login may KILL its own timed-out sessions.
+    def _can_kill_sessions(self, conn) -> Tuple[Optional[bool], bool]:
+        """(may this login KILL its own timed-out sessions, is this Azure SQL DB).
 
-        True/False when the server answers, None when it cannot say (e.g. a
-        platform without server-level permissions). Never raises: this only
-        decides whether to warn.
+        The first value is True/False when the server answers and None when
+        it cannot say. Azure SQL Database has no server-level permissions, so
+        there the check is the database permission KILL DATABASE CONNECTION;
+        asking it about ALTER ANY CONNECTION would recommend a grant that
+        cannot be made. Never raises: this only decides whether to warn.
         """
+        azure = False
         try:
-            value = conn.execute(text(
-                "SELECT HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER ANY CONNECTION')"
-            )).scalar()
+            edition = conn.execute(text("SELECT CONVERT(int, SERVERPROPERTY('EngineEdition'))")).scalar()
+            azure = edition is not None and int(edition) == _AZURE_SQL_DATABASE_EDITION
         except Exception as e:
-            logger.debug("Could not check ALTER ANY CONNECTION: %s", e)
-            return None
+            # Unknown edition: check as on-premises SQL Server.
+            logger.debug("Could not read SQL Server edition: %s", e)
+        try:
+            if azure:
+                value = conn.execute(text(
+                    "SELECT HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'KILL DATABASE CONNECTION')"
+                )).scalar()
+            else:
+                value = conn.execute(text(
+                    "SELECT HAS_PERMS_BY_NAME(NULL, NULL, 'ALTER ANY CONNECTION')"
+                )).scalar()
+        except Exception as e:
+            logger.debug("Could not check KILL permission: %s", e)
+            return None, azure
         if value is None:
-            return None
-        return bool(int(value))
+            return None, azure
+        return bool(int(value)), azure
 
     @property
     def description(self):

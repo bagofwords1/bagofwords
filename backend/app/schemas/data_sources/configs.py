@@ -1516,7 +1516,7 @@ class MssqlConfig(SQLConfig):
     isolation_level: Literal["default", "snapshot", "read_uncommitted"] = Field(
         "default",
         title="Isolation Level",
-        description="default: READ COMMITTED, the server default (lock-free if the database has READ_COMMITTED_SNAPSHOT on). snapshot: reads take no locks; the database needs ALLOW_SNAPSHOT_ISOLATION ON. read_uncommitted: reads take no locks but can return uncommitted (dirty) data.",
+        description="default: READ COMMITTED, the server default (lock-free if the database has READ_COMMITTED_SNAPSHOT on). snapshot: reads take no locks; the database needs ALLOW_SNAPSHOT_ISOLATION ON, and long reads (such as large extractions) grow the tempdb version store while they run. read_uncommitted: reads take no locks but can return uncommitted (dirty) data.",
         json_schema_extra={"ui:type": "select", "ui:options": ["default", "snapshot", "read_uncommitted"]}
     )
 
