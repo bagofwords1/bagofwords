@@ -772,10 +772,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # The viz-reference contract rides along too: a reference to a viz that
         # isn't in the payload (or a payload viz the code never renders) is a
         # silent-wrong-data defect no screenshot can catch.
-        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors, raw_chart_errors
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
         if mode == "page":
-            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data)
+            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data) + raw_chart_errors(code, artifact_data)
 
         original_code = code
         original_screenshot = screenshot
@@ -810,7 +810,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
-                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data)
+                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data) + raw_chart_errors(candidate, artifact_data)
 
         if strict and not fatal and wiring:
             # Strict (planner-authored) mode: contract errors are as fatal as

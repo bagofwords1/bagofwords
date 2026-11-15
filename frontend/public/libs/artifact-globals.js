@@ -1339,7 +1339,9 @@
     var variant = props.variant || 'card';
     var onAccent = variant === 'accent' || variant === 'inverse';
     var pad = PAD[props.padding || 'md'];
-    var cls = _mergeClasses(_join('relative', pad, CARD_VARIANTS[variant] || CARD_VARIANTS.card), props.className);
+    // h-full: cards side by side in a grid row stretch to the same height
+    // instead of leaving dead space under the shorter one.
+    var cls = _mergeClasses(_join('relative h-full', pad, CARD_VARIANTS[variant] || CARD_VARIANTS.card), props.className);
     var titleCls = _mergeClasses('text-[15px] font-semibold leading-snug text-ink', props.titleClassName);
     var subCls = _mergeClasses(_join('text-xs mt-0.5', onAccent ? 'opacity-75' : 'text-ink-3'), props.subtitleClassName);
     var hasHeader = props.title || props.eyebrow || props.actions;
@@ -1507,7 +1509,11 @@ function _dtDetectDir(cols, rows) {
     var _pg = React.useState(0), page = _pg[0], setPage = _pg[1];
     var _q = React.useState(''), query = _q[0], setQuery = _q[1];
     var _sel = React.useState(null), selRow = _sel[0], setSelRow = _sel[1];
-    var dir = props.dir || _dtDetectDir(cols, baseRows);
+    // A right-to-left page gets a right-to-left table even when the cells are
+    // English (team or product names); otherwise the table reads its own text.
+    var pageRtl = false;
+    try { pageRtl = getComputedStyle(document.documentElement).direction === 'rtl'; } catch (e) {}
+    var dir = props.dir || (pageRtl ? 'rtl' : _dtDetectDir(cols, baseRows));
     var L = _dtLabels(props.labels, _dtLang(props.lang, cols, baseRows));
     // Years and IDs are labels, not quantities: 2025, not "2,025" or "2.0K".
     // The name must end in the word (order_id, customerId, "Fiscal Year"; not
@@ -1989,6 +1995,40 @@ function _dtDetectDir(cols, rows) {
 
   // <EChart option height className viz rows calc palette /> — palette: array of
   // colors overriding the theme's chart palette for this chart only.
+  // More than 8 line or bar series can't be told apart (the palette repeats
+  // and the lines knot together). Show the 8 largest by total and keep the
+  // rest in a scrolling legend, greyed and one click away: nothing is merged
+  // or dropped. Stacked series are parts of a whole and are left alone.
+  var _CH_MAX_SERIES = 8;
+  function _chSeriesTotal(s) {
+    var t = 0;
+    (s.data || []).forEach(function(d) {
+      var v = d && typeof d === 'object' ? (Array.isArray(d) ? d[d.length - 1] : d.value) : d;
+      if (Array.isArray(v)) v = v[v.length - 1];
+      var n = typeof v === 'number' ? v : parseFloat(v);
+      if (isFinite(n)) t += Math.abs(n);
+    });
+    return t;
+  }
+  function _chLimitSeries(opt) {
+    var s = opt && opt.series;
+    if (!Array.isArray(s) || Array.isArray(opt.legend)) return opt;
+    var cart = s.filter(function(x) { return x && (x.type === 'line' || x.type === 'bar') && x.name != null; });
+    if (cart.length <= _CH_MAX_SERIES || cart.some(function(x) { return x.stack; })) return opt;
+    var ranked = cart.map(function(x) { return { name: String(x.name), t: _chSeriesTotal(x) }; })
+      .sort(function(a, b) { return b.t - a.t; });
+    var selected = {};
+    ranked.forEach(function(r, i) { selected[r.name] = i < _CH_MAX_SERIES; });
+    var lg = {}; for (var k in (opt.legend || {})) lg[k] = opt.legend[k];
+    lg.show = true; lg.type = 'scroll';
+    var keep = lg.selected || {}; for (var n in keep) selected[n] = keep[n];
+    lg.selected = selected;
+    if (lg.top == null && lg.bottom == null) lg.bottom = 0;
+    var o = {}; for (var k2 in opt) o[k2] = opt[k2];
+    o.legend = lg;
+    return o;
+  }
+
   window.EChart = function(props) {
     var ref = React.useRef(null);
     var chartRef = React.useRef(null);
@@ -2002,8 +2042,8 @@ function _dtDetectDir(cols, rows) {
     }, []);
     function withPalette(opt) {
       if (!opt) return opt;
-      var o = opt;
-      if (props.palette && props.palette.length && !opt.color) { o = {}; for (var k in opt) o[k] = opt[k]; o.color = props.palette; }
+      var o = _chLimitSeries(opt);
+      if (props.palette && props.palette.length && !opt.color) { var pc = {}; for (var k in o) pc[k] = o[k]; pc.color = props.palette; o = pc; }
       // A legend needs room the theme's tight grid does not reserve: give a
       // bottom legend a bottom margin and a top legend a top margin unless the
       // author positioned the grid explicitly (the classic overlap bug).
@@ -2196,6 +2236,28 @@ function _dtDetectDir(cols, rows) {
     } catch (e) { return new Date(t).toISOString().slice(0, g === 'month' ? 7 : 10); }
   }
 
+  // unit="currency" means the data's own currency: a code in the measure's
+  // name (amount_eur), else the one stored on the viz (its saved chart format
+  // or data model), else USD. A model that writes unit="currency" for euro
+  // data must not get dollars.
+  var _CH_CUR_CODE = /(^|_)(usd|eur|gbp|ils|nis|jpy|chf|cad|aud|inr|cny|brl|mxn|sek|nok|dkk|pln|zar|krw|sgd|hkd|nzd)(_|$)/i;
+  function _chVizCurrency(viz) {
+    try {
+      var v = viz && viz.view, vv = v && (v.view || v);
+      var c = (vv && vv.axisY && vv.axisY.currency) || (viz && viz.dataModel && viz.dataModel.display && viz.dataModel.display.currency);
+      return c && /^[A-Za-z]{3}$/.test(c) ? String(c).toUpperCase() : null;
+    } catch (e) { return null; }
+  }
+  function _chResolveUnit(unit, viz, measures) {
+    var u = unit || 'number';
+    if (u !== 'currency') return u;
+    for (var i = 0; i < (measures || []).length; i++) {
+      var m = String(measures[i] == null ? '' : measures[i]).replace(/([a-z0-9])([A-Z])/g, '$1_$2').match(_CH_CUR_CODE);
+      if (m) { var code = m[2].toUpperCase(); return code === 'NIS' ? 'ILS' : code; }
+    }
+    return _chVizCurrency(viz) || 'USD';
+  }
+
   // Numbers by unit. percent = already ×100; ratio = 0–1. Never fmt()'s
   // per-value percent guess, which would print 0.8 → "80%" next to 1.2 → "1.2%".
   function _chNumber(unit, n, decimals, lang) {
@@ -2256,7 +2318,7 @@ function _dtDetectDir(cols, rows) {
     var miss = _chMissing([props.x, props.series].concat(ys), fields);
     if (miss.length && fields.length) return _chErr('TrendChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
-    var additive = props.additive === true, unit = props.unit || 'number';
+    var additive = props.additive === true, unit = _chResolveUnit(props.unit, viz, ys);
 
     // Time or ordered category.
     var parsed = rows.map(function(r) { return _chParseTime(r ? r[props.x] : null); });
@@ -2415,7 +2477,7 @@ function _dtDetectDir(cols, rows) {
     var miss = _chMissing([props.label, props.value], fields);
     if (miss.length && fields.length) return _chErr('RankChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
-    var additive = props.additive === true, unit = props.unit || 'number';
+    var additive = props.additive === true, unit = _chResolveUnit(props.unit, viz, [props.value]);
     var vals = Object.create(null), rawOf = Object.create(null), names = [], dup = false;
     rows.forEach(function(r) {
       if (!r) return;
@@ -2448,7 +2510,9 @@ function _dtDetectDir(cols, rows) {
       // towards gets room for the longest one (and the axis's last tick).
       grid: { left: rtl ? 64 : 8, right: rtl ? 8 : 64, top: 8, bottom: 8, containLabel: true },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return _chNumber(unit, v, valDec, lang); } },
-      xAxis: { type: 'value', inverse: !!rtl, axisLabel: { formatter: function(v) { return _chNumber(unit, v, tickDec, lang); } } },
+      // Every bar is labelled with its value, so the value axis's tick labels
+      // add nothing and crowd a narrow card; the gridlines stay.
+      xAxis: { type: 'value', inverse: !!rtl, axisLabel: { show: false, formatter: function(v) { return _chNumber(unit, v, tickDec, lang); } } },
       yAxis: { type: 'category', inverse: true, position: rtl ? 'right' : 'left', data: bars.map(function(b) { return b[0]; }),
         axisLabel: { interval: 0, hideOverlap: false, width: 150, overflow: 'truncate' } },
       series: [{ type: 'bar', barMaxWidth: 20,

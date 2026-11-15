@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 import uuid
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 VIZ_POSITIONAL_RE = re.compile(r"\bviz\[(\d+)\]")
 DATA_VIZ_POSITIONAL_RE = re.compile(r"\bdata\.visualizations\[(\d+)\]")
@@ -340,6 +340,72 @@ def _jsx_prop(body: str, name: str):
             if depth == 0:
                 return ("expr", rest[1:j].strip())
     return None
+
+
+_SERIES_KEY_RE = re.compile(r"\bseries\s*:")
+_SERIES_TYPE_RE = re.compile(r"""\btype\s*:\s*['"`](line|bar)['"`]""")
+
+
+def _series_values(src: str):
+    """The text of each ``series: …`` value in the code (an array literal or an expression)."""
+    for m in _SERIES_KEY_RE.finditer(src):
+        depth, quote, i = 0, None, m.end()
+        while i < len(src):
+            ch = src[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'`":
+                quote = ch
+            elif ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch == "," and depth == 0:
+                break
+            i += 1
+        yield src[m.end():i]
+
+
+def _raw_line_bar_charts(src: str) -> int:
+    """How many chart options draw only line or only bar series (a bar-and-line combo is a target chart)."""
+    count = 0
+    for value in _series_values(src or ""):
+        kinds = set(_SERIES_TYPE_RE.findall(value))
+        if len(kinds) == 1:
+            count += 1
+    return count
+
+
+def raw_chart_errors(code: str, artifact_data: Dict[str, Any], previous_code: Optional[str] = None) -> List[str]:
+    """A raw <EChart> line or bar chart where TrendChart / RankChart fit.
+
+    The components handle units, every category label and the point cap;
+    raw charts brought those defects back on unfamiliar data. Runtime 11+ only.
+    On an edit (``previous_code``) only charts the edit adds count, so an
+    existing page isn't blocked by charts it already had.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    src = code or ""
+    if version < 11 or "<EChart" not in src:
+        return []
+    added = _raw_line_bar_charts(src) - (_raw_line_bar_charts(previous_code) if previous_code is not None else 0)
+    if added <= 0:
+        return []
+    return [
+        "[charts] The code draws a line or bar chart with a raw <EChart> option. Build a measure over time with "
+        "<TrendChart> and a ranking or comparison by category with <RankChart>: they show every label, the units "
+        "and the point cap. Keep <EChart> for other types (scatter, pie, heatmap…) or a bar-and-line target chart."
+    ]
 
 
 _BOW_FILE_TAG_RE = re.compile(r"<BowFile\b")
