@@ -1895,7 +1895,26 @@ class ReportService:
         connection_errors: list = []
         # Auto (an unattached report) resolves like the interactive path — the
         # credential user's accessible agents — instead of to an empty set.
-        run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        attached = list(getattr(report, "data_sources", None) or [])
+        try:
+            run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        except HTTPException as e:
+            # None of the report's agents is usable by this identity. That is
+            # a per-source outcome for the viewer gate, not a failed run.
+            if e.status_code != 409 or not attached:
+                raise
+            run_agents = []
+        # A pinned agent this identity can't use (no access, deleted or
+        # disabled) is left out of the run. Name it, so the gate can offer
+        # "ask an admin" instead of showing a silently broken dashboard.
+        running = {str(ds.id) for ds in run_agents}
+        for data_source in attached:
+            if str(data_source.id) not in running:
+                from app.services.access_errors import NO_ACCESS_CODE
+                data_source_errors.append({
+                    "data_source": data_source.name, "data_source_id": str(data_source.id),
+                    "code": NO_ACCESS_CODE, "error": "You do not have access to this data source",
+                })
         for data_source in run_agents:
             try:
                 # Rows filter for the viewer whose result this is, also when
