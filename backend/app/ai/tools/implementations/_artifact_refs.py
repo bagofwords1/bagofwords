@@ -20,6 +20,7 @@ copy at edit time and persists only as the next version.
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -561,3 +562,56 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
                 f"Columns: {', '.join(cols)}. Use one of them, or pass rows= with the derived rows that have that field."
             )
     return errors
+
+
+_CHART_TAG_RE = re.compile(r"<(TrendChart|RankChart|EChart)\b")
+# What counts as "the answer first": a KPI card, a big number, or a line of text.
+_FOCAL_RE = re.compile(r"<KPICard\b|<p[\s>]|\btext-(?:2|3|4|5|6)xl\b")
+# Turns (head completion ids) that already got the layout note: it is given once.
+_LAYOUT_NOTED: "OrderedDict[str, bool]" = OrderedDict()
+_LAYOUT_NOTED_MAX = 2000
+
+
+def _has_focal_point(src: str) -> bool:
+    charts = [m.start() for m in _CHART_TAG_RE.finditer(src)]
+    if len(charts) < 2:
+        return True
+    # A KPI card anywhere counts (sub-components may be defined above App);
+    # otherwise a big number or a text line must come before the first chart.
+    return "<KPICard" in src or bool(_FOCAL_RE.search(src[: charts[0]]))
+
+
+def focal_point_errors(
+    code: str,
+    artifact_data: Dict[str, Any],
+    previous_code: Optional[str] = None,
+    once_key: Optional[str] = None,
+) -> List[str]:
+    """A page of two or more charts with no answer above them.
+
+    A soft check: the note is returned once per turn (``once_key``, the head
+    completion id), so a page that should open with charts still builds on the
+    next attempt. Runtime 11+ only. On an edit (``previous_code``) it applies
+    only when the edit removes the focal point the page had.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    src = code or ""
+    if version < 11 or _has_focal_point(src):
+        return []
+    if previous_code is not None and not _has_focal_point(previous_code):
+        return []
+    if once_key is not None:
+        if once_key in _LAYOUT_NOTED:
+            return []
+        _LAYOUT_NOTED[once_key] = True
+        while len(_LAYOUT_NOTED) > _LAYOUT_NOTED_MAX:
+            _LAYOUT_NOTED.popitem(last=False)
+    return [
+        "[layout] The page opens with a stack of charts and no answer above them. Put the answer first: 2–4 KPICards, "
+        "a one-line summary carrying the key number, or one lead chart wider than the rest. This note is given once: "
+        "if the page should open with the charts, send it again as it is."
+    ]

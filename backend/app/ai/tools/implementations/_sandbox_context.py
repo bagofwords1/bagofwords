@@ -85,6 +85,8 @@ VIEWER IDENTITY: useCurrentUser() → { id, name, email, image_url, role, profil
   {u?.name ? `Welcome back, ${u.name}` : 'Welcome back'}. `groups` is a server-capped list of org group names ((u?.groups || []).includes('Sales'));
   `profile_attributes` keys depend on the org. Display-only personalization, never access control (all data is in the payload regardless).
   NEVER hardcode a specific person's name/email anywhere (titles, greetings, filenames), even when the report title carries one — bind to current_user with a neutral fallback.
+  A page is shared: its title, header and subtitle name the subject, never the viewer — no current_user name there. Use current_user for a greeting
+  in a personal chat or form, a "signed in as" line, or to show the viewer's own rows. A page about a named person (a rep's scorecard) keeps that name.
   RULES OF HOOKS: call every hook (useState, useMemo, useTheme, useFilters, useParams, useCurrentUser …) unconditionally at the top of the component, BEFORE any early return.
 
 FILES: <BowFile id="<file_id>" fit="contain|cover" className="" /> renders an embedded image or PDF by id (ids are listed in the prompt when present).
@@ -109,6 +111,10 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
     Do not hand-write a <table>, <select> or search <input> for these: the components follow dark mode, RTL and narrow screens.
     A hand-written <table> is for what DataTable cannot show (a totals row, a pivot, grouped headers), inside overflow-x-auto.
     Inputs and selects in a form the user fills in are fine.
+  FIRST SCREEN: an app opens on useful data, never an empty panel waiting for a choice. A lookup (an invoice, a customer, a ticket) opens
+    on the searchable list, most recent first, and a row opens the detail. An explorer or filter opens on a real answer (All, or the
+    latest full period) with the control showing that value. A form fills only safe defaults (today's date). Never pre-select one
+    arbitrary record.
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />
@@ -140,13 +146,15 @@ CHARTS: build every chart of a measure over time with <TrendChart> and every ran
               grain="month" maxPoints={24} overflow="latest|rollup" colors={{North:'#…'}} height={300} onClick={p => …} />
   <RankChart viz={…} rows={filtered} label="country" value="revenue" unit="currency" additive top={10} order="desc|asc" onClick={p => …} />
     unit: currency (the data's own currency, read from a column like amount_eur or the viz; pass the code, unit="EUR", when you know it),
-    percent (already ×100: 12.5), ratio (0–1: 0.125) or number. x takes dates, months, quarters or years.
+    percent (already ×100: 12.5), ratio (0–1: 0.125), a duration named by the unit the values are in (seconds, minutes, hours,
+    days, ms: the chart picks the unit it shows) or number. x takes dates, months, quarters or years.
     additive: only for a flow totalled per period or group (revenue, orders, units sold). Never for stocks or snapshots (MRR, balances,
     headcount, inventory, running totals), rates, averages or distinct counts.
     Over 24 points with several series (60 with one), TrendChart shows the latest window and says so under the chart: title it to match
     ("last 24 months"). overflow="rollup" (additive only) shows the whole range at a coarser grain instead.
     Pass rows={filterRows(...)} when filters apply, and the same rows to the card. onClick gets raw keys: {x, series, value} / {label, value, other}.
-LAYOUT: open with the answer (2–4 KPICards, or a one-line summary) above the charts, not a stack of equal chart cards.
+LAYOUT: open with the answer above the charts (2–4 KPICards, a one-line summary carrying the key number, or one lead chart wider than
+  the rest), not a stack of equal chart cards.
 OTHER CHARTS: <EChart option={{ xAxis:{type:'value'}, yAxis:{type:'value'}, series:[{type:'scatter',data:[[x, y], …]}] }} /> — the 'bow' theme sets palette, fonts, axes,
   grid and tooltip; write only the data mapping unless the design needs more. Building `option` inline is fine: the chart redraws only when its content
   changes, and a data-only change animates the marks to their new values. All other ECharts types work (scatter, pie, heatmap, treemap, sankey, radar, gauge, calendar…); trends and rankings are TrendChart and RankChart.

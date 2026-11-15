@@ -90,6 +90,24 @@ try{
  assert.match(cur.rankName,/€/,`RankChart resolves the currency too (${cur.rankName})`);
  assert.equal(cur.rankAxis,false,'RankChart hides its value-axis tick labels: every bar carries its value');
 
+ // Durations: unit names the unit the values are in; the chart shows one unit picked from the largest value (or total).
+ const dur=await frame.evaluate(({VIZ})=>{
+  const B=window.__bowCharts, theme=window.bowTheme, v=vizById(VIZ);
+  const ms=['2025-01','2025-02','2025-03'];
+  const tr=(rows,unit,additive)=>{const b=B.buildTrend({viz:v,rows,x:'month',y:'t',unit,additive},theme,'en'); return {tick:b.option.yAxis.axisLabel.formatter(b.option.series[0].data.reduce((m,d)=>Math.max(m,typeof d==='object'&&d?d.value:d),0)), max:Math.max(...b.option.series[0].data.map(d=>typeof d==='object'&&d?d.value:d))};};
+  return {
+   minutes: tr(ms.map((m,i)=>({month:m,t:30+i*5})),'minutes'),                          // 30–40 min
+   hours:   tr(ms.map((m,i)=>({month:m,t:200+i*50})),'minutes'),                        // 200–300 min → hours
+   summed:  tr(ms.flatMap((m)=>[{month:m,t:50},{month:m,t:50},{month:m,t:50}]),'minutes',true), // rows 50 min, totals 150 min → hours
+   rank:    B.buildRank({viz:v,rows:[{team:'A',t:40},{team:'B',t:25}],label:'team',value:'t',unit:'seconds'},theme,'en',false).option.series[0].label.formatter({value:40}),
+  };
+ },{VIZ});
+ assert.match(dur.minutes.tick,/min/,`minutes stay minutes (${dur.minutes.tick})`);
+ assert.match(dur.hours.tick,/hr/,`300 minutes read in hours (${dur.hours.tick})`);
+ assert.ok(dur.hours.max>4.9&&dur.hours.max<5.1,`the data is rescaled to hours, so ticks stay round (${dur.hours.max})`);
+ assert.match(dur.summed.tick,/hr/,`the unit comes from the totals, not the rows (${dur.summed.tick})`);
+ assert.match(dur.rank,/sec/,`RankChart: seconds (${dur.rank})`);
+
  // Raw EChart, 12 line series: the 8 largest shown, the rest greyed in a scrolling legend.
  const leg=await frame.evaluate(()=>{
   const el=document.querySelector('#lines [_echarts_instance_]'); const o=window.echarts.getInstanceByDom(el).getOption(); const l=o.legend[0];
@@ -132,5 +150,5 @@ try{
  const pageCur=await rf.evaluate(({rows,EURVIZ})=>window.__bowCharts.buildTrend({viz:vizById(EURVIZ),rows:rows.map(r=>({month:r.month,dept:r.dept,amount:r.spend})),x:'month',y:'amount',series:'dept',unit:'currency',additive:true},window.bowTheme,'en').option.yAxis.axisLabel.formatter(2000),{rows,EURVIZ});
  assert.match(pageCur,/€/,`the page's single currency (${pageCur})`);
  assert.equal(rtlDir,'rtl','on a right-to-left page the table runs right to left, even with English cells');
- console.log('PASS: data currency on components (name, saved, viz columns, page), RankChart axis, 8 of 12 series (reader choice kept, dataset charts uncapped), equal card heights, RTL tables');
+ console.log('PASS: data currency on components (name, saved, viz columns, page), durations (min, hr, totals, sec), RankChart axis, 8 of 12 series (reader choice kept, dataset charts uncapped), equal card heights, RTL tables');
 }finally{await browser.close()}

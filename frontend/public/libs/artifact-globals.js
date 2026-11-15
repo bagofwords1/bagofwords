@@ -2316,9 +2316,38 @@ function _dtDetectDir(cols, rows) {
     try {
       if (u === 'percent') return new Intl.NumberFormat(loc, opts).format(n) + '%';
       if (u === 'ratio') return new Intl.NumberFormat(loc, opts).format(n * 100) + '%';
+      if (u.indexOf('dur:') === 0) { opts.style = 'unit'; opts.unit = _CH_DUR_INTL[u.slice(4)] || 'second'; opts.unitDisplay = 'short'; return new Intl.NumberFormat(loc, opts).format(n); }
       if (u === 'currency' || /^[A-Z]{3}$/.test(u)) { opts.style = 'currency'; opts.currency = u === 'currency' ? 'USD' : u; return new Intl.NumberFormat(loc, opts).format(n); }
       return new Intl.NumberFormat(loc, opts).format(n);
     } catch (e) { return String(n); }
+  }
+  // Durations: unit="seconds|minutes|hours|days|ms" names the unit the values
+  // are in. The chart shows them in one unit picked from the largest value
+  // (or total, when the measure adds up): 4,320 minutes reads "3 d", not
+  // "4,320". The rows are rescaled, so the axis ticks stay round.
+  var _CH_DUR = { ms: 0.001, milliseconds: 0.001, seconds: 1, minutes: 60, hours: 3600, days: 86400 };
+  var _CH_DUR_INTL = { seconds: 'second', minutes: 'minute', hours: 'hour', days: 'day' };
+  function _chDuration(unit, rows, fields, keyOf) {
+    var per = _CH_DUR[unit];
+    if (!per) return null;
+    var max = 0, sums = keyOf ? Object.create(null) : null;
+    rows.forEach(function(r) {
+      if (!r) return;
+      fields.forEach(function(f) {
+        var v = _chNum(r[f]); if (v == null) return;
+        if (sums) { var k = keyOf(r) + '|' + f; sums[k] = (sums[k] || 0) + v; max = Math.max(max, Math.abs(sums[k]) * per); }
+        else max = Math.max(max, Math.abs(v) * per);
+      });
+    });
+    var show = max < 120 ? 'seconds' : max < 2 * 3600 ? 'minutes' : max < 2 * 86400 ? 'hours' : 'days';
+    var k = per / _CH_DUR[show];
+    var out = k === 1 ? rows : rows.map(function(r) {
+      if (!r) return r;
+      var c = {}; for (var x in r) c[x] = r[x];
+      fields.forEach(function(f) { var v = _chNum(r[f]); if (v != null) c[f] = v * k; });
+      return c;
+    });
+    return { unit: 'dur:' + show, rows: out };
   }
   function _chStepDecimals(min, max, unit) {
     var lo = Math.min(0, min), hi = Math.max(0, max), span = (hi - lo) * (unit === 'ratio' ? 100 : 1);
@@ -2329,6 +2358,7 @@ function _dtDetectDir(cols, rows) {
   }
   function _chValueDecimals(unit, absMax, values) {
     if (unit === 'percent' || unit === 'ratio') return 1;
+    if (String(unit || '').indexOf('dur:') === 0) return absMax < 10 ? 1 : 0;
     // Whole-number data (counts) prints without decimals: 59, not 59.0.
     if (values && values.length && values.every(function(v) { return v == null || Math.floor(v) === v; })) return 0;
     if (unit === 'currency' || /^[A-Z]{3}$/.test(unit || '')) return absMax < 1000 ? 2 : 0;
@@ -2366,6 +2396,8 @@ function _dtDetectDir(cols, rows) {
     if (miss.length && fields.length) return _chErr('TrendChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
     var additive = props.additive === true, unit = _chResolveUnit(props.unit, viz, ys);
+    var dur = _chDuration(unit, rows, ys, additive ? function(r) { return String(r[props.x]) + '|' + (props.series != null ? String(r[props.series]) : ''); } : null);
+    if (dur) { unit = dur.unit; rows = dur.rows; }
 
     // Time or ordered category.
     var parsed = rows.map(function(r) { return _chParseTime(r ? r[props.x] : null); });
@@ -2525,6 +2557,8 @@ function _dtDetectDir(cols, rows) {
     if (miss.length && fields.length) return _chErr('RankChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
     var additive = props.additive === true, unit = _chResolveUnit(props.unit, viz, [props.value]);
+    var dur = _chDuration(unit, rows, [props.value], additive ? function(r) { return String(r[props.label]); } : null);
+    if (dur) { unit = dur.unit; rows = dur.rows; }
     var vals = Object.create(null), rawOf = Object.create(null), names = [], dup = false;
     rows.forEach(function(r) {
       if (!r) return;
