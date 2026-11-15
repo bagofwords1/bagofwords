@@ -1,5 +1,9 @@
 {
   "world": {
+    "tree": "Baum",
+    "usage": "Nutzung",
+    "myReports": "Meine Berichte",
+    "usedTogether": "Gemeinsam genutzte Berichte: {count}",
     "title": "World",
     "explorer": "Explorer",
     "heading": "Your world, connected.",

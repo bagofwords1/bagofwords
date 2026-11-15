@@ -32,6 +32,12 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
 
     await page.goto('/agents')
     await page.getByTestId('open-world').click()
+    await expect(page.getByTestId('open-world')).toHaveAttribute('aria-current', 'page')
+    await page.getByRole('switch', { name: 'Usage', exact: true }).click()
+    await page.getByRole('switch', { name: 'My reports', exact: true }).click()
+    await page.getByTestId('open-tree').click()
+    await expect(page.getByTestId('open-tree')).toHaveAttribute('aria-current', 'page')
+    await page.getByTestId('open-world').click()
     await page.getByRole('textbox', { name: 'Search loaded items…' }).fill(name)
     await page.getByRole('button', { name: name + ' Folders', exact: true }).click()
     await page.getByRole('button', { name: 'Explore inside' }).click()

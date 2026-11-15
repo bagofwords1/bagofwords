@@ -12,14 +12,14 @@
           {{ pending ? t('world.loading') : t('world.personalScope') }}
         </div>
         <span class="mx-2 hidden h-4 border-s border-line sm:block" />
-        <UButton to="/agents" color="gray" variant="ghost" icon="i-heroicons-rectangle-stack" size="xs">{{ t('world.explorer') }}</UButton>
+        <WorldViewSwitch active="world" />
         <UButton color="gray" variant="ghost" icon="i-heroicons-arrow-path" :loading="!!pending" :aria-label="t('world.refresh')" @click="refreshWorld" />
       </div>
     </header>
 
     <div class="relative flex min-h-0 flex-1 flex-col lg:flex-row">
       <div class="world-stage relative min-h-0 min-w-0 flex-1 overflow-hidden">
-        <WorldCanvas ref="map" :nodes="nodes" :edges="edges" :visible-ids="visibleIds" :selected="selectedId" :show-links="showLinks" @select="select" />
+        <WorldCanvas ref="map" :nodes="nodes" :edges="graphEdges" @inspect-usage="inspectUsage" :visible-ids="visibleIds" :selected="selectedId" :show-links="showLinks" @select="select" />
         <div class="pointer-events-none absolute start-6 top-6 max-w-sm">
           <div class="mt-5 flex items-center gap-5">
             <div><span class="nums text-xl font-medium">{{ number(visibleNodes.length) }}</span><span class="ms-2 text-xs text-ink-muted">{{ t('world.items') }}</span></div>
@@ -80,7 +80,13 @@
                 <UButton color="gray" variant="ghost" block class="justify-start text-start" size="xs" @click="select(item.node.id)">
                   <span class="h-1.5 w-1.5 shrink-0 rounded-full" :style="{ backgroundColor: worldColors[item.node.type] }" /><span class="truncate">{{ item.node.label }}</span>
                 </UButton>
-                <p class="px-3 pb-2 text-2xs text-ink-muted">{{ t(`world.relations.${item.edge.relation}`) }}</p>
+                <details v-if="item.edge.report_ids" :open="inspectedEdge === item.edge.id" class="px-3 pb-2 text-xs">
+                  <summary class="cursor-pointer text-ink-muted">{{ t('world.usedTogether', { count: item.edge.report_count }) }}</summary>
+                  <NuxtLink v-for="id in item.edge.report_ids" :key="id" :to="reportsById.get(id)!.url!" class="block py-1 hover:underline">
+                    {{ reportsById.get(id)?.label }}
+                  </NuxtLink>
+                </details>
+                <p v-else class="px-3 pb-2 text-2xs text-ink-muted">{{ t(`world.relations.${item.edge.relation}`) }}</p>
               </div>
               <UButton v-if="neighbors.length > neighborLimit" color="gray" variant="ghost" size="xs" @click="neighborLimit += 30">{{ t('world.showMore') }}</UButton>
             </div>
@@ -88,6 +94,14 @@
           </div>
 
           <template v-if="panel === 'layers' && !search">
+            <div class="space-y-3 px-5 pt-5">
+              <label class="flex items-center justify-between text-xs">{{ t('world.usage') }}
+                <UToggle v-model="showUsage" size="xs" :aria-label="t('world.usage')" />
+              </label>
+              <label class="flex items-center justify-between text-xs">{{ t('world.myReports') }}
+                <UToggle v-model="mine" size="xs" :aria-label="t('world.myReports')" />
+              </label>
+            </div>
             <div class="mx-5 mt-5 rounded-lg border border-purple-200/60 bg-purple-50/40 p-4 dark:border-purple-800/40 dark:bg-purple-950/10">
               <div class="flex items-center gap-2">
                 <UIcon name="i-heroicons-sparkles" class="h-4 w-4 text-purple-500" />
@@ -135,32 +149,64 @@
 </template>
 
 <script setup lang="ts">
-import { worldTypes, type WorldType } from '~/composables/useWorldGraph'
+import { worldTypes, type WorldType, type WorldEdge } from '~/composables/useWorldGraph'
 import { worldColors, worldIcons } from '~/utils/worldGraph'
+import WorldViewSwitch from './WorldViewSwitch.vue'
 import WorldCanvas from './WorldCanvas.vue'
 const { t, locale } = useI18n()
 const { showTopBanner, bannerHeight } = useTopBanner()
-const { nodes, edges, pending, initializing, loadingAll, failures, next, expanded, refresh, load, expand, loadMore, loadAll, stopLoading, retry, clearMemory } = useWorldGraph()
+const { nodes, edges, usageLoaded, pending, initializing, loadingAll, failures, next, expanded, refresh, load, expand, loadMore, loadAll, stopLoading, retry, clearMemory } = useWorldGraph()
 const enabled = ref(new Set<WorldType>(worldTypes))
+const showUsage = ref(false)
+const mine = ref(false)
+const inspectedEdge = ref('')
+const reportsById = computed(() => new Map(nodes.value.filter(n => n.type === 'report').map(n => [n.resource_id, n])))
+const graphEdges = computed(() => edges.value.flatMap(edge => {
+  if (!edge.report_ids) return [edge]
+  if (!showUsage.value && edge.source !== selectedId.value && edge.target !== selectedId.value) return []
+  if (!mine.value) return [edge]
+  const report_ids = edge.report_ids.filter(id => reportsById.value.get(id)?.meta.mine)
+  return report_ids.length ? [{ ...edge, report_ids, report_count: report_ids.length }] : []
+}))
 const memory = ref(false); const showLinks = ref(true); const search = ref('')
 const panel = ref<'layers' | 'browse'>('layers'); const selectedId = ref<string | null>(null)
 const map = ref<InstanceType<typeof WorldCanvas>>()
 const browseLimit = ref(100); const neighborLimit = ref(30)
 const number = (n: number) => new Intl.NumberFormat(locale.value).format(n)
-const counts = computed(() => { const result: Partial<Record<WorldType, number>> = {}; for (const n of nodes.value) result[n.type] = (result[n.type] || 0) + 1; return result })
-const visibleNodes = computed(() => nodes.value.filter(n => enabled.value.has(n.type) && (n.type !== 'memory' || memory.value) && (!search.value || `${n.label} ${n.description}`.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()))))
+const scopedNodes = computed(() => mine.value ? nodes.value.filter(n => n.type !== 'report' || n.meta.mine) : nodes.value)
+const counts = computed(() => {
+  const result: Partial<Record<WorldType, number>> = {}
+  for (const n of scopedNodes.value) result[n.type] = (result[n.type] || 0) + 1
+  return result
+})
+const visibleNodes = computed(() => scopedNodes.value.filter(n => enabled.value.has(n.type) && (n.type !== 'memory' || memory.value) && (!search.value || `${n.label} ${n.description}`.toLocaleLowerCase().includes(search.value.toLocaleLowerCase()))))
 const visibleIds = computed(() => new Set(visibleNodes.value.map(n => n.id)))
-const visibleEdges = computed(() => edges.value.filter(e => visibleIds.value.has(e.source) && visibleIds.value.has(e.target)))
+const visibleEdges = computed(() => graphEdges.value.filter(e => visibleIds.value.has(e.source) && visibleIds.value.has(e.target)))
 const selected = computed(() => nodes.value.find(n => n.id === selectedId.value) || null)
 const detailFields = computed(() => Object.entries(selected.value?.meta || {})
   .filter(([key, value]) => ['source_type', 'columns', 'status', 'load_mode', 'policy', 'mode', 'handle'].includes(key) && value !== null && value !== undefined)
   .map(([key, value]) => ({ key, value: typeof value === 'number' ? number(value) : String(value) })))
 const neighbors = computed(() => {
   const byId = new Map(nodes.value.map(n => [n.id, n]))
-  return edges.value.filter(e => e.source === selectedId.value || e.target === selectedId.value)
+  return graphEdges.value.filter(e => e.source === selectedId.value || e.target === selectedId.value)
     .map(edge => ({ edge, node: byId.get(edge.source === selectedId.value ? edge.target : edge.source)! }))
+    .filter(({node}) => !mine.value || node.type !== 'report' || node.meta.mine)
 })
+watch([showUsage, selectedId, initializing], () => {
+  if (initializing.value || usageLoaded.value.has('all')) return
+  if (showUsage.value) load({ section: 'usage' })
+  else if (selectedId.value?.startsWith('agent:')) {
+    const agent_id = selectedId.value.slice('agent:'.length)
+    if (!usageLoaded.value.has(agent_id)) load({ section: 'usage', agent_id })
+  }
+})
+function inspectUsage(edge: WorldEdge) {
+  select(selectedId.value === edge.target ? edge.target : edge.source)
+  neighborLimit.value = Math.max(neighborLimit.value, neighbors.value.findIndex(n => n.edge.id === edge.id) + 1)
+  inspectedEdge.value = edge.id
+}
 function select(id: string | null) {
+  inspectedEdge.value = ''
   if (id && !visibleIds.value.has(id)) {
     search.value = ''
     const node = nodes.value.find(n => n.id === id)

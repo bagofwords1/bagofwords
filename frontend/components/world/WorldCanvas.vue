@@ -1,5 +1,5 @@
 <template>
-  <div ref="host" class="world-canvas relative h-full w-full overflow-hidden" @pointerleave="hover = null">
+  <div ref="host" class="world-canvas relative h-full w-full overflow-hidden" @pointerleave="hover = null; usageHover = null">
     <canvas ref="canvas" class="h-full w-full touch-none outline-none" tabindex="0" role="img"
       :aria-label="t('world.mapLabel')" @pointerdown="down" @pointermove="move" @pointerup="up"
       @pointercancel="drag = null" @wheel.prevent="wheel" @keydown="keyboard" />
@@ -7,6 +7,10 @@
       :style="{ left: `${Math.min(hover.x + 16, width - 220)}px`, top: `${Math.max(8, hover.y - 52)}px`, maxWidth: '210px' }">
       <p class="text-2xs text-ink-muted">{{ t(`world.types.${hover.point.node.type}`) }}</p>
       <p class="truncate text-xs font-medium text-ink">{{ hover.point.node.label }}</p>
+    </div>
+    <div v-if="usageHover && !drag" class="pointer-events-none absolute rounded border border-line bg-surface-elevated px-2 py-1 text-xs shadow-sm"
+      :style="{ left: Math.min(usageHover.x + 10, width - 155) + 'px', top: Math.max(0, usageHover.y - 25) + 'px' }">
+      {{ t('world.usedTogether', { count: usageHover.edge.report_count }) }}
     </div>
     <div class="absolute bottom-5 start-5 flex items-center gap-1 rounded-lg border border-line bg-surface-elevated/90 p-1 shadow-sm backdrop-blur">
       <UButton color="gray" variant="ghost" icon="i-heroicons-minus" :aria-label="t('world.zoomOut')" @click="zoomBy(.8)" />
@@ -23,7 +27,7 @@
 import type { WorldNode, WorldEdge } from '~/composables/useWorldGraph'
 import { layoutWorld, worldColors, type WorldPoint } from '~/utils/worldGraph'
 const props = defineProps<{ nodes: WorldNode[]; edges: WorldEdge[]; visibleIds: Set<string>; selected: string | null; showLinks: boolean }>()
-const emit = defineEmits<{ select: [id: string | null] }>()
+const emit = defineEmits<{ select: [id: string | null]; inspectUsage: [edge: WorldEdge] }>()
 const { t } = useI18n()
 const colorMode = useColorMode()
 const host = ref<HTMLDivElement>(); const canvas = ref<HTMLCanvasElement>()
@@ -31,6 +35,7 @@ const width = ref(800); const height = ref(700)
 const camera = reactive({ x: 0, y: 0, scale: 1 })
 const paused = ref(false)
 const hover = ref<{ point: WorldPoint; x: number; y: number } | null>(null)
+const usageHover = ref<{ edge: WorldEdge; x: number; y: number } | null>(null)
 const drag = ref<{ x: number; y: number; cx: number; cy: number; moved: boolean } | null>(null)
 let points: WorldPoint[] = []; let byId = new Map<string, WorldPoint>(); let connected = new Set<string>()
 let observer: ResizeObserver; let frame = 0; let clock = 0; let lastTime = 0; let reduced = false
@@ -39,7 +44,7 @@ let destination: { x: number; y: number; scale: number } | null = null
 let motionQuery: MediaQueryList
 let fitted = false
 watch([() => props.nodes, () => props.edges], () => {
-  points = layoutWorld(props.nodes, props.edges); byId = new Map(points.map(p => [p.node.id, p]));
+  points = layoutWorld(props.nodes, props.edges.filter(edge => !edge.report_ids)); byId = new Map(points.map(p => [p.node.id, p]));
   if (!fitted && points.length) { fit(); fitted = true }
 }, { immediate: true })
 watch([() => props.selected, () => props.edges], () => {
@@ -49,7 +54,7 @@ watch([() => props.selected, () => props.edges], () => {
     if (e.target === props.selected) connected.add(e.source)
   }
 }, { immediate: true })
-watch([camera, () => props.visibleIds, () => props.selected, () => props.showLinks, () => props.nodes, hover, paused], () => { dirty = true })
+watch([camera, () => props.edges, () => props.visibleIds, () => props.selected, () => props.showLinks, () => props.nodes, hover, paused], () => { dirty = true })
 watch(() => colorMode.value, () => { dirty = true })
 watch(() => props.selected, id => {
   const point = id ? byId.get(id) : null
@@ -81,6 +86,23 @@ function hit(x: number, y: number) {
   }
   return result
 }
+function hitUsage(x: number, y: number) {
+  if (!props.showLinks) return null
+  let closest: WorldEdge | null = null
+  let distance = 6
+  for (const edge of props.edges) {
+    if (!edge.report_ids || !props.visibleIds.has(edge.source) || !props.visibleIds.has(edge.target)) continue
+    const start = byId.get(edge.source), end = byId.get(edge.target)
+    if (!start || !end) continue
+    const a = position(start), b = position(end)
+    const dx = b.x - a.x, dy = b.y - a.y
+    const t = Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / (dx * dx + dy * dy || 1)))
+    const d = Math.hypot(x - a.x - t * dx, y - a.y - t * dy)
+    if (d < distance) { closest = edge; distance = d }
+  }
+  return closest
+}
+watch([() => props.edges, () => props.visibleIds, () => props.showLinks], () => { usageHover.value = null })
 function local(e: PointerEvent | WheelEvent) { const r = canvas.value!.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top } }
 function down(e: PointerEvent) {
   if (e.button !== 0) return
@@ -96,11 +118,18 @@ function move(e: PointerEvent) {
     camera.x = drag.value.cx + dx; camera.y = drag.value.cy + dy
   } else {
     const point = hit(p.x, p.y); hover.value = point ? { point, ...p } : null
-    if (canvas.value) canvas.value.style.cursor = point ? 'pointer' : 'grab'
+    const edge = point ? null : hitUsage(p.x, p.y)
+    usageHover.value = edge ? { edge, ...p } : null
+    if (canvas.value) canvas.value.style.cursor = point || edge ? 'pointer' : 'grab'
   }
 }
 function up(e: PointerEvent) {
-  if (drag.value && !drag.value.moved) { const p = local(e); emit('select', hit(p.x, p.y)?.node.id || null) }
+  if (drag.value && !drag.value.moved) {
+    const { x, y } = local(e), node = hit(x, y)
+    const edge = node ? null : hitUsage(x, y)
+    if (edge) emit('inspectUsage', edge)
+    else emit('select', node?.node.id || null)
+  }
   drag.value = null; canvas.value?.releasePointerCapture(e.pointerId)
 }
 function wheel(e: WheelEvent) {
@@ -153,6 +182,7 @@ function draw(time: number) {
     if (focus && !props.selected) continue
     ctx.beginPath()
     for (const e of props.edges) {
+      if (e.report_ids) continue
       const isFocus = !!props.selected && (e.source === props.selected || e.target === props.selected)
       if (isFocus !== focus || (dense && props.selected && !focus)) continue
       const a = positions.get(e.source), b = positions.get(e.target)
@@ -161,6 +191,17 @@ function draw(time: number) {
     }
     ctx.strokeStyle = focus ? (dark ? '#96cbb1aa' : '#709e8d99') : dense ? (dark ? '#a8b8c32b' : '#72878f38') : (dark ? '#a8b8c37a' : '#71858e87')
     ctx.lineWidth = focus ? 1.8 : 1; ctx.stroke()
+  }
+  if (props.showLinks) for (const edge of props.edges) {
+    if (!edge.report_count) continue
+    const a = positions.get(edge.source), b = positions.get(edge.target)
+    if (!a || !b) continue
+    ctx.beginPath()
+    ctx.moveTo(a.x, a.y)
+    ctx.lineTo(b.x, b.y)
+    ctx.strokeStyle = dark ? '#88b9f2cc' : '#4075abbb'
+    ctx.lineWidth = Math.min(6, 1 + Math.log2(1 + edge.report_count))
+    ctx.stroke()
   }
   const labels: { p: WorldPoint; s: { x: number; y: number }; r: number }[] = []
   for (const p of visible) {

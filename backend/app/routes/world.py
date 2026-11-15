@@ -29,6 +29,7 @@ async def world(
         "reports",
         "artifacts",
         "memory",
+        "usage",
         "agent",
         "folder",
         "report",

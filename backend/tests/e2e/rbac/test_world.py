@@ -286,3 +286,79 @@ def test_world_projects_300_agents_without_loading_their_internals(test_client, 
     assert sum(e["relation"] == "contains" for e in result["edges"]) == 300
     assert not any(n["type"] in {"table", "tool"} for n in result["nodes"])
     assert not graph(test_client, member, org)["nodes"]
+
+
+def test_usage_counts_only_successful_activity_in_visible_reports(
+    test_client, world_cast, sqlite_data_source, create_report
+):
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.query import Query
+    from app.models.step import Step
+    from app.models.table_usage_event import TableUsageEvent
+
+    org, admin, member, _ = world_cast
+    agents = [
+        sqlite_data_source(name=name, org_id=org, user_token=admin, is_public=True)["id"]
+        for name in ("Sales", "Marketing")
+    ]
+    reports = [
+        create_report(title=title, org_id=org, user_token=token)["id"]
+        for title, token in (("Shared campaign", admin), ("Private campaign", member), ("Unsuccessful", admin))
+    ]
+
+    async def seed():
+        from app.models.report import Report
+
+        async with async_session_maker() as db:
+            for i, report_id in enumerate(reports):
+                if i == 0:
+                    shared = await db.get(Report, report_id)
+                    shared.conversation_visibility = "internal"
+                    shared.conversation_share_token = uuid.uuid4().hex
+                query = Query(report_id=report_id, title="Analysis")
+                db.add(query)
+                await db.flush()
+                step = Step(query_id=query.id, slug=str(uuid.uuid4()), status="success")
+                db.add(step)
+                await db.flush()
+                for j, agent in enumerate([*agents, agents[0]]):
+                    db.add(
+                        TableUsageEvent(
+                            org_id=org,
+                            report_id=report_id,
+                            step_id=step.id,
+                            data_source_id=agent,
+                            table_fqn=f"example_{j}",
+                            source_type="sql",
+                            success=i != 2 or j != 1,
+                        )
+                    )
+            await db.commit()
+
+    asyncio.run(seed())
+    for token, expected in ((admin, set(reports[:2])), (member, set(reports[:2])), (world_cast[3], {reports[0]})):
+        for scope in ({}, {"agent_id": agents[0]}):
+            result = graph(test_client, token, org, section="usage", **scope)
+            [edge] = result["edges"]
+            assert edge["report_count"] == len(expected)
+            assert set(edge["report_ids"]) == expected
+            assert reports[2] not in str(result)
+            for node in result["nodes"]:
+                if node["type"] == "report":
+                    assert test_client.get("/api" + node["url"], headers=headers(token, org)).is_success
+                    if node["url"].startswith("/c/"):
+                        assert not node["expandable"]
+                        response = test_client.get(
+                            "/api/world",
+                            params={"section": "report", "report_id": node["resource_id"]},
+                            headers=headers(token, org),
+                        )
+                        assert response.status_code == 404
+
+    assert test_client.put(
+        f"/api/data_sources/{agents[0]}", json={"is_public": False}, headers=headers(admin, org)
+    ).is_success
+    hidden = graph(test_client, world_cast[3], org, section="usage")
+    assert hidden["edges"] == [] and agents[0] not in str(hidden)

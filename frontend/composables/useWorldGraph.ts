@@ -4,7 +4,7 @@ export interface WorldNode {
   id: string; resource_id: string; type: WorldType; label: string; description: string
   url?: string; expandable: boolean; meta: Record<string, unknown>
 }
-export interface WorldEdge { id: string; source: string; target: string; relation: string }
+export interface WorldEdge { id: string; source: string; target: string; relation: string; report_ids?: string[]; report_count?: number }
 export interface WorldRequest { section: string; offset?: number; folder_id?: string; agent_id?: string; report_id?: string }
 interface WorldPage { nodes: WorldNode[]; edges: WorldEdge[]; next: WorldRequest[] }
 
@@ -16,6 +16,7 @@ export function useWorldGraph() {
   const loadingAll = ref(false)
   const failures = ref<WorldRequest[]>([])
   const next = ref<WorldRequest[]>([])
+  const usageLoaded = ref(new Set<string>())
   const expanded = ref(new Set<string>())
   const { organization } = useOrganization()
   const route = useRoute()
@@ -37,6 +38,7 @@ export function useWorldGraph() {
       }
       if (error.value || !data.value) { failures.value = [...failures.value.filter(r => requestKey(r) !== k), request]; return }
       const page = data.value
+      if (request.section === 'usage') usageLoaded.value = new Set([...usageLoaded.value, request.agent_id || 'all'])
       if (request.section === 'memory') clearMemory()
       const merged = new Map(nodes.value.map(n => [n.id, n]))
       for (const node of page.nodes) {
@@ -49,7 +51,7 @@ export function useWorldGraph() {
       next.value = [...new Map([...next.value.filter(r => requestKey(r) !== k), ...page.next].map(r => [requestKey(r), r])).values()]
       failures.value = failures.value.filter(r => requestKey(r) !== k)
       if (request.folder_id) expanded.value = new Set([...expanded.value, `folder:${request.folder_id}`])
-      if (request.agent_id) expanded.value = new Set([...expanded.value, `agent:${request.agent_id}`])
+      if (request.section === 'agent' && request.agent_id) expanded.value = new Set([...expanded.value, `agent:${request.agent_id}`])
       if (request.report_id) expanded.value = new Set([...expanded.value, `report:${request.report_id}`])
     } catch {
       if (!disposed && epoch === generation) failures.value = [...failures.value.filter(r => requestKey(r) !== k), request]
@@ -66,6 +68,7 @@ export function useWorldGraph() {
   async function refresh() {
     loadingAll.value = false
     const epoch = ++generation
+    usageLoaded.value = new Set()
     initializing.value = true
     nodes.value = []; edges.value = []; next.value = []; failures.value = []
     pending.value = 0; expanded.value = new Set(); inflight.clear()
@@ -99,7 +102,7 @@ export function useWorldGraph() {
   onMounted(async () => { await refresh(); if (route.query.load === 'all') await loadAll() })
   watch(() => organization.value?.id, (id, old) => { if (id && old && id !== old) refresh() })
   onBeforeUnmount(() => { disposed = true; generation++ })
-  return { nodes, edges, pending, initializing, loadingAll, failures, next, expanded, refresh, load, expand, clearMemory, loadAll,
+  return { nodes, edges, usageLoaded, pending, initializing, loadingAll, failures, next, expanded, refresh, load, expand, clearMemory, loadAll,
     stopLoading: () => { loadingAll.value = false },
     loadMore: () => batch(next.value.slice(0, 5)), retry: () => batch(failures.value) }
 }

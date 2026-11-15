@@ -27,6 +27,8 @@ class WorldService:
     ):
         self.db, self.user, self.org = db, user, org
         self.nodes, self.edges, self.more = {}, {}, []
+        self.report_rights = None
+        self.report_projects = None
         self.ds_service = DataSourceService()
         # Folder knowledge has its own authorization, independent of the agent roster.
         if section == "folder":
@@ -62,6 +64,8 @@ class WorldService:
             await self.tasks(offset)
         elif section == "projects":
             await self.projects(offset)
+        elif section == "usage":
+            await self.usage(agent_id)
         elif section == "reports":
             await self.reports(offset)
         elif section == "artifacts":
@@ -249,7 +253,7 @@ class WorldService:
             report = await self.db.get(Report, task.report_id, options=[lazyload("*")])
             if not report or not await user_can_view_report(self.db, self.user, self.org, report):
                 continue
-            source = self.node("report", report.id, report.title, url=f"/reports/{report.id}", expandable=True)
+            source = await self.report_node(report)
             target = self.node("task", task.id, task.title or report.title, url="/automations")
             self.edge(source, target, "contains")
             for agent_id in task.data_source_ids or []:
@@ -258,6 +262,110 @@ class WorldService:
                 self.edge(target, key("folder", folder_id), "uses_folder")
         if len(rows) > self.PAGE:
             self.continuation("tasks", offset)
+
+    async def report_node(self, report):
+        from app.core.permission_resolver import resolve_permissions
+        from app.services.project_service import project_service
+
+        if self.report_rights is None:
+            self.report_rights = await resolve_permissions(self.db, self.user.id, self.org.id)
+        mine = report.user_id == self.user.id
+        full_view = self.report_rights.has_org_permission("full_admin_access")
+        if report.project_id and not (full_view or mine):
+            if self.report_projects is None:
+                self.report_projects = set(await project_service.get_visible_project_ids(self.db, self.user, self.org))
+            full_view = report.project_id in self.report_projects
+        direct = (full_view or mine) and self.report_rights.has_org_permission("view_reports")
+        if direct:
+            url = f"/reports/{report.id}"
+        elif report.conversation_share_token and report.conversation_visibility != "none":
+            url = f"/c/{report.conversation_share_token}"
+        else:
+            return None
+        return self.node("report", report.id, report.title, url=url, expandable=direct, mine=mine)
+
+    async def usage(self, focused_agent):
+        from collections import defaultdict
+        from itertools import combinations
+
+        from sqlalchemy import func
+
+        from app.models.report import Report
+        from app.models.table_usage_event import TableUsageEvent as Event
+        from app.services.bow_source_access import visible_reports_clause
+        from app.services.file_access_service import is_full_admin, user_can_view_report
+        from app.services.report_service import ReportService
+
+        observations = (
+            select(Event.report_id, Event.data_source_id)
+            .where(
+                Event.org_id == self.org.id,
+                Event.success.is_(True),
+                Event.deleted_at.is_(None),
+                Event.data_source_id.in_(self.agent_ids),
+                Event.report_id.is_not(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        candidate_ids = select(observations.c.report_id).group_by(observations.c.report_id).having(func.count() >= 2)
+        if focused_agent:
+            candidate_ids = candidate_ids.where(
+                observations.c.report_id.in_(
+                    select(Event.report_id).where(
+                        Event.org_id == self.org.id,
+                        Event.data_source_id == focused_agent,
+                        Event.success.is_(True),
+                        Event.deleted_at.is_(None),
+                    )
+                )
+            )
+        stmt = (
+            select(Report)
+            .options(lazyload("*"))
+            .where(
+                Report.id.in_(candidate_ids),
+                Report.organization_id == self.org.id,
+                Report.deleted_at.is_(None),
+                Report.status != "archived",
+                await visible_reports_clause(self.db, self.org.id, self.user),
+            )
+        )
+        if not await is_full_admin(self.db, self.user, self.org):
+            visible = await ReportService()._visible_to_user_clause(self.db, self.user, self.org)
+            stmt = stmt.where(or_(Report.user_id == self.user.id, visible))
+        allowed = []
+        for report in await self.db.scalars(stmt):
+            if (
+                await can_read_folder_output(self.db, report, self.user)
+                and await user_can_view_report(self.db, self.user, self.org, report)
+                and await self.report_node(report)
+            ):
+                allowed.append(report.id)
+        pairs = defaultdict(list)
+        for start in range(0, len(allowed), self.PAGE):
+            sources = defaultdict(list)
+            rows = await self.db.execute(
+                select(observations).where(observations.c.report_id.in_(allowed[start : start + self.PAGE]))
+            )
+            for report_id, agent_id in rows:
+                sources[report_id].append(agent_id)
+            for report_id, agents in sources.items():
+                related = (tuple(sorted((focused_agent, agent))) for agent in agents if agent != focused_agent)
+                for pair in related if focused_agent else combinations(sorted(agents), 2):
+                    pairs[pair].append(report_id)
+        for (first, second), reports in pairs.items():
+            source, target = key("agent", first), key("agent", second)
+            relation = "used_together"
+            edge_id = f"{source}|{relation}|{target}"
+            self.edges[edge_id] = {
+                "id": edge_id,
+                "source": source,
+                "target": target,
+                "relation": relation,
+                "report_ids": sorted(reports),
+                "report_count": len(reports),
+            }
 
     async def reports(self, offset):
         from app.models.report import Report
@@ -280,7 +388,7 @@ class WorldService:
             if await can_read_folder_output(self.db, r, self.user) and await user_can_view_report(
                 self.db, self.user, self.org, r
             ):
-                self.node("report", r.id, r.title, url=f"/reports/{r.id}", expandable=True)
+                await self.report_node(r)
                 for folder_id in await load_report_folders(self.db, r):
                     self.edge(key("report", r.id), key("folder", folder_id), "uses_folder")
         await self.report_agent_edges()
@@ -330,7 +438,7 @@ class WorldService:
                         and await can_read_folder_output(self.db, report, self.user)
                         and await user_can_view_report(self.db, self.user, self.org, report)
                     ):
-                        self.node("report", report.id, report.title, url=f"/reports/{report.id}", expandable=True)
+                        await self.report_node(report)
                         self.edge(key("report", report.id), key("artifact", a["id"]), "produced")
             if result["meta"]["total"] > offset + self.PAGE and not self.more:
                 self.continuation("artifacts", offset)
@@ -476,7 +584,9 @@ class WorldService:
         ):
             raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND)
         await assert_read(self.db, getattr(report, "bow_source_access", None), self.user)
-        self.node("report", report.id, report.title, url=f"/reports/{report.id}", expandable=True)
+        source = await self.report_node(report)
+        if not source or not self.nodes[source]["expandable"]:
+            raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND)
         await self.report_agent_edges()
         queries = await self.rows(Query, Query.report_id == report_id, offset=offset)
         for q in queries[: self.PAGE]:

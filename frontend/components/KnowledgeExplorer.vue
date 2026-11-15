@@ -28,8 +28,7 @@
           <UIcon name="i-heroicons-cloud-arrow-up" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           {{ $t('agentsPage.pushToGit') }}
         </button>
-        <UButton v-if="isWorldEnabled" data-testid="open-world" to="/agents/world" size="sm" color="gray"
-          variant="ghost" icon="i-heroicons-globe-alt" :aria-label="$t('world.title')" :title="$t('world.title')" />
+        <WorldViewSwitch v-if="isWorldEnabled" active="tree" />
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -1216,6 +1215,7 @@
 </template>
 
 <script setup lang="ts">
+import WorldViewSwitch from "~/components/world/WorldViewSwitch.vue"
 import {treeDragSource, treeDropTarget} from '~/utils/treeDragStyles'
 import { h as createElement } from 'vue'
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'

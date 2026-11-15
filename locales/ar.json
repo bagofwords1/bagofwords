@@ -1,5 +1,9 @@
 {
   "world": {
+    "tree": "الشجرة",
+    "usage": "الاستخدام",
+    "myReports": "تقاريري",
+    "usedTogether": "عدد تقارير الاستخدام المشترك: {count}",
     "title": "World",
     "explorer": "Explorer",
     "heading": "Your world, connected.",

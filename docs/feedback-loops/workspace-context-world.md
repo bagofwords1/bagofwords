@@ -36,3 +36,20 @@ The live pass caught an outdated dashboard-list call in the prototype. The proje
 ## Loading behavior
 
 The initial overview includes the folder hierarchy, agent placements and connection links. Workspace layers load in batches. Agent internals, exact-folder knowledge and report activity can be expanded individually. The search field filters loaded items. The load controls fetch further pages and agent or folder expansions. Personal memory requires an explicit toggle. The feature adds one organization setting and reads existing resource records without a migration.
+
+## Usage strength and personal views
+
+Tree is the default route. The small Tree/World switch appears on both views when the organization enables World. The usage overlay starts off. Selecting an agent requests that agent's co-usage links; enabling Usage requests the workspace view. Structural links retain their original width and positions.
+
+The API groups successful table-usage observations by report and distinct visible agent. It admits reports using conversation, folder-output and source-access checks before counting agent pairs. Repeated steps add no weight within a report. A pair with no qualifying reports produces no link. The line width grows logarithmically and is capped at six pixels. Hovering shows the count; selecting the link opens its supporting reports. My reports filters report nodes and evidence by ownership. Memory remains a separate personal opt-in.
+
+On the previous revision, the focused regression failed with HTTP 422 for the new usage section. Run it with:
+
+```sh
+cd backend
+TESTING=true BOW_DATABASE_URL=sqlite:///db/app.db uv run python -m pytest -q tests/e2e/rbac/test_world.py -k usage_counts
+```
+
+The regression covers two agents, repeated activity, an unsuccessful observation, a private report, and removal of access to one agent. The full World suite now has 12 cases. Separate browser sessions in the seeded workspace showed three supporting reports for an admin and two for a member. The member could open both evidence links and saw zero links after applying My reports to that pair of agents.
+
+The evidence-link check also caught a distinction between the owner report route and a shared conversation. Shared-only readers now follow their authorized read-only conversation link. They cannot expand the owner report's internals through World. The API regression follows every evidence link as each actor and verifies the expansion denial.
