@@ -2131,7 +2131,7 @@ class ConnectionService:
 
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
-                             keep_fresh_tables: bool = True, diagnostics_hook=None) -> List[ConnectionTable]:
+                             keep_fresh_tables: bool = True, diagnostics_hook=None, defer_file_conversion=False) -> List[ConnectionTable]:
         """Publish a complete connection catalog and all linked agents atomically.
 
         Discovery does no catalog writes. Reconciliation and agent sync only
@@ -2152,7 +2152,7 @@ class ConnectionService:
             ):
                 tables = await self._refresh_schema(
                     db, connection, current_user, progress_callback, introspection,
-                    keep_fresh_tables, diagnostics_hook,
+                    keep_fresh_tables, diagnostics_hook, **({"defer_file_conversion": True} if defer_file_conversion else {}),
                 )
             if self._catalog_discovery_complete:
                 from app.models.data_source import DataSource
@@ -2210,6 +2210,7 @@ class ConnectionService:
         introspection: str = "full",
         keep_fresh_tables: bool = True,
         diagnostics_hook=None,
+        defer_file_conversion=False,
     ) -> List[ConnectionTable]:
         """Refresh schema and update ConnectionTable records.
 
@@ -2332,6 +2333,8 @@ class ConnectionService:
                     index_user = None
 
             client = await self.construct_client(db, connection, index_user)
+            if defer_file_conversion:
+                client.defer_file_conversion = True
 
             # Load the existing catalog up front: it powers BOTH the upsert diff
             # below AND incremental indexing — file-source clients whose
@@ -2405,6 +2408,7 @@ class ConnectionService:
                     await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery
             fresh_tables = require_complete_discovery(client, fresh_tables)
+            self.pending_file_conversions = defer_file_conversion and getattr(client, "pending_file_conversions", False)
             if not getattr(client, "catalog_identity_available", True):
                 return []
             # Parts of the catalog the client could not read on this run (a

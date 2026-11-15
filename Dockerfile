@@ -128,7 +128,7 @@ ARG APT_REFRESH=2026-11-11
 RUN echo "apt refresh: ${APT_REFRESH}" && \
     apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client tini libpq5 vim-tiny tshark && \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client tini libpq5 vim-tiny tshark libseccomp2 && \
     # Kerberos runtime for Windows Integrated auth to SQL Server: GSSAPI libs
     # for the ODBC driver / python-gssapi, plus kinit/klist for keytab ops.
     # Mount /etc/krb5.conf and a keytab (see docs/sql-server-kerberos.md).

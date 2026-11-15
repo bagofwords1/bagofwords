@@ -6,10 +6,13 @@ from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
 import subprocess
+import shutil
+import sys
 from tempfile import TemporaryDirectory
-from threading import Timer
+from threading import Event, Thread
+from time import monotonic
 
-import duckdb
+from app.data_sources.fast.parquet_crypto import encryption_properties, decryption_properties
 from lxml import etree
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -45,20 +48,47 @@ def _packet_row(packet, capture_id):
 def _write_batch(rows, path):
     fields = sorted({key for row in rows for key in row} - set(FRAME_SCHEMA.names))
     schema = pa.schema([*FRAME_SCHEMA, *(pa.field(f, pa.list_(pa.string())) for f in fields)])
-    pq.write_table(pa.Table.from_pylist(rows, schema=schema), path, compression="zstd")
+    pq.write_table(
+        pa.Table.from_pylist(rows, schema=schema),
+        path,
+        compression="zstd",
+        encryption_properties=encryption_properties(),
+    )
+
+
+def _watch_decoder(proc, done):
+    deadline = monotonic() + 600
+    while not done.wait(1):
+        if monotonic() >= deadline:
+            proc.kill()
+            return
+        # Darwin does not implement RLIMIT_AS. Enforce the resident memory
+        # ceiling from the trusted parent while the decoder runs in Seatbelt.
+        if sys.platform == "darwin":
+            rss = subprocess.run(["/bin/ps", "-o", "rss=", "-p", str(proc.pid)], capture_output=True).stdout.strip()
+            if rss.isdigit() and int(rss) > 2 * 1024 * 1024:
+                proc.kill()
+                return
 
 
 def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint=None):
     """Small batches allow a new field even in the very last packet to join the schema."""
-    with TemporaryDirectory(dir=destination.parent) as spool:
+    tshark = shutil.which("tshark")
+    if not tshark:
+        raise FileNotFoundError(2, "TShark is not installed", "tshark")
+    launcher = Path(__file__).with_name("_tshark_worker.py")
+    with TemporaryDirectory() as spool, source.open("rb") as capture:
         with subprocess.Popen(
-            ["tshark", "-n", "-r", str(source), "-T", "pdml"],
+            [sys.executable, "-I", "-S", str(launcher), str(Path(tshark).resolve())],
+            stdin=capture,
+            cwd=spool,
+            env={"HOME": spool, "WIRESHARK_CONFIG_DIR": spool, "LC_ALL": "C", "TZ": "UTC"},
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         ) as proc:
-            timer = Timer(3600, proc.kill)
-            timer.daemon = True
-            timer.start()
+            done = Event()
+            watchdog = Thread(target=_watch_decoder, args=(proc, done), daemon=True)
+            watchdog.start()
             parts, rows = [], []
             batch_bytes = 0
             try:
@@ -89,7 +119,8 @@ def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint
             finally:
                 proc.stdout.close()
                 returncode = proc.wait()
-                timer.cancel()
+                done.set()
+                watchdog.join()
             if returncode:
                 raise ValueError(f"TShark could not decode this capture (exit {returncode})")
         if not parts:
@@ -99,5 +130,18 @@ def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint
             part = Path(spool) / "last.parquet"
             _write_batch(rows, part)
             parts.append(str(part))
-        with duckdb.connect() as con:
-            con.read_parquet(parts, union_by_name=True).write_parquet(str(destination), compression="zstd")
+        decrypt = decryption_properties()
+        schema = pa.unify_schemas([pq.read_schema(p, decryption_properties=decrypt) for p in parts])
+        with pq.ParquetWriter(
+            destination, schema, compression="zstd", encryption_properties=encryption_properties()
+        ) as writer:
+            for part in parts:
+                with pq.ParquetFile(part, decryption_properties=decrypt) as reader:
+                    for batch in reader.iter_batches():
+                        arrays = [
+                            batch.column(f.name) if f.name in batch.schema.names else pa.nulls(len(batch), f.type)
+                            for f in schema
+                        ]
+                        writer.write_batch(pa.RecordBatch.from_arrays(arrays, schema=schema))
+                if checkpoint:
+                    checkpoint()

@@ -1105,6 +1105,9 @@ class SchemaContextBuilder:
             cid = str(getattr(t, 'connection_id', '') or '')
             meta = getattr(t, "metadata_json", None)
             is_file_relation = isinstance(meta, dict) and meta.get("network_dir_relation") is True
+            if is_file_relation and t.name == "packets":
+                from app.data_sources.clients._pcap_parquet import FRAME_SCHEMA
+                t.columns = [col for col in t.columns if col.name in FRAME_SCHEMA.names]
             if cid in file_conn_ids and not is_file_relation:
                 by_conn[cid].append(t)
             else:

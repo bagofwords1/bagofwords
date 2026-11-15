@@ -244,7 +244,9 @@ def capabilities_for_agents(agents) -> set:
                 logger.warning("capabilities: no client class for connection type %r",
                                getattr(conn, "type", None), exc_info=True)
                 continue
-            for cap in getattr(cls, "capabilities", set()) or set():
+            config_caps = getattr(cls, "capabilities_for_config", None)
+            declared = config_caps(getattr(conn, "config", None)) if config_caps else getattr(cls, "capabilities", set())
+            for cap in declared or set():
                 caps.add(getattr(cap, "value", str(cap)))
     return caps
 

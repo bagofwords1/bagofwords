@@ -26,7 +26,6 @@ import io
 import json
 import mimetypes
 import os
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -151,7 +150,6 @@ class NetworkDirClient(DataSourceClient):
     # check (resolve_file_client) still rejects writes.
     sql_literal_style = "standard"
     capabilities = {
-        Capability.QUERY,
         Capability.LIST_FILES,
         Capability.READ_FILE,
         Capability.SEARCH_FILES,
@@ -171,6 +169,16 @@ class NetworkDirClient(DataSourceClient):
     # (``Connection.get_client`` → ``ClientClass(**config)``), so any keyword
     # here would be reachable from a user-saved network_dir connection.
     _root_policy_exempt = False
+
+    @classmethod
+    def capabilities_for_config(cls, config):
+        if isinstance(config, str):
+            config = json.loads(config)
+        config = config or {}
+        mode = normalize_index_mode(config.get("index_mode"), index_content_legacy=config.get("index_content"))
+        if not cls._root_policy_exempt and mode in CONTENT_INDEX_MODES:
+            return cls.capabilities | {Capability.QUERY}
+        return cls.capabilities
 
     @classmethod
     def for_app_owned_dir(cls, root_path: str, **kwargs) -> NetworkDirClient:
@@ -957,7 +965,7 @@ class NetworkDirClient(DataSourceClient):
         sql = (
             " Use execute_query with DuckDB SELECT or DESCRIBE for indexed captures and QVDs. "
             "Query indexed_files for file_id, table_name, status and reason. "
-            "Report pending or failed captures when reporting packet totals. "
+            "Report pending, failed, or truncated coverage when reporting totals. Discover fields with duckdb_columns() filtered by table_name and column_name. "
             "packets contains frames from ready captures; quote dotted protocol fields and UNNEST repeated values."
         ) if self.index_file_tables else ""
         return f"Network directory {scope} ({mode}).{sql}"
@@ -1038,6 +1046,7 @@ class NetworkDirClient(DataSourceClient):
         files = self.list_files(recursive=self.recursive)
         schemas_by_table = {}
         current_versions = set()
+        self.pending_file_conversions = False
         reporter = make_reporter(progress_callback)
         reporter.phase("indexing files", total=len(files))
         tables: List[Table] = []
@@ -1054,13 +1063,15 @@ class NetworkDirClient(DataSourceClient):
                 f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
             fulltext = self.index_mode == INDEX_FULLTEXT and section_sink is not None
-            file_columns = []
             if self.index_file_tables and _ext(name) in derived.EXTENSIONS:
                 try:
                     source = derived.Source.resolve(self, name)
-                    source.prepare(self, lambda: reporter.item(name, done=len(tables)))
+                    if not getattr(self, "defer_file_conversion", False):
+                        source.prepare(self, lambda: reporter.item(name, done=len(tables)))
                     source = derived.Source.resolve(self, name)
                     status, reason = source.status()
+                    if status != "ready" and not source.too_large:
+                        self.pending_file_conversions = True
                     meta.update(sql_table=source.table_name, status=status, reason=reason,
                                 cache_version=source.artifact.stem)
                     current_versions.add(source.artifact.stem)
@@ -1074,7 +1085,6 @@ class NetworkDirClient(DataSourceClient):
                     if status == "ready":
                         schema = source.schema()
                         schemas.append(schema)
-                        file_columns = derived.columns(schema)
                 except IndexingCancelled:
                     raise
                 except (OSError, ValueError) as exc:
@@ -1156,7 +1166,7 @@ class NetworkDirClient(DataSourceClient):
             tables.append(Table(
                 name=name,
                 description=description,
-                columns=file_columns,
+                columns=[],
                 pks=[],
                 fks=[],
                 metadata_json={"network_dir": meta},
@@ -1169,6 +1179,8 @@ class NetworkDirClient(DataSourceClient):
         if schemas_by_table:
             by_name = {t.name: t for t in tables}
             for relation in derived.catalog_relations(schemas_by_table):
+                if relation.name == "indexed_files":
+                    relation.metadata_json["catalog_capped"] = self._last_walk_truncated
                 # An extensionless real file may also be named "packets".
                 # Retain both the file metadata and the SQL schema on that row.
                 if relation.name in by_name:
@@ -1202,7 +1214,7 @@ class NetworkDirClient(DataSourceClient):
         lines = [f"Directory catalog ({len(tables)} entries):"]
         for t in tables:
             if (t.metadata_json or {}).get("network_dir_relation"):
-                lines.append(f"- {t.name} (SQL table): " + ", ".join(c.name for c in t.columns))
+                lines.append(f"- {t.name} (SQL table). {t.description}")
                 continue
             meta = (t.metadata_json or {}).get("network_dir", {})
             lines.append(f"- {t.name} ({meta.get('mime_type') or 'file'})")
@@ -1223,7 +1235,22 @@ class NetworkDirClient(DataSourceClient):
         if table_name:
             return self.read_file(table_name, sheet=kwargs.get("sheet"))
         if query:
-            if self.index_file_tables and re.match(r"^\s*(?:SELECT|WITH|DESCRIBE|SHOW)\s+", query, re.I):
+            if self.index_file_tables:
+                # Preserve the historical file-id form, including SQL-looking names.
+                # read_file enforces the directory scope even for a matching real path.
+                import duckdb
+                try:
+                    is_file = (self._root() / query).is_file()
+                except (OSError, ValueError):
+                    is_file = False
+                if is_file:
+                    return self.read_file(query, sheet=kwargs.get("sheet"))
+                try:
+                    statements = duckdb.extract_statements(query)
+                except duckdb.ParserException:
+                    return self.read_file(query, sheet=kwargs.get("sheet"))
+                if not statements:
+                    return self.read_file(query, sheet=kwargs.get("sheet"))
                 from app.data_sources.clients._network_dir_tables import query_tables
                 return query_tables(self, query)
             return self.read_file(query, sheet=kwargs.get("sheet"))
