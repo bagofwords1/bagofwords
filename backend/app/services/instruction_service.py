@@ -4652,6 +4652,24 @@ class InstructionService:
                 if str(object_id) not in bucket:
                     bucket.append(str(object_id))
 
+        # Folder placements for every row (light + full): the pending/review
+        # grouping files a folder-scoped instruction (no agents) under its folder,
+        # not the global bucket — it needs the folder each row lives in. One flat
+        # SELECT keyed by instruction id, never N+1.
+        folder_map: Dict[str, List[dict]] = {}
+        if instructions:
+            from app.models.folder import folder_instructions, Folder
+            fi_rows = await db.execute(
+                select(folder_instructions.c.instruction_id, Folder.id, Folder.name)
+                .join(Folder, Folder.id == folder_instructions.c.folder_id)
+                .where(
+                    folder_instructions.c.instruction_id.in_([str(i.id) for i in instructions]),
+                    Folder.deleted_at.is_(None),
+                )
+            )
+            for iid, fid, fname in fi_rows.all():
+                folder_map.setdefault(str(iid), []).append({"id": str(fid), "name": fname})
+
         list_items: List = []
         for inst in instructions:
             ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
@@ -4662,6 +4680,7 @@ class InstructionService:
                 list_items.append(
                     InstructionListItemSchema(
                         scope_mode=inst.scope_mode,
+                        folders=folder_map.get(str(inst.id), []),
                         id=str(inst.id),
                         title=getattr(inst, "title", None),
                         preview=build_preview(inst.text),
@@ -4696,6 +4715,7 @@ class InstructionService:
             list_items.append(
                 InstructionListSchema(
                     scope_mode=inst.scope_mode,
+                    folders=folder_map.get(str(inst.id), []),
                     id=str(inst.id),
                     text=inst.text,
                     status=inst.status,
