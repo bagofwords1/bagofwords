@@ -41,14 +41,20 @@ class FakeServer:
     """What the fake driver records and how it answers.
 
     `answers` maps a substring of an incoming statement to the SQLite SQL
-    run in its place, or to an exception raised instead.
+    run in its place, to an exception raised instead, or to a function of
+    the statement returning either (for answers that change between calls).
     """
 
     def __init__(self, answers=None, fail_setup=False):
         self.answers = dict(answers or {})
         self.fail_setup = fail_setup
         self.sessions = []  # one list of statements per physical connection
+        self.closed = 0     # physical connections the client closed
         self.lock = threading.Lock()
+
+    def ran(self, needle):
+        """How many times a statement containing `needle` reached the driver."""
+        return sum(needle in q for session in self.sessions for q in session)
 
 
 class RecordingCursor:
@@ -67,6 +73,8 @@ class RecordingCursor:
             return self  # SQL Server session options: nothing to run in SQLite
         for needle, answer in self._server.answers.items():
             if needle in text:
+                if callable(answer):
+                    answer = answer(text)
                 if isinstance(answer, BaseException):
                     raise answer
                 return self._real.execute(answer)
@@ -86,6 +94,11 @@ class RecordingConnection:
 
     def cursor(self, *a, **k):
         return RecordingCursor(self._real.cursor(*a, **k), self._log, self._server)
+
+    def close(self):
+        with self._server.lock:
+            self._server.closed += 1
+        return self._real.close()
 
     def __getattr__(self, name):
         return getattr(self._real, name)
@@ -187,6 +200,19 @@ def test_a_session_whose_setup_fails_is_never_used(fake_server):
     assert not any("SELECT 42" in q for s in fake_server.sessions for q in s)
 
 
+@pytest.mark.parametrize("attempts", [1, 3])
+def test_a_session_whose_setup_fails_is_closed_not_left_open(fake_server, attempts):
+    """SQLAlchemy drops the pool record when the connect hook raises, but does
+    not close the driver connection; on a real server it stays open."""
+    fake_server.fail_setup = True
+    client = _client()
+    for _ in range(attempts):
+        with pytest.raises(RuntimeError):
+            _run_query(client)
+    assert len(fake_server.sessions) == attempts
+    assert fake_server.closed == attempts
+
+
 @pytest.mark.parametrize("kwargs", [
     {"lock_timeout_seconds": -1},
     {"isolation_level": "serializable"},
@@ -272,6 +298,133 @@ def test_connection_test_warns_when_bow_cannot_stop_its_queries(fake_server, ans
     assert ("ALTER ANY CONNECTION" in result["message"]) is warned
 
 
+EDITION = "EngineEdition"
+AZURE_KILL_PERMISSION = "KILL DATABASE CONNECTION'"
+
+
+@pytest.mark.parametrize("granted", [False, True])
+def test_on_azure_sql_database_the_kill_check_is_the_database_permission(fake_server, granted):
+    """Azure SQL Database (EngineEdition 5) has no server-level permissions:
+    advising ALTER ANY CONNECTION there would name a grant that cannot be made."""
+    fake_server.answers = {
+        EDITION: "SELECT 5",
+        AZURE_KILL_PERMISSION: f"SELECT {int(granted)}",
+        KILL_PERMISSION: "SELECT 0",  # must not be what decides
+    }
+    result = _client().test_connection()
+    assert result["success"] is True
+    assert bool(result.get("warnings")) is (not granted)
+    assert "ALTER ANY CONNECTION" not in result["message"]
+    assert ("KILL DATABASE CONNECTION" in result["message"]) is (not granted)
+
+
+@pytest.mark.parametrize("edition", ["SELECT 2", "SELECT 8", sqlite3.OperationalError("no SERVERPROPERTY")])
+def test_elsewhere_the_kill_check_is_alter_any_connection(fake_server, edition):
+    """On-premises editions, Managed Instance (8), and a server that cannot
+    report its edition all use the server-level check."""
+    fake_server.answers = {EDITION: edition, AZURE_KILL_PERMISSION: "SELECT 1", KILL_PERMISSION: "SELECT 0"}
+    result = _client().test_connection()
+    assert result.get("warnings")
+    assert "ALTER ANY CONNECTION" in result["message"]
+
+
+# --------------------------------------------------------------------------
+# Errors BOW causes on purpose are explained, and only those
+# --------------------------------------------------------------------------
+
+def _driver_error(native_code, sqlstate="HY000", text="something went wrong"):
+    """An error shaped like pyodbc's: SQLSTATE first, native code before the call name."""
+    return sqlite3.OperationalError(
+        sqlstate, f"[{sqlstate}] [Microsoft][ODBC Driver 18 for SQL Server][SQL Server]{text}. "
+                  f"({native_code}) (SQLExecDirectW)")
+
+
+LOCK_TIMEOUT = _driver_error(1222, text="Lock request time out period exceeded")
+DEADLOCKED = _driver_error(1205, "40001", "Transaction (Process ID 63) was deadlocked on lock resources")
+
+
+@pytest.mark.parametrize("lock_timeout", [3, 15])
+def test_a_lock_timeout_is_explained_not_passed_through(fake_server, lock_timeout):
+    from app.data_sources.clients.mssql_client import MssqlLockConflictError
+
+    fake_server.answers = {"FROM orders": LOCK_TIMEOUT}
+    with pytest.raises(MssqlLockConflictError) as raised:
+        _client(lock_timeout_seconds=lock_timeout).execute_query("SELECT status FROM orders")
+    message = str(raised.value)
+    assert message.startswith("SQL Server error 1222")  # survives the 200-char cut
+    assert f"{lock_timeout}s" in message
+    assert "Lock request time out" not in message
+    # The driver's own error is kept for whoever needs it.
+    assert "(1222)" in str(raised.value.__cause__)
+    assert fake_server.ran("FROM orders") == 1  # a lock timeout is not retried
+
+
+def test_a_lost_deadlock_is_retried_once_and_then_succeeds(fake_server):
+    calls = []
+
+    def first_deadlocks(text):
+        calls.append(text)
+        return DEADLOCKED if len(calls) == 1 else "SELECT 'open' AS status"
+
+    fake_server.answers = {"FROM orders": first_deadlocks}
+    df = _client().execute_query("SELECT status FROM orders")
+    assert df["status"].tolist() == ["open"]
+    assert fake_server.ran("FROM orders") == 2
+
+
+@pytest.mark.parametrize("deadlock", [
+    DEADLOCKED,
+    # Recognised by SQLSTATE alone, whatever the message says.
+    sqlite3.OperationalError("40001", "[40001] Transaction was chosen as the victim"),
+])
+def test_a_deadlock_lost_twice_is_explained_after_one_retry(fake_server, deadlock):
+    from app.data_sources.clients.mssql_client import MssqlLockConflictError
+
+    fake_server.answers = {"FROM orders": deadlock}
+    with pytest.raises(MssqlLockConflictError) as raised:
+        _client().execute_query("SELECT status FROM orders")
+    assert str(raised.value).startswith("SQL Server error 1205")
+    assert fake_server.ran("FROM orders") == 2  # one retry, not more
+
+
+@pytest.mark.parametrize("code", [3951, 3952])
+def test_a_snapshot_refusal_at_query_time_is_explained(fake_server, code):
+    from app.data_sources.clients.mssql_client import (
+        MssqlLockConflictError, MssqlSnapshotNotAllowedError,
+    )
+
+    fake_server.answers = {"FROM other_db": _driver_error(code, text="Snapshot isolation transaction failed")}
+    with pytest.raises(MssqlSnapshotNotAllowedError) as raised:
+        _client(isolation_level="snapshot").execute_query("SELECT * FROM other_db.dbo.orders")
+    assert not isinstance(raised.value, MssqlLockConflictError)  # it is not a lock conflict
+    assert "ALLOW_SNAPSHOT_ISOLATION" in str(raised.value)
+
+
+@pytest.mark.parametrize("number", [1205, 1222, 3951, 3952])
+@pytest.mark.parametrize("shape", ["IN ({n})", "= ({n})", "-- ({n}) (SQLExecDirectW)\n"])
+def test_numbers_in_the_query_text_are_not_read_as_error_codes(fake_server, number, shape):
+    """The wrapped exception text includes the SQL that ran. A query that fails
+    for its own reason must keep its own error, and must not be rerun."""
+    from app.data_sources.clients.mssql_client import MssqlQueryError
+
+    sql = f"SELECT nope FROM missing_table WHERE store_id {shape.format(n=number)}"
+    with pytest.raises(Exception) as raised:
+        _client().execute_query(sql)
+    assert not isinstance(raised.value, MssqlQueryError)
+    assert "missing_table" in str(raised.value)
+    assert fake_server.ran("missing_table") == 1
+
+
+def test_other_server_errors_pass_through_unchanged(fake_server):
+    from app.data_sources.clients.mssql_client import MssqlQueryError
+
+    fake_server.answers = {"FROM orders": _driver_error(208, "42S02", "Invalid object name 'orders'")}
+    with pytest.raises(Exception) as raised:
+        _client().execute_query("SELECT status FROM orders")
+    assert not isinstance(raised.value, MssqlQueryError)
+    assert "Invalid object name" in str(raised.value)
+
+
 # --------------------------------------------------------------------------
 # A KILL that fails is visible
 # --------------------------------------------------------------------------
@@ -329,6 +482,38 @@ def test_a_failed_kill_is_reported_with_its_reason(monkeypatch, error, permissio
         outcome = qc.cancel_thread(client, threading.get_ident())
     assert qc.cancellation_failed(outcome)
     assert ("ALTER ANY CONNECTION" in outcome) is permission
+
+
+class _MysqlRaw:
+    def thread_id(self):
+        return 4242
+
+
+class _MysqlConn:
+    class engine:
+        class dialect:
+            name = "mysql"
+        url = "mysql+pymysql://u:p@h/d"
+
+    class connection:
+        dbapi_connection = _MysqlRaw()
+
+    info = {}
+
+
+@pytest.mark.parametrize("conn,error,own,other", [
+    (_MssqlConn(), Exception("User does not have permission to use the KILL statement. (6102) (SQLExecDirectW)"),
+     "ALTER ANY CONNECTION", "CONNECTION_ADMIN"),
+    (_MysqlConn(), Exception("(1095, 'You are not owner of thread 4242')"),
+     "CONNECTION_ADMIN", "ALTER ANY CONNECTION"),
+])
+def test_a_refused_kill_names_only_its_own_engines_permission(monkeypatch, conn, error, own, other):
+    monkeypatch.setattr(sqlalchemy, "create_engine", lambda *a, **k: _SideEngine(error))
+    client = object()
+    with qc.track(client, conn):
+        outcome = qc.cancel_thread(client, threading.get_ident())
+    assert qc.cancellation_failed(outcome)
+    assert own in outcome and other not in outcome
 
 
 @pytest.mark.parametrize("outcome,still_running", [
