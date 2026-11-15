@@ -4854,6 +4854,7 @@
       "search_file": "Buscar en archivos",
       "system_status": "Consultar el estado del sistema"
     },
+    "networkDirIndexDescription": "El modo en vivo lee archivos bajo demanda. La lista de archivos guarda nombres, tamaños y fechas. Los modos de palabras clave y texto completo también guardan los datos decodificados de PCAP y QVD para consultas SQL. El texto completo indexa el contenido de los documentos para búsquedas. Al actualizar, se procesan los archivos modificados.",
     "sshSetup": {
       "title": "Verificar identidad del servidor",
       "hint": "Compare la huella con la proporcionada por el administrador o registros SSH fiables. Obtener una clave no la verifica.",

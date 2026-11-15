@@ -113,6 +113,10 @@ jobs:
 
     - uses: ./.github/actions/setup-backend
 
+    - name: Install offline packet decoder
+      if: matrix.name != 'postgres-dashboards'
+      run: sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
+
     - name: Check for AI file changes
       id: changes
       uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4

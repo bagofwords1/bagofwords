@@ -600,6 +600,17 @@ async def get_domain_connections(
     from app.schemas.data_source_registry import get_entry
     _status_svc = UserDataSourceCredentialsService()
 
+    network_ids = [str(conn.id) for conn in connections if conn.type == "network_dir"]
+    indexed_dirs = set()
+    if network_ids:
+        from sqlalchemy import select
+        from app.models.connection_table import ConnectionTable
+        indexed_dirs = set((await db.scalars(select(ConnectionTable.connection_id).where(
+            ConnectionTable.connection_id.in_(network_ids),
+            ConnectionTable.name == "indexed_files",
+            ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_(True),
+        ))).all())
+
     def _catalog_shape(conn):
         try:
             entry = get_entry(conn.type)
@@ -625,6 +636,7 @@ async def get_domain_connections(
             "name": conn.name,
             "type": conn.type,
             **_catalog_shape(conn),
+            "has_file_tables": str(conn.id) in indexed_dirs,
             "is_active": conn.is_active,
             "config": _safe_config(conn),
             "auth_policy": conn.auth_policy,

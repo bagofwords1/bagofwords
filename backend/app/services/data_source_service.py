@@ -3391,6 +3391,20 @@ class DataSourceService:
         from app.models.datasource_table import DataSourceTable
         from app.models.connection_table import ConnectionTable
 
+        network_tables = bool(getattr(client, "index_file_tables", False))
+        if network_tables:
+            selected = await db.scalars(
+                select(DataSourceTable.name)
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active.is_(True),
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_(True),
+                )
+            )
+            client._network_dir_relations = set(selected)
+            return
         if not dialect_for_client(client):
             return
         rows = (await db.execute(
@@ -4365,7 +4379,8 @@ class DataSourceService:
             _file_ct_subq = (
                 select(ConnectionTable.id)
                 .join(Connection, ConnectionTable.connection_id == Connection.id)
-                .where(Connection.type.in_(_FILE_SOURCE_TYPES))
+                .where(Connection.type.in_(_FILE_SOURCE_TYPES),
+                       ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_not(True))
             ).scalar_subquery()
 
         def _excl(q):
@@ -4521,7 +4536,7 @@ class DataSourceService:
         # the visible symptom users reported as "it only shows one source".
         connections_query = _active(_scope(connections_query))
         if exclude_file_source_types:
-            connections_query = connections_query.where(Connection.type.notin_(_FILE_SOURCE_TYPES))
+            connections_query = connections_query.where(ConnectionTable.id.notin_(_file_ct_subq))
         connections_result = await db.execute(connections_query)
         distinct_connections = [
             ConnectionInfo(id=str(row[0]), name=row[1], type=row[2])
@@ -7288,7 +7303,10 @@ class DataSourceService:
                         is_active=(
                             False
                             if getattr(conn_table, "kind", None) == "bow"
-                            else should_activate
+                            else should_activate or (
+                                connection.type == "network_dir"
+                                and (conn_table.metadata_json or {}).get("network_dir_relation") is True
+                            )
                         ),
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,

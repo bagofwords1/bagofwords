@@ -4289,6 +4289,7 @@
       "search_file": "Dateien durchsuchen",
       "system_status": "Systemstatus prüfen"
     },
+    "networkDirIndexDescription": "Im Live-Modus werden Dateien bei Bedarf gelesen. Die Dateiliste speichert Namen, Größen und Datumsangaben. Die Modi für Stichwörter und Volltext speichern auch dekodierte PCAP- und QVD-Daten für SQL-Abfragen. Die Volltextsuche indiziert den Dokumentinhalt. Beim Aktualisieren werden geänderte Dateien verarbeitet.",
     "sshSetup": {
       "title": "Serveridentität prüfen",
       "hint": "Vergleichen Sie den Fingerabdruck mit Angaben des Administrators oder vertrauenswürdigen SSH-Einträgen. Das Abrufen bestätigt die Identität nicht.",

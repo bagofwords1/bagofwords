@@ -203,11 +203,13 @@ class GetConnectionTool(Tool):
                 )
             elif is_file_shaped:
                 output.file_scope = ConnectionFileScope(**file_scope_of(conn))
-                f_q = await db.execute(
-                    select(ConnectionTable.name)
-                    .where(ConnectionTable.connection_id == str(conn.id))
-                    .order_by(ConnectionTable.name)
-                )
+                files_query = select(ConnectionTable.name).where(ConnectionTable.connection_id == str(conn.id))
+                if conn.type == "network_dir":
+                    files_query = files_query.where(
+                        ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_not(True)
+                        | ConnectionTable.metadata_json["network_dir"]["file_id"].as_string().isnot(None)
+                    )
+                f_q = await db.execute(files_query.order_by(ConnectionTable.name))
                 names = [n for (n,) in f_q.all() if _matches(n or "")]
                 output.total = len(names)
                 output.has_more = end < len(names)

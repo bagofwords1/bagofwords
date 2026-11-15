@@ -944,7 +944,7 @@ const schemaConnections = computed(() => {
   const ids = props.connectionFilter.split(',').filter(Boolean)
   return authConnections.value.filter(c =>
     (!ids.length || ids.includes(c.id))
-    && ['tables', 'objects'].includes(c.data_shape || 'tables')
+    && (c.has_file_tables || ['tables', 'objects'].includes(c.data_shape || 'tables'))
     && c.catalog_ownership !== 'none')
 })
 type SchemaRefreshAction = { connection: any; scope: 'user' | 'org' }
