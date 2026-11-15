@@ -69,6 +69,12 @@ if (created && await tab.isVisible().catch(() => false)) {
       const text = await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
       if (text.includes('Rock') && text.includes('826.65')) rowsRendered = true;
     }
+    // The page's own error panel means the dashboard did not render, whatever
+    // a frame still holds.
+    if (await page.getByText('Dashboard failed to render').first().isVisible().catch(() => false)) {
+      rowsRendered = false;
+      break;
+    }
   }
   await page.screenshot({ path: `${out}.dashboard.png`, fullPage: true });
 }

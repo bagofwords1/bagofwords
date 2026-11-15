@@ -1488,7 +1488,9 @@
       "failedDashboard": "Error al crear el panel",
       "copied": "Copiado",
       "copiedDesc": "ID del artefacto copiado al portapapeles",
-      "copyFailed": "Error al copiar"
+      "copyFailed": "Error al copiar",
+      "notRenderChecked": "Sin comprobar el renderizado",
+      "notRenderCheckedDesc": "Guardado sin comprobar el renderizado: el servidor no pudo iniciar su navegador. Ábrelo para confirmar que se muestra."
     },
     "createDashboard": {
       "creating": "Creando panel",
@@ -1525,7 +1527,9 @@
       "copyIdTooltip": "Haz clic para copiar el ID",
       "copied": "Copiado",
       "copiedDesc": "ID del artefacto copiado al portapapeles",
-      "copyFailed": "Error al copiar"
+      "copyFailed": "Error al copiar",
+      "notRenderChecked": "Sin comprobar el renderizado",
+      "notRenderCheckedDesc": "Guardado sin comprobar el renderizado: el servidor no pudo iniciar su navegador. Ábrelo para confirmar que se muestra."
     },
     "createWidget": {
       "creatingDataModel": "Creando modelo de datos",

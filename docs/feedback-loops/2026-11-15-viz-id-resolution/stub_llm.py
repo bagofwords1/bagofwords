@@ -12,7 +12,8 @@ The whole stack runs for real (planner loop, tool runner, create_artifact,
 render validation, chat UI); only the model's words are scripted. Model
 judgment is not tested here.
 
-Env: STUB_VIZ_ID (required), STUB_PORT (default 9099).
+Env: STUB_VIZ_ID (required), STUB_PORT (default 9099). STUB_VIZ_ID_FILE and
+STUB_PAGE_FILE let run.sh switch scenario per request.
 Run (from backend/): STUB_VIZ_ID=... uv run python ../docs/feedback-loops/2026-11-15-viz-id-resolution/stub_llm.py
 """
 import json
@@ -35,7 +36,38 @@ def _viz_id() -> str:
     return os.environ["STUB_VIZ_ID"]
 
 
+def _takes_kit_from_react() -> bool:
+    """Scenario switch (see run.sh `react`): the page lists runtime components
+    in a `const { … } = React` destructuring, which leaves them undefined."""
+    path = os.environ.get("STUB_PAGE_FILE")
+    return bool(path and os.path.exists(path) and open(path).read().strip() == "react")
+
+
 def _page(viz_id: str) -> str:
+    if _takes_kit_from_react():
+        return (
+            '<script type="text/babel">\n'
+            "const { useState, useEffect, KPICard, SectionCard } = React;\n"
+            "function App() {\n"
+            f'  const sales = vizById("{viz_id}");\n'
+            "  const rows = (sales && sales.rows) || [];\n"
+            "  return (\n"
+            '    <div className="p-8 max-w-3xl mx-auto">\n'
+            '      <SectionCard title="Revenue by genre">\n'
+            '        <KPICard title="Genres" value={rows.length} />\n'
+            '        <table className="w-full text-sm mt-4"><tbody>\n'
+            "          {rows.map((r, i) => (\n"
+            '            <tr key={i} className="border-b"><td className="py-2">{r.genre}</td>'
+            '<td className="py-2 text-right">{r.revenue}</td></tr>\n'
+            "          ))}\n"
+            "        </tbody></table>\n"
+            "      </SectionCard>\n"
+            "    </div>\n"
+            "  );\n"
+            "}\n"
+            "ReactDOM.createRoot(document.getElementById('root')).render(<App />);\n"
+            "</script>"
+        )
     return (
         '<script type="text/babel">\n'
         "function App() {\n"

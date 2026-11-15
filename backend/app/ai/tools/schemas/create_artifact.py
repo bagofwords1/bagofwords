@@ -97,3 +97,4 @@ class CreateArtifactOutput(BaseModel):
     title: Optional[str] = Field(None, description="Artifact title")
     visualization_ids: List[str] = Field(default_factory=list, description="All visualization IDs included in this artifact. Use these when making further edits with edit_artifact.")
     version: int = Field(default=1, description="Version number of the artifact")
+    render_checked: Optional[bool] = Field(default=None, description="Page mode: False when the page was saved without a render check (the server could not start its browser).")

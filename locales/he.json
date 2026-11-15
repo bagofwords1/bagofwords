@@ -1488,7 +1488,9 @@
       "failedDashboard": "יצירת הדשבורד נכשלה",
       "copied": "הועתק",
       "copiedDesc": "מזהה הפריט הועתק ללוח",
-      "copyFailed": "ההעתקה נכשלה"
+      "copyFailed": "ההעתקה נכשלה",
+      "notRenderChecked": "לא נבדק ברינדור",
+      "notRenderCheckedDesc": "נשמר ללא בדיקת רינדור: השרת לא הצליח להפעיל את הדפדפן שלו. יש לפתוח כדי לוודא שהתצוגה תקינה."
     },
     "createDashboard": {
       "creating": "יוצר דשבורד",
@@ -1525,7 +1527,9 @@
       "copyIdTooltip": "לחץ להעתקת המזהה",
       "copied": "הועתק",
       "copiedDesc": "מזהה הפריט הועתק ללוח",
-      "copyFailed": "ההעתקה נכשלה"
+      "copyFailed": "ההעתקה נכשלה",
+      "notRenderChecked": "לא נבדק ברינדור",
+      "notRenderCheckedDesc": "נשמר ללא בדיקת רינדור: השרת לא הצליח להפעיל את הדפדפן שלו. יש לפתוח כדי לוודא שהתצוגה תקינה."
     },
     "createWidget": {
       "creatingDataModel": "יוצר מודל נתונים",

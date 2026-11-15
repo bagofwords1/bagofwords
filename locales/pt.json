@@ -1410,7 +1410,9 @@
       "failedDashboard": "Falha ao criar painel",
       "copied": "Copiado",
       "copiedDesc": "ID do artefato copiado para a área de transferência",
-      "copyFailed": "Falha ao copiar"
+      "copyFailed": "Falha ao copiar",
+      "notRenderChecked": "Renderização não verificada",
+      "notRenderCheckedDesc": "Guardado sem verificação de renderização: o servidor não conseguiu iniciar o navegador. Abra para confirmar que é apresentado."
     },
     "createDashboard": {
       "creating": "Criando painel",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "Clique para copiar ID",
       "copied": "Copiado",
       "copiedDesc": "ID do artefato copiado para a área de transferência",
-      "copyFailed": "Falha ao copiar"
+      "copyFailed": "Falha ao copiar",
+      "notRenderChecked": "Renderização não verificada",
+      "notRenderCheckedDesc": "Guardado sem verificação de renderização: o servidor não conseguiu iniciar o navegador. Abra para confirmar que é apresentado."
     },
     "createWidget": {
       "creatingDataModel": "Criando modelo de dados",

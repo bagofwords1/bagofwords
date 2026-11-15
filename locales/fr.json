@@ -1410,7 +1410,9 @@
       "failedDashboard": "Échec de la création du tableau de bord",
       "copied": "Copié",
       "copiedDesc": "ID de l'artefact copié dans le presse-papiers",
-      "copyFailed": "Échec de la copie"
+      "copyFailed": "Échec de la copie",
+      "notRenderChecked": "Rendu non vérifié",
+      "notRenderCheckedDesc": "Enregistré sans vérification du rendu : le serveur n'a pas pu démarrer son navigateur. Ouvrez-le pour vérifier qu'il s'affiche."
     },
     "createDashboard": {
       "creating": "Création du tableau de bord",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "Cliquez pour copier l'ID",
       "copied": "Copié",
       "copiedDesc": "ID de l'artefact copié dans le presse-papiers",
-      "copyFailed": "Échec de la copie"
+      "copyFailed": "Échec de la copie",
+      "notRenderChecked": "Rendu non vérifié",
+      "notRenderCheckedDesc": "Enregistré sans vérification du rendu : le serveur n'a pas pu démarrer son navigateur. Ouvrez-le pour vérifier qu'il s'affiche."
     },
     "createWidget": {
       "creatingDataModel": "Création du modèle de données",

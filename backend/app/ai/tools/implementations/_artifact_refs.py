@@ -64,6 +64,59 @@ def _quoted_id_refs(src: str, ids: List[str]) -> set:
     return {vid for vid in ids if re.search(r"['\"]" + re.escape(vid) + r"['\"]", src)}
 
 
+# What `React` itself exports (18.x UMD build). Anything else destructured
+# from it is undefined.
+REACT_EXPORTS = frozenset({
+    "Children", "Component", "Fragment", "Profiler", "PureComponent", "StrictMode", "Suspense",
+    "cloneElement", "createContext", "createElement", "createFactory", "createRef", "forwardRef",
+    "isValidElement", "lazy", "memo", "startTransition", "version",
+    "useCallback", "useContext", "useDebugValue", "useDeferredValue", "useEffect", "useId",
+    "useImperativeHandle", "useInsertionEffect", "useLayoutEffect", "useMemo", "useReducer",
+    "useRef", "useState", "useSyncExternalStore", "useTransition",
+})
+_REACT_DESTRUCTURE_RE = re.compile(
+    r"(?P<indent>^[ \t]*)?\b(?P<kw>const|let|var)\s*\{(?P<body>[^{}]*)\}\s*=\s*(?:window\.)?React(?![\w$.])\s*;?",
+    re.MULTILINE,
+)
+_PLAIN_BINDING_RE = re.compile(r"^[A-Za-z_$][\w$]*(?:\s*:\s*[A-Za-z_$][\w$]*)?$")
+
+
+def strip_non_react_destructures(code: str) -> Tuple[str, List[str]]:
+    """Drop names that `React` does not export from `const { … } = React`.
+
+    The runtime's components and helpers (KPICard, vizById, useArtifactData…)
+    are globals. A model that lists them in a `React` destructuring shadows
+    each global with `undefined`, and the page dies with "Element type is
+    invalid … got: undefined" — or, for a helper, "x is not a function".
+    `React.<name>` is undefined for every such name, so removing the binding
+    can only replace `undefined` with the global: it never changes code that
+    worked. Real React exports are kept as written.
+
+    Returns (code, removed names). A statement with a default value, a rest
+    element or a comment inside the braces is left for the render check.
+    """
+    removed: List[str] = []
+
+    def _fix(m: "re.Match") -> str:
+        entries = [e.strip() for e in m.group("body").split(",")]
+        entries = [e for e in entries if e]
+        if not entries or not all(_PLAIN_BINDING_RE.match(e) for e in entries):
+            return m.group(0)
+        kept = [e for e in entries if e.split(":")[0].strip() in REACT_EXPORTS]
+        dropped = [e.split(":")[-1].strip() for e in entries if e.split(":")[0].strip() not in REACT_EXPORTS]
+        if not dropped:
+            return m.group(0)
+        removed.extend(dropped)
+        indent = m.group("indent") or ""
+        if not kept:
+            return indent
+        return f"{indent}{m.group('kw')} {{ {', '.join(kept)} }} = React;"
+
+    src = code or ""
+    fixed = _REACT_DESTRUCTURE_RE.sub(_fix, src)
+    return (fixed, list(dict.fromkeys(removed))) if removed else (src, [])
+
+
 def _inside_string_or_comment(line: str, col: int) -> bool:
     """Heuristic: is column ``col`` of ``line`` inside a string literal or
     after a ``//`` line comment? Counts unescaped quote characters before the
