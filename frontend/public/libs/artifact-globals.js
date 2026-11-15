@@ -2238,9 +2238,33 @@ function _dtDetectDir(cols, rows) {
 
   // unit="currency" means the data's own currency: a code in the measure's
   // name (amount_eur), else the one stored on the viz (its saved chart format
-  // or data model), else USD. A model that writes unit="currency" for euro
-  // data must not get dollars.
+  // or data model), else the one code the viz's columns name, else the one
+  // code the page's data names, else USD. A model that writes
+  // unit="currency" for euro data must not get dollars, even after it renames
+  // the column (gasto_eur → value) or passes no viz.
   var _CH_CUR_CODE = /(^|_)(usd|eur|gbp|ils|nis|jpy|chf|cad|aud|inr|cny|brl|mxn|sek|nok|dkk|pln|zar|krw|sgd|hkd|nzd)(_|$)/i;
+  function _chCodeIn(name) {
+    var m = String(name == null ? '' : name).replace(/([a-z0-9])([A-Z])/g, '$1_$2').match(_CH_CUR_CODE);
+    if (!m) return null;
+    var code = m[2].toUpperCase(); return code === 'NIS' ? 'ILS' : code;
+  }
+  // The single currency code a set of vizzes names (saved format or column
+  // names); null when there is none or more than one.
+  function _chOnlyCode(vizzes) {
+    var seen = {}, n = 0;
+    function add(c) { if (c && !seen[c]) { seen[c] = 1; n++; } }
+    try {
+      for (var i = 0; i < vizzes.length; i++) {
+        var v = vizzes[i]; if (!v) continue;
+        add(_chVizCurrency(v));
+        var cols = v.columns || [];
+        for (var j = 0; j < cols.length; j++) add(_chCodeIn(cols[j] && (cols[j].field || cols[j].headerName || cols[j].name)));
+      }
+    } catch (e) { return null; }
+    if (n !== 1) return null;
+    for (var k in seen) return k;
+    return null;
+  }
   function _chVizCurrency(viz) {
     try {
       var v = viz && viz.view, vv = v && (v.view || v);
@@ -2252,10 +2276,12 @@ function _dtDetectDir(cols, rows) {
     var u = unit || 'number';
     if (u !== 'currency') return u;
     for (var i = 0; i < (measures || []).length; i++) {
-      var m = String(measures[i] == null ? '' : measures[i]).replace(/([a-z0-9])([A-Z])/g, '$1_$2').match(_CH_CUR_CODE);
-      if (m) { var code = m[2].toUpperCase(); return code === 'NIS' ? 'ILS' : code; }
+      var code = _chCodeIn(measures[i]);
+      if (code) return code;
     }
-    return _chVizCurrency(viz) || 'USD';
+    var all = [];
+    try { all = (window.ARTIFACT_DATA && window.ARTIFACT_DATA.visualizations) || []; } catch (e) {}
+    return _chVizCurrency(viz) || (viz ? _chOnlyCode([viz]) : null) || _chOnlyCode(all) || 'USD';
   }
 
   // Numbers by unit. percent = already ×100; ratio = 0–1. Never fmt()'s
