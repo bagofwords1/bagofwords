@@ -221,7 +221,8 @@ def test_failed_create_instruction_logs_neither_title_nor_text(
         "/api/mcp",
         json={"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {
             "name": "create_instruction",
-            "arguments": {"text": f"Always {text_marker}.", "title": title},
+            # scope 'global': a targetless MCP create is refused before the INSERT.
+            "arguments": {"text": f"Always {text_marker}.", "title": title, "scope": "global"},
         }},
         headers={"X-API-Key": mcp_owner["api_key"]},
     )

@@ -599,9 +599,12 @@ async def test_folder_authoring_tool_destinations(test_client, bootstrap_admin, 
                                                         "confidence": 0.99}),
                              (CreateEvalTool(), {"name": "Route ROI", "prompt": {"content": "What is campaign ROI?"},
                                 "expectations": {"rules": [{"type": "tool.calls", "tool": "create_data", "min_calls": 1}]}})]:
-            for destination in ({}, {"destination": "global"}, {"folder_id": other}, {"destination": "folder"}):
+            # A folder NAME (what weaker models pass) resolves to the report's folder;
+            # an explicit id of another real folder is refused, not redirected.
+            for destination in ({}, {"destination": "global"}, {"folder_id": other}, {"destination": "folder"},
+                                {"destination": "folder", "folder_id": "Marketing"}):
                 events = [e async for e in tool.run_stream({**fields, **destination}, ctx)]
-                if destination != {"destination": "folder"}:
+                if destination.get("destination") != "folder":
                     assert events[-1].type == "tool.error", events[-1]
                     continue
                 result = events[-1].payload.get("output", {})

@@ -189,6 +189,14 @@ async def can_read_knowledge_scope(db, report, org, user, rights, *, archived=fr
     return True
 
 
+async def _is_org_folder(db, org, folder_id):
+    return await db.scalar(
+        select(Folder.id).where(
+            Folder.id == str(folder_id), Folder.organization_id == org.id, Folder.deleted_at.is_(None)
+        )
+    ) is not None
+
+
 async def _still_applies_in_folder(db, folder_id, instruction_ids):
     return await db.scalar(
         select(Instruction.id)
@@ -231,12 +239,14 @@ async def authoring_targets(db, org, user, report, capability, destination, fold
         return None  # Existing non-folder authoring contract.
     destination = destination or ("folder" if folder_id else "agents" if agent_ids else None)
     target_folder = folder_id if report is None or folder_id in selected else active
-    # `target_folder` already resolves to the report's selected/active folder when
-    # the caller's `folder_id` hint doesn't match one (e.g. a model that passes the
-    # folder NAME instead of its id) — so trust it rather than demanding the hint
-    # echo the exact id. require_capability still authorizes the resolved folder,
-    # and target_folder is never outside the report's own folder scope.
-    if destination == "folder" and target_folder and not agent_ids:
+    # `target_folder` falls back to the report's active folder when the caller's
+    # `folder_id` hint isn't a selected folder. Trust that fallback only when the
+    # hint names no real folder (e.g. a model that passes the folder NAME instead
+    # of its id); an explicit id of a *different* folder is refused, never
+    # silently redirected. require_capability still authorizes the resolved folder.
+    if destination == "folder" and target_folder and not agent_ids and (
+        folder_id in (None, target_folder) or not await _is_org_folder(db, org, folder_id)
+    ):
         await require_capability(db, org, user, target_folder, capability)
         return target_folder, []
     rights = await resolve_permissions(db, user.id, org.id)
