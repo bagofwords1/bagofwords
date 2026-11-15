@@ -244,6 +244,7 @@ export function formatMention(name: string): string {
 
 /** Prompt mention groups are keyed by display label; references by object type. */
 const GROUP_TYPE_MAP: Record<string, string> = {
+  'FOLDERS': 'folder',
   'DATA SOURCES': 'data_source',
   'TABLES': 'datasource_table',
   'FILES': 'file',

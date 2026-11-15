@@ -164,6 +164,7 @@ export const useCanAll = (permission: string, resourceType: string, ids: string[
 }
 
 type InstructionPermissionTarget = {
+  can_manage_scope?: boolean | null
   data_sources?: Array<string | { id?: string | null }> | null
   data_source_ids?: string[] | null
 }
@@ -180,6 +181,7 @@ export const useCanManageInstruction = (
   instruction?: InstructionPermissionTarget | null,
 ) => {
   if (!instruction) return false
+  if (typeof instruction.can_manage_scope === "boolean") return instruction.can_manage_scope
 
   const hasDataSources = Array.isArray(instruction.data_sources)
   const hasDataSourceIds = Array.isArray(instruction.data_source_ids)

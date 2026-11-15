@@ -10,7 +10,9 @@ always full; files snapshotted from an agent's (data source's) file library
 are index-only; remaining user uploads stay full while a shared token budget
 lasts (all of them, when the report has only a few).
 """
-from datetime import datetime
+from datetime import datetime, timedelta
+
+import pytest
 
 from app.ai.context.builders.files_context_builder import decide_file_tiers
 from app.ai.context.sections.files_schema_section import FilesSchemaContext
@@ -133,3 +135,65 @@ def test_render_file_index_line_csv_and_excel():
 def test_render_file_index_line_handles_missing_preview():
     line = render_file_index_line(None, "/tmp/x.bin", filename="x.bin")
     assert "x.bin" in line and "read_file" in line
+
+
+# ── Agent-produced files are capped in the listing ───────────────────────
+# A scheduled report gains one tool-output file per call per run. Listing them
+# all made each run's prompt grow with the report's history.
+
+from app.ai.context.builders.files_context_builder import GENERATED_FILES_MAX, limit_generated_files
+
+
+class _G(_F):
+    def __init__(self, id, source_kind="artifact", created_at=None):
+        super().__init__(id, created_at=created_at)
+        self.source_kind = source_kind
+
+
+def _history(n, kind="artifact"):
+    return [_G(f"g{i}", source_kind=kind, created_at=datetime(2026, 1, 1) + timedelta(hours=i))
+            for i in range(n)]
+
+
+@pytest.mark.parametrize("kind", ["artifact", "connector"])
+@pytest.mark.parametrize("n", [GENERATED_FILES_MAX + 1, 57, 1128])
+def test_listing_keeps_only_the_newest_generated_files(kind, n):
+    files = _history(n, kind)
+    kept, omitted = limit_generated_files(files, protected_ids=set())
+    assert len(kept) == GENERATED_FILES_MAX
+    assert omitted == n - GENERATED_FILES_MAX
+    newest = {f"g{i}" for i in range(n - GENERATED_FILES_MAX, n)}
+    assert {f.id for f in kept} == newest
+
+
+def test_listing_size_does_not_grow_with_history():
+    sizes = {len(limit_generated_files(_history(n), set())[0]) for n in (25, 100, 1000)}
+    assert sizes == {GENERATED_FILES_MAX}
+
+
+def test_uploads_and_protected_files_are_never_dropped():
+    uploads = [_G(f"u{i}", source_kind="upload") for i in range(5)]
+    history = _history(GENERATED_FILES_MAX + 30)
+    protected = {"g0", "g1"}  # oldest generated, but mentioned / library
+    kept, omitted = limit_generated_files(uploads + history, protected_ids=protected)
+    ids = {f.id for f in kept}
+    assert {f"u{i}" for i in range(5)} <= ids
+    assert protected <= ids
+    assert omitted == len(history) - len(protected) - GENERATED_FILES_MAX
+    assert len([f for f in kept if f.source_kind != "upload" and f.id not in protected]) == GENERATED_FILES_MAX
+
+
+def test_under_the_cap_nothing_is_dropped():
+    files = _history(GENERATED_FILES_MAX)
+    kept, omitted = limit_generated_files(files, set())
+    assert kept == files and omitted == 0
+
+
+def test_render_notes_how_many_generated_files_were_left_out():
+    ctx = FilesSchemaContext(files=[FilesSchemaContext.FileItem(id="g1", filename="cost_report.json", detail="index",
+                                                                index_summary="json", origin="agent")],
+                             omitted_generated=42)
+    out = ctx.render()
+    assert 'omitted="42"' in out
+    assert "<file " in out
+    assert 'omitted=' not in FilesSchemaContext(files=ctx.files).render()

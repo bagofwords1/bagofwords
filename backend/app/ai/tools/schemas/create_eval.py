@@ -41,6 +41,9 @@ class CreateEvalInput(BaseModel):
     drafts suite when omitted).
     """
 
+    destination: Optional[Literal["folder", "agents", "global"]] = Field(None, description="Choose the intended audience before writing. Ask if unclear. Folder means the exact selected folder.")
+    folder_id: Optional[str] = Field(None, description="Optional ID of the selected folder for a folder destination.")
+
     name: str = Field(
         ..., min_length=1, max_length=200,
         description="Short, human-readable label for the case.",

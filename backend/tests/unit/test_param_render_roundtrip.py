@@ -59,6 +59,9 @@ SQL_FAMILIES = {
     "DuckDBClient": "duckdb",
     "TeradataClient": "teradata",
     "DruidClient": "druid",
+    "IcebergClient": "duckdb",
+    "DremioClient": "dremio",
+    "HiveClient": "hive",
     # Renderer-only rows, read with the dialect their renderer generates.
     "PostHogClient": "clickhouse",
     "CSVClient": "duckdb",
@@ -71,7 +74,10 @@ SQL_FAMILIES = {
 # Engines that do not read a backslash the way sqlglot's tokenizer does
 # (approved: Athena's DML engine, Redshift): a backslash value is refused.
 # Timbr's lexer is not documented, so it gets doubled quotes and no backslash.
-NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient"}
+# Vertica, SQL Anywhere and Oracle BI may read a backslash as an escape
+# (their sql_literal_style is "doubled"): ansi_or_backslash refuses one.
+NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient", "VerticaClient", "SybaseClient",
+                "OracleBIClient"}
 
 STRING_TOKENS = {TokenType.STRING, TokenType.NATIONAL_STRING}
 
@@ -120,12 +126,12 @@ def test_the_duckdb_engine_reads_its_literal_as_the_value(value):
 SCANNED = {
     "Db2Client": "ansi",
     "IbmiClient": "ansi",
-    "VerticaClient": "ansi",
-    "SybaseClient": "ansi",
+    "VerticaClient": "ansi_or_backslash",
+    "SybaseClient": "ansi_or_backslash",
     "SapHanaClient": "ansi",
     "PinotClient": "ansi",
     "NetsuiteClient": "ansi",
-    "OracleBIClient": "ansi",
+    "OracleBIClient": "ansi_or_backslash",
     "SisenseClient": "ansi",
     "PriorityErpClient": "odata",
     "SapDatasphereClient": "odata",

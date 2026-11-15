@@ -111,6 +111,13 @@ def _given(value) -> bool:
 
 class SplunkClient(DataSourceClient):
 
+    # SPL: string values are double-quoted with backslash escapes (\" and
+    # \\), and a single-quoted token names a field in eval/where (Splunk
+    # Search Reference, quotation marks and escaping): a standard '...'
+    # literal is not a string there. None of the styles fits; parameters
+    # render only with the SPL renderer declared in client_profiles.
+    sql_literal_style = None
+
     def __init__(
         self,
         host: str,

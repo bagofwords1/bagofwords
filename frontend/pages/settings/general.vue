@@ -1,96 +1,67 @@
 <template>
-    <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900 dark:text-white">{{ $t('settings.general') }}
-            <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-8">
-                {{ $t('settings.subtitle') }}
-            </p>
-        </h2>
+    <div>
+        <SettingsLoading v-if="loading" />
 
-        <div v-if="loading" class="py-4">
-            <ULoader />
-        </div>
+        <UAlert v-if="error" color="red" variant="soft" icon="i-heroicons-exclamation-triangle" :title="error" />
 
-        <UAlert v-if="error" class="mt-4" type="danger">
-            {{ error }}
-        </UAlert>
-
-        <div v-if="!loading && !error" class="space-y-6">
-            <!-- Organization Name -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.organizationName') }}</div>
-                <UInput v-model="form.organization_name" :maxlength="80" :placeholder="$t('settings.workspacePlaceholder')" />
-            </div>
-            <!-- Organization Icon -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.organizationIcon') }}</div>
-                <div class="flex items-center space-x-4">
-                    <div class="w-20 h-14 rounded border bg-white dark:bg-gray-900 overflow-hidden flex items-center justify-center">
-                        <img v-if="form.icon_url" :src="form.icon_url" class="max-w-full max-h-full object-contain" />
-                        <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-ink-muted" />
+        <div v-if="!loading && !error">
+            <SettingsSection :title="$t('settings.generalSections.workspace')" :description="$t('settings.generalSections.workspaceHint')">
+                <SettingsRow :label="$t('settings.organizationName')" stacked for-id="org-name">
+                    <UInput id="org-name" v-model="form.organization_name" :maxlength="80" :placeholder="$t('settings.workspacePlaceholder')" />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.organizationIcon')" :description="$t('settings.iconConstraints')" stacked>
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 h-16 rounded-lg border border-line bg-surface-subtle overflow-hidden flex items-center justify-center shrink-0">
+                            <img v-if="form.icon_url" :src="form.icon_url" alt="" class="max-w-full max-h-full object-contain" />
+                            <UIcon v-else name="i-heroicons-building-office" class="w-6 h-6 text-ink-subtle" />
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <UButton size="sm" color="gray" variant="solid" icon="i-heroicons-arrow-up-tray" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>
+                            <UButton v-if="form.icon_url" size="sm" color="red" variant="ghost" @click="queueRemoveIcon">{{ $t('common.remove') }}</UButton>
+                            <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
+                        </div>
                     </div>
-                    <div class="space-x-2">
-                        <UButton size="sm" variant="outline" color="blue" @click="selectIcon">{{ form.icon_url ? $t('settings.changeIcon') : $t('settings.uploadIconButton') }}</UButton>
-                        <UButton v-if="form.icon_url" size="sm" color="red" variant="soft" @click="queueRemoveIcon">{{ $t('common.remove') }}</UButton>
-                        <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
-                    </div>
-                </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.iconConstraints') }}</div>
-            </div>
+                </SettingsRow>
+                <SettingsRow :label="$t('world.setting')">
+                    <UToggle v-model="form.show_world" :aria-label="$t('world.setting')" />
+                </SettingsRow>
+            </SettingsSection>
 
+            <SettingsSection :title="$t('settings.generalSections.assistant')" :description="$t('settings.generalSections.assistantHint')">
+                <SettingsRow :label="$t('settings.aiAnalystName')" stacked for-id="ai-name">
+                    <UInput id="ai-name" v-text-dir v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.showCredit')">
+                    <UToggle v-model="form.bow_credit" />
+                </SettingsRow>
+            </SettingsSection>
 
+            <SettingsSection :title="$t('settings.generalSections.region')" :description="$t('settings.generalSections.regionHint')">
+                <SettingsRow :label="$t('settings.language.label')" :description="$t('settings.language.description')" stacked>
+                    <USelect v-model="form.locale" :options="localeOptions" option-attribute="label" value-attribute="value" />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.timezone.label')" :description="$t('settings.timezone.description')" stacked>
+                    <USelect v-model="form.timezone" :options="timezoneOptions" option-attribute="label" value-attribute="value" searchable />
+                </SettingsRow>
+                <SettingsRow :label="$t('settings.weekStart.label')" :description="$t('settings.weekStart.description')" stacked>
+                    <USelect v-model="form.week_start" :options="weekStartOptions" option-attribute="label" value-attribute="value" />
+                </SettingsRow>
+            </SettingsSection>
 
-            <!-- AI Analyst Name -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.aiAnalystName') }}</div>
-                <UInput v-text-dir v-model="form.ai_analyst_name" :maxlength="50" placeholder="AI Analyst" />
-            </div>
+            <SettingsSection v-if="productUpdates.available" :title="$t('productUpdates.settingsTitle')">
+                <SettingsRow
+                    :label="$t('productUpdates.toggleLabel')"
+                    :description="form.product_updates
+                        ? $t('productUpdates.sentTo', { email: productUpdates.email || productUpdates.current_user_email })
+                        : undefined"
+                >
+                    <UToggle v-model="form.product_updates" data-testid="product-updates-toggle" />
+                </SettingsRow>
+            </SettingsSection>
 
-            <!-- Credit toggle -->
-            <div class="md:w-2/3 flex items-center justify-between">
-                <div class="text-sm text-gray-800 dark:text-gray-200">{{ $t('settings.showCredit') }}</div>
-                <UToggle v-model="form.bow_credit" />
-            </div>
-
-            <!-- Organization language -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.language.label') }}</div>
-                <USelect
-                    v-model="form.locale"
-                    :options="localeOptions"
-                    option-attribute="label"
-                    value-attribute="value"
-                />
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.language.description') }}</div>
-            </div>
-
-            <!-- Organization timezone -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800">{{ $t('settings.timezone.label') }}</div>
-                <USelect
-                    v-model="form.timezone"
-                    :options="timezoneOptions"
-                    option-attribute="label"
-                    value-attribute="value"
-                    searchable
-                />
-                <div class="text-xs text-gray-500">{{ $t('settings.timezone.description') }}</div>
-            </div>
-
-            <!-- Work week start -->
-            <div class="md:w-2/3 space-y-2">
-                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ $t('settings.weekStart.label') }}</div>
-                <USelect
-                    v-model="form.week_start"
-                    :options="weekStartOptions"
-                    option-attribute="label"
-                    value-attribute="value"
-                />
-                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.weekStart.description') }}</div>
-            </div>
-
-            <div class="md:w-2/3 pt-2">
-                <UButton color="blue" @click="saveAll" :loading="saving">{{ $t('common.saveChanges') }}</UButton>
-            </div>
+            <SettingsFooter>
+                <UButton color="blue" :loading="saving" @click="saveAll">{{ $t('common.saveChanges') }}</UButton>
+            </SettingsFooter>
         </div>
     </div>
 </template>
@@ -98,11 +69,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
+import SettingsSection from '~/components/settings/SettingsSection.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsFooter from '~/components/settings/SettingsFooter.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 
 const { t } = useI18n()
 
 interface GeneralConfig {
     ai_analyst_name: string
+    show_world?: boolean
     bow_credit: boolean
     icon_url?: string | null
     icon_key?: string | null
@@ -134,18 +110,29 @@ const LOCALE_NATIVE_LABELS: Record<string, string> = {
     it: 'Italiano',
 }
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const loading = ref(true)
 const error = ref('')
 const general = ref<GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
-const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string } & GeneralConfig>({
+const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string; product_updates: boolean } & GeneralConfig>({
     ai_analyst_name: 'AI Analyst',
     bow_credit: true,
     locale: '',
     timezone: '',
     week_start: '',
+    product_updates: false,
 })
+// Instance-wide opt-in to release notes and product updates. Hidden when the
+// instance can't send it (telemetry off, cloud) or the caller can't change it.
+interface ProductUpdatesStatus {
+    available: boolean
+    decided: boolean
+    opted_in: boolean
+    email: string | null
+    current_user_email: string | null
+}
+const productUpdates = ref<ProductUpdatesStatus>({ available: false, decided: false, opted_in: false, email: null, current_user_email: null })
 // Empty string represents "no org override" (system default). Tracking the
 // initial value lets saveAll skip the PUT when the user hasn't touched it.
 const initialLocale = ref<string>('')
@@ -200,13 +187,17 @@ const fetchSettings = async () => {
     loading.value = true
     error.value = ''
     try {
-        const [settingsResp, localeResp, tzResp, tzListResp, weekResp] = await Promise.all([
+        const [settingsResp, localeResp, tzResp, tzListResp, weekResp, updatesResp] = await Promise.all([
             useMyFetch('/api/organization/settings'),
             useMyFetch('/api/organization/locale'),
             useMyFetch('/api/organization/timezone'),
             useMyFetch('/api/organization/timezones'),
             useMyFetch('/api/organization/week_start'),
+            useMyFetch('/api/product-updates'),
         ])
+        if (updatesResp.status.value === 'success' && updatesResp.data.value) {
+            productUpdates.value = updatesResp.data.value as ProductUpdatesStatus
+        }
         if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
         const cfg = (settingsResp.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
@@ -229,7 +220,7 @@ const fetchSettings = async () => {
 
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
-        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, ...general.value }
+        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, product_updates: productUpdates.value.opted_in, ...general.value }
     } catch (e: any) {
         error.value = e.message || t('settings.failedToLoad')
         toast.add({ title: t('common.error'), description: error.value, color: 'red' })
@@ -263,7 +254,7 @@ const saveAll = async () => {
         }
 
         // 3) Save textual and toggle settings
-        const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
+        const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, show_world: !!form.value.show_world, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
         const response = await useMyFetch('/api/organization/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToUpdate'))
 
@@ -302,6 +293,13 @@ const saveAll = async () => {
             if (weekResp.status.value !== 'success') throw new Error(weekResp.error?.value?.data?.detail || t('settings.weekStart.saveError'))
             effectiveWeekStart.value = (weekResp.data?.value as any)?.effective_week_start ?? effectiveWeekStart.value
             initialWeekStart.value = form.value.week_start
+        }
+
+        // 7) Save the product-updates opt-in (instance-wide) only when changed.
+        if (productUpdates.value.available && form.value.product_updates !== productUpdates.value.opted_in) {
+            const updResp = await useMyFetch('/api/product-updates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opted_in: form.value.product_updates, source: 'settings' }) })
+            if (updResp.status.value !== 'success') throw new Error(updResp.error?.value?.data?.detail || t('settings.failedToUpdate'))
+            productUpdates.value = updResp.data.value as ProductUpdatesStatus
         }
 
         toast.add({ title: t('settings.saved'), color: 'green' })

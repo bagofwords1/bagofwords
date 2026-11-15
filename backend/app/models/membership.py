@@ -43,6 +43,7 @@ class Membership(BaseSchema):
     # per run against the user's access instead of frozen into a list. Storing
     # every agent here would NOT be Auto — it would pin today's roster.
     default_data_source_ids = Column(JSON, nullable=True)
+    default_agent_folder_ids = Column(JSON, nullable=True)
     # Per-user, per-org profile attributes synced from the org's identity
     # provider (Entra ID Graph /me — job title, department, etc.). Populated on
     # login when the org enables Entra profile sync; rendered into the agent's

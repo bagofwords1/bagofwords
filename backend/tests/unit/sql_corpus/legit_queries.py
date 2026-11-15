@@ -252,6 +252,18 @@ _OTHER_DIALECTS = {
         "SELECT kind, SUM(amount) FROM events GROUP BY kind ORDER BY 2 DESC LIMIT 10",
         "SELECT APPROX_COUNT_DISTINCT(customer_id) FROM orders",
     ],
+    "dremio": [
+        "SELECT DATE_TRUNC('MONTH', created_at) AS m, SUM(amount) FROM sales.invoices GROUP BY 1",
+        "SELECT * FROM orders WHERE created_at >= DATE_SUB(CURRENT_DATE, 7) LIMIT 10",
+        "SELECT o.id, c.name FROM orders o JOIN customers c ON o.customer_id = c.id -- note",
+        "SELECT \"id\", amount / 2 AS half FROM orders WHERE status = 'O''Brien'",
+    ],
+    "hive": [
+        "SELECT date_format(created_at, 'yyyy-MM') AS ym, COUNT(*) FROM orders GROUP BY date_format(created_at, 'yyyy-MM')",
+        "SELECT * FROM orders WHERE created_at >= date_sub(current_date, 7) LIMIT 10",
+        "SELECT `id`, `amount` FROM orders WHERE status = 'open' -- note",
+        "SELECT o.id FROM orders o LEFT SEMI JOIN customers c ON o.customer_id = c.id",
+    ],
     "clickhouse": [
         "SELECT toStartOfMonth(created_at) AS m, count() FROM orders GROUP BY m",
         "SELECT * FROM orders WHERE created_at >= now() - INTERVAL 7 DAY LIMIT 10",
@@ -309,8 +321,9 @@ LEGIT_QUERIES: list[tuple[str, str]] = [("postgres", sql) for sql in _POSTGRES] 
 KNOWN_OVER_REFUSALS: list[tuple[str, str, str]] = []
 
 _IDENTITY_VALUES = ["sarah@example.com", "DOMAIN" + BS + "user", "it's", "o'neil" + BS + "x"]
-# Engines whose renderer refuses a backslash in a value.
-_NO_BACKSLASH = {"redshift", "athena"}
+# Engines whose renderer refuses a backslash in a value; Dremio's and Hive's
+# guard refuses one (their lexers are not pinned).
+_NO_BACKSLASH = {"redshift", "athena", "dremio", "hive"}
 _IDENTITY_TEMPLATES = {
     "postgres": [
         "SELECT * FROM orders WHERE owner = :owner AND date_part('year', created_at) = 2026",
@@ -334,6 +347,8 @@ _IDENTITY_TEMPLATES = {
     "spark": ["SELECT * FROM orders WHERE owner = :owner AND year(created_at) = 2026"],
     "teradata": ["SELECT * FROM orders WHERE owner = :owner AND EXTRACT(YEAR FROM created_at) = 2026"],
     "druid": ["SELECT COUNT(*) FROM events WHERE owner = :owner AND __time >= TIMESTAMP '2026-01-01'"],
+    "dremio": ["SELECT * FROM orders WHERE owner = :owner AND EXTRACT(YEAR FROM created_at) = 2026"],
+    "hive": ["SELECT * FROM orders WHERE owner = :owner AND year(created_at) = 2026"],
 }
 
 # (dialect, sql with an `:owner` placeholder, the viewer's identity value)

@@ -32,6 +32,60 @@
                  scrolls when it is taller than the screen), so the menus in it
                  open in full instead of being clipped. -->
             <div class="px-6 pt-1">
+                <!-- Pending access requests: a member asked to view this
+                     dashboard; its editors approve or deny here (first answer
+                     wins). Only editors (CAP_SHARE) see this. -->
+                <section v-if="dashboardMode && canShare && pendingRequests.length"
+                    class="mb-5" data-testid="share-pending-requests">
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-1">
+                        {{ $t('dashboardCollab.accessRequest.pendingTitle') }} ({{ pendingRequests.length }})
+                    </h3>
+                    <!-- What approving does, shown once (one click approves; no
+                         extra confirmation step). -->
+                    <p v-if="pendingMeta.is_private" class="text-xs text-ink-muted mb-2">
+                        {{ $t('dashboardCollab.accessRequest.switchesPrivate') }}
+                    </p>
+                    <p v-if="pendingMeta.runs_as_creator" class="text-xs text-ink-muted mb-2">
+                        {{ $t('dashboardCollab.accessRequest.runsAsCreator', { creator: pendingMeta.creator_name }) }}
+                    </p>
+                    <ul class="space-y-2">
+                        <li v-for="r in pendingRequests" :key="r.id"
+                            class="rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2.5"
+                            :data-testid="`pending-request-${r.id}`">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="min-w-0">
+                                    <div class="flex items-baseline gap-1.5 min-w-0">
+                                        <span class="text-sm text-gray-900 dark:text-white shrink-0">
+                                            {{ r.requester_name || r.requester_email }}
+                                        </span>
+                                        <span v-if="r.requester_name && r.requester_email"
+                                            class="text-xs text-ink-muted truncate min-w-0">
+                                            {{ r.requester_email }}
+                                        </span>
+                                    </div>
+                                    <div v-if="r.note" class="text-xs text-ink-muted italic truncate mt-0.5"
+                                        :title="r.note">
+                                        &ldquo;{{ r.note }}&rdquo;
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-1.5 shrink-0">
+                                    <UButton size="2xs" color="green" variant="solid"
+                                        icon="i-heroicons-check-20-solid" :loading="decidingId === r.id"
+                                        :ui="{ rounded: 'rounded-full' }"
+                                        :data-testid="`approve-${r.id}`" @click="decideRequest(r.id, true)">
+                                        {{ $t('dashboardCollab.accessRequest.approve') }}
+                                    </UButton>
+                                    <UButton size="2xs" color="gray" variant="ghost"
+                                        :loading="decidingId === r.id" :ui="{ rounded: 'rounded-full' }"
+                                        :data-testid="`deny-${r.id}`" @click="decideRequest(r.id, false)">
+                                        {{ $t('dashboardCollab.accessRequest.deny') }}
+                                    </UButton>
+                                </div>
+                            </div>
+                        </li>
+                    </ul>
+                </section>
+
                 <!-- Add people and groups. A dashboard's list is always there
                      (collab01): its editors stand whatever the visibility, before
                      the first publish too. A conversation's, while restricted. -->
@@ -844,6 +898,46 @@ const copyLink = async () => {
     }
 }
 
+// ── Pending access requests (editors answer them here) ───────────────────
+// A member who could not open the dashboard asked for view access; its
+// editors approve or deny from this modal. Approving adds the person as a
+// viewer (and switches a private dashboard to "Specific people").
+type PendingRequest = { id: string; requester_name: string | null; requester_email: string | null; note: string | null; created_at: string | null }
+const pendingRequests = ref<PendingRequest[]>([])
+const pendingMeta = ref<{ is_private: boolean; runs_as_creator: boolean; creator_name: string | null }>({
+    is_private: false, runs_as_creator: false, creator_name: null,
+})
+const decidingId = ref<string | null>(null)
+
+const fetchPendingRequests = async () => {
+    if (!dashboardMode.value || !props.dashboardId || !hasCap('share')) { pendingRequests.value = []; return }
+    const { data, error } = await useMyFetch(`/artifacts/${props.dashboardId}/access_requests`)
+    if (error.value || !data.value) { pendingRequests.value = []; return }
+    const d = data.value as any
+    pendingRequests.value = d.requests || []
+    pendingMeta.value = {
+        is_private: !!d.is_private, runs_as_creator: !!d.runs_as_creator, creator_name: d.creator_name || null,
+    }
+}
+
+// One click decides -- what approving does (private → Specific people, or the
+// creator-data-access warning) is shown once at the top of the section, so no
+// extra confirmation step is needed.
+const decideRequest = async (id: string, approve: boolean) => {
+    if (decidingId.value) return
+    decidingId.value = id
+    try {
+        const { error } = await useMyFetch(`/access_requests/${id}/${approve ? 'approve' : 'deny'}`, { method: 'POST' })
+        if (error.value) { toast.add({ description: getErrorMessage(error.value), color: 'red' }); return }
+        await fetchPendingRequests()
+        // Approving added a viewer and may have switched a private dashboard to
+        // 'shared': refresh the visibility pill and the people list.
+        if (approve) { await fetchVisibility(); await fetchShares() }
+    } finally {
+        decidingId.value = null
+    }
+}
+
 const openModal = async () => {
     modalOpen.value = true
     showEmail.value = false
@@ -855,7 +949,7 @@ const openModal = async () => {
         await fetchVisibility()
         currentVisibility.value = savedDashboardVisibility.value
         newRole.value = viewDisabledReason.value ? 'edit' : 'view'
-        await Promise.all([fetchShares(), fetchProjectName()])
+        await Promise.all([fetchShares(), fetchProjectName(), fetchPendingRequests()])
         return
     }
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
@@ -886,4 +980,7 @@ watch(
     },
     { immediate: true }
 )
+
+// Let a deep link (an access-request notification) open the share settings.
+defineExpose({ open: openModal })
 </script>

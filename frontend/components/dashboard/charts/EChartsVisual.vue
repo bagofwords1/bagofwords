@@ -11,6 +11,7 @@
 
 <script setup lang="ts">
 import { autoAxisLabels, resolveAxisLabels } from '~/utils/chartAxisLabels'
+import { valueFormatter, latestWindowZoom } from '~/utils/chartValueFormat'
 import { toRefs, ref, watch, computed, inject } from 'vue'
 import { CHAT_VIZ_TEXT_PX, applyChatChartText } from '~/utils/chatVizText'
 const colorMode = useColorMode()
@@ -462,11 +463,13 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
 
   const gridColor = '#f4f5f7'
 
+  // Units from the stored value-axis format (currency, percent, compact).
+  const fmtValue = valueFormatter(viewV2?.axisY)
   const valueAxis = {
     type: 'value',
     name: axisYLabel || undefined,
     show: yVisible,
-    axisLabel: { color: axisColors.yLabelColor },
+    axisLabel: { color: axisColors.yLabelColor, ...(fmtValue ? { formatter: fmtValue } : {}) },
     axisLine: { lineStyle: { color: axisColors.yLineColor } },
     splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
   }
@@ -514,9 +517,13 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
     ? { containLabel: true, left: 24, right: 150, bottom: 24, top: 18 }
     : undefined
 
+  // A crowded new chart (showDataZoom) opens on its latest points.
+  const zoom = viewV2?.showDataZoom ? latestWindowZoom(categories, series.length, isHorizontal ? 'yAxisIndex' : 'xAxisIndex') : null
   return {
     ...(gridOverride ? { grid: gridOverride } : {}),
-    tooltip: { trigger: 'axis' },
+    // Room under the plot for the slider; other margins as the base grid.
+    ...(zoom ? { grid: { containLabel: true, left: 24, right: gridOverride ? 150 : 24, top: 18, bottom: 40 }, dataZoom: zoom } : {}),
+    tooltip: { trigger: 'axis', ...(fmtValue ? { valueFormatter: fmtValue } : {}) },
     xAxis: isHorizontal ? valueAxis : categoryAxis,
     yAxis: isHorizontal ? categoryAxis : valueAxis,
     legend: legendConfig,

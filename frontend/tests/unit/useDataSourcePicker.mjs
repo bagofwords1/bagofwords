@@ -6,6 +6,7 @@ import {
   filterDataSources,
   popularDataSources,
   scopeDataSources,
+  searchAliases,
 } from '../../composables/useDataSourcePicker.ts'
 
 // A stand-in for /available_data_sources: a few popular entries, a few that are
@@ -110,5 +111,38 @@ assert.deepEqual(scopeDataSources([{ type: 'duckdb', title: 'DuckDB' }], 'databa
 for (const { key, label } of DATA_SOURCE_CATEGORIES) {
   assert.ok(key && label.startsWith('data.cat'), `chip ${key} needs an i18n label`)
 }
+
+// --- category words find the connectors whose names don't say them ------------
+// The add-connection modal searches title + type + these aliases, so typing a
+// kind of store ("nosql", "lakehouse", "bucket") must surface the connectors of
+// that kind even though their titles never contain the word.
+
+const STORES = [
+  { type: 'cassandra', title: 'Apache Cassandra', category: 'databases', description: '' },
+  { type: 'couchbase', title: 'Couchbase', category: 'databases', description: '' },
+  { type: 'cosmosdb', title: 'Azure Cosmos DB', category: 'databases', description: '' },
+  { type: 'dynamodb', title: 'Amazon DynamoDB', category: 'databases', description: '' },
+  { type: 'mongodb', title: 'MongoDB', category: 'databases', description: '' },
+  { type: 'iceberg', title: 'Apache Iceberg', category: 'databases', description: '' },
+  { type: 'dremio', title: 'Dremio', category: 'databases', description: '' },
+  { type: 'hive', title: 'Apache Hive / Impala', category: 'databases', description: '' },
+  { type: 's3', title: 'Amazon S3', category: 'files', description: '' },
+  { type: 'gcs', title: 'Google Cloud Storage', category: 'files', description: '' },
+  { type: 'azure_blob', title: 'Azure Blob Storage', category: 'files', description: '' },
+  { type: 'postgresql', title: 'PostgreSQL', category: 'databases', description: '' },
+]
+const found = (q) => new Set(filterDataSources(STORES, q).map((ds) => ds.type))
+
+for (const t of ['cassandra', 'couchbase', 'cosmosdb', 'dynamodb', 'mongodb']) {
+  assert.ok(found('nosql').has(t), `"nosql" should find ${t}`)
+}
+assert.ok(!found('nosql').has('postgresql'))
+for (const t of ['iceberg', 'dremio']) assert.ok(found('lakehouse').has(t), `"lakehouse" should find ${t}`)
+for (const t of ['s3', 'gcs']) assert.ok(found('bucket').has(t), `"bucket" should find ${t}`)
+assert.ok(found('impala').has('hive'))
+assert.ok(found('scylla').has('cassandra'))
+assert.ok(found('adls').has('azure_blob'))
+assert.deepEqual(searchAliases('nope'), [])
+assert.deepEqual(searchAliases(undefined), [])
 
 console.log('data source picker: popular subset + search + category scoping')

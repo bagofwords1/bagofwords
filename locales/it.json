@@ -1,4 +1,105 @@
 {
+  "world": {
+    "tree": "Albero",
+    "usage": "Utilizzo",
+    "myReports": "I miei report",
+    "usedTogether": "Report dell’organizzazione con utilizzo congiunto: {count}",
+    "title": "World",
+    "explorer": "Explorer",
+    "heading": "Your world, connected.",
+    "eyebrow": "THE BIG PICTURE",
+    "subtitle": "Explore the knowledge, sources and work that connect your organization.",
+    "personalScope": "Your accessible world",
+    "loading": "Discovering connections…",
+    "discovering": "Bringing your world into view…",
+    "items": "items in view",
+    "connections": "relationships",
+    "details": "Explore your world",
+    "search": "Search loaded items…",
+    "layers": "Layers",
+    "browse": "Browse",
+    "entityTypes": "Entity types",
+    "showAll": "Show all",
+    "hideAll": "Hide all",
+    "memory": "Memory overlay",
+    "memoryHint": "Add your personal memories to the map. Only you can see them.",
+    "memoryCount": "{count} active memories",
+    "privateOverlay": "Your personal context",
+    "onlyYou": "Private · only visible to you",
+    "open": "Open item",
+    "expand": "Explore inside",
+    "related": "Connected items",
+    "noLinks": "No recorded connections in this view yet.",
+    "showMore": "Show more",
+    "loadMore": "Load more items",
+    "partialError": "Some parts of your world could not load.",
+    "retry": "Retry",
+    "refresh": "Refresh world",
+    "showLinks": "Show relationships",
+    "scopeHint": "Counts reflect loaded items you can access. Explore a report to reveal its queries, steps and activity.",
+    "browseHint": "Select an item to see its connections.",
+    "canvasHint": "Scroll to zoom · drag to explore",
+    "mapLabel": "Interactive organization map. Use arrow keys to pan, + and − to zoom, 0 to fit. Browse provides a keyboard-accessible item list.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fit": "Fit world to view",
+    "pause": "Pause motion",
+    "resume": "Resume motion",
+    "close": "Close details",
+    "noMatches": "Nothing in this view",
+    "resetHint": "Try another search or show more entity types.",
+    "reset": "Reset filters",
+    "empty": "Your world starts here",
+    "emptyHint": "Connect an agent or add knowledge to see your world take shape.",
+    "types": {
+      "task": "Attività pianificate",
+      "agent": "Agents",
+      "connection": "Connections",
+      "instruction": "Instructions & skills",
+      "table": "Tables",
+      "file": "Files",
+      "tool": "MCP & API tools",
+      "list": "Lists",
+      "project": "Projects",
+      "report": "Reports",
+      "artifact": "Artifacts",
+      "query": "Queries",
+      "step": "Steps",
+      "completion": "Messages",
+      "execution": "Executions",
+      "memory": "Memories",
+      "folder": "Cartelle",
+      "eval": "Valutazioni"
+    },
+    "relations": {
+      "connected_to": "Connected through an agent",
+      "has_instruction": "Instruction assigned to this agent",
+      "includes": "Included in this resource",
+      "provides": "Provided by this connection",
+      "uses_agent": "Agent attached to this report",
+      "contains": "Contained in this report",
+      "has_step": "Step belonging to this query",
+      "has_execution": "Execution recorded for this report",
+      "executed_by": "Execution of this message",
+      "references": "Explicit instruction reference",
+      "remembers": "Explicit agent tag in your memory",
+      "produced": "Produced in this report",
+      "uses_table": "Recorded use of this table",
+      "uses_folder": "Seleziona cartella"
+    },
+    "fields": {
+      "source_type": "Source",
+      "columns": "Columns",
+      "status": "Status",
+      "load_mode": "Loading",
+      "policy": "Policy",
+      "mode": "Format",
+      "handle": "Reference"
+    },
+    "loadAll": "Load all items",
+    "stopLoading": "Stop loading",
+    "setting": "Mostra Mondo in Agenti"
+  },
   "agentLanding": {
     "actions": "Azioni agente",
     "countTasks": "{n} attività | {n} attività",
@@ -481,6 +582,14 @@
       "delivery_skipped": {
         "title": "Alcuni destinatari non hanno ricevuto \"{report}\"",
         "body": "{count} destinatari non hanno ricevuto questo report perché contiene dati specifici per ciascun utente: {recipients}"
+      },
+      "access_request": {
+        "title": "{actor} ha chiesto di vedere {dashboard}",
+        "body": "{actor} ha chiesto di vedere «{dashboard}»."
+      },
+      "access_granted": {
+        "title": "Ora puoi vedere {dashboard}",
+        "body": "La tua richiesta di vedere «{dashboard}» è stata approvata."
       }
     },
     "checkin": {
@@ -580,6 +689,9 @@
     "whatCanIHelpWith": "Come posso aiutarti?"
   },
   "prompt": {
+    "searchAgentFolders": "Cerca agenti e cartelle…",
+    "expandDirectory": "Espandi {name}",
+    "collapseDirectory": "Comprimi {name}",
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
     "thinking": "Sto pensando",
     "working": "Sto lavorando",
@@ -699,7 +811,8 @@
         "cancel": "Annulla",
         "dismiss": "Chiudi"
       }
-    }
+    },
+    "recent": "Recenti"
   },
   "reports": {
     "title": "Report",
@@ -1799,6 +1912,22 @@
       "filesSkippedSingular": "{count} file saltato ({reasons})",
       "filesSkippedPlural": "{count} file saltati ({reasons})"
     },
+    "searchFiles": {
+      "foundIn": "Trovato in:",
+      "fileName": "nome del file",
+      "page": "pagina {n}",
+      "sheet": "foglio {name}",
+      "offset": "posizione {n}",
+      "partlyIndexed": "Indicizzato solo in parte (limite di dimensione)",
+      "noText": "Nessun testo ricercabile (scansione o binario)",
+      "notIndexed": "Impossibile indicizzare",
+      "indexFulltext": "Indice full-text",
+      "indexKeywords": "Indice per parole chiave",
+      "indexNames": "Corrispondenza sul nome del file",
+      "liveScan": "Scansione in tempo reale",
+      "plusLiveScan": "{index} + scansione in tempo reale",
+      "indexedAt": "indicizzato {when}"
+    },
     "listAgentExecutions": {
       "empty": "Nessuna esecuzione trovata",
       "failed": "Caricamento delle esecuzioni dell'agente non riuscito",
@@ -2024,12 +2153,10 @@
     "loading": "Caricamento...",
     "noRolesFound": "Nessun ruolo trovato",
     "noRolesHint": "Crea un ruolo per gestire le autorizzazioni.",
-    "system": "sistema",
     "default": "Predefinito",
     "defaultRoleHint": "Questo è un ruolo integrato. Il nome è fisso: personalizza le sue autorizzazioni qui sotto.",
     "edit": "Modifica",
     "fullAdmin": "Amministratore completo",
-    "permissionsCount": "{n} autorizzazioni",
     "editRole": "Modifica ruolo",
     "createRole": "Crea ruolo",
     "nameLabel": "Nome",
@@ -2037,17 +2164,10 @@
     "namePlaceholder": "es. Analista",
     "descriptionPlaceholder": "Opzionale",
     "fullAdminAccess": "Accesso amministratore completo",
-    "fullAdminBypass": "Bypassa tutti i controlli",
-    "allResources": "Tutte le risorse",
-    "orgWidePermissions": "Autorizzazioni a livello di organizzazione",
-    "ds": "Agente",
-    "addDataSource": "+ Aggiungi origine dati...",
     "cancel": "Annulla",
     "save": "Salva",
     "create": "Crea",
     "confirmDelete": "Eliminare il ruolo \"{name}\"?",
-    "toastCreated": "Ruolo creato",
-    "toastUpdated": "Ruolo aggiornato",
     "toastDeleted": "Ruolo eliminato",
     "failedToLoad": "Impossibile caricare i ruoli",
     "failedToCreate": "Impossibile creare il ruolo",
@@ -2075,20 +2195,93 @@
       "create_data_sources": "Creare agenti",
       "manage_connection": "Gestire la connessione",
       "manage_data_sources": "Gestire gli agenti",
-      "manage_service_accounts": "Gestire gli account di servizio"
+      "manage_service_accounts": "Gestire gli account di servizio",
+      "view_code": "Vedere il codice generato",
+      "run_custom_code": "Modificare ed eseguire codice personalizzato"
     },
-    "addAgent": "+ Aggiungi agente...",
-    "advancedPermissions": "Autorizzazioni avanzate",
-    "tiers": {
-      "query": "Può interrogare",
-      "queryHint": "Fare domande a questo agente",
+    "delete": "Elimina",
+    "duplicate": "Duplica",
+    "copyOf": "Copia di {name}",
+    "loadingRole": "Caricamento ruolo…",
+    "loadFailed": "Impossibile caricare agenti, connessioni e modelli.",
+    "retry": "Riprova",
+    "toastCreatedNamed": "{name} creato",
+    "toastUpdatedNamed": "{name} salvato",
+    "moreActions": "Altre azioni",
+    "tabs": {
+      "permissions": "Permessi",
+      "access": "Accesso"
+    },
+    "groups": {
+      "agents": "Agenti e dati",
+      "knowledge": "Conoscenza degli agenti",
+      "code": "Codice",
+      "admin": "Amministrazione",
+      "other": "Altro"
+    },
+    "permissionHints": {
+      "create_data_source": "Creare agenti sulle connessioni utilizzabili",
+      "create_connections": "Aggiungere connessioni dati",
+      "manage_connections": "Modificare, testare ed eliminare qualsiasi connessione",
+      "manage_instructions": "Modificare le istruzioni di tutti gli agenti",
+      "manage_entities": "Definire tabelle, metriche e termini su tutti gli agenti",
+      "manage_evals": "Creare ed eseguire valutazioni su tutti gli agenti",
+      "view_code": "Vedere SQL e Python scritti dagli agenti",
+      "run_custom_code": "Modificare ed eseguire codice nei report",
+      "manage_members": "Invitare persone e cambiare i loro ruoli",
+      "manage_service_accounts": "Creare chiavi API",
+      "manage_settings": "Modificare le impostazioni dell'organizzazione",
+      "manage_llm": "Configurare provider e modelli LLM",
+      "view_audit_logs": "Vedere chi ha fatto cosa e quando",
+      "manage_identity_providers": "Configurare il single sign-on"
+    },
+    "fullAdminHint": "Può fare tutto nell'organizzazione",
+    "fullAdminAccessTab": "L'accesso amministrativo completo include tutti gli agenti, le connessioni e i modelli.",
+    "includedWith": "Incluso con {name}",
+    "searchResources": "Cerca…",
+    "addAccess": "Seleziona una risorsa",
+    "accessEmpty": "Seleziona una risorsa",
+    "publicAgents": "{n} agenti pubblici sono disponibili per tutti.",
+    "types": {
+      "data_source": "Agente",
+      "connection": "Connessione",
+      "llm_model": "Modello",
+      "folder": "Cartella"
+    },
+    "levels": {
+      "use": "Può usare",
       "manage": "Può gestire",
-      "manageHint": "Modificare istruzioni, entità, valutazioni, impostazioni e membri"
+      "build": "Può creare agenti",
+      "custom": "Personalizzato"
     },
-    "modelAccess": "Accesso ai modelli",
-    "modelAccessHint": "Modelli con restrizioni",
-    "noRestrictedModels": "Nessun modello con restrizioni",
-    "connection": "Connessione"
+    "removeAccess": "Rimuovi",
+    "meta": {
+      "permissionsOne": "1 permesso",
+      "permissionsMany": "{n} permessi",
+      "agentsOne": "1 agente",
+      "agentsMany": "{n} agenti",
+      "connectionsOne": "1 connessione",
+      "connectionsMany": "{n} connessioni",
+      "modelsOne": "1 modello",
+      "modelsMany": "{n} modelli",
+      "everything": "Tutti i permessi",
+      "foldersOne": "1 Cartella",
+      "foldersMany": "{n} cartelle"
+    },
+    "resourcePermissions": {
+      "data_source": {
+        "manage": "Gestire (include tutto)",
+        "manage_instructions": "Modificare le istruzioni",
+        "create_entities": "Modificare le entità",
+        "manage_evals": "Gestire le valutazioni",
+        "manage_members": "Gestire chi può usarlo"
+      },
+      "connection": {
+        "manage_connection": "Modificare, testare e reindicizzare",
+        "create_data_sources": "Creare agenti su di essa",
+        "manage_data_sources": "Gestire tutti i suoi agenti"
+      }
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "Cerca gruppi...",
@@ -3238,6 +3431,10 @@
           "name": "Giorni di conservazione dei dati dei widget",
           "description": "Numero di giorni per cui i dati dei widget vengono conservati prima dell'eliminazione."
         },
+        "file_retention_days": {
+          "name": "Conservazione dei file (giorni)",
+          "description": "Ogni notte elimina i file più vecchi di questo numero di giorni. I file usati da una dashboard, quelli nella libreria di un agente o progetto e i caricamenti per un report pianificato vengono conservati. 0 li conserva per sempre."
+        },
         "enable_excel_addin": {
           "name": "Componente aggiuntivo di Excel",
           "description": "Attiva il componente aggiuntivo di Excel integrato, così gli utenti possono caricare il manifest direttamente da questa istanza"
@@ -3269,6 +3466,10 @@
         "enable_demo_data_generation": {
           "name": "Generazione dati demo",
           "description": "In modalità addestramento, gli amministratori che gestiscono le connessioni possono chiedere all'agente di progettare e generare un set di dati SQLite fittizio e realistico per qualsiasi dominio, e poi creare gli agenti suggeriti. Le righe sono generate dal modello piccolo predefinito."
+        },
+        "allow_access_requests": {
+          "name": "Consenti richieste di accesso",
+          "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
         }
       }
     },
@@ -4068,6 +4269,11 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
     },
+    "athena": {
+      "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro applicazioni",
       "appFilterDescription": "Nomi o ID delle applicazioni separati da virgole, nei flussi selezionati. Vuoto include tutte le applicazioni corrispondenti. Usa gli ID per i nomi con virgole.",
@@ -4212,6 +4418,8 @@
     "shell_confirmation.invalid_scope": "Ambito di autorizzazione non valido.",
     "shell_confirmation.report_required": "Le autorizzazioni di sessione richiedono un report.",
     "shell_confirmation.rule_mismatch": "Regola di comando non valida, oppure il pattern non corrisponde a questo comando.",
+    "connection.config_invalid": "Invalid connection configuration: {detail}",
+    "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
     "saml_unavailable": "Configurazione SSO non disponibile. Contatta il tuo amministratore.",
     "saml_login_failed": "Accesso SSO non riuscito. Riprova o contatta il tuo amministratore.",
@@ -4332,13 +4540,22 @@
     "APPLICATION_AGENT_FORBIDDEN": "Application has no access to this agent",
     "APPLICATION_MANAGEMENT_FORBIDDEN": "Manage applications directly in BOW",
     "ssh.key_discovery_failed": "Impossibile recuperare la chiave. Controlla host, porta e rete oppure inserisci una chiave attendibile nelle impostazioni avanzate.",
+    "file.in_use": "Il file è usato da una dashboard",
     "connection.kms_token_format": "Il token API di KMS può contenere solo lettere, cifre e segni di punteggiatura semplici, senza spazi. Copialo di nuovo da KMS Lighthouse e incollalo come testo semplice.",
     "connection.kms_use_connection_credentials": "Gli accessi a KMS Lighthouse vengono salvati nella connessione. Apri la connessione e connettiti da lì.",
     "connection.kms_only": "La diagnostica si applica solo alle connessioni KMS Lighthouse.",
     "connection.kms_diagnostics_running": "La diagnostica è già in esecuzione per questa connessione. Attendi che termini, quindi riprova.",
     "connection.kms_login_rejected": "KMS Lighthouse non ha accettato queste credenziali, quindi non sono state salvate. Controlla nome utente e password, oppure il token API, e riprova.",
     "connection.kms_login_paused": "KMS Lighthouse ha rifiutato di recente queste credenziali, quindi i nuovi tentativi sono sospesi per alcuni minuti e non sono state salvate. Controlla le credenziali o riprova più tardi.",
-    "connection.kms_session_refused": "KMS Lighthouse ha accettato queste credenziali ma ne ha rifiutato la sessione, quindi non possono essere usate e non sono state salvate. Chiedi all'amministratore di KMS se questo account può usare l'API di KMS."
+    "connection.kms_session_refused": "KMS Lighthouse ha accettato queste credenziali ma ne ha rifiutato la sessione, quindi non possono essere usate e non sono state salvate. Chiedi all'amministratore di KMS se questo account può usare l'API di KMS.",
+    "access_request.disabled": "Le richieste di accesso sono disattivate per questa organizzazione.",
+    "access_request.not_allowed": "Questa dashboard non richiede una richiesta di accesso.",
+    "access_request.already_has_access": "Hai già accesso a questa dashboard.",
+    "access_request.pending": "La tua richiesta è già in sospeso.",
+    "access_request.too_soon": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
+    "access_request.no_approvers": "Al momento nessuno può approvare le richieste per questa dashboard.",
+    "access_request.not_found": "Questa richiesta non esiste più.",
+    "access_request.already_decided": "Questa richiesta è già stata gestita."
   },
   "email": {
     "dashboardShare": {
@@ -4469,7 +4686,7 @@
   },
   "files": {
     "title": "File",
-    "subtitle": "Gestisci i file della tua organizzazione",
+    "subtitle": "I file che hai caricato e quelli creati dall'agente nei tuoi report.",
     "file": "File",
     "metadata": "Metadati",
     "createdAt": "Creato il",
@@ -4478,7 +4695,31 @@
     "metadataFieldsMany": "{count} campi di metadati",
     "metadataTagsOne": "{count} tag di metadati",
     "metadataTagsMany": "{count} tag di metadati",
-    "noMetadata": "Nessun metadato"
+    "noMetadata": "Nessun metadato",
+    "search": "Cerca file",
+    "filterAll": "Tutti i file",
+    "filterUploads": "Caricati",
+    "selectAll": "Seleziona tutto",
+    "deleteSelected": "Elimina {count} selezionati",
+    "delete": "Elimina",
+    "download": "Scarica",
+    "empty": "Nessun file corrispondente",
+    "confirmTitleOne": "Eliminare questo file?",
+    "confirmTitleMany": "Eliminare {count} file?",
+    "confirmBody": "I file eliminati vengono rimossi da tutti i report, agenti e progetti che li usano e non possono essere recuperati.",
+    "toastDeletedOne": "File eliminato",
+    "toastDeletedMany": "{count} file eliminati",
+    "toastError": "Impossibile eliminare i file",
+    "toastDownloadError": "Impossibile scaricare il file",
+    "filterAgent": "Agente",
+    "sourceAgent": "Agente",
+    "sourceUpload": "Caricato",
+    "selectedCount": "{count} selezionati",
+    "toastPartialOne": "Impossibile eliminare {count} file",
+    "toastPartialMany": "Impossibile eliminare {count} file",
+    "inUse": "Usato da una dashboard, quindi non può essere eliminato",
+    "emptyNone": "Ancora nessun file",
+    "emptyNoneHint": "Qui compaiono i file che carichi in un report e quelli creati dall'agente."
   },
   "dashboards": {
     "title": "Dashboard",
@@ -5614,6 +5855,8 @@
     "modelAuto": "Auto",
     "noAgents": "Nessuno",
     "project": "Progetto",
+    "toolOutputFilesOne": "{count} file creato dall'agente",
+    "toolOutputFilesMany": "{count} file creati dall'agente",
     "agentsFromReport": "Usa gli agenti del report"
   },
   "errorPage": {
@@ -6741,6 +6984,29 @@
       "deniedBody": "Non hai accesso a questa pagina. Chiedi al proprietario di condividerla con te.",
       "goHome": "Vai alla home",
       "backToApp": "Torna all'app"
+    },
+    "accessRequest": {
+      "noAccessTitle": "Non hai accesso",
+      "ownerLine": "Questa dashboard appartiene a {owner}.",
+      "ownerUnknown": "Non hai accesso a questa dashboard.",
+      "requestButton": "Richiedi accesso",
+      "notePlaceholder": "Aggiungi una nota (facoltativo)",
+      "send": "Invia richiesta",
+      "cancel": "Annulla",
+      "sent": "Richiesta inviata",
+      "pending": "La tua richiesta è in attesa",
+      "askOwner": "Chiedi l'accesso al proprietario della dashboard, {owner}.",
+      "askOwnerGeneric": "Chiedi l'accesso al proprietario della dashboard.",
+      "noApprovers": "Al momento nessuno può approvare le richieste per questa dashboard.",
+      "cooldown": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
+      "pendingTitle": "Richieste in sospeso",
+      "approve": "Approva",
+      "deny": "Rifiuta",
+      "noteFrom": "Nota da {name}",
+      "switchesPrivate": "L'approvazione imposta questa dashboard su «Persone specifiche» e aggiunge questa persona come visualizzatore.",
+      "runsAsCreator": "Questa dashboard viene eseguita con l'accesso ai dati di {creator}. L'approvazione consente a questa persona di vedere ciò che vede {creator}.",
+      "approveTitle": "Approva richiesta di accesso",
+      "confirmApprove": "Approva"
     }
   },
   "dashboardSettings": {
@@ -6992,5 +7258,41 @@
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
     "addFailed": "Impossibile aggiungere i membri"
+  },
+  "productUpdates": {
+    "checkbox": "Inviami gli aggiornamenti del prodotto",
+    "checkboxWithEmail": "Invia gli aggiornamenti del prodotto a {email}",
+    "settingsTitle": "Aggiornamenti del prodotto",
+    "toggleLabel": "Ricevi gli aggiornamenti del prodotto via email",
+    "sentTo": "Inviati a {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Apri cartella",
+    "activity": "Attività della cartella",
+    "viewTrace": "Visualizza traccia",
+    "attach": "Collega esistente",
+    "addCase": "Aggiungi caso",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Può interrogare",
+    "manager": "Può gestire",
+    "hints": "La consultazione include gli agenti della cartella. La gestione consente anche modifiche e condivisione.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Radice organizzazione",
+    "inherit": "Eredita accesso dalla cartella superiore",
+    "direct": "Accesso diretto per {name}",
+    "stopConfirm": "Disattivare l’ereditarietà? I permessi ereditati da {names} non saranno più applicati."
   }
 }

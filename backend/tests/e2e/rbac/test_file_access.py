@@ -46,6 +46,15 @@ def _ids(resp):
     return {f["id"] for f in resp.json()}
 
 
+def _mentionable(client, token, org_id):
+    """File ids the @-mention picker offers. The Files page (GET /api/files)
+    lists only the user's own files; the picker also offers the libraries of
+    agents and projects the user can see."""
+    resp = client.get("/api/mentions/available", params={"categories": "files"}, headers=_h(token, org_id))
+    assert resp.status_code == 200, resp.text
+    return {f["id"] for f in resp.json()["files"]}
+
+
 def _report(client, token, org_id, **body):
     resp = client.post("/api/reports", json={"title": f"r-{uuid.uuid4().hex[:6]}", **body},
                        headers=_h(token, org_id))
@@ -194,7 +203,7 @@ def test_agent_files_follow_agent_access(test_client, cast, sqlite_data_source):
     assert up.status_code == 200, up.text
     file_id = up.json()["id"]
 
-    assert file_id not in _ids(test_client.get("/api/files", headers=_h(other["token"], org_id)))
+    assert file_id not in _mentionable(test_client, other["token"], org_id)
     assert not _can_read(test_client, other["token"], org_id, file_id)
     # Uploading into an agent's library is a manage action on that agent.
     assert _upload(test_client, other["token"], org_id, data_source_id=ds["id"]).status_code == 403
@@ -203,7 +212,9 @@ def test_agent_files_follow_agent_access(test_client, cast, sqlite_data_source):
                              json={"principal_type": "user", "principal_id": other["user_id"]},
                              headers=_h(admin, org_id))
     assert grant.status_code == 200, grant.text
-    assert file_id in _ids(test_client.get("/api/files", headers=_h(other["token"], org_id)))
+    assert file_id in _mentionable(test_client, other["token"], org_id)
+    # The Files page stays personal: the agent library is not their file.
+    assert file_id not in _ids(test_client.get("/api/files", headers=_h(other["token"], org_id)))
     assert _can_read(test_client, other["token"], org_id, file_id)
 
 
@@ -218,17 +229,18 @@ def test_project_default_files_follow_project_access(test_client, cast, create_p
 
     assert not _can_read(test_client, other, org_id, file_id)
     update_project(project["id"], user_token=owner, org_id=org_id, access="org")
-    assert file_id in _ids(test_client.get("/api/files", headers=_h(other, org_id)))
+    assert file_id in _mentionable(test_client, other, org_id)
     assert _can_read(test_client, other, org_id, file_id)
 
 
 @pytest.mark.e2e
-def test_admin_sees_every_file(test_client, cast):
+def test_admin_can_reach_every_file_but_lists_only_their_own(test_client, cast):
     org_id, owner, admin = cast["org_id"], cast["owner"]["token"], cast["admin"]
     report_id = _report(test_client, owner, org_id)
     file_id = _upload(test_client, owner, org_id, report_id=report_id).json()["id"]
 
-    assert file_id in _ids(test_client.get("/api/files", headers=_h(admin, org_id)))
+    assert file_id not in _ids(test_client.get("/api/files", headers=_h(admin, org_id)))
+    assert file_id in _mentionable(test_client, admin, org_id)
     assert _can_read(test_client, admin, org_id, file_id)
     assert file_id in _ids(test_client.get(f"/api/reports/{report_id}/files", headers=_h(admin, org_id)))
 

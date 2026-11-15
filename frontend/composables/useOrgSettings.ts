@@ -115,6 +115,7 @@ export const useOrgSettings = () => {
     isMcpEnabled,
     isMcpToolsEnabled,
     allowLlmSeeData,
+    isWorldEnabled: computed(() => !!organization.value?.id && settings.value?.organization_id === organization.value.id && settings.value.config.general?.show_world === true),
     isTrainingModeEnabled,
     isDemoDataEnabled,
     isFollowUpsEnabled,

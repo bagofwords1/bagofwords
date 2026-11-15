@@ -68,6 +68,13 @@ class Artifact(BaseSchema):
     slug = Column(String(255), nullable=True)
     shared_run_identity = Column(String(20), nullable=False, default='viewer', server_default='viewer')
     include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+    # Relax the artifact iframe's sandbox so links/buttons the app renders may
+    # open a new tab (allow-popups + allow-popups-to-escape-sandbox) and the
+    # app may use alert/confirm/prompt (allow-modals). Off by default: the
+    # tight sandbox is deliberate for LLM-generated code. Set from the Embed
+    # tab; it applies wherever this artifact renders (editor, /d, /r). Never
+    # adds allow-same-origin — that would hand generated code BOW's session.
+    allow_popups = Column(Boolean, nullable=False, default=False, server_default='0')
     # The per-object provenance popover (the ⓘ on each widget, showing its
     # Data / Code / Calculation) on this dashboard's pages. Off by default: the
     # owner turns it on per dashboard in settings. Display-only, like the Data
@@ -235,6 +242,12 @@ class ArtifactVersion(BaseSchema):
         .scalar_subquery(),
         expire_on_flush=False,
     )
+    # NOTE: allow_popups is deliberately NOT a read-through column_property.
+    # A correlated subquery here would ride on every ArtifactVersion SELECT and
+    # fail ("no such column") whenever the DB is at a schema revision older than
+    # this column — which the dashboard corpus fixtures routinely are. title/mode
+    # get away with it only because their parent columns are ancient. The editor
+    # routes set ArtifactSchema.allow_popups explicitly from the parent instead.
 
     def __init__(self, **kw):
         # column_property attributes swallow constructor kwargs silently;
@@ -253,3 +266,4 @@ from app.models import artifact_release  # noqa: E402,F401
 from app.models import dashboard_refresh_run  # noqa: E402,F401
 from app.models import artifact_star  # noqa: E402,F401
 from app.models import artifact_list_seen  # noqa: E402,F401
+from app.models import dashboard_access_request  # noqa: E402,F401

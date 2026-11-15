@@ -21,19 +21,19 @@
 
       <!-- Step 1: destination -->
       <div v-if="!destination">
-        <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">{{ $t('settings.audit.streams.form.chooseDestination') }}</p>
+        <p class="text-xs text-ink-muted mb-3">{{ $t('settings.audit.streams.form.chooseDestination') }}</p>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           <button
             v-for="d in specs"
             :key="d.type"
             type="button"
             :data-testid="`stream-destination-${d.type}`"
-            class="flex items-start gap-2.5 p-3 rounded-lg border border-gray-100 dark:border-gray-800 hover:border-blue-200 hover:bg-gray-50 dark:hover:bg-gray-800 text-start"
+            class="flex items-start gap-2.5 p-3 rounded-lg border border-line-subtle hover:border-blue-200 hover:bg-surface-subtle text-start"
             @click="chooseDestination(d.type)"
           >
             <AuditStreamIcon :destination="d.type" size="md" />
             <span class="min-w-0">
-              <span class="block text-sm text-gray-800 dark:text-gray-100">{{ $t(`settings.audit.streams.destinations.${d.type}`) }}</span>
+              <span class="block text-sm text-ink">{{ $t(`settings.audit.streams.destinations.${d.type}`) }}</span>
               <span class="block text-2xs text-ink-muted">{{ $t(`settings.audit.streams.destinationHints.${d.type}`) }}</span>
             </span>
           </button>
@@ -42,7 +42,7 @@
 
       <!-- Step 2: settings -->
       <form v-else class="space-y-4" @submit.prevent="save">
-        <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+        <div class="flex items-center gap-2 text-sm text-ink-2">
           <AuditStreamIcon :destination="destination" />
           {{ $t(`settings.audit.streams.destinations.${destination}`) }}
           <span class="text-xs text-ink-muted">· {{ $t(`settings.audit.streams.destinationHints.${destination}`) }}</span>
@@ -69,7 +69,7 @@
                 type="button"
                 :data-testid="`stream-start-${opt}`"
                 class="px-2.5 py-1 text-xs rounded border"
-                :class="startFrom === opt ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 text-blue-700 dark:text-blue-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                :class="startFrom === opt ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 text-blue-700 dark:text-blue-300' : 'border-line text-ink-muted'"
                 @click="startFrom = opt"
               >{{ opt === 'now' ? $t('settings.audit.streams.form.startNow') : $t('settings.audit.streams.form.startBeginning') }}</button>
             </div>
@@ -83,7 +83,7 @@
         </div>
 
         <div v-if="advancedFields.length">
-          <button type="button" class="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1" data-testid="stream-advanced-toggle" @click="showAdvanced = !showAdvanced">
+          <button type="button" class="text-xs text-ink-muted hover:text-gray-700 flex items-center gap-1" data-testid="stream-advanced-toggle" @click="showAdvanced = !showAdvanced">
             <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 transition-transform" :class="showAdvanced ? 'rtl-own-transform rotate-90' : ''" />
             {{ $t('settings.audit.streams.form.advanced') }}
           </button>

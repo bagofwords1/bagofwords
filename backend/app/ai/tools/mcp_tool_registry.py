@@ -344,7 +344,12 @@ async def build_mcp_tool_catalog(
         # Only tools the run can actually call: enabled and not denied, under
         # the strictest setting across the agents that carry them.
         eligible: List[Tuple[Any, str]] = []
+        from app.services.mcp_apps import model_visible
         for t in tools:
+            # MCP Apps: app-only tools (visibility without "model") are for
+            # the server's UI, never the agent.
+            if not model_visible(getattr(t, "metadata_json", None)):
+                continue
             agents = agents_by_conn.get(str(t.connection_id), set())
             is_enabled, admin_policy = strictest_admin_setting(
                 t, overlays_by_tool.get(str(t.id), []), len(agents) or None,

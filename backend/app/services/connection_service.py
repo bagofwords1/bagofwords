@@ -19,8 +19,9 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
+from app.errors import AppError, ErrorCode
 
-from app.data_sources.clients.progress import IndexingCancelled
+from app.data_sources.clients.progress import IndexingCancelled, unreadable_note
 from app.models.connection import Connection, RUNTIME_CONFIG_KEYS
 from app.models.connection_table import ConnectionTable, KIND_TABLE, KIND_BOW
 from app.models.connection_tool import ConnectionTool
@@ -203,6 +204,57 @@ def _looks_like_auth_challenge(message: str | None) -> bool:
 VALIDATION_FILE_CAP = 200
 
 
+class _SessionKeepalive:
+    """Keeps a Postgres session from being dropped as idle-in-transaction
+    while its owner waits on something long that does not use the session.
+
+    Runs `SELECT 1` on the session at an interval well under the server's
+    limit. `stop()` lets a statement in flight finish instead of cancelling
+    it — a cancelled statement would abort the very transaction this
+    protects. The owner must not use the session between `start()` and the
+    end of `stop()`. No-op on SQLite, which has no such limit.
+    """
+
+    INTERVAL_S = 20.0
+
+    def __init__(self, db: AsyncSession):
+        self._db = db
+        self._stop = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+
+    def start(self) -> None:
+        try:
+            if self._db.get_bind().dialect.name != "postgresql":
+                return
+        except Exception:
+            return
+        self._task = asyncio.create_task(self._run())
+
+    async def _run(self) -> None:
+        from sqlalchemy import text
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self.INTERVAL_S)
+                return
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await self._db.execute(text("SELECT 1"))
+            except Exception:
+                # The session is gone or busy; the owner will see the real
+                # error on its next statement.
+                return
+
+    async def stop(self) -> None:
+        self._stop.set()
+        task, self._task = self._task, None
+        if task is not None:
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
+
+
 async def _acount_files_for_validation(client, limit: int | None = None) -> int | None:
     """Metadata-only inventory count for validating file or mail sources.
 
@@ -270,6 +322,59 @@ async def _acount_tables_for_validation(client) -> int | None:
             type(client).__name__, exc_info=True,
         )
         return None
+
+
+def _unread_prefixes(client) -> tuple[str, ...]:
+    sep = getattr(client, "unindexed_table_prefix_separator", "/") or "/"
+    try:
+        return tuple(
+            f"{str(p).rstrip(sep)}{sep}"
+            for p in (client.unindexed_table_prefixes() or [])
+            if p and str(p).strip(sep)
+        )
+    except Exception:
+        return ()
+
+
+def _athena_config_is_multi(config) -> bool:
+    from app.schemas.data_sources.configs import parse_athena_database_spec
+    return parse_athena_database_spec((config or {}).get("database"))[2]
+
+
+def _validate_connection_config(connection_type: str, config) -> None:
+    if connection_type != "aws_athena" or not isinstance(config, dict):
+        return
+    from pydantic import ValidationError
+    from app.schemas.data_sources.configs import AWSAthenaConfig
+    try:
+        AWSAthenaConfig(**{k: v for k, v in config.items() if v is not None and v != ""})
+    except ValidationError as e:
+        first = e.errors()[0]
+        field = ".".join(str(p) for p in first["loc"]) or "config"
+        reason = str(first["msg"]).removeprefix("Value error, ")
+        raise AppError.bad_request(
+            ErrorCode.CONNECTION_CONFIG_INVALID, f"{field}: {reason}", detail=f"{field}: {reason}",
+        )
+
+
+def _reject_athena_mode_switch(connection, new_config) -> None:
+    if connection.type != "aws_athena" or not isinstance(new_config, dict):
+        return
+    stored = connection.config
+    if isinstance(stored, str):
+        stored = json.loads(stored)
+    if _athena_config_is_multi(stored) != _athena_config_is_multi(new_config):
+        raise AppError.bad_request(
+            ErrorCode.CONNECTION_ATHENA_MODE_SWITCH,
+            "Cannot switch an Athena connection between one database and several. Create a new connection instead.",
+        )
+
+
+def _unreadable_after_count(client) -> list:
+    try:
+        return list((client.index_stats() or {}).get("unreadable_datasets") or [])
+    except Exception:
+        return []
 
 
 def _connected_message(
@@ -501,6 +606,7 @@ class ConnectionService:
         _require_datasphere_authorize_url(type, config, allowed_user_auth_modes)
         _reject_unsafe_google_keys(credentials)
         _check_network_dir_root(type, config)
+        _validate_connection_config(type, config)
         _check_query_tag_label(config)
 
         # Check enterprise license for restricted data sources
@@ -735,6 +841,8 @@ class ConnectionService:
         _reject_unsafe_oauth_urls(updates.get("config"), updates.get("credentials"))
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
+        _validate_connection_config(connection.type, updates.get("config"))
+        _reject_athena_mode_switch(connection, updates.get("config"))
 
         if "config" in updates or "allowed_user_auth_modes" in updates:
             _require_datasphere_authorize_url(
@@ -1044,6 +1152,12 @@ class ConnectionService:
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
 
+            # The connection's full-text index goes with it. Removed here
+            # rather than left to the foreign key: SQLite does not enforce
+            # cascades in this app, and its FTS rows hang off no key at all.
+            from app.services.file_index_store import FileIndexStore
+            await FileIndexStore(db).clear(str(connection.id))
+
             # Agents that existed only through this connection were deleted
             # above, through the agent delete; any left here share another
             # connection and only lose this link (domain_connection cascade).
@@ -1236,6 +1350,7 @@ class ConnectionService:
         credentials: dict,
     ) -> dict:
         """Test connection with given parameters (before saving)."""
+        _validate_connection_config(data_source_type, config)
         # Per-user OAuth MCP connectors (oauth_app / DCR) have NO token at
         # admin-config time — the admin only registers the OAuth client; each
         # user signs in later. So an authenticated tools/list is impossible here,
@@ -1334,7 +1449,7 @@ class ConnectionService:
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
                 config=config,
-            )
+            ) + unreadable_note(schema_status.get("unreadable"))
             return {
                 "success": True,
                 "message": message,
@@ -1931,6 +2046,38 @@ class ConnectionService:
 
         return visible
 
+    async def _open_fulltext_sink(self, db: AsyncSession, client, connection_id: str):
+        """A sink for the client's full-text sections, or None when the
+        connection is not on the full-text tier (any index left over from an
+        earlier setting is removed then)."""
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+
+        from app.data_sources.clients._file_source_common import INDEX_FULLTEXT
+        from app.data_sources.clients.base import _accepts_kwarg
+        from app.services.file_index_store import FileIndexSink, FileIndexStore
+
+        store = FileIndexStore(db)
+        # Index writes get their own short transactions, never this refresh's
+        # session: on SQLite a write held open here for the whole crawl would
+        # block every progress update.
+        factory = async_sessionmaker(db.bind, class_=AsyncSession, expire_on_commit=False)
+        wants = (
+            getattr(client, "index_mode", None) == INDEX_FULLTEXT
+            and _accepts_kwarg(client.get_schemas, "section_sink")
+        )
+        if not wants:
+            if hasattr(client, "index_mode") and await store.has_index(connection_id):
+                async with factory() as own:
+                    removed = await FileIndexStore(own).clear(connection_id)
+                    await own.commit()
+                logger.info(
+                    "refresh_schema: connection %s is no longer on the full-text tier — "
+                    "removed its index (%d files)", connection_id, removed,
+                )
+            return None
+        prior = await store.prior_versions(connection_id)
+        return FileIndexSink(asyncio.get_running_loop(), factory, connection_id, prior)
+
     async def _rename_user_overlays(self, db: AsyncSession, connection_id: str, renamed) -> None:
         """Carry table renames to the per-user visibility rows, which store the
         name too, so a user's schema shows the new name before their next sync.
@@ -2226,11 +2373,31 @@ class ConnectionService:
                 _extra["prior_tables"] = prior_tables_arg
             if introspection == "full" and _accepts_kwarg(client.aget_schemas, "force_refresh"):
                 _extra["force_refresh"] = True
-            fresh_tables = await client.aget_schemas(
-                progress_callback=progress_callback,
-                prior_catalog=prior_catalog,
-                **_extra,
-            )
+            # Full-text index tier: the client streams each file's sections to
+            # a sink while it walks, committed in small batches on their own
+            # sessions — an interrupted run keeps what it finished and the
+            # next one resumes. Other tiers drop any index left from before.
+            section_sink = await self._open_fulltext_sink(db, client, connection_id_str)
+            if section_sink is not None:
+                _extra["section_sink"] = section_sink
+            # This session already read the catalog, so on Postgres it sits
+            # idle inside a transaction for as long as discovery takes. The
+            # server drops such a session after its idle-in-transaction limit
+            # (5 minutes on the request engine), which failed the save of any
+            # crawl longer than that. A trivial statement now and then keeps
+            # it alive; nothing else touches `db` while discovery runs.
+            keepalive = _SessionKeepalive(db)
+            keepalive.start()
+            try:
+                fresh_tables = await client.aget_schemas(
+                    progress_callback=progress_callback,
+                    prior_catalog=prior_catalog,
+                    **_extra,
+                )
+            finally:
+                await keepalive.stop()
+                if section_sink is not None:
+                    await section_sink.aflush()
             from app.data_sources.clients.discovery import require_complete_discovery
             fresh_tables = require_complete_discovery(client, fresh_tables)
             if not getattr(client, "catalog_identity_available", True):
@@ -2240,14 +2407,8 @@ class ConnectionService:
             # read (routine discovery failed while the tables were read). Their
             # existing entries, and the agents' selection of them, are kept
             # below rather than pruned; everything else still refreshes.
-            try:
-                unread_prefixes = tuple(
-                    f"{str(p).rstrip('/')}/"
-                    for p in (client.unindexed_table_prefixes() or [])
-                    if p and str(p).strip("/")
-                )
-            except Exception:
-                unread_prefixes = ()
+            unread_prefixes = _unread_prefixes(client)
+            prefix_sep = getattr(client, "unindexed_table_prefix_separator", "/") or "/"
             try:
                 unread_types = frozenset(client.unindexed_entry_types() or ())
             except Exception:
@@ -2263,7 +2424,7 @@ class ConnectionService:
                     "refresh_schema: connection %s could not read %d part(s) of its catalog "
                     "on this run; their existing tables are kept: %s",
                     connection.id, len(unread_prefixes),
-                    ", ".join(p.rstrip("/") for p in unread_prefixes[:10]),
+                    ", ".join(p.rstrip(prefix_sep) for p in unread_prefixes[:10]),
                 )
             # Only needed to pass to the client; release them before saving.
             # `_extra` holds the same `prior_tables` dict (Power BI /
@@ -2311,6 +2472,15 @@ class ConnectionService:
                     "non-authoritative; nothing is pruned.",
                     connection.id,
                 )
+            self.last_fulltext_stats = None
+            if section_sink is not None:
+                # Only a complete crawl as the connection's own identity may
+                # remove index entries for files it did not see.
+                self.last_fulltext_stats = await section_sink.finish(prune=authoritative)
+                logger.info(
+                    "refresh_schema: full-text index for connection %s — %s",
+                    connection.id, self.last_fulltext_stats,
+                )
             if not authoritative:
                 logger.info(
                     "refresh_schema: connection %s crawled with the CALLER's own "
@@ -2335,14 +2505,16 @@ class ConnectionService:
                 unreadable = (_stats or {}).get("unreadable_datasets") or []
                 if unreadable:
                     self.last_discovery_diagnostics = unreadable
-                    _summary = "; ".join(
-                        f"{d.get('datasetName') or d.get('name')} "
-                        f"({d.get('workspaceName') or d.get('workspaceId')}): {d.get('reason')}"
-                        for d in unreadable[:10]
-                    )
+                    def _describe(d):
+                        scope = d.get('workspaceName') or d.get('workspaceId')
+                        return (
+                            f"{d.get('datasetName') or d.get('name')}"
+                            f"{f' ({scope})' if scope else ''}: {d.get('reason')}"
+                        )
+                    _summary = "; ".join(_describe(d) for d in unreadable[:10])
                     logger.warning(
-                        "refresh_schema: %d semantic model(s) on connection %s were "
-                        "found but not readable and were not indexed: %s",
+                        "refresh_schema: %d source(s) on connection %s were "
+                        "not found or not readable and were not indexed: %s",
                         len(unreadable), connection.id, _summary,
                     )
             except Exception:
@@ -2480,7 +2652,7 @@ class ConnectionService:
             # error/empty placeholder row (named after the part itself) is not
             # added next to them.
             for prefix in unread_prefixes:
-                placeholder = prefix.rstrip("/")
+                placeholder = prefix.rstrip(prefix_sep)
                 if placeholder in incoming and placeholder not in existing_tables and any(
                     n.startswith(prefix) for n in existing_tables
                 ):
@@ -3022,6 +3194,7 @@ class ConnectionService:
             # Tabular sources that can count from a catalog view skip the full
             # column introspection — the test only needs the count.
             table_count = await _acount_tables_for_validation(client)
+            unreadable = _unreadable_after_count(client) if table_count is not None else []
             if table_count is None:
                 tables = None
                 if hasattr(client, "aget_schemas"):
@@ -3049,6 +3222,7 @@ class ConnectionService:
             return {
                 "success": True,
                 "table_count": table_count,
+                "unreadable": unreadable,
             }
         except Exception as e:
             return {

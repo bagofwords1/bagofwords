@@ -28,7 +28,10 @@ SQL_FAMILIES = sorted(set(CLIENT_DIALECTS) | {
     "NetsuiteClient", "OracleBIClient", "SisenseClient", "CSVClient", "QVDClient", "PBIXClient",
     "PowerBIReportServerClient", "FastQueryClient", "PostHogClient", "SalesforceClient",
 })
-NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient"}
+# Renderers that refuse a backslash value: Athena, Redshift and Timbr, and
+# the engines that may read a backslash as an escape (ansi_or_backslash).
+NO_BACKSLASH = {"AwsAthenaClient", "AwsRedshiftClient", "TimbrClient", "VerticaClient", "SybaseClient",
+                "OracleBIClient"}
 # Timbr is read as Spark SQL, where the doubled quote its renderer writes is
 # two strings side by side: a value holding a quote reads as another value,
 # so the identity check refuses the query (fails closed).

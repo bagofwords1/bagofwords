@@ -298,6 +298,27 @@ def missing_required_inputs(specs: List[ParamSpec], values: Optional[Dict[str, A
 # reads back as the value; a few engines override it. Connections without a
 # sqlglot dialect have their own rule and scanner. Which renderer a client
 # gets is declared by type in `client_profiles`.
+#
+# Each client class also states its engine's string-literal rule, with the
+# grammar it rests on, as `sql_literal_style` (DataSourceClient). That
+# statement does not choose the rendering; it is what the renderer must
+# honour (test_query_params checks each renderer against it), and how the
+# identity check reads a capture no dialect is known for
+# (identity_bind._STYLE_DIALECTS):
+# - "standard": a quote is doubled ('it''s'); a backslash is an ordinary
+#   character.
+# - "doubled": '' is a quote and a backslash may also escape (MySQL,
+#   Snowflake, ClickHouse, Redshift, Vertica with StandardConformingStrings
+#   off, SQL Anywhere, ...): a renderer escapes the backslash or refuses it.
+# - "backslash": a backslash escapes and '' is not a quote (BigQuery,
+#   Databricks, Spark, Hive, SOQL, ...).
+# - None: no rule is established for the language; only a renderer written
+#   for that language (KQL, SPL) may render into it.
+LITERAL_STYLE_STANDARD = "standard"
+LITERAL_STYLE_DOUBLED = "doubled"
+LITERAL_STYLE_BACKSLASH = "backslash"
+LITERAL_STYLES = frozenset({LITERAL_STYLE_STANDARD, LITERAL_STYLE_DOUBLED, LITERAL_STYLE_BACKSLASH})
+
 
 @dataclass(frozen=True)
 class LiteralRenderer:
@@ -634,9 +655,15 @@ def _backslash_decode(escapes: Dict[str, str], only: Optional[str] = None) -> Ca
     return decode
 
 
-def _backslash_quote(delimiter: str) -> Callable[[str], str]:
+def _backslash_quote(delimiter: str, line_breaks: bool = False) -> Callable[[str], str]:
+    """`line_breaks`: a line feed and a carriage return are written \\n and
+    \\r, for a language whose single-quoted literal may not hold a raw line
+    break and reads those escapes as the characters (`_C_ESCAPES`)."""
     def quote(value: str) -> str:
-        return delimiter + value.replace("\\", "\\\\").replace(delimiter, "\\" + delimiter) + delimiter
+        body = value.replace("\\", "\\\\").replace(delimiter, "\\" + delimiter)
+        if line_breaks:
+            body = body.replace("\n", "\\n").replace("\r", "\\r")
+        return delimiter + body + delimiter
     return quote
 
 
@@ -695,9 +722,17 @@ def _scanned(name: str, quote: Callable[[str], str], lists: _SpanLists, decode: 
 
 def _build_renderers() -> Dict[str, LiteralRenderer]:
     renderers = {
-        # ANSI: quotes doubled, nothing else (Db2, IBM i, Vertica, Sybase,
-        # SAP HANA, Pinot, NetSuite, Oracle BI, Sisense).
+        # ANSI: quotes doubled, nothing else (Db2, IBM i, SAP HANA, Pinot,
+        # NetSuite, Sisense).
         "ansi": _scanned("ansi", _doubled, _scanned_lists(*_ANSI_READINGS), _ansi_decode),
+        # ANSI for engines that may also read a backslash as an escape in a
+        # string (Vertica with StandardConformingStrings off, SQL Anywhere,
+        # Oracle BI Logical SQL): the text is read both ways, and a value
+        # holding a backslash is refused, since no one rendering of it reads
+        # back as the value either way.
+        "ansi_or_backslash": _scanned(
+            "ansi_or_backslash", _refuse_backslash("a source that may read it as an escape"),
+            _scanned_lists(*_ANSI_READINGS, replace(_ANSI_READING, backslash="'\"")), _ansi_decode),
         # OData options text (Priority ERP, SAP Datasphere, MECM): quotes
         # doubled, the body percent-encoded.
         "odata": _scanned("odata", _odata_quote, _odata_lists(_Reading(quotes="'"), _Reading(quotes="'\"")),
@@ -709,11 +744,11 @@ def _build_renderers() -> Dict[str, LiteralRenderer]:
                           _ansi_decode),
         # Kusto: '...' with \\ and \'; @'..' verbatim, ```..``` and ~~~..~~~
         # multi-line, // comments.
-        "kql": _scanned("kql", _backslash_quote("'"),
+        "kql": _scanned("kql", _backslash_quote("'", line_breaks=True),
                         _scanned_lists(_KQL_READING, replace(_KQL_READING, fences=("~~~",))),
                         _backslash_decode(_C_ESCAPES)),
         # Salesforce SOQL: '...' with \\ and \'; no comments.
-        "soql": _scanned("soql", _backslash_quote("'"),
+        "soql": _scanned("soql", _backslash_quote("'", line_breaks=True),
                          _scanned_lists(_Reading(quotes="'", backslash="'", doubled=False)),
                          _backslash_decode(_C_ESCAPES)),
         # Splunk SPL (bare searches): "..." with \\ and \"; ```..``` comments;
@@ -746,6 +781,7 @@ def _build_renderers() -> Dict[str, LiteralRenderer]:
 _SQLGLOT_RENDERER_DIALECTS = frozenset({
     "postgres", "redshift", "mysql", "tsql", "fabric", "oracle", "sqlite", "snowflake", "bigquery",
     "athena", "presto", "trino", "clickhouse", "databricks", "spark", "duckdb", "teradata", "druid",
+    "dremio", "hive",
 })
 # Renderers for MySQL-family engines: the text is also read the MySQL way
 # (_MYSQL_READINGS) and their '--' rule applies (_refuse_engine_comments).
@@ -1243,6 +1279,109 @@ def render_sql_with_params(
     return rendered
 
 
+def _json_number(value: Any) -> bool:
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and value == value and value not in (float("inf"), float("-inf")))
+
+
+def is_json_document(text: str) -> bool:
+    """Whether a connector's query text is a JSON document (an object or an
+    array), which `render_json_number_params` renders."""
+    return text.lstrip()[:1] in ("{", "[")
+
+
+def render_json_number_params(text: str, values: Dict[str, Any], *, client_type_name: str = "") -> str:
+    """Render the placeholders of a JSON query document, for a connector
+    with no renderer for its query language (`renderer_for` is None).
+
+    Each placeholder is first swapped for a unique stand-in number, so the
+    document parses wherever the placeholder sits; the parsed document is
+    then walked and serialized again with json.dumps:
+
+    - a placeholder standing as a JSON value takes a finite number only,
+      written as a bare JSON number ("limit": :n, {"$gt": :n}), which cannot
+      end a string, add a key or change what the document asks for beyond
+      that number;
+    - a placeholder inside a string value is refused: the string is text in
+      the connector's own language (a filter, a search, an envelope's SQL),
+      which has no renderer here, so no value can be shown to stay one value
+      of it;
+    - a placeholder in a key, a value that is not a finite number, or a
+      stand-in left over (run into other digits, `:n.5`) is refused.
+
+    A document with no placeholder comes back unchanged.
+    """
+    if not _PLACEHOLDER_RE.search(text):
+        return text
+    who = client_type_name or "This source"
+    missing: List[str] = []
+    stand_ins: Dict[str, str] = {}  # stand-in digits -> placeholder name
+    # Stand-in digits that occur nowhere in the document. Values need no
+    # check: stand-ins are replaced in one pass, so a rendered value is
+    # never scanned again (and scanning viewer values here would make the
+    # cost depend on their length).
+    base = 7301000000000000000
+    while str(base)[:12] in text:
+        base += 1000000000000000
+    width = len(str(base))
+
+    def _stand_in(m: "re.Match[str]") -> str:
+        name = m.group(1)
+        if name not in values:
+            missing.append(name)
+        token = str(base + len(stand_ins)).zfill(width)
+        stand_ins[token] = name
+        return token
+
+    stood = _PLACEHOLDER_RE.sub(_stand_in, text)
+    if missing:
+        raise ParamError(
+            "query uses parameter placeholder(s) with no value: " + ", ".join(sorted(set(missing)))
+        )
+    try:
+        document = json.loads(stood)
+    except ValueError:
+        raise ParamError(f"{who}: the JSON query document is not valid JSON")
+
+    def _refuse(where: str):
+        raise ParamError(
+            f"{who}: a query parameter {where} -- in a JSON query a parameter is rendered only "
+            "as a number value standing on its own (\"limit\": :n)"
+        )
+
+    def _holds_stand_in(s: str) -> bool:
+        return any(token in s for token in stand_ins)
+
+    used: set = set()
+
+    def _walk(node: Any) -> Any:
+        if isinstance(node, dict):
+            out = {}
+            for key, value in node.items():
+                if _holds_stand_in(key):
+                    _refuse("in a key")
+                out[key] = _walk(value)
+            return out
+        if isinstance(node, list):
+            return [_walk(item) for item in node]
+        if isinstance(node, str):
+            if _holds_stand_in(node):
+                _refuse("inside a string")
+            return node
+        if isinstance(node, int) and not isinstance(node, bool) and str(node) in stand_ins:
+            used.add(str(node))
+            value = values[stand_ins[str(node)]]
+            if not _json_number(value):
+                _refuse(f"value of type {type(value).__name__}")
+            return value
+        return node
+
+    rendered = json.dumps(_walk(document), ensure_ascii=False)
+    if used != set(stand_ins):
+        _refuse("where no value can stand (run into other characters)")
+    return rendered
+
+
 # ---------------------------------------------------------------------------
 # Code checks
 # ---------------------------------------------------------------------------
@@ -1437,6 +1576,28 @@ def _heuristic_binds_value(capture: str, needles: List[str]) -> bool:
     return any(n in tail for n in needles)
 
 
+# Envelope keys Elasticsearch runs before "sql" (elasticsearch_client.execute_query).
+_ENVELOPE_KEYS_RUN_BEFORE_SQL = ("dashboard", "saved_search", "esql")
+
+
+def _envelope_sql(text: str) -> tuple[bool, Optional[str]]:
+    """(whether `text` is a JSON envelope carrying "sql", the SQL it runs).
+    The SQL is None when another key the client runs first is present
+    (_ENVELOPE_KEYS_RUN_BEFORE_SQL): then the "sql" is not what executed."""
+    if not text.lstrip().startswith("{"):
+        return False, None
+    try:
+        envelope = json.loads(text)
+    except ValueError:
+        return False, None
+    sql = envelope.get("sql") if isinstance(envelope, dict) else None
+    if not (isinstance(sql, str) and sql.strip()):
+        return False, None
+    if any(envelope.get(k) or (k == "esql" and k in envelope) for k in _ENVELOPE_KEYS_RUN_BEFORE_SQL):
+        return True, None
+    return True, sql
+
+
 def _query_binds_value(capture: str, needles: List[str], param: str = "") -> bool:
     """Whether one executed query restricts its rows by an identity value.
 
@@ -1454,9 +1615,22 @@ def _query_binds_value(capture: str, needles: List[str], param: str = "") -> boo
         end = _ODATA_TEXT_END.search(capture)
         if end is not None:
             capture = capture[:end.start()]
+    # Only a client that takes a SQL envelope runs its "sql" field.
+    is_envelope, envelope_sql = (_envelope_sql(str(capture)) if getattr(capture, "sql_in_json_envelope", False)
+                                 else (False, None))
+    if is_envelope and envelope_sql is None:
+        # Its "sql" is not the statement that ran: nothing shows the filter.
+        return False
+    if envelope_sql is not None:
+        # A JSON query envelope carrying SQL: the SQL is what filters.
+        from app.ai.code_execution.identity_bind import CapturedQuery
+
+        capture = CapturedQuery(envelope_sql, client_type, literal_style=getattr(capture, "literal_style", None),
+                                sql_in_json_envelope=True)
     stripped = _strip_sql_comments(capture)
     looks_sql = bool(_SQL_START_RE.match(stripped))
-    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql)
+    verdict = structural_binds(str(capture), client_type, tuple(needles), looks_sql,
+                               getattr(capture, "literal_style", None))
     if verdict is not None:
         return verdict
     if looks_sql or client_type == "SplunkClient":

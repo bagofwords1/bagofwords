@@ -1,70 +1,54 @@
 <template>
-    <div class="mt-6">
-        <h2 class="text-lg font-medium text-gray-900 dark:text-white">
-            {{ $t('settings.pii.title') }}
-            <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-8 max-w-3xl">
-                {{ $t('settings.pii.subtitle') }}
-            </p>
-        </h2>
-
+    <div>
         <!-- Enterprise gate (belt-and-suspenders; the tab is already hidden when unlicensed) -->
-        <div v-if="!hasFeature('pii_protection')" class="max-w-2xl rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800 p-5">
-            <div class="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
-                <Icon name="heroicons:sparkles" class="w-5 h-5" />
+        <div v-if="!hasFeature('pii_protection')" class="rounded-lg border border-amber-200 bg-amber-50/70 dark:bg-amber-950/40 dark:border-amber-900/60 p-5">
+            <div class="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+                <Icon name="heroicons:sparkles" class="w-4 h-4" />
                 {{ $t('settings.pii.enterpriseTitle') }}
             </div>
-            <p class="text-sm text-amber-700 dark:text-amber-400 mt-2">{{ $t('settings.pii.enterpriseBody') }}</p>
+            <p class="text-sm text-amber-800/90 dark:text-amber-300/90 mt-1.5">{{ $t('settings.pii.enterpriseBody') }}</p>
         </div>
 
         <template v-else>
-            <div v-if="loading" class="py-4"><ULoader /></div>
+            <SettingsLoading v-if="loading" />
 
-            <div v-else class="space-y-8 max-w-3xl">
-                <!-- Master switch -->
-                <div class="flex flex-col">
-                    <div class="flex items-center justify-between">
-                        <div class="font-medium flex items-center gap-2">
-                            <Icon name="heroicons:shield-check" class="w-5 h-5 text-blue-600" />
-                            {{ $t('settings.pii.masterLabel') }}
-                        </div>
+            <div v-else>
+                <!-- Master switch + default action -->
+                <SettingsSection>
+                    <SettingsRow :label="$t('settings.pii.masterLabel')" :description="$t('settings.pii.masterDesc')">
                         <UToggle v-model="pii.enabled" @update:model-value="save" />
-                    </div>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ $t('settings.pii.masterDesc') }}</p>
-                </div>
+                    </SettingsRow>
 
-                <!-- Mode -->
-                <div :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
-                    <div class="font-medium mb-3">{{ $t('settings.pii.modeLabel') }}</div>
-                    <div class="space-y-2">
-                        <label class="flex items-start gap-3 cursor-pointer">
-                            <input type="radio" value="replace" v-model="pii.mode" class="mt-1" @change="save" />
-                            <div>
-                                <div class="text-sm font-medium">{{ $t('settings.pii.modeReplace') }}</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.modeReplaceDesc') }}</div>
-                            </div>
-                        </label>
-                        <label class="flex items-start gap-3 cursor-pointer">
-                            <input type="radio" value="block" v-model="pii.mode" class="mt-1" @change="save" />
-                            <div>
-                                <div class="text-sm font-medium">{{ $t('settings.pii.modeBlock') }}</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.modeBlockDesc') }}</div>
-                            </div>
-                        </label>
-                    </div>
-                </div>
-
-                <hr class="border-gray-200 dark:border-gray-700" />
+                    <fieldset class="mt-6" :disabled="!pii.enabled" :class="{ 'opacity-50': !pii.enabled }">
+                        <legend class="text-sm font-medium text-ink mb-3">{{ $t('settings.pii.modeLabel') }}</legend>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <label
+                                v-for="opt in modeOptions"
+                                :key="opt.value"
+                                :class="[
+                                    'flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors',
+                                    pii.mode === opt.value
+                                        ? 'border-blue-500 bg-blue-50/60 dark:border-blue-400 dark:bg-blue-950/30'
+                                        : 'border-line hover:border-line-strong'
+                                ]"
+                            >
+                                <input type="radio" :value="opt.value" v-model="pii.mode" class="mt-0.5 accent-blue-600" @change="save" />
+                                <span class="min-w-0">
+                                    <span class="block text-sm font-medium text-ink">{{ opt.label }}</span>
+                                    <span class="block mt-0.5 text-xs text-ink-muted leading-relaxed">{{ opt.description }}</span>
+                                </span>
+                            </label>
+                        </div>
+                    </fieldset>
+                </SettingsSection>
 
                 <!-- Built-in rules -->
-                <div :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
-                    <h3 class="text-base font-semibold">{{ $t('settings.pii.builtinTitle') }}</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-4">{{ $t('settings.pii.builtinDesc') }}</p>
-                    <div class="space-y-3">
-                        <div v-for="rule in builtinRules" :key="rule.id"
-                             class="flex items-center justify-between gap-4 border border-gray-200 dark:border-gray-700 rounded-md px-4 py-3">
+                <SettingsSection :title="$t('settings.pii.builtinTitle')" :description="$t('settings.pii.builtinDesc')">
+                    <div :class="['bow-table-card divide-y divide-line-subtle', { 'opacity-50 pointer-events-none': !pii.enabled }]">
+                        <div v-for="rule in builtinRules" :key="rule.id" class="flex items-center justify-between gap-4 px-5 py-3">
                             <div class="min-w-0">
-                                <div class="text-sm font-medium">{{ rule.name }}</div>
-                                <div class="text-xs text-ink-muted">{{ rule.pattern_count }} pattern{{ rule.pattern_count === 1 ? '' : 's' }}</div>
+                                <div class="text-sm font-medium text-ink">{{ rule.name }}</div>
+                                <div class="text-xs text-ink-muted">{{ $t('settings.pii.patternCount', { n: rule.pattern_count }, rule.pattern_count) }}</div>
                             </div>
                             <div class="flex items-center gap-3 shrink-0">
                                 <USelect
@@ -76,8 +60,8 @@
                                     :model-value="builtinReplacement(rule.id)"
                                     @update:model-value="setBuiltinReplacement(rule.id, $event)"
                                     @blur="save"
-                                    size="sm" class="w-44" :placeholder="rule.replacement" />
-                                <span v-else class="w-44 text-xs text-red-500 dark:text-red-400 text-right flex items-center justify-end gap-1">
+                                    size="sm" class="w-44" input-class="font-mono text-xs" :placeholder="rule.replacement" />
+                                <span v-else class="w-44 text-xs text-red-600 dark:text-red-400 flex items-center justify-end gap-1">
                                     <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
                                     {{ $t('settings.pii.blocksRequest') }}
                                 </span>
@@ -87,96 +71,90 @@
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <hr class="border-gray-200 dark:border-gray-700" />
+                </SettingsSection>
 
                 <!-- Custom rules -->
-                <div :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h3 class="text-base font-semibold">{{ $t('settings.pii.customTitle') }}</h3>
-                            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">{{ $t('settings.pii.customDesc') }}</p>
+                <SettingsSection :title="$t('settings.pii.customTitle')" :description="$t('settings.pii.customDesc')">
+                    <template #actions>
+                        <UButton size="sm" color="gray" icon="i-heroicons-plus" :disabled="!pii.enabled" @click="addRule">{{ $t('settings.pii.addRule') }}</UButton>
+                    </template>
+
+                    <div :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
+                        <div v-if="pii.custom_rules.length === 0" class="rounded-lg border border-dashed border-line">
+                            <SettingsEmpty icon="i-heroicons-funnel" :title="$t('settings.pii.noCustomRules')" compact />
                         </div>
-                        <UButton size="sm" icon="i-heroicons-plus" @click="addRule">{{ $t('settings.pii.addRule') }}</UButton>
-                    </div>
 
-                    <p v-if="pii.custom_rules.length === 0" class="text-sm text-ink-muted mt-4">{{ $t('settings.pii.noCustomRules') }}</p>
-
-                    <div v-for="(rule, ri) in pii.custom_rules" :key="rule.id"
-                         class="border border-gray-200 dark:border-gray-700 rounded-md p-4 mt-4 space-y-3">
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="flex items-center gap-3 flex-1">
-                                <UToggle v-model="rule.enabled" @update:model-value="save" />
-                                <UInput v-model="rule.name" :placeholder="$t('settings.pii.ruleNamePlaceholder')"
-                                        size="sm" class="flex-1" @blur="save" />
+                        <div v-for="(rule, ri) in pii.custom_rules" :key="rule.id"
+                             class="rounded-lg border border-line p-4 space-y-4 [&+&]:mt-3">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-3 flex-1">
+                                    <UToggle v-model="rule.enabled" @update:model-value="save" />
+                                    <UInput v-model="rule.name" :placeholder="$t('settings.pii.ruleNamePlaceholder')"
+                                            size="sm" class="flex-1" @blur="save" />
+                                </div>
+                                <UButton color="red" variant="ghost" size="sm" icon="i-heroicons-trash"
+                                         @click="removeRule(ri)">{{ $t('settings.pii.removeRule') }}</UButton>
                             </div>
-                            <UButton color="red" variant="ghost" size="sm" icon="i-heroicons-trash"
-                                     @click="removeRule(ri)">{{ $t('settings.pii.removeRule') }}</UButton>
-                        </div>
 
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block mb-1 text-xs font-medium text-ink-muted">{{ $t('settings.pii.action') }}</label>
+                                    <USelect
+                                        :model-value="customAction(rule)"
+                                        @update:model-value="rule.action = $event; save()"
+                                        :options="actionOptions" size="sm" />
+                                </div>
+                                <div v-if="customAction(rule) === 'replace'">
+                                    <label class="block mb-1 text-xs font-medium text-ink-muted">{{ $t('settings.pii.replacement') }}</label>
+                                    <UInput v-model="rule.replacement" size="sm" input-class="font-mono text-xs" placeholder="[REDACTED]" @blur="save" />
+                                </div>
+                                <div v-else class="flex items-end">
+                                    <span class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1 pb-2">
+                                        <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
+                                        {{ $t('settings.pii.blocksRequest') }}
+                                    </span>
+                                </div>
+                            </div>
+
                             <div>
-                                <label class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.action') }}</label>
-                                <USelect
-                                    :model-value="customAction(rule)"
-                                    @update:model-value="rule.action = $event; save()"
-                                    :options="actionOptions" size="sm" />
+                                <label class="block text-xs font-medium text-ink-muted">{{ $t('settings.pii.patterns') }}</label>
+                                <div v-for="(pat, pi) in rule.patterns" :key="pi" class="flex items-center gap-2 mt-1.5">
+                                    <UInput v-model="rule.patterns[pi]" size="sm"
+                                            class="flex-1" input-class="font-mono text-xs" :placeholder="$t('settings.pii.patternPlaceholder')" @blur="save" />
+                                    <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark"
+                                             :aria-label="$t('common.remove')" @click="removePattern(rule, pi)" />
+                                </div>
+                                <UButton variant="link" size="xs" icon="i-heroicons-plus" class="mt-1 -ms-2"
+                                         @click="rule.patterns.push('')">{{ $t('settings.pii.addPattern') }}</UButton>
                             </div>
-                            <div v-if="customAction(rule) === 'replace'">
-                                <label class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.replacement') }}</label>
-                                <UInput v-model="rule.replacement" size="sm" placeholder="[REDACTED]" @blur="save" />
-                            </div>
-                            <div v-else class="flex items-end">
-                                <span class="text-xs text-red-500 dark:text-red-400 flex items-center gap-1 pb-2">
-                                    <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
-                                    {{ $t('settings.pii.blocksRequest') }}
-                                </span>
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="text-xs text-gray-500 dark:text-gray-400">{{ $t('settings.pii.patterns') }}</label>
-                            <div v-for="(pat, pi) in rule.patterns" :key="pi" class="flex items-center gap-2 mt-1.5">
-                                <UInput v-model="rule.patterns[pi]" size="sm"
-                                        class="flex-1 font-mono" :placeholder="$t('settings.pii.patternPlaceholder')" @blur="save" />
-                                <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark"
-                                         @click="removePattern(rule, pi)" />
-                            </div>
-                            <UButton variant="link" size="xs" icon="i-heroicons-plus" class="mt-1"
-                                     @click="rule.patterns.push('')">{{ $t('settings.pii.addPattern') }}</UButton>
                         </div>
                     </div>
-                </div>
-
-                <hr class="border-gray-200 dark:border-gray-700" />
+                </SettingsSection>
 
                 <!-- Live test -->
-                <div>
-                    <h3 class="text-base font-semibold">{{ $t('settings.pii.testTitle') }}</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-3">{{ $t('settings.pii.testDesc') }}</p>
-                    <UTextarea v-model="testInput" :rows="4" :placeholder="$t('settings.pii.testPlaceholder')" class="font-mono" />
-                    <div class="mt-2">
+                <SettingsSection :title="$t('settings.pii.testTitle')" :description="$t('settings.pii.testDesc')">
+                    <UTextarea v-model="testInput" :rows="4" :placeholder="$t('settings.pii.testPlaceholder')" textarea-class="font-mono text-xs" />
+                    <div class="mt-3">
                         <UButton size="sm" color="gray" icon="i-heroicons-play" :loading="testing" @click="runTest">
                             {{ $t('settings.pii.testButton') }}
                         </UButton>
                     </div>
 
                     <div v-if="testDone" class="mt-4">
-                        <div v-if="testResult.blocked" class="rounded-md border border-red-300 bg-red-50 dark:bg-red-950/40 dark:border-red-800 p-3 text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
+                        <div v-if="testResult.blocked" class="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/40 dark:border-red-900/60 px-4 py-3 text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
                             <Icon name="heroicons:no-symbol" class="w-4 h-4" />
                             {{ $t('settings.pii.testBlocked') }}
                         </div>
                         <template v-else>
-                            <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('settings.pii.testResult') }}</div>
-                            <pre class="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 text-sm whitespace-pre-wrap break-words">{{ testResult.text }}</pre>
+                            <div class="text-xs font-medium text-ink-muted mb-1.5">{{ $t('settings.pii.testResult') }}</div>
+                            <pre class="rounded-lg border border-line bg-surface-subtle px-4 py-3 font-mono text-xs text-ink-2 whitespace-pre-wrap break-words">{{ testResult.text }}</pre>
                         </template>
-                        <p v-if="testResult.matches && testResult.matches.length" class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                        <p v-if="testResult.matches && testResult.matches.length" class="text-xs text-ink-muted mt-2">
                             {{ $t('settings.pii.testMatches', { rules: matchLabel }) }}
                         </p>
-                        <p v-else-if="!testResult.blocked" class="text-xs text-green-600 mt-2">{{ $t('settings.pii.testNoMatches') }}</p>
+                        <p v-else-if="!testResult.blocked" class="text-xs text-green-700 dark:text-green-400 mt-2">{{ $t('settings.pii.testNoMatches') }}</p>
                     </div>
-                </div>
+                </SettingsSection>
             </div>
         </template>
     </div>
@@ -184,8 +162,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import SettingsSection from '~/components/settings/SettingsSection.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
 const { t } = useI18n()
 const toast = useToast()
@@ -205,6 +187,11 @@ const pii = reactive<{ enabled: boolean; mode: string; builtin_overrides: Record
     custom_rules: [],
 })
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
+
+const modeOptions = computed(() => [
+    { value: 'replace', label: t('settings.pii.modeReplace'), description: t('settings.pii.modeReplaceDesc') },
+    { value: 'block', label: t('settings.pii.modeBlock'), description: t('settings.pii.modeBlockDesc') },
+])
 
 const actionOptions = computed(() => [
     { label: t('settings.pii.actionReplace'), value: 'replace' },

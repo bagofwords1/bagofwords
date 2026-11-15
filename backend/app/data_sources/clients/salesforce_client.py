@@ -336,6 +336,11 @@ def _salesforce_extraction_source(client):
 
 
 class SalesforceClient(DataSourceClient):
+
+    # SOQL: quoted strings take \' \\ \n \r escapes and '' is not a quote
+    # (SOQL and SOSL Reference, Quoted String Escape Sequences).
+    sql_literal_style = "backslash"
+
     # Custom tables: SOQL paged to the end rather than capped at MAX_ROWS,
     # and a refresh window written into the query's own WHERE clause
     # (app/data_sources/fast/salesforce_source.py).

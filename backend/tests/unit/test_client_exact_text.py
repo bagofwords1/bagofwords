@@ -167,6 +167,7 @@ def _athena(monkeypatch):
                 "boto3_session"):
         setattr(client, key, None)
     client.result_reuse_enable = False
+    client._multi = False  # one database: the multi-database table checks do not apply
 
     def read_sql_query(sql, **kwargs):
         sent.append(sql)
@@ -264,8 +265,42 @@ def _ibmi():
     return client, sent
 
 
+def _hive():
+    """Hive / Impala / Spark Thrift: a fake HiveServer2 connection whose
+    cursor records each statement."""
+    client, sent = _client("HiveClient"), []
+    client.engine, client.max_rows = "hive", 10
+
+    class Cursor(FakeCursor):
+        def fetchmany(self, size):
+            rows, self.rows = getattr(self, "rows", [("x",)]), []
+            return rows
+
+    client._conn = SimpleNamespace(cursor=lambda: Cursor(sent))
+    return client, sent
+
+
+def _dremio():
+    """Dremio: its REST job API, recorded at the request the client builds."""
+    client, sent = _client("DremioClient"), []
+    client.max_rows, client.timeout_seconds = 10, 30
+
+    def request(method, path, **kwargs):
+        if (method, path) == ("POST", "/sql"):
+            sent.append(kwargs["json"]["sql"])
+            return {"id": "job-1"}
+        if path == "/job/job-1":
+            return {"jobState": "COMPLETED", "rowCount": 1}
+        return {"schema": [{"name": "a"}], "rows": [{"a": "x"}]}
+
+    client._request = request
+    return client, sent
+
+
 RIGS = {
     "AwsAthenaClient": _athena,
+    "DremioClient": lambda mp: _dremio(),
+    "HiveClient": lambda mp: _hive(),
     "AwsRedshiftClient": lambda mp: _dbapi("AwsRedshiftClient"),
     "BigqueryClient": lambda mp: _bigquery(),
     "ClickhouseClient": lambda mp: _clickhouse(),
@@ -297,6 +332,8 @@ LOOKS_UP_A_TABLE_FIRST = {"Db2Client", "TeradataClient"}
 COVERED_ELSEWHERE = {
     "VerticaClient": "tests/unit/test_vertica_client.py",
     "PostgresqlClient": "tests/integrations/test_exact_text_send_live.py",
+    # Iceberg names tables namespace.table: QUERY's `orders` is not one.
+    "IcebergClient": "test_iceberg_runs_exactly_the_checked_text, below",
 }
 NOT_SQL_TEXT = {
     "SplunkClient": "SPL: the client sends `search <text>`, the form check_spl reads",
@@ -318,6 +355,41 @@ def test_the_driver_receives_exactly_the_checked_text(family, monkeypatch):
         assert sent[-1] == checked and sent.count(checked) == 1
     else:
         assert sent == [checked]
+
+
+def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
+    """Iceberg runs the checked text on an in-memory DuckDB after registering
+    each catalog table it names as a view (its own CREATE statements): the
+    query itself is executed once, byte for byte."""
+    import pyarrow as pa
+
+    query = "SELECT 'a--b :x %s %% 12:30' AS a FROM shop.orders -- a note :y %s"
+    client = _client("IcebergClient")
+    client.max_scan_rows = 1000
+    scan = SimpleNamespace(plan_files=lambda: [], to_arrow=lambda: pa.table({"id": [1]}))
+    table = SimpleNamespace(schema=lambda: SimpleNamespace(fields=[SimpleNamespace(name="id")]),
+                            scan=lambda **kwargs: scan)
+    client._table_identifiers = lambda: [("shop", "orders")]
+    client._cat = lambda: SimpleNamespace(load_table=lambda ident: table)
+    sent: list[str] = []
+    real_connect = duckdb.connect
+
+    class Recording:
+        def __init__(self, con):
+            self.con = con
+
+        def execute(self, sql, *args):
+            sent.append(sql)
+            return self.con.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self.con, name)
+
+    monkeypatch.setattr(duckdb, "connect", lambda *a, **k: Recording(real_connect(*a, **k)))
+    checked = ensure_read_only(client, query)
+    client.execute_query(checked)
+    assert sent[-1] == checked and sent.count(checked) == 1
+    assert all(s.startswith("CREATE ") for s in sent[:-1])
 
 
 @pytest.mark.parametrize("query_options", [None, "timeoutMs=1000"])

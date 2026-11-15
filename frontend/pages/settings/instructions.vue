@@ -2,13 +2,12 @@
 import ConsoleInstructions from '~/components/ConsoleInstructions.vue'
 
 definePageMeta({
-    layout: 'settings',
     permissions: ['manage_instructions'],
 })
 </script>
 
 <template>
-    <div class="mt-6">
+    <div>
         <ConsoleInstructions show-header />
     </div>
 </template>

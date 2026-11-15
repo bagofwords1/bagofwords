@@ -60,6 +60,16 @@ def session_key(transport: str, url: str, headers: Dict[str, str]) -> Tuple[str,
     return (transport, url, digest)
 
 
+def _is_stateless(session: Any) -> bool:
+    """True when the client negotiated a 2026-07-28+ (stateless) protocol."""
+    try:
+        from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+    except ImportError:  # mcp 1.x: every connection is a handshake session
+        return False
+    version = getattr(session, "protocol_version", None)
+    return isinstance(version, str) and version in MODERN_PROTOCOL_VERSIONS
+
+
 class _Entry:
     """One open session, held open by a worker task until closed or idle."""
 
@@ -122,6 +132,10 @@ class McpSessionPool:
         return sum(1 for e in self._entries.values() if not e.dead)
 
     async def _ping_ok(self, entry: _Entry) -> bool:
+        # 2026-07-28+ connections are stateless: there is no session for the
+        # server to forget, and the protocol removed ``ping``. Nothing to check.
+        if _is_stateless(entry.session):
+            return True
         try:
             await asyncio.wait_for(entry.session.send_ping(), timeout=_PING_TIMEOUT_S)
             return True

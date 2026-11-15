@@ -39,7 +39,7 @@ multiples on one shared scale, or top N plus Other. Format value axes and toolti
 with the unit ($, %, count). Draw line and area series straight.
 Keep an entity's color consistent across views, and semantic status colors honest.
 Use subtle borders/surfaces where they clarify grouping; not everything needs a
-card. Themes and kit components are optional starting points, not the design.
+card. Themes and kit layout components are optional starting points, not the design; tables, search boxes and filter dropdowns follow the CONTROLS rule.
 Custom React components, scoped CSS in a rendered <style>, inline styles, and
 Tailwind are supported. No imports or new dependencies. Use an app-specific
 root class for custom CSS. Respect the user's brand and light/dark preference.
@@ -70,11 +70,9 @@ server execution. Do not fabricate data or option rows for a prettier preview.
 
 SMALL PATTERNS — adapt these contracts; they are not page templates:
 - Custom table control: const p = useParams(); const options = useParamOptions('region');
-  <select aria-label="Region" value={p.values.region ?? ''}
-    onChange={e => p.setParam('region', e.target.value || null)}>
-    <option value="">All regions</option>
-    {(options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-  </select> // Show p.loading and p.error beside the affected workspace.
+  <FilterSelect label="Region" single searchable placeholder="All regions" options={options || []}
+    selected={p.values.region ? [p.values.region] : []}
+    onChange={a => p.setParam('region', a[0] ?? null)} /> // Show p.loading and p.error beside the affected workspace.
 - Collection/detail: useState for search and selectedId; derive visible rows from
   vizById('<uuid>').rows; derive selection by ID, never by row position.
 - Monitoring: source-backed metrics plus a compact trend/status view. A comparison

@@ -5,6 +5,7 @@ from datetime import datetime
 from app.schemas.base import UTCDatetime
 
 class MetricsQueryParams(BaseModel):
+    _folder_report_ids: Optional[list[str]] = None
     start_date: Optional[datetime] = Field(None, description="Start date for metrics query")
     end_date: Optional[datetime] = Field(None, description="End date for metrics query")
     data_source_ids: Optional[str] = Field(None, description="Comma-separated data source IDs to filter by")
@@ -133,6 +134,10 @@ class RoutingSavings(BaseModel):
     savings_usd: float = 0.0
     routed_calls: int = 0
     total_calls: int = 0
+    # Upfront routing with a decision model: how many decision calls ran and
+    # what they cost. ``savings_usd`` is already net of this cost.
+    decision_calls: int = 0
+    decision_cost_usd: float = 0.0
     routed_share: float = 0.0
 
 class LLMUsageMetrics(BaseModel):

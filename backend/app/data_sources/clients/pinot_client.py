@@ -41,6 +41,11 @@ def pinot_connect(**kwargs) -> _ExactTextConnection:
 
 
 class PinotClient(DataSourceClient):
+
+    # Pinot SQL is parsed by Apache Calcite: '' only, no backslash escapes
+    # (Calcite SQL grammar).
+    sql_literal_style = "standard"
+
     def __init__(
         self,
         host: str,

@@ -96,7 +96,11 @@ class AxisOptions(BaseModel):
     # None (not stored) means automatic: the renderer picks by category count.
     rotate: Optional[int] = None
     interval: Optional[int] = None
+    # Value-axis number format: "number" | "currency" | "percent" (value already
+    # x100) | "compact". None (not stored) draws plain numbers, as before.
     format: Optional[str] = None
+    # ISO-4217 code when format == "currency" (e.g. "USD", "ILS").
+    currency: Optional[str] = None
 
 
 class LegendOptions(BaseModel):

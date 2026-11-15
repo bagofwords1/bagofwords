@@ -43,6 +43,7 @@ class InstructionMentionItem(BaseModel):
 class MentionsSection(ContextSection):
     tag_name = "mentions"
 
+    folders: List[DataSourceMentionItem] = []
     files: List[FileMentionItem] = []
     data_sources: List[DataSourceMentionItem] = []
     tables: List[TableMentionItem] = []
@@ -55,6 +56,10 @@ class MentionsSection(ContextSection):
     def render(self) -> str:
         parts: List[str] = []
 
+        if self.folders:
+            parts.append(xml_tag("agent_folders", "\n".join(
+                xml_tag("folder", xml_escape(f.name or ""), {"id": f.id}) for f in self.folders
+            )))
         # Files
         if self.files:
             file_tags: List[str] = []

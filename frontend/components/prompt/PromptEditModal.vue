@@ -78,6 +78,7 @@
             <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('prompts.selectAgents') }}</div>
             <div v-if="!manageableAgents.length" class="text-2xs text-ink-muted">{{ $t('prompts.noManageableAgents') }}</div>
             <template v-else>
+              <AgentFolderFilter :agents="manageableAgents" :selected="agentIds" @select="ids => agentIds = [...new Set([...agentIds, ...ids])]" />
               <USelectMenu
                 v-model="agentIds"
                 :options="agentOptions"

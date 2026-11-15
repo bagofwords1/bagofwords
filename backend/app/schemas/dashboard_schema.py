@@ -45,6 +45,9 @@ class PublishedDashboardSchema(BaseModel):
     include_data_tab: bool
     show_widget_info: bool = False
     chat_enabled: bool
+    # Whether the reader's artifact iframe sandbox is relaxed (popups/new-tab
+    # links + modals). The page computes its sandbox attribute from this.
+    allow_popups: bool = False
     general: PublicGeneralSettings | None = None
     # What /r's page reads besides the dashboard (phase 8): the reader's
     # standing, Fork, refresh-on-view, and the kinds of connection it runs
@@ -77,6 +80,7 @@ class DraftDashboardSchema(BaseModel):
     theme_name: str | None = None
     theme_overrides: dict | None = None
     show_widget_info: bool = False  # the per-widget ⓘ provenance popover (phase 8)
+    allow_popups: bool = False  # relax the draft iframe sandbox (popups/modals)
     general: PublicGeneralSettings | None = None  # the page's credit and analyst name (phase 8)
     # An editor (owner, project) -- not the organization's admin, who reads it.
     can_edit: bool = False

@@ -58,6 +58,10 @@ DATA_SOURCES = [
     # once the CI service account's dataset is restored.
     pytest.param("bigquery", marks=pytest.mark.skip(reason="CI BigQuery dataset empty/permissions; tracked separately")),
     "databricks_sql",
+    # Remote mode: point integrations.json at a real Glue/Athena account; a
+    # multi-database `database` spec (e.g. "*_db, !billing_db") exercises the
+    # `<db>.<table>` naming, a single name the legacy path.
+    "aws_athena",
     "powerbi",
     "qvd",
     "teradata",

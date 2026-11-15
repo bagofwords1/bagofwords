@@ -43,7 +43,7 @@ def admin(create_user, login_user, whoami):
     return {"token": token, "org_id": info["organizations"][0]["id"], "user_id": info["id"]}
 
 
-async def _seed_chart_step(report_id, chart_type, smooth, axis_x=None):
+async def _seed_chart_step(report_id, chart_type, smooth, axis_x=None, extra=None):
     """A finished chart step as the agent leaves it (no public API creates steps;
     the same seeding as tests/e2e/rbac/test_rbac_entity_creation.py)."""
     suffix = uuid.uuid4().hex[:8]
@@ -61,7 +61,7 @@ async def _seed_chart_step(report_id, chart_type, smooth, axis_x=None):
             widget_id=widget.id, query_id=query.id, code=CODE, data=ROWS,
             data_model={"type": chart_type, "series": [{"name": "Total", "key": "month", "value": "total"}]},
             view={"version": "v2", "view": {"type": chart_type, "x": "month", "y": "total", "smooth": smooth,
-                                            **({"axisX": axis_x} if axis_x else {})}},
+                                            **({"axisX": axis_x} if axis_x else {}), **(extra or {})}},
             created_at=datetime.utcnow() - timedelta(minutes=5),
         )
         db.add(step)
@@ -87,11 +87,11 @@ async def _materialize(org_id, user_id, name):
         return last.payload
 
 
-def _reuse_saved_chart(test_client, admin, chart_type, smooth, axis_x=None):
+def _reuse_saved_chart(test_client, admin, chart_type, smooth, axis_x=None, extra=None):
     h = _hdr(admin["token"], admin["org_id"])
     resp = test_client.post("/api/reports", json={"title": f"r_{uuid.uuid4().hex[:6]}", "data_sources": []}, headers=h)
     assert resp.status_code == 200, resp.text
-    step_id = asyncio.run(_seed_chart_step(resp.json()["id"], chart_type, smooth, axis_x))
+    step_id = asyncio.run(_seed_chart_step(resp.json()["id"], chart_type, smooth, axis_x, extra))
 
     title = f"Monthly total {uuid.uuid4().hex[:6]}"
     resp = test_client.post(f"/api/entities/from_step/{step_id}",
@@ -125,3 +125,12 @@ def test_reused_entity_keeps_its_saved_line_shape(test_client, admin, chart_type
 def test_reused_entity_keeps_its_saved_labels(test_client, admin, chart_type, stored, expected):
     axis = _reuse_saved_chart(test_client, admin, chart_type, False, axis_x=stored)["axisX"]
     assert (axis.get("rotate"), axis.get("interval")) == expected
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("chart_type", ["line_chart", "bar_chart"])
+def test_reused_entity_keeps_its_units_and_zoom(test_client, admin, chart_type):
+    inner = _reuse_saved_chart(test_client, admin, chart_type, False,
+                               extra={"axisY": {"show": True, "format": "currency", "currency": "EUR"}, "showDataZoom": True})
+    assert (inner["axisY"].get("format"), inner["axisY"].get("currency")) == ("currency", "EUR")
+    assert inner.get("showDataZoom") is True

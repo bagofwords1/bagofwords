@@ -490,3 +490,120 @@ class TestDiscoveryProgress:
         assert len(tables) == 2
         assert any(phase == 'files' and item and done > 0 for phase, item, done, total in events)
         assert events[-1][2:] == (len(tables), len(tables))
+
+
+# ------------------------------------------------- incremental + full text
+
+
+def _listing(*objects):
+    return {
+        'Contents': [
+            {'Key': key, 'Size': size, 'LastModified': datetime(2026, 1, day, tzinfo=timezone.utc)}
+            for key, size, day in objects
+        ],
+        'IsTruncated': False,
+    }
+
+
+class TestIncrementalKeywordIndex:
+    """An unchanged object is not downloaded again on the next index run."""
+
+    def test_unchanged_objects_reuse_the_previous_runs_keywords(self):
+        body = b"renewal clause for the warehouse lease\n"
+        client, stub = _make_client(index_mode='content')
+        stub.add_response('list_objects_v2', _listing(('docs/a.txt', len(body), 1)))
+        stub.add_response('get_object', {'Body': _body(body)})
+        with stub:
+            first = client.get_schemas()
+            stub.assert_no_pending_responses()
+        meta = first[0].metadata_json['s3']
+        assert 'warehouse' in meta['keywords']
+
+        prior = {t.name: t.metadata_json for t in first}
+        client, stub = _make_client(index_mode='content')
+        stub.add_response('list_objects_v2', _listing(('docs/a.txt', len(body), 1)))
+        with stub:  # no get_object queued: a download would fail the stub
+            second = client.get_schemas(prior_catalog=prior)
+            stub.assert_no_pending_responses()
+        assert second[0].metadata_json['s3']['keywords'] == meta['keywords']
+        assert second[0].metadata_json['s3']['content_hash'] == meta['content_hash']
+
+    def test_a_changed_object_is_read_again(self):
+        old, new = b"renewal clause\n", b"termination notice period\n"
+        client, stub = _make_client(index_mode='content')
+        stub.add_response('list_objects_v2', _listing(('docs/a.txt', len(old), 1)))
+        stub.add_response('get_object', {'Body': _body(old)})
+        with stub:
+            prior = {t.name: t.metadata_json for t in client.get_schemas()}
+
+        client, stub = _make_client(index_mode='content')
+        stub.add_response('list_objects_v2', _listing(('docs/a.txt', len(new), 2)))
+        stub.add_response('get_object', {'Body': _body(new)})
+        with stub:
+            tables = client.get_schemas(prior_catalog=prior)
+            stub.assert_no_pending_responses()
+        assert 'termination' in tables[0].metadata_json['s3']['keywords']
+
+
+class _RecordingSink:
+    """Stands in for the full-text index: records what the client hands it."""
+
+    def __init__(self, current=()):
+        self.current = dict(current)   # file_id -> (version, meta)
+        self.written = {}
+        self.walk_truncated = None
+        self.flushed = False
+
+    def is_current(self, file_id, version):
+        return file_id in self.current and self.current[file_id][0] == version
+
+    def prior_meta(self, file_id):
+        return self.current[file_id][1]
+
+    def prior_status(self, file_id):
+        return "indexed"
+
+    def write(self, file_id, path, version, doc, meta=None):
+        self.written[file_id] = (path, version, doc, meta)
+
+    def flush(self):
+        self.flushed = True
+
+
+class TestFullTextIndex:
+    def test_every_section_of_an_object_reaches_the_index(self):
+        text = ("filler words about budgets and suppliers\n" * 200
+                + "Reference PO-48213 was approved\n")
+        body = text.encode()
+        client, stub = _make_client(index_mode='fulltext')
+        stub.add_response('list_objects_v2', _listing(('docs/orders/batch.txt', len(body), 1)))
+        stub.add_response('get_object', {'Body': _body(body)})
+        sink = _RecordingSink()
+        with stub:
+            tables = client.get_schemas(section_sink=sink)
+            stub.assert_no_pending_responses()
+
+        path, version, doc, meta = sink.written['orders/batch.txt']
+        assert doc.status == 'indexed' and sink.flushed and sink.walk_truncated is False
+        kinds = [s.kind for s in doc.sections]
+        assert kinds[0] == 'name' and set(kinds[1:]) == {'bytes'}
+        # The words at the very end of the object are in the index, with the
+        # byte range that holds them.
+        last = doc.sections[-1]
+        assert '48213' in {t.base for t in last.terms}
+        start, length = last.loc['offset'], last.loc['length']
+        assert b'PO-48213' in body[start:start + length]
+        # The catalog row still carries keywords, like the keyword tier.
+        row = tables[0].metadata_json['s3']
+        assert row['fulltext'] == 'indexed' and row['keywords'] == meta['keywords']
+
+    def test_an_object_the_index_already_holds_is_not_downloaded(self):
+        client, stub = _make_client(index_mode='fulltext')
+        stub.add_response('list_objects_v2', _listing(('docs/a.txt', 40, 1)))
+        version = f"40:{datetime(2026, 1, 1, tzinfo=timezone.utc).isoformat()}"
+        sink = _RecordingSink(current={'a.txt': (version, {'keywords': ['lease'], 'content_hash': 'h'})})
+        with stub:  # no get_object queued
+            tables = client.get_schemas(section_sink=sink)
+            stub.assert_no_pending_responses()
+        assert sink.written == {}
+        assert tables[0].metadata_json['s3']['keywords'] == ['lease']

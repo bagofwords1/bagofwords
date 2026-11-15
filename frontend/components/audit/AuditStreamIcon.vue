@@ -1,6 +1,6 @@
 <template>
   <img v-if="src" :src="src" alt="" class="object-contain" :class="sizeClass" />
-  <UIcon v-else :name="icon" :class="[sizeClass, 'text-gray-500 dark:text-gray-400']" />
+  <UIcon v-else :name="icon" :class="[sizeClass, 'text-ink-muted']" />
 </template>
 
 <script setup lang="ts">

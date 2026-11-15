@@ -5,7 +5,7 @@ from app.services.console_service import ConsoleService
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
-from app.core.console_access import ConsoleScope, console_scope
+from app.core.console_access import ConsoleScope, console_identity, console_scope
 from app.ee.license import require_enterprise
 from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, CostMetrics
 from typing import Optional, List, Dict
@@ -190,7 +190,7 @@ async def get_trace_data(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
-    scope: ConsoleScope = Depends(console_scope)
+    scope: ConsoleScope = Depends(console_identity)
 ):
     """Get detailed trace data for debugging"""
     await scope.assert_report_visible(db, report_id)
@@ -285,6 +285,7 @@ async def diagnosis_runs(
     """A page of agent runs for a query, plus the summary line, the histogram
     and the per-tool strip (``include=items`` on cursor pages skips those)."""
     try:
+        params.folder_report_ids = scope.readable_folders
         _result = await diagnosis_service.run_query(db, str(organization.id), scope.data_source_ids, params)
     except (BadQuery, BadRequest) as exc:
         raise _diag_error(exc)
@@ -303,7 +304,7 @@ async def diagnosis_tool_calls(
     """Tool calls for the runs on one page, keyed by run id. Runs outside the
     caller's scope are silently absent."""
     ids = [r.strip() for r in run_ids.split(",") if r.strip()]
-    _result = await diagnosis_service.tool_calls(db, str(organization.id), scope.data_source_ids, ids)
+    _result = await diagnosis_service.tool_calls(db, str(organization.id), scope.data_source_ids, ids, scope.readable_folders)
     await release_request_db(db)
     return _result
 
@@ -320,6 +321,7 @@ async def diagnosis_facets(
 ):
     """Top values for a field within the time range and the rest of the query."""
     try:
+        params.folder_report_ids = scope.readable_folders
         _result = await diagnosis_service.facets(db, str(organization.id), scope.data_source_ids, field_name, params, prefix)
     except (BadQuery, BadRequest) as exc:
         raise _diag_error(exc)
@@ -334,3 +336,12 @@ async def diagnosis_fields(
 ):
     """The field registry: powers the filter builder, suggestions and syntax help."""
     return diagnosis_service.fields()
+
+
+@router.get("/console/folder-activity")
+async def folder_activity(start: Optional[datetime] = None, end: Optional[datetime] = None,
+                          organization: Organization = Depends(get_current_organization),
+                          current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db),
+                          scope: ConsoleScope = Depends(console_identity)):
+    from app.services.folder_monitoring import activity
+    return await activity(db, organization, current_user, scope.data_source_ids, start, end)

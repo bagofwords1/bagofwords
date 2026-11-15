@@ -9,6 +9,7 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
+from app.errors import AppError
 from app.errors.redact import redact_error
 from app.core.egress import acheck_connection_params as _acheck_connection_destination
 from app.schemas.data_source_registry import (
@@ -206,6 +207,12 @@ def _invalidate_agent_schema_cache(organization) -> None:
         invalidate_schema_cache(str(organization.id) if organization is not None else None)
     except Exception:
         logger.debug("schema cache invalidation skipped", exc_info=True)
+
+
+# construct_clients' default for `row_filter_user`: row-level security filters
+# for the credential user. A sentinel, because None already means anonymous.
+SAME_AS_CURRENT_USER = object()
+
 
 class DataSourceService:
 
@@ -640,6 +647,9 @@ class DataSourceService:
         await db.commit()
 
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
+        if data_source.folder_id is not None:
+            from app.services.folder_service import require_folder_manager
+            await require_folder_manager(db, organization.id, current_user.id, data_source.folder_id)
         # Convert Pydantic model to dict
         data_source_dict = data_source.dict()
 
@@ -770,8 +780,9 @@ class DataSourceService:
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
             # Save-time guards (the validation above is skipped for user_required).
-            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys
+            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys, _validate_connection_config
             _check_network_dir_root(ds_type, config)
+            _validate_connection_config(ds_type, config)
             _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
@@ -840,7 +851,7 @@ class DataSourceService:
         }
         
         # Create the data source instance
-        new_data_source = DataSource(**ds_create_dict)
+        new_data_source = DataSource(**ds_create_dict, folder_id=data_source.folder_id)
 
         # Associate with connection(s)
         if connections_to_link:
@@ -1313,6 +1324,12 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        if current_user and (data_source.publish_status == "draft" or data_source.reliability_status == "development"):
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, str(current_user.id), str(organization.id))
+            if not self.lifecycle_visible(data_source, rights):
+                raise HTTPException(404, "Data source not found")
+
         # Build connections list from CACHED status only (live_test=False).
         # This endpoint used to live-test every connection whose cached status
         # was older than 5 minutes — sequentially, inside the request, with no
@@ -1376,7 +1393,22 @@ class DataSourceService:
             except Exception as e:
                 logger.warning("Failed to serialize primary_instruction: %s", e)
 
+        folder_id = folder_name = folder_role = None
+        if current_user and data_source.folder_id:
+            from app.core.permission_resolver import resolve_permissions
+            from app.models.folder import Folder
+            rights = await resolve_permissions(db, current_user.id, organization.id)
+            if rights.has_resource_permission("folder", data_source.folder_id, "view"):
+                folder_id = data_source.folder_id
+                inherited = rights.resource_permissions.get(("folder", folder_id), set())
+                if data_source.inherits_folder_access and inherited:
+                    folder_name = await db.scalar(select(Folder.name).where(Folder.id == folder_id))
+                    folder_role = "manager" if "manage" in inherited else "viewer"
+
+        from app.services.folder_service import visible_agent_paths
+        paths = await visible_agent_paths(db, organization, current_user, [data_source]) if folder_id else {}
         schema = DataSourceSchema(
+            folder_path=paths.get(str(data_source.id)), folder_id=folder_id, inherited_folder_name=folder_name, inherited_folder_role=folder_role,
             id=str(data_source.id),
             organization_id=str(data_source.organization_id),
             name=data_source.name,
@@ -1461,6 +1493,16 @@ class DataSourceService:
             return is_gov, manage_ids, resolved
         except Exception:
             return False, set(), None
+
+    @staticmethod
+    def lifecycle_visible(agent, rights):
+        governance = rights and rights.has_org_permission("manage_connections")
+        if getattr(agent, "publish_status", None) == "draft" and not governance:
+            if not rights or not rights.has_resource_permission("data_source", str(agent.id), "manage"):
+                return False
+        return not DataSourceService._development_hidden(
+            getattr(agent, "reliability_status", None), agent.id, governance, rights
+        )
 
     @staticmethod
     def _development_hidden(reliability_status, ds_id, is_gov, resolved) -> bool:
@@ -1580,6 +1622,10 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                can_move_from_folder=bool(resolved and resolved.has_resource_permission("data_source", d.id, "manage")
+                                          and (not d.folder_id or resolved.has_resource_permission("folder", d.folder_id, "manage"))),
+                limited_access=not d.inherits_folder_access,
+                folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
                 conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
@@ -1832,6 +1878,10 @@ class DataSourceService:
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
+                can_move_from_folder=bool(resolved and resolved.has_resource_permission("data_source", d.id, "manage")
+                                          and (not d.folder_id or resolved.has_resource_permission("folder", d.folder_id, "manage"))),
+                limited_access=not d.inherits_folder_access,
+                folder_id=d.folder_id if d.folder_id and resolved and resolved.has_resource_permission("folder", d.folder_id, "view") else None,
                 name=d.name,
                 conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
@@ -2277,6 +2327,7 @@ class DataSourceService:
 
         data_source_id = str(data_source.id)
 
+        from app.models.folder import folder_instructions
         attached_elsewhere = (
             select(assoc.c.instruction_id)
             .where(assoc.c.data_source_id != data_source_id)
@@ -2289,6 +2340,8 @@ class DataSourceService:
                 Instruction.organization_id == str(organization.id),
                 Instruction.deleted_at.is_(None),
                 ~Instruction.id.in_(attached_elsewhere),
+                Instruction.owner_folder_id.is_(None),
+                ~Instruction.id.in_(select(folder_instructions.c.instruction_id)),
             )
         )
         titles = {str(row[0]): row[1] for row in only_here_q.fetchall()}
@@ -2456,6 +2509,13 @@ class DataSourceService:
             )
         )).scalars().all()
 
+        from app.models.folder import folder_eval_suites
+        suite_ids = {case.suite_id for case in rows}
+        folder_suites = set(await db.scalars(select(TestSuite.id).where(
+            TestSuite.id.in_(suite_ids),
+            TestSuite.owner_folder_id.is_not(None) | TestSuite.id.in_(select(folder_eval_suites.c.suite_id)),
+        )))
+
         deleted: List[str] = []
         now = datetime.utcnow()
         for case in rows:
@@ -2466,6 +2526,10 @@ class DataSourceService:
             remaining = [x for x in targets if x != data_source_id]
             if remaining:
                 case.data_source_ids_json = remaining
+            elif case.suite_id in folder_suites:
+                # Preserve this shared suite's case and its original pinned target.
+                # It cannot run until a manager gives it an available target.
+                case.status = "archived"
             else:
                 case.deleted_at = now
                 deleted.append(str(case.id))
@@ -2581,7 +2645,9 @@ class DataSourceService:
                 _check_network_dir_root,
                 _check_tool_provider_url,
                 _reject_unsafe_google_keys,
+                _validate_connection_config,
             )
+            _validate_connection_config(data_source_type, config)
             try:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
@@ -2632,11 +2698,12 @@ class DataSourceService:
             
             table_count = schema_status.get("table_count", 0)
             from app.services.connection_service import _connected_message
+            from app.data_sources.clients.progress import unreadable_note
             message = _connected_message(
                 data_source_type, table_count,
                 approximate=bool(schema_status.get("table_count_approximate")),
                 config=config,
-            )
+            ) + unreadable_note(schema_status.get("unreadable"))
             return {
                 "success": True,
                 "message": message,
@@ -2644,6 +2711,8 @@ class DataSourceService:
                 "schema_access": True,
                 "table_count": table_count,
             }
+        except AppError:
+            raise
         except Exception as e:
             return {
                 "success": False,
@@ -2666,6 +2735,7 @@ class DataSourceService:
                 VALIDATION_FILE_CAP,
                 _acount_files_for_validation,
                 _acount_tables_for_validation,
+                _unreadable_after_count,
             )
             file_count = await _acount_files_for_validation(
                 client, limit=VALIDATION_FILE_CAP
@@ -2680,6 +2750,7 @@ class DataSourceService:
             # Tabular sources that can count from a catalog view skip the full
             # column introspection — the test only needs the count.
             table_count = await _acount_tables_for_validation(client)
+            unreadable = _unreadable_after_count(client) if table_count is not None else []
             if table_count is None:
                 # Try aget_schemas first (most clients), fall back to get_tables
                 tables = None
@@ -2702,6 +2773,7 @@ class DataSourceService:
             return {
                 "success": True,
                 "table_count": table_count,
+                "unreadable": unreadable,
             }
         except Exception as e:
             return {
@@ -2977,6 +3049,7 @@ class DataSourceService:
     async def construct_clients(
         self, db: AsyncSession, data_source: DataSource, current_user: User | None,
         *, connection_errors: Optional[list] = None,
+        row_filter_user: Any = SAME_AS_CURRENT_USER,
     ) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
@@ -2986,6 +3059,13 @@ class DataSourceService:
 
         For backward compatibility with legacy code, also adds aliases:
         - "{domain_name}" (only if single connection, for legacy ds_clients.get("name") pattern)
+
+        `current_user` is whose credentials the clients use. `row_filter_user`
+        is whose identity the row-level security of accelerated relations
+        filters for; by default the same user. A run that lends someone
+        else's credentials for a viewer's result ("run on my behalf") passes
+        the viewer, so the rows stay the viewer's. None means anonymous,
+        exactly as for `current_user`.
 
         By default the first connection that fails aborts the whole data
         source. Passing a `connection_errors` list opts into building each
@@ -3079,7 +3159,9 @@ class DataSourceService:
                 # boundary and it is structural, since a relation absent from the
                 # DuckDB catalog cannot be named at all.
                 fast_client = await self._construct_fast_client(
-                    db, data_source, conn, current_user=current_user
+                    db, data_source, conn,
+                    row_filter_user=current_user if row_filter_user is SAME_AS_CURRENT_USER
+                    else row_filter_user,
                 )
                 if fast_client is not None:
                     fast_key = f"{key}::fast"
@@ -3128,13 +3210,13 @@ class DataSourceService:
         return clients
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
-                                     connection, current_user: User | None = None):
+                                     connection, row_filter_user: User | None = None):
         """Build the FastQueryClient for the custom tables this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
         time — so no extra client appears in the common case.
 
-        `current_user` decides which ROWS come back from any relation carrying
+        `row_filter_user` decides which ROWS come back from any relation carrying
         an RLS policy. It has no permissive default: None resolves to an
         anonymous identity, which sees nothing from a protected relation. A
         background path that legitimately needs rows must name a real user.
@@ -3169,7 +3251,7 @@ class DataSourceService:
             # Only pay for identity resolution when something actually needs it.
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(
-                db, current_user, str(data_source.organization_id)
+                db, row_filter_user, str(data_source.organization_id)
             )
         return CustomQueryService.build_fast_client(
             list(rows), connection_name=connection.name, identity=identity
@@ -4255,7 +4337,7 @@ class DataSourceService:
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
-            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
+            "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
             "outlook_mail", "gmail_mail", "teams_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
@@ -6279,9 +6361,20 @@ class DataSourceService:
                 # list threw away the only thing that made it reusable — which
                 # connection each table came from — so it could not be handed to
                 # a per-connection overlay sync without cross-contaminating them.
-                prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
-                    shared_conns, current_user=current_user, caller_id=caller_id,
-                )
+                # Each connection is crawled in its own session, so THIS
+                # session waits idle inside its transaction for the whole
+                # crawl. On Postgres the server drops such a session after its
+                # idle-in-transaction limit (5 minutes), which failed a Reload
+                # of any source that takes longer to crawl. Keep it alive.
+                from app.services.connection_service import _SessionKeepalive
+                keepalive = _SessionKeepalive(db)
+                keepalive.start()
+                try:
+                    prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
+                        shared_conns, current_user=current_user, caller_id=caller_id,
+                    )
+                finally:
+                    await keepalive.stop()
 
                 prefetched = prefetched_by_conn or None
 

@@ -25,12 +25,19 @@
         <fieldset class="space-y-3">
           <legend class="mb-2 text-sm font-medium text-ink">{{ $t('connectedApps.agents') }}</legend>
           <p class="text-xs text-ink-muted">{{ $t('connectedApps.agentHelp') }}</p>
+          <URadio v-model="allAgents" name="agent-access" :value="true" :label="$t('connectedApps.allAgents')" />
           <URadio v-model="allAgents" name="agent-access" :value="false" :label="$t('connectedApps.selectedAgents')" />
           <div v-if="!allAgents" class="max-h-60 overflow-y-auto rounded-lg border border-line p-3 space-y-2">
-            <UCheckbox v-for="agent in agents" :key="agent.id" v-model="agentIds" :value="agent.id" :label="agent.name" />
-            <p v-if="!agents.length" class="text-xs text-ink-muted">{{ $t('connectedApps.noAgents') }}</p>
+            <UInput v-model="scopeSearch" size="xs" icon="i-heroicons-magnifying-glass" :placeholder="$t('prompt.searchAgentFolders')" />
+            <AgentFolderTree :folders="folders" :selected="folderIds" :search="scopeSearch" :member-folders="[...folderMembers.keys()]"
+              @select="id => folderIds = folderIds.includes(id) ? folderIds.filter(v => v !== id) : [...folderIds, id]">
+              <template #members="{folderId}">
+                <UCheckbox v-for="agent in folderMembers.get(folderId)" :key="agent.id" v-model="agentIds" :value="agent.id" :label="agent.name" class="px-2 py-1" />
+              </template>
+            </AgentFolderTree>
+            <UCheckbox v-for="agent in visibleAgents" :key="agent.id" v-model="agentIds" :value="agent.id" :label="scopeSearch.trim() && paths.has(agent.folder_id) ? agent.name + ' · ' + paths.get(agent.folder_id) : agent.name" />
+            <p v-if="!agents.length && !folders.length" class="text-xs text-ink-muted">{{ $t('connectedApps.noAgents') }}</p>
           </div>
-          <URadio v-model="allAgents" name="agent-access" :value="true" :label="$t('connectedApps.allAgents')" />
         </fieldset>
         <div class="flex justify-between gap-3">
           <UButton color="red" variant="ghost" :disabled="saving" @click="remove">{{ $t('common.delete') }}</UButton>
@@ -65,6 +72,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import HostApplicationsPanel from '~/components/embed/HostApplicationsPanel.vue'
 import OAuthClientsModal from '~/components/OAuthClientsModal.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -73,7 +81,25 @@ const { t } = useI18n()
 const { getErrorMessage } = useErrorMessage()
 const toast = useToast()
 const applications = ref<any[]>([])
+const folders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
+const folderIds = ref<string[]>([])
 const agents = ref<any[]>([])
+const scopeSearch = ref('')
+const paths = computed(() => new Map(folders.value.map(f => [f.id, f.path])))
+const folderMembers = computed(() => {
+  const members = new Map<string, typeof agents.value>()
+  for (const agent of agents.value) {
+    if (!paths.value.has(agent.folder_id)) continue
+    if (!members.has(agent.folder_id)) members.set(agent.folder_id, [])
+    members.get(agent.folder_id)!.push(agent)
+  }
+  return members
+})
+const visibleAgents = computed(() => {
+  const term = scopeSearch.value.trim().toLowerCase()
+  if (!term) return agents.value.filter(a => !folderMembers.value.has(a.folder_id))
+  return agents.value.filter(a => [a.name, paths.value.get(a.folder_id)].some(text => text?.toLowerCase().includes(term)))
+})
 const selected = ref<any>(null)
 const tab = ref('general')
 const loading = ref(true)
@@ -91,10 +117,12 @@ const tabs = computed(() => [
   { id: 'oauth', label: t('connectedApps.oauth') },
 ])
 function open(app: any) {
+  scopeSearch.value = ''
   selected.value = app
   name.value = app.name
   enabled.value = app.enabled
   allAgents.value = app.agent_ids === null
+  folderIds.value = [...(app.agent_folder_ids || [])]
   agentIds.value = [...(app.agent_ids || [])]
   tab.value = 'general'
   error.value = ''
@@ -124,7 +152,7 @@ async function create() {
   if (app) { creating.value = false; newName.value = ''; open(app) }
 }
 async function save() {
-  const app = await mutate(`/api/connected_applications/${selected.value.id}`, 'PATCH', { name: name.value.trim(), enabled: enabled.value, agent_ids: allAgents.value ? null : agentIds.value })
+  const app = await mutate(`/api/connected_applications/${selected.value.id}`, 'PATCH', { name: name.value.trim(), enabled: enabled.value, agent_folder_ids: allAgents.value ? [] : folderIds.value, agent_ids: allAgents.value ? null : agentIds.value })
   if (app) { open(app); toast.add({ title: t('connectedApps.saved') }) }
 }
 async function remove() {
@@ -136,6 +164,7 @@ onMounted(async () => {
   const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
   if (res.error.value) error.value = getErrorMessage(res.error.value)
   else agents.value = (res.data.value as any[]) || []
+  try { folders.value = await loadAgentFolderOptions() } catch (err) { error.value = getErrorMessage(err) }
   const id = useRoute().query.application
   const app = applications.value.find(a => a.id === id)
   if (app) open(app)

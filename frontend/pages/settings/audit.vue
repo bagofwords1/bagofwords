@@ -1,11 +1,8 @@
 <template>
-  <div class="mt-4">
-    <div class="mb-4 flex items-end justify-between gap-4">
-      <div>
-        <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.audit.title') }}</h2>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.audit.subtitle') }}</p>
-      </div>
-      <div v-if="hasFeature('audit_logs') && streamsLicensed" class="inline-flex rounded border border-gray-200 dark:border-gray-700 p-0.5 text-xs" role="tablist">
+  <div>
+    <!-- Activity / Streams switch sits in the page header (settings shell). -->
+    <Teleport to="#settings-page-actions" defer>
+      <div v-if="hasFeature('audit_logs') && streamsLicensed" class="inline-flex rounded-lg bg-surface-muted p-0.5 text-sm" role="tablist">
         <button
           v-for="tb in (['activity', 'streams'] as const)"
           :key="tb"
@@ -13,46 +10,35 @@
           role="tab"
           :aria-selected="tab === tb"
           :data-testid="`audit-tab-${tb}`"
-          class="px-2.5 py-1 rounded"
-          :class="tab === tb ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900'"
+          class="px-3 py-1 rounded-md font-medium transition-colors"
+          :class="tab === tb ? 'bg-surface-elevated text-ink shadow-sm' : 'text-ink-muted hover:text-ink'"
           @click="setTab(tb)"
         >{{ $t(`settings.audit.tabs.${tb}`) }}</button>
       </div>
-    </div>
+    </Teleport>
 
     <!-- Enterprise Gate -->
-    <template v-if="!hasFeature('audit_logs')">
-      <div class="rounded border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
-        <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
-          {{ $t('settings.audit.enterpriseRequired') }}
-        </p>
-        <a
-          href="https://docs.bagofwords.com/enterprise"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-xs text-blue-600 hover:text-blue-700"
-        >
+    <div v-if="!hasFeature('audit_logs')" class="rounded-lg border border-dashed border-line">
+      <SettingsEmpty icon="i-heroicons-clipboard-document-list" :title="$t('settings.audit.enterpriseRequired')">
+        <UButton to="https://docs.bagofwords.com/enterprise" target="_blank" color="gray" trailing-icon="i-heroicons-arrow-up-right">
           {{ $t('settings.audit.learnMore') }}
-        </a>
-      </div>
-    </template>
+        </UButton>
+      </SettingsEmpty>
+    </div>
 
     <AuditStreams v-else-if="tab === 'streams' && streamsLicensed" />
 
     <!-- Activity -->
     <template v-else>
-      <div class="mb-3 flex items-center gap-2 flex-wrap">
-        <div class="relative flex-1 min-w-[180px] max-w-[280px]">
-          <input
-            v-model="searchQuery"
-            type="text"
-            data-testid="audit-search"
-            :placeholder="$t('settings.audit.searchPlaceholder')"
-            class="w-full ps-7 pe-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded focus:outline-none focus:border-gray-400 bg-white dark:bg-gray-900"
-            @input="debouncedSearch"
-          />
-          <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1.5 w-3.5 h-3.5 text-ink-muted" />
-        </div>
+      <div class="mb-4 flex items-center gap-2 flex-wrap">
+        <UInput
+          v-model="searchQuery"
+          icon="i-heroicons-magnifying-glass"
+          data-testid="audit-search"
+          :placeholder="$t('settings.audit.searchPlaceholder')"
+          class="w-full sm:w-64"
+          @input="debouncedSearch"
+        />
 
         <AuditFilterSelect
           v-model="selectedActions"
@@ -92,126 +78,110 @@
           :options="rangeOptions"
         />
 
-        <button
+        <UButton
           v-if="hasActiveFilters"
-          class="text-xs text-ink-muted hover:text-gray-600"
+          color="gray"
+          variant="ghost"
           data-testid="audit-clear"
           @click="clearFilters"
         >
           {{ $t('settings.audit.clear') }}
-        </button>
+        </UButton>
 
         <div ref="exportRef" class="relative ms-auto">
-          <button
-            type="button"
+          <UButton
+            color="gray"
             data-testid="audit-export"
-            class="flex items-center gap-1.5 px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded hover:border-gray-300 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-300"
+            :icon="exporting ? 'i-heroicons-arrow-path' : 'i-heroicons-arrow-down-tray'"
+            :loading="exporting"
             :disabled="exporting"
             @click="showExport = !showExport"
           >
-            <UIcon :name="exporting ? 'i-heroicons-arrow-path' : 'i-heroicons-arrow-down-tray'" class="w-3.5 h-3.5" :class="exporting ? 'animate-spin' : ''" />
             {{ $t('settings.audit.export.button') }}
-          </button>
-          <div v-if="showExport" class="absolute top-full end-0 mt-1 w-60 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-md z-20 py-1">
-            <button type="button" data-testid="audit-export-json" class="w-full text-start px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="doExport('json')">{{ $t('settings.audit.export.json') }}</button>
-            <button type="button" data-testid="audit-export-csv" class="w-full text-start px-3 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="doExport('csv')">{{ $t('settings.audit.export.csv') }}</button>
-            <p class="px-3 pt-1 pb-1.5 text-2xs text-ink-muted border-t border-gray-100 dark:border-gray-800 mt-1">{{ $t('settings.audit.export.hint') }}</p>
+          </UButton>
+          <div v-if="showExport" class="absolute top-full end-0 mt-1 w-64 bg-surface-elevated border border-line rounded-lg shadow-lg z-dropdown py-1">
+            <button type="button" data-testid="audit-export-json" class="w-full text-start px-3 py-2 text-sm text-ink-2 hover:bg-ink/[0.03]" @click="doExport('json')">{{ $t('settings.audit.export.json') }}</button>
+            <button type="button" data-testid="audit-export-csv" class="w-full text-start px-3 py-2 text-sm text-ink-2 hover:bg-ink/[0.03]" @click="doExport('csv')">{{ $t('settings.audit.export.csv') }}</button>
+            <p class="px-3 pt-2 pb-1.5 text-xs text-ink-muted border-t border-line mt-1">{{ $t('settings.audit.export.hint') }}</p>
           </div>
         </div>
       </div>
 
-      <!-- Loading State -->
-      <div v-if="loading && !logs.length" class="py-8 text-center">
-        <div class="inline-block w-4 h-4 border-2 border-gray-200 dark:border-gray-700 border-t-gray-500 rounded-full animate-spin"></div>
-      </div>
+      <SettingsLoading v-if="loading && !logs.length" />
 
-      <!-- Error State -->
-      <div v-else-if="error" class="py-6 text-center text-xs text-red-500">
-        {{ error }}
-      </div>
+      <div v-else-if="error" class="py-6 text-center text-sm text-red-600 dark:text-red-400">{{ error }}</div>
 
-      <!-- Logs List -->
-      <div v-else class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden" :class="loading ? 'opacity-60' : ''">
+      <!-- Logs list -->
+      <div v-else class="bow-table-card divide-y divide-line-subtle transition-opacity" :class="loading ? 'opacity-60' : ''">
         <template v-if="logs.length > 0">
           <div
-            v-for="(log, idx) in logs"
+            v-for="log in logs"
             :key="log.id"
             data-testid="audit-row"
             role="button"
             tabindex="0"
-            class="group flex items-center gap-3 px-3 py-2 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none focus-visible:bg-gray-50 dark:focus-visible:bg-gray-800"
-            :class="[{ 'border-t border-gray-100 dark:border-gray-800': idx > 0 }, selected?.id === log.id ? 'bg-blue-50/60 dark:bg-blue-950/40' : '']"
+            class="group flex items-center gap-4 px-5 py-3 text-sm cursor-pointer transition-colors hover:bg-ink/[0.03] focus:outline-none focus-visible:bg-ink/[0.03]"
+            :class="selected?.id === log.id ? 'bg-blue-50/60 dark:bg-blue-950/40' : ''"
             @click="selected = log"
             @keydown.enter.prevent="selected = log"
           >
             <!-- Time -->
-            <span class="w-[92px] shrink-0 text-gray-500 dark:text-gray-400 font-mono text-2xs tabular-nums" :title="relativeTime(log.created_at)">
+            <span class="w-20 shrink-0 text-xs text-ink-muted tabular-nums" :title="relativeTime(log.created_at)">
               {{ formatTimestamp(log.created_at) }}
             </span>
 
             <!-- Actor -->
-            <span class="w-60 shrink-0 min-w-0 flex items-center gap-1.5">
-              <span class="truncate text-gray-700 dark:text-gray-300" :title="log.user_email || undefined">
+            <span class="w-56 shrink-0 min-w-0 flex items-center gap-1.5">
+              <span class="truncate text-ink" :title="log.user_email || undefined">
                 {{ log.user_email || $t('settings.audit.system') }}
               </span>
               <span
                 v-if="actorKind(log) === 'agent'"
                 data-testid="audit-actor-agent"
-                class="shrink-0 inline-flex items-center gap-0.5 px-1 py-px rounded text-2xs bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
+                class="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
               >
-                <UIcon name="i-heroicons-sparkles" class="w-2.5 h-2.5" />{{ $t('settings.audit.actorAgent') }}
+                <UIcon name="i-heroicons-sparkles" class="w-3 h-3" />{{ $t('settings.audit.actorAgent') }}
               </span>
             </span>
 
             <!-- Action: muted resource path + coloured verb; truncates, never overlaps -->
-            <span data-testid="audit-action" class="flex-1 min-w-0 flex items-center gap-1 truncate" :title="log.action">
+            <span data-testid="audit-action" class="flex-1 min-w-0 flex items-center gap-1.5 truncate" :title="log.action">
               <span v-if="splitAction(log.action).path.length" class="truncate text-ink-muted">
                 {{ splitAction(log.action).path.join(' · ') }}
               </span>
-              <span class="shrink-0 inline-flex px-1.5 py-0.5 rounded text-2xs font-medium" :class="verbClass(log.action)">
+              <span class="shrink-0 inline-flex px-1.5 py-0.5 rounded text-xs font-medium" :class="verbClass(log.action)">
                 {{ splitAction(log.action).verb }}
               </span>
             </span>
 
             <!-- Target -->
-            <span class="flex-1 min-w-0 truncate text-gray-500 dark:text-gray-400" :title="log.details?.title">
+            <span class="flex-1 min-w-0 truncate text-ink-muted" :title="log.details?.title">
               <template v-if="log.resource_type">
-                <span class="text-ink-muted">{{ log.resource_type }}</span>
-                <template v-if="log.details?.title"> · <span class="text-gray-700 dark:text-gray-300">{{ log.details.title }}</span></template>
+                <span>{{ log.resource_type }}</span>
+                <template v-if="log.details?.title"> · <span class="text-ink-2">{{ log.details.title }}</span></template>
               </template>
             </span>
 
-            <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 shrink-0 text-gray-300 group-hover:text-gray-500 rtl:-scale-x-100" />
+            <UIcon name="i-heroicons-chevron-right" class="w-4 h-4 shrink-0 text-ink-subtle group-hover:text-ink-muted transition-colors" />
           </div>
         </template>
 
-        <!-- Empty State -->
-        <div v-else class="py-8 text-center">
-          <p class="text-xs text-ink-muted">{{ $t('settings.audit.noActivity') }}</p>
-        </div>
+        <SettingsEmpty v-else icon="i-heroicons-clipboard-document-list" :title="$t('settings.audit.noActivity')" />
       </div>
 
       <!-- Pagination -->
-      <div v-if="totalPages > 1" class="mt-2 flex items-center justify-between">
-        <span class="text-2xs text-ink-muted">
+      <div v-if="totalPages > 1" class="mt-3 flex items-center justify-between">
+        <span class="text-xs text-ink-muted tabular-nums">
           {{ $t('settings.audit.rangeCount', { start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, total), total }) }}
         </span>
-        <div class="flex items-center gap-0.5">
-          <button
-            :disabled="page <= 1"
-            class="px-1.5 py-0.5 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
-            @click="prevPage(buildFilters())"
-          >
+        <div class="flex items-center gap-1">
+          <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-chevron-left" :disabled="page <= 1" @click="prevPage(buildFilters())">
             {{ $t('settings.audit.prev') }}
-          </button>
-          <span class="px-1.5 text-2xs text-ink-muted">{{ page }}/{{ totalPages }}</span>
-          <button
-            :disabled="page >= totalPages"
-            class="px-1.5 py-0.5 text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 disabled:text-gray-300 disabled:cursor-not-allowed"
-            @click="nextPage(buildFilters())"
-          >
+          </UButton>
+          <span class="px-1.5 text-xs text-ink-muted tabular-nums">{{ page }} / {{ totalPages }}</span>
+          <UButton color="gray" variant="ghost" size="xs" trailing-icon="i-heroicons-chevron-right" :disabled="page >= totalPages" @click="nextPage(buildFilters())">
             {{ $t('settings.audit.next') }}
-          </button>
+          </UButton>
         </div>
       </div>
 
@@ -225,13 +195,14 @@ import { useAuditLogs, type AuditLogFilters } from '~/ee/composables/useAuditLog
 import AuditFilterSelect from '~/components/audit/AuditFilterSelect.vue'
 import AuditLogDrawer from '~/components/audit/AuditLogDrawer.vue'
 import AuditStreams from '~/components/audit/AuditStreams.vue'
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
+import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import { splitAction, verbClass, actorKind, type FilterOption } from '~/utils/auditActionFormat'
 import type { AuditLog } from '~/ee/composables/useAuditLogs'
 
 definePageMeta({
   auth: true,
-  permissions: ['view_audit_logs'],
-  layout: 'settings'
+  permissions: ['view_audit_logs']
 })
 
 const route = useRoute()

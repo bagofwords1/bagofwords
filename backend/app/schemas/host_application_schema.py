@@ -172,6 +172,8 @@ class SsoCodeRequest(BaseModel):
 
 class ArtifactEmbeddingUpdate(BaseModel):
     host_application_ids: List[str] = Field(default_factory=list, max_length=50)
+    # None leaves the sandbox flag as it is; True/False sets it.
+    allow_popups: Optional[bool] = None
 
 
 class ArtifactEmbeddingHost(BaseModel):
@@ -192,4 +194,7 @@ class ArtifactEmbeddingSchema(BaseModel):
     visibility: str
     hosts: List[ArtifactEmbeddingHost]
     can_manage_hosts: bool
+    # Relax the artifact iframe sandbox so links the app renders open in a new
+    # tab (and the app may use modals). Applies wherever the artifact renders.
+    allow_popups: bool = False
     sdk_path: str = "/api/embed/sdk/v1/bow-embed.js"

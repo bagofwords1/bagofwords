@@ -323,6 +323,7 @@ class ReviewService:
     async def list_items(
         self, db: AsyncSession, organization, user, *,
         agent_id: Optional[str] = None,
+        folder_id: Optional[str] = None,
         statuses: Optional[List[str]] = None,
         types: Optional[List[str]] = None,
         severities: Optional[List[str]] = None,
@@ -341,6 +342,12 @@ class ReviewService:
         # they manage (no global items).
         if not is_admin:
             clauses.append(ReviewItem.data_source_id.in_(ds_ids))
+        if folder_id:
+            from app.services.folder_service import visible_branch
+            from app.models.data_source import DataSource
+            branch = await visible_branch(db, organization.id, user.id, folder_id)
+            clauses.append(ReviewItem.data_source_id.in_(select(DataSource.id).where(
+                DataSource.organization_id == organization.id, DataSource.folder_id.in_(branch))))
         if agent_id:
             if not is_admin and agent_id not in ds_ids:
                 return {"items": [], "total": 0, "unread": 0}
@@ -411,8 +418,8 @@ class ReviewService:
         await db.commit(); await db.refresh(item)
         return item
 
-    async def mark_all_read(self, db, organization, user, agent_id: Optional[str] = None) -> int:
-        res = await self.list_items(db, organization, user, agent_id=agent_id)
+    async def mark_all_read(self, db, organization, user, agent_id: Optional[str] = None, folder_id=None) -> int:
+        res = await self.list_items(db, organization, user, agent_id=agent_id, folder_id=folder_id)
         ids = [i["id"] for i in res["items"] if not i["read"]]
         n = 0
         for iid in ids:

@@ -28,6 +28,15 @@
       </div>
     </Transition>
 
+    <!-- MCP App: the interactive UI the server attached to this tool. Shown
+         open, under the status line — it is the result, not a detail. -->
+    <McpAppFrame
+      v-if="!isShell && mcpApp && appHost && props.toolExecution?.id && status !== 'running'"
+      :tool-execution-id="props.toolExecution.id"
+      :status="status"
+      :connection-name="resultJson.connection_name"
+    />
+
     <!-- Approval prompt ('ask' policy): the run is paused on this call.
          Deliberately quiet — an indented block under the status line, a
          one-line argument echo, and a row of small actions. -->
@@ -175,12 +184,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, inject, ref, watch } from 'vue'
 import RemoteShellTool from '~/components/tools/RemoteShellTool.vue'
 import { toolOutcome } from '~/utils/toolOutcome'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
+import McpAppFrame from '~/components/tools/McpAppFrame.vue'
 import Spinner from '~/components/Spinner.vue'
 const { t } = useResponseI18n()
 
@@ -334,6 +344,14 @@ const args = computed(() => {
   return a
 })
 const resultJson = computed(() => props.toolExecution?.result_json || {})
+// Set by execute_mcp when the tool renders into an MCP App (ui:// resource).
+// Only the signed-in report page hosts apps (it provides 'mcpAppHost'); a
+// public conversation shows the tool's text result.
+const appHost = inject('mcpAppHost', null)
+const mcpApp = computed(() => {
+  const app = (resultJson.value as any).mcp_app
+  return app && typeof app === 'object' && app.resource_uri ? app : null
+})
 
 const isExecuteMcp = computed(() => toolName.value === 'execute_mcp')
 // Every MCP-family row (tool discovery + execution) should get at least the MCP

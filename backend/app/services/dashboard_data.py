@@ -50,34 +50,39 @@ async def release_data_source_ids(db, release_id) -> list[str]:
     return [str(r[0]) for r in rows]
 
 
+async def _release_served_codes(db, release: ArtifactRelease) -> list[str]:
+    """The non-empty code of the step each copy of the release serves
+    (served_steps)."""
+    from app.services.served_steps import served_steps
+
+    query_ids = (await db.execute(
+        select(Query.id).where(Query.artifact_release_id == str(release.id))
+    )).scalars().all()
+    targets, _ = await served_steps(db, [str(q) for q in query_ids])
+    return [c for _, c in targets if c and c.strip()]
+
+
 async def release_run_data_source_ids(db, release: ArtifactRelease) -> list[str]:
     """The sources a release's runs use: its own, else (an "Auto" release)
-    the organization's its copies' code names, else all of them -- the
-    fallback a conversation without sources gets."""
-    from app.services.viewer_data_policy import _org_fallback_ds_ids
+    the organization's the copies reach -- the steps each copy serves and the
+    copies they load_step() (viewer_data_policy.run_data_source_ids, the rule
+    a conversation without sources gets). It holds every copy's sources
+    (release_copy_data_source_ids), so 'run on my behalf' is decided by the
+    same sources each stored result is refused by."""
+    from app.services.viewer_data_policy import run_data_source_ids
 
-    ds_ids = await release_data_source_ids(db, release.id)
-    if ds_ids:
-        return ds_ids
-    codes = (await db.execute(
-        select(Step.code).join(Query, Query.id == Step.query_id).where(Query.artifact_release_id == str(release.id))
-    )).scalars().all()
-    return await _org_fallback_ds_ids(db, release.organization_id, "\n".join(c for c in codes if c) or None)
+    return await run_data_source_ids(
+        db, await release_data_source_ids(db, release.id), release.organization_id,
+        lambda: _release_served_codes(db, release), Query.artifact_release_id == str(release.id))
 
 
 async def release_snapshot_withheld(db, artifact: Artifact, release: ArtifactRelease, *,
                                     code: str | None = None) -> bool:
     """snapshot_withheld_for_viewers, for a release: True when readers other
     than the owner must not get the copied snapshot."""
-    from app.services.viewer_data_policy import (
-        _any_rls_relation,
-        _any_user_scoped_connection,
-        _org_fallback_ds_ids,
-    )
+    from app.services.viewer_data_policy import _any_rls_relation, _any_user_scoped_connection
 
-    ds_ids = await release_data_source_ids(db, release.id)
-    if not ds_ids:
-        ds_ids = await _org_fallback_ds_ids(db, release.organization_id, code)
+    ds_ids = await release_copy_data_source_ids(db, release, code)
     if await _any_rls_relation(db, ds_ids):
         return True
     if (artifact.shared_run_identity or "viewer") != "viewer":
@@ -91,6 +96,32 @@ async def release_snapshot_withheld(db, artifact: Artifact, release: ArtifactRel
             return False
         return await _any_user_scoped_connection(db, ds_ids)
     return await _any_user_scoped_connection(db, ds_ids)
+
+
+async def release_copy_data_source_ids(db, release: ArtifactRelease, code: str | None) -> list[str]:
+    """The sources one copy of a release runs on: the release's own, else the
+    organization sources the copy's `code` reaches, and the code of every copy
+    it load_step()s -- viewer_data_policy.run_data_source_ids, as
+    step_run_data_source_ids asks it for a conversation's step."""
+    from app.services.viewer_data_policy import run_data_source_ids
+
+    return await run_data_source_ids(
+        db, await release_data_source_ids(db, release.id), release.organization_id, [code],
+        Query.artifact_release_id == str(release.id))
+
+
+async def release_creator_result_holds_owner_slice(db, row, release: ArtifactRelease,
+                                                  code: str | None) -> bool:
+    """viewer_data_policy.creator_result_holds_owner_slice for a release copy:
+    True when a reader's stored result ran under the owner's credentials
+    (executed_as 'creator') and the copy's sources (release_copy_data_source_ids
+    with the copy's `code`) include an RLS relation. Asked afresh on every
+    call; any other row returns False without a query."""
+    if getattr(row, "executed_as", None) != "creator":
+        return False
+    from app.services.viewer_data_policy import _any_rls_relation
+
+    return await _any_rls_relation(db, await release_copy_data_source_ids(db, release, code))
 
 
 async def resolve_release_step(db, step: Step, artifact: Artifact, release: ArtifactRelease,
@@ -112,12 +143,17 @@ async def resolve_release_step(db, step: Step, artifact: Artifact, release: Arti
 
     viewer_result = None
     if user is not None:
-        row = (await db.execute(
-            select(StepUserResult).options(lazyload("*")).where(
-                StepUserResult.step_id == str(step.id),
-                StepUserResult.user_id == str(user.id),
-            ).order_by(StepUserResult.last_run_at.desc()).limit(1)
-        )).scalars().first()
+        from app.services.viewer_data_policy import _not_run_as_creator
+
+        newest = select(StepUserResult).options(lazyload("*")).where(
+            StepUserResult.step_id == str(step.id),
+            StepUserResult.user_id == str(user.id),
+        ).order_by(StepUserResult.last_run_at.desc()).limit(1)
+        row = (await db.execute(newest)).scalars().first()
+        if row is not None and await release_creator_result_holds_owner_slice(db, row, release, step.code):
+            # The owner's slice is not the reader's; their newest run as
+            # themselves (if any) still is. The rule is the copy's, asked once.
+            row = (await db.execute(newest.where(_not_run_as_creator()))).scalars().first()
         if row is not None:
             viewer_result = {
                 "status": row.status,

@@ -217,6 +217,17 @@ class MCPTool(ABC):
             raise HTTPException(status_code=404, detail="Report not found")
         from app.services.bow_source_access import assert_read
         await assert_read(db, report.bow_source_access, user)
+        from app.services.folder_service import can_read_folder_output
+        if not await can_read_folder_output(db, report, user):
+            raise HTTPException(404, "Report not found")
+        if report.agent_folder_id:
+            from app.ai.tools.implementations.agent_focus_common import resolve_run_agents, scope_report_to_run_agents
+            from app.services.folder_service import record_output_scope
+            from app.services.folder_knowledge import record_knowledge_scope
+            agents = await resolve_run_agents(db, organization, user, report)
+            scope_report_to_run_agents(report, agents)
+            await record_output_scope(db, report.id, [a.id for a in agents])
+            await record_knowledge_scope(db, report, organization, user)
         return report
 
     async def _authorize_artifact_authoring(self, db, user, organization, report):

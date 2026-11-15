@@ -21,6 +21,7 @@
 
 <script setup lang="ts">
 import { resolveAxisLabels } from '~/utils/chartAxisLabels';
+import { valueFormatter, latestWindowZoom } from '~/utils/chartValueFormat'
 import { ref, watch } from 'vue'
 import type { EChartsOption, SeriesOption } from 'echarts'
 import { graphic as EGraphic } from 'echarts'
@@ -418,12 +419,18 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
 
     const gridColor = '#f7f7f9';
 
+    // Units from the stored value-axis format (currency, percent, compact).
+    const fmtValue = valueFormatter(props.view?.view?.axisY as any);
     const valueAxis = {
         type: 'value',
         show: isHorizontal ? xAxisVisible : yAxisVisible,
         name: valueAxisName,
+        // The crosshair's value tag uses the same units as the axis.
+        ...(fmtValue ? { axisLabel: { formatter: fmtValue }, axisPointer: { label: { formatter: (p: any) => fmtValue(Number(p.value)) } } } : {}),
         splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
     }
+    // A crowded new chart (showDataZoom) opens on its latest points.
+    const zoom = props.view?.view?.showDataZoom ? latestWindowZoom(categories, series.length, isHorizontal ? 'yAxisIndex' : 'xAxisIndex') : null;
 
     // Only include legend when it should be shown. With many series a single
     // horizontal row is useless, so dock a scrollable vertical legend on the
@@ -467,15 +474,18 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
         ...(gridOverride ? { grid: gridOverride } : {}),
         tooltip: {
             trigger: 'axis',
-            axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } }
+            axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } },
+            ...(fmtValue ? { valueFormatter: fmtValue } : {})
         },
         legend: legendConfig,
         xAxis: isHorizontal ? valueAxis : categoryAxis,
         yAxis: isHorizontal ? categoryAxis : valueAxis,
-        dataZoom: [
+        dataZoom: zoom || [
             { type: 'inside', xAxisIndex: 0, filterMode: 'weakFilter' },
             { show: false, type: 'slider', xAxisIndex: 0, start: 0, end: 100, bottom: '1%', height: 20 }
         ],
+        // Room under the plot for the slider; other margins as the base grid.
+        ...(zoom ? { grid: { containLabel: true, left: '3%', right: gridOverride ? 150 : '4%', top: '12%', bottom: 40 } } : {}),
         series: series
     };
 }

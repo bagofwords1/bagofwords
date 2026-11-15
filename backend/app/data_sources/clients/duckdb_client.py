@@ -69,6 +69,9 @@ def _resolved_directory(con: duckdb.DuckDBPyConnection, directory: str, cwd: str
 
 class DuckDBClient(DataSourceClient):
 
+    # '' is the only quote escape (sqlglot duckdb).
+    sql_literal_style = "standard"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

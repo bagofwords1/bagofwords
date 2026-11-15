@@ -25,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 class PostgresqlClient(DataSourceClient):
 
+    # Postgres with standard_conforming_strings on (the default since 9.1): ''
+    # only (sqlglot postgres).
+    sql_literal_style = "standard"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

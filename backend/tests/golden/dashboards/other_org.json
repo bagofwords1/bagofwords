@@ -331,7 +331,7 @@
    },
    "r_artifact_detail": {
     "archived_public/dash/v1": {
-     "body": "#97056b5421c5d549",
+     "body": "#b45d5cb834fea8e0",
      "status": 200
     }
    },
@@ -5534,7 +5534,7 @@
    },
    "r_artifact_detail": {
     "report_deleted_at/dash/v1": {
-     "body": "#d6da744d94e0e616",
+     "body": "#c3a3e21da0d9431a",
      "status": 200
     }
    },
@@ -7460,7 +7460,7 @@
    },
    "r_artifact_detail": {
     "vis_public/dash/v1": {
-     "body": "#b011c23a0e788195",
+     "body": "#d99604a240b02eef",
      "status": 200
     }
    },

@@ -78,6 +78,7 @@ CASES = [
     ("tableau", lambda u: _client("tableau_client", "TableauClient")(server_url=u, pat_name="n", pat_token="t")),
     # A session held on the client between calls.
     ("aria_operations", lambda u: _client("aria_operations_client", "AriaOperationsClient")(url=u, username="u", password="p")),
+    ("dremio", lambda u: _client("dremio_client", "DremioClient")(url=u, token="t")),
     ("appdynamics", lambda u: _client("appdynamics_client", "AppDynamicsClient")(controller_url=u, username="u", password="p", account_name="a")),
     ("spectrum", lambda u: _client("spectrum_client", "SpectrumClient")(url=u, username="u", password="p")),
     ("timbr", lambda u: _client("timbr_client", "TimbrClient")(host=u, ontology="o", api_key="k")),

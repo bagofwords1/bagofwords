@@ -496,6 +496,9 @@ class LLM:
             self.client = BedrockClient(**bedrock_kwargs)
         elif self.provider == "vertex":
             self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers, identity_headers)
+        elif self.provider == "typesafe":
+            # Decision-only provider: no chat client (LLM.decide talks to it).
+            self.client = None
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
@@ -504,6 +507,8 @@ class LLM:
         # Reasoning settings the admin set on the model card travel on the
         # client so every adapter applies the same mode / raw request fields.
         model_config = getattr(self.model, "config", None) or {}
+        if self.client is None:
+            return  # decision-only provider: no chat client to configure
         _mode = reasoning_mode(model_config)
         if _mode == "like" and isinstance(model_config.get("reasoning_model_id"), str):
             self.client.reasoning_model_id = model_config["reasoning_model_id"]
@@ -817,6 +822,7 @@ class LLM:
         with tracer.start_as_current_span("llm.inference") as span:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
+            self._ensure_chat_model()
             self._validate_vision_support(images)
             _redactor = self._get_pii_redactor_sync()
             prompt = self._apply_pii(prompt, _redactor, span)
@@ -927,6 +933,7 @@ class LLM:
         with tracer.start_as_current_span("llm.inference_stream") as span, private_provider_logs(usage_scope == 'artifact'):
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
+            self._ensure_chat_model()
             self._validate_vision_support(images)
             prompt = self._apply_pii(prompt, await self._aget_pii_redactor(), span)
             if usage_scope == 'artifact':
@@ -1077,6 +1084,7 @@ class LLM:
         token usage after the stream ends (using either provider-reported usage
         or, as fallback, the prompt_tokens_estimate plus a UsageEvent count).
         """
+        self._ensure_chat_model()
         target_model_id = model_id or self.model_id
         thinking = self._effective_thinking(thinking)
         native_image_count = sum(
@@ -1269,6 +1277,116 @@ class LLM:
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
             )
+
+    def _ensure_chat_model(self) -> None:
+        """Decision models answer typed questions (LLM.decide); they never chat."""
+        if getattr(self.model, "model_kind", "chat") == "decision":
+            raise ValueError(
+                f"Model '{self.model_id}' is a decision model and cannot be used for chat."
+            )
+
+    async def decide(
+        self,
+        input_value,
+        questions: list[dict],
+        *,
+        usage_scope: str = "decision",
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+    ):
+        """Ask a decision model typed questions (see app.ai.llm.decisions).
+
+        Returns a :class:`DecisionResult` whose ``answers`` are in the internal
+        (OpenAI Decisions) shape regardless of the provider's wire format.
+        Usage is recorded on ``usage_scope`` and counted toward spend caps, but
+        never stamped ``routed``: the decision's own call is routing overhead,
+        not a routed call that saves money against a baseline.
+        """
+        from app.ai.llm.decisions import (
+            DECISION_PROVIDER_TYPES, DecisionClient, DecisionError, base_url_for, decision_settings,
+        )
+        if getattr(self.model, "model_kind", "chat") != "decision":
+            raise DecisionError(f"Model '{self.model_id}' is not a decision model.")
+        if self.provider not in DECISION_PROVIDER_TYPES:
+            raise DecisionError(f"Provider '{self.provider}' has no decision API.")
+        provider = self.model.provider
+        base_url = base_url_for(provider)
+        if not base_url:
+            raise DecisionError("The provider has no base URL for decisions.")
+        additional_config = provider.additional_config or {}
+        headers = dict(static_provider_headers(additional_config) or {})
+        api_key = self.api_key
+        if self.provider == "azure":
+            auth_mode = additional_config.get("auth_mode", "api_key")
+            if auth_mode in ("entra_client_secret", "entra_default"):
+                # Same Entra ID token chat uses (Cognitive Services scope, the
+                # one Microsoft's Decision-1 sample requests). No API key exists
+                # in these modes.
+                try:
+                    token_provider = self._build_entra_token_provider(auth_mode, additional_config)
+                    token = await asyncio.to_thread(token_provider)
+                except Exception as exc:
+                    raise DecisionError(f"Could not get an Entra ID token: {exc.__class__.__name__}") from exc
+                headers["Authorization"] = f"Bearer {token}"
+            elif api_key:
+                headers.setdefault("api-key", api_key)
+            api_key = None
+        settings = decision_settings(self.model)
+        if isinstance(input_value, str):
+            input_value = self._apply_pii(input_value, await self._aget_pii_redactor(), None)
+        estimate = self._count_tokens(str(input_value)) + self._count_tokens(str(questions))
+        await self._check_usage_limit_async(estimate, should_record=should_record)
+        client = DecisionClient(
+            base_url=base_url, api_key=api_key, settings=settings, headers=headers,
+            verify_ssl=additional_config.get("verify_ssl", True) is not False,
+            pin_egress=bool(additional_config.get("base_url") or additional_config.get("endpoint_url")),
+        )
+        with tracer.start_as_current_span("llm.decide") as span:
+            span.set_attribute("llm.model_id", self.model_id)
+            span.set_attribute("llm.provider", self.provider)
+            result = await client.decide(input_value, questions)
+            span.set_attribute("llm.prompt_tokens", result.input_tokens)
+            span.set_attribute("llm.latency_ms", result.latency_ms)
+        await self._record_usage_now(
+            scope=usage_scope, scope_ref_id=usage_scope_ref_id,
+            prompt_tokens=result.input_tokens, completion_tokens=result.output_tokens,
+            should_record=should_record,
+        )
+        await self._record_usage_limit_async(
+            prompt_tokens=result.input_tokens, completion_tokens=result.output_tokens,
+            scope=usage_scope, scope_ref_id=usage_scope_ref_id, should_record=should_record,
+        )
+        return result
+
+    async def _record_usage_now(
+        self, *, scope: str, scope_ref_id: Optional[str], prompt_tokens: int,
+        completion_tokens: int, should_record: bool,
+    ) -> None:
+        """Awaited (not background) usage record, never marked routed. Used by
+        decide(): one call per run, and its row must exist when the run's cost
+        is rolled up."""
+        if not should_record or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
+            return
+        session_maker = self._usage_session_maker
+        if session_maker is None:
+            return
+        attribution = get_usage_attribution()
+        try:
+            async with session_maker() as session:
+                await LLMUsageRecorderService(session).record(
+                    scope=scope, scope_ref_id=scope_ref_id, llm_model=self.model,
+                    prompt_tokens=prompt_tokens or 0, completion_tokens=completion_tokens or 0,
+                    organization_id=attribution.get("organization_id") or getattr(self.model, "organization_id", None),
+                    user_id=attribution.get("user_id"),
+                    report_id=attribution.get("report_id"),
+                    agent_execution_id=attribution.get("agent_execution_id"),
+                    data_source_id=attribution.get("data_source_id"),
+                    routed=False,
+                    baseline_model_id=None,
+                )
+                await session.commit()
+        except Exception as exc:
+            logger.warning("Skipping decision usage record after failure: %s", exc)
 
     def _validate_image_generation_support(self) -> None:
         """Raise if the selected model is not an image-generation model."""

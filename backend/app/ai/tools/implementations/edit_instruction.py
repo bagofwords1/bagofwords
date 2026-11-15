@@ -230,7 +230,7 @@ class EditInstructionTool(Tool):
                 "achieve the same, and do not use load_mode for it. Not available in knowledge "
                 "mode.\n\n"
                 "SCOPING — table_names: Pass ONLY when you want to change the table scope. "
-                "Pass an empty list [] to make the instruction global (remove all table scoping). "
+                "Pass [] to clear table references while keeping the same agents and folders. "
                 "OMIT the field entirely to leave the existing scoping unchanged. Listing every "
                 "table inspected is wrong — it scopes the instruction and may prevent it from "
                 "loading in unrelated queries.\n\n"
@@ -289,7 +289,7 @@ class EditInstructionTool(Tool):
                         "instruction_id": "inst_abc123",
                         "table_names": []
                     },
-                    "description": "Make it global — empty list removes all table scoping so the instruction applies everywhere."
+                    "description": "Remove table references and preserve the instruction audience."
                 },
                 {
                     "input": {
@@ -503,6 +503,18 @@ class EditInstructionTool(Tool):
             result = await db.execute(stmt)
             instruction = result.scalar_one_or_none()
 
+            from app.models.report import report_folder_ids
+            active_folder = report_folder_ids(report)
+            if instruction and active_folder:
+                from app.services.folder_knowledge import instruction_scope
+                from app.ai.tools.implementations.read_instruction import ReadInstructionTool
+                _, scope_ids = ReadInstructionTool._resolve_scope(runtime_ctx)
+                if not await db.scalar(select(Instruction.id).where(Instruction.id == instruction.id,
+                        instruction_scope(scope_ids or [], active_folder))):
+                    instruction = None
+            if instruction:
+                from app.services.instruction_authority import require_instruction_authority
+                await require_instruction_authority(db, user, organization, instruction)
             if not instruction:
                 yield ToolEndEvent(
                     type="tool.end",
@@ -853,10 +865,16 @@ class EditInstructionTool(Tool):
                     )
                     return
 
+            from app.services.folder_knowledge import instruction_folder_ids
+            live_folder_ids = await instruction_folder_ids(db, instruction.id)
+            staged_folders = getattr(pending_version, "folder_ids", None)
+            target_folders = live_folder_ids if staged_folders is None else staged_folders
+            target_scope = getattr(pending_version, "scope_mode", None) or instruction.scope_mode
+            new_data_source_ids = (pending_version.data_source_ids if pending_version else
+                                   [ds.id for ds in instruction.data_sources]) or []
             matched_table_names = []
             if data.table_names is not None:
                 # Resolve the requested table list to ds_ids + references.
-                resolved_ds_ids = set()
                 resolved_refs = []
                 if data.table_names:
                     conditions = []
@@ -872,6 +890,8 @@ class EditInstructionTool(Tool):
                             DataSource.organization_id == str(organization.id),
                             or_(*conditions),
                         ]
+                        if new_data_source_ids:
+                            where_clauses.append(DataSource.id.in_(new_data_source_ids))
                         if allowed_data_source_ids is not None:
                             if not allowed_data_source_ids:
                                 # Report has no data sources — skip table resolution.
@@ -888,8 +908,6 @@ class EditInstructionTool(Tool):
                         table_result = await db.execute(table_stmt)
                         tables = table_result.scalars().all()
                         for table in tables:
-                            if table.datasource_id:
-                                resolved_ds_ids.add(table.datasource_id)
                             resolved_refs.append({
                                 "object_type": "datasource_table",
                                 "object_id": str(table.id),
@@ -897,13 +915,12 @@ class EditInstructionTool(Tool):
                                 "display_text": table.name,
                             })
                             matched_table_names.append(table.name)
-                new_data_source_ids = list(resolved_ds_ids)
+                if data.table_names and not matched_table_names:
+                    raise ValueError("No matching tables in the instruction scope")
                 new_references_json = resolved_refs
             elif pending_version is not None:
-                new_data_source_ids = pending_version.data_source_ids or None
                 new_references_json = pending_version.references_json or None
             else:
-                new_data_source_ids = [ds.id for ds in (instruction.data_sources or [])] or None
                 new_references_json = [
                     {
                         "object_type": ref.object_type,
@@ -938,6 +955,8 @@ class EditInstructionTool(Tool):
                     load_mode=new_load_mode,
                     references_json=new_references_json,
                     data_source_ids=new_data_source_ids,
+                    folder_ids=target_folders,
+                    scope_mode=target_scope,
                     label_ids=label_ids,
                     category_ids=category_ids,
                     user_id=user.id if user else None,
@@ -968,7 +987,8 @@ class EditInstructionTool(Tool):
                     f"Staged edit as version {version.id} (v{version_number}) for instruction {instruction.id} in build {training_build_id}"
                 )
             except Exception as e:
-                logger.warning(f"Failed to stage edit for instruction {instruction.id}: {e}")
+                await db.rollback()
+                raise RuntimeError("Could not stage the instruction edit") from e
 
             # Build summary of changes
             changes = []

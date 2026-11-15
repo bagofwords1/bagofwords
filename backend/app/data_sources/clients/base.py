@@ -131,6 +131,21 @@ class DataSourceClient(DiscoveryClient, ABC):
     # sources (mail, files, metrics APIs).
     relative_date_hint: Optional[str] = None
 
+    # How this engine's query language writes a string literal
+    # (app/ai/code_execution/query_params.py, LITERAL_STYLE_*): "standard"
+    # doubles the quote; engines that read a backslash as an escape inside
+    # strings declare "doubled" or "backslash", citing their grammar; None
+    # where no rule is established (KQL, PromQL, SPL). Parameters are rendered
+    # by the renderer declared for the class in client_profiles, which must
+    # honour this rule (test_query_params checks each one); the identity
+    # check reads a capture whose dialect is not known with a dialect that
+    # follows it.
+    sql_literal_style: Optional[str] = "standard"
+    # True for a connector whose query is a JSON envelope carrying its SQL in
+    # a "sql" field (Elasticsearch, OpenSearch): the identity check reads that
+    # SQL as the statement that ran.
+    sql_in_json_envelope: bool = False
+
     # When True, listing files live from the source is cheap enough to do on
     # every list_files call (local FS walk, bounded S3 LIST) — so list_files
     # reads the live per-connection client instead of the shared, per-data-
@@ -205,6 +220,7 @@ class DataSourceClient(DiscoveryClient, ABC):
         prior_catalog: "dict | None" = None,
         prior_tables: "dict | None" = None,
         force_refresh: bool = False,
+        section_sink=None,
     ):
         """Forwards `progress_callback` / `prior_catalog` / `prior_tables` to
         the sync `get_schemas` only if it accepts each kwarg, determined by
@@ -230,6 +246,10 @@ class DataSourceClient(DiscoveryClient, ABC):
             kwargs["prior_catalog"] = prior_catalog
         if prior_tables and _accepts_kwarg(self.get_schemas, "prior_tables"):
             kwargs["prior_tables"] = prior_tables
+        # File sources on the full-text index tier stream each file's sections
+        # to this sink while they walk (see services/file_index_store.py).
+        if section_sink is not None and _accepts_kwarg(self.get_schemas, "section_sink"):
+            kwargs["section_sink"] = section_sink
         # Warehouse query tag (app/data_sources/query_tag.py): catalog reads.
         with query_tag_defaults(source="indexing"):
             result = await asyncio.to_thread(self.get_schemas, **kwargs)
@@ -268,6 +288,8 @@ class DataSourceClient(DiscoveryClient, ABC):
         UI can show how big the indexed data was. Default empty."""
         return {}
 
+    unindexed_table_prefix_separator = "/"
+
     def unindexed_table_prefixes(self) -> List[str]:
         """Table-name prefixes the last `get_schemas` call could not read.
 
@@ -277,7 +299,8 @@ class DataSourceClient(DiscoveryClient, ABC):
         Absent from the result is not the same as gone from the source, so the
         schema refresh keeps existing tables under these prefixes (and the
         agents' selection of them) instead of pruning them. Each prefix covers
-        names that start with ``prefix + "/"``. Default: nothing unread.
+        names that start with ``prefix + unindexed_table_prefix_separator``.
+        Default: nothing unread.
         """
         return []
 

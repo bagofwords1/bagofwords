@@ -283,6 +283,7 @@ import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vu
 import BrowserConnectionForm from '~/components/BrowserConnectionForm.vue'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
+import { searchAliases } from '~/composables/useDataSourcePicker'
 
 const props = defineProps<{
   modelValue: boolean
@@ -416,7 +417,7 @@ const allTiles = computed(() => {
       connectorKey: d.connector_key,
       isMcp: d.type === 'mcp',
       locked: isLocked(d),
-      searchText: `${d.title || ''} ${d.type || ''}`.toLowerCase(),
+      searchText: `${d.title || ''} ${d.type || ''} ${searchAliases(d.type).join(' ')}`.toLowerCase(),
       raw: d,
     }))
   const presetTiles = (catalog.value || []).map((c: any) => ({

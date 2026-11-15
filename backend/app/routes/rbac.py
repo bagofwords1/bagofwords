@@ -59,7 +59,7 @@ async def list_roles(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    return await rbac_service.list_roles(db, organization_id)
+    return await rbac_service.list_roles(db, organization_id, actor_id=current_user.id)
 
 
 @router.post("/organizations/{organization_id}/roles", response_model=RoleSchema)
@@ -122,7 +122,7 @@ async def delete_role(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    await rbac_service.delete_role(db, organization_id, role_id)
+    await rbac_service.delete_role(db, organization_id, role_id, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.deleted",
@@ -328,7 +328,7 @@ async def delete_role_assignment(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    await rbac_service.delete_role_assignment(db, organization_id, assignment_id)
+    await rbac_service.delete_role_assignment(db, organization_id, assignment_id, actor_id=current_user.id)
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="role.assignment_revoked",
@@ -349,6 +349,8 @@ async def _require_resource_manage(
     deliberately NOT sufficient — granting per-resource access requires
     per-resource authority.
     """
+    if resource_type == "folder":
+        raise HTTPException(403, detail="Use folder sharing")
     from app.core.permission_resolver import principal_belongs_to_org
     if not await principal_belongs_to_org(db, user, org_id):
         raise HTTPException(status_code=403, detail="User is not a member of this organization")
@@ -381,9 +383,11 @@ async def list_resource_grants(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    return await rbac_service.list_resource_grants(
+    grants = await rbac_service.list_resource_grants(
         db, organization_id, resource_type, resource_id, principal_type, principal_id
     )
+    rights = await resolve_permissions(db, current_user.id, organization_id)
+    return [g for g in grants if g.resource_type != "folder" or rights.has_resource_permission("folder", g.resource_id, "manage")]
 
 
 @router.post("/organizations/{organization_id}/resource-grants", response_model=ResourceGrantSchema)

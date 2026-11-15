@@ -1,0 +1,17 @@
+import sys; sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "backend"))
+from app.data_sources.clients.dremio_client import DremioClient
+c = DremioClient(url="http://127.0.0.1:9047", username="admin", password="Passw0rd!x", max_rows=700)
+print(c.test_connection())
+for t in c.get_schemas(): print(" ", t.name, "|", t.description, [(x.name, x.dtype) for x in t.columns])
+df = c.execute_query('SELECT region, n, revenue FROM "Sales"."orders_by_region" ORDER BY region'); print(df.to_dict("records"))
+df = c.execute_query('SELECT DATE_TRUNC(\'MONTH\', order_date) AS m, COUNT(*) AS n FROM "Sales"."orders" GROUP BY 1 ORDER BY 1'); print("months:", len(df), int(df.n.sum()))
+df = c.execute_query('SELECT * FROM "Sales"."orders"'); print("paged+capped:", len(df), df.attrs["truncated"])
+df = c.execute_query('SELECT * FROM "Sales"."orders" WHERE 1 = 0'); print("empty cols:", list(df.columns))
+for bad in ['DROP VIEW "Sales"."orders"', 'CREATE TABLE "$scratch".x AS SELECT 1', 'SELECT 1; DROP VIEW "Sales"."orders"']:
+    try: c.execute_query(bad); print("NOT BLOCKED", bad); sys.exit(1)
+    except ValueError as e: print("refused:", str(e)[:70])
+try: c.execute_query('SELECT * FROM "Sales"."missing"'); sys.exit(1)
+except ValueError as e: print("sql error surfaced:", str(e)[:90])
+print(DremioClient(url="http://127.0.0.1:9047", username="admin", password="nope").test_connection())
+s = DremioClient(url="http://127.0.0.1:9047", username="admin", password="Passw0rd!x", spaces="Sales"); print("scoped:", [t.name for t in s.get_schemas()])
+print("ALL OK")

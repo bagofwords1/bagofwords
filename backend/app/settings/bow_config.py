@@ -434,6 +434,18 @@ class SecurityConfig(BaseModel):
     )
 
 
+class McpAppsConfig(BaseModel):
+    # Origin that serves the MCP Apps sandbox page (e.g.
+    # https://bow-sandbox.example.com, pointing at this same backend). The
+    # MCP Apps spec requires the app frame to run on an origin other than the
+    # host's. Unset: the frame runs in an opaque (sandboxed, origin-less)
+    # context instead — just as isolated, but apps cannot use localStorage or
+    # cookies. Env: BOW_MCP_APPS_SANDBOX_ORIGIN.
+    sandbox_origin: Optional[str] = Field(
+        default_factory=lambda: (os.getenv("BOW_MCP_APPS_SANDBOX_ORIGIN") or "").strip().rstrip("/") or None
+    )
+
+
 class AuditPlatformStream(BaseModel):
     """Restricted collector for events that belong to no organization
     (unknown-account login failures, platform operations). Same destination
@@ -613,6 +625,7 @@ class BowConfig(BaseModel):
     security: SecurityConfig = SecurityConfig()
     audit: AuditConfig = AuditConfig()
     storage: StorageConfig = Field(default_factory=StorageConfig)
+    mcp_apps: McpAppsConfig = Field(default_factory=McpAppsConfig)
 
     @model_validator(mode="after")
     def validate_saml_providers(self):

@@ -80,6 +80,11 @@ class ArtifactSchema(ArtifactBase):
     status: str = "completed"
     created_at: datetime
     updated_at: datetime
+    # Whether the editor's iframe sandbox is relaxed to permit popups/new-tab
+    # links and modals. Lives on the parent Artifact; the editor routes set it
+    # explicitly (not a column_property) so no subquery rides on every version
+    # SELECT. The frame computes its sandbox attribute from this.
+    allow_popups: bool = False
     # Which of content.visualization_ids the page code actually renders.
     # Membership in visualization_ids only means "attached to the dashboard";
     # a viz whose id the code never binds silently disappears from the page —

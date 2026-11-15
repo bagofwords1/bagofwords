@@ -182,31 +182,48 @@ def _bare(cls_path):
     return object.__new__(getattr(importlib.import_module(module), name))
 
 
-@pytest.mark.parametrize("cls_path", [
-    "app.data_sources.clients.oracle_bi_client.OracleBIClient",
-    "app.data_sources.clients.sisense_client.SisenseClient",
-    "app.data_sources.clients.netsuite_client.NetsuiteClient",
+@pytest.mark.parametrize("cls_path, renderer_name", [
+    ("app.data_sources.clients.oracle_bi_client.OracleBIClient", "ansi_or_backslash"),
+    ("app.data_sources.clients.sisense_client.SisenseClient", "ansi"),
+    ("app.data_sources.clients.netsuite_client.NetsuiteClient", "ansi"),
 ])
-def test_ansi_connections_render_as_today_and_stay_unguarded(cls_path):
+def test_ansi_connections_render_as_today_and_stay_unguarded(cls_path, renderer_name):
     client = _bare(cls_path)
     renderer = query_params.renderer_for(client)
-    assert renderer.name == "ansi"
+    assert renderer.name == renderer_name
     assert guard_profile(client) is None
     assert render_sql_with_params("Name eq :v", {"v": "it's"}, renderer=renderer) == "Name eq 'it''s'"
 
 
+@pytest.mark.parametrize("cls_path, renderer_name", [
+    ("app.data_sources.clients.vertica_client.VerticaClient", "ansi_or_backslash"),
+    ("app.data_sources.clients.sybase_client.SybaseClient", "ansi_or_backslash"),
+    ("app.data_sources.clients.sap_hana_client.SapHanaClient", "ansi"),
+    ("app.data_sources.clients.pinot_client.PinotClient", "ansi"),
+])
+def test_ansi_sql_connections_without_a_parser_dialect_render_as_today_and_are_guarded(cls_path, renderer_name):
+    client = _bare(cls_path)
+    renderer = query_params.renderer_for(client)
+    assert renderer.name == renderer_name
+    assert guard_profile(client).kind == "nonparsing_sql"
+    assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it''s'"
+
+
+# Engines that may also read a backslash as an escape inside a string
+# (their sql_literal_style is "doubled"): a backslash value is refused, and
+# a placeholder that a backslash reading puts inside a string is refused.
 @pytest.mark.parametrize("cls_path", [
     "app.data_sources.clients.vertica_client.VerticaClient",
     "app.data_sources.clients.sybase_client.SybaseClient",
-    "app.data_sources.clients.sap_hana_client.SapHanaClient",
-    "app.data_sources.clients.pinot_client.PinotClient",
+    "app.data_sources.clients.oracle_bi_client.OracleBIClient",
 ])
-def test_ansi_sql_connections_without_a_parser_dialect_render_as_today_and_are_guarded(cls_path):
-    client = _bare(cls_path)
-    renderer = query_params.renderer_for(client)
-    assert renderer.name == "ansi"
-    assert guard_profile(client).kind == "nonparsing_sql"
-    assert render_sql_with_params("WHERE a = :v", {"v": "it's"}, renderer=renderer) == "WHERE a = 'it''s'"
+def test_ansi_connections_that_may_read_backslash_escapes_refuse_a_backslash(cls_path):
+    renderer = query_params.renderer_for(_bare(cls_path))
+    for value in ("ends with a backslash\\", "x\\' OR 1=1 --"):
+        with pytest.raises(ParamError, match="backslash"):
+            render_sql_with_params("WHERE a = :v", {"v": value}, renderer=renderer)
+    with pytest.raises(ParamError):
+        render_sql_with_params("WHERE a = 'x\\' AND b = :v OR c = ''", {"v": "y"}, renderer=renderer)
 
 
 ODATA_CLIENTS = [
@@ -1987,12 +2004,12 @@ def test_params_on_a_connector_without_a_renderer_are_refused(mode):
     assert client.received == []
 
 
-def test_a_keyword_only_call_with_params_on_such_a_connector_is_unchanged(mode):
+def test_a_keyword_only_call_with_params_on_such_a_connector_is_refused(mode):
+    # Nothing renders params into a keyword call: refused, nothing sent.
     client = _ConnectorWithoutRenderer()
-    df, _, _ = _run({"c": client},
-                    "return ds_clients['c'].execute_query(table_name='t', params={'v': 'x'})")
-    assert df["rows"].tolist() == [1]
-    assert client.received == [(None, {"table_name": "t"})]
+    with pytest.raises(ParamError, match="rendered only into a query string"):
+        _run({"c": client}, "return ds_clients['c'].execute_query(table_name='t', params={'v': 'x'})")
+    assert client.received == []
 
 
 class _PlainObjectClient:
@@ -2025,7 +2042,7 @@ def test_an_object_named_like_a_connector_is_read_back_as_the_ansi_it_was_render
     assert query_params.renderer_for_name(family_name(impostor)) is None
 
 
-def test_a_keyword_call_whose_params_are_not_rendered_is_logged_by_structure_and_noted_on_its_error(mode, caplog):
+def test_a_keyword_call_whose_params_are_not_rendered_is_refused_logged_by_structure_and_recorded(mode, caplog):
     import logging
 
     class _Failing(_ConnectorWithoutRenderer):
@@ -2045,15 +2062,16 @@ def test_a_keyword_call_whose_params_are_not_rendered_is_logged_by_structure_and
     with caplog.at_level(logging.WARNING, logger="app.ai.code_execution.code_execution"), pytest.raises(Exception):
         StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": client}, excel_files=[],
                                              captured_timings=timings)
-    assert client.received == [(None, {"sql": "SELECT * FROM t WHERE a = :owner"})]
+    assert client.received == []
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING and "params_not_rendered" in r.getMessage()]
     assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
-    assert "_Failing" in warnings[0] and "sql" in warnings[0] and "owner" in warnings[0]
+    assert "_Failing" in warnings[0] and "keywords" in warnings[0] and "owner" in warnings[0]
     assert "value-not-for-logs" not in warnings[0]
-    assert "first positional argument" in timings[-1]["error"]
+    assert "first argument" in timings[-1]["error"]
+    assert "value-not-for-logs" not in timings[-1]["error"]
 
 
-def test_a_keyword_call_that_times_out_also_notes_its_params_were_not_rendered(mode):
+def test_a_keyword_call_with_params_is_refused_before_it_can_time_out(mode):
     from app.ai.code_execution.code_execution import QueryTimeoutError, StreamingCodeExecutor
 
     class _Slow(_ConnectorWithoutRenderer):
@@ -2061,15 +2079,17 @@ def test_a_keyword_call_that_times_out_also_notes_its_params_were_not_rendered(m
             super().execute_query(query, **kwargs)
             raise QueryTimeoutError(5)
 
+    client = _Slow()
     timings: list = []
     code = ("def generate_df(ds_clients, excel_files):\n"
             "    return ds_clients['c'].execute_query(sql='SELECT * FROM t WHERE a = :owner', "
             "params={'owner': 'value-not-for-logs'})\n")
     with pytest.raises(Exception):
-        StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": _Slow()}, excel_files=[],
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"c": client}, excel_files=[],
                                              captured_timings=timings)
-    assert timings[-1]["error_type"] == "timeout"
-    assert "first positional argument" in timings[-1]["error"]
+    assert client.received == []
+    assert timings[-1].get("error_type") != "timeout"
+    assert "first argument" in timings[-1]["error"]
     assert "value-not-for-logs" not in timings[-1]["error"]
 
 
@@ -2124,6 +2144,610 @@ def test_params_on_a_csv_connection_render_for_duckdb(mode, tmp_path):
     df, _, _ = _run({"files": client},
                     f"return ds_clients['files'].execute_query('SELECT id FROM items WHERE v = :v', params={{'v': {value!r}}})")
     assert df["id"].tolist() == [2]
+
+
+# ---------------------------------------------------------------------------
+# String literals per engine (main's per-client literal styles): each client
+# class's declared sql_literal_style is a rule its renderer must honour
+# ---------------------------------------------------------------------------
+
+# (client module, client class, sqlglot dialect the rendered literal is read
+# with). The second and third groups' engines read a backslash inside a
+# string literal as an escape character. An engine sqlglot has no dialect
+# for is read with one whose string-literal rules are the engine's (the
+# client's sql_literal_style comment cites them). Values are rendered at the
+# renderer seam, with the renderer the run's query wrapper picks for the
+# client (`renderer_for`). (MsFabricClient and SybaseClient are left out:
+# their modules need the ODBC driver to import. Cassandra, Cosmos DB,
+# Couchbase and DynamoDB have no renderer: their params are refused,
+# test_a_source_without_a_renderer_refuses_query_parameters.)
+_STANDARD_LITERAL_CLIENTS = [
+    ("postgresql_client", "PostgresqlClient", "postgres"),
+    ("duckdb_client", "DuckDBClient", "duckdb"),
+    ("mssql_client", "MSSQLClient", "tsql"),
+    ("oracledb_client", "OracledbClient", "oracle"),
+    ("trino_client", "TrinoClient", "trino"),
+    ("presto_client", "PrestoClient", "presto"),
+    # Athena runs queries on its Trino engine, whose string literals have no
+    # backslash escapes; sqlglot's "athena" dialect also accepts a backslash
+    # escape (it covers Athena's Hive DDL engine too), so the query is read in
+    # the Trino grammar. Its renderer refuses a backslash value.
+    ("aws_athena_client", "AwsAthenaClient", "trino"),
+    ("teradata_client", "TeradataClient", "teradata"),
+    ("sqlite_client", "SqliteClient", "sqlite"),
+    ("druid_client", "DruidClient", "druid"),
+    ("dremio_client", "DremioClient", "dremio"),
+    # DuckDB SQL underneath.
+    ("iceberg_client", "IcebergClient", "duckdb"),
+    ("csv_client", "CSVClient", "duckdb"),
+    ("qvd_client", "QVDClient", "duckdb"),
+    ("pbix_client", "PBIXClient", "duckdb"),
+    ("app.data_sources.fast.fast_client", "FastQueryClient", "duckdb"),
+    ("db2_client", "Db2Client", "postgres"),
+    ("ibmi_client", "IbmiClient", "postgres"),
+    ("sap_hana_client", "SapHanaClient", "postgres"),
+    ("pinot_client", "PinotClient", "postgres"),
+    ("netsuite_client", "NetsuiteClient", "oracle"),
+]
+_DOUBLED_LITERAL_CLIENTS = [
+    ("mysql_client", "MysqlClient", "mysql"),
+    ("mariadb_client", "MariadbClient", "mysql"),
+    ("snowflake_client", "SnowflakeClient", "snowflake"),
+    ("clickhouse_client", "ClickhouseClient", "clickhouse"),
+    ("aws_redshift_client", "AwsRedshiftClient", "redshift"),
+    # HogQL's string literal is ClickHouse's.
+    ("posthog_client", "PostHogClient", "clickhouse"),
+    ("vertica_client", "VerticaClient", "snowflake"),
+    ("oracle_bi_client", "OracleBIClient", "snowflake"),
+]
+_BACKSLASH_LITERAL_CLIENTS = [
+    ("bigquery_client", "BigqueryClient", "bigquery"),
+    ("databricks_sql_client", "DatabricksSqlClient", "databricks"),
+    ("spark_connect_client", "SparkConnectClient", "spark"),
+    ("hive_client", "HiveClient", "hive"),
+    ("salesforce_client", "SalesforceClient", "spark"),
+]
+_ALL_LITERAL_CLIENTS = _STANDARD_LITERAL_CLIENTS + _DOUBLED_LITERAL_CLIENTS + _BACKSLASH_LITERAL_CLIENTS
+# Renderers that refuse a value holding a backslash rather than write it
+# (no one rendering reads back as the value under every reading the engine
+# may give it).
+_REFUSES_A_BACKSLASH = {"athena", "redshift", "timbr", "ansi_or_backslash"}
+
+_AWKWARD_VALUES = [
+    "a backslash\\' before a quote, then more words",
+    "ends with a backslash\\",
+    "it's",
+    "two '' quotes",
+    "line one\nline two",
+    "carriage\r\nreturn",
+    "double \\\\ backslash",
+    "C:\\temp\\",
+]
+
+
+def _client_class(module: str, class_name: str):
+    import importlib
+
+    path = module if module.startswith("app.") else f"app.data_sources.clients.{module}"
+    return getattr(importlib.import_module(path), class_name)
+
+
+def _renderer_of(module: str, class_name: str):
+    renderer = query_params.renderer_for(object.__new__(_client_class(module, class_name)))
+    assert renderer is not None, class_name
+    return renderer
+
+
+def _rendered_for(module: str, class_name: str, sql: str, values: dict) -> str:
+    return render_sql_with_params(sql, values, renderer=_renderer_of(module, class_name))
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _ALL_LITERAL_CLIENTS)
+@pytest.mark.parametrize("value", _AWKWARD_VALUES)
+def test_a_string_param_stays_one_string_literal_in_its_engines_grammar(module, class_name, dialect, value):
+    """Whatever the value holds (quotes, backslashes, a line break), the engine
+    reads it back as exactly one string literal equal to the value: nothing of
+    it is left outside the literal to be read as SQL. (sqlglot's token text is
+    the literal's value with its escapes already read, so `\\n` in the
+    literal compares equal to a line break in the value.) A renderer that
+    refuses a backslash refuses only that."""
+    from sqlglot.dialects.dialect import Dialect
+    from sqlglot.tokens import TokenType
+
+    renderer = _renderer_of(module, class_name)
+    if "\\" in value and renderer.name in _REFUSES_A_BACKSLASH:
+        with pytest.raises(ParamError, match="backslash"):
+            _rendered_for(module, class_name, "WHERE a = :v", {"v": value})
+        return
+    rendered = _rendered_for(module, class_name, "WHERE a = :v", {"v": value})
+    assert rendered.startswith("WHERE a = ")
+    tokens = Dialect.get_or_raise(dialect).tokenize(rendered[len("WHERE a = "):])
+    assert [t.token_type for t in tokens] in ([TokenType.STRING], [TokenType.NATIONAL_STRING]), (
+        f"{class_name}: {rendered!r} tokenizes as {[(t.token_type, t.text) for t in tokens]}")
+    assert tokens[0].text == value
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _BACKSLASH_LITERAL_CLIENTS)
+@pytest.mark.parametrize("value", ["line one\nline two", "carriage\r\nreturn", "ends with a line break\n"])
+def test_a_backslash_style_literal_holds_no_raw_line_break(module, class_name, dialect, value):
+    """A single-quoted BigQuery literal cannot hold an unescaped line break
+    (only a triple-quoted one can), so the value's line breaks are written
+    as escapes. sqlglot accepts the raw break, so this is checked on the
+    rendered text."""
+    rendered = _rendered_for(module, class_name, "WHERE a = :v", {"v": value})
+    assert "\n" not in rendered and "\r" not in rendered, f"{class_name}: {rendered!r}"
+
+
+def test_every_renderer_honours_its_clients_declared_literal_rule():
+    """The renderer each client gets (client_profiles) against the literal
+    rule its class declares (sql_literal_style): a "doubled" or "backslash"
+    engine's renderer escapes a backslash or refuses it; a "standard"
+    engine's literal reads back as the value where only '' escapes; a client
+    declaring no rule renders only with a renderer written for its language
+    (KQL, SPL) or not at all. OData values are percent-encoded text, checked
+    by the OData tests above."""
+    from sqlglot.dialects.dialect import Dialect
+
+    from app.ai.code_execution.identity_bind import _STYLE_DIALECTS
+    from tests.unit._client_enumeration import enumerated_client_classes
+
+    checked = set()
+    for cls in enumerated_client_classes():
+        if not hasattr(cls, "sql_literal_style"):
+            continue  # not a DataSourceClient (MCP, custom API, remote server)
+        renderer = query_params.renderer_for(object.__new__(cls))
+        style = cls.sql_literal_style
+        if style is None:
+            assert renderer is None or renderer.name in ("kql", "spl"), cls.__name__
+            continue
+        if renderer is None or renderer.name == "odata":
+            continue
+        for value in ("it's", "x\\", "a\\'b"):
+            try:
+                rendered = render_sql_with_params(":v", {"v": value}, renderer=renderer)
+            except ParamError:
+                assert "\\" in value and renderer.name in _REFUSES_A_BACKSLASH, (cls.__name__, value)
+                continue
+            if renderer.name in ("spl", "kql"):
+                continue
+            reading = _STYLE_DIALECTS.get(style, "")
+            tokens = Dialect.get_or_raise(reading).tokenize(rendered.removeprefix("N"))
+            assert [t.text for t in tokens] == [value], (cls.__name__, style, renderer.name, rendered)
+        checked.add(cls.__name__)
+    assert {"MysqlClient", "VerticaClient", "OracleBIClient", "HiveClient", "SalesforceClient",
+            "IcebergClient", "DremioClient"} <= checked
+
+
+# Sources that render with the plain doubled quote: a filtered dashboard over
+# such a source keeps running, the value written as before.
+_UNESTABLISHED_LITERAL_CLIENTS = [
+    ("sisense_client", "SisenseClient"),
+    ("timbr_client", "TimbrClient"),
+]
+
+
+@pytest.mark.parametrize("module,class_name", _UNESTABLISHED_LITERAL_CLIENTS)
+def test_a_source_with_no_other_established_rule_keeps_the_standard_literal(module, class_name):
+    assert _rendered_for(module, class_name, "WHERE a = :v", {"v": "it's"}) == "WHERE a = 'it''s'"
+
+
+def _wrapped_recorder(module: str, class_name: str):
+    """A bare instance of the real client class whose driver boundary
+    records what it is handed: its class (and so its classification and
+    renderer) stays the real one."""
+    import pandas as pd
+
+    client = object.__new__(_client_class(module, class_name))
+    client.received = []
+
+    def execute_query(query, *args, **kwargs):
+        client.received.append(query)
+        return pd.DataFrame({"ok": [1]})
+
+    client.execute_query = execute_query
+    return client
+
+
+def _sent(module: str, class_name: str, query, values, captured=None):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _wrapped_recorder(module, class_name)
+    QueryCapturingClientWrapper(client, captured if captured is not None else [], [],
+                                query_timeout_seconds=30).execute_query(query, params=values)
+    (received,) = client.received
+    return received
+
+
+def _refused(module: str, class_name: str, query, values, match=None):
+    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
+
+    client = _wrapped_recorder(module, class_name)
+    with pytest.raises(ParamError, match=match):
+        QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30).execute_query(query, params=values)
+    assert client.received == []
+
+
+# Sources with no renderer for their query text (PromQL, a prompt, MDX, and
+# the document stores' languages): parameters in text are refused. (KQL and
+# SPL, where main refused too, have renderers of their own: see the ADX and
+# Splunk tests above.)
+_REFUSING_LITERAL_CLIENTS = [
+    ("prometheus_client", "PrometheusClient"),
+    ("timbr_a2a_client", "TimbrA2aClient"),
+    ("analysis_services_client", "AnalysisServicesClient"),
+    ("cassandra_client", "CassandraClient"),
+    ("cosmosdb_client", "CosmosdbClient"),
+    ("couchbase_client", "CouchbaseClient"),
+    ("dynamodb_client", "DynamodbClient"),
+]
+
+
+@pytest.mark.parametrize("module,class_name", _REFUSING_LITERAL_CLIENTS)
+def test_a_source_without_a_renderer_refuses_query_parameters(module, class_name):
+    """No query is written with a quoting rule not established for its
+    language: the run is refused with a ParamError, and the source receives
+    nothing -- also when the query uses none of the values."""
+    _refused(module, class_name, "query where owner = :v", {"v": "it's"}, match="not supported")
+    _refused(module, class_name, "query with no placeholder", {"v": "it's"}, match="not supported")
+
+
+@pytest.mark.parametrize("family", ["AzureDataExplorerClient", "SplunkClient"])
+def test_a_query_with_no_placeholder_renders_unchanged_where_the_language_has_a_renderer(family):
+    renderer = query_params.renderer_for_name(family)
+    assert render_sql_with_params("StormEvents | take 10", {"v": "it's"}, renderer=renderer) == \
+        "StormEvents | take 10"
+
+
+# Connectors whose query text is a JSON document, not SQL: a placeholder that
+# stands as a JSON value takes a number only (anything else would have to be
+# written as JSON there).
+_JSON_QUERY_CLIENTS = [
+    ("mongodb_client", "MongodbClient", '{"collection": "orders", "find": {"owner": :v}}'),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "limit": :v}'),
+    ("zabbix_client", "ZabbixClient", '{"table": "hosts", "filter": {"hostid": :v}}'),
+    # A placeholder as a key is refused whatever the value.
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", ":v": 1}'),
+]
+
+
+@pytest.mark.parametrize("module,class_name,query", _JSON_QUERY_CLIENTS)
+@pytest.mark.parametrize("value", ['x", "collection": "users", "z": "', "plain", True, None, [1, 2],
+                                   {"$ne": 1}, date(2024, 1, 1), float("nan")])
+def test_a_json_query_refuses_a_parameter_that_is_not_a_number(module, class_name, query, value):
+    _refused(module, class_name, query, {"v": value})
+
+
+_JSON_NUMBER_QUERIES = [
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "limit": :n}', {"table", "limit"}),
+    ("zabbix_client", "ZabbixClient", '{"table": "history", "time_from": :n}', {"table", "time_from"}),
+    ("mongodb_client", "MongodbClient", '{"collection": "orders", "find": {"qty": {"$gt": :n}}}',
+     {"collection", "find"}),
+    ("elasticsearch_client", "ElasticsearchClient", '{"index": "logs", "size": :n}', {"index", "size"}),
+    ("opensearch_client", "OpenSearchClient", '{"index": "logs", "size": :n}', {"index", "size"}),
+]
+
+
+@pytest.mark.parametrize("module,class_name,query,keys", _JSON_NUMBER_QUERIES)
+@pytest.mark.parametrize("number", [5, 2.5, -3])
+def test_a_json_query_takes_a_number_parameter(module, class_name, query, keys, number):
+    """A finite number is written as a bare JSON number: the document keeps
+    exactly its keys and holds the number where the placeholder was."""
+    import json
+
+    parsed = json.loads(_sent(module, class_name, query, {"n": number}))
+    assert set(parsed) == keys
+
+    def numbers(node):
+        if isinstance(node, dict):
+            return [n for v in node.values() for n in numbers(v)]
+        if isinstance(node, list):
+            return [n for v in node for n in numbers(v)]
+        return [node] if isinstance(node, (int, float)) and not isinstance(node, bool) else []
+
+    assert numbers(parsed) == [number]
+
+
+# A placeholder inside a JSON string value is text in the connector's own
+# language (a filter, a search, an envelope's SQL), which has no renderer:
+# refused, whatever the value. (Main rendered it as the client's literal.)
+_JSON_STRING_QUERIES = [
+    ("intune_client", "IntuneClient", '{"table": "managed_devices", "filter": "complianceState eq :s"}',
+     {"s": "noncompliant"}),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "query": "priority=:p"}', {"p": 1}),
+    ("servicenow_client", "ServiceNowClient", '{"table": "incident", "query": "caller=:c"}',
+     {"c": 'a", "x": "y'}),
+    ("elasticsearch_client", "ElasticsearchClient", '{"index": "orders", "query": {"term": {"owner": ":v"}}}',
+     {"v": 'a"b'}),
+    ("opensearch_client", "OpenSearchClient", '{"index": "orders", "query": {"term": {"owner": ":v"}}}',
+     {"v": 'a"b'}),
+]
+
+
+@pytest.mark.parametrize("module,class_name,query,values", _JSON_STRING_QUERIES)
+def test_a_placeholder_inside_a_json_string_is_refused(module, class_name, query, values):
+    _refused(module, class_name, query, values, match="inside a string")
+
+
+def test_a_placeholder_run_into_other_digits_is_refused():
+    """`:n.5` is no placeholder value of the document: nothing may be left
+    standing in for one."""
+    _refused("servicenow_client", "ServiceNowClient", '{"table": "incident", "x": :n.5}', {"n": 5})
+
+
+@pytest.mark.parametrize("values", [
+    {"p": "x7301000000000000001", "c": " or true or model ne ", "me": "a@x.com"},
+    {"p": "7301000000000000001", "c": "x", "me": "y"},
+])
+def test_a_value_holding_another_placeholders_stand_in_is_still_refused_inside_a_string(values):
+    """The stand-in digits a placeholder is swapped for while rendering do
+    not let a string placeholder through, whatever the values carry."""
+    import json
+
+    filter_text = "deviceName eq :p and model eq :c and userPrincipalName eq :me"
+    _refused("intune_client", "IntuneClient", json.dumps({"table": "managed_devices", "filter": filter_text}),
+             values, match="inside a string")
+
+
+@pytest.mark.parametrize("values", [
+    {"a": 7301000000000000001, "b": 5},
+    {"a": 7301000000000000000, "b": 7301000000000000001},
+    {"a": 8301000000000000001, "b": -1.5},
+])
+def test_every_number_renders_in_one_pass_of_its_placeholders(values):
+    """A number value that carries the digits of another placeholder's
+    stand-in is written once, as itself: it never pulls in another value."""
+    import json
+
+    parsed = json.loads(_sent("servicenow_client", "ServiceNowClient",
+                              '{"table": "t", "one": :a, "two": [:b, :a]}', values))
+    assert parsed == {"table": "t", "one": values["a"], "two": [values["b"], values["a"]]}
+
+
+def test_only_an_envelope_client_has_its_captured_sql_read_as_the_statement():
+    """A JSON capture of a client that takes no SQL envelope keeps the check
+    it had: its "esql"/"sql" keys mean nothing to that client."""
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    text = '{"esql": "FROM t", "sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}'
+    other_client = CapturedQuery(text, "MongodbClient", literal_style="standard")
+    assert verify_identity_binds_in_queries([other_client], {"v": "a@x.com"}, specs) is None
+
+
+def test_a_mongo_range_query_takes_a_number():
+    import json
+
+    parsed = json.loads(_sent("mongodb_client", "MongodbClient",
+                              '{"collection": "orders", "find": {"qty": {"$gt": :n}}}', {"n": 5}))
+    assert parsed == {"collection": "orders", "find": {"qty": {"$gt": 5}}}
+
+
+def test_a_non_string_query_with_parameters_is_refused():
+    """A query handed over as a dict is never rendered, so its placeholders
+    would run as written: refused instead. So are params that are not a
+    name -> value dict."""
+    _refused("elasticsearch_client", "ElasticsearchClient",
+             {"index": "logs", "query": {"term": {"owner": ":v"}}}, {"v": "a@x.com"})
+    _refused("elasticsearch_client", "ElasticsearchClient", '{"index": "logs"}', [("v", 1)])
+
+
+# Elasticsearch SQL / the OpenSearch SQL plugin, inside the JSON envelope's
+# "sql" field: no renderer is declared for either, so a placeholder there is
+# refused. (Main rendered it with the client's literal style.)
+_ENVELOPE_SQL_CLIENTS = [
+    ("elasticsearch_client", "ElasticsearchClient"),
+    ("opensearch_client", "OpenSearchClient"),
+]
+
+
+@pytest.mark.parametrize("module,class_name", _ENVELOPE_SQL_CLIENTS)
+@pytest.mark.parametrize("value", ["it's", 'x", "sql": "SELECT * FROM orders", "z": "', 5])
+def test_a_param_in_the_envelopes_sql_is_refused(module, class_name, value):
+    envelope = '{"index": "orders", "sql": "SELECT * FROM orders WHERE owner = :v"}'
+    _refused(module, class_name, envelope, {"v": value}, match="inside a string")
+
+
+@pytest.mark.parametrize("module,class_name", _ENVELOPE_SQL_CLIENTS)
+def test_a_param_as_an_envelope_key_or_a_non_number_value_is_refused(module, class_name):
+    for envelope in ('{"index": "orders", "query": {"term": {":v": "x"}}}',
+                     '{"index": "orders", "size": :v}'):
+        _refused(module, class_name, envelope, {"v": "a@x.com"})
+
+
+def test_the_identity_check_reads_the_sql_inside_an_envelope():
+    """The SQL of an Elasticsearch envelope is checked by its structure: a
+    value present but not restricting the rows is not a filter."""
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    scoped = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}', "ElasticsearchClient",
+                           literal_style="standard", sql_in_json_envelope=True)
+    widened = CapturedQuery('{"sql": "SELECT * FROM t WHERE owner = \'a@x.com\' OR 1 = 1"}',
+                            "ElasticsearchClient", literal_style="standard", sql_in_json_envelope=True)
+    assert verify_identity_binds_in_queries([scoped], {"v": "a@x.com"}, specs) is None
+    assert verify_identity_binds_in_queries([widened], {"v": "a@x.com"}, specs) is not None
+
+
+def test_the_identity_check_reads_no_envelope_sql_another_key_runs_instead_of():
+    """Elasticsearch runs "esql" (and a dashboard / saved search) before
+    "sql": the envelope's SQL is then not the executed statement."""
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    for first in ('"esql": "FROM t"', '"dashboard": "space/title"', '"saved_search": "space/s"'):
+        capture = CapturedQuery('{' + first + ', "sql": "SELECT * FROM t WHERE owner = \'a@x.com\'"}',
+                                "ElasticsearchClient", literal_style="standard", sql_in_json_envelope=True)
+        assert verify_identity_binds_in_queries([capture], {"v": "a@x.com"}, specs) is not None, first
+
+
+def test_the_wrapper_tags_a_capture_with_its_clients_literal_rule_and_envelope():
+    captured: list = []
+    _sent("elasticsearch_client", "ElasticsearchClient", '{"index": "logs", "size": :n}', {"n": 5},
+          captured=captured)
+    (capture,) = captured
+    assert (capture.literal_style, capture.sql_in_json_envelope) == ("standard", True)
+
+
+# Every connector's literal rule, written out: a new connector must be added
+# here on purpose, not inherit "standard" unseen. "+envelope": the SQL in the
+# JSON envelope's "sql" field. None: no rule established. (The renderer
+# each one gets is checked against it in
+# test_every_renderer_honours_its_clients_declared_literal_rule.)
+# MsFabricClient and SybaseClient import only where the ODBC driver is
+# installed (CI); elsewhere their entries are simply not compared.
+_EXPECTED_LITERAL_RULES = {
+    "MsFabricClient": "standard", "SybaseClient": "doubled",
+    "AnalysisServicesClient": "standard", "AppDynamicsClient": "standard", "AriaOperationsClient": "standard",
+    "AwsAthenaClient": "standard", "AwsCloudWatchClient": "standard", "AwsCostClient": "standard",
+    "AwsRedshiftClient": "doubled", "AzureBlobClient": "standard", "AzureCostClient": "standard",
+    "AzureDataExplorerClient": None, "BigqueryClient": "backslash", "BitbucketRepoClient": "standard",
+    "BrocadeClient": "standard", "BrowserClient": "standard", "BusinessObjectsClient": "standard",
+    "CSVClient": "standard", "CassandraClient": "standard", "CheckPointClient": "standard",
+    "CiscoApicClient": "standard", "ClickhouseClient": "doubled", "CosmosdbClient": "backslash",
+    "CouchbaseClient": "backslash", "CrowdStrikeClient": "standard", "DataSourceClient": "standard",
+    "DatabricksSqlClient": "backslash", "Db2Client": "standard", "DellOmeClient": "standard",
+    "DocumentumClient": "standard", "DremioClient": "standard", "DruidClient": "standard",
+    "DuckDBClient": "standard", "DynamodbClient": "doubled", "ElasticsearchClient": "standard+envelope",
+    "F5BigIpClient": "standard", "GCSClient": "standard", "GitHubRepoClient": "standard",
+    "GitLabRepoClient": "standard", "GitRepoClient": "standard", "GmailMailClient": "standard",
+    "GoogleDriveClient": "standard", "GraphDriveClient": "standard", "GraphMailClient": "standard",
+    "GraphOneNoteClient": "standard", "GraphTeamsClient": "standard", "HiveClient": "backslash",
+    "HpeOneViewClient": "standard", "IbmiClient": "standard", "IcebergClient": "standard",
+    "InforEpmClient": "standard", "InforOlapClient": "standard", "IntuneClient": "standard",
+    "JaegerClient": "standard", "KmsLighthouseClient": "standard", "KubernetesClient": "standard",
+    "MSSQLClient": "standard", "MariadbClient": "doubled", "MecmClient": "standard",
+    "MondayClient": "standard", "MongodbClient": "standard", "MysqlClient": "doubled",
+    "Neo4jClient": "standard", "NetAppOntapClient": "standard", "NetsuiteClient": "standard",
+    "NetworkDirClient": "standard", "ObjectStoreClient": "standard", "OnedriveClient": "standard",
+    "OnenoteClient": "standard", "OpenSearchClient": "doubled+envelope", "OracleBIClient": "doubled",
+    "OracledbClient": "standard", "PBIXClient": "standard", "PinotClient": "standard",
+    "PostHogClient": "doubled", "PostgresqlClient": "standard", "PowerBIClient": "standard",
+    "PowerBIReportServerClient": "standard", "PrestoClient": "standard", "PriorityErpClient": "standard",
+    "PrometheusClient": None, "QVDClient": "standard", "QlikSenseClient": "standard",
+    "QlikSenseOnPremClient": "standard", "S3Client": "standard", "SalesforceClient": "backslash",
+    "SapBwXmlaClient": "standard", "SapDatasphereClient": "standard", "SapHanaClient": "standard",
+    "ServiceNowClient": "standard", "SharepointClient": "standard",
+    "SharepointListsClient": "standard", "SharepointOnpremClient": "standard", "SisenseClient": "standard",
+    "SnowflakeClient": "doubled", "SparkConnectClient": "backslash", "SpectrumClient": "standard",
+    "SplunkClient": None, "SqliteClient": "standard", "TableauClient": "standard",
+    "TeradataClient": "standard", "TimbrA2aClient": "standard", "TimbrClient": "standard",
+    "TrinoClient": "standard", "VCenterClient": "standard", "VerticaClient": "doubled",
+    "XmlaClient": "standard", "ZabbixClient": "standard",
+}
+
+
+def test_every_query_client_has_the_literal_rule_listed_for_it():
+    import importlib
+    import inspect
+    import pkgutil
+
+    import app.data_sources.clients as package
+    from app.data_sources.clients.base import DataSourceClient
+
+    found = {}
+    for info in pkgutil.iter_modules(package.__path__):
+        try:
+            module = importlib.import_module(f"{package.__name__}.{info.name}")
+        except ImportError:
+            continue  # a driver this environment lacks (ODBC)
+        for _, cls in inspect.getmembers(module, inspect.isclass):
+            if issubclass(cls, DataSourceClient) and cls.__module__ == module.__name__:
+                rule = cls.sql_literal_style
+                found[cls.__name__] = f"{rule}+envelope" if cls.sql_in_json_envelope else rule
+    unlisted = sorted(set(found) - set(_EXPECTED_LITERAL_RULES))
+    assert not unlisted, f"connectors with no literal rule listed here: {unlisted}"
+    assert {n: found[n] for n in _EXPECTED_LITERAL_RULES if n in found} == {
+        n: r for n, r in _EXPECTED_LITERAL_RULES.items() if n in found}
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _STANDARD_LITERAL_CLIENTS)
+def test_engines_with_standard_literals_render_exactly_as_before(module, class_name, dialect):
+    """Engines where a backslash is an ordinary character keep the doubled
+    quote and nothing else (Athena refuses a backslash instead: its
+    renderer's reading and the engine's differ on one)."""
+    cases = {
+        "a backslash\\' before a quote, then more words": "'a backslash\\'' before a quote, then more words'",
+        "ends with a backslash\\": "'ends with a backslash\\'",
+        "it's": "'it''s'",
+        "line one\nline two": "'line one\nline two'",
+        "double \\\\ backslash": "'double \\\\ backslash'",
+    }
+    refuses = _renderer_of(module, class_name).name in _REFUSES_A_BACKSLASH
+    for value, literal in cases.items():
+        if refuses and "\\" in value:
+            with pytest.raises(ParamError, match="backslash"):
+                _rendered_for(module, class_name, "SELECT * FROM t WHERE a = :v", {"v": value})
+            continue
+        assert _rendered_for(module, class_name, "SELECT * FROM t WHERE a = :v", {"v": value}) == (
+            "SELECT * FROM t WHERE a = " + literal)
+
+
+@pytest.mark.parametrize("module,class_name,dialect", _ALL_LITERAL_CLIENTS)
+@pytest.mark.parametrize("value", ["O'Brien", "CORP\\jdoe"])
+def test_an_identity_value_with_a_quote_still_verifies_as_applied(module, class_name, dialect, value):
+    """The identity check reads the executed SQL in the engine's grammar (its
+    sqlglot dialect, else its renderer's, else one with the same literal
+    rules as its declared style); a quote or a backslash in the identity
+    value (a surname, a domain login) must still be found as the value the
+    query filters on."""
+    from app.ai.code_execution.client_profiles import family_name
+    from app.ai.code_execution.identity_bind import CapturedQuery
+
+    specs = _specs({"name": "v", "type": "string", "source": "identity"})
+    cls = _client_class(module, class_name)
+    if "\\" in value and _renderer_of(module, class_name).name in _REFUSES_A_BACKSLASH:
+        with pytest.raises(ParamError, match="backslash"):
+            _rendered_for(module, class_name, "SELECT * FROM t WHERE owner = :v", {"v": value})
+        return
+    rendered = _rendered_for(module, class_name, "SELECT * FROM t WHERE owner = :v", {"v": value})
+    capture = CapturedQuery(rendered, family_name(object.__new__(cls)), literal_style=cls.sql_literal_style,
+                            sql_in_json_envelope=cls.sql_in_json_envelope)
+    assert verify_identity_binds_in_queries([capture], {"v": value}, specs) is None
+
+
+# The connectors main added that the guard checks with a sqlglot dialect.
+
+def test_an_iceberg_query_is_one_duckdb_select_over_catalog_tables_by_name():
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    client = object.__new__(IcebergClient)
+    assert guard_profile(client).dialect == "duckdb"
+    assert ensure_read_only(client, "SELECT region, SUM(amount) FROM sales.orders GROUP BY region")
+    for sql in ("SELECT * FROM read_csv('/etc/hosts')", "SELECT * FROM sales.orders, read_text('/etc/hosts')",
+                "SELECT getenv('HOME')", "SELECT * FROM duckdb_settings()", "COPY sales.orders TO 'x.csv'",
+                "SELECT * FROM 'data.parquet'"):
+        with pytest.raises(ReadOnlyViolation):
+            ensure_read_only(client, sql)
+
+
+@pytest.mark.parametrize("module,class_name", [("dremio_client", "DremioClient"), ("hive_client", "HiveClient")])
+def test_a_dremio_or_hive_query_with_a_backslash_is_refused(module, class_name):
+    """Their engines' lexers are not pinned against sqlglot's: text whose
+    reading turns on a backslash is refused, a rendered one included."""
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+
+    client = object.__new__(_client_class(module, class_name))
+    assert guard_profile(client).unknown_lexer
+    assert ensure_read_only(client, "SELECT a FROM s.t WHERE b = 'x'")
+    rendered = _rendered_for(module, class_name, "SELECT a FROM s.t WHERE b = :v", {"v": "it's \\ here"})
+    with pytest.raises(ReadOnlyViolation, match="backslash"):
+        ensure_read_only(client, rendered)
+
+
+def test_dremio_refuses_a_double_slash_and_hive_a_block_comment():
+    """Calcite (Dremio) reads `//` as a line comment; Hive releases differ on
+    /* */ comments. Neither is read the way the checks read it."""
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
+
+    dremio = object.__new__(_client_class("dremio_client", "DremioClient"))
+    hive = object.__new__(_client_class("hive_client", "HiveClient"))
+    with pytest.raises(ReadOnlyViolation, match="//"):
+        ensure_read_only(dremio, "SELECT a // '\nFROM s.t --'")
+    assert ensure_read_only(dremio, "SELECT a / 2 FROM s.t WHERE b = '//'")
+    with pytest.raises(ReadOnlyViolation, match="comment"):
+        ensure_read_only(hive, "SELECT a FROM db.t /* x */")
+    assert ensure_read_only(hive, "SELECT a FROM db.t WHERE b = '/* x */' -- note")
 
 
 # ---------------------------------------------------------------------------

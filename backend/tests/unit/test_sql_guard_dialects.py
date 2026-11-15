@@ -1223,7 +1223,8 @@ _DUCKDB_SPACES = {c for c in NON_ASCII_SPACES if ord(c) not in (0x85, 0x1680, 0x
 def _engine_space(family: str, c: str) -> bool:
     if c in _LINE_BREAKS:
         return False
-    return family == "MSSQLClient" or (family == "DuckDBClient" and c in _DUCKDB_SPACES)
+    # Iceberg queries run on DuckDB.
+    return family == "MSSQLClient" or (family in ("DuckDBClient", "IcebergClient") and c in _DUCKDB_SPACES)
 
 
 @pytest.mark.parametrize("family", SQL_FAMILIES)
@@ -1280,7 +1281,7 @@ def test_windows_line_ends_still_read(family):
 # Dialects whose sqlglot tokenizer lets a name start with a digit: there it
 # reads one name, as the engine does.
 DIGIT_START_NAMES = {"MysqlClient", "MariadbClient", "SparkConnectClient", "DatabricksSqlClient", "TimbrClient",
-                     "ClickhouseClient"}
+                     "ClickhouseClient", "HiveClient"}
 
 
 @pytest.mark.parametrize("family", sorted(set(SQL_FAMILIES) - LEXED - DIGIT_START_NAMES))

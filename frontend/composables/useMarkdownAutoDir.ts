@@ -13,10 +13,16 @@
  *  3. Pieces of one block disagree: each `<li>` / `<td>` picks its own
  *     direction, so a Hebrew list or table ends up half left, half right.
  *
- * So we decide direction ourselves, once per markdown ROOT (a whole answer),
- * top-down, and stamp an explicit `dir` on every block:
+ * So we decide direction ourselves, once per markdown ROOT, top-down, and
+ * stamp an explicit `dir` on every block:
  *
- *  - The root's direction is a word vote over all its prose (code excluded,
+ *  - A chat reply is split into several roots by its tool calls, so the reply
+ *    decides one direction for the whole message (decideMessageDir, in
+ *    ResponseLanguageScope) and hands it to each of its roots as
+ *    `data-response-dir`, next to an explicit `dir` on the wrapper. That
+ *    direction is authoritative: every table and list in the reply takes it,
+ *    and only a paragraph almost entirely in the other script leaves it.
+ *  - Otherwise the root's direction is a word vote over all its prose (code excluded,
  *    quantities like "1.2M" neutral — see utils/textDirection.ts). A reply
  *    carries `data-dir-hint`, the direction of the question it answers
  *    (answers mirror the user's language): the root keeps that direction
@@ -92,8 +98,12 @@ function replyHintOf(root: Element): TextDir | null {
   return isDir(hint) ? hint : null
 }
 
-function uiDir(): TextDir | null {
-  return document.documentElement.getAttribute('dir') === 'rtl' ? 'rtl' : null
+// The RTL direction the root sits in, if any: its nearest explicit `dir`
+// (a reply's tool card, a modal), else the UI's on <html>. Short text with no
+// vote of its own follows it, as it would follow the UI.
+function inheritedRtl(root: Element): TextDir | null {
+  const dir = root.parentElement?.closest('[dir="rtl"], [dir="ltr"]')?.getAttribute('dir')
+  return dir === 'rtl' ? 'rtl' : null
 }
 
 // Last value we stamped per element, so our own attribute writes don't
@@ -140,7 +150,7 @@ export function stampRoot(root: Element) {
   const savedDirection = root.closest('[data-response-dir]')?.getAttribute('data-response-dir')
   resolveDirTree(tree, countElementWords(root), {
     hint, direction: isDir(savedDirection) ? savedDirection : null,
-    fallback: uiDir(), settled: !hint,
+    fallback: inheritedRtl(root), settled: !hint,
   })
   const apply = (node: DirNode<Element>) => {
     stamp(node.ref, node.dir ?? null)

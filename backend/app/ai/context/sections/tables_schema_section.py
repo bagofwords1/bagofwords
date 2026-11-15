@@ -61,13 +61,13 @@ class FileScopeItem(BaseModel):
     type: str
     base: Optional[str] = None
     globs: List[str] = []
-    index_mode: str = "content"      # none | metadata | content
+    index_mode: str = "content"      # none | metadata | content | fulltext
     file_count: int = 0
     capped: bool = False             # catalog hit the connection's Max Files cap
     indexed_at: Optional[str] = None # last completed shared index run (UTC ISO)
     sample: List[str] = []           # a few representative file ids
     topics: List[str] = []           # aggregate keywords (content mode)
-    supports_search: bool = True     # native search API OR index_mode==content
+    supports_search: bool = True     # native search API OR a content index tier
     writable: bool = False
     per_user: bool = False           # per-user OAuth (each user reads as themselves)
     # True when this connector enforces a path/glob scope boundary (network_dir/
@@ -827,7 +827,13 @@ class TablesSchemaContext(ContextSection):
             # "else denied" clause on real scope enforcement.
             denial = (" Access is limited to the scope above; anything else is denied."
                       if fs.enforces_scope else "")
-            if fs.supports_search:
+            if fs.index_mode == "fulltext":
+                usage = ("search_files to find files by ANY words in their content or name "
+                         "(full-text index, ranked; names, IDs and numbers work; quote an exact "
+                         "phrase) — each hit says where in the file the words are · read_file "
+                         "with that page_range / sheet / offset+length to read just that part · "
+                         "list_files to browse." + denial)
+            elif fs.supports_search:
                 usage = ("search_files to find by topic · list_files to browse · "
                          "read_file to read (use offset/length for large files)." + denial)
             else:
@@ -927,6 +933,8 @@ class TablesSchemaContext(ContextSection):
 
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
+            if self.info.folder_path:
+                ds_attrs["folder_path"] = self.info.folder_path
             # Only include type if single connection (for backward compatibility)
             if not has_multi_connection and not self.file_scopes and self.info.type:
                 ds_attrs["type"] = self.info.type
@@ -1399,6 +1407,8 @@ class TablesSchemaContext(ContextSection):
                 "name": ds.info.name,
                 "id": ds.info.id,
             }
+            if item_tag != "connector" and ds.info.folder_path:
+                attrs["folder_path"] = ds.info.folder_path
             if item_tag != "connector":
                 attrs["total_tables"] = str(len(getattr(ds, 'tables', []) or []))
             # Only include type for single-connection (backward compatibility)

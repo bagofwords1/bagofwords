@@ -1622,12 +1622,66 @@ class AWSAthenaDefaultCredentials(BaseModel):
         extra = 'allow'
 
 
+ATHENA_DATABASE_NAME_MARKERS = "*?[!"
+
+
+def parse_athena_database_spec(spec) -> tuple[list[str], list[str], bool]:
+    """Split an Athena `database` value into (includes, !-excludes, multi).
+
+    Multi-database mode is decided by the syntax (a list, a glob or a `!`),
+    never by how many databases match, so table names do not flip when a glob
+    happens to match one database.
+    """
+    text = str(spec or "")
+    entries = [e for e in (e.strip() for e in text.split(",")) if e]
+    includes = [e for e in entries if not e.startswith("!")]
+    excludes = [e[1:].strip() for e in entries if e.startswith("!") and e[1:].strip()]
+    multi = len(entries) > 1 or any(c in text for c in ATHENA_DATABASE_NAME_MARKERS)
+    return includes, excludes, multi
+
+
 class AWSAthenaConfig(BaseModel):
     region: str = Field(..., title="Region", description="", json_schema_extra={"ui:type": "string"})
-    database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    database: str = Field(
+        ...,
+        title="Database",
+        description="One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. '*_db, !billing_db, analytics_history'. With several, tables are named database.table.",
+        json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.athena.databaseDescription"},
+    )
     workgroup: str = Field("primary", title="Workgroup", description="", json_schema_extra={"ui:type": "string"})
     s3_output_location: Optional[str] = Field(None, title="S3 Output Location", description="Leave blank if your workgroup has a default output location", json_schema_extra={"ui:type": "string"})
     data_source: str = Field("AwsDataCatalog", title="Data Source", description="", json_schema_extra={"ui:type": "string"})
+    table_exclude_pattern: Optional[str] = Field(
+        None,
+        title="Table Exclude Pattern",
+        description="Optional regular expression; tables whose name matches are not indexed, e.g. '^day_\\d{2}'. Changing it removes newly excluded tables and the agent's selection of them on the next index.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.athena.tableExcludeTitle",
+                           "ui:descriptionKey": "data.athena.tableExcludeDescription"},
+    )
+
+    @field_validator("table_exclude_pattern")
+    @classmethod
+    def _check_table_exclude_pattern(cls, value):
+        from app.utils.safe_regex import compile_bounded, pattern_cost_problem
+        if value is not None and value.strip():
+            problem = pattern_cost_problem(value.strip())
+            if problem:
+                raise ValueError(f"table_exclude_pattern is too costly: {problem}")
+            if compile_bounded(value.strip()) is None:
+                raise ValueError("table_exclude_pattern is not a valid regular expression")
+        return value
+
+    @model_validator(mode="after")
+    def _check_database_spec(self):
+        entries = [e.strip() for e in self.database.split(",")]
+        if any(not e or e == "!" for e in entries):
+            raise ValueError("database must not contain empty entries")
+        includes, _, multi = parse_athena_database_spec(self.database)
+        if not includes:
+            raise ValueError("database needs at least one database name or pattern, not only !-exclusions")
+        if multi and self.data_source != "AwsDataCatalog":
+            raise ValueError("data_source must be AwsDataCatalog when database lists several databases or patterns")
+        return self
 
 
 # AWS CloudWatch — log groups (Logs Insights) + metrics.
@@ -3635,23 +3689,27 @@ class NetworkDirConfig(BaseModel):
         json_schema_extra={"ui:type": "number"}
     )
     index_mode: str = Field(
-        "content",
+        "fulltext",
         title="Indexing",
         description=(
-            "How much to cache from the source. 'none' → nothing cached; the "
-            "agent lists/reads live every time (freshest, best for volatile or "
-            "huge dirs). 'metadata' → cache the file list on a schedule "
-            "(fast listing, no content search). 'content' → also extract "
-            "keywords from PDF/Word/PowerPoint/Excel/CSV/email (.eml/.msg) so "
-            "the agent can find files by topic. Reads are always live regardless."
+            "How much to store about the files — and so how well the agent "
+            "can search them. Live: nothing stored; search is by file name "
+            "plus a slow scan of the source. File list: names, sizes and "
+            "dates. Keywords: also up to 50 keywords per file, from the start "
+            "of its text. Full text: also a search index of every word in "
+            "every file (PDF, Office, CSV, text, email), so the agent finds "
+            "exact words, IDs and phrases anywhere, with the page or sheet. "
+            "The index holds the words, not the files, and is removed with "
+            "the connection. Only changed files are re-read."
         ),
         json_schema_extra={
             "ui:type": "select",
-            "enum": ["none", "metadata", "content"],
+            "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
-                "none": "None (live only)",
+                "none": "Live (nothing stored)",
                 "metadata": "File list",
-                "content": "Contents (searchable)",
+                "content": "Keywords",
+                "fulltext": "Full text (recommended)",
             },
         },
     )
@@ -3760,21 +3818,27 @@ class S3Config(BaseModel):
         json_schema_extra={"ui:type": "number"},
     )
     index_mode: str = Field(
-        "content",
+        "fulltext",
         title="Indexing",
         description=(
-            "How much to cache from the bucket. 'none' → nothing cached; list/"
-            "read go live (best for huge or volatile buckets). 'metadata' → "
-            "cache the object list only. 'content' → also extract keywords for "
-            "topic search. Reads are always live regardless."
+            "How much to store about the objects — and so how well the agent "
+            "can search them. Live: nothing stored; list and read go to the "
+            "bucket every time. Object list: keys, sizes and dates. Keywords: "
+            "also up to 50 keywords per object, from the start of its text. "
+            "Full text: also a search index of every word in every object, "
+            "so the agent finds exact words, IDs and phrases anywhere, with "
+            "the page or sheet. The index holds the words, not the objects, "
+            "and is removed with the connection. Only changed objects are "
+            "downloaded again."
         ),
         json_schema_extra={
             "ui:type": "select",
-            "enum": ["none", "metadata", "content"],
+            "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
-                "none": "None (live only)",
+                "none": "Live (nothing stored)",
                 "metadata": "Object list",
-                "content": "Contents (searchable)",
+                "content": "Keywords",
+                "fulltext": "Full text (recommended)",
             },
         },
     )

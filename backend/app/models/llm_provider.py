@@ -4,7 +4,7 @@ from app.models.base import BaseSchema
 import json
 from cryptography.fernet import Fernet
 from app.settings.config import settings
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials, BedrockCredentials, VertexCredentials
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials, BedrockCredentials, VertexCredentials, TypeSafeCredentials
 
 # LLM Provider Classes
 
@@ -57,6 +57,13 @@ LLM_PROVIDER_DETAILS = [
          "description": "Google Cloud Vertex AI for accessing Claude, Gemini and third-party models (Grok, GLM, Llama). Supports Application Default Credentials and service account keys.",
          "config": "VertexConfig",
          "credentials": VertexCredentials.schema()
+     },
+     {
+         "type": "typesafe",
+         "name": "TypeSafe",
+         "description": "TypeSafe Jev decision models (typed questions in, probabilities out). Used by the Auto router to pick a request's starting model; never for chat.",
+         "config": "TypeSafeConfig",
+         "credentials": TypeSafeCredentials.schema()
      }
 ]
 

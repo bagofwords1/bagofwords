@@ -79,6 +79,9 @@ def _quote_ident(name: str) -> str:
 
 class TrinoClient(DataSourceClient):
 
+    # Trino: '' only (sqlglot trino).
+    sql_literal_style = "standard"
+
     # The custom-query extractor bounds rows with LIMIT for this dialect.
     EXTRACTION_DIALECT = "trino"
 

@@ -21,6 +21,7 @@ DEFAULT_DRAFTS_SUITE_NAME = "Drafts"
 class TestSuite(BaseSchema):
     __tablename__ = "test_suites"
 
+    owner_folder_id = Column(String(36), ForeignKey("folders.id"), nullable=True, index=True)
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
@@ -136,7 +137,10 @@ class TestRun(BaseSchema):
 
 
 class TestResult(BaseSchema):
+    data_source_ids_json = Column(JSON, nullable=True)
     __tablename__ = "test_results"
+
+    folder_id = Column(String(36), nullable=True)
 
     run_id = Column(String(36), ForeignKey('test_runs.id'), nullable=False, index=True)
     case_id = Column(String(36), ForeignKey('test_cases.id'), nullable=False, index=True)

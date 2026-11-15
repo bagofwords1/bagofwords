@@ -1,24 +1,7 @@
 <template>
-    <div class="mt-6">
-        <!-- Inner tabs -->
-        <div class="border-b border-gray-200 dark:border-gray-700 mb-4">
-            <nav class="-mb-px flex space-x-6">
-                <button
-                    v-for="tab in visibleTabs"
-                    :key="tab.key"
-                    @click="activeTab = tab.key"
-                    :class="[
-                        activeTab === tab.key
-                            ? 'border-blue-500 text-blue-600'
-                            : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 hover:text-gray-700 dark:hover:text-gray-300',
-                    ]"
-                    class="whitespace-nowrap border-b-2 py-2 px-1 text-sm font-medium transition-colors"
-                >
-                    {{ tab.label }}
-                </button>
-            </nav>
-        </div>
-
+    <div>
+        <!-- Sub-page navigation (Members, Roles, Groups, …) lives in the admin
+             sidebar under "Access"; the selected one is ?tab=<key>. -->
         <MembersComponent v-if="activeTab === 'members'" :organization="organization" />
         <RolesManager v-if="activeTab === 'roles'" :organization="organization" />
         <GroupsManager v-if="activeTab === 'groups'" :organization="organization" />
@@ -29,34 +12,24 @@
 </template>
 
 <script setup lang="ts">
-import { useCan } from '~/composables/usePermissions'
-import { useEnterprise } from '~/ee/composables/useEnterprise'
+import { useAdminNav } from '~/composables/useAdminNav'
 
-const { t } = useI18n()
+const route = useRoute()
 const { organization } = useOrganization()
-const activeTab = ref('members')
-const { hasFeature } = useEnterprise()
+const { visibleItems } = useAdminNav()
 
-const tabs = computed(() => [
-    { key: 'members', label: t('settings.membersTabs.members') },
-    { key: 'roles', label: t('settings.membersTabs.roles'), permission: 'manage_roles', feature: 'custom_roles' },
-    { key: 'groups', label: t('settings.membersTabs.groups'), permission: 'manage_groups', feature: 'custom_roles' },
-    // Service accounts are a core (non-EE) capability — no feature flag.
-    { key: 'service_accounts', label: t('settings.membersTabs.serviceAccounts'), permission: 'manage_service_accounts' },
-    { key: 'quotas', label: t('settings.membersTabs.quotas'), permission: 'manage_settings', feature: 'usage_limits' },
-    { key: 'signup', label: t('settings.membersTabs.signup'), permission: 'full_admin_access', feature: 'domain_signup' },
-])
-
+// Permission + license gating is shared with the sidebar (useAdminNav). An
+// unknown or forbidden ?tab falls back to the first sub-page the user may see.
 const visibleTabs = computed(() =>
-    tabs.value.filter((tab) => {
-        if (tab.feature && !hasFeature(tab.feature)) return false
-        if (tab.permission && !useCan(tab.permission)) return false
-        return true
-    })
+    visibleItems.value.find(item => item.name === 'members')?.children || []
 )
+const activeTab = computed(() => {
+    const requested = String(route.query.tab || '')
+    const tabs = visibleTabs.value
+    return tabs.find(tab => tab.key === requested)?.key || tabs[0]?.key || 'members'
+})
 
 definePageMeta({
-    layout: 'settings',
     permissions: ['view_members'],
 })
 </script>

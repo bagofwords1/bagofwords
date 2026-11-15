@@ -8,6 +8,7 @@ from typing import AsyncIterator, Dict, Any, Type
 from pydantic import BaseModel
 import logging
 
+from app.models.report import report_folder_ids
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.search_instructions import (
@@ -305,7 +306,7 @@ class SearchInstructionsTool(Tool):
             # compact snippets); session_scoped governs only the search scope, so
             # training gets chat's scoping without chat's presentation.
             chat_mode = runtime_ctx.get("mode") == "chat"
-            session_scoped = runtime_ctx.get("mode") in ("chat", "training")
+            session_scoped = runtime_ctx.get("mode") in ("chat", "training") or (runtime_ctx.get("mode") == "knowledge" and getattr(runtime_ctx.get("report"), "agent_folder_id", None))
             effective_ds_ids = data.data_source_ids
             if session_scoped:
                 from app.ai.tools.implementations.read_instruction import ReadInstructionTool
@@ -326,6 +327,9 @@ class SearchInstructionsTool(Tool):
                     )
                     return
                 effective_ds_ids = scope_ds_ids
+
+            folder_id = report_folder_ids(runtime_ctx.get("report")) if session_scoped else None
+            session_filter = {"session_scope": True, "folder_id": folder_id} if session_scoped else {}
 
             # --- Resolve each query into a compiled pattern ---
             # Mirrors describe_tables: literal substrings are escaped and wrapped
@@ -369,6 +373,7 @@ class SearchInstructionsTool(Tool):
                 data_source_ids=effective_ds_ids,
                 search=None,
                 include_global=True,
+                **session_filter,
             )
 
             candidates = result.get("items", []) if isinstance(result, dict) else []
@@ -406,6 +411,7 @@ class SearchInstructionsTool(Tool):
                     data_source_ids=effective_ds_ids,
                     search=None,
                     include_global=True,
+                    **session_filter,
                     build_id=training_build_id,
                 )
                 draft_items = draft_result.get("items", []) if isinstance(draft_result, dict) else []
@@ -439,12 +445,8 @@ class SearchInstructionsTool(Tool):
                 # global (no associations). None means the scope itself is
                 # unresolved (e.g. knowledge mode with no ids) — leave as-is.
                 if effective_ds_ids is not None:
-                    conditions.append(_or(
-                        _Instruction.data_sources.any(
-                            _DataSource.id.in_([str(i) for i in effective_ds_ids])
-                        ),
-                        ~_Instruction.data_sources.any(),
-                    ))
+                    from app.services.folder_knowledge import instruction_scope
+                    conditions.append(instruction_scope(effective_ds_ids, folder_id))
                 own_drafts = (await db.execute(
                     _select(_Instruction).where(_and(*conditions)).limit(window)
                 )).unique().scalars().all()

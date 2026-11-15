@@ -64,14 +64,11 @@
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.integrations.channels.whatsapp.agentScopeTitle') }}</h4>
               <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('settings.integrations.channels.whatsapp.agentScopeDesc') }}</p>
               <div v-if="agentsLoading" class="text-xs text-ink-muted">{{ $t('settings.integrations.channels.common.loading') }}</div>
-              <div v-else-if="!allAgents.length" class="text-xs text-ink-muted">{{ $t('settings.integrations.channels.whatsapp.agentScopeNoAgents') }}</div>
+              <div v-else-if="!allAgents.length && !folders.length" class="text-xs text-ink-muted">{{ $t('settings.integrations.channels.whatsapp.agentScopeNoAgents') }}</div>
               <template v-else>
-                <div class="max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md divide-y divide-gray-100 dark:divide-gray-800">
-                  <label v-for="agent in allAgents" :key="agent.id" class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer">
-                    <input type="checkbox" :value="agent.id" v-model="scopeDraft" />
-                    <span class="truncate">{{ agent.name }}</span>
-                  </label>
-                </div>
+                <AgentScopeMenu :folders="folders" :options="allAgents" :selected="scopeDraft" :placeholder="$t('prompt.modelAuto')"
+                  :first-label="$t('prompt.modelAuto')" :first-selected="!scopeDraft.length" @first="scopeDraft = []"
+                  @select="id => scopeDraft = scopeDraft.includes(id) ? scopeDraft.filter(v => v !== id) : [...scopeDraft, id]" />
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
                   {{ scopeDraft.length ? $t('settings.integrations.channels.whatsapp.agentScopeCount', { count: scopeDraft.length }) : $t('settings.integrations.channels.whatsapp.agentScopeAll') }}
                 </p>
@@ -217,6 +214,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions, channelScopePayload, channelScopeValues } from '~/composables/useAgentFolderOptions'
 import { ref, computed, onMounted, nextTick } from 'vue'
 const props = defineProps<{
   instances?: any[]
@@ -229,6 +227,7 @@ const instances = computed(() => props.instances || [])
 
 // ---- Per-instance expansion + loaded detail ----
 const expandedId = ref<string | null>(null)
+const folders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
 const allAgents = ref<any[]>([])
 const agentsLoading = ref(false)
 const scopeDraft = ref<string[]>([])
@@ -270,7 +269,8 @@ async function loadAgents() {
   const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
   agentsLoading.value = false
   if (res.status.value === 'success') {
-    allAgents.value = ((res.data.value as any[]) || []).map((d: any) => ({ id: d.id, name: d.name }))
+    folders.value = await loadAgentFolderOptions()
+    allAgents.value = ((res.data.value as any[]) || []).map((d: any) => ({ value: d.id, label: d.name, type: d.type, folderId: d.folder_id }))
   }
 }
 
@@ -278,7 +278,7 @@ async function loadScope(id: string) {
   scopeDraft.value = []
   const res = await useMyFetch(`/api/settings/integrations/${id}/agents`)
   if (res.status.value === 'success') {
-    scopeDraft.value = ((res.data.value as any)?.agent_ids || []) as string[]
+    scopeDraft.value = channelScopeValues((res.data.value as any)?.agent_ids, (res.data.value as any)?.agent_folder_ids)
   }
 }
 
@@ -286,11 +286,11 @@ async function saveScope(id: string) {
   savingScope.value = true
   const res = await useMyFetch(`/api/settings/integrations/${id}/agents`, {
     method: 'PUT',
-    body: { agent_ids: scopeDraft.value },
+    body: channelScopePayload(scopeDraft.value),
   })
   savingScope.value = false
   if (res.status.value === 'success') {
-    scopeDraft.value = ((res.data.value as any)?.agent_ids || []) as string[]
+    scopeDraft.value = channelScopeValues((res.data.value as any)?.agent_ids, (res.data.value as any)?.agent_folder_ids)
     toast.add({ title: t('settings.integrations.channels.whatsapp.agentScopeSaved'), color: 'green' })
   } else {
     toast.add({

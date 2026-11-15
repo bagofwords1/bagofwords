@@ -14,6 +14,12 @@ from databricks import sql as databricks_sql
 class DatabricksSqlClient(DataSourceClient):
     """Client for Databricks SQL Warehouse connections."""
 
+    # Inside a string literal '' is not a quote here and a backslash escapes
+    # (assumes the default spark.sql.parser.escapedStringLiterals=false):
+    # parameter values double the backslash and write a quote as \'
+    # (app/ai/code_execution/query_params.py).
+    sql_literal_style = "backslash"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

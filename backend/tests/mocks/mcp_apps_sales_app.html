@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Regional sales</title>
+<style>
+  :root {
+    --bg: var(--color-background-primary, #ffffff);
+    --bg2: var(--color-background-secondary, #f6f7f9);
+    --fg: var(--color-text-primary, #111827);
+    --fg2: var(--color-text-secondary, #6b7280);
+    --border: var(--color-border-primary, #e5e7eb);
+    --accent: var(--color-ring-primary, #2563eb);
+    --radius: var(--border-radius-md, 8px);
+    --font: var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 13px/1.45 var(--font); }
+  .wrap { padding: 14px 16px 12px; }
+  header { display: flex; align-items: center; gap: 8px; justify-content: space-between; flex-wrap: wrap; }
+  h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  .sub { color: var(--fg2); font-size: 12px; }
+  .controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  button, select {
+    font: inherit; font-size: 12px; color: var(--fg); background: var(--bg2);
+    border: 1px solid var(--border); border-radius: calc(var(--radius) - 2px);
+    padding: 4px 9px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .55; cursor: default; }
+  .chart { margin-top: 12px; display: grid; gap: 7px; }
+  .row { display: grid; grid-template-columns: 92px 1fr 86px; gap: 8px; align-items: center; cursor: pointer; }
+  .row .label { color: var(--fg2); }
+  .row.sel .label { color: var(--fg); font-weight: 600; }
+  .bar { height: 18px; border-radius: 4px; background: var(--accent); opacity: .78; transition: width .35s ease; min-width: 2px; }
+  .row.sel .bar { opacity: 1; }
+  .val { text-align: end; font-variant-numeric: tabular-nums; }
+  .kpis { display: flex; gap: 18px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+  .kpi b { display: block; font-size: 16px; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--fg2); font-size: 11px; }
+  .status { margin-top: 10px; font-size: 11px; color: var(--fg2); min-height: 15px; }
+  .status.err { color: #b45309; }
+  [dir="rtl"] .val { text-align: start; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <header>
+    <div>
+      <h1 id="title">Regional sales</h1>
+      <div class="sub" id="subtitle">Waiting for the tool call…</div>
+    </div>
+    <div class="controls">
+      <select id="quarter" aria-label="Quarter">
+        <option>Q1</option><option>Q2</option><option selected>Q3</option><option>Q4</option>
+      </select>
+      <button id="refresh" title="Load the quarter through the app-only refresh_sales tool">Refresh</button>
+      <button id="ask" class="primary">Ask about top region</button>
+      <button id="followup">Create follow-up</button>
+      <button id="fullscreen">Fullscreen</button>
+      <button id="docs">Docs</button>
+    </div>
+  </header>
+  <div class="chart" id="chart"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="status" id="status"></div>
+</div>
+<script>
+(function () {
+  // A minimal MCP Apps client (ext-apps spec, JSON-RPC 2.0 over postMessage).
+  var nextId = 1, pending = {}, rows = [], selected = null, quarter = 'Q3';
+  var hostCaps = {}, displayMode = 'inline';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function send(msg) { window.parent.postMessage(msg, '*'); }
+  function request(method, params) {
+    var id = nextId++;
+    send({ jsonrpc: '2.0', id: id, method: method, params: params || {} });
+    return new Promise(function (resolve, reject) { pending[id] = { resolve: resolve, reject: reject }; });
+  }
+  function notify(method, params) { send({ jsonrpc: '2.0', method: method, params: params || {} }); }
+  function status(text, isErr) { var s = $('status'); s.textContent = text || ''; s.className = 'status' + (isErr ? ' err' : ''); }
+
+  function applyContext(ctx) {
+    if (!ctx) return;
+    if (ctx.theme) document.documentElement.style.colorScheme = ctx.theme;
+    var vars = ctx.styles && ctx.styles.variables;
+    if (vars) Object.keys(vars).forEach(function (k) { if (vars[k]) document.documentElement.style.setProperty(k, vars[k]); });
+    if (ctx.locale) {
+      document.documentElement.lang = ctx.locale;
+      document.documentElement.dir = /^(he|ar|fa|ur)\b/.test(ctx.locale) ? 'rtl' : 'ltr';
+    }
+    if (ctx.displayMode) { displayMode = ctx.displayMode; $('fullscreen').textContent = displayMode === 'fullscreen' ? 'Exit fullscreen' : 'Fullscreen'; }
+  }
+
+  function fmt(n) { return '$' + Math.round(n).toLocaleString('en-US'); }
+  function render() {
+    var chart = $('chart'); chart.innerHTML = '';
+    var max = Math.max.apply(null, rows.map(function (r) { return r.revenue; }).concat([1]));
+    rows.forEach(function (r) {
+      var row = document.createElement('div');
+      row.className = 'row' + (selected === r.region ? ' sel' : '');
+      row.setAttribute('data-region', r.region);
+      row.innerHTML = '<div class="label"></div><div><div class="bar"></div></div><div class="val"></div>';
+      row.querySelector('.label').textContent = r.region;
+      row.querySelector('.bar').style.width = (100 * r.revenue / max).toFixed(1) + '%';
+      row.querySelector('.val').textContent = fmt(r.revenue);
+      row.onclick = function () { select(r.region); };
+      chart.appendChild(row);
+    });
+    var total = rows.reduce(function (a, r) { return a + r.revenue; }, 0);
+    var orders = rows.reduce(function (a, r) { return a + r.orders; }, 0);
+    var top = rows.slice().sort(function (a, b) { return b.revenue - a.revenue; })[0];
+    $('kpis').innerHTML = '';
+    [[fmt(total), 'Revenue ' + quarter], [orders.toLocaleString('en-US'), 'Orders'], [top ? top.region : '—', 'Top region']]
+      .forEach(function (k) { var d = document.createElement('div'); d.className = 'kpi'; d.innerHTML = '<b></b><span></span>'; d.querySelector('b').textContent = k[0]; d.querySelector('span').textContent = k[1]; $('kpis').appendChild(d); });
+    reportSize();
+  }
+
+  function select(region) {
+    selected = region; render();
+    var r = rows.filter(function (x) { return x.region === region; })[0];
+    // Tell the model what the user is looking at (replaces any earlier context).
+    request('ui/update-model-context', {
+      content: [{ type: 'text', text: 'In the sales app the user selected ' + region + ' for ' + quarter + ' (revenue ' + fmt(r.revenue) + ', ' + r.orders + ' orders).' }],
+      structuredContent: { selectedRegion: region, quarter: quarter, revenue: r.revenue, orders: r.orders }
+    }).then(function () { status('Shared selection with the assistant: ' + region); })
+      .catch(function (e) { status('Could not share selection: ' + e.message, true); });
+  }
+
+  function fromResult(result) {
+    var sc = result && result.structuredContent;
+    if (sc && Array.isArray(sc.rows)) { rows = sc.rows; quarter = sc.quarter || quarter; $('quarter').value = quarter; }
+    $('subtitle').textContent = (sc && sc.region && sc.region !== 'all' ? sc.region + ' · ' : 'All regions · ') + quarter + ' · live from the MCP server';
+    render();
+  }
+
+  function reportSize() {
+    // The content's own size: the document's would be at least the frame's.
+    var el = document.getElementById('app');
+    var r = el.getBoundingClientRect();
+    notify('ui/notifications/size-changed', { width: Math.ceil(r.width), height: Math.ceil(r.height) });
+  }
+
+  window.addEventListener('message', function (ev) {
+    if (ev.source !== window.parent) return;
+    var msg = ev.data;
+    if (!msg || msg.jsonrpc !== '2.0') return;
+    if (msg.id != null && !msg.method) {
+      var p = pending[msg.id]; delete pending[msg.id];
+      if (!p) return;
+      if (msg.error) p.reject(new Error(msg.error.message || 'error')); else p.resolve(msg.result);
+      return;
+    }
+    switch (msg.method) {
+      case 'ui/notifications/tool-input':
+        var args = (msg.params && msg.params.arguments) || {};
+        if (args.quarter) { quarter = args.quarter; $('quarter').value = quarter; }
+        $('subtitle').textContent = 'Loading ' + quarter + '…';
+        break;
+      case 'ui/notifications/tool-result':
+        fromResult(msg.params); status('Rendered from the tool result.');
+        break;
+      case 'ui/notifications/tool-cancelled':
+        status('The tool call was cancelled.', true); break;
+      case 'ui/notifications/host-context-changed':
+        applyContext(msg.params); render(); break;
+      case 'ui/resource-teardown':
+        send({ jsonrpc: '2.0', id: msg.id, result: {} }); break;
+      default:
+        if (msg.id != null) send({ jsonrpc: '2.0', id: msg.id, error: { code: -32601, message: 'Method not found' } });
+    }
+  });
+
+  $('refresh').onclick = function () {
+    quarter = $('quarter').value;
+    $('refresh').disabled = true; status('Calling refresh_sales(' + quarter + ')…');
+    request('tools/call', { name: 'refresh_sales', arguments: { quarter: quarter } })
+      .then(function (res) { fromResult(res); status('Refreshed ' + quarter + ' through the app-only tool.'); })
+      .catch(function (e) { status('Refresh failed: ' + e.message, true); })
+      .then(function () { $('refresh').disabled = false; });
+  };
+  $('quarter').onchange = function () { $('refresh').onclick(); };
+  $('ask').onclick = function () {
+    var top = rows.slice().sort(function (a, b) { return b.revenue - a.revenue; })[0];
+    if (!top) return;
+    request('ui/message', { role: 'user', content: { type: 'text', text: 'Why did ' + top.region + ' lead sales in ' + quarter + '? Answer in two sentences.' } })
+      .then(function () { status('Sent a question to the conversation.'); })
+      .catch(function (e) { status('Message not sent: ' + e.message, true); });
+  };
+  $('followup').onclick = function () {
+    var region = selected || (rows[0] && rows[0].region) || 'EMEA';
+    status('Asking to create a follow-up for ' + region + '…');
+    request('tools/call', { name: 'create_followup_task', arguments: { region: region, note: 'Review ' + quarter + ' pipeline' } })
+      .then(function (res) {
+        var t = res && res.content && res.content[0] && res.content[0].text;
+        status(res && res.isError ? ('Not created: ' + t) : (t || 'Follow-up created.'), !!(res && res.isError));
+      })
+      .catch(function (e) { status('Follow-up not created: ' + e.message, true); });
+  };
+  $('fullscreen').onclick = function () {
+    request('ui/request-display-mode', { mode: displayMode === 'fullscreen' ? 'inline' : 'fullscreen' })
+      .then(function (r) { applyContext({ displayMode: r && r.mode }); reportSize(); })
+      .catch(function (e) { status('Display mode not changed: ' + e.message, true); });
+  };
+  $('docs').onclick = function () {
+    request('ui/open-link', { url: 'https://modelcontextprotocol.io/extensions/apps' })
+      .catch(function (e) { status('Link not opened: ' + e.message, true); });
+  };
+
+  if (window.ResizeObserver) new ResizeObserver(reportSize).observe(document.getElementById('app'));
+
+  request('ui/initialize', {
+    protocolVersion: '2026-01-26',
+    appInfo: { name: 'regional-sales', version: '1.0.0' },
+    appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] }
+  }).then(function (res) {
+    hostCaps = (res && res.hostCapabilities) || {};
+    applyContext(res && res.hostContext);
+    notify('ui/notifications/initialized', {});
+    render();
+  }).catch(function (e) { status('Host did not initialize: ' + e.message, true); });
+})();
+</script>
+</body>
+</html>

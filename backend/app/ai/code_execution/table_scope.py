@@ -781,8 +781,12 @@ def _refuse_denied(denied: list[str]) -> None:
         )
 
 
-def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str]) -> None:
-    """Add to `denied` each of `refs` the scope does not allow."""
+def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str],
+                    exact_catalogs: tuple[str, ...] | None = None) -> None:
+    """Add to `denied` each of `refs` the scope does not allow. With
+    `exact_catalogs`, a table must be `<db>.<table>`, optionally behind one
+    of those catalogs, and equal an active name part for part (no suffix
+    matching, no legacy comparison)."""
     compared = scope
     if dialect in _ENGINE_FOLDED and scope.exact is not None:
         compared = scope.exact
@@ -791,6 +795,13 @@ def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str]) ->
             raise TableScopeViolation(f"{_UNVERIFIED} Rewrite it as a plain SELECT over the agent's enabled tables.")
         compared = scope.ascii_folded
     for ref in refs:
+        if exact_catalogs is not None:
+            if not (len(ref) in (2, 3) and (len(ref) == 2 or ref[0] in exact_catalogs)
+                    and ref[-2:] in compared.active):
+                shown = _display(ref)
+                if shown not in denied:
+                    denied.append(shown)
+            continue
         if not is_allowed(_qualify(ref, compared.default_database), compared):
             if compared.legacy is not None and is_allowed(ref, compared.legacy):
                 logger.warning(
@@ -805,8 +816,14 @@ def _collect_denied(refs, scope: TableScope, dialect: str, denied: list[str]) ->
                 denied.append(shown)
 
 
-def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
-    """Raise TableScopeViolation unless every table `sql` reads is active."""
+def check_table_scope(
+    sql: str, dialect: str, scope: TableScope, exact_catalogs: tuple[str, ...] | None = None,
+) -> None:
+    """Raise TableScopeViolation unless every table `sql` reads is active.
+
+    With `exact_catalogs`, a table must be `<db>.<table>`, optionally behind one of
+    those catalogs, and equal an active name part for part (no suffix matching).
+    """
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
 
@@ -817,7 +834,7 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
     denied: list[str] = []
     if dialect == "duckdb":
         select, refs = _duckdb_tables(sql)
-        _collect_denied(refs, scope, dialect, denied)
+        _collect_denied(refs, scope, dialect, denied, exact_catalogs)
         if select is None:
             _refuse_denied(denied)
             return
@@ -867,7 +884,7 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
                     "because the table it reads cannot be checked."
                 )
 
-        _collect_denied(tables_read(stmt, dialect), scope, dialect, denied)
+        _collect_denied(tables_read(stmt, dialect), scope, dialect, denied, exact_catalogs)
 
         for t in stmt.find_all(exp.Table):
             target = t.this
@@ -888,6 +905,44 @@ def check_table_scope(sql: str, dialect: str, scope: TableScope) -> None:
     _refuse_denied(denied)
 
 
+def table_refs(sql: str, dialect: str) -> list[Name]:
+    """Every table `sql` reads, as lowercased name parts, CTE names left out
+    (`tables_read`: the same CTE visibility and WITH-loop rules as the table
+    scope check).
+
+    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
+    """
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+    from sqlglot import exp
+    from sqlglot.errors import SqlglotError
+
+    try:
+        statements = [s for s in parse_guard_sql(sql, dialect)
+                      if s is not None and not isinstance(s, exp.Semicolon)]
+    except SqlglotError as e:
+        raise TableScopeViolation(
+            "Could not verify which tables this query reads, so it was not run. "
+            "Rewrite it as a plain SELECT over <database>.<table> names."
+        ) from e
+
+    refs: list[Name] = []
+    for stmt in statements:
+        if isinstance(stmt, (exp.Command, exp.Describe, exp.Use)) or type(stmt).__name__ == "Show":
+            raise TableScopeViolation(
+                "SHOW, DESCRIBE and similar statements are not allowed here. "
+                "Read the enabled tables with a SELECT over <database>.<table> names."
+            )
+        for ref in tables_read(stmt, dialect):
+            if ref not in refs:
+                refs.append(ref)
+    return refs
+
+
+def one_part_table_refs(sql: str, dialect: str) -> list[str]:
+    """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
+    return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
+
+
 def enforce_table_scope(client, query) -> None:
     """Check `query` against the scope attached to `client`, if any."""
     scope: TableScope | None = getattr(client, TABLE_SCOPE_ATTR, None)
@@ -896,4 +951,4 @@ def enforce_table_scope(client, query) -> None:
     dialect = dialect_for_client(client)
     if not dialect:
         return
-    check_table_scope(query, dialect, scope)
+    check_table_scope(query, dialect, scope, getattr(client, "exact_table_scope_catalogs", None))

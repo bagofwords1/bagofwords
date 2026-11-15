@@ -34,7 +34,7 @@
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-ink-muted flex-shrink-0" />
                             <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
-                                {{ selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
+                                {{ dsFilterId?.startsWith('folder:') ? folderLabel : selectedDsFilter ? (selectedDsFilter as any).name : 'All data sources' }}
                             </span>
                             <Icon name="heroicons:chevron-down" class="w-3 h-3 text-ink-muted flex-shrink-0" />
                         </button>
@@ -58,16 +58,18 @@
                                     <span class="truncate flex-1 font-medium">All data sources</span>
                                     <Icon v-if="dsFilterId === null" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
-                                <button
-                                    v-for="d in agentList"
-                                    :key="d.id"
+                                <AgentFolderChoices :agents="agentList" @select="(_, f) => { dsFilterId = 'folder:' + f.id; folderLabel = f.path; dsFilterDropdownOpen = false }" :selected-folders="dsFilterId?.startsWith('folder:') ? [dsFilterId.slice(7)] : []">
+                                  <template #agent="{agent: d, parentPath}">
+                                    <button
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
                                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start border-t border-gray-100 dark:border-gray-800"
                                 >
                                     <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon-token="(d as any).icon_token" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
-                                    <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
+                                    <span class="truncate flex-1 font-medium">{{ (d as any).name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span>
                                     <Icon v-if="dsFilterId === d.id" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
+                                  </template>
+                                </AgentFolderChoices>
                             </div>
                         </Transition>
                     </div>
@@ -249,7 +251,7 @@
                                     
                                     <!-- Publish button - only for unpublished builds (draft or pending_approval) -->
                                     <UButton
-                                        v-if="!selectedBuild.is_main && (selectedBuild.status === 'draft' || selectedBuild.status === 'pending_approval') && canCreateBuilds"
+                                        v-if="!selectedBuild.is_main && (selectedBuild.status === 'draft' || selectedBuild.status === 'pending_approval') && canPublishBuilds"
                                         color="blue"
                                         variant="solid"
                                         size="xs"
@@ -876,6 +878,7 @@ const selectedBuild = ref<Build | null>(null)
 
 // DS filter (top of left pane). null = all data sources.
 const { agents: agentList } = useAgent()
+const folderLabel = ref('')
 const dsFilterId = ref<string | null>(null)
 const dsFilterDropdownOpen = ref(false)
 const dsFilterRef = ref<HTMLElement | null>(null)
@@ -944,6 +947,7 @@ const toast = useToast()
 // on at least one data source. The backend additionally enforces per-DS access
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canPublishBuilds = computed(() => canCreateBuilds.value || useCanAny('manage', 'folder'))
 const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
 // Pushing to git needs ORG-level manage_instructions (the /git/{id}/push gate);
 // per-agent manage_instructions is enough for builds but would 403 here.
@@ -1098,7 +1102,7 @@ const fetchBuilds = async () => {
         // Otherwise fetch all builds for the Version Explorer
         const statusParam = props.suggestionsMode ? 'pending_approval' : 'all'
         const createdByParam = props.userOnly ? '&created_by=me' : ''
-        const dsParam = dsFilterId.value ? `&data_source_id=${dsFilterId.value}` : ''
+        const dsParam = dsFilterId.value?.startsWith('folder:') ? '&folder_id=' + encodeURIComponent(dsFilterId.value.slice(7)) : dsFilterId.value ? `&data_source_id=${dsFilterId.value}` : ''
         const response = await useMyFetch<{ items: Build[], total: number }>(`/builds?limit=50&status=${statusParam}${createdByParam}${dsParam}`)
         if (response.data.value) {
             builds.value = response.data.value.items || []

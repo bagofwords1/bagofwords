@@ -291,10 +291,14 @@ def test_mcp_tools_list(
     # JSON-RPC tools/list additionally filters out tools the caller can't use
     # (required_ds_permission, send_email without outbound mail; see
     # routes/mcp.py), so the count here is one lower than the unfiltered REST
-    # endpoint. The caller is the org admin, so every builder tool is listed.
-    assert len(tools) == 20
+    # endpoint. The caller is the org admin, so every builder and eval tool is listed.
+    assert len(tools) == 27
 
     tool_names = [t["name"] for t in tools]
+    # Eval management tools (#1696), listed for an org admin.
+    for name in ("search_evals", "create_eval", "edit_eval", "run_eval",
+                 "stop_eval_run", "get_eval_runs", "get_eval_run"):
+        assert name in tool_names, name
     assert "create_report" in tool_names
     assert "get_context" in tool_names
     assert "inspect_data" in tool_names
@@ -479,9 +483,13 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 21
+    assert len(tools) == 28
 
     tool_names = [t["name"] for t in tools]
+    # Eval management tools (#1696), listed for an org admin.
+    for name in ("search_evals", "create_eval", "edit_eval", "run_eval",
+                 "stop_eval_run", "get_eval_runs", "get_eval_run"):
+        assert name in tool_names, name
     assert "create_report" in tool_names
     assert "get_context" in tool_names
     assert "inspect_data" in tool_names

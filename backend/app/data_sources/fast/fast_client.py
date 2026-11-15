@@ -91,6 +91,10 @@ class FastRelation:
 class FastQueryClient(DataSourceClient):
     """DuckDB over encrypted local artifacts. Read-only by construction."""
 
+    # DuckDB SQL underneath: '' is the only quote escape (sqlglot duckdb
+    # tokenizer).
+    sql_literal_style = "standard"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

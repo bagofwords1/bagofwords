@@ -627,7 +627,7 @@ Rules:
 - Include 2-3 lines of context in SEARCH for unambiguous matching.
 - Order blocks top to bottom.
 - Preserve existing code unless the user asked to change it.
-- For NEW charts, use `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types. 'bow' theme handles base styling.
+- For NEW charts: a measure over time → `<TrendChart viz={{…}} x="…" y="…" unit="…" />`, a ranking → `<RankChart viz={{…}} label="…" value="…" />`; any other type → `<EChart option={{...}} height={{N}} />` (all ECharts types). 'bow' theme handles base styling.
 - Prefer SEARCH/REPLACE blocks. If the change is genuinely too large or scattered for surgical diffs, output the FULL corrected code in a single `<script type="text/babel">...</script>` block instead (a rewrite) — NEVER output nothing. A rewrite must still preserve everything the user didn't ask to change.
 
 ⚠️ **Implement the user's full request.** Don't skip requested changes to save tokens. Don't rewrite code the user didn't ask to change."""

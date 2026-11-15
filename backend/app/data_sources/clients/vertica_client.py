@@ -19,6 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 class VerticaClient(DataSourceClient):
+
+    # Vertica: '' is a quote; a backslash is an escape when
+    # StandardConformingStrings is off. Doubled keeps one literal either way
+    # (Vertica SQL Reference, String literals).
+    sql_literal_style = "doubled"
+
     def __init__(self, host, port, database, user, password, schema="public", **kwargs):
         if vertica_python is None:
             raise ImportError(

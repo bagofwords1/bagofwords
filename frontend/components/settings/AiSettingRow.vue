@@ -1,16 +1,16 @@
 <template>
     <div
         :data-testid="`ai-setting-${settingKey}`"
-        :class="['flex flex-col', child ? 'ps-5 border-s-2 border-gray-100 dark:border-gray-800' : '']"
+        :class="['flex flex-col', child ? 'ps-4 border-s-2 border-line' : '']"
     >
         <div class="flex items-center justify-between gap-4">
-            <div class="font-medium flex items-center">
+            <div class="text-sm font-medium text-ink flex items-center">
                 {{ label }}
                 <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
-                    <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
+                    <Icon name="heroicons:beaker" class="ms-2 w-3.5 h-3.5 text-ink-muted" />
                 </UTooltip>
                 <UTooltip v-if="locked" :text="$t('settings.aiSettingsPage.locked')">
-                    <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-ink-muted" />
+                    <Icon name="heroicons:lock-closed" class="ms-2 w-3.5 h-3.5 text-ink-muted" />
                 </UTooltip>
             </div>
             <UToggle
@@ -35,11 +35,11 @@
                 @blur="emit('change')"
                 @keyup.enter="emit('change')"
             />
-            <span v-else class="text-sm text-gray-600 dark:text-gray-400">
+            <span v-else class="text-sm text-ink-muted">
                 {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
             </span>
         </div>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ description }}</p>
+        <p class="mt-1 text-sm text-ink-muted leading-relaxed max-w-2xl">{{ description }}</p>
     </div>
 </template>
 

@@ -45,6 +45,7 @@ class PlatformAgentScope(BaseModel):
     connection default).
     """
 
+    agent_folder_ids: List[str] = Field(default_factory=list)
     agent_ids: List[str] = Field(default_factory=list)
     channel_name: Optional[str] = None
 
@@ -56,12 +57,14 @@ class PlatformChannel(BaseModel):
     name: Optional[str] = None
     channel_type: Optional[str] = None
     last_seen_at: Optional[datetime] = None
+    agent_folder_ids: List[str] = Field(default_factory=list)
     agent_ids: List[str] = Field(default_factory=list)
 
 
 class PlatformChannelList(BaseModel):
     """Everything the channel-routing UI needs for one instance in one read."""
 
+    default_folder_ids: List[str] = Field(default_factory=list)
     default_agent_ids: List[str] = Field(default_factory=list)
     channels: List[PlatformChannel] = Field(default_factory=list)
 

@@ -22,7 +22,12 @@ import pytest
 
 from app.ai.code_execution.client_profiles import _CLIENT_TABLE, family_name
 from app.ai.code_execution.identity_bind import CapturedQuery
-from app.ai.code_execution.query_params import render_sql_with_params, renderer_for, verify_identity_binds_in_queries
+from app.ai.code_execution.query_params import (
+    ParamError,
+    render_sql_with_params,
+    renderer_for,
+    verify_identity_binds_in_queries,
+)
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import TableScope, TableScopeViolation, check_table_scope, dialect_for_client
 from app.schemas.param_schema import ParamSpec
@@ -77,8 +82,9 @@ SPEC = [ParamSpec.model_validate({"name": "owner", "type": "string", "source": "
 # Timbr: its renderer refuses a backslash in a value, and writes a quote
 # doubled, which Spark SQL (how the checks read Timbr) reads as two strings
 # side by side, so the identity check refuses a value holding a quote.
-# Both fail closed; such values are left out here.
-UNRENDERED_VALUES = {"TimbrClient": (BS, "'")}
+# Both fail closed; such values are left out here. Hive's renderer writes a
+# quote as \', which its guard refuses with any backslash (fails closed).
+UNRENDERED_VALUES = {"TimbrClient": (BS, "'"), "HiveClient": (BS, "'")}
 
 
 def _per_client(entries) -> list:
@@ -189,6 +195,11 @@ def test_a_legitimate_query_passes_the_guard_of_a_client_checked_without_a_parse
 @pytest.mark.parametrize("value", ["sarah@example.com", "DOMAIN" + BS + "user", "it's"])
 def test_an_identity_scoped_query_passes_the_guard_of_a_client_checked_without_a_parser(family, template, value):
     client = UNPARSED_CLIENTS[family]
+    if BS in value and renderer_for(client).name == "ansi_or_backslash":
+        # Vertica and SQL Anywhere may read a backslash as an escape: refused.
+        with pytest.raises(ParamError, match="backslash"):
+            render_sql_with_params(template, {"owner": value}, renderer=renderer_for(client))
+        return
     rendered = render_sql_with_params(template, {"owner": value}, renderer=renderer_for(client))
     checked = ensure_read_only(client, rendered)
     capture = CapturedQuery(checked, family_name(client))

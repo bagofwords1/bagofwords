@@ -115,15 +115,43 @@ def _copy_step(corpus_rows, release):
                             {"r": release}).scalar_one()
 
 
-def _own_run(corpus, corpus_rows, release, reader, label):
+def _own_run(corpus, corpus_rows, release, reader, label, executed_as="viewer"):
     # A reader's own run of a personal connection needs the provider; its
     # stored result is what the run leaves behind, so it is written directly.
     rows = [{"מי": label}]
     corpus_rows.insert("step_user_results", step_id=_copy_step(corpus_rows, release),
                        user_id=corpus.cast.id(reader), organization_id=corpus.cast.org_id, report_id=None,
-                       status="success", executed_as="viewer", params_fingerprint="",
+                       status="success", executed_as=executed_as, params_fingerprint="",
                        data={"rows": rows, "columns": [{"field": "מי"}]})
     return rows
+
+
+@pytest.mark.e2e
+def test_a_result_from_the_owners_credentials_over_rls_is_not_an_export_of_the_readers_own(
+        corpus, corpus_rows, test_client, no_vendor_libs, pdf_pages):
+    """Over an RLS source a reader's result stored under the owner's
+    credentials is the owner's slice, which the page does not serve: the
+    reader is asked to run the dashboard first. (Seeded directly: runs over
+    RLS execute as the reader now; a result stored before that remains.)"""
+    aid, release = _published(corpus, corpus_rows, test_client, "rls/dash")
+    _own_run(corpus, corpus_rows, release, "member", "owner-slice", executed_as="creator")
+    resp = test_client.get(f"/api/d/{aid}/export/html", headers=as_(corpus, "member"))
+    assert resp.status_code == 409 and resp.json()["error_code"] == "dashboard.export_needs_run", resp.text
+
+
+@pytest.mark.e2e
+def test_a_readers_own_run_beside_a_refused_result_on_the_same_chart_still_exports(
+        corpus, corpus_rows, test_client, no_vendor_libs, pdf_pages):
+    """Only the refused result is set aside: the reader's own run of the same
+    chart (another filter value) still counts as their run."""
+    aid, release = _published(corpus, corpus_rows, test_client, "rls/dash")
+    _own_run(corpus, corpus_rows, release, "member", "mine")
+    corpus_rows.insert("step_user_results", step_id=_copy_step(corpus_rows, release),
+                       user_id=corpus.cast.id("member"), organization_id=corpus.cast.org_id, report_id=None,
+                       status="success", executed_as="creator", params_fingerprint="other-values",
+                       data={"rows": [{"מי": "owner-slice"}], "columns": [{"field": "מי"}]})
+    resp = test_client.get(f"/api/d/{aid}/export/html", headers=as_(corpus, "member"))
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.e2e

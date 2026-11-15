@@ -455,6 +455,14 @@ const joining = ref(false)
 const justJoined = ref(false)
 
 const accessNotice = computed<{ title: string; detail: string; canJoin: boolean } | null>(() => {
+    const ds = integration.value
+    if (ds?.inherited_folder_name && ds.inherited_folder_role) {
+        return {
+            title: t('sharedFolders.' + ds.inherited_folder_role),
+            detail: t('sharedFolders.via', {name:ds.inherited_folder_name}),
+            canJoin: false,
+        }
+    }
     if (justJoined.value) {
         return {
             title: "You're now a member of this agent.",

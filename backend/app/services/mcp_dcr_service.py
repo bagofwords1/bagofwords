@@ -251,6 +251,9 @@ async def register_client(
         "response_types": ["code"],
         # Public client + PKCE; the AS may downgrade/override in its response.
         "token_endpoint_auth_method": "none",
+        # MCP 2026-07-28 (SEP-837): say what kind of client this is. BOW is a
+        # server-hosted web app redirecting to its own https origin.
+        "application_type": "web",
     }
     async with pinned_async_client(Policy.ADMIN, timeout=20) as client:
         r = await client.post(
@@ -259,6 +262,29 @@ async def register_client(
     if r.status_code not in (200, 201):
         raise ValueError(f"DCR registration failed: {r.status_code} {r.text}")
     return r.json()
+
+
+def _same_issuer(a: str, b: str) -> bool:
+    """Issuer identifiers compare as URLs (RFC 8414 §3.3): exact, but a
+    trailing slash is not a different server."""
+    return (a or "").rstrip("/") == (b or "").rstrip("/")
+
+
+def issuer_matches(connection, iss: str) -> bool:
+    """Does an authorization response's ``iss`` name this connection's issuer?
+
+    A connection with no recorded issuer (an admin-supplied OAuth app, or one
+    registered before issuers were stored) accepts any — there is nothing to
+    compare with, and rejecting would lock its users out.
+    """
+    try:
+        creds = connection.decrypt_credentials() or {}
+    except Exception:
+        return False
+    recorded = creds.get("issuer")
+    if not recorded:
+        return True
+    return _same_issuer(recorded, iss)
 
 
 def _redirect_uri() -> str:
@@ -309,13 +335,29 @@ async def ensure_mcp_oauth_config(db, connection) -> bool:
             try:
                 meta = await discover_mcp_oauth(server_url)
             except Exception as e:
+                meta = None
                 # Keep whatever we have; the sign-in will use it and report
                 # its own error if the server is genuinely unhappy.
                 logger.warning(
                     "DCR: could not refresh scopes for connection %s from %s: %s",
                     connection.id, server_url, e,
                 )
-            else:
+            if meta is not None and creds.get("issuer") and meta.get("issuer") \
+                    and not _same_issuer(creds["issuer"], meta["issuer"]) and meta.get("registration_endpoint"):
+                # MCP 2026-07-28 (SEP-2352): a client is bound to the issuer it
+                # registered with. The server now points at another
+                # authorization server, so register there afresh instead of
+                # presenting the old server's client id to the new one.
+                logger.info(
+                    "DCR: connection %s moved from issuer %r to %r; registering a new client",
+                    connection.id, creds["issuer"], meta["issuer"],
+                )
+                return await _register(db, connection, creds, meta)
+            if meta is not None:
+                if creds.get("issuer") is None and meta.get("issuer"):
+                    # Rows registered before issuers were recorded.
+                    creds["issuer"] = meta["issuer"]
+                    changed = True
                 if (creds.get("discovered_scopes") != meta["scopes"]
                         or creds.get("scopes_source") != meta["scopes_source"]):
                     logger.info(
@@ -355,9 +397,18 @@ async def ensure_mcp_oauth_config(db, connection) -> bool:
             f"MCP server {server_url} does not advertise a registration_endpoint; "
             "supply client_id/secret manually (no DCR support)."
         )
+    return await _register(db, connection, creds, meta)
+
+
+async def _register(db, connection, creds: dict, meta: dict) -> bool:
+    """Register a client with ``meta``'s authorization server and persist it."""
     reg = await register_client(meta["registration_endpoint"], _redirect_uri())
 
+    # A previous server's tokens must not be offered to this one.
+    for stale in ("access_token", "refresh_token", "expires_at"):
+        creds.pop(stale, None)
     creds.update({
+        "issuer": meta.get("issuer"),
         "authorize_url": meta["authorize_url"],
         "token_url": meta["token_url"],
         "client_id": reg["client_id"],

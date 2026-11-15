@@ -16,6 +16,10 @@ class NotificationType(str, Enum):
     SHARE_DASHBOARD = "share_dashboard"
     SHARE_CONVERSATION = "share_conversation"
     SCHEDULE_REPORT = "schedule_report"
+    # A member asked to view a dashboard (sent to its owner + named editors).
+    ACCESS_REQUEST = "access_request"
+    # Their request was approved (sent to the requester).
+    ACCESS_GRANTED = "access_granted"
 
 
 class NotifyRequest(BaseModel):

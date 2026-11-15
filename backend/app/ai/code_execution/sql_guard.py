@@ -879,12 +879,15 @@ def _check_duckdb_table(client, table: tuple[str, str, str]) -> None:
     (`duckdb_guard.ascii_lower`). Over URIs: one of the views it registers
     (`view_names()`), in the default schema and catalog. On a database file:
     a name whose parts hold no path, URL or file-name character, and that
-    is not one of DuckDB's built-in catalog views."""
+    is not one of DuckDB's built-in catalog views. An Iceberg connection
+    names its tables the database-file way: the client registers each
+    catalog table by name in an in-memory DuckDB before running the query."""
     from app.ai.code_execution.duckdb_guard import ascii_lower, names_catalog, tables_line
+    from app.data_sources.clients.iceberg_client import IcebergClient
 
     catalog, schema, name = table
     shown = ".".join(part for part in table if part)
-    if client._is_direct_db_connection():
+    if isinstance(client, IcebergClient) or client._is_direct_db_connection():
         if not name or any(c in _DUCKDB_PATH_CHARS for part in table for c in part):
             raise ReadOnlyViolation(
                 f"Table {shown} is not allowed on this connection: query its tables by their names, "
@@ -1550,10 +1553,20 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
         if any(mark == "/*" and "/*" in sql[start + 2:end] for mark, start, end in comments):
             raise _comment_inside_comment()
     code_starts = [t.start for t in code]
-    if dialect == "druid" and any(_in_token(code, code_starts, m.start()) for m in re.finditer("//", masked)):
+    # Calcite's lexer (Druid, Dremio) reads `//` as a line comment. sqlglot's
+    # Druid reads it as code; for Dremio, whose lexer is not pinned, it is
+    # refused anywhere outside a string or a quoted name.
+    if (dialect == "druid" and any(_in_token(code, code_starts, m.start()) for m in re.finditer("//", masked))
+            or dialect == "dremio" and "//" in masked):
         raise ReadOnlyViolation(
-            "The query has '//' outside a string, which Druid reads as the start of a comment. "
-            "Remove it, or write the division with a space between the slashes."
+            f"The query has '//' outside a string, which {'Druid' if dialect == 'druid' else 'Dremio'} reads as "
+            "the start of a comment. Remove it, or write the division with a space between the slashes."
+        )
+    # Hive releases differ on block comments; Impala and Spark read them.
+    if dialect == "hive" and re.search(r"/\*|\*/", masked):
+        raise ReadOnlyViolation(
+            "The query has a /* */ comment, which some Hive releases do not read as a comment. Remove it, "
+            "or use a -- comment."
         )
     if dialect == "bigquery":
         if any(t.token_type.name == "IDENTIFIER" and sql[t.start] == "`" and "\\" in sql[t.start:t.end + 1]

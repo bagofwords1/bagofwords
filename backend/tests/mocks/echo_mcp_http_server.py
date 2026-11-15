@@ -26,7 +26,7 @@ import json
 import os
 from typing import Any, Optional
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer as FastMCP
 from mcp.types import ToolAnnotations
 
 mcp = FastMCP("mock-ln")
@@ -86,9 +86,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=3333)
     parser.add_argument("--host", default="127.0.0.1")
     args = parser.parse_args()
-    mcp.settings.host = args.host
-    mcp.settings.port = args.port
-    mcp.run(transport="streamable-http")  # served at http://host:port/mcp
+    mcp.run(transport="streamable-http", host=args.host, port=args.port)  # served at http://host:port/mcp
 
 
 if __name__ == "__main__":

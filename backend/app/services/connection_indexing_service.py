@@ -25,7 +25,9 @@ from fastapi import HTTPException
 from sqlalchemy import select, desc, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.data_sources.clients.progress import IndexingCancelled
+from app.data_sources.clients.progress import (
+    IndexingCancelled, NOT_FOUND_REASON, SKIPPED_NAME_REASON, format_name_list, split_unreadable,
+)
 from app.models.connection import Connection
 from app.models.connection_indexing import (
     ConnectionIndexing,
@@ -1195,6 +1197,11 @@ class ConnectionIndexingService:
                 if unreadable:
                     stats_json["unreadable_datasets"] = unreadable
                     stats_json["unreadable_dataset_count"] = len(unreadable)
+                # Full-text index tier: what the index now holds (files by
+                # status, sections) and what this run wrote / reused / pruned.
+                fulltext_stats = getattr(svc, "last_fulltext_stats", None)
+                if fulltext_stats:
+                    stats_json["fulltext"] = fulltext_stats
                 fresh.stats_json = stats_json
                 # Ensure progress_done == progress_total so the UI settles at 100%.
                 if fresh.progress_total and fresh.progress_done < fresh.progress_total:
@@ -1210,17 +1217,39 @@ class ConnectionIndexingService:
                     f"Completed: {item_count} {item_label} in {elapsed_s}s{size_note}",
                     done=item_count, total=item_count,
                 )
-                if unreadable:
-                    _names = ", ".join(
-                        str(d.get("datasetName") or d.get("name") or d.get("datasetId"))
-                        for d in unreadable[:5]
-                    )
-                    _more = "" if len(unreadable) <= 5 else f" (+{len(unreadable) - 5} more)"
+                if fulltext_stats:
+                    _by = fulltext_stats.get("by_status") or {}
+                    _notes = [f"{fulltext_stats.get('files', 0)} files, "
+                              f"{fulltext_stats.get('sections', 0)} sections"]
+                    if fulltext_stats.get("written") or fulltext_stats.get("reused"):
+                        _notes.append(f"{fulltext_stats.get('written', 0)} read, "
+                                      f"{fulltext_stats.get('reused', 0)} unchanged")
+                    if fulltext_stats.get("pruned"):
+                        _notes.append(f"{fulltext_stats['pruned']} removed")
+                    for _k, _label in (("partial", "indexed up to a size limit"),
+                                       ("no_text", "with no extractable text"),
+                                       ("error", "could not be read")):
+                        if _by.get(_k):
+                            _notes.append(f"{_by[_k]} {_label}")
                     await _append_event(
-                        "warn", _state_snapshot()["phase"],
-                        f"{len(unreadable)} semantic model(s) found but not readable "
-                        f"(check permissions): {_names}{_more}",
+                        "info", _state_snapshot()["phase"],
+                        "Full-text index: " + "; ".join(_notes),
                     )
+                if unreadable:
+                    not_found, skipped, not_readable = split_unreadable(unreadable)
+                    for entries, text in (
+                        (not_found, NOT_FOUND_REASON),
+                        (skipped, f"skipped ({SKIPPED_NAME_REASON})"),
+                        (not_readable, "found but not readable (check permissions)"),
+                    ):
+                        if entries:
+                            names = format_name_list([
+                                str(d.get("datasetName") or d.get("name") or d.get("datasetId"))
+                                for d in entries
+                            ])
+                            await _append_event(
+                                "warn", _state_snapshot()["phase"], f"{len(entries)} {text}: {names}",
+                            )
 
         except IndexingCancelled:
             # A cancel that surfaced outside the inner handlers — treat as a

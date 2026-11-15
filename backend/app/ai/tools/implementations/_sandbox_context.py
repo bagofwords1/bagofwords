@@ -97,12 +97,18 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
     Add a comparison only when it is useful and backed by a valid baseline. `delta` is a ratio when deltaPct (0.18 = +18%).
   <SectionCard title="" subtitle="" eyebrow="" actions={[…]} variant="card|plain|inset|lift|accent|inverse|outline" padding="none|sm|md|lg" viz={…} rows={…} calc="">…</SectionCard>
   <EChart height={N} option={{…}} viz={…} rows={…} calc="" palette={[…]} onClick={fn} />  — themed ECharts wrapper; pass `viz` when it is not inside a SectionCard.
-  <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable onRowClick={(row)=>…}
+  <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable rowKey="id" onRowClick={(row)=>…}
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
-             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — optional table: sort, paginate, RTL, CSV, print-safe.
+             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — sort, paginate, RTL, CSV, print-safe.
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder /> (FilterSearch onChange receives the text string, not an event)
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
+  CONTROLS: build record tables, search boxes and filter dropdowns from these. DataTable for rows of records (renderCell for custom cells,
+    onRowClick to open a detail), FilterSearch for a search box, FilterSelect for choosing from options (single for one value, searchable
+    for long lists; onChange always receives an array: read a[0], and [] means All). They work on their own, outside a FilterBar.
+    Do not hand-write a <table>, <select> or search <input> for these: the components follow dark mode, RTL and narrow screens.
+    A hand-written <table> is for what DataTable cannot show (a totals row, a pivot, grouped headers), inside overflow-x-auto.
+    Inputs and selects in a form the user fills in are fine.
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
   <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />
@@ -126,9 +132,22 @@ PROVENANCE (required — the ⓘ popover lets readers inspect the data behind ev
   chart or table container, never a label or short inline text (the ⓘ is drawn at that element's corner).
   EVERY metric, chart and table must be reachable one of these two ways. UUIDs live in code only — never in visible text.
 
-CHARTS: <EChart option={{ xAxis:{type:'category',data:[…]}, yAxis:{type:'value'}, series:[{type:'bar',data:[…]}] }} /> — the 'bow' theme sets palette, fonts, axes,
+CHARTS: build every chart of a measure over time with <TrendChart> and every ranking with <RankChart>; do not write an EChart
+  line or bar chart for them yourself. Use EChart (below) only for other types (scatter, pie,
+  heatmap, sankey…) or what these cannot show (a target line). Two measures with different units are two TrendCharts side by
+  side, not one chart with two value axes. They work inside a SectionCard or on their own.
+  <TrendChart viz={…} rows={filtered} x="month" y="revenue" series="rep" unit="currency" additive kind="line|bar|area" stacked
+              grain="month" maxPoints={24} overflow="latest|rollup" colors={{North:'#…'}} height={300} onClick={p => …} />
+  <RankChart viz={…} rows={filtered} label="country" value="revenue" unit="currency" additive top={10} order="desc|asc" onClick={p => …} />
+    unit: currency (or a code: EUR), percent (already ×100: 12.5), ratio (0–1: 0.125) or number. x takes dates, months, quarters or years.
+    additive: only for a flow totalled per period or group (revenue, orders, units sold). Never for stocks or snapshots (MRR, balances,
+    headcount, inventory, running totals), rates, averages or distinct counts.
+    Over 24 points with several series (60 with one), TrendChart shows the latest window and says so under the chart: title it to match
+    ("last 24 months"). overflow="rollup" (additive only) shows the whole range at a coarser grain instead.
+    Pass rows={filterRows(...)} when filters apply, and the same rows to the card. onClick gets raw keys: {x, series, value} / {label, value, other}.
+OTHER CHARTS: <EChart option={{ xAxis:{type:'value'}, yAxis:{type:'value'}, series:[{type:'scatter',data:[[x, y], …]}] }} /> — the 'bow' theme sets palette, fonts, axes,
   grid and tooltip; write only the data mapping unless the design needs more. Building `option` inline is fine: the chart redraws only when its content
-  changes, and a data-only change animates the marks to their new values. All ECharts types work (line, bar, pie, scatter, heatmap, treemap, sankey, radar, gauge, calendar…).
+  changes, and a data-only change animates the marks to their new values. All other ECharts types work (scatter, pie, heatmap, treemap, sankey, radar, gauge, calendar…); trends and rankings are TrendChart and RankChart.
   Color one series by role with useTheme().colors (e.g. itemStyle:{color: t.colors.accent}); or use a deliberate custom palette with consistent entity colors.
 """.strip()
 
@@ -158,9 +177,11 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "useParamOptions(name) hook (stable [{value,label}] choices for a declared param), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } for client-side cross-visualization "
     "filtering; filterRows(rows, fieldMap?) remaps column names), "
-    "<EChart option=... height=N viz=... /> (themed ECharts wrapper — all chart types), "
+    "TrendChart (x, y, series, unit, additive: trends with a point cap, units and a caption) and RankChart (label, value, unit, "
+    "additive, top: rankings with every name shown) for trends and rankings, "
+    "<EChart option=... height=N viz=... /> (themed ECharts wrapper — all other chart types), "
     "components: PageHeader, KPICard (title, value, delta, deltaPct, deltaLabel, spark, icon, variant, size), "
-    "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (optional table renderer: sort, "
+    "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (table for rows of records: sort, "
     "paginate, RTL, CSV, print-safe), FilterBar, FilterSelect (single/multi, searchable), FilterSearch, FilterDateRange, "
     "Segmented, Badge, Delta, Sparkline, ProgressBar, Icon, Eyebrow, Divider, EmptyState, LoadingSpinner, BowFile, "
     "Modal and Drawer (animated overlays: open, onClose, title, footer; focus trap, Escape), Tabs (items with content; "

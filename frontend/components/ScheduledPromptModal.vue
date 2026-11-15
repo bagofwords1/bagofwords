@@ -53,9 +53,17 @@
                             >{{ $t('scheduledPrompt.agentsFromReport') }}</span>
                         </dd>
                     </div>
-                    <div v-if="viewFiles.length" class="flex items-start gap-2">
+                    <div v-if="viewAttachedFiles.length || viewGeneratedCount" class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.files') }}</dt>
-                        <dd class="text-xs text-gray-700 dark:text-gray-300">{{ viewFiles.map((f) => f.filename || f.name).join(', ') }}</dd>
+                        <dd class="text-xs text-ink-2">
+                            <span v-if="viewAttachedFiles.length">{{ viewAttachedFiles.map((f) => f.filename || f.name).join(', ') }}</span>
+                            <NuxtLink
+                                v-if="viewGeneratedCount"
+                                to="/files"
+                                class="block text-ink-muted hover:underline"
+                                data-testid="scheduled-tool-output-count"
+                            >{{ $t(viewGeneratedCount === 1 ? 'scheduledPrompt.toolOutputFilesOne' : 'scheduledPrompt.toolOutputFilesMany', { count: viewGeneratedCount }) }}</NuxtLink>
+                        </dd>
                     </div>
                     <div class="flex items-start gap-2">
                         <dt class="w-24 shrink-0 text-xs text-ink-muted">{{ $t('scheduledPrompt.model') }}</dt>
@@ -116,6 +124,7 @@
                 ref="promptBoxRef"
                 :report_id="reportId"
                 :initialSelectedDataSources="initialDataSources"
+                :initial-folder-ids="initialTaskFolders"
                 :initialMode="initialMode"
                 :initialModel="initialModel"
                 :initialEffort="initialEffort"
@@ -414,6 +423,7 @@ const { data: currentUser } = useAuth()
 const props = defineProps<{
     reportId: string
     scheduledPrompt?: any
+    initialFolderIds?: string[]
     initialDataSources?: any[]
     draftContent?: string
     draftModel?: string
@@ -438,6 +448,10 @@ const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || p
 const initialEffort = computed(() => props.scheduledPrompt?.prompt?.reasoning_effort || '')
 // A task with its own agents opens with them; one without starts from the
 // report's (what its runs use until it gets its own).
+const reportFolders = ref<string[]>([])
+const initialTaskFolders = computed(() => props.scheduledPrompt?.agent_folder_ids?.length || props.scheduledPrompt?.data_source_ids?.length
+    ? props.scheduledPrompt.agent_folder_ids || []
+    : props.initialFolderIds || reportFolders.value)
 const initialDataSources = computed(() => taskAgents.value ?? (props.initialDataSources || []))
 
 const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
@@ -496,17 +510,23 @@ function formatRunDate(value?: string): string {
 const viewAgents = ref<any[]>([])
 // The task's own agents as objects (null = it runs on the report's agents).
 const taskAgents = ref<any[] | null>(null)
-const hasOwnAgents = computed(() => !!props.scheduledPrompt?.data_source_ids?.length)
+const hasOwnAgents = computed(() => !!(props.scheduledPrompt?.data_source_ids?.length || props.scheduledPrompt?.agent_folder_ids?.length))
 
 async function fetchTaskAgents() {
     const ids: string[] = props.scheduledPrompt?.data_source_ids || []
-    if (!ids.length) { taskAgents.value = null; return }
+    if (!ids.length) { taskAgents.value = props.scheduledPrompt?.agent_folder_ids?.length ? [] : null; return }
     const { data } = await useMyFetch('/data_sources/active').catch(() => ({ data: ref(null) }) as any)
     const byId = new Map(((data?.value as any[]) || []).map((d: any) => [String(d.id), d]))
     // An agent the owner can no longer use is skipped by the run too.
-    taskAgents.value = ids.map((id) => byId.get(String(id))).filter(Boolean)
+    taskAgents.value = ids.map((id) => byId.get(String(id)) || {id})
 }
 const viewFiles = ref<any[]>([])
+// Files the user attached are listed by name. Tool output saved by earlier runs
+// (one file per API call per run) is only counted: on a daily schedule it runs
+// to hundreds of names.
+const isGeneratedFile = (f: any) => (f?.source_kind || 'upload') !== 'upload'
+const viewAttachedFiles = computed(() => viewFiles.value.filter((f) => !isGeneratedFile(f)))
+const viewGeneratedCount = computed(() => viewFiles.value.filter(isGeneratedFile).length)
 const viewModels = ref<any[]>([])
 const viewReportMode = ref<string>('')
 const viewReportModelId = ref<string>('')
@@ -519,8 +539,12 @@ async function fetchViewDetails() {
         viewModels.value.length ? Promise.resolve(null) : useMyFetch('/llm/models?is_enabled=true').catch(() => null),
     ])
     const r = (rep as any)?.data?.value
+    reportFolders.value = r?.agent_folder_ids || []
     await fetchTaskAgents()
-    viewAgents.value = taskAgents.value ?? (r?.data_sources || [])
+    const scope = initialTaskFolders.value
+    const folders = scope.length ? await loadAgentFolderOptions() : []
+    viewAgents.value = [...scope.map((id: string) => ({name: folders.find(f => f.id === id)?.path || t('sharedFolders.title')})),
+        ...(taskAgents.value ?? (r?.data_sources || []))]
     viewReportMode.value = r?.mode || ''
     viewReportModelId.value = r?.model_id || ''
     viewFiles.value = ((files as any)?.data?.value as any[]) || []
@@ -804,6 +828,13 @@ function buildNotificationSubscribers(): Subscriber[] | null {
 // The agents picked in the form belong to this task: its runs use them, and
 // the report's own agents (what chats and other tasks use) stay as they are.
 // An empty pick means "the report's agents".
+function taskFolderIds() {
+    const picked = promptBoxRef.value?.getFolderIds?.() ?? initialTaskFolders.value
+    const inherited = props.initialFolderIds || reportFolders.value
+    if (!hasOwnAgents.value && !props.scheduledPrompt?.agent_folder_ids?.length &&
+        picked.length === inherited.length && picked.every((id: string) => inherited.includes(id))) return undefined
+    return picked
+}
 function selectedAgentIds(): string[] {
     const box = promptBoxRef.value
     return ((box?.getDataSources?.() as any[]) || []).map((d: any) => d?.id).filter(Boolean)
@@ -815,7 +846,7 @@ function taskAgentsField(): { data_source_ids?: string[] } {
     const picked = selectedAgentIds()
     const reportIds = (props.initialDataSources || []).map((d: any) => d?.id).filter(Boolean)
     const same = picked.length === reportIds.length && picked.every((id) => reportIds.includes(id))
-    if (!hasOwnAgents.value && same) return {}
+    if (!hasOwnAgents.value && same && !taskFolderIds()?.length) return {}
     return { data_source_ids: picked }
 }
 
@@ -836,6 +867,7 @@ async function persistScheduledPrompt(
         spawn_new_report: spawnNewReport.value,
         notification_subscribers: buildNotificationSubscribers(),
         ...taskAgentsField(),
+        agent_folder_ids: taskFolderIds(),
         ...overrides,
     }
 

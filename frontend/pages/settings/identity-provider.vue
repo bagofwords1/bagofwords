@@ -1,266 +1,155 @@
 <template>
-  <div class="mt-4 space-y-4">
+  <div>
+    <div class="settings-disclosure-group">
+      <!-- Entra ID profile sync -->
+      <ProfileSyncSection
+        i18n-prefix="entra"
+        endpoint="/api/organization/identity/entra-profile-sync"
+        :allowed-fields="ENTRA_PROFILE_FIELDS"
+        :default-visible="ENTRA_DEFAULT_VISIBLE"
+      />
 
-    <!-- ================================================================== -->
-    <!-- Entra ID Profile Sync Section                                       -->
-    <!-- ================================================================== -->
-    <ProfileSyncSection
-      i18n-prefix="entra"
-      endpoint="/api/organization/identity/entra-profile-sync"
-      :allowed-fields="ENTRA_PROFILE_FIELDS"
-      :default-visible="ENTRA_DEFAULT_VISIBLE"
-    />
+      <!-- Google profile sync -->
+      <ProfileSyncSection
+        i18n-prefix="google"
+        endpoint="/api/organization/identity/google-profile-sync"
+        :allowed-fields="GOOGLE_PROFILE_FIELDS"
+        :default-visible="GOOGLE_DEFAULT_VISIBLE"
+      />
 
-    <!-- ================================================================== -->
-    <!-- Google Profile Sync Section                                         -->
-    <!-- ================================================================== -->
-    <ProfileSyncSection
-      i18n-prefix="google"
-      endpoint="/api/organization/identity/google-profile-sync"
-      :allowed-fields="GOOGLE_PROFILE_FIELDS"
-      :default-visible="GOOGLE_DEFAULT_VISIBLE"
-    />
-
-    <!-- ================================================================== -->
-    <!-- SCIM Provisioning Section (collapsible)                             -->
-    <!-- ================================================================== -->
-    <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
-      <button
-        class="w-full flex items-center justify-between px-4 py-3 text-start"
-        @click="scimOpen = !scimOpen"
-      >
-        <div>
-          <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.identityProvider.scimTitle') }}</h2>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.identityProvider.scimSubtitle') }}</p>
-        </div>
-        <svg class="w-4 h-4 text-ink-muted transition-transform flex-shrink-0" :class="scimOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-        </svg>
-      </button>
-
-      <div v-show="scimOpen" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-      <!-- Enterprise Gate for SCIM -->
-      <template v-if="!hasFeature('scim')">
-        <div class="rounded border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
-          <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
-            {{ $t('settings.identityProvider.enterpriseScim') }}
-          </p>
-          <a
-            href="https://docs.bagofwords.com/enterprise"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-xs text-blue-600 hover:text-blue-700"
-          >
-            {{ $t('settings.identityProvider.learnMore') }}
-          </a>
-        </div>
-      </template>
-
-      <template v-else>
-        <!-- SCIM Endpoint URL -->
-        <div class="mb-4 rounded border border-gray-200 dark:border-gray-700 p-3">
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('settings.identityProvider.scimBaseUrl') }}</label>
-          <div class="flex items-center gap-2">
-            <code class="flex-1 text-xs bg-gray-50 dark:bg-gray-900 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-mono">
-              {{ scimBaseUrl }}
-            </code>
-            <button
-              class="px-2 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 border border-gray-200 dark:border-gray-700 rounded hover:border-gray-300"
-              @click="copyToClipboard(scimBaseUrl)"
-            >
-              {{ copied === 'url' ? $t('settings.identityProvider.copied') : $t('settings.identityProvider.copy') }}
-            </button>
-          </div>
-          <p class="text-2xs text-ink-muted mt-1">{{ $t('settings.identityProvider.scimBaseUrlHint') }}</p>
-        </div>
-
-        <!-- Token Management -->
-        <div class="mb-3 flex items-center justify-between">
-          <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.identityProvider.bearerTokens') }}</label>
-          <button
-            class="px-2 py-1 text-xs text-white bg-blue-600 rounded hover:bg-blue-700"
-            @click="showCreateModal = true"
-          >
-            {{ $t('settings.identityProvider.generateToken') }}
-          </button>
-        </div>
-
-        <!-- Loading State -->
-        <div v-if="scimLoading" class="py-8 text-center">
-          <div class="inline-block w-4 h-4 border-2 border-gray-200 dark:border-gray-700 border-t-gray-500 rounded-full animate-spin"></div>
-        </div>
-
-        <!-- Error State -->
-        <div v-else-if="scimError" class="py-6 text-center text-xs text-red-500">
-          {{ scimError }}
-        </div>
-
-        <!-- Tokens List -->
-        <div v-else class="border border-gray-200 dark:border-gray-700 rounded overflow-hidden">
-          <template v-if="tokens.length > 0">
-            <div
-              v-for="(token, idx) in tokens"
-              :key="token.id"
-              class="flex items-center px-3 py-2.5 text-xs"
-              :class="{ 'border-t border-gray-100 dark:border-gray-800': idx > 0 }"
-            >
-              <span class="w-36 flex-shrink-0 text-gray-700 dark:text-gray-300 font-medium truncate">{{ token.name }}</span>
-              <span class="w-36 flex-shrink-0 text-ink-muted font-mono text-2xs">{{ token.token_prefix }}...</span>
-              <span class="flex-1 text-ink-muted text-2xs">
-                <template v-if="token.last_used_at">
-                  {{ $t('settings.identityProvider.lastUsed', { when: formatRelativeTime(token.last_used_at) }) }}
-                </template>
-                <template v-else>
-                  {{ $t('settings.identityProvider.neverUsed') }}
-                </template>
-              </span>
-              <span class="w-24 flex-shrink-0 text-ink-muted text-2xs">
-                {{ formatRelativeTime(token.created_at) }}
-              </span>
-              <button
-                class="text-2xs text-red-500 hover:text-red-700 ms-2"
-                @click="confirmRevoke(token)"
-              >
-                {{ $t('settings.identityProvider.revoke') }}
-              </button>
-            </div>
-          </template>
-
-          <!-- Empty State -->
-          <div v-else class="py-8 text-center">
-            <p class="text-xs text-ink-muted">{{ $t('settings.identityProvider.noTokens') }}</p>
-            <p class="text-2xs text-ink-muted mt-1">{{ $t('settings.identityProvider.noTokensHint') }}</p>
-          </div>
-        </div>
-      </template>
-      </div>
-    </div>
-
-    <!-- ================================================================== -->
-    <!-- LDAP Directory Sync Section (collapsible)                          -->
-    <!-- ================================================================== -->
-    <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
-      <button
-        class="w-full flex items-center justify-between px-4 py-3 text-start"
-        @click="ldapOpen = !ldapOpen"
-      >
-        <div>
-          <h2 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.identityProvider.ldapTitle') }}</h2>
-          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.identityProvider.ldapSubtitle') }}</p>
-        </div>
-        <svg class="w-4 h-4 text-ink-muted transition-transform flex-shrink-0" :class="ldapOpen ? 'rotate-180' : ''" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-        </svg>
-      </button>
-
-      <div v-show="ldapOpen" class="px-4 pb-4 border-t border-gray-100 dark:border-gray-800 pt-4">
-      <!-- Enterprise Gate for LDAP -->
-      <template v-if="!hasFeature('ldap')">
-        <div class="rounded border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
-          <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
-            {{ $t('settings.identityProvider.enterpriseLdap') }}
-          </p>
-          <a
-            href="https://docs.bagofwords.com/enterprise"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-xs text-blue-600 hover:text-blue-700"
-          >
-            {{ $t('settings.identityProvider.learnMore') }}
-          </a>
-        </div>
-      </template>
-
-      <template v-else>
-        <!-- Not configured state -->
-        <template v-if="!ldapStatus?.ldap_configured">
-          <div class="rounded border border-dashed border-gray-300 dark:border-gray-600 p-6 text-center">
-            <svg class="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 0 1-3-3m3 3a3 3 0 1 0 0 6h13.5a3 3 0 1 0 0-6m-16.5-3a3 3 0 0 1 3-3h13.5a3 3 0 0 1 3 3m-19.5 0a4.5 4.5 0 0 1 .9-2.7L5.737 5.1a3.375 3.375 0 0 1 2.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 0 1 .9 2.7m0 0a3 3 0 0 1-3 3m0 3h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Zm-3 6h.008v.008h-.008v-.008Zm0-6h.008v.008h-.008v-.008Z" />
-            </svg>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ $t('settings.identityProvider.ldapNotConfigured') }}</p>
-            <p class="text-2xs text-ink-muted">{{ $t('settings.identityProvider.ldapNotConfiguredHint') }}</p>
-          </div>
+      <!-- SCIM provisioning -->
+      <SettingsDisclosure v-model:open="scimOpen" :title="$t('settings.identityProvider.scimTitle')" :description="$t('settings.identityProvider.scimSubtitle')">
+        <template v-if="!hasFeature('scim')" #badge>
+          <UBadge color="gray" variant="subtle" size="xs">{{ $t('settings.identityProvider.notLicensed') }}</UBadge>
         </template>
 
-        <!-- Configured state -->
+        <!-- Enterprise gate -->
+        <div v-if="!hasFeature('scim')" class="rounded-lg bg-surface-subtle px-4 py-3">
+          <p class="text-sm text-ink-2">{{ $t('settings.identityProvider.enterpriseScim') }}</p>
+          <UButton to="https://docs.bagofwords.com/enterprise" target="_blank" color="gray" variant="link" size="sm" trailing-icon="i-heroicons-arrow-up-right" class="mt-1 -ms-2.5 px-0">
+            {{ $t('settings.identityProvider.learnMore') }}
+          </UButton>
+        </div>
+
         <template v-else>
-          <!-- Connection status -->
-          <div class="rounded border border-gray-200 dark:border-gray-700 p-3 mb-4">
-            <div class="flex items-center justify-between">
-              <div>
+          <!-- SCIM endpoint URL -->
+          <SettingsRow :label="$t('settings.identityProvider.scimBaseUrl')" :description="$t('settings.identityProvider.scimBaseUrlHint')" stacked>
+            <div class="flex items-center gap-2">
+              <code class="flex-1 min-w-0 truncate font-mono text-xs bg-surface-subtle text-ink-2 px-3 py-2 rounded-md border border-line">{{ scimBaseUrl }}</code>
+              <UButton color="gray" size="sm" :icon="copied === 'url' ? 'i-heroicons-check' : 'i-heroicons-clipboard-document'" @click="copyToClipboard(scimBaseUrl)">
+                {{ copied === 'url' ? $t('settings.identityProvider.copied') : $t('settings.identityProvider.copy') }}
+              </UButton>
+            </div>
+          </SettingsRow>
+
+          <!-- Tokens -->
+          <div class="mt-6 flex items-center justify-between">
+            <span class="text-sm font-medium text-ink">{{ $t('settings.identityProvider.bearerTokens') }}</span>
+            <UButton size="sm" color="gray" icon="i-heroicons-plus" @click="showCreateModal = true">
+              {{ $t('settings.identityProvider.generateToken') }}
+            </UButton>
+          </div>
+
+          <div class="mt-3">
+            <div v-if="scimLoading" class="py-8 flex justify-center"><Spinner class="w-4 h-4 text-ink-muted" /></div>
+            <div v-else-if="scimError" class="py-6 text-center text-sm text-red-600 dark:text-red-400">{{ scimError }}</div>
+            <div v-else class="bow-table-card">
+              <table v-if="tokens.length > 0" class="bow-table">
+                <tbody>
+                  <tr v-for="token in tokens" :key="token.id">
+                    <td><span class="bow-cell-primary">{{ token.name }}</span></td>
+                    <td><span class="font-mono text-xs text-ink-muted">{{ token.token_prefix }}…</span></td>
+                    <td class="text-xs text-ink-muted">
+                      <template v-if="token.last_used_at">{{ $t('settings.identityProvider.lastUsed', { when: formatRelativeTime(token.last_used_at) }) }}</template>
+                      <template v-else>{{ $t('settings.identityProvider.neverUsed') }}</template>
+                    </td>
+                    <td class="text-xs text-ink-muted whitespace-nowrap">{{ formatRelativeTime(token.created_at) }}</td>
+                    <td class="text-end">
+                      <UButton color="red" variant="ghost" size="xs" class="bow-row-actions" @click="confirmRevoke(token)">
+                        {{ $t('settings.identityProvider.revoke') }}
+                      </UButton>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <SettingsEmpty v-else icon="i-heroicons-key" :title="$t('settings.identityProvider.noTokens')" :description="$t('settings.identityProvider.noTokensHint')" compact />
+            </div>
+          </div>
+        </template>
+      </SettingsDisclosure>
+
+      <!-- LDAP directory sync -->
+      <SettingsDisclosure v-model:open="ldapOpen" :title="$t('settings.identityProvider.ldapTitle')" :description="$t('settings.identityProvider.ldapSubtitle')">
+        <template v-if="!hasFeature('ldap')" #badge>
+          <UBadge color="gray" variant="subtle" size="xs">{{ $t('settings.identityProvider.notLicensed') }}</UBadge>
+        </template>
+
+        <div v-if="!hasFeature('ldap')" class="rounded-lg bg-surface-subtle px-4 py-3">
+          <p class="text-sm text-ink-2">{{ $t('settings.identityProvider.enterpriseLdap') }}</p>
+          <UButton to="https://docs.bagofwords.com/enterprise" target="_blank" color="gray" variant="link" size="sm" trailing-icon="i-heroicons-arrow-up-right" class="mt-1 -ms-2.5 px-0">
+            {{ $t('settings.identityProvider.learnMore') }}
+          </UButton>
+        </div>
+
+        <template v-else>
+          <!-- Not configured -->
+          <div v-if="!ldapStatus?.ldap_configured" class="rounded-lg border border-dashed border-line">
+            <SettingsEmpty icon="i-heroicons-server-stack" :title="$t('settings.identityProvider.ldapNotConfigured')" :description="$t('settings.identityProvider.ldapNotConfiguredHint')" compact />
+          </div>
+
+          <template v-else>
+            <!-- Connection status -->
+            <div class="rounded-lg border border-line px-4 py-3 flex items-center justify-between gap-4">
+              <div class="min-w-0">
                 <div class="flex items-center gap-2">
-                  <div
-                    class="w-2 h-2 rounded-full"
-                    :class="ldapTestResult?.connected ? 'bg-green-500' : (ldapTestResult ? 'bg-red-500' : 'bg-gray-300 dark:bg-gray-600')"
-                  ></div>
-                  <span class="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  <span class="w-2 h-2 rounded-full shrink-0" :class="ldapTestResult?.connected ? 'bg-green-500' : (ldapTestResult ? 'bg-red-500' : 'bg-gray-300 dark:bg-gray-600')" />
+                  <span class="text-sm font-medium text-ink">
                     {{ ldapTestResult?.connected ? $t('settings.identityProvider.statusConnected') : (ldapTestResult ? $t('settings.identityProvider.statusFailed') : $t('settings.identityProvider.statusNotTested')) }}
                   </span>
                 </div>
-                <p v-if="ldapTestResult?.connected" class="text-2xs text-ink-muted mt-0.5 ms-4">
+                <p v-if="ldapTestResult?.connected" class="text-xs text-ink-muted mt-0.5 ms-4 truncate">
                   {{ ldapTestResult.server }}
                   <template v-if="ldapTestResult.vendor"> · {{ ldapTestResult.vendor }}</template>
                   <template v-if="ldapTestResult.user_count !== null"> · {{ ldapTestResult.user_count }} users</template>
                   <template v-if="ldapTestResult.group_count !== null"> · {{ ldapTestResult.group_count }} groups</template>
                 </p>
-                <p v-if="ldapTestResult && !ldapTestResult.connected" class="text-2xs text-red-400 mt-0.5 ms-4">
-                  {{ ldapTestResult.error }}
-                </p>
+                <p v-if="ldapTestResult && !ldapTestResult.connected" class="text-xs text-red-600 dark:text-red-400 mt-0.5 ms-4">{{ ldapTestResult.error }}</p>
               </div>
-              <button
-                class="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 border border-gray-200 dark:border-gray-700 rounded hover:border-gray-300"
-                :disabled="ldapLoading"
-                @click="handleTestConnection"
-              >
+              <UButton color="gray" size="sm" :loading="ldapLoading" :disabled="ldapLoading" @click="handleTestConnection">
                 {{ ldapLoading ? $t('settings.identityProvider.testing') : $t('settings.identityProvider.testConnection') }}
-              </button>
+              </UButton>
             </div>
-          </div>
 
-          <!-- Last sync info -->
-          <div v-if="ldapStatus?.last_sync" class="rounded border border-gray-200 dark:border-gray-700 p-3 mb-4">
-            <div class="flex items-center justify-between">
-              <div>
-                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.identityProvider.lastSync') }}</span>
-                <p class="text-2xs text-ink-muted mt-0.5">
-                  {{ ldapStatus.last_sync.timestamp ? formatRelativeTime(ldapStatus.last_sync.timestamp) : $t('settings.identityProvider.unknown') }}
-                  {{ $t('settings.identityProvider.lastSyncDetail', {
-                    gCreated: ldapStatus.last_sync.groups_created,
-                    gUpdated: ldapStatus.last_sync.groups_updated,
-                    gRemoved: ldapStatus.last_sync.groups_removed,
-                    mAdded: ldapStatus.last_sync.memberships_added,
-                    mRemoved: ldapStatus.last_sync.memberships_removed,
-                  }) }}
-                </p>
-                <p v-if="ldapStatus.last_sync.errors.length" class="text-2xs text-red-400 mt-0.5">
-                  {{ $t('settings.identityProvider.errorCount', { n: ldapStatus.last_sync.errors.length, first: ldapStatus.last_sync.errors[0] }) }}
-                </p>
-              </div>
+            <!-- Last sync -->
+            <div v-if="ldapStatus?.last_sync" class="mt-3 rounded-lg border border-line px-4 py-3">
+              <span class="text-sm font-medium text-ink">{{ $t('settings.identityProvider.lastSync') }}</span>
+              <p class="text-xs text-ink-muted mt-0.5">
+                {{ ldapStatus.last_sync.timestamp ? formatRelativeTime(ldapStatus.last_sync.timestamp) : $t('settings.identityProvider.unknown') }}
+                {{ $t('settings.identityProvider.lastSyncDetail', {
+                  gCreated: ldapStatus.last_sync.groups_created,
+                  gUpdated: ldapStatus.last_sync.groups_updated,
+                  gRemoved: ldapStatus.last_sync.groups_removed,
+                  mAdded: ldapStatus.last_sync.memberships_added,
+                  mRemoved: ldapStatus.last_sync.memberships_removed,
+                }) }}
+              </p>
+              <p v-if="ldapStatus.last_sync.errors.length" class="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                {{ $t('settings.identityProvider.errorCount', { n: ldapStatus.last_sync.errors.length, first: ldapStatus.last_sync.errors[0] }) }}
+              </p>
             </div>
-          </div>
 
-          <!-- Sync actions -->
-          <div class="flex items-center gap-2">
-            <button
-              class="px-2 py-1.5 text-xs text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-              :disabled="ldapLoading"
-              @click="handleSync"
-            >
-              {{ ldapLoading ? $t('settings.identityProvider.syncing') : $t('settings.identityProvider.syncNow') }}
-            </button>
-            <button
-              class="px-2 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 border border-gray-200 dark:border-gray-700 rounded hover:border-gray-300 disabled:opacity-50"
-              :disabled="ldapLoading"
-              @click="handlePreview"
-            >
-              {{ $t('settings.identityProvider.previewChanges') }}
-            </button>
-          </div>
+            <!-- Sync actions -->
+            <div class="mt-4 flex items-center gap-2">
+              <UButton color="blue" :loading="ldapLoading" :disabled="ldapLoading" @click="handleSync">
+                {{ ldapLoading ? $t('settings.identityProvider.syncing') : $t('settings.identityProvider.syncNow') }}
+              </UButton>
+              <UButton color="gray" :disabled="ldapLoading" @click="handlePreview">
+                {{ $t('settings.identityProvider.previewChanges') }}
+              </UButton>
+            </div>
 
-          <!-- Sync result flash -->
-          <div v-if="lastSyncResult" class="mt-3 rounded border border-green-200 bg-green-50 dark:bg-green-950 p-3">
-            <p class="text-xs text-green-700">
+            <!-- Sync result -->
+            <div v-if="lastSyncResult" class="mt-3 rounded-lg border border-green-200 dark:border-green-900/60 bg-green-50 dark:bg-green-950/40 px-4 py-3 text-sm text-green-800 dark:text-green-200">
               {{ $t('settings.identityProvider.syncCompletedSummary', {
                 gCreated: lastSyncResult.groups_created,
                 gUpdated: lastSyncResult.groups_updated,
@@ -271,15 +160,13 @@
               <template v-if="lastSyncResult.users_not_found">
                 {{ $t('settings.identityProvider.ldapUsersNotFound', { n: lastSyncResult.users_not_found }) }}
               </template>
-            </p>
-          </div>
+            </div>
 
-          <!-- Preview results -->
-          <div v-if="ldapPreview" class="mt-3">
-            <div class="rounded border border-gray-200 dark:border-gray-700 overflow-hidden">
-              <div class="bg-gray-50 dark:bg-gray-900 px-3 py-2 border-b border-gray-200 dark:border-gray-700">
-                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('settings.identityProvider.preview') }} </span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">
+            <!-- Preview -->
+            <div v-if="ldapPreview" class="mt-3 bow-table-card">
+              <div class="px-5 py-3 border-b border-line text-sm">
+                <span class="font-medium text-ink">{{ $t('settings.identityProvider.preview') }}</span>
+                <span class="text-ink-muted">
                   {{ $t('settings.identityProvider.previewSummary', {
                     create: ldapPreview.groups_to_create,
                     update: ldapPreview.groups_to_update,
@@ -289,109 +176,85 @@
                 </span>
               </div>
               <div v-if="ldapPreview.groups.length" class="max-h-64 overflow-y-auto">
-                <div
-                  v-for="(group, idx) in ldapPreview.groups"
-                  :key="group.dn"
-                  class="flex items-center px-3 py-2 text-xs"
-                  :class="{ 'border-t border-gray-100 dark:border-gray-800': idx > 0 }"
-                >
-                  <span class="flex-1 text-gray-700 dark:text-gray-300 truncate" :title="group.dn">{{ group.name }}</span>
-                  <span class="w-20 text-ink-muted text-2xs">{{ $t('settings.identityProvider.memberCount', { n: group.member_count }) }}</span>
-                  <span class="w-24 text-2xs" :class="group.exists_in_app ? 'text-ink-muted' : 'text-blue-500'">
-                    {{ group.exists_in_app ? $t('settings.identityProvider.groupExists') : $t('settings.identityProvider.groupNew') }}
-                  </span>
-                  <span v-if="group.members_to_add" class="text-2xs text-green-600 me-2">+{{ group.members_to_add }}</span>
-                  <span v-if="group.members_to_remove" class="text-2xs text-red-500">-{{ group.members_to_remove }}</span>
-                </div>
+                <table class="bow-table">
+                  <tbody>
+                    <tr v-for="group in ldapPreview.groups" :key="group.dn">
+                      <td class="truncate" :title="group.dn"><span class="bow-cell-primary">{{ group.name }}</span></td>
+                      <td class="text-xs text-ink-muted whitespace-nowrap">{{ $t('settings.identityProvider.memberCount', { n: group.member_count }) }}</td>
+                      <td class="text-xs whitespace-nowrap" :class="group.exists_in_app ? 'text-ink-muted' : 'text-blue-600 dark:text-blue-400'">
+                        {{ group.exists_in_app ? $t('settings.identityProvider.groupExists') : $t('settings.identityProvider.groupNew') }}
+                      </td>
+                      <td class="text-end text-xs tabular-nums whitespace-nowrap">
+                        <span v-if="group.members_to_add" class="text-green-700 dark:text-green-400 me-2">+{{ group.members_to_add }}</span>
+                        <span v-if="group.members_to_remove" class="text-red-600 dark:text-red-400">−{{ group.members_to_remove }}</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              <div v-else class="py-4 text-center text-xs text-ink-muted">
-                {{ $t('settings.identityProvider.noLdapGroups') }}
-              </div>
+              <div v-else class="py-6 text-center text-sm text-ink-muted">{{ $t('settings.identityProvider.noLdapGroups') }}</div>
             </div>
-          </div>
 
-          <!-- LDAP Error -->
-          <div v-if="ldapError" class="mt-3 text-xs text-red-500">
-            {{ ldapError }}
-          </div>
+            <p v-if="ldapError" class="mt-3 text-sm text-red-600 dark:text-red-400">{{ ldapError }}</p>
+          </template>
         </template>
-      </template>
-      </div>
+      </SettingsDisclosure>
     </div>
 
     <!-- ================================================================== -->
     <!-- SCIM Modals (Create + Revoke)                                      -->
     <!-- ================================================================== -->
 
-    <!-- Create Token Modal -->
-    <div v-if="showCreateModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="dismissCreateModal">
-      <div class="bg-white dark:bg-gray-900 rounded-lg shadow-lg w-full max-w-sm p-4">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">{{ $t('settings.identityProvider.generateTokenTitle') }}</h3>
+    <!-- Create token -->
+    <UModal :model-value="showCreateModal" :ui="{ width: 'sm:max-w-md' }" @update:model-value="v => { if (!v) dismissCreateModal() }">
+      <div class="p-6">
+        <h3 class="text-base font-semibold text-ink">{{ $t('settings.identityProvider.generateTokenTitle') }}</h3>
 
         <template v-if="!createdToken">
-          <div class="mb-3">
-            <label class="block text-xs text-gray-600 dark:text-gray-400 mb-1">{{ $t('settings.identityProvider.nameLabel') }}</label>
-            <input
-              v-model="newTokenName"
-              type="text"
-              :placeholder="$t('settings.identityProvider.namePlaceholder')"
-              class="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:outline-none focus:border-gray-400"
-              @keydown.enter="handleCreateToken"
-            />
+          <div class="mt-4">
+            <SettingsRow :label="$t('settings.identityProvider.nameLabel')" stacked for-id="scim-token-name">
+              <UInput id="scim-token-name" v-model="newTokenName" autofocus :placeholder="$t('settings.identityProvider.namePlaceholder')" @keydown.enter="handleCreateToken" />
+            </SettingsRow>
           </div>
-          <div class="flex justify-end gap-2">
-            <button class="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700" @click="dismissCreateModal">{{ $t('settings.identityProvider.cancel') }}</button>
-            <button
-              class="px-3 py-1.5 text-xs text-white bg-blue-600 rounded hover:bg-blue-700 disabled:opacity-50"
-              :disabled="!newTokenName.trim() || creating"
-              @click="handleCreateToken"
-            >
+          <div class="mt-6 flex justify-end gap-2">
+            <UButton color="gray" variant="ghost" @click="dismissCreateModal">{{ $t('settings.identityProvider.cancel') }}</UButton>
+            <UButton color="blue" :loading="creating" :disabled="!newTokenName.trim() || creating" @click="handleCreateToken">
               {{ creating ? $t('settings.identityProvider.generating') : $t('settings.identityProvider.generate') }}
-            </button>
+            </UButton>
           </div>
         </template>
 
         <template v-else>
-          <div class="rounded border border-amber-200 bg-amber-50 dark:bg-amber-950 p-3 mb-3">
-            <div class="flex items-start gap-2">
-              <svg class="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-              </svg>
-              <p class="text-xs font-medium text-amber-800">{{ $t('settings.identityProvider.copyWarning') }}</p>
-            </div>
+          <div class="mt-4 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 flex items-start gap-2">
+            <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <p class="text-sm font-medium text-amber-800 dark:text-amber-200">{{ $t('settings.identityProvider.copyWarning') }}</p>
           </div>
-          <div class="flex items-center gap-2 mb-3">
-            <code class="flex-1 text-2xs bg-gray-50 dark:bg-gray-900 px-2 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-mono truncate">
-              {{ createdToken }}
-            </code>
-            <button
-              class="px-2 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 border border-gray-200 dark:border-gray-700 rounded hover:border-gray-300 flex-shrink-0"
-              @click="copyToClipboard(createdToken!, 'token')"
-            >
+          <div class="mt-3 flex items-center gap-2">
+            <code class="flex-1 min-w-0 truncate font-mono text-xs bg-surface-subtle text-ink-2 px-3 py-2 rounded-md border border-line">{{ createdToken }}</code>
+            <UButton color="gray" size="sm" :icon="copied === 'token' ? 'i-heroicons-check' : 'i-heroicons-clipboard-document'" @click="copyToClipboard(createdToken!, 'token')">
               {{ copied === 'token' ? $t('settings.identityProvider.copied') : $t('settings.identityProvider.copy') }}
-            </button>
+            </UButton>
           </div>
-          <div class="flex justify-end">
-            <button class="px-3 py-1.5 text-xs text-white bg-blue-600 rounded hover:bg-blue-700" @click="dismissCreateModal">{{ $t('settings.identityProvider.done') }}</button>
+          <div class="mt-6 flex justify-end">
+            <UButton color="blue" @click="dismissCreateModal">{{ $t('settings.identityProvider.done') }}</UButton>
           </div>
         </template>
       </div>
-    </div>
+    </UModal>
 
-    <!-- Revoke Confirmation Modal -->
-    <div v-if="tokenToRevoke" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="tokenToRevoke = null">
-      <div class="bg-white dark:bg-gray-900 rounded-lg shadow-lg w-full max-w-sm p-4">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-2">{{ $t('settings.identityProvider.revokeTitle') }}</h3>
-        <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
+    <!-- Revoke confirmation -->
+    <UModal :model-value="!!tokenToRevoke" :ui="{ width: 'sm:max-w-md' }" @update:model-value="v => { if (!v) tokenToRevoke = null }">
+      <div v-if="tokenToRevoke" class="p-6">
+        <h3 class="text-base font-semibold text-ink">{{ $t('settings.identityProvider.revokeTitle') }}</h3>
+        <p class="mt-2 text-sm text-ink-muted leading-relaxed">
           {{ $t('settings.identityProvider.revokeWarning', { name: tokenToRevoke.name }) }}
         </p>
-        <div class="flex justify-end gap-2">
-          <button class="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700" @click="tokenToRevoke = null">{{ $t('settings.identityProvider.cancel') }}</button>
-          <button class="px-3 py-1.5 text-xs text-white bg-red-600 rounded hover:bg-red-700" @click="handleRevoke">{{ $t('settings.identityProvider.revoke') }}</button>
+        <div class="mt-6 flex justify-end gap-2">
+          <UButton color="gray" variant="ghost" @click="tokenToRevoke = null">{{ $t('settings.identityProvider.cancel') }}</UButton>
+          <UButton color="red" @click="handleRevoke">{{ $t('settings.identityProvider.revoke') }}</UButton>
         </div>
       </div>
-    </div>
-
+    </UModal>
   </div>
 </template>
 
@@ -399,11 +262,14 @@
 import { useScimTokens, type ScimToken } from '~/ee/composables/useScimTokens'
 import { useLdapSync, type SyncResult as LDAPSyncResult } from '~/ee/composables/useLdapSync'
 import { ENTRA_PROFILE_FIELDS, GOOGLE_PROFILE_FIELDS } from '~/composables/useProfileSync'
+import SettingsDisclosure from '~/components/settings/SettingsDisclosure.vue'
+import SettingsRow from '~/components/settings/SettingsRow.vue'
+import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
+import Spinner from '~/components/Spinner.vue'
 
 definePageMeta({
   auth: true,
-  permissions: ['manage_identity_providers'],
-  layout: 'settings'
+  permissions: ['manage_identity_providers']
 })
 
 const { t } = useI18n()

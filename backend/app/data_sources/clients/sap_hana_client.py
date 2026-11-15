@@ -24,6 +24,10 @@ class SapHanaClient(DataSourceClient):
     "Expose for Consumption" appear in the space schema.
     """
 
+    # HANA SQL: a quote in a string constant is written '' (SAP HANA SQL
+    # Reference, Constant Expressions).
+    sql_literal_style = "standard"
+
     def __init__(self, host, port: int = 443, user: str = None, password: str = None,
                  database: Optional[str] = None, schema: Optional[str] = None,
                  encrypt: bool = True, verify_ssl: bool = True):

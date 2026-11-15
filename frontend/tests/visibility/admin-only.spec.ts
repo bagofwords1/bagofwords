@@ -44,8 +44,9 @@ test.describe('Admin-only page visibility', () => {
     await adminPage.goto('/settings');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Admin should see Settings page
-    await expect(adminPage.getByRole('heading', { name: 'Settings', exact: true }))
+    // Admin should land on the console (/settings redirects to Members; the
+    // settings shell titles each page by name)
+    await expect(adminPage.getByRole('heading', { name: 'Members', exact: true }))
       .toBeVisible({ timeout: 10000 });
 
     // Admin should see LLM tab

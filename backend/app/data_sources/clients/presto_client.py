@@ -11,6 +11,9 @@ from app.data_sources.clients.trino_client import TrinoClient
 
 class PrestoClient(TrinoClient):
 
+    # Presto: '' only (sqlglot presto).
+    sql_literal_style = "standard"
+
     relative_date_hint = TrinoClient.relative_date_hint.replace("(Trino)", "(Presto)")
 
     def __init__(self, host, port=8080, catalog=None, schema=None, user=None, password=None,

@@ -13,6 +13,7 @@
                     </span>
                     <!-- Auto with nothing to resolve to isn't Auto, it's an
                          empty workspace — fall through to the bare icon. -->
+                    <span v-else-if="folderIds.length" class="flex gap-1 items-center"><UIcon name="i-heroicons-folder" />{{ folderNames.get(folderIds[0]) || $t('sharedFolders.title') }}<span v-if="folderIds.length + internalSelectedDataSources.length > 1">+{{ folderIds.length + internalSelectedDataSources.length - 1 }}</span></span>
                     <span v-else-if="isAutoMode && visibleDataSources.length > 0" class="flex items-center">
                         <Icon name="heroicons-bolt" class="h-4 w-4" />
                         <span v-if="!isCompactFinal" class="ms-1 text-xs">{{ $t('prompt.modelAuto') }}</span>
@@ -56,7 +57,7 @@
                          the panel, so focus on mount == focus on open; the query
                          is reset when the panel closes so it never carries over. -->
                     <div
-                        v-if="!isLoading && (visibleDataSources.length > 0 || connectableDataSources.length > 0)"
+                        v-if="!isLoading && (visibleDataSources.length > 0 || connectableDataSources.length > 0 || availableFolders.length > 0)"
                         class="p-2 border-b border-gray-100 dark:border-gray-800"
                     >
                         <div class="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-gray-50 dark:bg-gray-800/60">
@@ -66,23 +67,48 @@
                                 type="text"
                                 data-testid="agent-scope-search"
                                 class="flex-1 min-w-0 bg-transparent outline-none text-xs text-gray-800 dark:text-gray-100 placeholder-gray-400"
-                                :placeholder="$t('prompt.searchAgents')"
+                                :placeholder="$t('prompt.searchAgentFolders')"
                                 @vue:mounted="focusSearch"
                                 @vue:unmounted="agentQuery = ''"
                             />
                         </div>
                     </div>
                     <div class="p-2 max-h-64 overflow-y-auto">
+                    <button type="button"
+                        class="w-full px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
+                        @click="toggleAutoMode"
+                        data-testid="agent-scope-auto"
+                        :data-selected="isAutoMode ? 'true' : 'false'"
+                    >
+                        <div class="flex items-center">
+                            <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
+                            <div class="flex flex-col text-start">
+                                <span class="text-sm">{{ $t('prompt.modelAuto') }}</span>
+                                <span class="text-2xs text-ink-muted">
+                                    {{ $t('prompt.autoAgentsHint') }}
+                                </span>
+                            </div>
+                        </div>
+                        <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
+                    </button>
+                    <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
+                    <AgentFolderTree :folders="pickerFolders" :selected="checkedFolders" :search="agentQuery"
+                        :member-folders="[...folderMembers.keys()]" @select="pickFolder">
+                        <template #members="{folderId}">
+                            <AgentScopeRow v-for="ds in folderMembers.get(folderId)" :key="ds.id" :ds="ds" :selected="!isAutoMode && isSelected(ds)" :stage="stageOf(ds)" :service-account="isServiceAccount(ds)"
+                                    @select="toggleDataSource(ds)" @hover="onDataSourceHover(ds.id, $event)" @leave="onDataSourceHoverLeave" />
+                        </template>
+                    </AgentFolderTree>
                     <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 dark:text-gray-400 space-x-2">
                         <Spinner class="w-4 h-4 text-ink-muted animate-spin" />
                         <span>{{ $t('prompt.loadingDataSources') }}</span>
                     </div>
                     <template v-else>
-                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0" class="text-center text-gray-500 dark:text-gray-400 py-4">
+                        <div v-if="visibleDataSources.length === 0 && connectableDataSources.length === 0 && !availableFolders.length" class="text-center text-gray-500 dark:text-gray-400 py-4">
                             {{ $t('prompt.noDataSources') }}
                         </div>
                         <div
-                            v-else-if="hasQuery && filteredGroups.length === 0 && filteredConnectable.length === 0"
+                            v-else-if="hasQuery && !scopeFolders.length && filteredGroups.length === 0 && filteredConnectable.length === 0"
                             class="text-center text-gray-500 dark:text-gray-400 py-4"
                             data-testid="agent-scope-no-match"
                         >
@@ -90,64 +116,13 @@
                         </div>
                         <template v-else>
                             <template v-if="visibleDataSources.length > 0">
-                                <div
-                                    v-if="!hasQuery"
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
-                                    @click="toggleAutoMode"
-                                    data-testid="agent-scope-auto"
-                                    :data-selected="isAutoMode ? 'true' : 'false'"
-                                >
-                                    <div class="flex items-center">
-                                        <Icon name="heroicons-bolt" class="h-4 w-4 text-gray-500 dark:text-gray-400 me-2" />
-                                        <div class="flex flex-col text-start">
-                                            <span class="text-sm">{{ $t('prompt.modelAuto') }}</span>
-                                            <span class="text-2xs text-ink-muted">
-                                                {{ $t('prompt.autoAgentsHint') }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                    <Icon v-if="isAutoMode" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                                </div>
-                                <div v-if="!hasQuery" class="my-1 border-t border-gray-100 dark:border-gray-800" />
                                 <template v-for="group in filteredGroups" :key="group.key">
                                 <div v-if="group.divider" class="my-1 border-t border-gray-100 dark:border-gray-800" />
-                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-2xs font-medium uppercase tracking-wide text-ink-muted">
+                                <div v-if="group.label" class="px-2 pt-1 pb-0.5 text-start text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                     {{ group.label }}
                                 </div>
-                                <div
-                                    v-for="ds in group.items"
-                                    :key="ds.id"
-                                    class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between gap-2"
-                                    @click="() => { toggleDataSource(ds); }"
-                                    @mouseenter="onDataSourceHover(ds.id, $event)"
-                                    @mouseleave="onDataSourceHoverLeave()"
-                                    data-testid="agent-scope-option"
-                                    :data-agent-name="ds.name"
-                                    :data-selected="(!isAutoMode && isSelected(ds)) ? 'true' : 'false'"
-                                >
-                                    <div class="flex items-center min-w-0">
-                                        <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
-                                        <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
-                                    </div>
-                                    <!-- Badges sit at the far end of the row (before the check) so
-                                         they line up in a column instead of trailing each name. -->
-                                    <div class="flex items-center gap-1.5 flex-shrink-0">
-                                        <!-- Non-production agents only reach here for managers; flag
-                                             the lifecycle stage so it's clear they aren't live for
-                                             consumers yet. Mirrors the agent page (Development /
-                                             Training / Disabled), not the raw publish_status. -->
-                                        <span
-                                            v-if="stageOf(ds) !== 'production'"
-                                            :class="['text-2xs rounded border px-1 py-0.5', stageMeta(stageOf(ds)).badge]"
-                                        >{{ $t('agentsPage.stage.' + stageOf(ds)) }}</span>
-                                        <!-- Running via the connection's system (service principal) creds -->
-                                        <span
-                                            v-if="isServiceAccount(ds)"
-                                            class="text-2xs text-ink-muted border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5"
-                                        >{{ $t('data.serviceAccount') }}</span>
-                                        <Icon v-if="!isAutoMode && isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
-                                    </div>
-                                </div>
+                                <AgentScopeRow v-for="ds in group.items" :key="ds.id" :parent-path="hasQuery ? folderNames.get(ds.folder_id || '') : undefined" :ds="ds" :selected="!isAutoMode && isSelected(ds)" :stage="stageOf(ds)" :service-account="isServiceAccount(ds)"
+                                    @select="toggleDataSource(ds)" @hover="onDataSourceHover(ds.id, $event)" @leave="onDataSourceHoverLeave" />
                                 </template>
                             </template>
 
@@ -164,7 +139,7 @@
                                 >
                                     <div class="flex items-center min-w-0 opacity-50">
                                         <DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="h-4 flex-shrink-0" />
-                                        <span class="ms-2 text-sm truncate">{{ ds.name }}</span>
+                                        <span class="ms-2 text-sm truncate">{{ ds.name }}<small v-if="hasQuery" class="block truncate text-2xs">{{ folderNames.get(ds.folder_id || '') }}</small></span>
                                     </div>
                                     <button
                                         type="button"
@@ -206,14 +181,17 @@
 </template>
 
 <script lang="ts" setup>
+import AgentScopeRow from './AgentScopeRow.vue'
+import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
 import AgentIcon from '~/components/icons/AgentIcon.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
-import { deriveStage, stageMeta } from '~/composables/useDataSourcePublishStatus'
+import { deriveStage } from '~/composables/useDataSourcePublishStatus'
+import { splitRecent } from '~/utils/recentItems'
 
-type DataSource = { id: string; name: string; type?: string; auth_policy?: string; publish_status?: string; reliability_status?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
+type DataSource = { id: string; folder_id?: string; name: string; type?: string; auth_policy?: string; publish_status?: string; reliability_status?: string; connections?: any[]; user_status?: { effective_auth?: string; has_user_credentials?: boolean; uses_fallback?: boolean } }
 
 // Unified lifecycle stage (Development / Training / Production / Disabled),
 // derived from the agent's publish_status + reliability_status — matches the
@@ -238,7 +216,7 @@ const isCompactFinal = computed(() => isCompact.value)
 const autoState = computed(() => resolveAgentAuto({
     selectedIds: internalSelectedDataSources.value.map((ds: any) => String(ds.id)),
 }))
-const isAutoMode = computed(() => autoState.value.isAuto)
+const isAutoMode = computed(() => !props.folderIds.length && autoState.value.isAuto)
 
 // Hover flyout state
 const hoveredDataSourceId = ref<string | null>(null)
@@ -393,6 +371,9 @@ const onFlyoutLeave = () => {
 }
 
 const props = defineProps({
+    allowFolderScope: Boolean,
+    expandFolderSelection: Boolean,
+    folderIds: { type: Array as () => string[], default: () => [] },
     selectedDataSources: {
         type: Array,
         default: () => [],
@@ -430,7 +411,7 @@ const props = defineProps({
 });
 
 
-const emit = defineEmits(['update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
+const emit = defineEmits(['update:folderIds', 'update:availableFolders', 'update:selectedDataSources', 'update:availableDataSources', 'update:autoMode']);
 
 // Optionally restrict visible data sources to those the user has `permission`
 // for. Uses the resource-grant tier directly (NOT the org-perm implication
@@ -474,38 +455,48 @@ const nonDefaultSources = computed(() => {
     const ids = new Set(projectDefaultSources.value.map((ds: any) => String(ds.id)))
     return visibleDataSources.value.filter((ds: any) => !ids.has(String(ds.id)))
 })
-// Panel row groups: defaults first under a "From {project}" header, then the
-// rest after a divider. A single unlabeled group outside a project.
+// Panel row groups, top to bottom:
+//   1. project defaults under "From {project}" (an admin's deliberate choice),
+//   2. "Recent" — the few agents this user last chatted with (last_used_at
+//      from /data_sources/active; see utils/recentItems.ts),
+//   3. everything else, A–Z, so that part never moves with usage.
+// A search drops the Recent head: matches list A–Z, each agent once.
+const byName = (a: any, b: any) => String(a?.name || '').localeCompare(String(b?.name || ''))
 const sourceGroups = computed(() => {
-    if (!projectDefaultSources.value.length) {
-        return [{ key: 'all', label: '', divider: false, items: visibleDataSources.value }]
+    const groups: any[] = []
+    if (projectDefaultSources.value.length) {
+        groups.push({
+            key: 'project',
+            label: t('projects.overview.fromProject', { name: props.projectName }),
+            divider: false,
+            items: projectDefaultSources.value,
+        })
     }
-    const groups: any[] = [{
-        key: 'project',
-        label: t('projects.overview.fromProject', { name: props.projectName }),
-        divider: false,
-        items: projectDefaultSources.value,
-    }]
-    if (nonDefaultSources.value.length) {
-        groups.push({ key: 'rest', label: '', divider: true, items: nonDefaultSources.value })
+    const { recent, rest } = hasQuery.value
+        ? { recent: [], rest: nonDefaultSources.value }
+        : splitRecent(nonDefaultSources.value)
+    if (recent.length) {
+        groups.push({ key: 'recent', label: t('prompt.recent'), divider: groups.length > 0, items: recent })
+    }
+    if (rest.length) {
+        groups.push({ key: 'rest', label: '', divider: groups.length > 0, items: [...rest].sort(byName) })
     }
     return groups
 })
 
 // Search, mirroring ModelPickerPanel: matches on name (and type, so "duckdb"
 // finds every DuckDB agent). Group headers survive only when they still have
-// rows; the Auto row is hidden while a query is active since it isn't an agent.
+// rows. Auto remains available above the results.
 const agentQuery = ref('')
 const hasQuery = computed(() => agentQuery.value.trim().length > 0)
 function matchesQuery(ds: DataSource) {
     const q = agentQuery.value.trim().toLowerCase()
     if (!q) return true
-    return [ds.name, ds.type].some((v) => String(v || '').toLowerCase().includes(q))
+    return [ds.name, ds.type, folderNames.value.get(ds.folder_id || '')].some((v) => String(v || '').toLowerCase().includes(q))
 }
 const filteredGroups = computed(() => {
-    if (!hasQuery.value) return sourceGroups.value
     return sourceGroups.value
-        .map((g: any) => ({ ...g, items: g.items.filter(matchesQuery) }))
+        .map(g => ({ ...g, items: g.items.filter((ds: DataSource) => hasQuery.value ? matchesQuery(ds) : !folderMembers.value.has(ds.folder_id || '')) }))
         .filter((g: any) => g.items.length > 0)
 })
 const filteredConnectable = computed(() => connectableDataSources.value.filter(matchesQuery))
@@ -570,14 +561,72 @@ function isServiceAccount(ds: any) {
         && !ds?.user_status?.has_user_credentials
 }
 
+const availableFolders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
+const { getErrorMessage } = useErrorMessage()
+const folderNames = computed(() => new Map(availableFolders.value.map(f => [f.id, f.path])))
+const folderMembers = computed(() => {
+    const members = new Map<string, DataSource[]>()
+    for (const ds of visibleDataSources.value) {
+        if (!ds.folder_id || !folderNames.value.has(ds.folder_id)) continue
+        if (!members.has(ds.folder_id)) members.set(ds.folder_id, [])
+        members.get(ds.folder_id)!.push(ds)
+    }
+    return members
+})
+const eligibleFolderMembers = computed(() => {
+    const result = new Map<string, string[]>()
+    for (const folder of availableFolders.value) {
+        const ids = folderMembers.value.get(folder.id)?.map(agent => agent.id)
+        if (!ids?.length) continue
+        for (const ancestor of folder.ancestors) {
+            if (!result.has(ancestor)) result.set(ancestor, [])
+            result.get(ancestor)!.push(...ids)
+        }
+    }
+    return result
+})
+const pickerFolders = computed(() => props.expandFolderSelection
+    ? availableFolders.value.filter(f => eligibleFolderMembers.value.has(f.id))
+    : availableFolders.value)
+const checkedFolders = computed(() => props.expandFolderSelection
+    ? pickerFolders.value.filter(f => eligibleFolderMembers.value.get(f.id)!.every(id => internalSelectedDataSources.value.some(ds => ds.id === id))).map(f => f.id)
+    : props.folderIds)
+function pickFolder(id: string) {
+    if (props.expandFolderSelection) selectFolderMembers(eligibleFolderMembers.value.get(id) || [])
+    else chooseFolder(id)
+}
+const scopeFolders = computed(() => pickerFolders.value.filter(f => f.path.toLowerCase().includes(agentQuery.value.toLowerCase())))
+watch(availableFolders, items => emit('update:availableFolders', items), {immediate:true})
+onMounted(async () => {
+    if (!props.allowFolderScope && !props.expandFolderSelection) return
+    try {
+        availableFolders.value = await loadAgentFolderOptions()
+    } catch (error) {
+        toast.add({title: getErrorMessage(error), color: 'red'})
+    }
+})
+function selectFolderMembers(ids: string[]) {
+    const picked = new Map(internalSelectedDataSources.value.map(ds => [ds.id, ds]))
+    for (const ds of visibleDataSources.value) if (ids.includes(ds.id)) picked.set(ds.id, ds)
+    internalSelectedDataSources.value = [...picked.values()]
+    handleSelectionChange()
+    persistSelectionIfReport()
+}
+function chooseFolder(id: string) {
+    if (!props.allowFolderScope || !availableFolders.value.some(f => f.id === id)) return
+    const ids = props.folderIds.includes(id) ? props.folderIds.filter(f => f !== id) : [...props.folderIds, id]
+    emit('update:folderIds', ids)
+    persistSelectionIfReport(ids)
+}
 function toggleAutoMode() {
     // Auto is stored as "no agents pinned" and resolved per run by the backend.
     // Materializing it into today's roster would freeze it into a manual scope
     // that never picks up an agent added later.
     if (isAutoMode.value) return
+    emit('update:folderIds', [])
     internalSelectedDataSources.value = []
     handleSelectionChange()
-    persistSelectionIfReport()
+    persistSelectionIfReport([])
 }
 
 function toggleDataSource(ds: DataSource) {
@@ -600,7 +649,7 @@ function toggleDataSource(ds: DataSource) {
 // Let a parent drive the same toggle the panel rows use, so an external picker
 // (the blank-report agent list) shares the auto-mode semantics and the
 // report-level persistence instead of reimplementing them.
-defineExpose({ toggleDataSource })
+defineExpose({ toggleDataSource, chooseFolder, toggleAutoMode, settleScope })
 
 onMounted(() => {
     nextTick(async () => {
@@ -666,23 +715,36 @@ watch(() => props.selectedDataSources, (newVal: any[]) => {
     internalSelectedDataSources.value = alignSelection(newVal) as any
 }, { immediate: true, deep: true })
 
-async function persistSelectionIfReport() {
-    try {
-        if (!props.reportId || !props.persistSelection) return
-        const ids = internalSelectedDataSources.value.map((x: any) => x.id)
-        await useMyFetch(`/reports/${props.reportId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data_sources: ids })
-        })
-        // Surface the resulting agent_scope_changed session-event strip. Carry
-        // the new ids so listeners can react without re-reading state that a
-        // downstream async watch may not have flushed yet (e.g. the report page
-        // mirroring this scope into the user's default).
-        window.dispatchEvent(new CustomEvent('report:mutated', { detail: { reportId: props.reportId, kind: 'data_sources', ids } }))
-    } catch (e) {
-        console.error('Failed to update report data sources:', e)
-    }
+let saveQueue = Promise.resolve()
+let lastSave = 0
+let scopeSaved = true
+async function settleScope() {
+    let pending
+    do { pending = saveQueue; await pending } while (pending !== saveQueue)
+    return scopeSaved
+}
+function persistSelectionIfReport(folders = props.folderIds) {
+    const reportId = props.reportId
+    if (!reportId || !props.persistSelection) return
+    const ids = internalSelectedDataSources.value.map(ds => ds.id)
+    const body = {data_sources: ids, ...(props.allowFolderScope ? {agent_folder_ids: [...folders]} : {})}
+    const revision = ++lastSave
+    saveQueue = saveQueue.then(async () => {
+        const {error} = await useMyFetch(`/reports/${reportId}`, {method:'PUT', body})
+        if (revision !== lastSave || props.reportId !== reportId) return
+        scopeSaved = !error.value
+        if (error.value) {
+            toast.add({title: error.value.data?.detail || error.value.message, color:'red'})
+            const {data} = await useMyFetch<any>(`/reports/${reportId}`)
+            if (revision === lastSave && data.value && props.reportId === reportId) {
+                internalSelectedDataSources.value = alignSelection(data.value.data_sources || [])
+                emit('update:folderIds', data.value.agent_folder_ids || (data.value.agent_folder_id ? [data.value.agent_folder_id] : []))
+                handleSelectionChange()
+            }
+            return
+        }
+        window.dispatchEvent(new CustomEvent('report:mutated', {detail:{reportId, kind:'data_sources', ids, folderIds: [...folders]}}))
+    }).catch(error => { scopeSaved = false; toast.add({title: String(error), color:'red'}) })
 }
 const dataTooltip = computed<string>(() => {
     if (internalSelectedDataSources.value.length <= 1) return ''

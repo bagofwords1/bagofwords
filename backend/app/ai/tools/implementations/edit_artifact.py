@@ -27,12 +27,15 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
+from app.ai.tools.implementations._artifact_refs import (
+    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors,
+    file_reference_errors, bow_file_literal_ids, normalize_file_id,
+)
+from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
 from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_version
 
 logger = logging.getLogger(__name__)
-
 
 class EditArtifactTool(Tool):
     """Mechanical find/replace edits on a page or slides artifact — no inner LLM."""
@@ -54,7 +57,9 @@ class EditArtifactTool(Tool):
                 "render-validates before persisting; on any failure NOTHING is applied and the error tells "
                 "you exactly what to correct — fix the ops and call again. If the current code is not in your "
                 "context, call read_artifact first. For a from-scratch redesign, author new source and call "
-                "create_artifact with `code`. For slides, ops edit the python-pptx script; validation = the script executes and saves a deck."
+                "create_artifact with `code`. To show a file the artifact does not have yet (a new logo, for example), add its "
+                "<BowFile id=\"...\" /> in the ops AND pass its id in `file_ids`; to stop showing one (a replaced logo), delete its <BowFile> and pass its id in `remove_file_ids`, so viewers can no longer open it, through this or any earlier version of the artifact. For slides, ops edit the python-pptx script; "
+                "validation = the script executes and saves a deck."
             ),
             category="action",
             version="1.0.0",
@@ -146,16 +151,42 @@ class EditArtifactTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edits", "ops": len(data.edits)})
         from app.ai.tools.implementations.edit_artifact_legacy import _find_closest_match
 
+        # Ids the model miscopied are matched to the visualization they
+        # nearly spell: new ones among this report's, removed ones among the
+        # artifact's own. A new id that names nothing fails here, with the
+        # ids that would work, instead of being saved as a dead reference.
+        from app.ai.tools.implementations._viz_ids import (
+            apply_id_corrections, correct_code_viz_refs, ensure_available, resolve_visualization_ids,
+        )
+        _report_id = str(artifact.report_id) if artifact.report_id else None
+        added = await resolve_visualization_ids(db, _report_id, data.visualization_ids)
+        dropped = await resolve_visualization_ids(
+            db, _report_id, data.remove_visualization_ids, pool=existing_viz_ids,
+        )
+        if added.unresolved:
+            problem = " ".join(added.unresolved_messages())
+            yield self._fail(
+                artifact, "visualization_not_found", problem,
+                {
+                    "visualization_ids": added.unresolved,
+                    "available_visualizations": await ensure_available(db, _report_id, added),
+                    "remediation": added.remediation(),
+                },
+            )
+            return
+        id_notes = added.correction_notes() + dropped.correction_notes()
+
         # Merge viz ids: (existing − removed) + new — same semantics as edit_artifact.
-        removed = {str(v) for v in (data.remove_visualization_ids or [])}
+        removed = set(dropped.ids)
         merged_viz_ids = [v for v in existing_viz_ids if v not in removed]
-        for vid in (data.visualization_ids or []):
-            if str(vid) not in merged_viz_ids and str(vid) not in removed:
-                merged_viz_ids.append(str(vid))
+        for vid in added.ids:
+            if vid not in merged_viz_ids and vid not in removed:
+                merged_viz_ids.append(vid)
 
         working = code
         for i, op in enumerate(data.edits):
-            find, replace = op.find, op.replace
+            # New code carries the same miscopied id as the id list did.
+            find, replace = op.find, apply_id_corrections(op.replace, added.corrections)
             # The agent may quote code it saw before the working copy was
             # migrated (older context still binding positionally), so run the
             # same codemod over the op. `find` describes the stored code →
@@ -189,6 +220,66 @@ class EditArtifactTool(Tool):
                 )
             return
         new_code = working
+        if artifact.mode == "page":
+            # The id list can be right while the new code carries the slip.
+            new_code = correct_code_viz_refs(new_code, merged_viz_ids)
+
+        # Embedded files: existing, minus removals, plus new. Ids are compared
+        # normalised. Every requested id must resolve; the same answer for
+        # missing, forbidden and wrong-type ids reveals nothing about files
+        # this user can't see.
+        merged_files: List[Dict[str, Any]] = [f for f in content.get("files") or [] if isinstance(f, dict)]
+        previously_attached = {str(f.get("id")) for f in merged_files}
+        removed_file_ids = {normalize_file_id(f) for f in data.remove_file_ids or [] if str(f or "").strip()}
+        if removed_file_ids:
+            merged_files = [f for f in merged_files if normalize_file_id(f.get("id")) not in removed_file_ids]
+        attached_ids = {normalize_file_id(f.get("id")) for f in merged_files}
+        requested_file_ids = [
+            fid for fid in dict.fromkeys(normalize_file_id(f) for f in data.file_ids or [] if str(f or "").strip())
+            if fid not in attached_ids
+        ]
+        if requested_file_ids:
+            try:
+                attachable = await attachable_files(
+                    db, user=user, report=report, organization=runtime_ctx.get("organization"), file_ids=requested_file_ids,
+                )
+            except FileLookupFailed:
+                yield self._fail(
+                    artifact, "file_lookup_failed",
+                    "Could not look up the requested files (a temporary error). Nothing was applied.",
+                    {"file_ids": requested_file_ids, "remediation": "Call edit_artifact again with the same arguments."},
+                )
+                return
+            refused = [fid for fid in requested_file_ids if fid not in attachable]
+            if refused:
+                yield self._fail(
+                    artifact, "file_not_attachable",
+                    f"Cannot attach file {refused[0]}: it does not exist, you cannot access it, or it is not an image or PDF.",
+                    {"file_ids": refused, "remediation": "Pass only ids of images or PDFs from the conversation's files."},
+                )
+                return
+            merged_files.extend(attachable[fid] for fid in requested_file_ids)
+            attached_ids.update(requested_file_ids)
+
+        # A <BowFile> for a file that isn't attached renders "File not found"
+        # while the render check still passes. References that were already
+        # broken before this edit are left alone, so an unrelated edit isn't
+        # blocked by them; a file removed in this edit must lose its tag too.
+        if artifact.mode == "page":
+            already_broken = bow_file_literal_ids(code) - previously_attached
+            file_errors = file_reference_errors(new_code, {"files": merged_files}, ignore_ids=already_broken)
+            if file_errors:
+                unattached = sorted(bow_file_literal_ids(new_code) - {str(f.get("id")) for f in merged_files} - already_broken)
+                removed_but_shown = [fid for fid in unattached if normalize_file_id(fid) in removed_file_ids]
+                yield self._fail(
+                    artifact, "file_not_attached", file_errors[0],
+                    {"file_ids": unattached, "remediation": (
+                        "Delete the <BowFile> tags for the files you are removing."
+                        if removed_but_shown else
+                        "Call edit_artifact again with the same edits and this id in `file_ids`."
+                    )},
+                )
+                return
 
         # Validation payload straight from the shared payload builder, against
         # the MERGED viz set; enrich with declared params for the wiring gate.
@@ -198,7 +289,7 @@ class EditArtifactTool(Tool):
             report_id=artifact.report_id,
             content={
                 "visualization_ids": merged_viz_ids,
-                "files": content.get("files") or [],
+                "files": merged_files,
                 "runtime_version": content.get("runtime_version"),
             },
         )
@@ -255,7 +346,7 @@ class EditArtifactTool(Tool):
                 artifact_data.get("visualizations") or [],
                 report_data,
                 _pptx_tmp,
-                await load_image_bytes(db, content.get("files") or []),
+                await load_image_bytes(db, merged_files),
                 runtime_ctx,
                 max_repairs=0,
             ):
@@ -293,6 +384,7 @@ class EditArtifactTool(Tool):
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
+            gate_errors += chart_prop_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
@@ -323,8 +415,14 @@ class EditArtifactTool(Tool):
         )
         prev_spec = artifact.generation_prompt or ""
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
-        if content.get("files"):
-            new_content["files"] = content.get("files")
+        if merged_files:
+            new_content["files"] = merged_files
+        # Files this edit detached. The access checks treat a file as revoked
+        # for this artifact (every version, not just this one) once a version
+        # detaches it, until a later version attaches it again.
+        detached_now = sorted(fid for fid in removed_file_ids if fid in {normalize_file_id(i) for i in previously_attached})
+        if detached_now:
+            new_content["detached_file_ids"] = detached_now
         # The runtime generation travels with the row: a legacy artifact stays
         # legacy across edits (its code was written for that look); a themed
         # one stays themed.
@@ -453,6 +551,7 @@ class EditArtifactTool(Tool):
                     "version": new_artifact.version,
                     "diff_applied": True,
                     "applied_ops": len(data.edits),
+                    **({"warnings": id_notes} if id_notes else {}),
                 },
             },
         )

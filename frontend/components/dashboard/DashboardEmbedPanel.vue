@@ -42,6 +42,18 @@
                 <p class="mt-2 text-xs text-ink-muted">{{ $t('connectedApps.embedHelp') }}</p>
             </section>
 
+            <section data-testid="embed-permissions">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('embed.tab.permissionsTitle') }}</h3>
+                <label class="mt-2 flex items-start gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                    <UCheckbox :model-value="!!state.allow_popups" :disabled="saving" data-testid="embed-allow-popups"
+                               class="mt-0.5" @update:model-value="togglePopups" />
+                    <div class="min-w-0 flex-1">
+                        <span class="text-sm text-gray-900 dark:text-white">{{ $t('embed.tab.allowPopups') }}</span>
+                        <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ $t('embed.tab.allowPopupsHelp') }}</p>
+                    </div>
+                </label>
+            </section>
+
             <section v-if="selectedHost" data-testid="embed-snippets" class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
                     <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('embed.tab.snippetFor', { name: selectedHost.name }) }}</h3>
@@ -97,11 +109,13 @@ async function load() {
     }
 }
 
-async function put(ids: string[]) {
+async function put(ids: string[], allowPopups?: boolean) {
     saving.value = true
     try {
+        const body: Record<string, any> = { host_application_ids: ids }
+        if (allowPopups !== undefined) body.allow_popups = allowPopups
         const { data, error } = await useMyFetch(`/api/artifacts/${props.dashboardId}/embedding`, {
-            method: 'PUT', body: { host_application_ids: ids },
+            method: 'PUT', body,
         })
         if (error.value) { toast.add({ title: getErrorMessage(error.value), color: 'red' }); return }
         state.value = data.value
@@ -110,10 +124,17 @@ async function put(ids: string[]) {
     }
 }
 
+// The ids currently allowed, so a popups toggle never clears the host choices.
+const allowedIds = () => state.value.hosts.filter((h: any) => h.allowed).map((h: any) => h.id)
+
 function toggle(host: any, allowed: boolean) {
     const ids = state.value.hosts.filter((h: any) => (h.id === host.id ? allowed : h.allowed)).map((h: any) => h.id)
     if (allowed) selected.value = host.id
     put(ids)
+}
+
+function togglePopups(value: boolean) {
+    put(allowedIds(), value)
 }
 
 const applicationSettings = computed(() => ({ path: '/settings/integrations', query: {

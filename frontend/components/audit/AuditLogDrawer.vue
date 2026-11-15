@@ -20,14 +20,14 @@
         role="dialog"
         aria-modal="true"
         :aria-label="$t('settings.audit.drawer.title')"
-        class="fixed inset-y-0 end-0 z-[1100] w-full sm:w-[460px] bg-white dark:bg-gray-900 border-s border-gray-200 dark:border-gray-700 shadow-xl flex flex-col"
+        class="fixed inset-y-0 end-0 z-[1100] w-full sm:w-[460px] bg-surface-elevated border-s border-line shadow-xl flex flex-col"
       >
         <!-- Header -->
-        <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-start gap-3">
+        <div class="px-4 py-3 border-b border-line-subtle flex items-start gap-3">
           <div class="flex-1 min-w-0">
             <div class="text-2xs text-ink-muted mb-1">{{ $t('settings.audit.drawer.title') }}</div>
             <div class="flex items-center gap-1.5 flex-wrap">
-              <span v-for="(seg, i) in split.path" :key="i" class="text-sm text-gray-500 dark:text-gray-400">{{ seg }}<span class="mx-1 text-gray-300">·</span></span>
+              <span v-for="(seg, i) in split.path" :key="i" class="text-sm text-ink-muted">{{ seg }}<span class="mx-1 text-gray-300">·</span></span>
               <span class="inline-flex px-1.5 py-0.5 rounded text-xs font-medium" :class="verbClass(log.action)">{{ split.verb }}</span>
             </div>
           </div>
@@ -51,7 +51,7 @@
               <dd data-testid="audit-field-actor">{{ log.user_email || $t('settings.audit.system') }}</dd>
               <dt>{{ $t('settings.audit.drawer.actorType') }}</dt>
               <dd>
-                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-muted text-ink-2">
                   <UIcon :name="kindIcon" class="w-3 h-3" />
                   {{ $t(`settings.audit.drawer.actorKinds.${kind}`) }}
                 </span>
@@ -133,12 +133,12 @@
                       v-for="(q, i) in asList(f.value)"
                       :key="i"
                       dir="ltr"
-                      class="font-mono text-2xs whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5"
+                      class="font-mono text-2xs whitespace-pre-wrap break-words bg-surface-subtle border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5"
                     >{{ q }}</pre>
                   </div>
                   <div v-else-if="f.key === 'changed' && isObject(f.value)" class="space-y-0.5">
                     <div v-for="(v, k) in f.value" :key="k" class="font-mono text-2xs" dir="ltr">
-                      <span class="text-gray-500">{{ k }}:</span>
+                      <span class="text-ink-muted">{{ k }}:</span>
                       <template v-if="Array.isArray(v) && v.length === 2">
                         <span class="text-red-600 line-through">{{ fmt(v[0]) }}</span>
                         <span class="text-ink-muted"> → </span>
@@ -152,12 +152,12 @@
               </template>
             </dl>
             <details class="mt-3 group" :open="knownFields.length === 0 && extraKeys.length > 0">
-              <summary class="cursor-pointer select-none text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1">
+              <summary class="cursor-pointer select-none text-ink-muted hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1">
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 transition-transform group-open:rotate-90 rtl:-scale-x-100" />
                 {{ $t('settings.audit.drawer.rawJson') }}
                 <CopyChip class="ms-auto" :value="rawJson" />
               </summary>
-              <pre dir="ltr" data-testid="audit-raw-json" class="mt-2 font-mono text-2xs whitespace-pre-wrap break-words bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5 max-h-80 overflow-auto">{{ rawJson }}</pre>
+              <pre dir="ltr" data-testid="audit-raw-json" class="mt-2 font-mono text-2xs whitespace-pre-wrap break-words bg-surface-subtle border border-gray-100 dark:border-gray-700 rounded px-2 py-1.5 max-h-80 overflow-auto">{{ rawJson }}</pre>
             </details>
           </section>
         </div>

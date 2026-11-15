@@ -68,22 +68,33 @@ class CapturedQuery(str):
     capture of a request that left the connection's configured path.
     `identity_reads`, when not None, is what the identity check reads instead
     of the text: for an OData call, one capture per request it sent (the text
-    stays the query the code wrote, which users and the audit see)."""
+    stays the query the code wrote, which users and the audit see).
+    `literal_style` is the client's `sql_literal_style`: a capture with no
+    known dialect is read with one whose string literals follow it
+    (`_STYLE_DIALECTS`). `sql_in_json_envelope` is the client's own flag: its
+    query is a JSON envelope whose "sql" field is the statement
+    (Elasticsearch, OpenSearch)."""
 
     client_type: Optional[str]
     outside_root: bool
     identity_reads: Optional[Tuple["CapturedQuery", ...]]
+    literal_style: Optional[str]
+    sql_in_json_envelope: bool
 
     def __new__(cls, text: str, client_type: Optional[str] = None, outside_root: bool = False,
-                identity_reads: Optional[Tuple["CapturedQuery", ...]] = None):
+                identity_reads: Optional[Tuple["CapturedQuery", ...]] = None,
+                literal_style: Optional[str] = None, sql_in_json_envelope: bool = False):
         obj = super().__new__(cls, text)
         obj.client_type = client_type
         obj.outside_root = outside_root
         obj.identity_reads = identity_reads
+        obj.literal_style = literal_style
+        obj.sql_in_json_envelope = bool(sql_in_json_envelope)
         return obj
 
     def __reduce__(self):
-        return (CapturedQuery, (str(self), self.client_type, self.outside_root, self.identity_reads))
+        return (CapturedQuery, (str(self), self.client_type, self.outside_root, self.identity_reads,
+                                self.literal_style, self.sql_in_json_envelope))
 
 
 def _matches(text: str, needles: Tuple[str, ...], fold: bool = False) -> bool:
@@ -342,14 +353,23 @@ def _renderer(client_type: Optional[str]):
     return renderer_for_name(client_type or "")
 
 
-def _dialect_for(client_type: Optional[str]) -> Optional[str]:
+# For a client with neither: a dialect whose string literals follow the
+# client's literal style. "doubled": '' and a backslash both escape;
+# "backslash": only a backslash does. ("standard" reads in sqlglot's generic
+# dialect, where '' is the only escape.)
+_STYLE_DIALECTS = {"doubled": "snowflake", "backslash": "spark"}
+
+
+def _dialect_for(client_type: Optional[str], literal_style: Optional[str] = None) -> Optional[str]:
     """The sqlglot dialect a capture is parsed with: the guard's, else the one
     its parameter renderer writes literals for, so a rendered literal is read
-    back as the value."""
+    back as the value, else one whose literals follow the client's declared
+    style (`_STYLE_DIALECTS`)."""
     from app.ai.code_execution.query_params import _sqlglot_dialect_of
     from app.ai.code_execution.sql_guard import CLIENT_DIALECTS
 
-    return CLIENT_DIALECTS.get(client_type or "") or _sqlglot_dialect_of(_renderer(client_type))
+    return (CLIENT_DIALECTS.get(client_type or "") or _sqlglot_dialect_of(_renderer(client_type))
+            or _STYLE_DIALECTS.get(literal_style or ""))
 
 
 def _as_standard_literals(text: str, client_type: Optional[str]) -> Optional[str]:
@@ -374,7 +394,8 @@ def _as_standard_literals(text: str, client_type: Optional[str]) -> Optional[str
 
 
 @functools.lru_cache(maxsize=2048)
-def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, ...], looks_sql: bool) -> Optional[bool]:
+def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, ...], looks_sql: bool,
+                     literal_style: Optional[str] = None) -> Optional[bool]:
     """True/False when the query's structure decides it; None when it can't
     (caller falls back to the text heuristic). Cached per query string."""
     if client_type == SPLUNK_CLIENT:
@@ -389,7 +410,9 @@ def structural_binds(text: str, client_type: Optional[str], needles: Tuple[str, 
         text = _as_standard_literals(text, client_type)
         if text is None:
             return None
-    return _sql_binds(text, _dialect_for(client_type), needles)
+        # Rewritten as standard literals: read where only '' escapes.
+        literal_style = None
+    return _sql_binds(text, _dialect_for(client_type, literal_style), needles)
 
 
 def log_fallback(capture: str, client_type: Optional[str], param: str) -> None:

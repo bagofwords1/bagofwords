@@ -148,6 +148,25 @@
             </div>
         </li>
 
+      </ul>
+
+      <!-- Main nav ⇄ admin console. Inside /settings the app nav slides away
+           and the admin nav takes its place (and back on "Back to app"). Both
+           panes share this wrapper so the footer below never moves. Route-
+           driven: a refresh or deep link lands straight in the right pane,
+           with no animation on first paint. -->
+      <div :class="['relative flex flex-col', isShortSidebar ? 'shrink-0' : 'flex-1 min-h-0']">
+        <Transition :name="adminNavTransition">
+        <AdminSidebarNav
+          v-if="isAdminMode"
+          key="admin"
+          :collapsed="isCollapsed"
+          :show-text="showText"
+          :tooltip-placement="tooltipPlacement"
+          :animate="sidebarSwapReady"
+        />
+        <div v-else key="main" :class="['flex flex-col', isShortSidebar ? 'shrink-0' : 'flex-1 min-h-0']">
+      <ul class="font-normal text-sm !ps-0 shrink-0">
         <li>
              <button
                name="create-report"
@@ -424,6 +443,9 @@
             </li>
           </ul>
         </div>
+      </div>
+        </div>
+        </Transition>
       </div>
 
       <ul class="font-normal text-sm !ps-0 shrink-0 mt-auto pt-2">
@@ -806,6 +828,8 @@
   import NotificationModal from '~/components/NotificationModal.vue'
   import ChangelogModal from '~/components/ChangelogModal.vue'
   import { useCan, useCanAccessMonitoring } from '~/composables/usePermissions'
+  import { useAdminNav, isAdminRoute, useAdminReturnPath } from '~/composables/useAdminNav'
+  import AdminSidebarNav from '~/components/AdminSidebarNav.vue'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
@@ -827,6 +851,22 @@
   watch(notifOpen, (open) => { if (!open) fetchNotifCount() })
 
   const route = useRoute()
+
+  // ---- Admin console mode -------------------------------------------------
+  // Purely route-driven: any /settings page swaps the sidebar to the admin nav.
+  const isAdminMode = computed(() => isAdminRoute(route.path))
+  // Slide forward (into the console) or back (out of it). Read at render time,
+  // so it already reflects the new state when the swap plays.
+  const adminNavTransition = computed(() => isAdminMode.value ? 'navswap-forward' : 'navswap-back')
+  // No entrance animation on first paint; only for a swap the user caused.
+  const sidebarSwapReady = ref(false)
+  onMounted(() => requestAnimationFrame(() => { sidebarSwapReady.value = true }))
+  // Remember where the user was before entering the console, for "Back to app".
+  const adminReturnPath = useAdminReturnPath()
+  watch(() => route.fullPath, () => {
+    if (!isAdminRoute(route.path)) adminReturnPath.value = route.fullPath
+  }, { immediate: true })
+
   const isRouteActive = (path: string) => {
     if (path === '/') return route.path === '/'
     return route.path === path || route.path.startsWith(path + '/')
@@ -856,23 +896,11 @@
     // render, so it stays reactive to the permission map.
     canView?: () => boolean
   }
-  // Settings tabs and the permission each requires — must mirror the tab list
-  // in layouts/settings.vue. The sidebar Settings link uses this to (a) hide
-  // itself when no tab is reachable and (b) deep-link to the first reachable
-  // tab, so clicking it never lands on a page the user gets redirected out of.
-  const settingsTabPermissions: { name: string; permission: string }[] = [
-    { name: 'members', permission: 'view_members' },
-    { name: 'models', permission: 'manage_llm' },
-    { name: 'ai_settings', permission: 'manage_settings' },
-    { name: 'general', permission: 'manage_settings' },
-    { name: 'integrations', permission: 'manage_settings' },
-    { name: 'audit', permission: 'view_audit_logs' },
-    { name: 'identity-provider', permission: 'manage_identity_providers' },
-    { name: 'license', permission: 'manage_settings' },
-  ]
-  const firstAccessibleSettingsTab = computed(() =>
-    settingsTabPermissions.find(tab => useCan(tab.permission)) || null
-  )
+  // The admin console's pages come from one shared list (useAdminNav) — the
+  // same one the admin sidebar renders — so the Admin link can (a) hide itself
+  // when no page is reachable and (b) deep-link to the first reachable page,
+  // and clicking it never lands on a page the user gets redirected out of.
+  const { firstAccessibleItem: firstAccessibleSettingsTab } = useAdminNav()
 
   // Admin-level permissions that justify surfacing the Admin entry at all.
   // `view_members` is deliberately absent: it is baseline for every org member
@@ -913,7 +941,9 @@
     // holds an actual admin permission AND can reach a settings tab, and point
     // it at the first one they can open.
     const tab = firstAccessibleSettingsTab.value
-    if (tab && canAccessAdminArea.value) {
+    // Inside the console the sidebar already is the admin nav, with its own
+    // "Back to app" — a second Admin entry would only point at itself.
+    if (tab && canAccessAdminArea.value && !isAdminMode.value) {
       items.push({ href: `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
     }
     return items
@@ -1859,6 +1889,32 @@ const createNewReport = () => {
     -webkit-text-fill-color: currentColor;
   }
 }
+
+/* Sidebar swap between the app nav and the admin console. Both panes animate
+   at once: the leaving one is lifted out of flow so the entering one takes its
+   place without a layout jump. Forward = into the console (old pane exits
+   toward the start edge, new one arrives from the end); back reverses it.
+   Directions flip under RTL. Reduced motion is handled globally (tokens.css). */
+.navswap-forward-enter-active,
+.navswap-back-enter-active {
+  transition: opacity 200ms cubic-bezier(0.2, 0, 0, 1), transform 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+.navswap-forward-leave-active,
+.navswap-back-leave-active {
+  position: absolute;
+  top: 0;
+  inset-inline: 0;
+  transition: opacity 140ms ease-in, transform 160ms cubic-bezier(0.4, 0, 1, 1);
+  pointer-events: none;
+}
+.navswap-forward-enter-from { opacity: 0; transform: translateX(14px); }
+.navswap-forward-leave-to   { opacity: 0; transform: translateX(-14px); }
+.navswap-back-enter-from    { opacity: 0; transform: translateX(-14px); }
+.navswap-back-leave-to      { opacity: 0; transform: translateX(14px); }
+[dir="rtl"] .navswap-forward-enter-from { transform: translateX(-14px); }
+[dir="rtl"] .navswap-forward-leave-to   { transform: translateX(14px); }
+[dir="rtl"] .navswap-back-enter-from    { transform: translateX(14px); }
+[dir="rtl"] .navswap-back-leave-to      { transform: translateX(-14px); }
 
 /* Resizable sidebar (desktop, expanded). The width lives in the --sidebar-w
    custom property set inline on the layout root; the aside reads it for its

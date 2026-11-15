@@ -29,7 +29,7 @@ import random
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.mcpserver import Context, MCPServer as FastMCP
 from mcp.types import ToolAnnotations
 
 mcp = FastMCP("mock-mfg")
@@ -318,9 +318,7 @@ def main() -> None:
         print(f"rows={args.rows} chars={len(blob):,}")
         return
 
-    mcp.settings.host = args.host
-    mcp.settings.port = args.port
-    mcp.run(transport="streamable-http")  # served at http://host:port/mcp
+    mcp.run(transport="streamable-http", host=args.host, port=args.port)  # served at http://host:port/mcp
 
 
 if __name__ == "__main__":

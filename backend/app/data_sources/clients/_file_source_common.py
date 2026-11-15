@@ -22,7 +22,10 @@ from app.utils.json_sanitize import sanitize_utf8
 INDEX_NONE = "none"          # no catalog; live ls/read; name search only
 INDEX_METADATA = "metadata"  # cache file list (name/size/mtime); no content
 INDEX_CONTENT = "content"    # cache list + extracted keywords/hash (topic search)
-INDEX_MODES = (INDEX_NONE, INDEX_METADATA, INDEX_CONTENT)
+INDEX_FULLTEXT = "fulltext"  # content + every word of every section (ranked search)
+INDEX_MODES = (INDEX_NONE, INDEX_METADATA, INDEX_CONTENT, INDEX_FULLTEXT)
+# Tiers that read file content at index time (keywords are built in both).
+CONTENT_INDEX_MODES = (INDEX_CONTENT, INDEX_FULLTEXT)
 
 
 class NamedBytes(bytes):

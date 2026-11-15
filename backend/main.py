@@ -92,6 +92,7 @@ from app.routes import (
     branding,
     metadata_resource,
     bow_settings,
+    product_updates,
     external_platform,
     external_user_mapping,
     slack_webhook,
@@ -330,6 +331,8 @@ app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(file_reference.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
+from app.routes import folders, world
+app.include_router(folders.router, prefix="/api")
 app.include_router(rbac.router, prefix="/api")
 app.include_router(usage_limits.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
@@ -338,6 +341,7 @@ app.include_router(organization_settings.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
+app.include_router(product_updates.router, prefix="/api")
 app.include_router(changelog.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
@@ -348,6 +352,7 @@ app.include_router(webhook.router, prefix="/api")
 app.include_router(trigger.router, prefix="/api")
 app.include_router(webhook_receiver.router)
 app.include_router(step.router, prefix="/api")
+app.include_router(world.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
 app.include_router(build.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
@@ -358,6 +363,8 @@ app.include_router(mentions.router, prefix="/api")
 app.include_router(api_key.router, prefix="/api")
 app.include_router(service_account.router, prefix="/api")
 app.include_router(mcp.router, prefix="/api")
+from app.routes import mcp_apps as _mcp_apps_routes  # noqa: E402
+app.include_router(_mcp_apps_routes.router, prefix="/api")
 app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
@@ -621,6 +628,23 @@ async def startup_event():
             logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
+        # File retention: each org's file_retention_days (off by default).
+        try:
+            from app.services.file_retention_service import purge_expired_files
+            scheduler.add_job(
+                purge_expired_files,
+                trigger="cron",
+                hour=3,
+                minute=45,
+                id="purge_expired_files_daily",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: purge_expired_files (file retention) @ 03:45 daily")
+        except Exception as e:
+            logger.error(f"Failed to schedule file retention job: {e}")
         # A dashboard's refresh history keeps 30 days (refhist01).
         try:
             from app.services.dashboard_refresh_history import purge_old_runs

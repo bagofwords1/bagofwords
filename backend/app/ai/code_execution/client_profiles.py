@@ -123,21 +123,31 @@ _CLIENT_TABLE: dict[tuple[str, str], ClientEntry] = dict([
     _sql("duckdb_client", "DuckDBClient", "duckdb"),
     _sql("teradata_client", "TeradataClient", "teradata"),
     _sql("druid_client", "DruidClient", "druid"),
+    # DuckDB SQL over catalog tables the client registers by name in an
+    # in-memory DuckDB (`sql_guard._check_duckdb_table`).
+    _sql("iceberg_client", "IcebergClient", "duckdb", frozenset({"as_of", "snapshot_id"})),
+    # Calcite's lexer (Dremio) and the HiveServer2 engines' lexers (Hive,
+    # Impala, Spark Thrift Server) are not pinned against sqlglot's.
+    _sql("dremio_client", "DremioClient", "dremio", unknown_lexer=True),
+    _sql("hive_client", "HiveClient", "hive", unknown_lexer=True),
     # Timbr's own discovery SQL is Spark SQL (backtick names); its server's
     # lexer is not known.
     _sql("timbr_client", "TimbrClient", "spark", renderer="timbr", unknown_lexer=True),
     # SQL with no sqlglot dialect: checked without a parser.
     _entry("db2_client", "Db2Client", "nonparsing_sql", renderer="ansi", engine="db2"),
     _entry("ibmi_client", "IbmiClient", "nonparsing_sql", renderer="ansi", engine="db2"),
-    _entry("vertica_client", "VerticaClient", "nonparsing_sql", renderer="ansi", engine="vertica"),
-    _entry("sybase_client", "SybaseClient", "nonparsing_sql", renderer="ansi", engine="sybase"),
+    # Vertica reads a backslash as an escape when StandardConformingStrings
+    # is off; SQL Anywhere reads one in every string.
+    _entry("vertica_client", "VerticaClient", "nonparsing_sql", renderer="ansi_or_backslash", engine="vertica"),
+    _entry("sybase_client", "SybaseClient", "nonparsing_sql", renderer="ansi_or_backslash", engine="sybase"),
     _entry("sap_hana_client", "SapHanaClient", "nonparsing_sql", renderer="ansi", engine="hana"),
     _entry("pinot_client", "PinotClient", "nonparsing_sql", renderer="ansi", engine="pinot"),
     _entry("splunk_client", "SplunkClient", "spl", renderer="spl", accepts_dict=True),
     _entry("neo4j_client", "Neo4jClient", "cypher", extra_kwargs=frozenset({"params"})),
     # Parameter rendering only; these are not checked at the wrapper.
     _renders("netsuite_client", "NetsuiteClient", "ansi"),
-    _renders("oracle_bi_client", "OracleBIClient", "ansi"),
+    # Logical SQL: whether a backslash escapes is not established.
+    _renders("oracle_bi_client", "OracleBIClient", "ansi_or_backslash"),
     _renders("sisense_client", "SisenseClient", "ansi"),
     # OData options text, which the server percent-decodes.
     _renders("priority_erp_client", "PriorityErpClient", "odata"),
@@ -158,9 +168,11 @@ _CLIENT_TABLE: dict[tuple[str, str], ClientEntry] = dict([
 
 
 # Clients that take query text positionally but declare no renderer: params
-# with a positional statement are refused there (Neo4j's are its driver's
-# own and never rendered). A declaration for the completeness test, keyed by
-# the exact class, not an MRO lookup: a new subclass must be declared itself.
+# with a positional statement are refused there, except a JSON query
+# document's bare number values (`query_params.render_json_number_params`);
+# Neo4j's are its driver's own and never rendered. A declaration for the
+# completeness test, keyed by the exact class, not an MRO lookup: a new
+# subclass must be declared itself.
 # The runtime refusal is `query_params.renderer_for(client) is None`.
 def _refused(module: str, name: str, reason: str):
     return (f"{_CLIENTS}.{module}", name), reason
@@ -172,8 +184,8 @@ _FILE = "file or document id / JSON file spec, not query text"
 _ID = "positional id, not query text"
 
 PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
-    _refused("elasticsearch_client", "ElasticsearchClient", f"{_JSON}, elasticsearch_client.py:1136"),
-    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:375"),
+    _refused("elasticsearch_client", "ElasticsearchClient", f"{_JSON}, elasticsearch_client.py:1144"),
+    _refused("opensearch_client", "OpenSearchClient", f"{_JSON}, opensearch_client.py:382"),
     _refused("brocade_client", "BrocadeClient", f"{_JSON}, brocade_client.py:448"),
     _refused("appdynamics_client", "AppDynamicsClient", f"{_JSON}, appdynamics_client.py:458"),
     _refused("aria_operations_client", "AriaOperationsClient", f"{_JSON}, aria_operations_client.py:634"),
@@ -194,30 +206,38 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("spectrum_client", "SpectrumClient", f"{_JSON}, spectrum_client.py:658"),
     _refused("vcenter_client", "VCenterClient", f"{_JSON}, vcenter_client.py:805"),
     _refused("zabbix_client", "ZabbixClient", f"{_JSON}, zabbix_client.py:341"),
-    _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:160"),
+    _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:165"),
     _refused("sap_bw_xmla_client", "SapBwXmlaClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("analysis_services_client", "AnalysisServicesClient", f"{_MDX}, analysis_services_client.py:673"),
     _refused("powerbi_client", "PowerBIClient", f"{_MDX}, powerbi_client.py:2114"),
     _refused("infor_epm_client", "InforEpmClient", f"{_MDX}, infor_epm_client.py:466"),
-    _refused("prometheus_client", "PrometheusClient", "PromQL with no declared renderer, prometheus_client.py:425"),
+    _refused("prometheus_client", "PrometheusClient", "PromQL with no declared renderer, prometheus_client.py:431"),
     _refused("aws_cloudwatch_client", "AwsCloudWatchClient",
              "Metrics / Logs Insights spec with no declared renderer, aws_cloudwatch_client.py:685"),
     _refused("businessobjects_client", "BusinessObjectsClient",
              "result-object list, not query text, businessobjects_client.py:338"),
     _refused("timbr_a2a_client", "TimbrA2aClient", "natural-language prompt, not query text, timbr_a2a_client.py:224"),
     _refused("gmail_mail_client", "GmailMailClient", "Gmail search text with no declared renderer, gmail_mail_client.py:412"),
-    _refused("network_dir_client", "NetworkDirClient", f"{_FILE}, network_dir_client.py:1061"),
-    _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1061"),
-    _refused("git_repo_client", "GitLabRepoClient", f"{_FILE}, inherited from network_dir_client.py:1061"),
-    _refused("git_repo_client", "BitbucketRepoClient", f"{_FILE}, inherited from network_dir_client.py:1061"),
+    _refused("network_dir_client", "NetworkDirClient", f"{_FILE}, network_dir_client.py:1154"),
+    _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1154"),
+    _refused("git_repo_client", "GitLabRepoClient", f"{_FILE}, inherited from network_dir_client.py:1154"),
+    _refused("git_repo_client", "BitbucketRepoClient", f"{_FILE}, inherited from network_dir_client.py:1154"),
     _refused("graph_drive_client", "OnedriveClient", f"{_FILE}, graph_drive_client.py:1529"),
     _refused("graph_drive_client", "SharepointClient", f"{_FILE}, graph_drive_client.py:1529"),
     _refused("graph_onenote_client", "OnenoteClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
     _refused("graph_mail_client", "GraphMailClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
     _refused("graph_teams_client", "GraphTeamsClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
     _refused("google_drive_client", "GoogleDriveClient", f"{_FILE}, google_drive_client.py:547"),
-    _refused("s3_client", "S3Client", f"{_FILE}, s3_client.py:791"),
+    _refused("s3_client", "S3Client", f"{_FILE}, inherited from _object_store_common.py:857"),
+    _refused("gcs_client", "GCSClient", f"{_FILE}, inherited from _object_store_common.py:857"),
+    _refused("azure_blob_client", "AzureBlobClient", f"{_FILE}, inherited from _object_store_common.py:857"),
+    # Query languages with no declared renderer; each client binds its own
+    # placeholders through its keyword argument `parameters`.
+    _refused("cassandra_client", "CassandraClient", "CQL with no declared renderer, cassandra_client.py:205"),
+    _refused("cosmosdb_client", "CosmosdbClient", "Cosmos SQL with no declared renderer, cosmosdb_client.py:186"),
+    _refused("couchbase_client", "CouchbaseClient", "SQL++ with no declared renderer, couchbase_client.py:179"),
+    _refused("dynamodb_client", "DynamodbClient", "PartiQL with no declared renderer, dynamodb_client.py:212"),
     _refused("documentum_client", "DocumentumClient", f"{_FILE}, documentum_client.py:629"),
     _refused("sharepoint_onprem_client", "SharepointOnpremClient", f"{_FILE}, sharepoint_onprem_client.py:393"),
     _refused("kms_lighthouse_client", "KmsLighthouseClient", f"{_FILE}, kms_lighthouse_client.py:2657"),
@@ -249,20 +269,20 @@ _DUCKDB_FILES = "one DuckDB SELECT over the connection's own views, on a locked 
 
 EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     # DuckDB file connections (P2) and accelerated custom tables.
-    _exempt("csv_client", "CSVClient", f"{_DISPATCH}: {_DUCKDB_FILES}, csv_client.py:173"),
-    _exempt("qvd_client", "QVDClient", f"{_DISPATCH}: {_DUCKDB_FILES}, qvd_client.py:679"),
-    _exempt("pbix_client", "PBIXClient", f"{_DISPATCH}: {_DUCKDB_FILES}, pbix_client.py:375"),
+    _exempt("csv_client", "CSVClient", f"{_DISPATCH}: {_DUCKDB_FILES}, csv_client.py:177"),
+    _exempt("qvd_client", "QVDClient", f"{_DISPATCH}: {_DUCKDB_FILES}, qvd_client.py:683"),
+    _exempt("pbix_client", "PBIXClient", f"{_DISPATCH}: {_DUCKDB_FILES}, pbix_client.py:379"),
     _exempt("powerbi_report_server_client", "PowerBIReportServerClient",
             f"{_DISPATCH}: {_DUCKDB_FILES} (report ids and export format checked before any URL), "
             "powerbi_report_server_client.py:704"),
     _exempt("fast_client", "FastQueryClient",
             f"{_DISPATCH}: artifacts attached READ_ONLY, external access off and configuration locked "
-            "before any agent SQL (fast_client.py:156), introspection refused, fast_client.py:288",
+            "before any agent SQL (fast_client.py:160), introspection refused, fast_client.py:292",
             package="app.data_sources.fast"),
     # Read-only rules at the dispatch point (P5c).
-    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:181"),
+    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:186"),
     _exempt("azure_data_explorer_client", "AzureDataExplorerClient",
-            f"{_DISPATCH}: management commands refused, azure_data_explorer_client.py:115"),
+            f"{_DISPATCH}: management commands refused, azure_data_explorer_client.py:122"),
     _exempt("aws_cost_client", "AwsCostClient", f"{_DISPATCH}: get_, list_ and describe_ operations only, aws_cost_client.py:159"),
     _exempt("zabbix_client", "ZabbixClient", f"{_DISPATCH}: <object>.get methods only, zabbix_client.py:362"),
     _exempt("xmla_base", "XmlaClient", f"{_DISPATCH}: read verbs only, configured catalog only, xmla_base.py:477"),
@@ -278,10 +298,10 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             f"{_DISPATCH}: one Logical SQL SELECT as an exact str (a WITH reaching a SELECT); refused in code: "
             "EXECUTE, SELECT_PHYSICAL, PHYSICAL, CALL, AGGREGATES, any word starting with EVALUATE, "
             "'#' anywhere but at the start or after a space, a tab or a line end; "
-            "'@{' refused anywhere, oracle_bi_client.py:415"),
+            "'@{' refused anywhere, oracle_bi_client.py:420"),
     _exempt("opensearch_client", "OpenSearchClient",
-            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:394), an index to _search, "
-            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:443"),
+            f"{_DISPATCH}: known envelope keys only (opensearch_client.py:401), an index to _search, "
+            "or one parsed SQL SELECT before the SQL plugin, opensearch_client.py:450"),
     _exempt("sisense_client", "SisenseClient",
             f"{_DISPATCH}: one parsed SQL SELECT before any request, the table lookup included, "
             "sisense_client.py:449"),
@@ -290,15 +310,17 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "remote agent with SQL validation enforced: should-validate-sql is always sent true "
             "(timbr_a2a_client.py:110); read-only otherwise rests on Timbr-side settings (accepted by decision)"),
     # Query languages with no statement that writes, each sent to its read endpoint.
-    _exempt("salesforce_client", "SalesforceClient", f"{_LANGUAGE}: SOQL through the query resource, salesforce_client.py:707"),
-    _exempt("posthog_client", "PostHogClient", f"{_LANGUAGE}: HogQL sent as a HogQLQuery, posthog_client.py:250"),
-    _exempt("netsuite_client", "NetsuiteClient", f"{_LANGUAGE}: SuiteQL to the suiteql query endpoint, netsuite_client.py:32"),
+    _exempt("salesforce_client", "SalesforceClient", f"{_LANGUAGE}: SOQL through the query resource, salesforce_client.py:712"),
+    _exempt("posthog_client", "PostHogClient", f"{_LANGUAGE}: HogQL sent as a HogQLQuery, posthog_client.py:254"),
+    _exempt("netsuite_client", "NetsuiteClient", f"{_LANGUAGE}: SuiteQL to the suiteql query endpoint, netsuite_client.py:37"),
+    _exempt("cosmosdb_client", "CosmosdbClient",
+            f"{_LANGUAGE}: Cosmos DB NoSQL query text through query_items, cosmosdb_client.py:209"),
     _exempt("prometheus_client", "PrometheusClient",
-            f"{_LANGUAGE}: PromQL to /api/v1/query and /api/v1/query_range only, prometheus_client.py:447"),
+            f"{_LANGUAGE}: PromQL to /api/v1/query and /api/v1/query_range only, prometheus_client.py:453"),
     _exempt("aws_cloudwatch_client", "AwsCloudWatchClient",
             f"{_LANGUAGE}: Logs Insights start_query and metric reads only, aws_cloudwatch_client.py:456"),
     _exempt("elasticsearch_client", "ElasticsearchClient",
-            f"{_SPEC}: index (no / ? #) to _search, or the SQL / ES|QL query APIs, elasticsearch_client.py:1198"),
+            f"{_SPEC}: index (no / ? #) to _search, or the SQL / ES|QL query APIs, elasticsearch_client.py:1206"),
     # A JSON spec or ids the client maps onto read requests it builds.
     _exempt("appdynamics_client", "AppDynamicsClient", f"{_SPEC}: catalog tables to GETs, appdynamics_client.py:306"),
     _exempt("aria_operations_client", "AriaOperationsClient", f"{_SPEC}: table to a _q_ read handler, aria_operations_client.py:660"),
@@ -332,11 +354,13 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("priority_erp_client", "PriorityErpClient", f"{_SPEC}: OData options on a GET, priority_erp_client.py:243"),
     _exempt("sap_datasphere_client", "SapDatasphereClient", f"{_SPEC}: OData options on a GET, sap_datasphere_client.py:488"),
     # A file, message or item id (or a JSON file spec) read from the source.
-    _exempt("network_dir_client", "NetworkDirClient", f"{_SPEC}: file name or JSON file spec read, network_dir_client.py:485"),
+    _exempt("network_dir_client", "NetworkDirClient", f"{_SPEC}: file name or JSON file spec read, network_dir_client.py:523"),
     _exempt("graph_drive_client", "GraphDriveClient", f"{_SPEC}: file id or JSON file spec read by GET, graph_drive_client.py:572"),
     _exempt("google_drive_client", "GoogleDriveClient", f"{_SPEC}: file id read by GET, google_drive_client.py:166"),
     _exempt("gmail_mail_client", "GmailMailClient", f"{_SPEC}: message id or Gmail search by GET, gmail_mail_client.py:212"),
-    _exempt("s3_client", "S3Client", f"{_SPEC}: object key read with get_object, s3_client.py:492"),
+    # S3, Google Cloud Storage and Azure Blob: one object read by its key.
+    _exempt("_object_store_common", "ObjectStoreClient",
+            f"{_SPEC}: object key or JSON file spec read with read_file, _object_store_common.py:857"),
     _exempt("documentum_client", "DocumentumClient", f"{_SPEC}: document id read by GET, documentum_client.py:296"),
     _exempt("sharepoint_onprem_client", "SharepointOnpremClient",
             f"{_SPEC}: file id read over bounded read-only HTTP, sharepoint_onprem_client.py:187"),

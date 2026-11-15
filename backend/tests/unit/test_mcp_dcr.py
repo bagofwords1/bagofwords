@@ -152,6 +152,7 @@ def _registered(**extra):
         "client_secret": None,
         "audience": SERVER_URL,
         "dcr_registered": True,
+        "issuer": AS_ORIGIN,
         **extra,
     }
 
@@ -489,3 +490,81 @@ class TestOauthParams:
         # The form sends scopes="" to clear an override.
         conn = FakeConnection(creds=_registered(scopes="", discovered_scopes="mcp:read"))
         assert get_oauth_params(conn)["scopes"] == "mcp:read"
+
+
+# ── MCP 2026-07-28 authorization changes ───────────────────────────────────
+# SEP-837: a registration says what kind of client it is. SEP-2352: a client
+# is bound to the issuer it registered with. SEP-2468 / RFC 9207: an
+# authorization response naming a different issuer is refused.
+
+
+def _registration_bodies(monkeypatch, handler):
+    bodies = []
+
+    def wrapped(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and str(request.url).endswith("/oidc/register"):
+            bodies.append(json.loads(request.content))
+        return handler(request)
+
+    _mock_httpx(monkeypatch, wrapped)
+    return bodies
+
+
+class TestMcp20260728Authorization:
+    @pytest.mark.asyncio
+    async def test_registration_declares_a_web_application(self, monkeypatch):
+        bodies = _registration_bodies(monkeypatch, _server())
+        await ensure_mcp_oauth_config(FakeDB(), FakeConnection())
+        assert bodies and bodies[0]["application_type"] == "web"
+
+    @pytest.mark.asyncio
+    async def test_registration_records_the_issuer(self, monkeypatch):
+        _mock_httpx(monkeypatch, _server())
+        conn = FakeConnection()
+        await ensure_mcp_oauth_config(FakeDB(), conn)
+        assert conn.decrypt_credentials()["issuer"] == AS_ORIGIN
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("recorded", [AS_ORIGIN, AS_ORIGIN + "/"])
+    async def test_same_issuer_keeps_the_client(self, monkeypatch, recorded):
+        seen = []
+        _mock_httpx(monkeypatch, _server(seen))
+        conn = FakeConnection(creds=_registered(issuer=recorded))
+        assert await ensure_mcp_oauth_config(FakeDB(), conn) is False
+        assert not _registrations(seen)
+
+    @pytest.mark.asyncio
+    async def test_a_new_issuer_gets_a_new_client_and_drops_old_tokens(self, monkeypatch):
+        seen = []
+        _mock_httpx(monkeypatch, _server(seen))
+        conn = FakeConnection(creds=_registered(
+            issuer="https://old-auth.example.com", client_id="old-client",
+            access_token="old-token", refresh_token="old-refresh",
+        ))
+        assert await ensure_mcp_oauth_config(FakeDB(), conn) is True
+        creds = conn.decrypt_credentials()
+        assert len(_registrations(seen)) == 1
+        assert creds["issuer"] == AS_ORIGIN
+        assert creds["client_id"] == "dyn-client-9"
+        assert "access_token" not in creds and "refresh_token" not in creds
+
+    @pytest.mark.asyncio
+    async def test_a_client_registered_before_issuers_were_recorded_learns_it(self, monkeypatch):
+        seen = []
+        _mock_httpx(monkeypatch, _server(seen))
+        conn = FakeConnection(creds=_registered(issuer=None))
+        assert await ensure_mcp_oauth_config(FakeDB(), conn) is False
+        assert not _registrations(seen)
+        assert conn.decrypt_credentials()["issuer"] == AS_ORIGIN
+
+    @pytest.mark.parametrize("recorded, iss, ok", [
+        (AS_ORIGIN, AS_ORIGIN, True),
+        (AS_ORIGIN, AS_ORIGIN + "/", True),
+        (AS_ORIGIN, "https://evil.example.com", False),
+        (AS_ORIGIN, "", False),
+        (None, "https://anything.example.com", True),  # nothing recorded to compare with
+    ])
+    def test_authorization_response_issuer_must_match(self, recorded, iss, ok):
+        from app.services.mcp_dcr_service import issuer_matches
+        creds = _registered(issuer=recorded)
+        assert issuer_matches(FakeConnection(creds=creds), iss) is ok

@@ -27,6 +27,11 @@ def _bigquery_extraction_source(client):
 
 class BigqueryClient(DataSourceClient):
 
+    # Inside a string literal '' is not a quote here and a backslash escapes:
+    # parameter values double the backslash and write a quote as \'
+    # (app/ai/code_execution/query_params.py).
+    sql_literal_style = "backslash"
+
     # Rendered into codegen prompts (<connection_clients>) so generated queries
     # express time windows with the engine's own relative date functions instead
     # of literal dates that go stale when saved code is re-executed.

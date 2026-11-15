@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
@@ -8,6 +8,10 @@ class CreateInstructionInput(BaseModel):
     This tool creates reusable instructions that guide AI behavior. Only use when
     you have HIGH CONFIDENCE in the instruction based on evidence from exploration.
     """
+
+    destination: Optional[Literal["folder", "agents", "global"]] = Field(None, description="Choose the intended audience before writing. Ask if unclear. Folder means the exact selected folder.")
+    folder_id: Optional[str] = Field(None, description="Optional ID of the selected folder for a folder destination.")
+    data_source_ids: Optional[List[str]] = Field(None, description="Explicit agent IDs for an agent-specific instruction.")
 
     text: str = Field(
         ...,

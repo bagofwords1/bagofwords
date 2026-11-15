@@ -30,7 +30,7 @@ A = {
     "PostgresqlClient", "AwsRedshiftClient", "MysqlClient", "MariadbClient", "MSSQLClient", "MsFabricClient",
     "OracledbClient", "SqliteClient", "SnowflakeClient", "BigqueryClient", "AwsAthenaClient", "TrinoClient",
     "ClickhouseClient", "DatabricksSqlClient", "SparkConnectClient", "DuckDBClient", "TeradataClient",
-    "DruidClient",
+    "DruidClient", "IcebergClient", "DremioClient", "HiveClient",
     # Renderer filled on a guarded row.
     "Db2Client", "IbmiClient", "SplunkClient",
     # Renderer-only rows.
@@ -53,7 +53,10 @@ B = {
     # File / document id or JSON file spec.
     "NetworkDirClient", "GitHubRepoClient", "GitLabRepoClient", "BitbucketRepoClient", "OnedriveClient",
     "SharepointClient", "OnenoteClient", "GraphMailClient", "GraphTeamsClient", "GoogleDriveClient", "S3Client",
-    "DocumentumClient", "SharepointOnpremClient", "KmsLighthouseClient",
+    "GCSClient", "AzureBlobClient", "DocumentumClient", "SharepointOnpremClient", "KmsLighthouseClient",
+    # Query languages with no declared renderer; the client binds its own
+    # placeholders through `parameters`.
+    "CassandraClient", "CosmosdbClient", "CouchbaseClient", "DynamodbClient",
     # Positional id that is not query text.
     "QlikSenseClient", "QlikSenseOnPremClient", "TableauClient", "AwsCostClient",
     # Native driver params.
@@ -98,13 +101,13 @@ def test_the_enumeration_covers_the_registry_and_the_accelerated_client(classes)
 
     names = [c.__name__ for c in classes]
     assert FastQueryClient in classes
-    assert len(names) == len(set(names)) == 97
+    assert len(names) == len(set(names)) == 106
     # Registry entries without a client_path resolve through the naming fallback.
-    for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "aws_athena", "mariadb",
+    for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "mariadb",
                 "clickhouse", "pinot", "druid", "aws_cost", "vertica", "aws_redshift", "sybase"):
         assert REGISTRY[key].client_path is None, key
     for name in ("PostgresqlClient", "OracledbClient", "BigqueryClient", "NetsuiteClient", "MysqlClient",
-                 "AwsAthenaClient", "MariadbClient", "ClickhouseClient", "PinotClient", "DruidClient",
+                 "MariadbClient", "ClickhouseClient", "PinotClient", "DruidClient",
                  "AwsCostClient", "VerticaClient", "AwsRedshiftClient", "SybaseClient"):
         assert name in names, name
 
@@ -159,5 +162,5 @@ def test_an_undeclared_connector_with_positional_text_is_in_no_bucket():
 def test_a_connector_with_a_renderer_and_a_refusal_is_in_two_buckets():
     from app.data_sources.clients.vertica_client import VerticaClient
 
-    refused = {(VerticaClient.__module__, VerticaClient.__qualname__): "declared here too, vertica_client.py:58"}
+    refused = {(VerticaClient.__module__, VerticaClient.__qualname__): "declared here too, vertica_client.py:64"}
     assert _buckets(VerticaClient, refused) == ["A", "B"]

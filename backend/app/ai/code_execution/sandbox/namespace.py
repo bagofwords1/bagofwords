@@ -228,6 +228,13 @@ class BrowserHelper:
         return "<browser helper: goto, click, fill, press, select, scroll, wait_for, text, html, query_all, url>"
 
 
+# The global the run's namespace binds the clients dict to, besides handing
+# it to generate_df as its first argument. app/services/client_keys.py tracks
+# this name: any other global holding the dict would let code reach a client
+# that rule does not see (test_client_keys checks the live namespace).
+CLIENTS_GLOBAL = "db_clients"
+
+
 # What generated code can ask for by parameter name (invoke_generate_df).
 # Every run -- the agent's and each re-run of saved code -- must be able to
 # hand each of these over when the org allows it (test_sandbox_helpers).

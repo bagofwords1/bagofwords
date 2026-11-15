@@ -23,6 +23,9 @@ class FilesSchemaContext(ContextSection):
         origin: str = "upload"
 
     files: List[FileItem] = []
+    # Older agent-produced files (tool output from earlier runs) left out of
+    # the listing; see GENERATED_FILES_MAX.
+    omitted_generated: int = 0
 
     def render(self) -> str:
         file_nodes: List[str] = []
@@ -60,6 +63,16 @@ class FilesSchemaContext(ContextSection):
                     "ignore_case=true) returns just the matching lines — read_file "
                     "shows only a few thousand characters per call. Never infer an "
                     "entry you did not find in the file.",
+                )
+            )
+        if self.omitted_generated:
+            body += (
+                "\n" + xml_tag(
+                    "note",
+                    f"{self.omitted_generated} older files produced by tools in earlier "
+                    "runs are not listed. Only the newest are shown; call the tool "
+                    "again for fresh data rather than looking for an old result.",
+                    {"omitted": str(self.omitted_generated)},
                 )
             )
         return xml_tag(self.tag_name, body)

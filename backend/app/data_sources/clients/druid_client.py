@@ -90,6 +90,9 @@ class DruidClient(DataSourceClient):
     raw, not base64-encoded).
     """
 
+    # Druid SQL (Calcite): '' only (sqlglot druid).
+    sql_literal_style = "standard"
+
     # Druid-internal schemas that should never surface as user tables.
     SYSTEM_SCHEMAS = {"INFORMATION_SCHEMA", "sys"}
 

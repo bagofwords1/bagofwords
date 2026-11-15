@@ -26,6 +26,7 @@ import pytest
 from app.ai.code_execution import client_profiles
 from app.ai.code_execution.client_profiles import EXEMPT_CLIENTS, classify
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, UnsafeSQLError
+from app.ai.code_execution.query_params import ParamError
 from app.data_sources.clients.bow_client import BowClient
 from app.data_sources.clients.discovery import DiscoveryClient
 from tests.unit._client_enumeration import enumerated_client_classes
@@ -151,11 +152,13 @@ def test_a_keyword_only_call_to_an_undeclared_connector_is_forwarded(mode):
     assert client.received == [(None, {"table_name": "t", "limit": 5})]
 
 
-def test_a_keyword_only_call_with_params_is_forwarded_without_them(mode):
+def test_a_keyword_only_call_with_params_is_refused(mode):
+    # Nothing renders params into a keyword call: it would run with its
+    # placeholders as written, so it is refused and nothing is sent.
     client = _UndeclaredConnector()
-    df, _, _ = _run({"c": client}, "return ds_clients['c'].execute_query(table_name='t', params={'v': 'x'})")
-    assert df["rows"].tolist() == [1]
-    assert client.received == [(None, {"table_name": "t"})]
+    with pytest.raises(ParamError, match="rendered only into a query string"):
+        _run({"c": client}, "return ds_clients['c'].execute_query(table_name='t', params={'v': 'x'})")
+    assert client.received == []
 
 
 class _PlainObject:
@@ -217,14 +220,18 @@ def test_a_subclass_of_a_guarded_client_is_guarded():
 
 # Registry entries without a client_path resolve through the naming fallback.
 _NAMING_FALLBACK = {
-    "PostgresqlClient", "OracledbClient", "BigqueryClient", "NetsuiteClient", "MysqlClient", "AwsAthenaClient",
+    "PostgresqlClient", "OracledbClient", "BigqueryClient", "NetsuiteClient", "MysqlClient",
     "MariadbClient", "ClickhouseClient", "PinotClient", "DruidClient", "AwsCostClient", "VerticaClient",
     "AwsRedshiftClient", "SybaseClient",
 }
 
 # Classes that take free text with no guard and no read-only proof in their
 # own code: refused any text statement until a decision is made for each.
-_AWAITING_DECISION: set[str] = set()
+# CQL (Cassandra) and PartiQL (DynamoDB) can write, SQL++ (Couchbase) is
+# read-only only by a server option; each client checks its text with a
+# pattern that is not a reading of its engine's grammar
+# (_document_schema.ensure_single_select).
+_AWAITING_DECISION: set[str] = {"CassandraClient", "CouchbaseClient", "DynamodbClient"}
 
 
 @pytest.fixture(scope="module")
@@ -237,7 +244,7 @@ def test_the_naming_fallback_classes_are_enumerated(classes):
     assert _NAMING_FALLBACK <= names, _NAMING_FALLBACK - names
     from app.schemas.data_source_registry import REGISTRY
 
-    for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "aws_athena", "mariadb",
+    for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "mariadb",
                 "clickhouse", "pinot", "druid", "aws_cost", "vertica", "aws_redshift", "sybase"):
         assert REGISTRY[key].client_path is None, key
 
@@ -264,8 +271,22 @@ def test_every_class_is_guarded_or_exempt_except_those_awaiting_a_decision(class
     assert {name for name, v in verdicts.items() if v == "unknown"} == _AWAITING_DECISION
 
 
-def test_no_class_awaits_a_decision():
-    assert _AWAITING_DECISION == set()
+@pytest.mark.parametrize("module, name", [
+    ("cassandra_client", "CassandraClient"),
+    ("couchbase_client", "CouchbaseClient"),
+    ("dynamodb_client", "DynamodbClient"),
+])
+def test_a_class_awaiting_a_decision_is_refused_its_text_and_sent_nothing(mode, module, name):
+    import importlib
+
+    assert name in _AWAITING_DECISION
+    cls = getattr(importlib.import_module(f"app.data_sources.clients.{module}"), name)
+    received: list = []
+    client = object.__new__(cls)
+    client.execute_query = lambda *a, **k: received.append((a, k))  # the driver boundary
+    with pytest.raises(UnsafeSQLError, match="does not accept free-text queries"):
+        _run({"c": client}, "return ds_clients['c'].execute_query('SELECT * FROM t')")
+    assert received == []
 
 
 # A class that is exempt only through a parent's declaration. Its own code
@@ -292,7 +313,28 @@ _REMOTE_SERVER_OVERRIDES = frozenset({
     "_validate", "acall_authorized", "acall_human_approved", "call_tool", "config_class", "credential_classes",
     "list_tools", "server_url", "test_connection",
 })
+_OBJECT_STORE_TRANSPORT = frozenset({
+    "__init__", "_client", "_download", "_head", "_is_not_found", "_iter_list", "_open_body", "_probe",
+    "bucket_noun", "metadata_key", "scheme",
+})
 _INHERITS_EXEMPTION: dict[tuple[str, str], tuple[str, frozenset[str], str]] = {
+    (f"{_C}.s3_client", "S3Client"): (
+        "ObjectStoreClient", _OBJECT_STORE_TRANSPORT,
+        "overrides construction and the storage transport only: __init__ stores the bucket settings "
+        "(s3_client.py:35), objects are read with get_object (s3_client.py:148, s3_client.py:180) and "
+        "listed with list_objects_v2 (s3_client.py:196); ObjectStoreClient.execute_query reads one object"),
+    (f"{_C}.gcs_client", "GCSClient"): (
+        "ObjectStoreClient", _OBJECT_STORE_TRANSPORT | {"_bucket", "_get_blob"},
+        "overrides construction and the storage transport only: __init__ stores the bucket settings "
+        "(gcs_client.py:32), objects are read with download_as_bytes and open('rb') (gcs_client.py:144, "
+        "gcs_client.py:165) and listed with list_blobs (gcs_client.py:114); "
+        "ObjectStoreClient.execute_query reads one object"),
+    (f"{_C}.azure_blob_client", "AzureBlobClient"): (
+        "ObjectStoreClient", _OBJECT_STORE_TRANSPORT | {"_resolved_account_url", "_scope_uri", "_web_url", "container"},
+        "overrides construction and the storage transport only: __init__ stores the container settings "
+        "(azure_blob_client.py:32), blobs are read with download_blob and get_blob_properties "
+        "(azure_blob_client.py:170, azure_blob_client.py:155) and listed with list_blobs "
+        "(azure_blob_client.py:140); ObjectStoreClient.execute_query reads one object"),
     (f"{_C}.sap_bw_xmla_client", "SapBwXmlaClient"): (
         "XmlaClient",
         frozenset({"DEFAULT_XMLA_PATH", "EMPTY_NOTE", "META_KEY", "PATH_HINT", "PRODUCT_NAME", "QUERY_REQUIRED_MSG",
@@ -363,7 +405,7 @@ _INHERITS_EXEMPTION: dict[tuple[str, str], tuple[str, frozenset[str], str]] = {
                    "_parse_text", "_unwrap_exception", "acall_tool", "alist_resource_templates", "alist_resources",
                    "alist_tools", "aread_resource", "atest_connection", "call_tool", "list_tools",
                    "test_connection"}),
-        f"{_NO_EXECUTE_QUERY} (mcp_client.py:141); __init__ stores the connection settings (mcp_client.py:148)"),
+        f"{_NO_EXECUTE_QUERY} (mcp_client.py:254); __init__ stores the connection settings (mcp_client.py:261)"),
     (f"{_C}.custom_api_client", "CustomApiClient"): (
         "ToolProviderClient",
         frozenset({"_BEARER_AUTH_TYPES", "_BODYLESS_METHODS", "_DEFAULT_TIMEOUT_S", "_MAGIC", "_MAX_TIMEOUT_S",

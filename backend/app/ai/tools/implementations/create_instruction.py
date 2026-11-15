@@ -69,6 +69,7 @@ class CreateInstructionTool(Tool):
                 "(definitions, metric logic, required filters, table/column meaning, shared conventions). "
                 "A fact about one user (their work, projects, dates, their own shorthand) "
                 "is memory, never an instruction.\n\n"
+                "AUDIENCE: choose the selected folder or specific agents. Use destination=global only for an explicitly organization-wide rule. "
                 "SCOPING — table_names: Use ONLY to narrow the rule to specific tables. "
                 "OMIT table_names entirely for rules that apply broadly across the data source "
                 "or org (e.g. naming conventions, general business rules, semantic conventions). "
@@ -110,7 +111,7 @@ class CreateInstructionTool(Tool):
                         "evidence": "User confirmed status code meanings via clarify.",
                         "load_mode": "always",
                     },
-                    "description": "Global / always-on: critical business rule — OMIT table_names so it applies everywhere."
+                    "description": "Always-on rule for the chosen audience; omit table_names to apply across its tables."
                 },
                 {
                     "input": {
@@ -120,7 +121,7 @@ class CreateInstructionTool(Tool):
                         "evidence": "Schema inspection: Music Store matches the Chinook sample.",
                         "load_mode": "intelligent",
                     },
-                    "description": "Global semantic note: applies across the data source — OMIT table_names rather than listing every table."
+                    "description": "Agent-specific semantic note: applies across the data source — OMIT table_names rather than listing every table."
                 },
                 {
                     "input": {
@@ -278,6 +279,13 @@ class CreateInstructionTool(Tool):
             from app.schemas.instruction_reference_schema import InstructionReferenceCreate
             from app.models.datasource_table import DataSourceTable
 
+            from app.services.folder_knowledge import authoring_targets
+            targets = await authoring_targets(db, organization, user, report, "manage_instructions",
+                                              data.destination, data.folder_id, data.data_source_ids)
+            folder_id = None
+            if targets is not None:
+                folder_id, agent_ids = targets
+                allowed_data_source_ids = set(agent_ids)
             instruction_service = InstructionService()
             build_service = BuildService()
 
@@ -378,8 +386,16 @@ class CreateInstructionTool(Tool):
             # still applies to the agent(s) being trained rather than silently
             # becoming a global, org-wide instruction. Falls back to the report's
             # data sources in knowledge/training mode.
-            if not data_source_ids and allowed_data_source_ids:
+            if targets is not None:
+                data_source_ids = set(agent_ids)
+            elif not data_source_ids and allowed_data_source_ids:
                 data_source_ids = set(allowed_data_source_ids)
+
+            if not folder_id:
+                if not data_source_ids and data.destination != "global":
+                    raise ValueError("Choose a folder or agents, or explicitly request an organization-wide instruction.")
+                from app.services.instruction_authority import require_scope_authority
+                await require_scope_authority(db, user, organization, sorted(data_source_ids))
 
             # Create the instruction as a draft (pending admin approval) but
             # stage the version with status="published" so promote_build flips
@@ -397,12 +413,17 @@ class CreateInstructionTool(Tool):
             )
 
             # Create instruction (without auto-finalizing build - we do that at session end)
+            if folder_id:
+                from app.services.folder_service import lock_tree
+                from app.services.folder_knowledge import require_capability
+                await lock_tree(db, organization, user)
+                await require_capability(db, organization, user, folder_id, "manage_instructions")
             instruction = await instruction_service.create_instruction(
                 db=db,
                 instruction_data=instruction_data,
                 current_user=user,
                 organization=organization,
-                force_global=True,
+                folder_id=folder_id,
                 build=build,  # Pass build object
                 auto_finalize=False,  # Don't finalize yet - wait for session end
                 agent_execution_id=agent_execution_id,  # Link to training session for tracking
@@ -426,6 +447,7 @@ class CreateInstructionTool(Tool):
                 message=f"Instruction created successfully: {title}",
                 text=data.text,
             ).model_dump()
+            output_dict["folder_id"] = folder_id
             output_dict["data_source_ids"] = [str(d) for d in data_source_ids] if data_source_ids else []
 
             yield ToolEndEvent(
@@ -433,6 +455,8 @@ class CreateInstructionTool(Tool):
                 payload={
                     "output": output_dict,
                     "observation": {
+                        "folder_id": folder_id,
+                        "data_source_ids": output_dict["data_source_ids"],
                         "summary": f"Created instruction: {title} (confidence={data.confidence}, load_mode={load_mode}, tables={ref_count})",
                         # The stored text, mirroring edit_instruction. The model
                         # just wrote this, so it is an echo — but it is the

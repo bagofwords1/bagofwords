@@ -152,6 +152,10 @@ POSTHOG_SCHEMAS = [
 class PostHogClient(DataSourceClient):
     """PostHog analytics data source client using HogQL queries."""
 
+    # HogQL: STRING_LITERAL accepts '' and backslash escapes
+    # (posthog/hogql/grammar/HogQLLexer.common.g4), ClickHouse's rule.
+    sql_literal_style = "doubled"
+
     def __init__(self, api_key: str, host: str = "https://us.posthog.com", project_id: str = None):
         self.api_key = api_key
         self.host = host.rstrip('/')

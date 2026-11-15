@@ -492,3 +492,44 @@ class TestWrites:
         c = NetworkDirClient(root_path=str(tree), writable=True)
         entry = c.write_file("data/blob.bin", b"\x00\x01\x02")
         assert entry["size"] == 3
+
+
+class TestConnectionTestIsBounded:
+    """Saving a connection runs the connection test inside the request. On a
+    share with tens of thousands of files a full walk outlasts it (on Postgres
+    the idle transaction is dropped after 60s and the save fails), so the test
+    proves the directory is readable without counting it."""
+
+    def test_stops_walking_after_the_probe(self, tmp_path, monkeypatch):
+        for i in range(40):
+            (tmp_path / f"f{i:03d}.txt").write_text("x")
+        monkeypatch.setattr(NetworkDirClient, "TEST_CONNECTION_FILE_PROBE", 7)
+        client = NetworkDirClient(root_path=str(tmp_path))
+
+        seen = []
+        original = NetworkDirClient._entry
+
+        def counting(self, path):
+            seen.append(path)
+            return original(self, path)
+
+        monkeypatch.setattr(NetworkDirClient, "_entry", counting)
+        result = client.test_connection()
+
+        assert result["success"] is True
+        assert len(seen) == 7                       # not all 40
+        assert "7+" in result["message"]            # a floor, reported as one
+
+    def test_small_directory_is_counted_exactly(self, tmp_path):
+        for i in range(3):
+            (tmp_path / f"f{i}.txt").write_text("x")
+        result = NetworkDirClient(root_path=str(tmp_path)).test_connection()
+        assert result["success"] is True
+        assert "3 file" in result["message"] and "+" not in result["message"]
+
+    def test_listing_without_a_limit_still_returns_everything(self, tmp_path):
+        for i in range(25):
+            (tmp_path / f"f{i:02d}.txt").write_text("x")
+        client = NetworkDirClient(root_path=str(tmp_path))
+        assert len(client.list_files()) == 25
+        assert len(client.list_files(limit=10)) == 10

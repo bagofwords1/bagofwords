@@ -333,7 +333,7 @@ class ToolRunner:
                             if et == "tool.error":
                                 last_observation = {
                                     "summary": f"Execution failed for '{tool.name}'",
-                                    "error": {"type": "runtime_error", "message": payload.get("message") or "unknown"},
+                                    "error": {"type": "runtime_error", "message": payload.get("message") or payload.get("error") or "unknown"},
                                 }
                                 break
                             if et == "tool.end":

@@ -792,6 +792,9 @@ function initFromView(view: any, step: any) {
     yAxisVisible: v.axisY?.show ?? v.yAxisVisible ?? true,
     yAxisRotate: v.axisY?.rotate ?? 0,
     yAxisInterval: v.axisY?.interval ?? 0,
+    // Units set when the chart was created (not edited here); carried through saves.
+    yAxisFormat: v.axisY?.format ?? null,
+    yAxisCurrency: v.axisY?.currency ?? null,
     // v2 legend - default to false (hidden by default)
     legendVisible: v.legend?.show ?? v.legendVisible ?? false,
     legendPosition: v.legend?.position ?? 'bottom',
@@ -972,6 +975,8 @@ function toViewPayload() {
       show: local.yAxisVisible ?? true,
       rotate: local.yAxisRotate ?? 0,
       interval: local.yAxisInterval ?? 0,
+      ...(local.yAxisFormat ? { format: local.yAxisFormat } : {}),
+      ...(local.yAxisCurrency ? { currency: local.yAxisCurrency } : {}),
     }
   }
 

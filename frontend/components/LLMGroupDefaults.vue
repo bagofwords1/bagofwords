@@ -1,8 +1,8 @@
 <template>
-    <div class="mt-6" data-testid="llm-group-defaults">
-        <div class="mb-2">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('settings.llms.groupDefaults.title') }}</h3>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.llms.groupDefaults.subtitle') }}</p>
+    <div class="mt-10" data-testid="llm-group-defaults">
+        <div class="mb-4">
+            <h2 class="text-base font-semibold text-ink">{{ $t('settings.llms.groupDefaults.title') }}</h2>
+            <p class="mt-1 text-sm text-ink-muted leading-relaxed">{{ $t('settings.llms.groupDefaults.subtitle') }}</p>
         </div>
 
         <!-- Members left without a default (e.g. org default restricted, no group default) -->
@@ -33,19 +33,19 @@
             </div>
         </div>
 
-        <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg overflow-hidden">
-            <div v-if="loading" class="p-4 text-sm text-ink-muted">{{ $t('common.loading') }}</div>
-            <div v-else-if="rows.length === 0" class="p-4 text-sm text-gray-500 dark:text-gray-400 text-center">
+        <div class="bow-table-card">
+            <div v-if="loading" class="px-5 py-8 text-sm text-ink-muted text-center">{{ $t('common.loading') }}</div>
+            <div v-else-if="rows.length === 0" class="px-5 py-8 text-sm text-ink-muted text-center">
                 {{ $t('settings.llms.groupDefaults.empty') }}
             </div>
             <div v-else class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
-                    <thead class="bg-gray-50/60 dark:bg-gray-900">
+                <table class="bow-table">
+                    <thead>
                         <tr>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.groupDefaults.colGroup') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.groupDefaults.colDefault') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">{{ $t('settings.llms.groupDefaults.colSmall') }}</th>
-                            <th class="px-4 py-2 text-start text-xs font-medium text-gray-500 dark:text-gray-400">
+                            <th>{{ $t('settings.llms.groupDefaults.colGroup') }}</th>
+                            <th>{{ $t('settings.llms.groupDefaults.colDefault') }}</th>
+                            <th>{{ $t('settings.llms.groupDefaults.colSmall') }}</th>
+                            <th>
                                 <UTooltip :text="$t('settings.llms.groupDefaults.priorityTooltip')">
                                     <span class="inline-flex items-center gap-1">
                                         {{ $t('settings.llms.groupDefaults.colPriority') }}
@@ -55,17 +55,17 @@
                             </th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                    <tbody>
                         <tr v-for="row in rows" :key="row.group_id" data-testid="llm-group-default-row">
-                            <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                <span class="inline-flex items-center gap-1.5">
+                            <td class="whitespace-nowrap">
+                                <span class="inline-flex items-center gap-2 bow-cell-primary">
                                     <UIcon name="i-heroicons-user-group" class="w-4 h-4 text-ink-muted" />
                                     {{ row.group_name }}
                                 </span>
                             </td>
-                            <td class="px-4 py-2 text-sm">
+                            <td>
                                 <select
-                                    class="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded px-2 py-1 text-xs text-gray-700 dark:text-gray-200 min-w-[12rem]"
+                                    class="bow-native-control min-w-[13rem]"
                                     :value="row.default_llm_model_id || ''"
                                     :disabled="savingId === row.group_id"
                                     data-testid="llm-group-default-select"
@@ -75,9 +75,9 @@
                                     <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
                                 </select>
                             </td>
-                            <td class="px-4 py-2 text-sm">
+                            <td>
                                 <select
-                                    class="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded px-2 py-1 text-xs text-gray-700 dark:text-gray-200 min-w-[12rem]"
+                                    class="bow-native-control min-w-[13rem]"
                                     :value="row.small_default_llm_model_id || ''"
                                     :disabled="savingId === row.group_id"
                                     data-testid="llm-group-small-default-select"
@@ -87,11 +87,11 @@
                                     <option v-for="m in modelOptions" :key="m.id" :value="m.id">{{ m.label }}</option>
                                 </select>
                             </td>
-                            <td class="px-4 py-2 text-sm">
+                            <td>
                                 <input
                                     type="number"
                                     min="0"
-                                    class="border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded px-2 py-1 text-xs text-gray-700 dark:text-gray-200 w-20 tabular-nums"
+                                    class="bow-native-control w-20 tabular-nums"
                                     :value="row.default_llm_priority"
                                     :disabled="savingId === row.group_id"
                                     data-testid="llm-group-priority"

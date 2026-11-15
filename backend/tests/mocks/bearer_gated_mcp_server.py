@@ -26,7 +26,7 @@ import argparse
 import json
 import os
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer as FastMCP
 from mcp.types import ToolAnnotations
 from starlette.responses import JSONResponse
 

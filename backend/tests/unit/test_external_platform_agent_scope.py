@@ -37,7 +37,7 @@ class _FakeScopeService:
             channel = self._scopes.get(routing_channel_id)
             if channel:
                 return set(channel)
-        return set(self._scopes.get("", set()))
+        return set(self._scopes.get("", set())) or None
 
 
 def _manager(scopes):
@@ -70,10 +70,10 @@ async def test_scope_narrows_to_intersection_preserving_order():
 async def test_scope_never_widens_beyond_input():
     # An agent in scope that the user cannot access is never added.
     mgr = _manager({"": {"x", "y"}})
-    out = await mgr._apply_agent_scope(
-        db=None, platform_id="p1", data_source_ids=["a", "b"]
-    )
-    assert out == []
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as denied:
+        await mgr._apply_agent_scope(db=None, platform_id="p1", data_source_ids=["a", "b"])
+    assert denied.value.status_code == 403
 
 
 # --- channel-level resolution ---
@@ -130,6 +130,8 @@ async def test_service_resolution_precedence(monkeypatch):
     async def fake_get(db, platform_id, external_channel_id=""):
         return set(canned.get(external_channel_id or "", set()))
 
+    from unittest.mock import AsyncMock
+    monkeypatch.setattr(svc, "folder_scope_map", AsyncMock(return_value={}))
     monkeypatch.setattr(svc, "get_scope_agent_ids", fake_get)
 
     # channel with its own rows -> channel rows

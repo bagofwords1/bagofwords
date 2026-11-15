@@ -26,6 +26,7 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     # READ_TEXT_* and _build_read_text stay importable from this module: tests
     # and callers reference them here, the sandbox child imports them from
     # sandbox.namespace.
+    CLIENTS_GLOBAL,
     READ_TEXT_MAX_CHARS,
     READ_TEXT_REFUSES as _READ_TEXT_REFUSES,
     build_loadable_closures as _build_loadable_closures_impl,
@@ -1013,6 +1014,16 @@ def _execute_query_signature(client) -> Optional[inspect.Signature]:
         return None
 
 
+def _params_not_rendered():
+    """The refusal of params nothing renders: a keyword-only call, a statement
+    that is not text, or params that are not a name -> value dict."""
+    from app.ai.code_execution.query_params import ParamError
+
+    return ParamError(
+        "query parameters are rendered only into a query string passed as the first argument, "
+        "with params as a dict of name -> value; pass the query as text")
+
+
 def _passes_a_statement(client, query, args: tuple, kwargs: dict) -> bool:
     """Whether a call hands `client.execute_query` a statement: a value other
     than None, of any type, bound to a parameter that can be passed by
@@ -1281,12 +1292,11 @@ class QueryCapturingClientWrapper:
         type and however it is passed (`_passes_a_statement`).
         """
         refusal: Optional[Exception] = None
-        unrendered_note = None
         guarded = guard_profile(self._original) is not None
         if guarded:
             query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
-            query, capture, unrendered_note = self._prepare_unguarded(query, kwargs)
+            query, capture, refusal = self._prepare_unguarded(query, kwargs)
             if self._takes_no_free_text() and _passes_a_statement(self._original, query, args, kwargs):
                 refusal = UnsafeSQLError("This connection does not accept free-text queries")
         # The OData clients build their request from several arguments; what
@@ -1407,7 +1417,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": self._recorded_error(e) + (unrendered_note or ""),
+                    "error": self._recorded_error(e),
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
                     "cancellation": self._last_cancel_outcome,
@@ -1424,7 +1434,7 @@ class QueryCapturingClientWrapper:
                     "query_ms": round(_q_ms, 1),
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
-                    "error": self._recorded_error(e) + (unrendered_note or ""),
+                    "error": self._recorded_error(e),
                     "terminal": bool(getattr(e, "terminal_execution_error", False)),
                     **({"source_query_id": _source_query_id(e)} if _source_query_id(e) else {}),
                     **({"error_type": "table_access_denied", "error_message": str(e)}
@@ -1466,7 +1476,11 @@ class QueryCapturingClientWrapper:
                 attempted = _describe_keyword_call({"query": query, **kwargs})
             return query, (), {}, attempted, refusal
         statement = resolved.statement
-        if isinstance(resolved.params, dict) and resolved.params:
+        if resolved.params and not isinstance(resolved.params, dict):
+            # Params that are not a name -> value dict render nothing: the
+            # statement would run with its placeholders as written.
+            raise _params_not_rendered()
+        if resolved.params:
             statement = self._rendered(statement, resolved.params)
         return statement, (), resolved.kwargs, self._guarded_capture(statement, resolved.kwargs), None
 
@@ -1509,9 +1523,19 @@ class QueryCapturingClientWrapper:
                 text = json.dumps(capture, sort_keys=True, default=str, ensure_ascii=False)
             except (TypeError, ValueError, RecursionError):
                 text = ""
-        captured = CapturedQuery(text, family_name(self._original), identity_reads=identity_reads)
+        captured = CapturedQuery(text, family_name(self._original), identity_reads=identity_reads,
+                                 **self._capture_grammar())
         self._captured_queries.append(captured)
         return captured
+
+    def _capture_grammar(self) -> dict:
+        """What the identity check reads of the client's class besides its
+        family: its declared string-literal style and whether its query is a
+        JSON envelope carrying SQL. Read off the class (inherited by a
+        subclass), never off the instance."""
+        cls = type(self._original)
+        return {"literal_style": getattr(cls, "sql_literal_style", None),
+                "sql_in_json_envelope": bool(getattr(cls, "sql_in_json_envelope", False))}
 
     def _sent_reads(self, sent: List[str]) -> tuple:
         """What the identity check reads of an OData call: each request it
@@ -1530,10 +1554,12 @@ class QueryCapturingClientWrapper:
                 continue
             texts = _odata_request_texts(_odata_path_url(url), root, keys, apply_binds)
             if texts is None:
-                captures.append(CapturedQuery("", family_name(self._original), outside_root=True))
+                captures.append(CapturedQuery("", family_name(self._original), outside_root=True,
+                                              **self._capture_grammar()))
             else:
-                captures.extend(CapturedQuery(text, family_name(self._original)) for text in texts)
-        return tuple(captures or [CapturedQuery("", family_name(self._original))])
+                captures.extend(CapturedQuery(text, family_name(self._original), **self._capture_grammar())
+                                for text in texts)
+        return tuple(captures or [CapturedQuery("", family_name(self._original), **self._capture_grammar())])
 
     def _odata_send_observer(self, sent: List[str], refused: List[BaseException]):
         """Record the URL of every request the OData client sends, as it
@@ -1573,11 +1599,11 @@ class QueryCapturingClientWrapper:
         """Today's behaviour for clients the guard does not know: keyword-only
         calls forwarded, params rendered only into a positional str.
 
-        Pops `params` from `kwargs`. Returns (query to send, capture, a note
-        for the error of a keyword call whose params were not rendered).
+        Pops `params` from `kwargs`. Returns (query to send, capture, the
+        refusal of params that cannot be rendered, or None).
         """
         native_params = None
-        unrendered_note = None
+        refusal = None
         if "params" in kwargs:
             if getattr(self._original, "native_query_params", False):
                 # The client binds them itself (Cypher's $name); its own syntax
@@ -1586,15 +1612,15 @@ class QueryCapturingClientWrapper:
                 native_params = kwargs["params"]
             else:
                 param_values = kwargs.pop("params")
-                # A keyword-only call has no statement to render into: its
-                # params are dropped, as they always were, and said so.
                 if isinstance(query, str) and isinstance(param_values, dict) and param_values:
                     query = self._rendered(query, param_values)
-                elif query is _NO_QUERY and isinstance(param_values, dict) and param_values:
-                    unrendered_note = self._note_unrendered_params(kwargs, param_values)
                 elif param_values:
-                    # A statement that is not text, or params that are not a
-                    # dict: nothing to render into, dropped as they always were.
+                    # A keyword-only call, a statement that is not text, or
+                    # params that are not a dict: nothing renders them, so the
+                    # call would run with its placeholders as written. Refused
+                    # (a connector nobody declared is refused for its
+                    # statement first); logged by structure only.
+                    refusal = _params_not_rendered()
                     logger.warning(
                         "code_execution.params_not_rendered client=%s statement=%s params=%s",
                         family_name(self._original),
@@ -1614,7 +1640,7 @@ class QueryCapturingClientWrapper:
             or getattr(self._original, "capture_structured_queries", False)
         ):
             capture = json.dumps(capture, sort_keys=True, default=str)
-        return query, capture, unrendered_note
+        return query, capture, refusal
 
     def _takes_no_free_text(self) -> bool:
         """A connector the guard neither checks nor exempts (`classify`).
@@ -1630,34 +1656,28 @@ class QueryCapturingClientWrapper:
 
         return isinstance(self._original, DiscoveryClient) and classify(self._original) == "unknown"
 
-    def _note_unrendered_params(self, kwargs: dict, params: dict) -> Optional[str]:
-        """Log (names only) that a keyword call's params were not rendered.
-        Returns a note for the call's error when a keyword's text still holds
-        one of their placeholders, else None."""
-        from app.ai.code_execution.query_params import _PLACEHOLDER_RE
-
-        texts = {k: v for k, v in kwargs.items() if isinstance(v, str)}
-        logger.warning(
-            "code_execution.keyword_call_params_not_rendered client=%s keywords=%s params=%s",
-            family_name(self._original),
-            ",".join(sorted(_loggable_name(k) for k in texts)),
-            ",".join(sorted(_loggable_name(k) for k in params)),
-        )
-        if any(m.group(1) in params for text in texts.values() for m in _PLACEHOLDER_RE.finditer(text)):
-            return (" (params were not applied: this call passed its statement by keyword; "
-                    "pass the statement as the first positional argument with params=)")
-        return None
-
     def _rendered(self, statement, params: dict):
         """`statement` with `params` rendered in the client's own string
-        literals. A connector with no declared renderer, or a statement that is
-        not text (an envelope), takes no params: ParamError. An object that is
-        not a connector keeps the ANSI rendering it always had."""
-        from app.ai.code_execution.query_params import ParamError, render_sql_with_params, renderer_for
+        literals. A statement that is not text (an envelope) takes no params:
+        ParamError. A connector with no declared renderer takes them only in
+        a JSON query document, as bare numbers (`render_json_number_params`);
+        anything else there is a ParamError. An object that is not a
+        connector keeps the ANSI rendering it always had."""
+        from app.ai.code_execution.query_params import (
+            ParamError,
+            is_json_document,
+            render_json_number_params,
+            render_sql_with_params,
+            renderer_for,
+        )
         from app.data_sources.clients.discovery import DiscoveryClient
 
+        if not isinstance(statement, str):
+            raise ParamError("Parameters are not supported for this connection")
         renderer = renderer_for(self._original)
-        if not isinstance(statement, str) or (renderer is None and isinstance(self._original, DiscoveryClient)):
+        if renderer is None and isinstance(self._original, DiscoveryClient):
+            if is_json_document(statement):
+                return render_json_number_params(statement, params, client_type_name=family_name(self._original))
             raise ParamError("Parameters are not supported for this connection")
         return render_sql_with_params(statement, params, renderer=renderer)
 
@@ -2213,7 +2233,7 @@ class StreamingCodeExecutor:
         local_namespace = {
             'pd': pd,
             'np': np,
-            'db_clients': wrapped_clients,
+            CLIENTS_GLOBAL: wrapped_clients,
             'excel_files': excel_files,
             'load_step': load_step,
             'load_entity': load_entity,

@@ -18,7 +18,7 @@ from app.models.data_source import DataSource
 from app.models.file_tag import FileTag
 from sqlalchemy.ext.asyncio import AsyncSession
 import aiofiles
-from sqlalchemy import select, exists
+from sqlalchemy import select, exists, or_
 from app.core.telemetry import telemetry
 from app.services.file_preview import generate_file_preview
 from app.data_sources.clients._file_source_common import storage_safe_name
@@ -82,6 +82,7 @@ class FileService:
         organization: Organization,
         report_id: Optional[str] = None,
         data_source_id: Optional[str] = None,
+        folder_id: Optional[str] = None,
     ) -> FileSchema:
         # Generate a unique filename to prevent overwriting existing files.
         # The multipart name is scrubbed first: it reaches us as whatever the
@@ -109,6 +110,7 @@ class FileService:
 
         # Create the database entry
         db_file = File(
+            owner_folder_id=folder_id,
             filename=filename,
             content_type=file.content_type,
             path=file_location,
@@ -117,6 +119,10 @@ class FileService:
         )
 
         db.add(db_file)
+        if folder_id:
+            from app.models.folder import folder_files
+            await db.flush()
+            await db.execute(folder_files.insert().values(folder_id=folder_id, file_id=db_file.id))
         await db.commit()
         await db.refresh(db_file)
 
@@ -281,28 +287,105 @@ class FileService:
 
         return True
         
+    # How many files one bulk delete may name.
+    BULK_DELETE_MAX = 2000
+
+    async def delete_files(self, db: AsyncSession, file_ids: list, organization: Organization, current_user: User) -> dict:
+        """Delete files for good: the row, every link to it, and its bytes.
+
+        Only the user who created a file (their upload, or the tool output of
+        their run) may delete it — admins included: the Files page lists only
+        your own files, and nobody deletes a file they cannot see there. A
+        file backing a dashboard resource or a published dashboard release is
+        refused — the dashboard owns it. Every id is checked; refusals are
+        reported per id and do not stop the others.
+
+        Returns ``{"deleted": [ids], "failed": [{"id", "error_code", "reason"}]}``.
+        """
+        from app.errors import ErrorCode
+
+        ids = list(dict.fromkeys(str(i) for i in (file_ids or []) if i))
+        result = {"deleted": [], "failed": []}
+        if not ids:
+            return result
+
+        rows = {
+            str(f.id): f for f in (await db.execute(
+                select(File).where(File.id.in_(ids), File.organization_id == str(organization.id))
+            )).scalars().all()
+        }
+        in_use = await files_in_use(db, ids)
+
+        from app.models.folder import folder_files
+        from app.core.permission_resolver import resolve_permissions
+        placements = {}
+        for fid, folder in (await db.execute(select(folder_files.c.file_id, folder_files.c.folder_id)
+                                             .where(folder_files.c.file_id.in_(ids)))).all():
+            placements.setdefault(fid, set()).add(folder)
+        rights = await resolve_permissions(db, current_user.id, organization.id)
+        doomed = []
+        for fid in ids:
+            f = rows.get(fid)
+            # Another org's id, or someone else's file: same answer, so ids
+            # from elsewhere do not leak.
+            folders = placements.get(fid, set()) | ({f.owner_folder_id} if f and f.owner_folder_id else set())
+            if f is None or str(f.user_id) != str(current_user.id) or any(
+                not rights.has_resource_permission("folder", folder, "manage_files") for folder in folders
+            ):
+                result["failed"].append({"id": fid, "error_code": ErrorCode.FILE_NOT_FOUND.value, "reason": "not found"})
+            elif fid in in_use or f.source_kind == "artifact_resource":
+                result["failed"].append({"id": fid, "error_code": ErrorCode.FILE_IN_USE.value, "reason": "used by a dashboard"})
+            else:
+                doomed.append(f)
+        result["deleted"] = await purge_files(db, doomed)
+        return result
+
     async def get_files(self, db: AsyncSession, organization: Organization, current_user: User):
-        """Files the user may list: their own uploads plus the libraries of
-        agents and projects they can see (every file, for a full admin)."""
+        """Files the user may reference (the @-mention picker): their own
+        uploads plus the libraries of agents and projects they can see (every
+        file, for a full admin). The Files page uses ``list_my_files``."""
         from app.services.file_access_service import visible_files_clause
 
         stmt = select(File).filter(File.organization_id == organization.id)
         scope = await visible_files_clause(db, current_user, organization)
         if scope is not None:
             stmt = stmt.filter(scope)
-        result = await db.execute(stmt)
-        files = result.scalars().all()
+        return (await db.execute(stmt)).scalars().all()
 
-        # get files with tags
+    async def list_my_files(self, db: AsyncSession, organization: Organization, current_user: User):
+        """The Files page: the user's own files — their uploads and the output
+        of their runs — with tags, schemas and whether each can be deleted.
+
+        Admins included. Another user's files (uploads in their private
+        reports, raw tool output from their runs) are reached through the
+        report they belong to, not listed here. Dashboard-owned files are
+        left out: the dashboard manages them.
+        """
+        from app.services import file_access_service
+        stmt = select(File).where(
+            File.organization_id == str(organization.id),
+            File.user_id == str(current_user.id),
+            await file_access_service.visible_files_clause(db, current_user, organization),
+            or_(File.source_kind.is_(None), File.source_kind != "artifact_resource"),
+        ).order_by(File.created_at.desc())
+        files = (await db.execute(stmt)).scalars().all()
+        if not files:
+            return []
+
+        ids = [str(f.id) for f in files]
+        in_use = await files_in_use(db, ids)
+        tags: dict = {}
+        for t in (await db.execute(select(FileTag).where(FileTag.file_id.in_(ids)))).scalars().all():
+            tags.setdefault(str(t.file_id), []).append(t)
+        schemas: dict = {}
+        for sc in (await db.execute(select(SheetSchema).where(SheetSchema.file_id.in_(ids)))).scalars().all():
+            schemas.setdefault(str(sc.file_id), []).append(sc)
+
         for file in files:
-            stmt = select(FileTag).filter(FileTag.file_id == file.id)
-            result = await db.execute(stmt)
-            file.tags = result.scalars().all()
-
-            stmt = select(SheetSchema).filter(SheetSchema.file_id == file.id)
-            result = await db.execute(stmt)
-            file.schemas = result.scalars().all()
-
+            fid = str(file.id)
+            file.can_delete = fid not in in_use
+            file.tags = tags.get(fid, [])
+            file.schemas = schemas.get(fid, [])
         return files
 
     async def get_files_by_report(self, db: AsyncSession, report_id: str, organization: Organization, current_user: User):
@@ -595,3 +678,58 @@ class FileService:
             print(f"Association already exists between Report {report_id} and File {file_id}")
             return False # Indicate association already existed
         
+
+async def files_in_use(db: AsyncSession, file_ids: list) -> set:
+    """Ids among ``file_ids`` that a dashboard owns (a resource binding or a
+    published release). These are never deleted by hand or by retention."""
+    from app.models.artifact_release import artifact_release_file_association
+    from app.models.artifact_resource import ArtifactFileBinding
+
+    ids = [str(i) for i in file_ids]
+    if not ids:
+        return set()
+    bound = (await db.execute(
+        select(ArtifactFileBinding.file_id).where(ArtifactFileBinding.file_id.in_(ids))
+    )).all()
+    released = (await db.execute(
+        select(artifact_release_file_association.c.file_id)
+        .where(artifact_release_file_association.c.file_id.in_(ids))
+    )).all()
+    return {str(r[0]) for r in bound} | {str(r[0]) for r in released}
+
+
+async def purge_files(db: AsyncSession, files: list, *, discard_bytes=True) -> list:
+    """Remove ``files`` for good — every link, tag and schema, the row, then
+    the bytes — and commit. Callers decide which files may go. Returns the
+    deleted ids."""
+    from app.models.project import project_file_association
+
+    if not files:
+        return []
+    ids = [str(f.id) for f in files]
+    paths = [f.path for f in files if f.path]
+    for table in (report_file_association, data_source_file_association, project_file_association):
+        await db.execute(table.delete().where(table.c.file_id.in_(ids)))
+    for model in (FileTag, SheetSchema):
+        await db.execute(model.__table__.delete().where(model.file_id.in_(ids)))
+    await db.execute(File.__table__.delete().where(File.id.in_(ids)))
+    await db.commit()
+
+    if discard_bytes:
+        await discard_file_bytes(paths)
+    return ids
+
+
+async def discard_file_bytes(paths):
+    # Bytes last, after the rows are gone: a failure here leaves an orphaned
+    # blob, never a row that points at nothing.
+    for path in paths:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except OSError as e:
+            logger.warning("file delete: could not remove %s: %s", path, e)
+        try:
+            await storage.adiscard(path)
+        except Exception as e:  # noqa: BLE001 — best effort, like the local unlink
+            logger.warning("file delete: could not discard %s: %s", path, e)

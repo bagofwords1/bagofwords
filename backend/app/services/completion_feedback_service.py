@@ -982,7 +982,21 @@ class CompletionFeedbackService:
         # the resource permission, so org admins still pass; a user with only a
         # resource grant on a different agent does not. A global eval (no agent
         # scope) falls back to org-level manage_evals.
-        if data_source_ids:
+        from app.models.report import Report
+        report = await db.get(Report, completion.report_id)
+        folder_id = agent_execution.starting_folder_id
+        from app.models.report import report_folder_ids
+        # An automatically drafted eval has a single owner. A mixed-folder
+        # execution needs an explicit choice of destination.
+        if not report or report_folder_ids(report) != ([folder_id] if folder_id else []):
+            return None
+        await db.refresh(report, ["data_sources"])
+        if folder_id:
+            from app.services.folder_service import can_read_folder_output
+            if (not resolved.has_resource_permission("folder", folder_id, "manage_evals")
+                    or not await can_read_folder_output(db, report, user)):
+                return None
+        elif data_source_ids:
             if not all(
                 resolved.has_resource_permission("data_source", str(ds_id), "manage_evals")
                 for ds_id in data_source_ids
@@ -1024,7 +1038,7 @@ class CompletionFeedbackService:
 
         # Gate 6: classifier dedupe vs DS-scoped shortlist.
         candidates = await self._fetch_dedupe_shortlist(
-            db, organization_id, data_source_ids, limit=50,
+            db, organization_id, [] if folder_id else data_source_ids, limit=50, folder_id=folder_id,
         )
         if candidates:
             try:
@@ -1091,7 +1105,8 @@ class CompletionFeedbackService:
                 name=name,
                 prompt=CreateEvalPrompt(content=user_prompt),
                 expectations={"spec_version": 1, "rules": rules, "order_mode": "flexible"},
-                data_source_ids=data_source_ids,
+                destination="folder" if folder_id else None,
+                data_source_ids=[] if folder_id else data_source_ids,
                 tags=["auto", "feedback"],
                 # status / suite_id ignored — knowledge mode forces both
                 status=None,
@@ -1111,6 +1126,7 @@ class CompletionFeedbackService:
             "head_completion": head_completion,
             "agent_execution_id": str(agent_execution.id) if agent_execution else None,
             "mode": "knowledge",
+            "report": report,
         }
 
         tool = CreateEvalTool()
@@ -1144,11 +1160,12 @@ class CompletionFeedbackService:
         # a case we considered novel. Best-effort and scoped to the case's data
         # sources; on any error we leave it as a draft for human review.
         try:
-            await self._maybe_auto_promote_eval(
-                db, organization, user,
-                case_id=created_summary.get("case_id"),
-                data_source_ids=data_source_ids,
-            )
+            if not folder_id:
+                await self._maybe_auto_promote_eval(
+                    db, organization, user,
+                    case_id=created_summary.get("case_id"),
+                    data_source_ids=data_source_ids,
+                )
         except Exception:
             logger.debug("draft_eval_from_feedback: auto-promote skipped", exc_info=True)
 
@@ -1219,6 +1236,7 @@ class CompletionFeedbackService:
         data_source_ids: List[str],
         *,
         limit: int = 50,
+        folder_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Pull existing eval cases scoped to the candidate's data sources
         for the dedupe classifier. When the candidate touches no DS, falls
@@ -1230,7 +1248,7 @@ class CompletionFeedbackService:
         stmt = (
             select(TestCase, TestSuite.name)
             .join(TestSuite, TestSuite.id == TestCase.suite_id)
-            .where(TestSuite.organization_id == str(organization_id))
+            .where(TestSuite.organization_id == str(organization_id), TestSuite.owner_folder_id == folder_id)
             .where(TestCase.deleted_at.is_(None))
             .where(TestCase.status != TEST_CASE_STATUS_ARCHIVED)
         )
