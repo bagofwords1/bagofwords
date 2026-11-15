@@ -301,16 +301,18 @@ class DescribeEntityTool(Tool):
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         request_values = dict(data.params or {})
 
-        # Read before the run: a failed save of its result rolls `db` back,
-        # which expires every object the session holds (the entity, the
-        # settings), and they cannot be loaded again here.
+        # Read before the run: should a failed save of its result roll `db`
+        # back, every object the session holds (the entity, the settings) is
+        # expired, and cannot be loaded again here. Settings that cannot be
+        # read hide the data: the setting exists to keep rows and code from
+        # the LLM.
         allow_llm_see_data = True
         if organization_settings:
             try:
                 cfg = organization_settings.get_config("allow_llm_see_data")
                 allow_llm_see_data = bool(cfg.value) if cfg is not None else True
             except Exception:
-                pass
+                allow_llm_see_data = False
         described = {
             "entity_id": str(entity.id), "entity_type": entity.type, "title": entity.title,
             "description": entity.description, "code": entity.code,

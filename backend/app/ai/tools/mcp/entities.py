@@ -250,8 +250,8 @@ class DescribeEntityMCPTool(MCPTool):
         grid: Dict[str, Any] = {} if withheld else (entity.data or {})
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         error_message = None
-        # Read before the run: a failed save of its result rolls `db` back,
-        # which expires the entity, and it cannot be loaded again here.
+        # Read before the run: should a failed save of its result roll `db`
+        # back, the entity is expired, and cannot be loaded again here.
         described = dict(
             entity_id=str(entity.id),
             slug=getattr(entity, "slug", None),

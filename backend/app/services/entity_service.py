@@ -62,8 +62,9 @@ def _result_not_saved(entity_id, err: BaseException) -> AppError:
 
 async def _roll_back_failed_save(db: AsyncSession, entity_id: str) -> None:
     """Roll the session back after a failed save of a run's result (the
-    shared snapshot, or a viewer's slice): until then every use of it fails
-    with an error repeating the database's statement and bound values."""
+    shared snapshot, or a viewer's slice whose savepoint could not be undone
+    or whose commit failed): until then every use of it fails with an error
+    repeating the database's statement and bound values."""
     try:
         await db.rollback()
     except Exception as err:
@@ -162,42 +163,70 @@ class EntityService:
     async def _upsert_entity_user_result(
         self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
     ) -> None:
-        """Cache a viewer's slice per (entity, user, values fingerprint).
+        """Cache a viewer's slice per (entity, user, values fingerprint), then
+        commit the caller's session `db`, as the slice always has.
 
-        A failed save is the fixed 500 (_result_not_saved), after `db` is
-        rolled back: the database's error, which quotes its statement and
-        bound values, reaches neither the caller nor the log."""
+        `db` may be shared (an agent's, an MCP request's, a publish's): the
+        slice is written in a savepoint, so a write the database refuses
+        undoes the slice alone. What the session holds stays loaded and its
+        uncommitted writes stay its own. Only when the savepoint cannot be
+        undone, or the commit fails, is the whole session rolled back. Either
+        way the answer is the fixed 500 (_result_not_saved), raised with no
+        database error chained to it: that error quotes its statement and
+        bound values, and reaches neither the caller nor the log."""
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.entity_user_result import EntityUserResult
         entity_id = str(entity.id)
+        user_id = str(user.id)
+        organization_id = str(entity.organization_id)
         fingerprint = params_fingerprint(resolved_params)
+        failure = None
+        written = None
         try:
-            # The lookup flushes what the run changed on the entity (autoflush).
-            row = (await db.execute(
-                select(EntityUserResult).where(
-                    EntityUserResult.entity_id == entity_id,
-                    EntityUserResult.user_id == str(user.id),
-                    EntityUserResult.params_fingerprint == fingerprint,
-                )
-            )).scalars().first()
-            if row is None:
-                row = EntityUserResult(
-                    entity_id=entity_id,
-                    user_id=str(user.id),
-                    organization_id=str(entity.organization_id),
-                    params_fingerprint=fingerprint,
-                )
-            row.status = "success"
-            row.status_reason = None
-            row.data = df
-            row.applied_params = dict(resolved_params) if resolved_params else None
-            row.last_run_at = datetime.utcnow()
-            db.add(row)
-            await db.commit()
+            # Entering flushes what the run changed on the entity, before
+            # the savepoint (autoflush).
+            async with db.begin_nested():
+                try:
+                    row = (await db.execute(
+                        select(EntityUserResult).where(
+                            EntityUserResult.entity_id == entity_id,
+                            EntityUserResult.user_id == user_id,
+                            EntityUserResult.params_fingerprint == fingerprint,
+                        )
+                    )).scalars().first()
+                    if row is None:
+                        row = EntityUserResult(
+                            entity_id=entity_id,
+                            user_id=user_id,
+                            organization_id=organization_id,
+                            params_fingerprint=fingerprint,
+                        )
+                    row.status = "success"
+                    row.status_reason = None
+                    row.data = df
+                    row.applied_params = dict(resolved_params) if resolved_params else None
+                    row.last_run_at = datetime.utcnow()
+                    db.add(row)
+                    await db.flush()
+                except Exception as err:
+                    written = err
+                    raise
         except Exception as err:
             failure = _result_not_saved(entity_id, err)
-            await _roll_back_failed_save(db, entity_id)
-            raise failure from None
+            if err is not written:
+                # Not the slice's write: the savepoint was not undone (the
+                # database ended the whole transaction) or never opened.
+                await _roll_back_failed_save(db, entity_id)
+        written = None
+        if failure is None:
+            try:
+                await db.commit()
+            except Exception as err:
+                failure = _result_not_saved(entity_id, err)
+                await _roll_back_failed_save(db, entity_id)
+        if failure is not None:
+            # Raised here, outside the handlers, so it chains no error.
+            raise failure
 
     async def resolve_entity_data_for_user(
         self,
