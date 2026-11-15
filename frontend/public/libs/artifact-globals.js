@@ -2027,8 +2027,12 @@ function _dtDetectDir(cols, rows) {
     if (cart.some(function(x) { return !Array.isArray(x.data); })) return opt;
     var ranked = cart.map(function(x) { return { name: String(x.name), t: _chSeriesTotal(x) }; })
       .sort(function(a, b) { return b.t - a.t; });
+    // Keys in series order, not rank order: a data refresh that swaps two
+    // totals must not change the option's shape (that rebuilds the chart and
+    // drops the reader's legend choices).
+    var top = {}; ranked.forEach(function(r, i) { if (i < _CH_MAX_SERIES) top[r.name] = true; });
     var selected = {};
-    ranked.forEach(function(r, i) { selected[r.name] = i < _CH_MAX_SERIES; });
+    cart.forEach(function(x) { selected[String(x.name)] = !!top[String(x.name)]; });
     var lg = {}; for (var k in (opt.legend || {})) lg[k] = opt.legend[k];
     lg.show = true; lg.type = 'scroll';
     var keep = lg.selected || {}; for (var n in keep) selected[n] = keep[n];

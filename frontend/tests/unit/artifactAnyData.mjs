@@ -26,7 +26,8 @@ function App() {
   const [n, setN] = React.useState(0);
   // Inline option, rebuilt on every render: a formatter (same content) and, from the 2nd click, new data (same shape).
   const live = { xAxis: { type: 'category', data: ${JSON.stringify(months)} }, yAxis: { type: 'value' }, tooltip: { formatter: (p) => String(p.value) },
-    series: LINES.map((l) => ({ ...l, data: l.data.map((v) => v + (n >= 2 ? 1 : 0)) })) };
+    // From the 2nd click, new data that also swaps the two largest series' totals.
+    series: LINES.map((l, i) => ({ ...l, data: (n >= 2 && i >= 10 ? LINES[21 - i].data : l.data).map((v) => v + (n >= 2 ? 1 : 0)) })) };
   return (
     <div className="p-4 space-y-4">
       <button id="rerender" onClick={() => setN(n + 1)}>rerender</button>
@@ -108,7 +109,7 @@ try{
  await frame.click('#rerender'); await frame.waitForTimeout(300);
  assert.equal((await sel())['CC-100'],true,'same content re-render keeps the reader\'s choice');
  await frame.click('#rerender'); await frame.waitForTimeout(300);
- assert.equal((await sel())['CC-100'],true,'new data merged in keeps the reader\'s choice');
+ assert.equal((await sel())['CC-100'],true,'new data that swaps two totals keeps the reader\'s choice');
 
  // Series drawn from a dataset have no data of their own: the chart is left uncapped.
  const dsOff=await frame.evaluate(()=>{const l=window.echarts.getInstanceByDom(document.querySelector('#dataset [_echarts_instance_]')).getOption().legend; const s=l&&l[0]&&l[0].selected; return s?Object.values(s).filter(v=>!v).length:0;});
