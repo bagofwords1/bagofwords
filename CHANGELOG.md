@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.622 (November 15, 2026)
+- Fixed dashboards built by smaller models failing on imports, exports, or helpers taken from `bow` or `React` (#1745)
+- Changed the agent to stop after four failed dashboard builds in a row and say so (#1745)
+- Added a "Not render-checked" note on dashboards saved when the server cannot render them (#1745)
+
 ## Version 0.0.621 (November 15, 2026)
 - Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
 
