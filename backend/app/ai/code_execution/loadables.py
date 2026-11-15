@@ -265,9 +265,7 @@ class LoadablesResolver:
     # Resolution (indexed) — the refs the generated code actually names.   #
     # ------------------------------------------------------------------ #
     async def resolve(self, step_refs: List[str], entity_refs: List[str]) -> Dict:
-        """Resolve refs to DataFrames; misses go in `errors`. A reader's
-        slice whose failed save rolled the whole session back is not a miss:
-        its SessionRolledBack is raised, and ends the caller's unit of work."""
+        """Resolve refs to DataFrames. Never raises; misses go in `errors`."""
         result: Dict = {"steps": {}, "entities": {}, "errors": []}
 
         # Resolution is never bounded by the discovery recency window — a
@@ -366,21 +364,9 @@ class LoadablesResolver:
                 if access:
                     result["steps"][key].attrs["bow_source"] = access
 
-        # Read before any run: should a failed save of a reader's slice roll
-        # the whole session back, every instance on it is expired, and each
-        # is looked up again by its id (an expired one is reloaded).
-        org_id = str(self.organization.id) if entity_refs else None
-        user_id = str(self.current_user.id) if entity_refs and self.current_user is not None else None
-        report_id = getattr(self.report, "id", None) if entity_refs else None
-        release_id = str(self.release.id) if entity_refs and self.release is not None else None
-        # Monitoring access of what was loaded, applied once every slice ran:
-        # a slice whose failed save rolled the whole session back would also
-        # undo a marker set before it, and the step's rows would be stored
-        # without it.
-        accesses: List[dict] = []
         for ref in entity_refs or []:
             key = str(ref)
-            entity, err = await self._resolve_entity(key, org_id, user_id)
+            entity, err = await self._resolve_entity(key)
             if entity is None:
                 result["errors"].append(err)
                 continue
@@ -388,17 +374,14 @@ class LoadablesResolver:
             # resolve to the RUN USER's own slice (cached per viewer, executed
             # with their identity binding on a miss); other entities serve the
             # shared snapshot unless the credential policy withholds it.
-            from app.services.entity_service import EntityService, SessionRolledBack
-            from app.models.organization import Organization
-            from app.models.user import User
+            from app.services.entity_service import CallerTransactionLost, EntityService
             try:
                 data = await EntityService().resolve_entity_data_for_user(
-                    self.db, entity, await self.db.get(Organization, org_id),
-                    await self.db.get(User, user_id) if user_id is not None else None,
+                    self.db, entity, self.organization, self.current_user
                 )
-            except SessionRolledBack:
-                # The session lost what it held, what this run loaded before
-                # included: the caller's whole unit of work ends with it.
+            except CallerTransactionLost:
+                # This run's own writes are gone with its transaction: it
+                # cannot go on as if only this entity were missing.
                 raise
             except Exception as e:
                 result["errors"].append(
@@ -415,19 +398,13 @@ class LoadablesResolver:
             result["entities"][key] = grid_to_df(data)
             access = getattr(entity, "bow_source_access", None)
             if access:
-                accesses.append(access)
+                from app.services.bow_source_access import protect_release, protect_report
+                if self.release is not None:
+                    await protect_release(self.db, self.release, access)
+                else:
+                    await protect_report(self.db, getattr(self.report, "id", None), access)
                 result["entities"][key].attrs["bow_source"] = access
 
-        if accesses:
-            from app.services.bow_source_access import protect_release, protect_report
-            if release_id is not None:
-                from app.models.artifact_release import ArtifactRelease
-                release = await self.db.get(ArtifactRelease, release_id)
-            for access in accesses:
-                if release_id is not None:
-                    await protect_release(self.db, release, access)
-                else:
-                    await protect_report(self.db, report_id, access)
         return result
 
     # ------------------------------------------------------------------ #
@@ -478,8 +455,9 @@ class LoadablesResolver:
         from app.models.artifact import Artifact
         return await self.db.get(Artifact, str(self.release.artifact_id))
 
-    async def _resolve_entity(self, ref: str, org_id: str, user_id: Optional[str]) -> Tuple[Optional[Entity], str]:
+    async def _resolve_entity(self, ref: str) -> Tuple[Optional[Entity], str]:
         """Find a published entity by id/slug/title/fuzzy, then access-check it."""
+        org_id = str(self.organization.id)
 
         async def _q(*where):
             res = await self.db.execute(
@@ -510,12 +488,12 @@ class LoadablesResolver:
         if entity is None:
             return None, f"load_entity({ref!r}): no matching published entity found."
 
-        if entity.data_sources and user_id is not None:
+        if entity.data_sources and self.current_user is not None:
             from app.core.permission_resolver import user_can_access_data_source
 
             for ds in entity.data_sources:
                 if not await user_can_access_data_source(
-                    self.db, user_id, org_id, ds
+                    self.db, str(self.current_user.id), org_id, ds
                 ):
                     return None, (
                         f"load_entity({ref!r}): you do not have access to its "

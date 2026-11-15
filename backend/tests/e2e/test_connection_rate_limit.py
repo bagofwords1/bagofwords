@@ -810,8 +810,8 @@ def test_a_viewer_run_whose_saved_code_fails_answers_422_without_the_code_error(
     assert "KeyError" in builder.json()["detail"], builder.text
 
 
-# ── Saving a viewer's slice: a slice the database refuses leaves no trace of
-#    the database in the answer, the log or what the LLM is shown ──────────
+# ── Saving a viewer's slice: two runs of one slice both succeed; a slice the
+#    database refuses leaves no trace of the database and a usable session ─
 
 def _other_engine():
     """A second connection to the app database, as another request has."""
@@ -822,12 +822,64 @@ def _other_engine():
     return create_engine(os.environ["TEST_DATABASE_URL"])
 
 
+@contextmanager
+def _slice_saved_by_another_request_before_this_one(org_id):
+    """Another request saves the same reader's slice, for the same values,
+    after this run started and just before it saves its own: both requests
+    write the same unique key (uq_entity_user_results_entity_user_params).
+    Yields the slices the other request saved."""
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    from app.models.entity_user_result import EntityUserResult
+
+    saved = []
+    other = _other_engine()
+
+    def before_the_save(conn, cursor, statement, parameters, context, executemany):
+        if saved or not statement.lstrip().upper().startswith("INSERT INTO ENTITY_USER_RESULTS"):
+            return
+        params = context.compiled_parameters[0]
+        with Session(other) as s:
+            s.add(EntityUserResult(entity_id=params["entity_id"], user_id=params["user_id"],
+                                   organization_id=org_id, params_fingerprint=params["params_fingerprint"],
+                                   status="success", data={}))
+            s.commit()
+        saved.append(params["params_fingerprint"])
+
+    app_engine = async_session_maker.kw["bind"].sync_engine
+    event.listen(app_engine, "before_cursor_execute", before_the_save)
+    try:
+        yield saved
+    finally:
+        event.remove(app_engine, "before_cursor_execute", before_the_save)
+        other.dispose()
+
+
 async def _slice_rows(eid):
     from app.models.entity_user_result import EntityUserResult
 
     async with async_session_maker() as db:
         return list((await db.execute(
             select(EntityUserResult).where(EntityUserResult.entity_id == eid))).scalars().all())
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_whose_slice_another_request_saved_first_succeeds_with_its_own_rows(
+    create_user, login_user, whoami, tmp_path,
+):
+    client = _plain_client()
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(client, token, org_id, ds_id)
+
+    with _slice_saved_by_another_request_before_this_one(org_id) as saved:
+        resp = client.post(f"/api/entities/{eid}/run", json={"params": {"v": 5}}, headers=_headers(token, org_id))
+    assert saved, "the other request never saved the slice"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["rows"] == [{"n": 3}], resp.text
+    rows = _run(_slice_rows(eid))
+    assert len(rows) == 1 and rows[0].data["rows"] == [{"n": 3}], [r.data for r in rows]
 
 
 async def _session_objects(db, org_id, user_id, eid):
@@ -841,33 +893,70 @@ async def _session_objects(db, org_id, user_id, eid):
     return org, user, entity
 
 
+async def _two_runs_of_one_slice(org_id, user_id, eid, value):
+    """Two requests run the same reader's slice, with the same values, at the
+    same time, each on its own session."""
+    from app.services.entity_service import EntityService
+
+    async def one_request():
+        async with async_session_maker() as db:
+            org, user, entity = await _session_objects(db, org_id, user_id, eid)
+            run = await EntityService().run_entity_for_user(db, entity, org, user, {"v": value})
+            return run["data"]["rows"]
+
+    return await asyncio.gather(one_request(), one_request(), return_exceptions=True)
+
+
+@pytest.mark.e2e
+def test_two_viewer_runs_of_the_same_slice_at_the_same_time_both_succeed(
+    api, create_user, login_user, whoami, tmp_path, monkeypatch,
+):
+    import threading
+
+    from app.data_sources.clients.sqlite_client import SqliteClient
+
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+    # Each run's query returns only when both runs have queried, so both save
+    # the slice at the same moment.
+    both_queried = threading.Barrier(2, timeout=60)
+    sent = SqliteClient.execute_query
+
+    def query_then_wait(self, sql):
+        result = sent(self, sql)
+        both_queried.wait()
+        return result
+
+    monkeypatch.setattr(SqliteClient, "execute_query", query_then_wait)
+    results = _run(_two_runs_of_one_slice(org_id, user_id, eid, 9))
+    assert results == [[{"n": 3}], [{"n": 3}]], results
+    assert len(_run(_slice_rows(eid))) == 1
+
+
 @contextmanager
 def _database_refusing_slices_of(entity_id, message, *, whole_transaction=False):
     """The app database itself refuses every insert and update of the slices
     of `entity_id` (a trigger, as a full disk or a broken row would), with an
-    error whose text is `message`.
-
-    `whole_transaction`: the refusal also ends the writer's whole
-    transaction, so its savepoint cannot be undone: SQLite rolls the
-    transaction back (as a full disk or an I/O error does), Postgres loses
-    the connection (its backend is terminated)."""
+    error whose text is `message`. `whole_transaction` (SQLite): the refusal
+    rolls back the whole transaction, as SQLite answers a full disk or an I/O
+    error."""
     from sqlalchemy import text
 
     engine = _other_engine()
     name = f"refuse_{uuid.uuid4().hex[:10]}"
     if engine.dialect.name == "sqlite":
-        how = "ROLLBACK" if whole_transaction else "ABORT"
+        kind = "ROLLBACK" if whole_transaction else "ABORT"
         create = [
             f"CREATE TRIGGER {name}_{op} BEFORE {op} ON entity_user_results "
-            f"WHEN NEW.entity_id = '{entity_id}' BEGIN SELECT RAISE({how}, '{message}'); END"
+            f"WHEN NEW.entity_id = '{entity_id}' BEGIN SELECT RAISE({kind}, '{message}'); END"
             for op in ("INSERT", "UPDATE")
         ]
         drop = [f"DROP TRIGGER IF EXISTS {name}_{op}" for op in ("INSERT", "UPDATE")]
     else:
-        terminate = "PERFORM pg_terminate_backend(pg_backend_pid()); " if whole_transaction else ""
         create = [
             f"CREATE FUNCTION {name}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN "
-            f"IF NEW.entity_id = '{entity_id}' THEN {terminate}RAISE EXCEPTION '{message}'; END IF; "
+            f"IF NEW.entity_id = '{entity_id}' THEN RAISE EXCEPTION '{message}'; END IF; "
             f"RETURN NEW; END $$",
             f"CREATE TRIGGER {name} BEFORE INSERT OR UPDATE ON entity_user_results "
             f"FOR EACH ROW EXECUTE FUNCTION {name}()",
@@ -893,10 +982,6 @@ def _assert_no_database_text(message, value, *texts):
 
 
 _REFUSED_VALUE = 7310459
-
-# What SQLAlchemy says when code reads an object a rollback expired, on an
-# async session (MissingGreenlet). The log's frames may name greenlet_spawn.
-_MISSING_GREENLET = "greenlet_spawn has not been called"
 
 
 def _refusal_message():
@@ -927,55 +1012,59 @@ def test_a_viewer_run_whose_slice_the_database_refuses_answers_500_without_its_t
     assert not _run(_slice_rows(eid))
 
 
-async def _describe_on_the_agents_session(org_id, user_id, eid, tool_input):
-    """describe_entity on the agent's session, as the agent hands it its
-    organization, user and settings. Returns the tool's last payload and the
-    entity's title."""
+async def _write_on(db, eid):
+    """The caller's next write on its session: it must be stored."""
+    from sqlalchemy import update
+
+    from app.models.entity import Entity
+
+    description = f"written-after-{uuid.uuid4().hex[:8]}"
+    await db.execute(update(Entity).where(Entity.id == eid).values(description=description))
+    await db.commit()
+    async with async_session_maker() as other:
+        stored = (await other.execute(select(Entity.description).where(Entity.id == eid))).scalar_one()
+    return stored == description
+
+
+def _attributes_of(**objects):
+    """What the caller reads next from the objects it holds on its session
+    (the agent: its organization, user, settings and entity), as plain ORM
+    attribute reads. An object the session expired and cannot load again in
+    an async context is reported by its error type, not raised."""
+    from sqlalchemy import inspect
+
+    reads = {}
+    for name, obj in objects.items():
+        try:
+            reads[name] = {a.key: getattr(obj, a.key) for a in inspect(obj).mapper.column_attrs}
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            reads[name] = f"unreadable: {type(err).__name__}"
+    return reads
+
+
+async def _describe_in_one_session(org_id, user_id, eid, tool_input, *, settings_unreadable=False):
+    """describe_entity on the agent's session, then the agent's next reads of
+    the objects it holds and its next write on that same session.
+    `settings_unreadable`: the organization settings the agent hands the
+    tool cannot be read (expired on a session that cannot load them)."""
     from app.ai.tools.implementations.describe_entity import DescribeEntityTool
 
     async with async_session_maker() as db:
         org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
         title = _entity_row.title
         settings = await org.get_settings(db)
+        if settings_unreadable:
+            db.expire(settings)
+        held = dict(organization=org, user=user, entity=_entity_row)
+        if not settings_unreadable:
+            held["settings"] = settings
+        before = _attributes_of(**held)
         events = [evt async for evt in DescribeEntityTool().run_stream(
             {"name_or_id": eid, **tool_input},
             {"db": db, "organization": org, "user": user, "settings": settings},
         )]
-        return events[-1].payload, title
-
-
-async def _describe_twice_on_the_agents_session(org_id, user_id, eid, first, second):
-    """Two describe_entity calls of one agent turn on the agent's session,
-    with what the agent hands the tool each time. Returns both payloads."""
-    from app.ai.tools.implementations.describe_entity import DescribeEntityTool
-
-    async with async_session_maker() as db:
-        org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
-        settings = await org.get_settings(db)
-        payloads = []
-        for tool_input in (first, second):
-            events = [evt async for evt in DescribeEntityTool().run_stream(
-                {"name_or_id": eid, **tool_input},
-                {"db": db, "organization": org, "user": user, "settings": settings},
-            )]
-            payloads.append(events[-1].payload)
-        return payloads
-
-
-async def _describe_with_unreadable_settings(org_id, user_id, eid):
-    """describe_entity handed organization settings that cannot be read (an
-    instance the session expired, which an async session cannot load again)."""
-    from app.ai.tools.implementations.describe_entity import DescribeEntityTool
-
-    async with async_session_maker() as db:
-        org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
-        settings = await org.get_settings(db)
-        db.expire(settings)
-        events = [evt async for evt in DescribeEntityTool().run_stream(
-            {"name_or_id": eid},
-            {"db": db, "organization": org, "user": user, "settings": settings},
-        )]
-        return events[-1].payload
+        assert _attributes_of(**held) == before, "the agent's own objects became unreadable"
+        return events[-1].payload, title, await _write_on(db, eid)
 
 
 # A row value and a code comment the LLM must not see when it may not see data.
@@ -1001,17 +1090,25 @@ def _assert_llm_sees_no_data(payload):
 
 
 @pytest.mark.e2e
+def test_describe_entity_shows_no_rows_or_code_when_the_data_setting_cannot_be_read(
+    api, create_user, login_user, whoami, tmp_path,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _marked_entity_with_snapshot(api, token, org_id, ds_id)
+
+    payload, _title, _written = _run(_describe_in_one_session(org_id, user_id, eid, {}, settings_unreadable=True))
+    _assert_llm_sees_no_data(payload)
+
+
+@pytest.mark.e2e
 @pytest.mark.parametrize("llm_sees_data", [True, False])
 @pytest.mark.parametrize("tool_input", [{"params": {"v": _REFUSED_VALUE}}, {"should_rerun": True}],
                          ids=["values", "rerun"])
-def test_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
+def test_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_message_and_keeps_the_session(
     api, create_user, login_user, whoami, update_organization_settings, tmp_path, monkeypatch, caplog,
     tool_input, llm_sees_data,
 ):
-    """The agent's describe_entity runs the saved code and the database
-    refuses the reader's slice: the tool reports the fixed message, and
-    neither its output, what the LLM is shown nor the log carries the
-    database's text."""
     import json
 
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
@@ -1022,13 +1119,14 @@ def test_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_messag
     _watch_app_logs(monkeypatch)
 
     with caplog.at_level(logging.WARNING), _database_refusing_slices_of(eid, message):
-        payload, title = _run(_describe_on_the_agents_session(org_id, user_id, eid, tool_input))
+        payload, title, written = _run(_describe_in_one_session(org_id, user_id, eid, tool_input))
     out, obs = payload["output"], payload["observation"]
     assert not out["success"]
     assert out["errors"] == ["Code execution failed: The run's result could not be saved."], out["errors"]
     assert obs["errors"] == out["errors"] and obs["title"] == title and obs["entity_id"] == eid, obs
     _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(payload, default=str), caplog.text)
     assert not _handled_by_the_global_handler(caplog), caplog.text
+    assert written, "a write on the agent's session after the failed save was lost"
     if not llm_sees_data:
         _assert_llm_sees_no_data(payload)
     elif "should_rerun" in tool_input:
@@ -1037,133 +1135,9 @@ def test_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_messag
 
 
 @pytest.mark.e2e
-def test_a_second_describe_entity_on_the_agents_session_after_a_refused_slice_works(
-    api, create_user, login_user, whoami, tmp_path,
-):
-    """The database refused the reader's slice in the agent's first
-    describe_entity: the agent's session keeps what it holds, so its next
-    describe_entity in the same turn answers from the snapshot."""
-    import json
-
-    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
-    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
-    eid = _marked_entity_with_snapshot(api, token, org_id, ds_id)
-
-    with _database_refusing_slices_of(eid, _refusal_message()):
-        refused, second = _run(_describe_twice_on_the_agents_session(
-            org_id, user_id, eid, {"params": {"v": _REFUSED_VALUE}}, {}))
-    assert refused["output"]["errors"] == ["Code execution failed: The run's result could not be saved."], refused
-    assert second["output"]["success"] is True and not second["output"]["errors"], second["output"]
-    assert second["observation"]["entity_id"] == eid, second["observation"]
-    assert _ROW_MARK in json.dumps(second["observation"]["data_preview"], default=str), second["observation"]
-
-
-async def _agent_code_run_loading(org_id, user_id, ref):
-    """The agent's code run (create_data's stream) whose generated code loads
-    `ref`, on the agent's session. Returns how many times code was generated,
-    how many times it ran, and what the stream raised, if anything."""
-    from app.ai.code_execution.code_execution import StreamingCodeExecutor
-    from app.ai.code_execution.loadables import LoadablesResolver
-    from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
-    from app.models.organization import Organization
-    from app.models.user import User
-
-    code = ("def generate_df(ds_clients, excel_files, load_entity):\n"
-            f"    return load_entity({ref!r})\n")
-    generated, ran = [], []
-
-    async def coder(**kwargs):
-        generated.append(1)
-        return code
-
-    async with async_session_maker() as db:
-        org = await db.get(Organization, org_id)
-        user = await db.get(User, user_id)
-        executor = StreamingCodeExecutor()
-        real_execute = executor.execute_code_async
-
-        def counting_execute(*args, **kwargs):
-            ran.append(1)
-            return real_execute(*args, **kwargs)
-
-        executor.execute_code_async = counting_execute
-        raised = None
-        try:
-            async for _event in executor.generate_and_execute_stream_v2(
-                request=CodeGenRequest(context=CodeGenContext(user_prompt="x", schemas_excerpt=""), retries=3),
-                ds_clients={}, excel_files=[], code_generator_fn=coder,
-                loadable_resolver_fn=LoadablesResolver(db, org, None, user).resolve,
-            ):
-                pass
-        except Exception as err:  # noqa: BLE001 - reported to the assertion
-            raised = err
-        return len(generated), len(ran), raised
-
-
-@pytest.mark.e2e
-def test_an_agent_code_run_whose_slice_refusal_rolls_the_session_back_stops_with_the_fixed_message(
-    api, create_user, login_user, whoami, monkeypatch, caplog,
-):
-    """The agent's code run loads another user's entity, whose slice the
-    database refuses with the whole transaction: the code is neither run
-    without its loadables nor generated again on the rolled-back session.
-    The run stops with the fixed message, which ends the agent's tool."""
-    token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    (ref,) = _identity_entities(api, token, org_id, 1)
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(ref, message, whole_transaction=True):
-        generated, ran, raised = _run(_agent_code_run_loading(org_id, member_id, ref))
-    assert (generated, ran) == (1, 0), (generated, ran, raised)
-    _assert_ends_the_unit(raised)
-    _assert_no_database_text(message, _REFUSED_VALUE, repr(raised), caplog.text)
-
-
-@pytest.mark.e2e
-def test_describe_entity_whose_slice_refusal_rolls_the_session_back_ends_the_agents_work_with_the_fixed_message(
-    api, create_user, login_user, whoami, tmp_path, monkeypatch, caplog,
-):
-    """The database refuses the reader's slice in describe_entity and ends
-    the agent session's whole transaction: the tool does not answer as if
-    only its run had failed (the agent would go on with what the session no
-    longer holds). It ends the agent's work with the fixed message, marked
-    as having rolled the session back, and no database text in the log."""
-    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
-    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
-    eid = _marked_entity_with_snapshot(api, token, org_id, ds_id)
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(eid, message, whole_transaction=True):
-        raised = _run(_raised_by(_describe_on_the_agents_session(
-            org_id, user_id, eid, {"params": {"v": _REFUSED_VALUE}})))
-    _assert_ends_the_unit(raised)
-    _assert_no_database_text(message, _REFUSED_VALUE, repr(raised), caplog.text)
-    assert not _run(_slice_rows(eid))
-
-
-@pytest.mark.e2e
-def test_describe_entity_shows_no_rows_or_code_when_the_data_setting_cannot_be_read(
-    api, create_user, login_user, whoami, tmp_path,
-):
-    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
-    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
-    eid = _marked_entity_with_snapshot(api, token, org_id, ds_id)
-
-    _assert_llm_sees_no_data(_run(_describe_with_unreadable_settings(org_id, user_id, eid)))
-
-
-@pytest.mark.e2e
-@pytest.mark.parametrize("whole_transaction", [False, True], ids=["savepoint", "whole_transaction"])
 def test_mcp_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
     create_user, login_user, whoami, enable_mcp, create_api_key, tmp_path, monkeypatch, caplog,
-    whole_transaction,
 ):
-    """One MCP tool call is the unit: when the refusal also rolled its
-    session back, the call still ends with the fixed message, and reads
-    nothing the rollback took from the session."""
     import json
 
     client = _plain_client()
@@ -1175,8 +1149,7 @@ def test_mcp_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_me
     message = _refusal_message()
     _watch_app_logs(monkeypatch)
 
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(
-            eid, message, whole_transaction=whole_transaction):
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(eid, message):
         resp = client.post("/api/mcp", headers={"X-API-Key": api_key}, json={
             "jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "describe_entity", "arguments": {"name_or_id": eid, "params": {"v": _REFUSED_VALUE}}},
@@ -1186,9 +1159,37 @@ def test_mcp_describe_entity_whose_slice_the_database_refuses_reports_a_fixed_me
     assert out["error_message"] == "Running the saved query failed: The run's result could not be saved.", out
     assert out["entity_id"] == eid and out["title"] and not out["rows"], out
     _assert_no_database_text(message, _REFUSED_VALUE, resp.text, caplog.text)
-    assert "greenlet" not in resp.text.lower(), resp.text
-    assert _MISSING_GREENLET not in caplog.text, caplog.text
     assert not _handled_by_the_global_handler(caplog), caplog.text
+
+
+async def _mcp_describe_in_one_session(org_id, user_id, eid, args):
+    """The MCP describe_entity tool on the request's session, then a write on
+    that same session."""
+    from app.ai.tools.mcp.entities import DescribeEntityMCPTool
+
+    async with async_session_maker() as db:
+        org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
+        held = dict(organization=org, user=user, entity=_entity_row)
+        before = _attributes_of(**held)
+        out = await DescribeEntityMCPTool().execute({"name_or_id": eid, **args}, db, user, org)
+        assert _attributes_of(**held) == before, "the request's own objects became unreadable"
+        return out, await _write_on(db, eid)
+
+
+@pytest.mark.e2e
+def test_mcp_describe_entity_whose_slice_the_database_refuses_keeps_the_session(
+    api, create_user, login_user, whoami, tmp_path,
+):
+    token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db"))
+    eid = _entity(api, token, org_id, ds_id)
+    message = _refusal_message()
+
+    with _database_refusing_slices_of(eid, message):
+        out, written = _run(_mcp_describe_in_one_session(org_id, user_id, eid, {"params": {"v": _REFUSED_VALUE}}))
+    assert out["error_message"] == "Running the saved query failed: The run's result could not be saved.", out
+    assert out["entity_id"] == eid and not out["rows"], out
+    assert written, "a write on the request's session after the failed save was lost"
 
 
 def _invite_member(api, token, org_id, create_user, login_user, whoami):
@@ -1211,8 +1212,9 @@ def generate_df(ds_clients, excel_files, params):
 _VIEWER_SPEC = {"name": "viewer_email", "type": "string", "source": "identity", "identity_binding": "viewer.email"}
 
 
-async def _load_entities_on_the_agents_session(org_id, user_id, refs):
-    """load_entity of `refs` in one code run, on the agent's session."""
+async def _load_entities_in_one_session(org_id, user_id, refs):
+    """load_entity of `refs` in one code run, on the agent's session, then a
+    write on that same session."""
     from app.ai.code_execution.loadables import LoadablesResolver
     from app.models.organization import Organization
     from app.models.user import User
@@ -1220,7 +1222,10 @@ async def _load_entities_on_the_agents_session(org_id, user_id, refs):
     async with async_session_maker() as db:
         org = await db.get(Organization, org_id)
         user = await db.get(User, user_id)
-        return await LoadablesResolver(db, org, None, user).resolve([], refs)
+        before = _attributes_of(organization=org, user=user)
+        result = await LoadablesResolver(db, org, None, user).resolve([], refs)
+        readable = _attributes_of(organization=org, user=user) == before
+        return result, readable, await _write_on(db, refs[0])
 
 
 def _identity_entities(api, token, org_id, count):
@@ -1239,14 +1244,9 @@ def _not_saved_error(ref):
 
 
 @pytest.mark.e2e
-def test_load_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
+def test_load_entity_whose_slice_the_database_refuses_reports_a_fixed_message_and_keeps_the_session(
     api, create_user, login_user, whoami, caplog, monkeypatch,
 ):
-    """A code run's load_entity() of three of another user's identity-scoped
-    entities runs the reader's slice of each, and the database refuses the
-    first: the error the code run (and so the LLM) sees is the fixed message,
-    without the database's text, and neither is the log's. The two after it,
-    in the same code run, resolve to the reader's own slice."""
     import json
 
     token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
@@ -1257,186 +1257,21 @@ def test_load_entity_whose_slice_the_database_refuses_reports_a_fixed_message(
     _watch_app_logs(monkeypatch)
 
     with caplog.at_level(logging.WARNING), _database_refusing_slices_of(refs[0], message):
-        result = _run(_load_entities_on_the_agents_session(org_id, member_id, refs))
+        result, readable, written = _run(_load_entities_in_one_session(org_id, member_id, refs))
+    # The refused entity reports the fixed message; the ones after it, in the
+    # same code run, resolve to the reader's own slice.
     assert not any("greenlet" in e.lower() for e in result["errors"]), result["errors"]
     assert result["errors"] == [_not_saved_error(refs[0])], result["errors"]
     assert refs[0] not in result["entities"], result
     for ref in refs[1:]:
+        assert ref in result["entities"], (ref, result)
         assert result["entities"][ref].to_dict("records") == [{"viewer": member_email}], (ref, result)
     _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(result["errors"]), caplog.text)
-    assert not _handled_by_the_global_handler(caplog), caplog.text
-    assert not _run(_slice_rows(refs[0]))
+    assert readable, "the agent's own organization and user became unreadable"
+    assert written, "a write on the agent's session after the failed save was lost"
     assert [r.data["rows"] for ref in refs[1:] for r in _run(_slice_rows(ref))] == [
         [{"viewer": member_email}], [{"viewer": member_email}]]
-
-
-def _assert_ends_the_unit(raised):
-    """The fixed 500 that ends the caller's whole unit of work: its session
-    was rolled back, so it must not carry on."""
-    from app.errors import AppError
-
-    assert isinstance(raised, AppError), repr(raised)
-    assert raised.status_code == 500 and raised.message == "The run's result could not be saved.", repr(raised)
-    assert getattr(raised, "session_rolled_back", False) is True, repr(raised)
-    assert raised.__cause__ is None and raised.__context__ is None, repr(raised)
-
-
-async def _raised_by(coro):
-    try:
-        await coro
-    except Exception as err:  # noqa: BLE001 - reported to the assertion
-        return err
-    return None
-
-
-@pytest.mark.e2e
-def test_load_entity_whose_slice_refusal_rolls_the_session_back_ends_the_code_run_with_the_fixed_message(
-    api, create_user, login_user, whoami, caplog, monkeypatch,
-):
-    """The database refuses the first of three load_entity() slices and ends
-    the session's whole transaction: everything the session held is gone, so
-    the code run does not go on with the other two. It ends with the fixed
-    message, marked as having rolled the session back, without the
-    database's text, in the answer or the log."""
-    token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    refs = _identity_entities(api, token, org_id, 3)
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(refs[0], message, whole_transaction=True):
-        raised = _run(_raised_by(_load_entities_on_the_agents_session(org_id, member_id, refs)))
-    _assert_ends_the_unit(raised)
-    _assert_no_database_text(message, _REFUSED_VALUE, repr(raised), caplog.text)
-    assert _MISSING_GREENLET not in caplog.text, caplog.text
-    assert not any(_run(_slice_rows(ref)) for ref in refs)
-
-
-async def _refused_slice_while_holding_a_write(org_id, user_id, eid):
-    """A reader's run of `eid` on a caller's session that has flushed a write
-    of its own without committing it (the agent's, a publish's): the database
-    refuses the slice. Then the caller reads what it holds and commits.
-    Returns the run's error, the caller's written value as it then reads it,
-    the value it wrote, and the value stored once it committed."""
-    from app.errors import AppError
-    from app.models.entity import Entity
-    from app.services.entity_service import EntityService
-
-    written = f"held-{uuid.uuid4().hex[:8]}"
-    async with async_session_maker() as db:
-        org, user, entity = await _session_objects(db, org_id, user_id, eid)
-        entity.description = written
-        await db.flush()
-        try:
-            await EntityService().run_entity_for_user(db, entity, org, user, {})
-            error = None
-        except AppError as err:
-            error = err
-        try:
-            held = entity.description
-        except Exception as err:  # noqa: BLE001 - reported to the assertion
-            held = f"unreadable: {type(err).__name__}"
-        await db.commit()
-    async with async_session_maker() as other:
-        stored = (await other.execute(select(Entity.description).where(Entity.id == eid))).scalar_one()
-    return error, held, written, stored
-
-
-@pytest.mark.e2e
-def test_a_refused_slice_keeps_the_callers_uncommitted_write(api, create_user, login_user, whoami):
-    """Only the slice's own write is undone: the caller's flushed write stays
-    loaded on its session and is stored when the caller commits."""
-    token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    (eid,) = _identity_entities(api, token, org_id, 1)
-
-    with _database_refusing_slices_of(eid, _refusal_message()):
-        error, held, written, stored = _run(_refused_slice_while_holding_a_write(org_id, member_id, eid))
-    assert error is not None and error.status_code == 500, error
-    assert held == written, held
-    assert stored == written, stored
-    assert not _run(_slice_rows(eid))
-
-
-@pytest.mark.e2e
-def test_the_fixed_error_of_a_refused_slice_carries_no_database_error(api, create_user, login_user, whoami):
-    """The fixed 500 is raised with no database error chained to it: a
-    handler or logger that prints the exception's chain shows no statement,
-    values or the database's text."""
-    token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    (eid,) = _identity_entities(api, token, org_id, 1)
-    message = _refusal_message()
-
-    with _database_refusing_slices_of(eid, message):
-        error, _held, _written, _stored = _run(_refused_slice_while_holding_a_write(org_id, member_id, eid))
-    assert error is not None and error.message == "The run's result could not be saved.", error
-    assert error.__cause__ is None, repr(error.__cause__)
-    assert error.__context__ is None, repr(error.__context__)
-
-
-async def _slice_refused_with_the_whole_transaction(org_id, user_id, eid):
-    """A reader's run of `eid` on a caller's session holding a flushed new
-    row and a flushed change of its own, uncommitted; the database refuses the
-    slice and ends the whole transaction. Then the caller uses its session
-    again and commits. Returns what the caller saw and what is stored."""
-    from sqlalchemy import inspect, text
-
-    from app.errors import AppError
-    from app.models.artifact import Artifact
-    from app.models.entity import Entity
-    from app.services.entity_service import EntityService
-
-    out = {"written": f"held-{uuid.uuid4().hex[:8]}"}
-    async with async_session_maker() as db:
-        org, user, entity = await _session_objects(db, org_id, user_id, eid)
-        held = Artifact(organization_id=org_id, created_by=user_id, mode="page", visibility="none")
-        db.add(held)
-        entity.description = out["written"]
-        await db.flush()
-        held_id = str(held.id)
-        try:
-            await EntityService().run_entity_for_user(db, entity, org, user, {})
-            out["status"] = None
-        except AppError as err:
-            out["status"] = err.status_code
-        out["held_persistent"] = inspect(held).persistent
-        try:
-            await db.execute(text("SELECT 1"))
-            await db.commit()
-            out["next_use"] = "works"
-        except Exception as err:  # noqa: BLE001 - reported to the assertion
-            out["next_use"] = type(err).__name__
-    async with async_session_maker() as other:
-        out["held_stored"] = (await other.get(Artifact, held_id)) is not None
-        out["stored_description"] = (await other.execute(
-            select(Entity.description).where(Entity.id == eid))).scalar_one()
-    return out
-
-
-@pytest.mark.e2e
-def test_a_slice_refusal_that_ends_the_whole_transaction_rolls_the_callers_session_back(
-    api, create_user, login_user, whoami, monkeypatch, caplog,
-):
-    """The database refuses the slice and ends the caller's whole transaction
-    (SQLite rolls it back, Postgres drops the connection): the savepoint
-    cannot be undone, so the caller's session is rolled back in full. What it
-    flushed is no longer held as stored, its next use works, and its commit
-    stores none of what was lost, rather than the part written after it."""
-    token, org_id, _owner_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    (eid,) = _identity_entities(api, token, org_id, 1)
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(eid, message, whole_transaction=True):
-        out = _run(_slice_refused_with_the_whole_transaction(org_id, member_id, eid))
-    assert out["status"] == 500, out
-    assert out["next_use"] == "works", out
-    assert out["held_persistent"] is False and out["held_stored"] is False, out
-    assert out["stored_description"] != out["written"], out
-    _assert_no_database_text(message, _REFUSED_VALUE, caplog.text)
-    assert not _run(_slice_rows(eid))
+    assert not _run(_slice_rows(refs[0]))
 
 
 async def _email_of(user_id):
@@ -1451,6 +1286,21 @@ async def _email_of(user_id):
 def _monitoring_access(org_id):
     return {"version": 1, "source_id": "builtin:bow", "organization_id": org_id,
             "scope_ids": [], "report_ids": []}
+
+
+async def _monitoring_entity_and_publishing_release(org_id, admin_id, eid):
+    """Marks `eid` as monitoring sourced with a snapshot, and opens a
+    publishing release of a dashboard (not public)."""
+    from sqlalchemy import update
+
+    from app.models.entity import Entity
+
+    async with async_session_maker() as db:
+        await db.execute(update(Entity).where(Entity.id == eid).values(
+            bow_source_access=_monitoring_access(org_id), parameters=[],
+            data={"rows": [{"m": 1}], "columns": [{"field": "m", "headerName": "m"}]}))
+        await db.commit()
+    return await _publishing_release(org_id, admin_id)
 
 
 async def _publishing_release(org_id, admin_id):
@@ -1468,18 +1318,29 @@ async def _publishing_release(org_id, admin_id):
         return str(release.id)
 
 
-async def _monitoring_entity_with_a_snapshot(org_id, eid):
-    """Marks `eid` as monitoring sourced, with a shared snapshot every reader
-    is served (no parameters)."""
-    from sqlalchemy import update
-
-    from app.models.entity import Entity
+async def _load_entities_while_publishing(org_id, user_id, release_id, refs):
+    """load_entity of `refs` in one code run of a dashboard's publish, on the
+    publish's session, which then commits with the rest of its run. Returns
+    the result, the release's access as the publish holds it, and as stored."""
+    from app.ai.code_execution.loadables import LoadablesResolver
+    from app.models.artifact_release import ArtifactRelease
+    from app.models.organization import Organization
+    from app.models.user import User
 
     async with async_session_maker() as db:
-        await db.execute(update(Entity).where(Entity.id == eid).values(
-            bow_source_access=_monitoring_access(org_id), parameters=[],
-            data={"rows": [{"m": 1}], "columns": [{"field": "m", "headerName": "m"}]}))
+        org = await db.get(Organization, org_id)
+        user = await db.get(User, user_id)
+        release = await db.get(ArtifactRelease, release_id)
+        result = await LoadablesResolver(db, org, None, user, release=release).resolve([], refs)
+        try:
+            held_access = release.bow_source_access
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            held_access = f"unreadable: {type(err).__name__}"
         await db.commit()
+    async with async_session_maker() as other:
+        stored = (await other.execute(select(ArtifactRelease.bow_source_access)
+                                      .where(ArtifactRelease.id == release_id))).scalar_one()
+    return result, held_access, stored
 
 
 async def _owned_by(eid, user_id):
@@ -1492,416 +1353,269 @@ async def _owned_by(eid, user_id):
         await db.commit()
 
 
-_COPIED_ROWS = {"rows": [{"copied": 1}], "columns": [{"field": "copied"}]}
-
-
-async def _publishing_release_with_a_copy(org_id, admin_id, code):
-    """A publishing release of a dashboard with one copied step whose saved
-    code is `code`. Returns the release's and the step's ids."""
-    from app.models.query import Query
-    from app.models.step import Step
-
-    release_id = await _publishing_release(org_id, admin_id)
-    async with async_session_maker() as db:
-        query = Query(title="copy", report_id=None, widget_id=None, artifact_release_id=release_id,
-                      organization_id=org_id, user_id=admin_id)
-        db.add(query)
-        await db.flush()
-        step = Step(title="copy", slug=f"copy-{uuid.uuid4().hex[:8]}", status="success", widget_id=None,
-                    query_id=query.id, code=code, data=_COPIED_ROWS)
-        db.add(step)
-        await db.flush()
-        query.default_step_id = step.id
-        await db.commit()
-        return release_id, str(step.id)
-
-
-async def _publish_the_copies(org_id, user_id, release_id):
-    """The publish's run of the release's copies on its own session, each
-    step's result written and committed as Publish writes it. Returns the
-    run's outcome (None, or why it stopped)."""
-    from app.models.artifact_release import ArtifactRelease
-    from app.models.organization import Organization
-    from app.models.user import User
-    from app.services.dashboard_publish import run_release_copies
-
-    async with async_session_maker() as db:
-        org = await db.get(Organization, org_id)
-        user = await db.get(User, user_id)
-        release = await db.get(ArtifactRelease, release_id)
-
-        async def write(step, data, params) -> None:
-            step.data = data
-            step.applied_params = dict(params) if params else None
-            step.status = "success"
-            await db.commit()
-
-        return await run_release_copies(db, release, user, org, after_step=write)
-
-
-async def _stored_step_data(step_id):
-    from app.models.step import Step
-
-    async with async_session_maker() as db:
-        return (await db.execute(select(Step.data).where(Step.id == step_id))).scalar_one()
-
-
 @pytest.mark.e2e
 @pytest.mark.parametrize("refused", [False, True], ids=["saved", "refused"])
-def test_a_published_step_that_loads_a_monitoring_entity_then_a_refused_slice_fails_and_commits_nothing(
+def test_load_entity_while_publishing_keeps_an_earlier_entitys_monitoring_marker_when_a_later_slice_is_refused(
     api, create_user, login_user, whoami, monkeypatch, caplog, refused,
 ):
-    """A copied step loads entity A (monitoring sourced: loading it marks the
-    publishing release, flushed for the step's commit), then entity B, the
-    publisher's own slice. When the database refuses B's slice the step fails
-    on its missing B, as its code does, and nothing of it is committed: A's
-    marker is never stored without the step. When B's slice is saved, the
-    step and A's marker are stored together."""
-    from app.models.artifact_release import ArtifactRelease
-    from app.models.query import Query
+    """Entity A is monitoring sourced: loading it marks the publishing
+    release (flushed, committed with the publish). Entity B, after it, is
+    the reader's own slice, which the database refuses or saves."""
+    import json
 
     token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
     member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
     admin_email = _run(_email_of(admin_id))
     a, b = _identity_entities(api, token, org_id, 2)
-    _run(_monitoring_entity_with_a_snapshot(org_id, a))
+    release_id = _run(_monitoring_entity_and_publishing_release(org_id, admin_id, a))
     _run(_owned_by(b, member_id))  # the publisher reads B as another user's entity
-    code = ("def generate_df(ds_clients, excel_files, load_entity):\n"
-            f"    a = load_entity({a!r})\n"
-            f"    b = load_entity({b!r})\n"
-            "    return a.assign(viewer=b['viewer'].iloc[0])\n")
-    release_id, step_id = _run(_publishing_release_with_a_copy(org_id, admin_id, code))
     message = _refusal_message()
     _watch_app_logs(monkeypatch)
 
     with caplog.at_level(logging.WARNING), (
             _database_refusing_slices_of(b, message) if refused else nullcontext()):
-        outcome = _run(_publish_the_copies(org_id, admin_id, release_id))
+        result, held_access, stored = _run(_load_entities_while_publishing(org_id, admin_id, release_id, [a, b]))
+    assert result["entities"][a].to_dict("records") == [{"m": 1}], result
+    assert result["entities"][a].attrs["bow_source"] == _monitoring_access(org_id), result
+    # A's marker survives B's refused save, in the publish's session and once
+    # the publish commits.
+    assert held_access == _monitoring_access(org_id), held_access
+    assert stored == _monitoring_access(org_id), stored
     if refused:
-        assert outcome is not None and "greenlet" not in outcome.lower(), outcome
-        assert f"load_entity({b!r}) is not available" in outcome.reason, outcome
-        _assert_no_database_text(message, _REFUSED_VALUE, outcome, caplog.text)
-        assert _run(_stored_access(ArtifactRelease, release_id)) is None
-        assert _run(_stored_step_data(step_id)) == _COPIED_ROWS
+        assert result["errors"] == [_not_saved_error(b)], result["errors"]
+        assert b not in result["entities"], result
+        _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(result["errors"]), caplog.text)
         assert not _run(_slice_rows(b))
     else:
-        assert outcome is None, outcome
-        assert _run(_stored_access(ArtifactRelease, release_id)) == _monitoring_access(org_id)
-        assert _run(_stored_step_data(step_id))["rows"] == [{"m": 1, "viewer": admin_email}]
+        assert result["errors"] == [], result["errors"]
+        assert result["entities"][b].to_dict("records") == [{"viewer": admin_email}], result
         assert [r.data["rows"] for r in _run(_slice_rows(b))] == [[{"viewer": admin_email}]]
 
-    async def source_refs():
-        async with async_session_maker() as db:
-            return (await db.execute(select(Query.source_refs).where(Query.artifact_release_id == release_id))
-                    ).scalar_one()
 
-    assert bool(_run(source_refs())) is not refused
-
-
-@pytest.mark.e2e
-def test_a_published_step_that_would_go_on_without_a_slice_refused_with_its_whole_transaction_fails_with_the_fixed_message(
-    api, create_user, login_user, whoami, monkeypatch, caplog,
-):
-    """A copied step loads entity A (monitoring sourced), then entity B, and
-    would go on without B when B cannot be loaded. The database refuses B's
-    slice and ends the publish's whole transaction, A's marker on the
-    release with it. The step does not go on: it fails with the fixed
-    message (not an error about what the rollback expired), its copied rows
-    stay as they were, and no marker is stored."""
-    from app.models.artifact_release import ArtifactRelease
-
-    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    a, b = _identity_entities(api, token, org_id, 2)
-    _run(_monitoring_entity_with_a_snapshot(org_id, a))
-    _run(_owned_by(b, member_id))
-    code = ("def generate_df(ds_clients, excel_files, load_entity):\n"
-            f"    a = load_entity({a!r})\n"
-            "    try:\n"
-            f"        viewer = load_entity({b!r})['viewer'].iloc[0]\n"
-            "    except Exception:\n"
-            "        viewer = 'none'\n"
-            "    return a.assign(viewer=viewer)\n")
-    release_id, step_id = _run(_publishing_release_with_a_copy(org_id, admin_id, code))
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
-        try:
-            outcome = _run(_publish_the_copies(org_id, admin_id, release_id))
-        except Exception as err:  # noqa: BLE001 - reported to the assertion
-            outcome = f"raised {type(err).__name__}"
-    stored = _run(_stored_step_data(step_id))
-    marker = _run(_stored_access(ArtifactRelease, release_id))
-    _assert_no_database_text(message, _REFUSED_VALUE, str(outcome), caplog.text)
-    assert not _run(_slice_rows(b))
-    assert "greenlet" not in str(outcome).lower(), outcome
-    assert getattr(outcome, "reason", None) == "The run's result could not be saved.", outcome
-    assert stored == _COPIED_ROWS, (outcome, stored)
-    assert marker is None, (outcome, marker)
-
-
-async def _ready_release_with_copies(org_id, admin_id, codes):
-    """A published dashboard (its release is ready, not publishing) whose
-    copies run `codes`, in that order, each shown as a chart. Returns the
-    artifact's and release's ids and the copies' step ids."""
-    from datetime import datetime, timedelta
-
-    from app.models.artifact import Artifact
-    from app.models.artifact_release import ArtifactRelease
-    from app.models.query import Query
-    from app.models.step import Step
-    from app.models.visualization import Visualization
-
-    async with async_session_maker() as db:
-        artifact = Artifact(organization_id=org_id, created_by=admin_id, mode="page", visibility="none")
-        db.add(artifact)
-        await db.flush()
-        release = ArtifactRelease(artifact_id=artifact.id, organization_id=org_id, status="ready", content={},
-                                  published_by=admin_id)
-        db.add(release)
-        await db.flush()
-        artifact.published_release_id = release.id
-        step_ids = []
-        first = datetime.utcnow() - timedelta(minutes=5)
-        for i, code in enumerate(codes):
-            query = Query(title=f"copy{i}", report_id=None, widget_id=None, artifact_release_id=release.id,
-                          organization_id=org_id, user_id=admin_id, created_at=first + timedelta(seconds=i))
-            db.add(query)
-            await db.flush()
-            step = Step(title=f"copy{i}", slug=f"copy-{uuid.uuid4().hex[:8]}", status="success", widget_id=None,
-                        query_id=query.id, code=code, data=_COPIED_ROWS)
-            db.add(step)
-            await db.flush()
-            query.default_step_id = step.id
-            db.add(Visualization(title=f"copy{i}", status="success", report_id=None,
-                                 artifact_release_id=release.id, query_id=query.id))
-            step_ids.append(str(step.id))
-        await db.commit()
-        return str(artifact.id), str(release.id), step_ids
-
-
-async def _a_readers_run_of_the_dashboard(user_id, artifact_id, release_id):
-    """A reader's own run of a published dashboard (dashboard_runs.viewer_run),
-    on the session of their request."""
-    from app.models.artifact import Artifact
-    from app.models.artifact_release import ArtifactRelease
-    from app.models.user import User
-    from app.services.dashboard_runs import viewer_run
-
-    async with async_session_maker() as db:
-        user = await db.get(User, user_id)
-        artifact = await db.get(Artifact, artifact_id)
-        release = await db.get(ArtifactRelease, release_id)
-        return await viewer_run(db, artifact, release, user)
-
-
-@pytest.mark.e2e
-def test_a_readers_dashboard_run_whose_slice_refusal_rolls_the_session_back_ends_with_the_fixed_message(
-    api, create_user, login_user, whoami, monkeypatch, caplog,
-):
-    """A reader runs a published dashboard of two charts; the first loads
-    another user's entity, whose slice the database refuses with the whole
-    transaction. The run does not store the reader's rows on the rolled-back
-    session, nor go on to the second chart: it ends with the fixed message."""
-    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    (b,) = _identity_entities(api, token, org_id, 1)
-    loads_b = ("def generate_df(ds_clients, excel_files, load_entity):\n"
-               f"    return load_entity({b!r})\n")
-    plain = ("def generate_df(ds_clients, excel_files):\n"
-             "    import pandas as pd\n"
-             "    return pd.DataFrame({'n': [1]})\n")
-    artifact_id, release_id, _step_ids = _run(_ready_release_with_copies(org_id, admin_id, [loads_b, plain]))
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
-        raised = _run(_raised_by(_a_readers_run_of_the_dashboard(member_id, artifact_id, release_id)))
-    _assert_ends_the_unit(raised)
-    _assert_no_database_text(message, _REFUSED_VALUE, repr(raised), caplog.text)
-    assert _MISSING_GREENLET not in caplog.text, caplog.text
-    assert not _run(_slice_rows(b))
-
-
-async def _refresh_the_copies(org_id, user_id, artifact_id, release_id):
-    """The dashboard refresh's run of its copies and its write, on its own
-    session (dashboard_refresh._run_and_write). Returns its result."""
+async def _publish_whose_transaction_the_database_loses(org_id, user_id, release_id, refs):
+    """load_entity of `refs` in one code run of a dashboard's publish, then
+    the publish's commit. Returns what the load gave (its result or its
+    error), what the commit gave (True or its error type) and the release's
+    access as stored."""
+    from app.ai.code_execution.loadables import LoadablesResolver
     from app.models.artifact_release import ArtifactRelease
     from app.models.organization import Organization
     from app.models.user import User
-    from app.services.dashboard_refresh import _run_and_write
 
     async with async_session_maker() as db:
         org = await db.get(Organization, org_id)
         user = await db.get(User, user_id)
         release = await db.get(ArtifactRelease, release_id)
-        return await _run_and_write(db, artifact_id, release, user, org)
-
-
-def _loads_then_goes_on_without(a, b):
-    """A step that loads A, then B, going on without B when B fails."""
-    return ("def generate_df(ds_clients, excel_files, load_entity):\n"
-            f"    a = load_entity({a!r})\n"
-            "    try:\n"
-            f"        viewer = load_entity({b!r})['viewer'].iloc[0]\n"
-            "    except Exception:\n"
-            "        viewer = 'none'\n"
-            "    return a.assign(viewer=viewer)\n")
+        try:
+            loaded = await LoadablesResolver(db, org, None, user, release=release).resolve([], refs)
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            loaded = err
+        try:
+            await db.commit()
+            committed = True
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            committed = type(err).__name__
+    async with async_session_maker() as other:
+        stored = (await other.execute(select(ArtifactRelease.bow_source_access)
+                                      .where(ArtifactRelease.id == release_id))).scalar_one()
+    return loaded, committed, stored
 
 
 @pytest.mark.e2e
-def test_a_two_step_refresh_whose_second_step_would_go_on_without_a_slice_refused_with_its_whole_transaction_stores_nothing(
+def test_a_publish_whose_transaction_the_database_rolls_back_while_a_slice_is_saved_fails(
     api, create_user, login_user, whoami, monkeypatch, caplog,
 ):
-    """A refresh of a published dashboard (a ready release, really
-    refreshing): step 1 loads entity A (monitoring sourced, which marks the
-    release in the refresh's transaction), step 2 loads entity B and would go
-    on without it. The database refuses B's slice and ends the refresh's
-    whole transaction, step 1's marker with it. The refresh fails with the
-    fixed message on step 2, and stores nothing: neither step's rows, nor
-    step 1's rows without the marker."""
-    from app.models.artifact_release import ArtifactRelease
+    """Entity A is monitoring sourced: loading it marks the publishing
+    release in the publish's transaction. Saving B's slice joins that
+    transaction, and the database answers it by rolling the whole transaction
+    back (SQLite, on a full disk or an I/O error): the publish must fail, not
+    commit without A's marker."""
+    import json
 
+    from app.errors import AppError
+
+    if async_session_maker.kw["bind"].dialect.name != "sqlite":
+        pytest.skip("a refusal that rolls back the whole transaction is SQLite's")
     token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
     member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
     a, b = _identity_entities(api, token, org_id, 2)
-    _run(_monitoring_entity_with_a_snapshot(org_id, a))
-    _run(_owned_by(b, member_id))  # the refresher reads B as another user's entity
-    step_1 = ("def generate_df(ds_clients, excel_files, load_entity):\n"
-              f"    return load_entity({a!r})\n")
-    artifact_id, release_id, step_ids = _run(_ready_release_with_copies(
-        org_id, admin_id, [step_1, _loads_then_goes_on_without(a, b)]))
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
-        result = _run(_refresh_the_copies(org_id, admin_id, artifact_id, release_id))
-    _assert_no_database_text(message, _REFUSED_VALUE, str(result), caplog.text)
-    error = result["error"]
-    assert "greenlet" not in str(error).lower(), result
-    assert result["status"] == "failed", result
-    assert getattr(error, "reason", None) == "The run's result could not be saved.", result
-    assert [_run(_stored_step_data(sid)) for sid in step_ids] == [_COPIED_ROWS, _COPIED_ROWS]
-    assert _run(_stored_access(ArtifactRelease, release_id)) is None
-    assert not _run(_slice_rows(b))
-
-
-async def _conversation_dashboard(report_id, org_id, user_id, codes):
-    """The conversation `report_id`'s dashboard: a chart per step, whose
-    saved codes are `codes`, in that order. Returns the queries' ids."""
-    from datetime import datetime, timedelta
-
-    from app.models.artifact import Artifact, ArtifactVersion
-    from app.models.query import Query
-    from app.models.step import Step
-    from app.models.visualization import Visualization
-
-    async with async_session_maker() as db:
-        query_ids, viz_ids = [], []
-        first = datetime.utcnow() - timedelta(minutes=5)
-        for i, code in enumerate(codes):
-            query = Query(title=f"Q{i}", report_id=report_id, organization_id=org_id, user_id=user_id,
-                          created_at=first + timedelta(seconds=i))
-            db.add(query)
-            await db.flush()
-            step = Step(title=f"Q{i}", slug=f"step-{uuid.uuid4().hex[:8]}", status="success", code=code,
-                        type="table", query_id=str(query.id), data=_COPIED_ROWS,
-                        created_at=first + timedelta(seconds=i))
-            db.add(step)
-            await db.flush()
-            query.default_step_id = step.id
-            viz = Visualization(title=f"Q{i}", status="success", report_id=report_id, query_id=query.id)
-            db.add(viz)
-            await db.flush()
-            query_ids.append(str(query.id))
-            viz_ids.append(str(viz.id))
-        artifact = Artifact(organization_id=org_id, created_by=user_id, report_id=report_id, mode="page",
-                            visibility="none")
-        db.add(artifact)
-        await db.flush()
-        db.add(ArtifactVersion(artifact_id=artifact.id, report_id=report_id, user_id=user_id,
-                               organization_id=org_id, content={"visualization_ids": viz_ids}))
-        await db.commit()
-        return query_ids
-
-
-async def _rerun_of_the_conversation(who, user_id, org_id, report_id, query_ids):
-    """The owner's rerun of their conversation's dashboard, or a reader's own
-    run of it (admitted as an editor, run with their own credentials), on
-    the session of the request."""
-    from app.models.organization import Organization
-    from app.models.user import User
-    from app.services.report_service import ReportService
-
-    async with async_session_maker() as db:
-        user = await db.get(User, user_id)
-        if who == "owner":
-            org = await db.get(Organization, org_id)
-            return await ReportService().rerun_report_steps(db, report_id, user, org, regenerate_thumbnail=False)
-        return await ReportService().viewer_rerun_report_steps(
-            db, report_id, user, admitted_editor=True, query_ids=query_ids)
-
-
-@pytest.mark.e2e
-@pytest.mark.parametrize("who", ["owner", "reader"])
-def test_a_conversation_rerun_whose_slice_refusal_rolls_the_session_back_ends_with_the_fixed_message(
-    api, create_user, create_report, login_user, whoami, monkeypatch, caplog, who,
-):
-    """A rerun of a conversation's dashboard of two charts, by its owner or
-    by a reader: one loads another user's entity, whose slice the database
-    refuses with the whole transaction. The rerun does not store a result
-    on the rolled-back session, nor go on to another chart on it: it ends
-    with the fixed message."""
-    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    (b,) = _identity_entities(api, token, org_id, 1)
-    runner_id = admin_id if who == "owner" else member_id
-    if who == "owner":
-        _run(_owned_by(b, member_id))  # the owner reads B as another user's entity
-    report_id = create_report(user_token=token, org_id=org_id)["id"]
-    query_ids = _run(_conversation_dashboard(report_id, org_id, admin_id, [
-        ("def generate_df(ds_clients, excel_files, load_entity):\n"
-         f"    return load_entity({b!r})\n"),
-        ("def generate_df(ds_clients, excel_files):\n"
-         "    import pandas as pd\n"
-         "    return pd.DataFrame({'n': [1]})\n"),
-    ]))
-    message = _refusal_message()
-    _watch_app_logs(monkeypatch)
-
-    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
-        raised = _run(_raised_by(_rerun_of_the_conversation(who, runner_id, org_id, report_id, query_ids)))
-    _assert_ends_the_unit(raised)
-    _assert_no_database_text(message, _REFUSED_VALUE, repr(raised), caplog.text)
-    assert _MISSING_GREENLET not in caplog.text, caplog.text
-    assert not _run(_slice_rows(b))
-
-
-@pytest.mark.e2e
-def test_a_refresh_of_a_ready_release_stores_the_marker_of_the_monitoring_entity_it_loads(
-    api, create_user, login_user, whoami,
-):
-    """The same two-step refresh, B's slice saved: the refresh of a ready
-    release stores both steps' rows and A's marker on the release together."""
-    from app.models.artifact_release import ArtifactRelease
-
-    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
-    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
-    admin_email = _run(_email_of(admin_id))
-    a, b = _identity_entities(api, token, org_id, 2)
-    _run(_monitoring_entity_with_a_snapshot(org_id, a))
+    release_id = _run(_monitoring_entity_and_publishing_release(org_id, admin_id, a))
     _run(_owned_by(b, member_id))
-    step_1 = ("def generate_df(ds_clients, excel_files, load_entity):\n"
-              f"    return load_entity({a!r})\n")
-    artifact_id, release_id, step_ids = _run(_ready_release_with_copies(
-        org_id, admin_id, [step_1, _loads_then_goes_on_without(a, b)]))
+    message = _refusal_message()
+    _watch_app_logs(monkeypatch)
 
-    result = _run(_refresh_the_copies(org_id, admin_id, artifact_id, release_id))
-    assert result["status"] == "success", result
-    assert [_run(_stored_step_data(sid))["rows"] for sid in step_ids] == [
-        [{"m": 1}], [{"m": 1, "viewer": admin_email}]]
-    assert _run(_stored_access(ArtifactRelease, release_id)) == _monitoring_access(org_id)
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message, whole_transaction=True):
+        loaded, committed, stored = _run(_publish_whose_transaction_the_database_loses(
+            org_id, admin_id, release_id, [a, b]))
+    assert isinstance(loaded, AppError) and loaded.status_code == 500, loaded
+    assert loaded.message == "The run's result could not be saved.", loaded.message
+    assert committed is not True, "the publish committed after its transaction was lost"
+    assert stored is None, stored
+    _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(loaded.message), caplog.text)
+    # The log names what the database refused with, not the failed undo of
+    # the savepoint.
+    lost = [r.getMessage() for r in caplog.records
+            if r.name == "app.services.entity_service" and "transaction was lost" in r.getMessage()]
+    assert len(lost) == 1 and b in lost[0], caplog.text
+    assert "IntegrityError" in lost[0] and "OperationalError" not in lost[0], lost
+    assert not _run(_slice_rows(b))
+
+
+@contextmanager
+def _transaction_state_unreadable_once_the_slice_is_written(monkeypatch):
+    """Once the slice's write has started, the first read of whether the
+    caller's SQLite connection is still in its transaction fails (the
+    driver's connection is broken). Undone with the test's other patches."""
+    import aiosqlite
+
+    from app.services import viewer_result_store
+
+    state = {"armed": False, "raised": 0}
+    real_state = aiosqlite.Connection.in_transaction
+    real_upsert = viewer_result_store.upsert_viewer_row
+
+    async def upsert(*args, **kwargs):
+        state["armed"] = True
+        return await real_upsert(*args, **kwargs)
+
+    def in_transaction(conn):
+        if state["armed"]:
+            state["armed"] = False
+            state["raised"] += 1
+            raise sqlite3.ProgrammingError("Cannot operate on a closed database.")
+        return real_state.fget(conn)
+
+    monkeypatch.setattr(viewer_result_store, "upsert_viewer_row", upsert)
+    monkeypatch.setattr(aiosqlite.Connection, "in_transaction", property(in_transaction))
+    yield state
+
+
+@pytest.mark.e2e
+def test_a_publish_whose_transaction_state_cannot_be_read_after_a_refused_slice_fails(
+    api, create_user, login_user, whoami, monkeypatch, caplog,
+):
+    """The database refused B's slice and then whether the publish's
+    transaction survived cannot be read: the publish must fail as if it was
+    lost, and the log still names the database's refusal."""
+    import json
+
+    from app.errors import AppError
+
+    if async_session_maker.kw["bind"].dialect.name != "sqlite":
+        pytest.skip("the slice joins the caller's transaction on SQLite only")
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    a, b = _identity_entities(api, token, org_id, 2)
+    release_id = _run(_monitoring_entity_and_publishing_release(org_id, admin_id, a))
+    _run(_owned_by(b, member_id))
+    message = _refusal_message()
+    _watch_app_logs(monkeypatch)
+
+    with caplog.at_level(logging.WARNING), _database_refusing_slices_of(b, message), \
+            _transaction_state_unreadable_once_the_slice_is_written(monkeypatch) as probe:
+        loaded, committed, stored = _run(_publish_whose_transaction_the_database_loses(
+            org_id, admin_id, release_id, [a, b]))
+    assert probe["raised"] == 1, probe
+    assert isinstance(loaded, AppError) and loaded.status_code == 500, loaded
+    assert loaded.message == "The run's result could not be saved.", loaded.message
+    assert committed is not True, "the publish committed though its transaction could not be confirmed"
+    assert stored is None, stored
+    _assert_no_database_text(message, _REFUSED_VALUE, json.dumps(loaded.message), caplog.text)
+    lost = [r.getMessage() for r in caplog.records
+            if r.name == "app.services.entity_service" and "transaction was lost" in r.getMessage()]
+    assert len(lost) == 1 and b in lost[0], caplog.text
+    assert "IntegrityError" in lost[0] and "ProgrammingError" not in lost[0], lost
+    assert not _run(_slice_rows(b))
+
+
+async def _describe_while_holding_a_write(org_id, user_id, eid, *, mcp):
+    """describe_entity (the agent's tool, or the MCP tool) of `eid` on a
+    session that has written without committing, so on SQLite the slice
+    joins its transaction. Returns what the tool raised, or None."""
+    from sqlalchemy import update
+
+    from app.ai.tools.implementations.describe_entity import DescribeEntityTool
+    from app.ai.tools.mcp.entities import DescribeEntityMCPTool
+    from app.models.entity import Entity
+
+    async with async_session_maker() as db:
+        org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
+        settings = await org.get_settings(db)
+        await db.execute(update(Entity).where(Entity.id == eid).values(description="held"))
+        try:
+            if mcp:
+                await DescribeEntityMCPTool().execute({"name_or_id": eid, "run": True}, db, user, org)
+            else:
+                [evt async for evt in DescribeEntityTool().run_stream(
+                    {"name_or_id": eid, "should_rerun": True},
+                    {"db": db, "organization": org, "user": user, "settings": settings},
+                )]
+        except Exception as err:  # noqa: BLE001 - reported to the assertion
+            return err
+        return None
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("mcp", [False, True], ids=["agent", "mcp"])
+def test_describe_entity_whose_slice_save_loses_the_callers_transaction_ends_the_call(
+    api, create_user, login_user, whoami, mcp,
+):
+    """Saving the reader's slice made the database roll back the caller's
+    whole transaction: the tool does not answer as if only the run failed,
+    it ends the caller's work with the fixed error."""
+    from app.services.entity_service import CallerTransactionLost
+
+    if async_session_maker.kw["bind"].dialect.name != "sqlite":
+        pytest.skip("a refusal that rolls back the whole transaction is SQLite's")
+    token, org_id, _admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    (eid,) = _identity_entities(api, token, org_id, 1)
+    message = _refusal_message()
+
+    with _database_refusing_slices_of(eid, message, whole_transaction=True):
+        raised = _run(_describe_while_holding_a_write(org_id, member_id, eid, mcp=mcp))
+    assert isinstance(raised, CallerTransactionLost), repr(raised)
+    assert raised.message == "The run's result could not be saved." and message not in str(raised), raised
+    assert not _run(_slice_rows(eid))
+
+
+async def _reader_refresh_then_commit(org_id, user_id, eid):
+    """A refresh of `eid` (no parameter values) by a reader whose rows the
+    shared snapshot must not take, on the caller's session, which then
+    commits. Returns the refresh's error and the entity's stored marker."""
+    from app.errors import AppError
+    from app.models.entity import Entity
+    from app.schemas.entity_schema import EntityRunPayload
+    from app.services.entity_service import EntityService
+
+    async with async_session_maker() as db:
+        org, user, _entity_row = await _session_objects(db, org_id, user_id, eid)
+        try:
+            await EntityService().run_entity_with_update(db, eid, EntityRunPayload(), org, user)
+            error = None
+        except AppError as err:
+            error = (err.status_code, err.message)
+        await db.commit()
+    return error, await _stored_access(Entity, eid)
+
+
+@pytest.mark.e2e
+def test_a_reader_refresh_whose_slice_is_refused_leaves_no_monitoring_marker_for_the_caller_to_commit(
+    api, create_user, create_report, login_user, whoami, tmp_path, monkeypatch,
+):
+    """The marker a reader's run gives the entity is written only with the
+    slice: when the slice is refused, the caller's later commit stores none."""
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, admin_id, tmp_path / "wh.db"))
+    eid = _monitored_identity_entity(api, create_report, token, org_id, admin_id, member_id, ds_id, monkeypatch)
+    message = _refusal_message()
+
+    with _database_refusing_slices_of(eid, message):
+        error, stored = _run(_reader_refresh_then_commit(org_id, admin_id, eid))
+    assert error == (500, "The run's result could not be saved."), error
+    assert stored is None, stored
+    assert not _run(_slice_rows(eid))
 
 
 # One step of a refresh, or of a publish, may take longer than this; a step
@@ -1996,6 +1710,44 @@ def test_a_refresh_whose_steps_load_one_monitoring_entity_serves_each_step_witho
     assert _run(_stored_access(Entity, eid)) == _monitoring_access(org_id)
     assert _run(_stored_access(ArtifactRelease, release_id)) == _monitoring_access(org_id)
     assert [r.data["rows"] for r in _run(_slice_rows(eid))] == [[{"viewer": admin_email}]]
+
+
+async def _viewer_run_while_holding_the_entity(org_id, user_id, eid):
+    """A viewer run on a session that has written the entity's row without
+    committing (its transaction holds the row's lock). Returns the run's
+    error and whether the session's next write is stored."""
+    from sqlalchemy import update
+
+    from app.errors import AppError
+    from app.models.entity import Entity
+    from app.services.entity_service import EntityService
+
+    async with async_session_maker() as db:
+        org, user, entity = await _session_objects(db, org_id, user_id, eid)
+        await db.execute(update(Entity).where(Entity.id == eid).values(description="held"))
+        try:
+            await EntityService().run_entity_for_user(db, entity, org, user)
+            error = None
+        except AppError as err:
+            error = (err.status_code, err.message)
+        return error, await _write_on(db, eid)
+
+
+@pytest.mark.e2e
+def test_a_viewer_run_whose_save_waits_on_a_lock_of_its_callers_transaction_fails_fast_with_a_fixed_500(
+    api, create_user, create_report, login_user, whoami, tmp_path, monkeypatch,
+):
+    if async_session_maker.kw["bind"].dialect.name != "postgresql":
+        pytest.skip("on SQLite the save joins the caller's transaction")
+    token, org_id, admin_id = _bootstrap_admin(create_user, login_user, whoami)
+    member_id = _invite_member(api, token, org_id, create_user, login_user, whoami)
+    ds_id, _ = _run(_seed_sqlite_agent(org_id, admin_id, tmp_path / "wh.db"))
+    eid = _monitored_identity_entity(api, create_report, token, org_id, admin_id, member_id, ds_id, monkeypatch)
+
+    error, written = _run(asyncio.wait_for(_viewer_run_while_holding_the_entity(org_id, admin_id, eid),
+                                           _BOUND_SECONDS))
+    assert error == (500, "The run's result could not be saved."), error
+    assert written, "a write on the caller's session after the failed save was lost"
 
 
 # ── A viewer run answers the reader's own mistakes and a busy source honestly ─

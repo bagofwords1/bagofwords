@@ -413,13 +413,19 @@ class ToolRunner:
                 last_error = timeout_message
                 last_error_type = err_type
             except Exception as e:
-                if getattr(e, "session_rolled_back", False):
-                    # The agent's session was rolled back in full (a viewer's
-                    # slice the database refused with the whole transaction):
-                    # no retry, and no event written through it. The agent's
-                    # loop reloads what it holds and gets the fixed message.
-                    raise
                 await emit({"type": "tool.error", "payload": {"message": str(e)}})
+                if getattr(e, "terminal_execution_error", False):
+                    # No retry can repair it (e.g. the caller's transaction
+                    # is gone): end the run with the error's fixed message,
+                    # as create_data does for such a failure.
+                    return {
+                        "summary": f"Execution failed for '{tool.name}'",
+                        "success": False,
+                        "error": {"type": "infrastructure_failure", "message": str(e), "attempts": attempt},
+                        "terminal_execution_error": True,
+                        "analysis_complete": True,
+                        "final_answer": str(e),
+                    }
                 err_type = "runtime_error"
                 last_error = str(e)
                 last_error_type = err_type

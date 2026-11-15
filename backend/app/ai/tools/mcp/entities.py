@@ -250,8 +250,7 @@ class DescribeEntityMCPTool(MCPTool):
         grid: Dict[str, Any] = {} if withheld else (entity.data or {})
         applied_params = dict(getattr(entity, "applied_params", None) or {}) or None
         error_message = None
-        # Read before the run: should a failed save of its result roll `db`
-        # back, the entity is expired, and cannot be loaded again here.
+        # What the output reports about the entity.
         described = dict(
             entity_id=str(entity.id),
             slug=getattr(entity, "slug", None),
@@ -262,7 +261,6 @@ class DescribeEntityMCPTool(MCPTool):
             code=entity.code or None,
             parameters=_parameters(entity),
         )
-        snapshot = grid
 
         if request_values or data.run or withheld:
             # The no-codegen path: the saved code runs with defaults <- the
@@ -271,14 +269,18 @@ class DescribeEntityMCPTool(MCPTool):
             if not (described["code"] or "").strip():
                 error_message = "This saved query has no code to run."
             else:
+                snapshot = grid
+                from app.services.entity_service import CallerTransactionLost, EntityService
                 try:
-                    from app.services.entity_service import EntityService
                     run = await EntityService().run_entity_for_user(
                         db, entity, organization, user, request_values, force_refresh=bool(data.run),
                     )
                     grid = run["data"] or {}
                     applied_params = dict(run["applied_params"] or {}) or None
                     rows_source = "cache" if run.get("cached") else "executed"
+                except CallerTransactionLost:
+                    # The request's own writes are gone with its transaction.
+                    raise
                 except Exception as e:
                     # By type only: run errors quote the values they failed on.
                     from app.errors.redact import describe_for_log

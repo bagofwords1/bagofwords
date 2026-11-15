@@ -213,35 +213,6 @@ async def test_crashed_action_becomes_error_outcome(monkeypatch):
     assert outcomes[2]["observation"]["summary"] == "done-2"
 
 
-class _SessionRolledBack(Exception):
-    """A failure marked as having rolled the agent's whole session back."""
-
-    session_rolled_back = True
-
-
-@pytest.mark.asyncio
-async def test_an_action_that_rolled_the_session_back_ends_the_concurrent_batch(monkeypatch):
-    """Concurrent siblings share the agent's session: when one action's
-    failure rolled it back, no outcome of the batch stands. The failure
-    reaches the agent's loop (which reloads what the session held), as it
-    does from a serial batch, rather than becoming one action's error."""
-    monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "4")
-    agent = make_agent()
-    error = _SessionRolledBack("The run's result could not be saved.")
-
-    async def run_one(idx, action, block_id, inv):
-        if idx == 1:
-            raise error
-        return {"index": idx, "tool_name": action.name, "tool_input": action.arguments,
-                "action": action, "observation": {"summary": f"done-{idx}"}, "inv": inv,
-                "skipped": False}
-
-    actions = actions_for_sources("inspect_data", ["a", "b", "c"])
-    with pytest.raises(_SessionRolledBack) as raised:
-        await agent._dispatch_action_batch(actions, [None] * 3, run_one)
-    assert raised.value is error
-
-
 @pytest.mark.asyncio
 async def test_sigkill_stops_concurrent_batch(monkeypatch):
     monkeypatch.setenv("BOW_AGENT_TOOL_CONCURRENCY", "2")
