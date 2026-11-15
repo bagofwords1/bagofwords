@@ -223,15 +223,12 @@ class EditArtifactTool(Tool):
         if artifact.mode == "page":
             # The id list can be right while the new code carries the slip.
             new_code = correct_code_viz_refs(new_code, merged_viz_ids)
-            # Runtime components and helpers listed in `const { … } = React`
-            # are undefined there; dropping them restores the globals.
-            from app.ai.tools.implementations._artifact_refs import strip_non_react_destructures
-            new_code, _not_from_react = strip_non_react_destructures(new_code)
-            if _not_from_react:
-                id_notes.append(
-                    "Removed from a `const { … } = React` destructuring, because React does not "
-                    f"export them (they are runtime globals — use them directly): {', '.join(_not_from_react)}."
-                )
+            # Deterministic repairs (module statements, names wrongly taken
+            # from React): each removes something that cannot work in the
+            # page runtime, so working code is left byte-for-byte.
+            from app.ai.tools.implementations._artifact_refs import normalize_page_code
+            new_code, _repair_notes = normalize_page_code(new_code)
+            id_notes.extend(_repair_notes)
 
         # Embedded files: existing, minus removals, plus new. Ids are compared
         # normalised. Every requested id must resolve; the same answer for
@@ -408,10 +405,14 @@ class EditArtifactTool(Tool):
                 screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
                 fatal = self._create_tool.fatal_render_errors(render_errors)
                 if fatal:
+                    from app.ai.tools.implementations._artifact_refs import render_error_hint
+                    _fix_hint = render_error_hint(fatal[0])
                     yield self._fail(
                         artifact, "render_failed",
                         f"The edited code fails to render: {fatal[0]}",
-                        {"render_errors": render_errors, "remediation": "Fix the ops to resolve the render error and retry."},
+                        {"render_errors": render_errors, "remediation": (
+                            (f"{_fix_hint} " if _fix_hint else "")
+                            + "Fix the ops to resolve the render error and retry.")},
                     )
                     return
             except Exception as e:

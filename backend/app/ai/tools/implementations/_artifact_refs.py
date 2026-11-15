@@ -19,9 +19,10 @@ copy at edit time and persists only as the next version.
 """
 from __future__ import annotations
 
+import json
 import re
 import uuid
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 VIZ_POSITIONAL_RE = re.compile(r"\bviz\[(\d+)\]")
 DATA_VIZ_POSITIONAL_RE = re.compile(r"\bdata\.visualizations\[(\d+)\]")
@@ -62,6 +63,63 @@ def _quoted_id_refs(src: str, ids: List[str]) -> set:
     and forced a full regeneration.
     """
     return {vid for vid in ids if re.search(r"['\"]" + re.escape(vid) + r"['\"]", src)}
+
+
+# The components and helpers the page runtime provides as globals. Mirrors
+# BOW_HELPER_NAMES in frontend/public/libs/artifact-globals.js (the unit tests
+# compare the two lists).
+RUNTIME_GLOBALS = (
+    "useArtifactData", "vizById", "useParams", "useParamOptions", "useFilters", "useCurrentUser",
+    "useConversation", "usePresence", "useTheme", "setTheme", "fmt", "exportCSV", "share",
+    "BOW_FONTS", "BOW_THEMES",
+    "useState", "useEffect", "useMemo", "useCallback", "useRef",
+    "PageHeader", "KPICard", "SectionCard", "DataTable", "EChart", "TrendChart", "RankChart",
+    "FilterBar", "FilterSelect", "FilterSearch", "FilterDateRange", "Segmented", "Tabs",
+    "Badge", "Delta", "Sparkline", "ProgressBar", "Icon", "Eyebrow", "Divider", "EmptyState",
+    "LoadingSpinner", "Modal", "Drawer", "InfoOverlay", "InfoPopover", "BowFile", "BowPdfViewer",
+    "ChatComposer", "ChatMessage", "ChatMessages", "ChatResult", "ChatSuggestions", "ChatThreads",
+)
+_NOT_DEFINED_RE = re.compile(r"^(?:Uncaught )?(?:ReferenceError: )?([A-Za-z_$][\w$]*) is not defined")
+_NOT_A_FUNCTION_RE = re.compile(r"^(?:Uncaught )?(?:TypeError: )?((?:[A-Za-z_$][\w$]*\.)*)([A-Za-z_$][\w$]*) is not a function")
+
+
+def render_error_hint(error: str) -> Optional[str]:
+    """What to change for a render error about a missing name, or None.
+
+    The browser's message names the symptom ("useVizById is not defined",
+    "x.useArtifactData is not a function", "Element type is invalid … got:
+    undefined"). A model that only sees the symptom rewrites the same call
+    another way; this says which name to use and that it is a global.
+    """
+    text = (error or "").strip()
+    if "Element type is invalid" in text and "undefined" in text:
+        return (
+            "A component used in the JSX is undefined. Every component is a global — write "
+            "<KPICard …/>, <SectionCard …/> directly; do not import it or take it from another "
+            "object, and check the name against the component list."
+        )
+    not_fn = _NOT_A_FUNCTION_RE.match(text)
+    not_def = _NOT_DEFINED_RE.match(text)
+    if not (not_fn or not_def):
+        return None
+    prefix = (not_fn.group(1) if not_fn else "") or ""
+    name = not_fn.group(2) if not_fn else not_def.group(1)
+    if name in RUNTIME_GLOBALS:
+        where = f"`{prefix}{name}`" if prefix else f"`{name}`"
+        return (
+            f"{where} is undefined here because `{name}` was taken from an object or redeclared. "
+            f"It is a global: use `{name}` directly and delete the import/destructuring that names it."
+        )
+    import difflib
+    close = difflib.get_close_matches(name, RUNTIME_GLOBALS, n=1, cutoff=0.6)
+    if close:
+        return f"`{name}` does not exist in the page runtime — did you mean the global `{close[0]}`?"
+    if not_def and name[:1].isupper():
+        return (
+            f"`{name}` is not a runtime component. Use one from the component list, or define "
+            f"`{name}` yourself in this script."
+        )
+    return None
 
 
 # What `React` itself exports (18.x UMD build). Anything else destructured
@@ -115,6 +173,161 @@ def strip_non_react_destructures(code: str) -> Tuple[str, List[str]]:
     src = code or ""
     fixed = _REACT_DESTRUCTURE_RE.sub(_fix, src)
     return (fixed, list(dict.fromkeys(removed))) if removed else (src, [])
+
+
+# Mirrors IMPORT_GLOBALS / importBindings / stripImports in
+# frontend/public/libs/artifact-globals.js: the runtime already removes
+# imports when it runs a page, and the saved code must mean the same thing.
+_IMPORT_GLOBALS = {"react": "React", "react-dom": "ReactDOM", "react-dom/client": "ReactDOM",
+                   "echarts": "echarts", "lucide": "lucide"}
+_IMPORT_FROM_RE = re.compile(
+    r"^[ \t]*import\s+(?P<clause>[^'\";]+?)\s+from\s*(?P<q>['\"])(?P<mod>[^'\"]+)(?P=q)[ \t]*;?",
+    re.MULTILINE,
+)
+_IMPORT_INLINE_RE = re.compile(r"import\s*\{[^}]*\}\s*from\s*['\"][^'\"]+['\"]\s*;?")
+_IMPORT_LINE_RE = re.compile(r"^[ \t]*import\b(?!\s*\().*$", re.MULTILINE)
+_IMPORT_PART_RE = re.compile(r"^([\w$]+)(?:\s+as\s+([\w$]+))?$")
+_EXPORT_DEFAULT_NAME_RE = re.compile(r"^[ \t]*export\s+default\s+[A-Za-z_$][\w$]*[ \t]*;?[ \t]*$", re.MULTILINE)
+_EXPORT_LIST_RE = re.compile(r"^[ \t]*export\s*\{[^{}]*\}[ \t]*;?[ \t]*$", re.MULTILINE)
+_EXPORT_DECL_RE = re.compile(
+    r"^(?P<indent>[ \t]*)export\s+(?:default\s+)?(?=(?:async\s+)?function\b|class\b|const\b|let\b|var\b)",
+    re.MULTILINE,
+)
+
+
+def _import_bindings(clause: str, mod: str) -> str:
+    """The declaration the runtime puts in place of one import statement:
+    nothing when every imported name is the global of the same name, else a
+    `var` bound to the matching global for each NEW local name."""
+    canonical = _IMPORT_GLOBALS.get(mod)
+    decls: List[str] = []
+
+    def bind(local: str, name: str) -> None:
+        decls.append(f"{local} = window.__bowResolveImport({json.dumps(mod)}, {json.dumps(name)})")
+
+    rest = clause
+    braces = re.search(r"\{([\s\S]*)\}", rest)
+    if braces:
+        for part in braces.group(1).split(","):
+            m = _IMPORT_PART_RE.match(part.strip())
+            if not m:
+                continue
+            imported, local = m.group(1), m.group(2) or m.group(1)
+            if imported == "default":
+                if canonical and local != canonical:
+                    bind(local, "default")
+            elif local != imported:
+                bind(local, imported)
+        rest = rest.replace(braces.group(0), "")
+    namespace = re.search(r"\*\s*as\s+([\w$]+)", rest)
+    if namespace:
+        if canonical and namespace.group(1) != canonical:
+            bind(namespace.group(1), "*")
+        rest = rest.replace(namespace.group(0), "")
+    default = rest.replace(",", " ").strip()
+    if re.match(r"^[\w$]+$", default) and canonical and default != canonical:
+        bind(default, "default")
+    return ("var " + ", ".join(decls) + ";") if decls else ""
+
+
+def strip_module_syntax(code: str) -> Tuple[str, List[str]]:
+    """Turn `import` / `export` statements into what a plain script allows.
+
+    The page is one classic script: every helper is a global and nothing is
+    exported. Models trained on module-based React still write
+    `import { KPICard } from 'bow'` and `export default App`. The runtime
+    removes imports itself when it runs a page, but the parse check sees the
+    code as written and rejects it ("'import' and 'export' may appear only
+    with sourceType: module"); `export` never worked anywhere.
+
+    Imports are handled exactly as the runtime handles them, so saved code
+    means what it meant before. Line count is preserved, so a later error
+    still points at the line the model wrote.
+
+    Returns (code, what was changed). Code without these statements comes
+    back untouched.
+    """
+    src = code or ""
+    if not re.search(r"\b(?:import|export)\b", src):
+        return src, []
+    changed: List[str] = []
+
+    def _keep_lines(original: str, replacement: str) -> str:
+        return replacement + "\n" * original.count("\n")
+
+    def _import(m: "re.Match") -> str:
+        changed.append(f"import … from '{m.group('mod')}'")
+        return _keep_lines(m.group(0), _import_bindings(m.group("clause"), m.group("mod")))
+
+    def _drop(label: str):
+        def _sub(m: "re.Match") -> str:
+            changed.append(label)
+            return _keep_lines(m.group(0), "")
+        return _sub
+
+    def _decl(m: "re.Match") -> str:
+        changed.append("export")
+        return m.group("indent")
+
+    fixed = _IMPORT_FROM_RE.sub(_import, src)
+    fixed = _IMPORT_INLINE_RE.sub(_drop("import { … }"), fixed)
+    fixed = _IMPORT_LINE_RE.sub(_drop("import"), fixed)
+    fixed = _EXPORT_DEFAULT_NAME_RE.sub(_drop("export default"), fixed)
+    fixed = _EXPORT_LIST_RE.sub(_drop("export { … }"), fixed)
+    fixed = _EXPORT_DECL_RE.sub(_decl, fixed)
+    return (fixed, list(dict.fromkeys(changed))) if fixed != src else (src, [])
+
+
+_DEFINES_APP_RE = re.compile(r"^[ \t]*(?:async\s+)?function\s+App\b|^[ \t]*(?:const|let|var)\s+App\s*=", re.MULTILINE)
+_MOUNTS_RE = re.compile(r"createRoot|hydrateRoot|\brender\s*\(")
+MOUNT_LINE = "ReactDOM.createRoot(document.getElementById('root')).render(<App />);"
+
+
+def ensure_app_is_mounted(code: str) -> Tuple[str, bool]:
+    """Add the mount call to a page that defines `App` but never renders it.
+
+    Such a page parses, throws nothing and shows nothing: the dashboard stays
+    on "Loading artifact…" while every check passes. Applies only when there
+    is no mount call of any kind, so a page that mounts itself — however it
+    spells it — is returned untouched.
+    """
+    src = code or ""
+    if not _DEFINES_APP_RE.search(src) or _MOUNTS_RE.search(src):
+        return src, False
+    close = src.rfind("</script>")
+    if close == -1:
+        return src.rstrip("\n") + "\n" + MOUNT_LINE + "\n", True
+    head = src[:close].rstrip("\n")
+    return head + "\n" + MOUNT_LINE + "\n" + src[close:], True
+
+
+def normalize_page_code(code: str) -> Tuple[str, List[str]]:
+    """Every deterministic repair applied to page code before it is checked.
+
+    Each one only removes something that cannot work in the page runtime, so
+    code that already runs is returned byte-for-byte. Returns (code, notes for
+    the model) — the notes say what was changed so it stops writing it.
+    """
+    notes: List[str] = []
+    fixed, statements = strip_module_syntax(code)
+    if statements:
+        notes.append(
+            "Removed module statements (" + ", ".join(statements) + "): the page is a plain script — "
+            "components and helpers are globals, nothing is imported or exported."
+        )
+    fixed, names = strip_non_react_destructures(fixed)
+    if names:
+        notes.append(
+            "Removed from a `const { … } = React` destructuring, because React does not "
+            f"export them (they are runtime globals — use them directly): {', '.join(names)}."
+        )
+    fixed, mounted = ensure_app_is_mounted(fixed)
+    if mounted:
+        notes.append(
+            "Added the missing mount line — a page must end with "
+            f"`{MOUNT_LINE}` or nothing is shown."
+        )
+    return fixed, notes
 
 
 def _inside_string_or_comment(line: str, col: int) -> bool:

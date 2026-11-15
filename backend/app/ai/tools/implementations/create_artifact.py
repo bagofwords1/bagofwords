@@ -1514,18 +1514,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         else:
             code = self._extract_code(buffer, mode=data.mode)
 
-        # Runtime components and helpers are globals. Listed in a
-        # `const { … } = React` they become undefined and the page dies with
-        # "Element type is invalid"; dropping them from the list restores the
-        # global. Deterministic, so it also holds where no browser can render.
+        # Deterministic repairs (module statements, names wrongly taken from
+        # React): each removes something that cannot work in the page runtime,
+        # so they also hold where no browser can render.
         if data.mode == "page":
-            from app.ai.tools.implementations._artifact_refs import strip_non_react_destructures
-            code, _not_from_react = strip_non_react_destructures(code)
-            if _not_from_react:
-                warnings.append(
-                    "Removed from a `const { … } = React` destructuring, because React does not "
-                    f"export them (they are runtime globals — use them directly): {', '.join(_not_from_react)}."
-                )
+            from app.ai.tools.implementations._artifact_refs import normalize_page_code
+            code, _repair_notes = normalize_page_code(code)
+            warnings.extend(_repair_notes)
 
         # ═══════════════════════════════════════════════════════════════════════
         # Mode-specific processing: slides uses python-pptx, page skips to save
@@ -1862,6 +1857,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             is_parse_failure = bool(render_errors) and all(e.startswith("[parse]") for e in render_errors)
             fatal_errors = self.fatal_render_errors(render_errors)
             first_error = fatal_errors[0] if fatal_errors else (render_errors[0] if render_errors else "unknown render error")
+            # The browser names the symptom; say what to change.
+            from app.ai.tools.implementations._artifact_refs import render_error_hint
+            _fix_hint = None if is_parse_failure else render_error_hint(first_error)
             failure_observation: Dict[str, Any] = {
                 "summary": (
                     f"Artifact '{data.title or 'Untitled'}' failed to parse (syntax error — "
@@ -1877,7 +1875,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "render_errors": render_errors,
                     "repair_attempts": repair_attempts,
                     "remediation": (
-                        "The code does not render. Fix it yourself against the exact error(s) above "
+                        (f"{_fix_hint} " if _fix_hint else "")
+                        + "The code does not render. Fix it yourself against the exact error(s) above "
                         "and call create_artifact again with the corrected `code` (a failed create "
                         "persists nothing); simplify the layout if the errors persist."
                     ),

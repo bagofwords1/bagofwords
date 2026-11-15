@@ -100,7 +100,8 @@ async def _seed_page(report_id: str, viz_id: str, code: str):
 
 def _page(viz_id: str, head: str = "") -> str:
     return (f'{head}function App() {{ const v = vizById("{viz_id}"); '
-            "return <div><h1>Sales</h1><p>{v && v.title}</p></div> }")
+            "return <div><h1>Sales</h1><p>{v && v.title}</p></div> }"
+            "\nReactDOM.createRoot(document.getElementById('root')).render(<App />);")
 
 
 @pytest.fixture

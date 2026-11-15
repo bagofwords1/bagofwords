@@ -43,7 +43,24 @@ def _takes_kit_from_react() -> bool:
     return bool(path and os.path.exists(path) and open(path).read().strip() == "react")
 
 
+def _scenario() -> str:
+    path = os.environ.get("STUB_PAGE_FILE")
+    return open(path).read().strip() if path and os.path.exists(path) else ""
+
+
 def _page(viz_id: str) -> str:
+    if _scenario() == "broken":
+        # A page that always throws, resubmitted forever (see run.sh `broken`):
+        # exercises the cap on consecutive failed builds.
+        return (
+            '<script type="text/babel">\n'
+            "function App() {\n"
+            f'  const sales = vizById("{viz_id}");\n'
+            "  return <div>{sales.rows.map((r) => r.genre.toUpperCase().missing())}</div>;\n"
+            "}\n"
+            "ReactDOM.createRoot(document.getElementById('root')).render(<App />);\n"
+            "</script>"
+        )
     if _takes_kit_from_react():
         return (
             '<script type="text/babel">\n'
@@ -128,6 +145,9 @@ async def chat_completions(request: Request):
     results = _tool_results(body)
     if not results:
         return base._stream_response("Building the dashboard.", _create(_viz_id()))
+    if _scenario() == "broken":
+        # Never learns: the same failing page again, whatever the tool said.
+        return base._stream_response("Trying again.", _create(_viz_id()))
     last = results[-1]
     if len(results) == 1:
         listed = _available_ids(last)

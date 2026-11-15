@@ -121,6 +121,53 @@ def list_save_failure_final_answer(list_name, errors) -> str:
     )
 
 
+# Consecutive failed dashboard builds (create_artifact / edit_artifact) in one
+# turn before the agent is told to change approach, and before the turn is
+# ended. Each attempt is a full code generation plus a render; a run seen live
+# made 15 in a row on one mistake (about 900k tokens) and was still going.
+ARTIFACT_BUILD_WARN_AT = 2
+ARTIFACT_BUILD_STOP_AT = 4
+ARTIFACT_BUILD_TOOLS = frozenset({"create_artifact", "edit_artifact"})
+
+
+def artifact_build_failure_action(streak: dict, failed: bool) -> Optional[str]:
+    """Streak of failed dashboard builds in this run.
+
+    Returns 'warn' on the ARTIFACT_BUILD_WARN_AT-th consecutive failure, 'stop'
+    from ARTIFACT_BUILD_STOP_AT on, else None. Any successful build resets it.
+    create_artifact and edit_artifact share the streak: switching tool is not a
+    new approach."""
+    if not failed:
+        streak["n"] = 0
+        return None
+    n = streak.get("n", 0) + 1
+    streak["n"] = n
+    if n >= ARTIFACT_BUILD_STOP_AT:
+        return "stop"
+    if n == ARTIFACT_BUILD_WARN_AT:
+        return "warn"
+    return None
+
+
+def artifact_build_failure_note(times: int) -> str:
+    return (
+        f"NOTE: building this dashboard has now failed {times} times in a row. Do not resubmit the "
+        "same code with small variations. Read the error and its remediation above and change exactly "
+        f"that; if you cannot, write a much simpler page. After {ARTIFACT_BUILD_STOP_AT} consecutive "
+        "failures the turn ends."
+    )
+
+
+def artifact_build_failure_final_answer(last_error) -> str:
+    detail = str(last_error or "").strip().replace("\n", " ")[:300]
+    return (
+        f"I could not build the dashboard: it failed {ARTIFACT_BUILD_STOP_AT} times in a row, so I stopped "
+        "retrying. Nothing was saved."
+        + (f" Last error: {detail}" if detail else "")
+        + " You can ask me to try again, or to build a simpler version."
+    )
+
+
 def _issued_args(arguments) -> dict:
     """A tool call's arguments as the model issued them, minus server-side
     annotations (``_progress`` and friends are added after the call)."""
@@ -5792,6 +5839,8 @@ class AgentV2:
                                   "group_id": f"verification:{self.current_execution.id}"}
             total_artifact_calls = 0
             max_total_artifact_calls = 4
+            # Consecutive failed builds this turn (see ARTIFACT_BUILD_STOP_AT).
+            artifact_build_failures: Dict[str, int] = {"n": 0}
             artifact_refusals = {"n": 0}
             # Last artifact version this turn actually saved, so a budget
             # refusal can report the real state rather than a bare failure.
@@ -7983,6 +8032,21 @@ class AgentV2:
                                             "final_answer": list_save_failure_final_answer(
                                                 _obs.get("list_name"),
                                                 _lerr.get("errors") if isinstance(_lerr, dict) else None,
+                                            ),
+                                        })
+                                if _tn in ARTIFACT_BUILD_TOOLS and isinstance(_obs, dict):
+                                    _aba = artifact_build_failure_action(
+                                        artifact_build_failures, _observation_failed(_obs),
+                                    )
+                                    if _aba == "warn":
+                                        _obs["repeat_warning"] = artifact_build_failure_note(ARTIFACT_BUILD_WARN_AT)
+                                    elif _aba == "stop":
+                                        _aerr = _obs.get("error")
+                                        analysis_done = True
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": artifact_build_failure_final_answer(
+                                                _aerr.get("message") if isinstance(_aerr, dict) else _aerr,
                                             ),
                                         })
                                 if not _observation_failed(_obs):
