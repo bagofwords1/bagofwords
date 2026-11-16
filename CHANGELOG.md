@@ -5,6 +5,7 @@
 - Added a "Waiting for a free slot" status on chats whose query is queued behind a connection's concurrency limit (#1753) — `BOW_QUERY_SLOT_WAIT_SECONDS` (default 60)
 - Added allowing your own sites to show BOW in an iframe (#1755) — Settings → General → "Sites that can show BOW"
 - Added Qlik Sense on-prem sheet and chart catalog: the agent reads a chart's own data, reuses its expressions, and looks up field values (#1752)
+- Added attaching recent uploads and Google Drive / OneDrive files from the prompt box, without re-uploading (#1728)
 - Changed a connection's concurrent-query limit to hold across all workers and replicas, not per process (#1753)
 - Fixed Qlik Sense on-prem queries with a misspelled field returning zeros instead of an error (#1752)
 - Fixed a private Qlik sheet's title showing on every table of its app (#1752)
