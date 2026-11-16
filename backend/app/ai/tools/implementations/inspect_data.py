@@ -420,7 +420,11 @@ Queries are subject to a per-connection timeout.
                 failed_timings = [t for t in (query_timings or []) if t.get("error")]
                 if failed_timings:
                     last_failed = failed_timings[-1]
-                    error_obj["db_message"] = last_failed.get("error")
+                    # error_message is the untruncated form when the
+                    # wrapper records one (a timeout whose stop failed).
+                    error_obj["db_message"] = (
+                        last_failed.get("error_message") or last_failed.get("error")
+                    )
                     if last_failed.get("sql"):
                         error_obj["failed_sql"] = last_failed["sql"]
             except Exception:

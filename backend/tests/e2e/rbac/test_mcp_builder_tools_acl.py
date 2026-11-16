@@ -138,9 +138,9 @@ def test_edit_instruction_cannot_widen_scope_past_authority(world):
         before = world.rest_get_instruction(reader, inst_id).json()
         before_ds = sorted(d["id"] for d in before.get("data_sources") or [])
         want_ds = sorted(world.agent_id(a) for a in scope)
-        res = world.mcp(persona).call("edit_instruction", {
-            "instruction_id": inst_id, "data_source_ids": want_ds,
-        })
+        # Going global is an explicit scope; an empty agent list never is.
+        target = {"data_source_ids": want_ds} if want_ds else {"scope": "global"}
+        res = world.mcp(persona).call("edit_instruction", {"instruction_id": inst_id, **target})
         after = world.rest_get_instruction(reader, inst_id).json()
         after_ds = sorted(d["id"] for d in after.get("data_sources") or [])
         label = f"{persona} {key} → {scope or 'GLOBAL'}"
@@ -193,7 +193,8 @@ def test_create_instruction_scope_and_publish_authority(world):
         reader = world.truth_reader(scope)
         for persona in M.ALL:
             text = f"{persona} creates on {label_scope} {uuid.uuid4().hex[:6]}"
-            res = world.mcp(persona).call("create_instruction", {"text": text, "data_source_ids": ds_ids})
+            target = {"data_source_ids": ds_ids} if ds_ids else {"scope": "global"}
+            res = world.mcp(persona).call("create_instruction", {"text": text, **target})
             label = f"{persona} on {label_scope}"
             if persona == M.OUTSIDER and not scope:
                 # A global rule in the outsider's OWN org is theirs to write;

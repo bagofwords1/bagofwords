@@ -1410,7 +1410,9 @@
       "failedDashboard": "Dashboard konnte nicht erstellt werden",
       "copied": "Kopiert",
       "copiedDesc": "Artefakt-ID in die Zwischenablage kopiert",
-      "copyFailed": "Kopieren fehlgeschlagen"
+      "copyFailed": "Kopieren fehlgeschlagen",
+      "notRenderChecked": "Darstellung nicht geprüft",
+      "notRenderCheckedDesc": "Ohne Darstellungsprüfung gespeichert: Der Server konnte seinen Browser nicht starten. Öffnen Sie es, um die Anzeige zu prüfen."
     },
     "createDashboard": {
       "creating": "Dashboard wird erstellt",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "Klicken zum Kopieren der ID",
       "copied": "Kopiert",
       "copiedDesc": "Artefakt-ID in die Zwischenablage kopiert",
-      "copyFailed": "Kopieren fehlgeschlagen"
+      "copyFailed": "Kopieren fehlgeschlagen",
+      "notRenderChecked": "Darstellung nicht geprüft",
+      "notRenderCheckedDesc": "Ohne Darstellungsprüfung gespeichert: Der Server konnte seinen Browser nicht starten. Öffnen Sie es, um die Anzeige zu prüfen."
     },
     "createWidget": {
       "creatingDataModel": "Datenmodell wird erstellt",
@@ -7044,6 +7048,9 @@
     "unsaved": "Ungespeicherte Änderungen",
     "tabGeneral": "Allgemein",
     "nameTitle": "Name",
+    "descriptionTitle": "Beschreibung",
+    "descriptionPlaceholder": "Was dieses Dashboard zeigt und für wen es ist",
+    "descriptionHelp": "Optional. Wird Betrachtern beim Daraufzeigen neben dem Namen angezeigt.",
     "linkTitle": "Link",
     "refreshTitle": "Daten aktualisieren",
     "linkPreview": "Link:",

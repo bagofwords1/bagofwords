@@ -44,7 +44,17 @@
 
             <div class="p-3 text-start">
                 <h3 class="font-medium text-ink truncate text-sm flex items-center gap-1.5">
-                    <span v-text-dir class="truncate">{{ title }}</span>
+                    <!-- Full name on hover (long names are truncated above), with
+                         the dashboard's description beneath it when one is set. -->
+                    <UTooltip class="min-w-0 truncate" :popper="{ placement: 'top-start' }" :ui="{ width: 'max-w-xs', base: 'h-auto whitespace-normal text-start px-2.5 py-1.5' }">
+                        <span v-text-dir class="truncate block">{{ title }}</span>
+                        <template #text>
+                            <div class="text-start">
+                                <div v-text-dir class="font-medium text-xs">{{ title }}</div>
+                                <div v-if="description" v-text-dir class="text-2xs opacity-80 mt-0.5">{{ description }}</div>
+                            </div>
+                        </template>
+                    </UTooltip>
                     <ReportStatusDot :report-id="dashboard.report_id || dashboard.id" />
                     <span v-if="agents.length" class="ms-auto flex items-center gap-1 shrink-0">
                         <UTooltip v-for="agent in agents" :key="agent.id" :text="agent.name || ''">
@@ -166,6 +176,7 @@ const { relativeTime } = useRelativeTime()
 const { formatDate, formatDateTime } = useFormatDate()
 
 const title = computed(() => props.dashboard.title || t('dashboardCollab.page.untitled'))
+const description = computed(() => (props.dashboard.description || '').trim())
 const meta = computed(() => cardMeta(props.dashboard, props.tab))
 const editable = computed(() => props.dashboard.role === 'owner' || props.dashboard.role === 'edit')
 const refresh = computed(() => refreshLine(props.dashboard, props.tab))

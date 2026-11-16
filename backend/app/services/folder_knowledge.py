@@ -152,7 +152,14 @@ async def can_read_knowledge_scope(db, report, org, user, rights, *, archived=fr
         if required_rules:
             if fid not in archived:
                 rules = await readable_folder_rules(db, org, user, fid, required_rules)
-                if {r.id for r in rules} != required_rules:
+                missing = required_rules - {r.id for r in rules}
+                # A rule this reader can't load is only a reason to refuse while
+                # it still applies in the folder (published, on, attached): then
+                # it is hidden from *them*. One since detached, turned off or
+                # deleted is gone for everyone; the recorded revisions below
+                # still decide whether its content may be shown. Refusing on it
+                # would lock every reader — the owner too — out of the report.
+                if missing and await _still_applies_in_folder(db, fid, missing):
                     return False
             required_versions = {r.item_id for r in rows if r.folder_id == fid and r.kind == "revision"}
             from app.models.instruction_version import InstructionVersion
@@ -182,6 +189,29 @@ async def can_read_knowledge_scope(db, report, org, user, rights, *, archived=fr
     return True
 
 
+async def _is_org_folder(db, org, folder_id):
+    return await db.scalar(
+        select(Folder.id).where(
+            Folder.id == str(folder_id), Folder.organization_id == org.id, Folder.deleted_at.is_(None)
+        )
+    ) is not None
+
+
+async def _still_applies_in_folder(db, folder_id, instruction_ids):
+    return await db.scalar(
+        select(Instruction.id)
+        .join(folder_instructions, folder_instructions.c.instruction_id == Instruction.id)
+        .where(
+            folder_instructions.c.folder_id == folder_id,
+            Instruction.id.in_(list(instruction_ids)),
+            Instruction.deleted_at.is_(None),
+            Instruction.status == "published",
+            or_(Instruction.load_mode.is_(None), Instruction.load_mode != "disabled"),
+        )
+        .limit(1)
+    ) is not None
+
+
 async def visible_instruction_folders(db, org, user):
     rights = await resolve_permissions(db, user.id, org.id)
     ids = select(Folder.id).where(Folder.organization_id == org.id, Folder.deleted_at.is_(None))
@@ -209,7 +239,14 @@ async def authoring_targets(db, org, user, report, capability, destination, fold
         return None  # Existing non-folder authoring contract.
     destination = destination or ("folder" if folder_id else "agents" if agent_ids else None)
     target_folder = folder_id if report is None or folder_id in selected else active
-    if destination == "folder" and target_folder and not agent_ids and folder_id in (None, target_folder):
+    # `target_folder` falls back to the report's active folder when the caller's
+    # `folder_id` hint isn't a selected folder. Trust that fallback only when the
+    # hint names no real folder (e.g. a model that passes the folder NAME instead
+    # of its id); an explicit id of a *different* folder is refused, never
+    # silently redirected. require_capability still authorizes the resolved folder.
+    if destination == "folder" and target_folder and not agent_ids and (
+        folder_id in (None, target_folder) or not await _is_org_folder(db, org, folder_id)
+    ):
         await require_capability(db, org, user, target_folder, capability)
         return target_folder, []
     rights = await resolve_permissions(db, user.id, org.id)

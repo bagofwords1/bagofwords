@@ -148,6 +148,25 @@ def explain_mysql(conn, sql: str) -> "Estimate":
 MSSQL_LOB_ASSUMED_BYTES = 4035
 
 
+def _showplan_off(conn) -> None:
+    """Turn SHOWPLAN_XML back off, or make sure the session is never reused.
+
+    SHOWPLAN_XML is a session setting, and the connection is pooled: if the
+    OFF does not go through, the next checkout gets a session where every
+    query returns a plan instead of running. Invalidating closes the physical
+    connection, so the pool opens a clean one instead. The original error
+    is re-raised; the estimate is reported as unsupported either way.
+    """
+    try:
+        conn.exec_driver_sql("SET SHOWPLAN_XML OFF")
+    except BaseException:
+        try:
+            conn.invalidate()
+        except Exception:
+            pass
+        raise
+
+
 def explain_mssql(conn, sql: str) -> "Estimate":
     """(rows, width_bytes, note) from `SET SHOWPLAN_XML ON`.
 
@@ -166,7 +185,7 @@ def explain_mssql(conn, sql: str) -> "Estimate":
     try:
         plan_xml = conn.exec_driver_sql(strip_trailing_semicolon(sql)).scalar()
     finally:
-        conn.exec_driver_sql("SET SHOWPLAN_XML OFF")
+        _showplan_off(conn)
 
     if not plan_xml:
         return _estimate(note="SHOWPLAN_XML returned no plan")

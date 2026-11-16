@@ -132,7 +132,8 @@ async def _seed_page(report_id: str, viz_ids, code: str):
 def _page(*viz_ids):
     binds = " ".join(f'const v{i} = vizById("{vid}");' for i, vid in enumerate(viz_ids))
     titles = "".join(f"<p>{{v{i} && v{i}.title}}</p>" for i in range(len(viz_ids)))
-    return f"function App() {{ {binds} return <div><h1>Sales</h1>{titles}</div> }}"
+    return (f"function App() {{ {binds} return <div><h1>Sales</h1>{titles}</div> }}"
+            "\nReactDOM.createRoot(document.getElementById('root')).render(<App />);")
 
 
 @pytest.fixture

@@ -1410,7 +1410,9 @@
       "failedDashboard": "Impossibile creare la dashboard",
       "copied": "Copiato",
       "copiedDesc": "ID dell'artefatto copiato negli appunti",
-      "copyFailed": "Impossibile copiare"
+      "copyFailed": "Impossibile copiare",
+      "notRenderChecked": "Rendering non verificato",
+      "notRenderCheckedDesc": "Salvato senza verifica del rendering: il server non è riuscito ad avviare il browser. Aprilo per verificare che venga visualizzato."
     },
     "createDashboard": {
       "creating": "Creazione della dashboard",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "Clicca per copiare l'ID",
       "copied": "Copiato",
       "copiedDesc": "ID dell'artefatto copiato negli appunti",
-      "copyFailed": "Impossibile copiare"
+      "copyFailed": "Impossibile copiare",
+      "notRenderChecked": "Rendering non verificato",
+      "notRenderCheckedDesc": "Salvato senza verifica del rendering: il server non è riuscito ad avviare il browser. Aprilo per verificare che venga visualizzato."
     },
     "createWidget": {
       "creatingDataModel": "Creazione del modello di dati",
@@ -7044,6 +7048,9 @@
     "unsaved": "Modifiche non salvate",
     "tabGeneral": "Generale",
     "nameTitle": "Nome",
+    "descriptionTitle": "Descrizione",
+    "descriptionPlaceholder": "Cosa mostra questa dashboard e a chi è rivolta",
+    "descriptionHelp": "Facoltativo. Mostrato ai lettori al passaggio del mouse, accanto al nome.",
     "linkTitle": "Link",
     "refreshTitle": "Aggiorna i dati",
     "linkPreview": "Link:",

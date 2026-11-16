@@ -299,3 +299,25 @@ def can_create_root(rights):
         or rights.has_any_resource_permission("manage", "data_source")
         or rights.has_any_resource_permission("create_data_sources", "connection")
     )
+
+
+async def browsable_folder_tree(db, organization, user):
+    """Folders this user may see by name: ones they can query (``view``) and
+    ones they curate (``manage_instructions`` without view, so a curator can
+    target a folder's rules). Hidden parents are clipped, so a folder deep in
+    a private branch shows up as a root and never reveals the branch's names.
+
+    Returns ``({folder_id: (clipped_parent_id, name)}, rights)``.
+    """
+    from app.core.permission_resolver import resolve_permissions
+    if not user or not organization:
+        return {}, None
+    rights = await resolve_permissions(db, user.id, organization.id)
+    rows = await db.execute(select(Folder.id, Folder.parent_id, Folder.name).where(
+        Folder.organization_id == organization.id, Folder.deleted_at.is_(None)))
+    shown = {
+        fid: (parent, name) for fid, parent, name in rows
+        if rights.has_resource_permission("folder", fid, "view")
+        or rights.has_resource_permission("folder", fid, "manage_instructions")
+    }
+    return {fid: (parent if parent in shown else None, name) for fid, (parent, name) in shown.items()}, rights

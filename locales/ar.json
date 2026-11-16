@@ -1410,7 +1410,9 @@
       "failedDashboard": "تعذّر إنشاء لوحة التحكم",
       "copied": "تم النسخ",
       "copiedDesc": "تم نسخ معرّف العنصر إلى الحافظة",
-      "copyFailed": "تعذّر النسخ"
+      "copyFailed": "تعذّر النسخ",
+      "notRenderChecked": "لم يُتحقق من العرض",
+      "notRenderCheckedDesc": "تم الحفظ دون التحقق من العرض: تعذّر على الخادم تشغيل متصفحه. افتحها للتأكد من أنها تُعرض."
     },
     "createDashboard": {
       "creating": "جارٍ إنشاء لوحة التحكم",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "انقر لنسخ المعرّف",
       "copied": "تم النسخ",
       "copiedDesc": "تم نسخ معرّف العنصر إلى الحافظة",
-      "copyFailed": "تعذّر النسخ"
+      "copyFailed": "تعذّر النسخ",
+      "notRenderChecked": "لم يُتحقق من العرض",
+      "notRenderCheckedDesc": "تم الحفظ دون التحقق من العرض: تعذّر على الخادم تشغيل متصفحه. افتحها للتأكد من أنها تُعرض."
     },
     "createWidget": {
       "creatingDataModel": "جارٍ إنشاء نموذج البيانات",
@@ -7044,6 +7048,9 @@
     "unsaved": "تغييرات غير محفوظة",
     "tabGeneral": "عام",
     "nameTitle": "الاسم",
+    "descriptionTitle": "الوصف",
+    "descriptionPlaceholder": "ما تعرضه هذه اللوحة ولمن هي موجَّهة",
+    "descriptionHelp": "اختياري. يظهر للقُرّاء عند التمرير، بجانب الاسم.",
     "linkTitle": "الرابط",
     "refreshTitle": "تحديث البيانات",
     "linkPreview": "الرابط:",
