@@ -254,6 +254,10 @@ async function loadStatus() {
   }
 }
 
+// Searches, filter changes and auto-refresh can overlap; only the newest
+// request's answer is shown, so a slow earlier one can't replace it.
+let latestRequest = 0
+
 async function fetchLogs() {
   const start = toIso(from.value)
   const end = toIso(to.value)
@@ -271,9 +275,11 @@ async function fetchLogs() {
 
   const box = logBox.value
   const pinnedToBottom = !box || box.scrollHeight - box.scrollTop - box.clientHeight < 40
+  const requestId = ++latestRequest
   loading.value = true
   try {
     const res = await useMyFetch('/api/system-logs', { query })
+    if (requestId !== latestRequest) return
     if (res.status.value === 'success') {
       const data = res.data.value as { items: LogEntry[]; has_more: boolean }
       // The API returns newest first; read top to bottom like a terminal.
@@ -287,7 +293,7 @@ async function fetchLogs() {
       toast.add({ title: t('settings.systemLogs.loadFailed'), description: getErrorMessage(res.error.value), color: 'red' })
     }
   } finally {
-    loading.value = false
+    if (requestId === latestRequest) loading.value = false
   }
 }
 
@@ -313,12 +319,15 @@ async function deleteAll() {
 }
 
 function clearFilters() {
+  // Resetting a watched filter already refetches; fetch here only when the
+  // search box was the one thing set.
+  const watchedSet = !!(from.value || to.value || instance.value || errorsOnly.value)
   search.value = ''
   from.value = ''
   to.value = ''
   instance.value = ''
   errorsOnly.value = false
-  fetchLogs()
+  if (!watchedSet) fetchLogs()
 }
 
 let searchTimer: ReturnType<typeof setTimeout> | null = null

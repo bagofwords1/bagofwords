@@ -4520,6 +4520,7 @@
     "file.not_found": "Filen hittades inte",
     "system_logs.instance_admin_required": "På en instans med flera organisationer kan endast en instansadministratör använda systemloggar.",
     "system_logs.invalid_range": "Starttiden måste vara före sluttiden.",
+    "system_logs.delete_failed": "Det gick inte att radera loggfilerna i {directory}. Kontrollera att katalogen finns och är skrivbar.",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
     "body.invalid_json": "Ogiltig JSON-kropp",
     "organization.not_found": "Organisationen hittades inte",

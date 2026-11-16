@@ -4520,6 +4520,7 @@
     "file.not_found": "Arquivo não encontrado",
     "system_logs.instance_admin_required": "Em uma instância com várias organizações, só um administrador da instância pode usar os logs do sistema.",
     "system_logs.invalid_range": "O horário de início deve ser anterior ao de término.",
+    "system_logs.delete_failed": "Não foi possível excluir os arquivos de log em {directory}. Verifique se o diretório existe e permite gravação.",
     "verification.invalid": "Token de verificação inválido ou expirado",
     "body.invalid_json": "Corpo JSON inválido",
     "organization.not_found": "Organização não encontrada",

@@ -5088,6 +5088,7 @@
     "file.not_found": "Archivo no encontrado",
     "system_logs.instance_admin_required": "En una instancia con varias organizaciones, solo un administrador de la instancia puede usar los registros del sistema.",
     "system_logs.invalid_range": "La hora de inicio debe ser anterior a la de fin.",
+    "system_logs.delete_failed": "No se pudieron eliminar los archivos de registro de {directory}. Comprueba que el directorio existe y que tiene permisos de escritura.",
     "verification.invalid": "Token de verificación no válido o expirado",
     "body.invalid_json": "Cuerpo JSON no válido",
     "organization.not_found": "Organización no encontrada",

@@ -239,6 +239,29 @@ def test_delete_all_removes_every_file(test_client, admin, log_dir):
     assert len(_logs(test_client, admin["headers"], search=later)["items"]) == 1
 
 
+def test_delete_all_on_an_unwritable_directory_is_a_typed_error(test_client, admin, log_dir):
+    log.info(f"kept-{uuid.uuid4().hex}")
+    _logs(test_client, admin["headers"])
+    for p in log_dir.iterdir():
+        if p.is_dir():
+            for q in p.iterdir():
+                q.unlink()
+            p.rmdir()
+        else:
+            p.unlink()
+    log_dir.rmdir()
+    log_dir.write_text("not a directory")  # a real write failure
+    try:
+        resp = test_client.delete("/api/system-logs", headers=admin["headers"])
+        assert resp.status_code == 503, resp.text
+        body = resp.json()
+        assert body["error_code"] == "system_logs.delete_failed"
+        assert body["params"]["directory"] == str(log_dir)
+    finally:
+        log_dir.unlink()
+        log_dir.mkdir()
+
+
 def test_member_cannot_read_or_clear(test_client, admin, member):
     log.info(f"secret-{uuid.uuid4().hex}")
 

@@ -4520,6 +4520,7 @@
     "file.not_found": "الملف غير موجود",
     "system_logs.instance_admin_required": "في مثيل يضم عدة مؤسسات، لا يمكن استخدام سجلات النظام إلا لمسؤول المثيل.",
     "system_logs.invalid_range": "يجب أن يكون وقت البدء قبل وقت الانتهاء.",
+    "system_logs.delete_failed": "تعذّر حذف ملفات السجل في {directory}. تحقّق من وجود المجلد ومن أنه قابل للكتابة.",
     "verification.invalid": "رمز التحقق غير صالح أو منتهي الصلاحية",
     "body.invalid_json": "محتوى JSON غير صالح",
     "organization.not_found": "المؤسسة غير موجودة",

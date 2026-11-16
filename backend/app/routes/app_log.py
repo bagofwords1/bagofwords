@@ -140,6 +140,16 @@ async def delete_system_logs(
     organization: Organization = Depends(get_current_organization),
 ):
     _ensure_instance_admin(current_user)
-    deleted = await asyncio.to_thread(svc.delete_all)
+    try:
+        deleted = await asyncio.to_thread(svc.delete_all)
+    except OSError as e:
+        directory = str(svc.get_config().directory)
+        logger.warning(f"System logs: could not delete the log files in {directory}: {e}")
+        raise AppError(
+            ErrorCode.SYSTEM_LOGS_DELETE_FAILED,
+            f"Could not delete the log files in {directory}",
+            status_code=503,
+            params={"directory": directory},
+        )
     await _audit(db, organization, current_user, "system_logs.cleared", {"deleted_files": deleted})
     return AppLogDeleteResult(deleted_files=deleted)
