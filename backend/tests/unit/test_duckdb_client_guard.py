@@ -22,6 +22,10 @@ Contract:
   local one not spelled absolute that resolves to the working directory
   or above, and a file URI naming a host are refused before the lock;
   the views are created on the locked connection;
+- connections open at once on one database file (one shared engine) all
+  read it and nothing else; a connection whose file's engine was locked
+  with other settings (other paths or directories, a temp directory) is
+  refused;
 - table selection compares names the way DuckDB folds them (ASCII
   letters only), on both sides;
 - DuckDB's own catalog views are refused on both kinds of connection, and
@@ -35,6 +39,7 @@ the network.
 
 from __future__ import annotations
 
+import contextlib
 import functools
 import http.server
 import threading
@@ -213,6 +218,97 @@ def test_a_database_file_connection_lists_and_reads_its_tables_and_nothing_else(
     with client.connect() as con:
         with pytest.raises(duckdb.Error):
             con.execute(f"SELECT * FROM read_csv_auto('{_sq(files.secret)}')").fetchall()
+
+
+# DuckDB shares one engine per database file in a process: a second
+# connection to a file finds the engine already locked by the first.
+
+def _reads_the_file_and_nothing_else(con, files):
+    assert con.execute("SELECT sum(amount) FROM orders").fetchone()[0] == 12
+    with pytest.raises(duckdb.PermissionException):
+        con.execute(f"SELECT * FROM read_csv_auto('{_sq(files.secret)}')").fetchall()
+
+
+@pytest.mark.parametrize("how", ["database", "uris"])
+def test_connections_open_at_once_on_one_database_file_all_read_it_and_nothing_else(how, db_file, files):
+    client = DuckDBClient(**{how: str(db_file)})
+    with contextlib.ExitStack() as stack:
+        cons = [stack.enter_context(client.connect()) for _ in range(4)]
+        for con in cons:
+            _reads_the_file_and_nothing_else(con, files)
+
+
+def test_threads_connecting_to_one_database_file_at_once_all_read_it_and_nothing_else(db_file, files):
+    client = DuckDBClient(database=str(db_file))
+    workers = 6
+    opened = threading.Barrier(workers, timeout=30)
+    errors: list[BaseException] = []
+
+    def work():
+        try:
+            with client.connect() as con:
+                opened.wait()
+                _reads_the_file_and_nothing_else(con, files)
+        except BaseException as err:  # reported below
+            errors.append(err)
+            opened.abort()
+
+    threads = [threading.Thread(target=work) for _ in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(60)
+    assert errors == []
+
+
+def _lock_with_raw_settings(con, files):
+    # Locked, but with the engine's default temp directory.
+    con.execute("SET allowed_paths = []")
+    con.execute("SET enable_external_access = false")
+    con.execute("SET lock_configuration = true")
+
+
+@pytest.mark.parametrize("first", [
+    lambda con, files: lock_down(con, allowed_paths=[str(files.secret)]),
+    lambda con, files: lock_down(con, allowed_directories=[f"{files.secret.parent}/"]),
+    _lock_with_raw_settings,
+], ids=["wider_paths", "wider_directories", "temp_directory"])
+def test_a_database_file_engine_locked_with_other_settings_is_refused(first, db_file, files):
+    holder = duckdb.connect(str(db_file), read_only=True)
+    try:
+        first(holder, files)
+        with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"):
+            with DuckDBClient(database=str(db_file)).connect():
+                pass
+    finally:
+        holder.close()
+
+
+@pytest.mark.parametrize("asks", [
+    {"allowed_paths": "secret"},
+    {"allowed_directories": "outside"},
+])
+def test_a_second_lock_asking_for_other_paths_on_a_locked_database_file_engine_is_refused(asks, db_file, files):
+    named = {"secret": [str(files.secret)], "outside": [f"{files.secret.parent}/"]}
+    holder = duckdb.connect(str(db_file), read_only=True)
+    second = duckdb.connect(str(db_file), read_only=True)
+    try:
+        lock_down(holder)
+        with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"):
+            lock_down(second, **{k: named[v] for k, v in asks.items()})
+    finally:
+        second.close()
+        holder.close()
+
+
+def test_a_database_file_engine_locked_the_same_way_elsewhere_is_accepted(db_file, files):
+    holder = duckdb.connect(str(db_file), read_only=True)
+    try:
+        lock_down(holder)
+        with DuckDBClient(database=str(db_file)).connect() as con:
+            _reads_the_file_and_nothing_else(con, files)
+    finally:
+        holder.close()
 
 
 # ------------------------------------------------------------ the read verbs, unscoped
