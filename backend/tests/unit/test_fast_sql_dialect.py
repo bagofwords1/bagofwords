@@ -645,3 +645,39 @@ def test_accelerable_types_are_all_lowercase():
     from app.services.custom_query_service import ACCELERABLE_TYPES
 
     assert all(t == t.lower() for t in ACCELERABLE_TYPES)
+
+
+@pytest.mark.parametrize("query_fails", [False, True])
+def test_sql_server_never_pools_a_session_left_in_showplan_mode(query_fails):
+    """If SHOWPLAN_XML OFF itself fails, the session would go back to the pool
+    returning plans instead of rows; it must be invalidated instead."""
+    class StuckInShowplan(FakeConn):
+        invalidated = False
+
+        def exec_driver_sql(self, stmt):
+            self.sent.append((str(stmt), None))
+            if stmt == "SET SHOWPLAN_XML OFF":
+                raise RuntimeError("connection reset by peer")
+            if query_fails and stmt.startswith("SELECT"):
+                raise RuntimeError("invalid object name")
+            return FakeResult(scalar=MSSQL_PLAN) if stmt.startswith("SELECT") else FakeResult()
+
+        def invalidate(self):
+            self.invalidated = True
+
+    conn = StuckInShowplan([])
+    with pytest.raises(RuntimeError):
+        sql_dialect.explain_mssql(conn, "SELECT * FROM orders")
+    assert conn.invalidated
+
+
+def test_sql_server_keeps_a_session_that_left_showplan_mode():
+    class Tracking(FakeConn):
+        invalidated = False
+
+        def invalidate(self):
+            self.invalidated = True
+
+    conn = Tracking([FakeResult(), FakeResult(scalar=MSSQL_PLAN), FakeResult()])
+    sql_dialect.explain_mssql(conn, "SELECT * FROM orders")
+    assert not conn.invalidated

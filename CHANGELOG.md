@@ -5,7 +5,9 @@
 - Added an optional dashboard description, set in Settings → General and shown on hover in the dashboard list (#1732)
 - Added querying packet captures (PCAP/PCAPNG) and QVD files in network directory connections, as a packets table and a table per QVD (#1746)
 - Added a "Not render-checked" note on dashboards saved when the server cannot render them (#1745)
+- Added an isolation level choice for SQL Server connections (#1739) — "Isolation Level" (default: READ COMMITTED; snapshot, read uncommitted)
 - Changed the agent to stop after four failed dashboard builds in a row and say so (#1745)
+- Changed SQL Server queries to stop waiting on a row another session has locked after 15 seconds, and to be the side SQL Server gives up in a deadlock (#1739) — "Lock Timeout (seconds)" and "Yield in Deadlocks" on the connection (defaults: 15, on; 0 = no limit)
 - Fixed dashboards built by smaller models failing on imports, exports, or helpers taken from `bow` or `React` (#1745)
 - Fixed scheduled tasks' reports all being named "Scheduled task"; a report now takes its task's name and follows renames (#1736)
 - Fixed reports becoming "not found" after a folder instruction they used was detached, turned off or deleted (#1742)
@@ -13,6 +15,8 @@
 - Fixed folder-scoped instructions listed under "Global instructions" in Pending changes (#1737)
 - Fixed agent-authored instructions in a folder-scoped report being pinned to the folder's agents instead of the folder (#1738)
 - Fixed the agent scope picker always showing a folder icon, even for a single agent or all agents (#1731)
+- Fixed SQL Server timeouts BOW could not stop being reported only in logs; the error and the connection test name the missing permission (#1739)
+- Fixed unreadable packet captures being decoded again on every refresh; a failed file now shows a specific reason in `indexed_files` and is retried only when it changes or the host is fixed (#1747)
 
 ## Version 0.0.621 (November 15, 2026)
 - Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
