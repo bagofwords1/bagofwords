@@ -1410,7 +1410,9 @@
       "failedDashboard": "Échec de la création du tableau de bord",
       "copied": "Copié",
       "copiedDesc": "ID de l'artefact copié dans le presse-papiers",
-      "copyFailed": "Échec de la copie"
+      "copyFailed": "Échec de la copie",
+      "notRenderChecked": "Rendu non vérifié",
+      "notRenderCheckedDesc": "Enregistré sans vérification du rendu : le serveur n'a pas pu démarrer son navigateur. Ouvrez-le pour vérifier qu'il s'affiche."
     },
     "createDashboard": {
       "creating": "Création du tableau de bord",
@@ -1447,7 +1449,9 @@
       "copyIdTooltip": "Cliquez pour copier l'ID",
       "copied": "Copié",
       "copiedDesc": "ID de l'artefact copié dans le presse-papiers",
-      "copyFailed": "Échec de la copie"
+      "copyFailed": "Échec de la copie",
+      "notRenderChecked": "Rendu non vérifié",
+      "notRenderCheckedDesc": "Enregistré sans vérification du rendu : le serveur n'a pas pu démarrer son navigateur. Ouvrez-le pour vérifier qu'il s'affiche."
     },
     "createWidget": {
       "creatingDataModel": "Création du modèle de données",
@@ -4285,6 +4289,7 @@
       "search_file": "Rechercher dans les fichiers",
       "system_status": "Consulter l’état du système"
     },
+    "networkDirIndexDescription": "Le mode en direct lit les fichiers à la demande. La liste des fichiers conserve les noms, les tailles et les dates. Les modes Mots-clés et Texte intégral conservent aussi les données PCAP et QVD décodées pour les requêtes SQL. Le mode Texte intégral indexe le contenu des documents pour la recherche. L’actualisation traite les fichiers modifiés.",
     "sshSetup": {
       "title": "Vérifier l’identité du serveur",
       "hint": "Comparez l’empreinte avec celle fournie par l’administrateur ou des données SSH fiables. Récupérer une clé ne la vérifie pas.",
@@ -7043,6 +7048,9 @@
     "unsaved": "Modifications non enregistrées",
     "tabGeneral": "Général",
     "nameTitle": "Nom",
+    "descriptionTitle": "Description",
+    "descriptionPlaceholder": "Ce que montre ce tableau de bord et à qui il s'adresse",
+    "descriptionHelp": "Facultatif. Affiché aux lecteurs au survol, à côté du nom.",
     "linkTitle": "Lien",
     "refreshTitle": "Actualiser les données",
     "linkPreview": "Lien :",

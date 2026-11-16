@@ -138,6 +138,7 @@ class DashboardSettingsSchema(BaseModel):
     notification_subscribers: list[dict] | None = None
     slug: str | None = None  # the name in its link (phase 8)
     notes: str | None = None  # the dashboard's README (collab01)
+    description: str | None = None  # short blurb shown to readers on hover (dashdesc01)
 
 
 class DashboardSettingsUpdate(BaseModel):
@@ -159,6 +160,8 @@ class DashboardSettingsUpdate(BaseModel):
     slug: str | None = Field(default=None, max_length=255)
     # The dashboard's notes (collab01); "" clears them.
     notes: str | None = Field(default=None, max_length=20000)
+    # A short blurb shown to readers on hover (dashdesc01); "" clears it.
+    description: str | None = Field(default=None, max_length=2000)
 
 
 class DashboardStepFailureSchema(BaseModel):
@@ -263,6 +266,8 @@ class DashboardListItem(BaseModel):
     id: str
     slug: str | None = None
     title: str | None = None
+    # Short blurb shown beside the full name on hover (dashdesc01).
+    description: str | None = None
     mode: str
     published: bool
     is_owner: bool

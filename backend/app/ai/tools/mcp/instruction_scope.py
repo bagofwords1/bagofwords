@@ -54,9 +54,3 @@ def instruction_builder(
         channel=MCP_INSTRUCTION_CHANNEL,
     )
 
-
-def in_scope(instruction_agent_ids, report_agent_ids) -> bool:
-    """Global instructions (no agents) apply everywhere; the rest only where
-    one of their agents is in the report."""
-    agents = {str(a) for a in instruction_agent_ids or []}
-    return not agents or bool(agents & {str(a) for a in report_agent_ids})

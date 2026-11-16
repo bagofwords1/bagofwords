@@ -3715,17 +3715,12 @@ class NetworkDirConfig(BaseModel):
         "fulltext",
         title="Indexing",
         description=(
-            "How much to store about the files — and so how well the agent "
-            "can search them. Live: nothing stored; search is by file name "
-            "plus a slow scan of the source. File list: names, sizes and "
-            "dates. Keywords: also up to 50 keywords per file, from the start "
-            "of its text. Full text: also a search index of every word in "
-            "every file (PDF, Office, CSV, text, email), so the agent finds "
-            "exact words, IDs and phrases anywhere, with the page or sheet. "
-            "The index holds the words, not the files, and is removed with "
-            "the connection. Only changed files are re-read."
+            "Live mode reads files on demand. File list stores names, sizes, and dates. "
+            "Keywords and Full text also store decoded PCAP and QVD data for SQL queries. "
+            "Full text indexes document contents for search. Refresh processes changed files."
         ),
         json_schema_extra={
+            "ui:descriptionKey": "data.networkDirIndexDescription",
             "ui:type": "select",
             "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {

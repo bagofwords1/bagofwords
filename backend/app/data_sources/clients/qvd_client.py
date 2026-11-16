@@ -242,7 +242,7 @@ class QVDClient(DataSourceClient):
     #   "qvd2parquet: progress <done_rows> <total_rows>"
     _PROGRESS_RE = re.compile(r"progress\s+(\d+)\s+(\d+)")
 
-    def _run_convert_streaming(
+    def convert_to_parquet(
         self,
         filepath: str,
         tmp_path: Path,
@@ -383,7 +383,7 @@ class QVDClient(DataSourceClient):
             # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
             # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
             # wheel which materialized the full table (~13× file size, OOM on 4GB+).
-            stderr = self._run_convert_streaming(
+            stderr = self.convert_to_parquet(
                 filepath, tmp_path, progress_cb=progress_cb, cancel_check=cancel_check,
             )
 
