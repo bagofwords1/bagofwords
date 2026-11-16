@@ -24,8 +24,9 @@ Contract:
   the views are created on the locked connection;
 - connections open at once on one database file (one shared engine) all
   read it and nothing else; a connection whose file's engine was locked
-  with other settings (other paths or directories, a temp directory) is
-  refused;
+  with other settings (other paths or directories, a temp directory,
+  another database file attached) is refused, and the refusal does not
+  name what the engine read back (the server log does);
 - table selection compares names the way DuckDB folds them (ASCII
   letters only), on both sides;
 - DuckDB's own catalog views are refused on both kinds of connection, and
@@ -261,8 +262,22 @@ def test_threads_connecting_to_one_database_file_at_once_all_read_it_and_nothing
     assert errors == []
 
 
-def _lock_with_raw_settings(con, files):
+def _lock_with_raw_settings(con):
     # Locked, but with the engine's default temp directory.
+    con.execute("SET allowed_paths = []")
+    con.execute("SET enable_external_access = false")
+    con.execute("SET lock_configuration = true")
+
+
+def _attach_another_database_then_lock(con, files):
+    # Locked the way lock_down locks, with another database file attached
+    # to the engine first: DuckDB lets the engine read that file too.
+    other = files.secret.parent / "other.duckdb"
+    writer = duckdb.connect(str(other))
+    writer.execute("CREATE TABLE hidden AS SELECT 'hidden-value' AS token")
+    writer.close()
+    con.execute(f"ATTACH '{_sq(other)}' AS other (READ_ONLY)")
+    con.execute("SET temp_directory = ''")
     con.execute("SET allowed_paths = []")
     con.execute("SET enable_external_access = false")
     con.execute("SET lock_configuration = true")
@@ -271,15 +286,37 @@ def _lock_with_raw_settings(con, files):
 @pytest.mark.parametrize("first", [
     lambda con, files: lock_down(con, allowed_paths=[str(files.secret)]),
     lambda con, files: lock_down(con, allowed_directories=[f"{files.secret.parent}/"]),
-    _lock_with_raw_settings,
-], ids=["wider_paths", "wider_directories", "temp_directory"])
+    lambda con, files: _lock_with_raw_settings(con),
+    _attach_another_database_then_lock,
+], ids=["wider_paths", "wider_directories", "temp_directory", "attached_other_database"])
 def test_a_database_file_engine_locked_with_other_settings_is_refused(first, db_file, files):
     holder = duckdb.connect(str(db_file), read_only=True)
     try:
         first(holder, files)
-        with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"):
+        with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked") as refused:
             with DuckDBClient(database=str(db_file)).connect():
                 pass
+        # What the engine reads back names server files: the server log
+        # has it, the refusal the agent sees does not.
+        assert str(files.secret.parent) not in str(refused.value)
+    finally:
+        holder.close()
+
+
+def test_a_refusal_logs_what_the_engine_reads_back(db_file, files, caplog):
+    import logging
+
+    import app.data_sources.clients._duckdb_lockdown as lockdown_mod
+
+    holder = duckdb.connect(str(db_file), read_only=True)
+    try:
+        lock_down(holder, allowed_paths=[str(files.secret)])
+        logging.getLogger(lockdown_mod.__name__).disabled = False
+        with caplog.at_level(logging.WARNING, logger=lockdown_mod.__name__):
+            with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"):
+                with DuckDBClient(database=str(db_file)).connect():
+                    pass
+        assert any(str(files.secret) in r.getMessage() for r in caplog.records if r.name == lockdown_mod.__name__)
     finally:
         holder.close()
 

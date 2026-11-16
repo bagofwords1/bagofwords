@@ -10,17 +10,21 @@ DuckDB keeps one engine per database file in a process, and these settings
 belong to the engine: a second connection to a file still open elsewhere
 finds them already locked. That connection is taken only when the engine
 reads back exactly what this call would have set; any other lock (other
-paths or directories, a temp directory, external access on) is refused.
+paths or directories, a temp directory, external access on, another
+database file attached) is refused.
 The callers that open a database file all lock it with no paths of their
 own, so their connections to one file agree.
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Iterable
 
 import duckdb
+
+logger = logging.getLogger(__name__)
 
 # Locks taken in this process do not interleave on a shared engine.
 _LOCKING = threading.Lock()
@@ -56,16 +60,26 @@ def _resolved_on_scratch(setting: str, values: list[str]) -> set[str]:
 
 def _check_read_back(con, paths: set[str], directories: set[str]) -> None:
     """Raise unless the engine of `con` reads back as locked to exactly
-    `paths` (plus the files DuckDB adds for its own databases) and
-    `directories`, with no temp directory and external access off."""
-    locked, external, temp, got_paths, got_directories = con.execute(
-        "SELECT current_setting('lock_configuration'), current_setting('enable_external_access'), "
-        "current_setting('temp_directory'), current_setting('allowed_paths'), "
-        "current_setting('allowed_directories')").fetchone()
-    databases = con.execute(
-        "SELECT path FROM duckdb_databases() WHERE NOT internal AND path IS NOT NULL").fetchall()
-    paths = paths | {path + suffix for (path,) in databases for suffix in _DATABASE_FILE_SUFFIXES}
+    `paths` (plus the files DuckDB adds for the connection's own database)
+    and `directories`, with no temp directory, external access off and no
+    other database file attached. What the engine read back names server
+    files: it goes to the server log, not into the refusal."""
+    try:
+        locked, external, temp, got_paths, got_directories = con.execute(
+            "SELECT current_setting('lock_configuration'), current_setting('enable_external_access'), "
+            "current_setting('temp_directory'), current_setting('allowed_paths'), "
+            "current_setting('allowed_directories')").fetchone()
+        databases = con.execute(
+            "SELECT database_name = current_database(), path FROM duckdb_databases() "
+            "WHERE NOT internal AND path IS NOT NULL").fetchall()
+    except Exception as err:
+        raise _refused("read back", err) from err
+    own = [path for is_own, path in databases if is_own]
+    others = [path for is_own, path in databases if not is_own]
+    paths = paths | {path + suffix for path in own for suffix in _DATABASE_FILE_SUFFIXES}
     for setting, ok, value in (
+        # DuckDB lets the engine read every database file attached to it.
+        ("attached databases", not others, others),
         ("lock_configuration", locked is True, locked),
         ("enable_external_access", external is False, external),
         ("temp_directory", temp == "", temp),
@@ -73,7 +87,8 @@ def _check_read_back(con, paths: set[str], directories: set[str]) -> None:
         ("allowed_directories", set(got_directories) == directories, got_directories),
     ):
         if not ok:
-            raise _refused(setting, f"the engine reads back {value!r}")
+            logger.warning("duckdb_lockdown.refused %s: the engine reads back %r", setting, value)
+            raise _refused(setting, "the engine reads back other settings than this connection's")
 
 
 def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: Iterable[str] = ()) -> None:
@@ -90,11 +105,21 @@ def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: It
     paths = [str(p) for p in allowed_paths]
     directories = [str(d) for d in allowed_directories]
     with _LOCKING:
-        if con.execute("SELECT current_setting('lock_configuration')").fetchone()[0]:
+        try:
+            locked_already = con.execute("SELECT current_setting('lock_configuration')").fetchone()[0]
+        except Exception as err:
+            raise _refused("lock_configuration", err) from err
+        if locked_already:
             # The engine of a database file open elsewhere, locked already:
             # its settings cannot be set here, only compared.
-            expected_paths = _resolved_on_scratch("allowed_paths", paths)
-            expected_directories = _resolved_on_scratch("allowed_directories", directories)
+            try:
+                expected_paths = _resolved_on_scratch("allowed_paths", paths)
+            except Exception as err:
+                raise _refused("allowed_paths", err) from err
+            try:
+                expected_directories = _resolved_on_scratch("allowed_directories", directories)
+            except Exception as err:
+                raise _refused("allowed_directories", err) from err
         else:
             # DuckDB allows a connection its own temp directory under the
             # lock; with none set, spilling is off and no temp directory is
@@ -111,9 +136,12 @@ def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: It
             ]
             try:
                 expected_paths = _resolved(con, "allowed_paths", paths)
-                expected_directories = _resolved(con, "allowed_directories", directories)
             except Exception as err:
                 raise _refused("allowed_paths", err) from err
+            try:
+                expected_directories = _resolved(con, "allowed_directories", directories)
+            except Exception as err:
+                raise _refused("allowed_directories", err) from err
             for setting, statement in steps:
                 try:
                     con.execute(statement)

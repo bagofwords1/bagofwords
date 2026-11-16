@@ -653,6 +653,57 @@ def test_lock_down_that_cannot_lock_raises():
         con.close()
 
 
+_LOCK_REFUSED = "Refusing to query files without the engine locked"
+# A path DuckDB cannot take: its NUL ends the quoted literal.
+_UNSETTABLE = "/a" + chr(0) + "b/"
+
+
+@pytest.mark.parametrize("locked", [False, True], ids=["fresh_engine", "engine_locked_already"])
+@pytest.mark.parametrize("setting", ["allowed_paths", "allowed_directories"])
+def test_a_setting_duckdb_cannot_take_is_refused_under_its_own_name(setting, locked):
+    con = duckdb.connect(":memory:", config={"lock_configuration": True} if locked else {})
+    try:
+        with pytest.raises(RuntimeError, match=rf"{_LOCK_REFUSED} \({setting}\)"):
+            lock_down(con, **{setting: [_UNSETTABLE]})
+    finally:
+        con.close()
+
+
+class _FailsOnCall:
+    """A connection whose `fail_at`-th statement (counting from 0) fails as
+    DuckDB fails; every other one runs on `con`."""
+
+    def __init__(self, con, fail_at=None):
+        self._con, self._fail_at, self.calls = con, fail_at, 0
+
+    def execute(self, sql, *args):
+        n, self.calls = self.calls, self.calls + 1
+        if n == self._fail_at:
+            raise duckdb.IOException("the engine went away")
+        return self._con.execute(sql, *args)
+
+
+def test_any_statement_of_lock_down_that_fails_is_a_refusal(tmp_path):
+    own = tmp_path / "own.csv"
+    _SALES.to_csv(own, index=False)
+
+    def fresh():
+        return duckdb.connect(":memory:")
+
+    counting = _FailsOnCall(fresh())
+    lock_down(counting, allowed_paths=[str(own)], allowed_directories=[f"{tmp_path}/"])
+    counting._con.close()
+    assert counting.calls > 0
+    for fail_at in range(counting.calls):
+        con = fresh()
+        try:
+            with pytest.raises(RuntimeError, match=_LOCK_REFUSED):
+                lock_down(_FailsOnCall(con, fail_at), allowed_paths=[str(own)],
+                          allowed_directories=[f"{tmp_path}/"])
+        finally:
+            con.close()
+
+
 # ------------------------------------------------------------ through each client
 
 def test_each_connection_answers_a_select_over_its_tables(files):
