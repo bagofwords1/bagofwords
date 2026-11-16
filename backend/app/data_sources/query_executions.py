@@ -465,6 +465,10 @@ def request_kill_local(query_execution_id: str) -> bool:
 # a function taking a connection; the supervisor applies them oldest first.
 _pending_writes: list[Callable[[Any], None]] = []
 _pending_lock = threading.Lock()
+# One flusher at a time (the supervisor's tick, a caller, the exit hook): two
+# would both take the oldest entry and apply it twice -- a duplicate insert
+# fails on the primary key and is logged as a dropped write.
+_flush_lock = threading.Lock()
 
 
 def _defer_write(op: Callable[[Any], None]) -> None:
@@ -486,6 +490,11 @@ def flush_pending_writes() -> int:
 
     Returns how many were written. Public for tests.
     """
+    with _flush_lock:
+        return _flush_pending_writes_locked()
+
+
+def _flush_pending_writes_locked() -> int:
     written = 0
     while True:
         with _pending_lock:

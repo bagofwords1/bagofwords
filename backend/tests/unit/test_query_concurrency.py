@@ -481,7 +481,11 @@ def test_a_locked_sqlite_database_never_stalls_the_query(connection_id):
         raw.rollback()
         raw.close()
 
-    assert qe.flush_pending_writes() == 5  # 3 inserts + 2 closing updates
+    # 3 inserts + 2 closing updates. The supervisor's own tick may already have
+    # applied some of them once the lock cleared, so check they all landed
+    # (nothing pending, every row below) rather than who wrote them.
+    qe.flush_pending_writes()
+    assert qe.pending_write_count() == 0
     rows = {r["query_text"]: r for r in _rows(connection_id)}
     assert rows["SELECT 'first'"]["status"] == "success"
     assert rows["SELECT 'first'"]["rows"] == 1
@@ -651,6 +655,31 @@ def test_a_killed_query_keeps_its_slot_until_the_source_call_exits(connection_id
     _wait_for(lambda: _row(row["id"])["status"] == "cancelled")
     handle = _begin(connection_id, limit=1, wait=2.0)  # now it is free
     qe.finish(handle, "success")
+
+
+@pytest.mark.db
+def test_concurrent_flushes_apply_each_deferred_write_once():
+    """The supervisor's tick and another caller can flush at the same moment.
+    Each deferred write must still run once: a second run of an insert fails
+    on the primary key and is logged as a dropped write."""
+    calls = []
+
+    def _op(name):
+        def op(conn):
+            calls.append(name)
+            time.sleep(0.3)  # both flushers are inside flush_pending_writes now
+        return op
+
+    qe.flush_pending_writes()
+    qe._defer_write(_op("first"))
+    qe._defer_write(_op("second"))
+    flushers = [threading.Thread(target=qe.flush_pending_writes) for _ in range(2)]
+    for t in flushers:
+        t.start()
+    for t in flushers:
+        t.join(10)
+    assert calls == ["first", "second"]
+    assert qe.pending_write_count() == 0
 
 
 @pytest.mark.db
