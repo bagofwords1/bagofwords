@@ -280,21 +280,42 @@ DEFAULT_QUERY_TIMEOUT_SECONDS = 60
 _EXECUTION_HEARTBEAT_INTERVAL_S = 30.0
 
 
-async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int):
+def _stop_requested(sigkill_event) -> bool:
+    """True once the user pressed Stop on the run this work belongs to."""
+    return bool(sigkill_event is not None and hasattr(sigkill_event, "is_set") and sigkill_event.is_set())
+
+
+async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int, sigkill_event=None):
     """Stream stage-preserving heartbeats until ``awaitable`` completes.
 
     The private ``_result`` event is consumed inside StreamingCodeExecutor and
     never crosses the tool boundary.  Cancelling/closing the outer tool stream
     also cancels the in-flight codegen/query task so a timeout cannot orphan
     expensive warehouse work in this process.
+
+    A Stop (``sigkill_event`` set) cancels the in-flight task the same way and
+    ends the stream without a ``_result`` event; the caller checks the event.
+    Cancelling ``execute_code_async`` is what kills the sandbox child and asks
+    the database to cancel the running statement — Stop only sets a flag, so
+    without this race a query ran to completion after the user stopped it.
     """
     task = asyncio.ensure_future(awaitable)
+    stop_task = (
+        asyncio.ensure_future(sigkill_event.wait())
+        if isinstance(sigkill_event, asyncio.Event)
+        else None
+    )
     interval = max(0.001, float(_EXECUTION_HEARTBEAT_INTERVAL_S))
     try:
         while True:
-            done, _ = await asyncio.wait({task}, timeout=interval)
+            waiters = {task} if stop_task is None else {task, stop_task}
+            done, _ = await asyncio.wait(
+                waiters, timeout=interval, return_when=asyncio.FIRST_COMPLETED
+            )
             if task in done:
                 yield {"type": "_result", "value": task.result()}
+                return
+            if stop_task is not None and stop_task in done:
                 return
             yield {
                 "type": "progress",
@@ -306,9 +327,11 @@ async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int)
                 },
             }
     finally:
-        if not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        pending = [t for t in (task, stop_task) if t is not None and not t.done()]
+        for t in pending:
+            t.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 _tracer = get_tracer(__name__)
 
@@ -1199,7 +1222,7 @@ class QueryCapturingClientWrapper:
         with self._active_query_lock:
             abort_pending, self._abort_pending = self._abort_pending, False
         if abort_pending:
-            self._last_cancel_outcome = self._cancel_orphan(t)
+            self._last_cancel_outcome = self._cancel_orphan(t, aborted=True)
         try:
             t.join(self._query_timeout_seconds)
         finally:
@@ -1230,9 +1253,9 @@ class QueryCapturingClientWrapper:
                 self._abort_pending = True
                 return
         if thread.is_alive():
-            self._last_cancel_outcome = self._cancel_orphan(thread)
+            self._last_cancel_outcome = self._cancel_orphan(thread, aborted=True)
 
-    def _cancel_orphan(self, thread: threading.Thread) -> str:
+    def _cancel_orphan(self, thread: threading.Thread, *, aborted: bool = False) -> str:
         """Best-effort source-side cancellation of an abandoned query.
 
         Never raises: the timeout is the outcome the caller cares about, and a
@@ -1247,10 +1270,14 @@ class QueryCapturingClientWrapper:
             if ident is None:
                 return "not_running"
             outcome = query_cancellation.cancel_thread(self._original, ident)
-            logger.info(
-                "Query timed out after %ss; source cancellation: %s",
-                self._query_timeout_seconds, outcome,
-            )
+            if aborted:
+                # The sandbox job stopped early (user Stop, tool timeout).
+                logger.info("Query aborted by its run; source cancellation: %s", outcome)
+            else:
+                logger.info(
+                    "Query timed out after %ss; source cancellation: %s",
+                    self._query_timeout_seconds, outcome,
+                )
             return outcome
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("Could not request query cancellation: %s", e)
@@ -2258,11 +2285,14 @@ class StreamingCodeExecutor:
                     ),
                     stage="code_generation",
                     attempt=retries,
+                    sigkill_event=sigkill_event,
                 ):
                     if _codegen_event["type"] == "_result":
                         final_code = _codegen_event["value"]
                     else:
                         yield _codegen_event
+                if _stop_requested(sigkill_event):
+                    break
                 codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
                 yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "code": final_code, "timing": False}}
             except Exception as e:
@@ -2328,11 +2358,14 @@ class StreamingCodeExecutor:
                     ),
                     stage="data_query_execution",
                     attempt=retries,
+                    sigkill_event=sigkill_event,
                 ):
                     if _execution_event["type"] == "_result":
                         exec_df, execution_log, _ = _execution_event["value"]
                     else:
                         yield _execution_event
+                if _stop_requested(sigkill_event):
+                    break
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
                 yield {
                     "type": "progress",
@@ -2401,7 +2434,9 @@ class StreamingCodeExecutor:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
 
-        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+        if _stop_requested(sigkill_event):
+            # `stopped` lets the tool report a user stop instead of an empty
+            # success (no widget/step for a query the user aborted).
             yield {
                 "type": "done",
                 "payload": {
@@ -2413,6 +2448,7 @@ class StreamingCodeExecutor:
                     "query_timings": [],
                     "codegen_ms": None,
                     "execution_ms": None,
+                    "stopped": True,
                 },
             }
             return
