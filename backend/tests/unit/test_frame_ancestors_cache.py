@@ -111,3 +111,80 @@ def test_a_request_does_not_wait_for_a_stuck_database(monkeypatch):
         for path in ("/users/sign-in", "/api/settings", "/health"):
             assert client.get(path).status_code == 200
         assert time.monotonic() - started < 2
+
+
+def test_warm_loads_the_list_before_the_first_request(monkeypatch):
+    async def scenario():
+        _reader(monkeypatch, ["https://portal.example.com"])
+        await svc.warm()
+        calls = _reader(monkeypatch, ["https://other.example.com"])
+        assert svc.cached_origins() == ("https://portal.example.com",)
+        assert calls == []  # fresh: the first request does not read again
+
+    asyncio.run(scenario())
+
+
+def test_warm_never_fails_startup(monkeypatch):
+    async def scenario():
+        monkeypatch.setattr(svc, "READ_TIMEOUT_SECONDS", 0.01)
+        _reader(monkeypatch, hang=asyncio.Event())
+        await svc.warm()
+        _reader(monkeypatch, fail=True)
+        await svc.warm()
+        assert svc.cached_origins() == ()
+
+    asyncio.run(scenario())
+
+
+def test_a_save_during_a_background_read_wins(monkeypatch):
+    async def scenario():
+        svc._cache.update(origins=("https://old.example.com",), loaded_at=None)
+        release = asyncio.Event()
+        _reader(monkeypatch, ["https://old.example.com"], hang=release)
+        svc.cached_origins()  # starts a read of the pre-save row
+        await asyncio.sleep(0)
+        svc._set_saved(("https://new.example.com",))  # what save_origins does after commit
+        release.set()
+        await svc._cache["task"]
+        assert svc.cached_origins() == ("https://new.example.com",)
+
+    asyncio.run(scenario())
+
+
+def test_a_reset_during_a_read_leaves_the_cache_to_be_read_again(monkeypatch):
+    async def scenario():
+        release = asyncio.Event()
+        _reader(monkeypatch, ["https://a.example.com"], hang=release)
+        svc.cached_origins()
+        await asyncio.sleep(0)
+        task = svc._cache["task"]
+        svc.reset_cache()
+        release.set()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert svc._cache["loaded_at"] is None and svc._cache["origins"] == ()
+
+    asyncio.run(scenario())
+
+
+class _Row:
+    def __init__(self, value):
+        self.value = value
+
+
+@pytest.mark.parametrize("value, expected", [
+    (["https://a.example.com"], []),
+    ({"origins": "https://a.example.com"}, []),
+    ({"origins": None}, []),
+    ({}, []),
+    ({"origins": ["https://a.example.com", "HTTPS://A.example.com/", "bad; script-src *"]}, ["https://a.example.com"]),
+])
+def test_a_malformed_stored_row_reads_as_clean_or_empty(value, expected):
+    assert svc._stored_origins(_Row(value)) == expected
+
+
+def test_the_stored_list_is_capped_on_read():
+    origins = [f"https://s{i}.example.com" for i in range(svc.MAX_ORIGINS + 5)]
+    assert len(svc._stored_origins(_Row({"origins": origins}))) == svc.MAX_ORIGINS

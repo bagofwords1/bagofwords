@@ -495,6 +495,11 @@ async def startup_event():
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
 
+    # Sites admins allowed to frame BOW: load them now (bounded, never fatal)
+    # so the first framed page after a restart is not refused.
+    from app.services import frame_ancestors_service
+    await frame_ancestors_service.warm()
+
     # Object storage (storage.backend = s3 | azure): prove read/write/delete
     # before serving, so bad credentials fail the pod instead of every upload.
     try:

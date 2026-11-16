@@ -3786,7 +3786,8 @@
       "ssoNote": "Die Anmeldung im Frame funktioniert mit E-Mail und Passwort. Single Sign-On (SSO) funktioniert in einem Frame nicht.",
       "readOnly": "Auf einer Instanz mit mehreren Organisationen kann nur ein Instanzadministrator diese Liste ändern.",
       "duplicate": "Diese Website ist bereits in der Liste.",
-      "invalidFormat": "Geben Sie eine Adresse ein, die mit https:// beginnt, ohne Pfad. Zum Beispiel: https://portal.example.com"
+      "invalidFormat": "Geben Sie eine Adresse ein, die mit https:// beginnt, ohne Pfad. Zum Beispiel: https://portal.example.com",
+      "publicNote": "Diese Adressen sind für alle sichtbar: Browser erhalten sie mit jeder Seite."
     }
   },
   "data": {

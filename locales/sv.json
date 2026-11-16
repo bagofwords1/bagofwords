@@ -3786,7 +3786,8 @@
       "ssoNote": "Inloggning i ramen fungerar med e-post och lösenord. Enkel inloggning (SSO) fungerar inte i en ram.",
       "readOnly": "På en instans med flera organisationer kan bara en instansadministratör ändra listan.",
       "duplicate": "Webbplatsen finns redan i listan.",
-      "invalidFormat": "Ange en adress som börjar med https://, utan sökväg. Till exempel: https://portal.example.com"
+      "invalidFormat": "Ange en adress som börjar med https://, utan sökväg. Till exempel: https://portal.example.com",
+      "publicNote": "Vem som helst kan se de här adresserna: webbläsare får dem med varje sida."
     }
   },
   "data": {

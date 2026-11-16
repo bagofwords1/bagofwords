@@ -47,23 +47,31 @@ _LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _ORIGIN = re.compile(rf"^(https?)://(\*\.)?({_LABEL}(?:\.{_LABEL})*)(?::(\d{{1,5}}|\*))?$")
 _LOCAL_HOSTS = {"localhost", "127.0.0.1"}
 # Domains where anyone can publish a site of their own: "*." over one of these
-# would let any of those sites frame the sign-in page.
+# would let any of those sites frame the sign-in page. Not the full Public
+# Suffix List; the common hosting platforms, plus the registry rule below.
 _SHARED_HOSTING = {
-    "github.io", "gitlab.io", "vercel.app", "netlify.app", "pages.dev", "workers.dev",
-    "web.app", "firebaseapp.com", "appspot.com", "herokuapp.com", "onrender.com",
-    "azurewebsites.net", "azurestaticapps.net", "cloudapp.net", "windows.net",
-    "cloudfront.net", "amazonaws.com", "blogspot.com", "glitch.me", "ngrok.io", "ngrok-free.app",
+    "github.io", "gitlab.io", "vercel.app", "netlify.app", "netlify.com", "pages.dev", "workers.dev",
+    "web.app", "firebaseapp.com", "appspot.com", "herokuapp.com", "onrender.com", "fly.dev",
+    "railway.app", "deno.dev", "replit.app", "repl.co", "surge.sh", "glitch.me",
+    "azurewebsites.net", "azurestaticapps.net", "azureedge.net", "azurefd.net", "cloudapp.net",
+    "windows.net", "trafficmanager.net", "cloudfront.net", "amazonaws.com", "elasticbeanstalk.com",
+    "ngrok.io", "ngrok-free.app", "ngrok.app", "trycloudflare.com", "loca.lt",
+    "eu.org", "duckdns.org", "no-ip.org", "ddns.net",
 }
-# Second-level registries under a country code (co.uk, com.au, co.il, ...).
-_REGISTRY_LABELS = {"co", "com", "org", "net", "gov", "ac", "edu", "or", "ne", "go"}
+# A label that is the same free-hosting service under every country domain
+# (blogspot.co.il, blogspot.de, ...).
+_SHARED_LABELS = {"blogspot"}
+# Second-level registries under a country code (co.uk, com.au, co.il, me.uk, ...).
+_REGISTRY_LABELS = {"co", "com", "org", "net", "gov", "ac", "edu", "or", "ne", "go", "me", "ltd", "plc", "gen", "nic"}
+_MAX_SOURCE_LENGTH = 300
 
 
 def frame_ancestor_source(value) -> str | None:
     """The CSP source for one configured origin, or None when it is not a
     plain origin: https (http only for localhost), an optional leading
     ``*.`` over a domain someone owns (not a shared-hosting or registry
-    suffix), an optional port, no path or keyword."""
-    if not isinstance(value, str):
+    suffix, not an IP), an optional port, no path or keyword."""
+    if not isinstance(value, str) or len(value) > _MAX_SOURCE_LENGTH:
         return None
     source = value.strip().lower()
     if source.endswith("/"):
@@ -85,7 +93,11 @@ def frame_ancestor_source(value) -> str | None:
 
 def _is_shared_suffix(host: str) -> bool:
     labels = host.split(".")
+    if all(label.isdigit() for label in labels):
+        return True  # "*." over an IP address
     if any(host == d or host.endswith("." + d) for d in _SHARED_HOSTING):
+        return True
+    if any(label in _SHARED_LABELS for label in labels):
         return True
     return len(labels) == 2 and labels[0] in _REGISTRY_LABELS
 

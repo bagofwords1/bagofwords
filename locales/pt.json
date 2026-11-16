@@ -3786,7 +3786,8 @@
       "ssoNote": "O login dentro do quadro funciona com e-mail e senha. O login único (SSO) não funciona dentro de um quadro.",
       "readOnly": "Em uma instância com várias organizações, só um administrador da instância pode alterar esta lista.",
       "duplicate": "Este site já está na lista.",
-      "invalidFormat": "Digite um endereço que comece com https://, sem caminho. Por exemplo: https://portal.example.com"
+      "invalidFormat": "Digite um endereço que comece com https://, sem caminho. Por exemplo: https://portal.example.com",
+      "publicNote": "Qualquer pessoa pode ver estes endereços: os navegadores os recebem com cada página."
     }
   },
   "data": {

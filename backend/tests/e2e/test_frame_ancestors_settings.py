@@ -159,3 +159,96 @@ def _audit_rows(org_id: str, action: str) -> list:
             ))).scalars().all()
             return [r.details or {} for r in rows]
     return asyncio.run(fetch())
+
+
+def _db(fn):
+    """Run ``fn(db)`` in its own session (the app's engine, like _audit_rows)."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+
+    async def run():
+        async with async_session_maker() as db:
+            result = await fn(db)
+            await db.commit()
+            return result
+    return asyncio.run(run())
+
+
+@pytest.mark.e2e
+def test_another_worker_picks_up_the_saved_list_from_the_database(test_client, login_user, whoami):
+    import asyncio
+
+    token, org_id = _admin(test_client, login_user, whoami)
+    test_client.put("/api/settings/frame-ancestors", json={"origins": ["https://portal.example-corp.com"]},
+                    headers=_h(token, org_id))
+    # A worker that never handled the save: empty cache, real read from the DB.
+    frame_ancestors_service.reset_cache()
+    assert "https://portal.example-corp.com" not in _ancestors(test_client.get("/api/settings"))
+    frame_ancestors_service.reset_cache()
+    asyncio.run(frame_ancestors_service.warm())
+    assert "https://portal.example-corp.com" in _ancestors(test_client.get("/api/settings"))
+
+
+@pytest.mark.e2e
+def test_on_a_multi_org_instance_a_superuser_can_change_it(test_client, login_user, whoami, monkeypatch):
+    from sqlalchemy import update
+
+    from app.models.user import User
+    from app.settings.config import settings
+
+    email = f"root_{uuid.uuid4().hex[:6]}@example-corp.com"
+    _register(test_client, email)
+    _db(lambda db: db.execute(update(User).where(User.email == email).values(is_superuser=True)))
+    token = login_user(email, main_user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    monkeypatch.setattr(settings.bow_config.features, "allow_multiple_organizations", True)
+
+    assert test_client.get("/api/settings/frame-ancestors", headers=_h(token, org_id)).json()["can_edit"] is True
+    r = test_client.put("/api/settings/frame-ancestors", json={"origins": ["https://portal.example-corp.com"]},
+                        headers=_h(token, org_id))
+    assert r.status_code == 200, r.text
+    assert "https://portal.example-corp.com" in _ancestors(test_client.get("/api/settings"))
+
+
+@pytest.mark.e2e
+def test_saving_revives_a_soft_deleted_row(test_client, login_user, whoami):
+    from datetime import datetime
+
+    from sqlalchemy import update
+
+    from app.models.instance_settings import InstanceSettings
+
+    token, org_id = _admin(test_client, login_user, whoami)
+    test_client.put("/api/settings/frame-ancestors", json={"origins": ["https://a.example-corp.com"]},
+                    headers=_h(token, org_id))
+    _db(lambda db: db.execute(update(InstanceSettings).where(InstanceSettings.key == "frame_ancestors")
+                              .values(deleted_at=datetime.utcnow())))
+    r = test_client.put("/api/settings/frame-ancestors", json={"origins": ["https://b.example-corp.com"]},
+                        headers=_h(token, org_id))
+    assert r.status_code == 200, r.text
+    assert r.json()["origins"] == ["https://b.example-corp.com"]
+
+
+@pytest.mark.e2e
+def test_a_malformed_stored_row_does_not_break_the_page(test_client, login_user, whoami):
+    from sqlalchemy import update
+
+    from app.models.instance_settings import InstanceSettings
+
+    token, org_id = _admin(test_client, login_user, whoami)
+    test_client.put("/api/settings/frame-ancestors", json={"origins": ["https://a.example-corp.com"]},
+                    headers=_h(token, org_id))
+    _db(lambda db: db.execute(update(InstanceSettings).where(InstanceSettings.key == "frame_ancestors")
+                              .values(value=["not", "a", "dict"])))
+    r = test_client.get("/api/settings/frame-ancestors", headers=_h(token, org_id))
+    assert r.status_code == 200 and r.json()["origins"] == []
+
+
+@pytest.mark.e2e
+def test_an_overlong_entry_is_refused_without_echoing_it_whole(test_client, login_user, whoami):
+    token, org_id = _admin(test_client, login_user, whoami)
+    long_value = "https://" + "a" * 500 + ".example.com"
+    r = test_client.put("/api/settings/frame-ancestors", json={"origins": [long_value]}, headers=_h(token, org_id))
+    assert r.status_code == 400 and r.json()["error_code"] == "frame_ancestors.invalid"
+    assert len(r.json()["params"]["origins"]) < 200
