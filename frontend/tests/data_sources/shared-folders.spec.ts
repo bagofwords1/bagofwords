@@ -167,10 +167,18 @@ test('drag an agent between a nested folder and root', async ({page}, testInfo) 
     await expect(dialog.getByRole('heading')).toHaveText(`Move ${agent.name}?`)
     await expect(dialog.getByRole('button',{name:'Move agent',exact:true})).toBeEnabled()
     await page.screenshot({path:testInfo.outputPath(shot)})
+    // After a move the tree refetches its agents, and until that answer
+    // arrives it still lists the agent where it was. A drag started in that
+    // window carries the old folder, and dropping it on that folder is
+    // (rightly) ignored. Wait for the refetch that shows the move.
+    const refreshed = page.waitForResponse(async r => r.request().method() === 'GET'
+      && new URL(r.url()).pathname === '/api/data_sources' && r.ok()
+      && (await r.json()).some((a:{id:string, folder_id?:string|null}) => a.id === agent.id && (a.folder_id || null) === expected))
     const [response] = await Promise.all([page.waitForResponse(r=>r.url().endsWith(agent.id+'/placement') &&
       r.request().method() === 'PUT' && !r.request().postDataJSON().preview), dialog.getByRole('button',{name:'Move agent',exact:true}).click()])
     expect(response.ok()).toBeTruthy()
     await expect(dialog).toBeHidden()
+    await refreshed
     const persisted = await page.request.get('/api/data_sources/'+agent.id,{headers:scoped})
     expect((await persisted.json()).folder_id).toBe(expected)
   }
