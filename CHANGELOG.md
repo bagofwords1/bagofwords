@@ -7,6 +7,7 @@
 - Added Qlik Sense on-prem sheet and chart catalog: the agent reads a chart's own data, reuses its expressions, and looks up field values (#1752)
 - Added attaching recent uploads and Google Drive / OneDrive files from the prompt box, without re-uploading (#1728)
 - Changed a connection's concurrent-query limit to hold across all workers and replicas, not per process (#1753)
+- Changed the default concurrent queries per connection from 4 to 12; organizations still on the old default of 4 move to 12 (#1753)
 - Removed the Folder activity card from Monitoring and Diagnosis; pick a folder in the agent selector instead (#1758)
 - Fixed Qlik Sense on-prem queries with a misspelled field returning zeros instead of an error (#1752)
 - Fixed a private Qlik sheet's title showing on every table of its app (#1752)
