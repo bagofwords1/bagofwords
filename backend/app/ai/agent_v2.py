@@ -555,6 +555,7 @@ from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
 from app.data_sources.query_tag import set_query_tag_scope, reset_query_tag_scope
+from app.data_sources import query_executions as _query_executions
 from app.ai.agents.planner.run_efficiency import RunEfficiency, enabled as run_efficiency_enabled
 from app.ai.llm.header_injection import (
     QuestionAgents,
@@ -4968,6 +4969,24 @@ class AgentV2:
             self._artifact_check_run = run
         return run
 
+    def _is_watched_run(self) -> bool:
+        """A person started this turn and is waiting for it.
+
+        Machine turns are marked on the head completion: ``trigger_source``
+        (sub-agents, check-ins, waits, eval runs), ``webhook_id`` and
+        ``scheduled_prompt_id``. Eval runs are batch work too.
+        """
+        if getattr(self, "is_eval_run", False):
+            return False
+        head = getattr(self, "head_completion", None)
+        if head is None:
+            return True
+        return not (
+            getattr(head, "trigger_source", None)
+            or getattr(head, "webhook_id", None)
+            or getattr(head, "scheduled_prompt_id", None)
+        )
+
     async def _release_db_between_steps(self) -> None:
         """Commit the agent's main session so its pooled DB connection is returned
         to the pool during the upcoming long awaits (planner LLM call, tool /
@@ -5456,6 +5475,10 @@ class AgentV2:
             source="agent_eval" if getattr(self, "is_eval_run", False) else "agent",
             completion_id=str(self.system_completion_id) if self.system_completion_id else None,
         )
+        # Whether someone is watching this run: a full connection fails a
+        # watched query fast (BOW_QUERY_SLOT_WAIT_SECONDS) but lets a scheduled,
+        # webhook, check-in or sub-agent run queue for its whole query timeout.
+        _slot_attribution_token = _query_executions.set_attribution(interactive=self._is_watched_run())
         # Stamp the caller's identity for LLM header injection: providers with
         # header_injection rules (additional_config) resolve user.email /
         # membership.attr:* against this when their clients are constructed, so
@@ -8760,6 +8783,7 @@ class AgentV2:
             # Drop the ambient LLM usage attribution set at run start.
             reset_usage_attribution(_attribution_token)
             reset_query_tag_scope(_query_tag_token)
+            _query_executions.reset_attribution(_slot_attribution_token)
             if _identity_token is not None:
                 reset_llm_identity(_identity_token)
             # Single-writer mode: drop the self._writes alias. self.db's

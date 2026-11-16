@@ -526,6 +526,8 @@ def test_query_alias_and_async_wrapper_use_same_contract(client, http):
     assert len(gets(http)) == 2
 
 
+# The executor records each query against its connection (query_executions).
+@pytest.mark.db
 def test_fleet_query_runs_through_bow_code_executor(client, http):
     """Mirrors the NetApp reference: structured queries are captured as evidence by the sandboxed executor."""
     from app.ai.code_execution.code_execution import StreamingCodeExecutor

@@ -337,7 +337,7 @@ def test_manage_grant_via_group_also_opens_the_console(
     assert [i["prompt"] for i in resp.json()["items"]] == ["runs on agent b"]
 
 
-def test_folder_activity_only_discloses_observed_managed_agent(test_client, console_world):
+def test_folder_run_attributed_only_to_observed_agents(test_client, console_world):
     import asyncio
     from sqlalchemy import select
     from app.dependencies import async_session_maker
@@ -370,12 +370,19 @@ def test_folder_activity_only_discloses_observed_managed_agent(test_client, cons
             return run.id
 
     eid = asyncio.run(record())
-    rows = get("manager", "folder-activity").json()
-    assert [(r["agent_id"], r["report_id"], r["completion_id"]) for r in rows] == [(w["agent_a"]["id"], None, None)]
+
+    def runs(actor):
+        resp = get(actor, "diagnosis/runs?start=2000-01-01T00:00:00Z&end=2100-01-01T00:00:00Z&limit=100")
+        assert resp.is_success, resp.text
+        return {r["id"]: r for r in resp.json()["items"]}
+
+    # The report pins both agents, but a folder run is attributed to the agents
+    # it actually used, so filtering by agent B must not surface it.
+    assert [a["id"] for a in runs("admin")[eid]["agents"]] == [w["agent_a"]["id"]]
+    # Managing the used agent is not enough: the trace exposes the folder roster.
+    assert eid not in runs("manager")
     assert get("manager", "agent_executions/" + eid).status_code == 403
     assert get("manager", "reports/" + w["report_joint"]["id"] + "/conversation").status_code == 403
-    assert get("outsider", "folder-activity").status_code == 403
-    assert get("admin", "folder-activity").json()[0]["report_id"] == w["report_joint"]["id"]
     trace = get("admin", "agent_executions/" + eid)
     assert trace.is_success, trace.text
     assert trace.json()["used_agents"] == [w["agent_a"]["name"]]

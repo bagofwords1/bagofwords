@@ -1,6 +1,4 @@
-"""Folder activity contains attribution only. Detailed console reads recheck content access."""
-
-from datetime import timezone
+"""Agent attribution for folder runs. Detailed console reads recheck content access."""
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -95,49 +93,6 @@ async def can_open(db, report, user, org, managed):
     # for agents that never received a tool call.
     required.update(await db.scalars(select(roster.c.agent_id).where(roster.c.report_id == report.id)))
     return bool(required and required <= set(managed))
-
-
-async def activity(db, org, user, managed, start, end, limit=50):
-    if start and start.tzinfo:
-        start = start.astimezone(timezone.utc).replace(tzinfo=None)
-    if end and end.tzinfo:
-        end = end.astimezone(timezone.utc).replace(tzinfo=None)
-
-    query = (
-        select(AE.id, AE.created_at, AE.status, AE.report_id, AE.completion_id, used.c.agent_id, DataSource.name)
-        .join(used, used.c.execution_id == AE.id)
-        .join(DataSource, DataSource.id == used.c.agent_id)
-        .where(
-            AE.organization_id == org.id,
-            DataSource.organization_id == org.id,
-            AE.starting_folder_id.is_not(None),
-            DataSource.deleted_at.is_(None),
-        )
-    )
-    if managed is not None:
-        query = query.where(used.c.agent_id.in_(managed))
-    if start:
-        query = query.where(AE.created_at >= start)
-    if end:
-        query = query.where(AE.created_at <= end)
-    rows = await db.execute(query.order_by(AE.created_at.desc(), AE.id, used.c.agent_id).limit(limit))
-    results, permissions = [], {}
-    for eid, date, status, rid, cid, aid, name in rows:
-        if rid not in permissions:
-            report = await db.get(Report, rid)
-            permissions[rid] = bool(report and await can_open(db, report, user, org, managed))
-        results.append(
-            dict(
-                execution_id=eid,
-                created_at=date,
-                status=status,
-                agent_id=aid,
-                agent_name=name,
-                completion_id=cid if permissions[rid] else None,
-                report_id=rid if permissions[rid] else None,
-            )
-        )
-    return results
 
 
 def agent_links():

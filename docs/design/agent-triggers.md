@@ -232,7 +232,8 @@ prescribes: a **runnable feedback-loop doc** at
 `docs/feedback-loops/trigger-webhooks.md` that anyone (human or agent) can
 re-execute in a fresh sandbox. Two legs, because e2e agent runs require
 `OPENAI_API_KEY_TEST` (see `tests/e2e/test_completion.py`) and the sandbox
-seed (`tools/agent/seed_org.py`) provisions no LLM:
+seed (`tools/agent/seed_org.py`) provisions no LLM (a DevBox, `BOW_SANDBOX_DEVBOX=1`, does: it ships an
+Anthropic Claude 4.5 Haiku provider, though `tests/e2e` still wants `OPENAI_API_KEY_TEST`):
 
 ### Loop A — deterministic pytest (no LLM, runs in any clean sandbox)
 
@@ -263,6 +264,8 @@ Assertions, in pipeline order:
    dropped at spawn time.
 
 ### Loop B — live end-to-end in the running sandbox (real LLM)
+
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): the stack, admin, org, chinook demo data source and an Anthropic (Claude 4.5 Haiku) provider are already provisioned; skip `boot_stack.sh` / `seed_org.py` and log in as the DevBox admin (`source tools/agent/devbox_env.sh`). The database is `$BOW_DATABASE_URL`. See the root `AGENTS.md`, "DevBox".
 
 The full "alert → investigation" proof, following the curl conventions in
 `docs/design/sandbox-feedback-loop.md` (running stack via

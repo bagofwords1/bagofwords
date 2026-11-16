@@ -30,7 +30,11 @@ Two QRS quirks are load-bearing and easy to get wrong:
 What gets extracted (the Power BI connector is the bar):
   - streams and apps, including publish state and last reload time
   - the data model — tables, fields, associative keys — via GetTablesAndKeys
-  - master measures WITH their Qlik expressions, master dimensions, variables
+  - master measures WITH their Qlik expressions, master dimensions, variables,
+    master visualizations
+  - every shared sheet and the objects on it: each chart's dimensions and
+    measures (inline expressions and master-item references), filter panes,
+    calculation conditions and alternate states
   - lineage (the LOAD/SELECT sources behind the app) and load-script size
 """
 
@@ -38,6 +42,7 @@ from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 
 import asyncio
+import copy
 import logging
 import os
 import re
@@ -54,12 +59,16 @@ from app.core.egress import pinned_session
 
 from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
 from app.data_sources.clients._qix_common import (
+    MasterItemIndex,
     QixSession,
     apply_field_selections,
     build_hypercube_def,
     build_ssl_context,
+    describe_object,
     fetch_hypercube_pages,
+    flatten_property_tree,
     hypercube_matrix_to_df,
+    summarize_object_properties,
     tags_to_dtype,
 )
 from app.data_sources.clients.base import DataSourceClient
@@ -90,6 +99,14 @@ _DEFAULT_USER_ID = "sa_repository"
 # over any fields in the model, so it has no home table the way a Power BI
 # measure does. They are collected into one synthetic table per app.
 _MASTER_TABLE_SUFFIX = "Master Items"
+
+# Sheets are catalogued as `Stream/App/Sheets/<sheet title>`, one entry per
+# sheet, one column per object on it — the way Splunk dashboards are.
+_SHEET_TABLE_SEGMENT = "Sheets"
+
+# Objects that only lay out or decorate a sheet. They compute nothing, so they
+# are left out of the catalog (a container's tabs are catalogued themselves).
+_LAYOUT_ONLY_TYPES = {"container", "sn-layout-container", "sn-tabbed-container"}
 
 _NAMESPACE = "qlik_sense_onprem"
 
@@ -185,6 +202,11 @@ class QlikSenseOnPremClient(DataSourceClient):
     _MAX_LINEAGE_SOURCES = 25
     _MAX_SCRIPT_CHARS = 4000
     _MAX_ASSOCIATIONS = 50
+    _MAX_OBJECTS_PER_SHEET = 60
+    _MAX_MASTER_OBJECTS = 100
+    _MAX_OBJECT_DESCRIPTION_CHARS = 600
+    _MAX_VARIABLE_DEFINITION_CHARS = 300
+    _MAX_SEARCH_RESULTS = 1000
 
     def __init__(
         self,
@@ -203,6 +225,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         impersonate_app_owner: bool = True,
         include_master_items: bool = True,
         include_lineage: bool = True,
+        include_sheet_objects: bool = True,
         max_apps: Optional[int] = None,
         max_concurrency: int = 4,
         timeout_sec: int = 60,
@@ -217,6 +240,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         self.impersonate_app_owner = bool(impersonate_app_owner)
         self.include_master_items = bool(include_master_items)
         self.include_lineage = bool(include_lineage)
+        self.include_sheet_objects = bool(include_sheet_objects)
         self.timeout_sec = int(timeout_sec or 60)
         self.max_apps = int(max_apps) if max_apps else None
         # Every app opened is an app loaded into the Engine's memory, so this
@@ -705,12 +729,80 @@ class QlikSenseOnPremClient(DataSourceClient):
         },
     }
 
+    # Master visualizations: charts saved to the library and reused on sheets.
+    # A sheet object linked to one (`qExtendsId`) stores almost nothing itself,
+    # so these are read to know what the linked copies compute.
+    _MASTER_OBJECT_LIST_DEF = {
+        "qInfo": {"qType": "MasterObjectList"},
+        "qAppObjectListDef": {
+            "qType": "masterobject",
+            "qData": {"title": "/qMetaDef/title", "description": "/qMetaDef/description"},
+        },
+    }
+
+    @staticmethod
+    def _sheet_is_shared(item: Dict[str, Any], app_published: bool) -> bool:
+        """Whether a sheet is visible to the app's audience, not just its author.
+
+        In a published app, base sheets are `approved` and community sheets are
+        `published`; a sheet that is neither is someone's private work and must
+        not reach a catalog every member of the connection reads. An unpublished
+        app is itself private to its owner, so its sheets are all in scope.
+        """
+        if not app_published:
+            return True
+        meta = item.get("qMeta") or {}
+        if "published" not in meta and "approved" not in meta:
+            return True
+        return bool(meta.get("published") or meta.get("approved"))
+
+    @staticmethod
+    async def _object_handle(qix: QixSession, doc_handle: int, object_id: str) -> Optional[int]:
+        result = await qix.rpc(doc_handle, "GetObject", [object_id])
+        return (result.get("qReturn") or {}).get("qHandle")
+
+    async def _read_sheet_objects(self, qix: QixSession, doc_handle: int, out: Dict[str, Any]) -> None:
+        """Read each shared sheet's object tree and each master visualization.
+
+        One `GetObject` + `GetFullPropertyTree` per sheet returns the sheet and
+        every object on it — containers and filter panes with their children —
+        in a single round trip, rather than one call per chart.
+        """
+        app_id = out.get("app_id")
+        for item in (out.get("sheets") or [])[: self._MAX_SHEETS]:
+            sheet_id = (item.get("qInfo") or {}).get("qId")
+            if not sheet_id:
+                continue
+            try:
+                handle = await self._object_handle(qix, doc_handle, sheet_id)
+                if handle is None:
+                    continue
+                tree = await qix.rpc(handle, "GetFullPropertyTree", [])
+                out["sheet_trees"][sheet_id] = tree.get("qPropEntry") or {}
+            except Exception as e:
+                # One unreadable sheet must not cost the rest of the app.
+                logger.debug("Qlik sheet %s unreadable in app %s: %s", sheet_id, app_id, e)
+        for item in (out.get("master_objects") or [])[: self._MAX_MASTER_OBJECTS]:
+            object_id = (item.get("qInfo") or {}).get("qId")
+            if not object_id:
+                continue
+            try:
+                handle = await self._object_handle(qix, doc_handle, object_id)
+                if handle is None:
+                    continue
+                props = await qix.rpc(handle, "GetProperties", [])
+                out["master_object_props"][object_id] = props.get("qProp") or {}
+            except Exception as e:
+                logger.debug("Qlik master visualization %s unreadable in app %s: %s", object_id, app_id, e)
+
     async def _read_app_async(self, app: Dict[str, Any], user: str) -> Dict[str, Any]:
-        """One Engine session per app: model, master items, lineage, script size."""
+        """One Engine session per app: model, master items, sheets, lineage, script size."""
         app_id = app.get("id")
         out: Dict[str, Any] = {
+            "app_id": app_id,
             "qtr": [], "qk": [], "measures": [], "dimensions": [], "variables": [],
-            "sheets": [], "lineage": [], "has_data": None, "script_chars": None,
+            "sheets": [], "master_objects": [], "sheet_trees": {}, "master_object_props": {},
+            "lineage": [], "has_data": None, "script_chars": None,
         }
         async with self._qix_session(app_id, user) as qix:
             opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
@@ -737,23 +829,39 @@ class QlikSenseOnPremClient(DataSourceClient):
             out["qtr"] = tk.get("qtr") or []
             out["qk"] = tk.get("qk") or []
 
+            lists = []
             if self.include_master_items:
-                for key, layout_key, definition in (
+                lists += [
                     ("measures", "qMeasureList", self._MEASURE_LIST_DEF),
                     ("dimensions", "qDimensionList", self._DIMENSION_LIST_DEF),
                     ("variables", "qVariableList", self._VARIABLE_LIST_DEF),
-                    ("sheets", "qAppObjectList", self._SHEET_LIST_DEF),
-                ):
-                    try:
-                        out[key] = await self._session_list(qix, doc_handle, layout_key, definition)
-                    except Exception as e:
-                        # A missing master-item list is not a reason to lose the
-                        # data model we already have in hand.
-                        logger.debug("Qlik %s list failed for app %s: %s", key, app_id, e)
+                ]
+            if self.include_master_items or self.include_sheet_objects:
+                lists.append(("sheets", "qAppObjectList", self._SHEET_LIST_DEF))
+            if self.include_sheet_objects:
+                lists.append(("master_objects", "qAppObjectList", self._MASTER_OBJECT_LIST_DEF))
+            for key, layout_key, definition in lists:
+                try:
+                    out[key] = await self._session_list(qix, doc_handle, layout_key, definition)
+                except Exception as e:
+                    # A missing master-item list is not a reason to lose the
+                    # data model we already have in hand.
+                    logger.debug("Qlik %s list failed for app %s: %s", key, app_id, e)
+            published = bool(app.get("published"))
+            out["sheets"] = [s for s in out["sheets"] if self._sheet_is_shared(s, published)]
+
+            if self.include_sheet_objects:
+                await self._read_sheet_objects(qix, doc_handle, out)
 
             if self.include_lineage:
                 try:
-                    out["lineage"] = await qix.rpc(doc_handle, "GetLineage", []) or []
+                    lineage = await qix.rpc(doc_handle, "GetLineage", [])
+                    # The Engine wraps the array as {"qLineage": [...]}, like
+                    # every JSON-RPC return value; iterating the dict itself
+                    # yields its key and silently drops all lineage.
+                    if isinstance(lineage, dict):
+                        lineage = lineage.get("qLineage")
+                    out["lineage"] = lineage if isinstance(lineage, list) else []
                 except Exception as e:
                     logger.debug("Qlik GetLineage failed for app %s: %s", app_id, e)
                 try:
@@ -1096,7 +1204,38 @@ class QlikSenseOnPremClient(DataSourceClient):
             name = (item.get("qName") or (item.get("qMeta") or {}).get("title") or "")
             if not name:
                 continue
-            variables.append({"name": name, "definition": _mask_secrets(str(data.get("definition") or ""))[:200]})
+            definition = _mask_secrets(str(data.get("definition") or ""))
+            variables.append({"name": name, "definition": definition[:200]})
+            if any(c.name == name for c in columns):
+                continue  # a master item already holds this name
+            # A variable is a column too: table-level metadata does not reach
+            # the prompt, and a chart written as `Sum({<Year={$(vCurrentYear)}>}
+            # Sales)` is unreadable without knowing what vCurrentYear holds.
+            columns.append(TableColumn(
+                name=name,
+                dtype="variable",
+                description=(
+                    f"variable; use as $({name}) — definition: {definition}"
+                )[: self._MAX_VARIABLE_DEFINITION_CHARS],
+                metadata=_compact({"role": "variable", "definition": definition[:2000]}),
+            ))
+
+        index = self._master_index(payload)
+        for object_id, props in list((payload.get("master_object_props") or {}).items())[: self._MAX_MASTER_OBJECTS]:
+            summary = summarize_object_properties(props, index)
+            if not (summary.get("dimensions") or summary.get("measures") or summary.get("listFields")):
+                continue
+            title = summary.get("title") or f"{summary.get('type')} {object_id}"
+            if any(c.name == title for c in columns):
+                title = f"{title} ({object_id})"
+            columns.append(TableColumn(
+                name=title,
+                dtype=str(summary.get("type") or "object"),
+                description=_mask_secrets(
+                    "master visualization: " + describe_object(summary, self._MAX_OBJECT_DESCRIPTION_CHARS)
+                ),
+                metadata=self._object_column_meta(summary, master_visualization=True),
+            ))
 
         sheets = []
         for item in (payload.get("sheets") or [])[: self._MAX_SHEETS]:
@@ -1124,6 +1263,10 @@ class QlikSenseOnPremClient(DataSourceClient):
             "objectType": "master_items",
             "measureCount": sum(1 for c in columns if c.dtype == "measure"),
             "dimensionCount": sum(1 for c in columns if c.dtype == "dimension"),
+            "variableCount": sum(1 for c in columns if c.dtype == "variable"),
+            "masterVisualizationCount": sum(
+                1 for c in columns if (c.metadata or {}).get("role") == "master_visualization"
+            ),
         })
         if variables:
             meta["variables"] = variables
@@ -1142,8 +1285,9 @@ class QlikSenseOnPremClient(DataSourceClient):
             name=name,
             description=(
                 f"Reusable definitions published in the Qlik app '{app.get('name')}': master "
-                "measures (with their Qlik expressions), master dimensions and variables. Not a "
-                "physical table — pass a measure's expression to execute_query(measures=[...])."
+                "measures (with their Qlik expressions), master dimensions, variables and master "
+                "visualizations. Not a physical table — pass a measure's expression to "
+                "execute_query(measures=[...])."
             ),
             columns=columns,
             pks=[],
@@ -1151,6 +1295,194 @@ class QlikSenseOnPremClient(DataSourceClient):
             is_active=True,
             metadata_json={_NAMESPACE: meta},
         )
+
+    @staticmethod
+    def _master_index(payload: Dict[str, Any]) -> MasterItemIndex:
+        """Master measures and dimensions by id, for resolving `qLibraryId`."""
+        measures: Dict[str, Dict[str, str]] = {}
+        for item in payload.get("measures") or []:
+            item_id = (item.get("qInfo") or {}).get("qId")
+            data = item.get("qData") or {}
+            name = data.get("title") or (item.get("qMeta") or {}).get("title")
+            if item_id and name:
+                measures[item_id] = {"name": name, "expression": data.get("expression") or ""}
+        dimensions: Dict[str, str] = {}
+        for item in payload.get("dimensions") or []:
+            item_id = (item.get("qInfo") or {}).get("qId")
+            name = (item.get("qData") or {}).get("title") or (item.get("qMeta") or {}).get("title")
+            if item_id and name:
+                dimensions[item_id] = name
+        return MasterItemIndex(measures, dimensions)
+
+    @staticmethod
+    def _object_column_meta(summary: Dict[str, Any], *, master_visualization: bool = False) -> Dict[str, Any]:
+        """Structured copy of an object summary, stored with its column."""
+        refs = sorted({
+            item["master"]
+            for key in ("dimensions", "measures", "alternativeDimensions", "alternativeMeasures")
+            for item in summary.get(key) or []
+            if item.get("master")
+        })
+        masked = {
+            key: [
+                {k: (_mask_secrets(v) if isinstance(v, str) else v) for k, v in item.items()}
+                for item in summary.get(key) or []
+            ]
+            for key in ("dimensions", "measures", "alternativeDimensions", "alternativeMeasures")
+        }
+        return _compact({
+            "role": "master_visualization" if master_visualization else "object",
+            "objectId": summary.get("id"),
+            "objectType": summary.get("type"),
+            "title": summary.get("title"),
+            "subtitle": summary.get("subtitle"),
+            **masked,
+            "listFields": summary.get("listFields"),
+            "masterRefs": refs,
+            "variables": summary.get("variables"),
+            "calcCondition": _mask_secrets(summary.get("calcCondition") or "") or None,
+            "state": summary.get("state"),
+            "extendsId": summary.get("extendsId"),
+            "container": summary.get("container"),
+        })
+
+    def _sheet_objects(
+        self,
+        tree: Dict[str, Any],
+        index: MasterItemIndex,
+        master_objects: Dict[str, Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """The data-bearing objects on one sheet, as summaries.
+
+        Folds a filter pane's listboxes into the pane, resolves a linked master
+        visualization to what it computes, and drops pure layout objects.
+        """
+        objects: List[Dict[str, Any]] = []
+        by_id: Dict[str, Dict[str, Any]] = {}
+        for props, parent in flatten_property_tree(tree):
+            if parent is None:
+                continue  # the sheet itself
+            summary = summarize_object_properties(props, index)
+            parent_id = (parent.get("qInfo") or {}).get("qId")
+            parent_summary = by_id.get(parent_id) if parent_id else None
+            if parent_summary is not None and parent_summary.get("type") == "filterpane":
+                for field in summary.get("listFields") or []:
+                    fields = parent_summary.setdefault("listFields", [])
+                    if field not in fields:
+                        fields.append(field)
+                continue
+            linked = master_objects.get(summary.get("extendsId") or "")
+            if linked and not (summary.get("dimensions") or summary.get("measures")):
+                for key in ("dimensions", "measures", "alternativeDimensions",
+                            "alternativeMeasures", "listFields", "calcCondition", "variables"):
+                    if linked.get(key) and not summary.get(key):
+                        summary[key] = linked[key]
+                if not summary.get("title") and linked.get("title"):
+                    summary["title"] = linked["title"]
+                if linked.get("type") and summary.get("type") in (None, "", "object"):
+                    summary["type"] = linked["type"]
+            if parent_summary is not None:
+                summary["container"] = parent_summary.get("title") or parent_id
+            if summary.get("id"):
+                by_id[summary["id"]] = summary
+            objects.append(summary)
+        return [
+            o for o in objects
+            if o.get("type") not in _LAYOUT_ONLY_TYPES
+            and (o.get("dimensions") or o.get("measures") or o.get("listFields"))
+        ][: self._MAX_OBJECTS_PER_SHEET]
+
+    def _build_sheet_tables(
+        self,
+        app: Dict[str, Any],
+        payload: Dict[str, Any],
+        taken_names: set,
+    ) -> List[Table]:
+        """One catalog entry per shared sheet, one column per object on it.
+
+        A sheet is the analysis an app's authors actually built; its charts
+        carry the expressions the business reads every day. Recording each
+        chart's dimensions and measures lets the agent reuse that exact logic,
+        or read the chart itself with `execute_query(object_id=...)`.
+        """
+        trees = payload.get("sheet_trees") or {}
+        if not trees:
+            return []
+        app_key = self._app_key(app)
+        app_meta = self._app_meta(app, payload)
+        index = self._master_index(payload)
+        master_objects = {
+            object_id: summarize_object_properties(props, index)
+            for object_id, props in (payload.get("master_object_props") or {}).items()
+        }
+
+        tables: List[Table] = []
+        taken = set(taken_names)
+        for item in (payload.get("sheets") or [])[: self._MAX_SHEETS]:
+            sheet_id = (item.get("qInfo") or {}).get("qId")
+            tree = trees.get(sheet_id) if sheet_id else None
+            if not tree:
+                continue
+            data = item.get("qData") or {}
+            meta_def = item.get("qMeta") or {}
+            title = data.get("title") or meta_def.get("title") or sheet_id
+            objects = self._sheet_objects(tree, index, master_objects)
+            if not objects:
+                continue
+
+            columns: List[TableColumn] = []
+            used: set = set()
+            for summary in objects:
+                name = summary.get("title") or (
+                    f"Filter pane: {', '.join(summary['listFields'])}"
+                    if summary.get("type") == "filterpane" and summary.get("listFields")
+                    else f"{summary.get('type')} {summary.get('id')}"
+                )
+                if name in used:
+                    name = f"{name} ({summary.get('id')})"
+                used.add(name)
+                columns.append(TableColumn(
+                    name=name,
+                    dtype=str(summary.get("type") or "object"),
+                    description=_mask_secrets(describe_object(summary, self._MAX_OBJECT_DESCRIPTION_CHARS)),
+                    metadata=self._object_column_meta(summary),
+                ))
+
+            prefix = f"{app_key}/{_SHEET_TABLE_SEGMENT}" if app_key else _SHEET_TABLE_SEGMENT
+            name = f"{prefix}/{title}"
+            if name in taken:
+                name = f"{name} ({sheet_id})"
+            taken.add(name)
+
+            meta = dict(app_meta)
+            description = (data.get("description") or meta_def.get("description") or "")[:300]
+            meta.update(_compact({
+                "objectType": "sheet",
+                "sheetId": sheet_id,
+                "sheetTitle": title,
+                "sheetDescription": description or None,
+                "objectCount": len(columns),
+                "approved": meta_def.get("approved"),
+                "sheetUrl": (
+                    f"https://{self.host}/sense/app/{app.get('id')}/sheet/{sheet_id}"
+                    if self.host and app.get("id") else None
+                ),
+            }))
+            tables.append(Table(
+                name=name,
+                description=(
+                    f"Sheet '{title}' of the Qlik app '{app.get('name')}'. Not a physical table: each "
+                    "column is an object on the sheet with what it groups by and computes. Reuse an "
+                    "object's expressions in execute_query(measures=[...]), or read the object's own "
+                    "data with execute_query(app=..., object_id=...)."
+                ),
+                columns=columns,
+                pks=[],
+                fks=[],
+                is_active=True,
+                metadata_json={_NAMESPACE: meta},
+            ))
+        return tables
 
     def _crawl_app(self, app: Dict[str, Any]) -> List[Table]:
         """Crawl one app. Never raises — a bad app must not sink the site."""
@@ -1181,6 +1513,9 @@ class QlikSenseOnPremClient(DataSourceClient):
             master = self._build_master_table(app, payload, {t.name for t in tables})
             if master is not None:
                 tables.append(master)
+
+        if self.include_sheet_objects:
+            tables.extend(self._build_sheet_tables(app, payload, {t.name for t in tables}))
 
         if not tables:
             # An app whose script has never been run has no data model and no
@@ -1305,9 +1640,25 @@ class QlikSenseOnPremClient(DataSourceClient):
         filters: Optional[Dict[str, List[Any]]] = None,
         max_rows: int = 10000,
         table_name: Optional[str] = None,
+        object_id: Optional[str] = None,
+        search: Optional[str] = None,
+        fields: Optional[List[str]] = None,
         **_kwargs: Any,
     ) -> pd.DataFrame:
-        """Run a hypercube query against one app and return a DataFrame.
+        """Run one Engine query against one app and return a DataFrame.
+
+        Three modes, all through this one entry point so every call is timed,
+        captured and metered the same way:
+
+        * hypercube (default) — ``dimensions`` × ``measures``. Measures and
+          dimensions are checked by the Engine first, so a misspelled field is
+          an error instead of a column of zeros.
+        * ``object_id`` — the data of an existing sheet object or master
+          visualization, computed from the object's own definition (its
+          dimensions, measures, sorting and suppression), so the numbers match
+          what the chart shows. ``filters`` still apply.
+        * ``search`` — which fields hold a value and how it is spelled there.
+          Returns ``field`` / ``value`` rows. ``fields`` limits the search.
 
         Args:
             app: "Stream/AppName", "Stream/AppName/Table" or a raw app GUID.
@@ -1318,22 +1669,113 @@ class QlikSenseOnPremClient(DataSourceClient):
                 the cube is built, so they propagate associatively. Values
                 must be non-empty lists of strings or finite numbers.
             max_rows: row cap; paging is handled internally.
+            object_id: id of a sheet object or master visualization.
+            search: text to look up across field values.
+            fields: optional field names to restrict ``search`` to.
         """
         target = app or table_name
         if not target:
             raise ValueError("app (or table_name) is required")
         dimensions = dimensions or []
         measures = measures or []
-        if not dimensions and not measures:
+        if object_id and search is not None:
+            raise ValueError("Pass either object_id or search, not both")
+        if object_id:
+            if dimensions or measures:
+                raise ValueError(
+                    "object_id reads the object's own dimensions and measures; "
+                    "do not pass dimensions or measures with it"
+                )
+        elif search is not None:
+            if not str(search).strip():
+                raise ValueError("search requires a non-empty text")
+            if dimensions or measures or filters:
+                raise ValueError("search looks values up across fields; it takes no dimensions, measures or filters")
+        elif not dimensions and not measures:
             raise ValueError("At least one dimension or measure is required")
 
         app_id, app_row = self._resolve_app(target)
         user = self._acting_user(app_row)
-        hypercube_def = build_hypercube_def(dimensions, measures, max_rows)
         selections = list((filters or {}).items())
+        if object_id:
+            return asyncio.run(
+                self._execute_object(app_id, user, selections, str(object_id), max_rows)
+            )
+        if search is not None:
+            limit = max(1, min(int(max_rows or self._MAX_SEARCH_RESULTS), self._MAX_SEARCH_RESULTS))
+            return asyncio.run(
+                self._execute_search(app_id, user, str(search).strip(), list(fields or []), limit)
+            )
+        hypercube_def = build_hypercube_def(dimensions, measures, max_rows)
         return asyncio.run(
             self._execute_hypercube(app_id, user, selections, hypercube_def, max_rows)
         )
+
+    @staticmethod
+    async def _check_cube_expressions(
+        qix: QixSession,
+        doc_handle: int,
+        hypercube_def: Dict[str, Any],
+    ) -> None:
+        """Ask the Engine to validate every dimension and measure first.
+
+        Qlik evaluates an unknown field name as a valid expression worth 0 (a
+        dimension on a typo collapses into one null row), so a misspelling
+        returns plausible-looking zeros instead of an error. `CheckExpression`
+        names the unknown fields. It is advisory: if the Engine cannot run the
+        check, the query goes ahead unchecked rather than failing.
+        """
+        measures = hypercube_def.get("qMeasures") or []
+        labels = [
+            (m.get("qDef") or {}).get("qLabel") for m in measures if (m.get("qDef") or {}).get("qLabel")
+        ]
+        checks: List[Tuple[str, str]] = []
+        for m in measures:
+            expr = (m.get("qDef") or {}).get("qDef") or ""
+            if expr.strip():
+                checks.append((f"measure {expr!r}", expr))
+        for d in hypercube_def.get("qDimensions") or []:
+            field_defs = (d.get("qDef") or {}).get("qFieldDefs") or []
+            field = field_defs[0] if field_defs else ""
+            if not field:
+                continue
+            if field.startswith("="):
+                checks.append((f"calculated dimension {field!r}", field[1:]))
+            else:
+                bare = field[1:-1] if field.startswith("[") and field.endswith("]") else field
+                checks.append((f"dimension {field!r}", "Count([" + bare.replace("]", "]]") + "])"))
+
+        problems: List[str] = []
+        for what, expr in checks:
+            try:
+                result = await qix.rpc(doc_handle, "CheckExpression", [expr, labels])
+            except Exception as e:
+                logger.debug("Qlik CheckExpression unavailable, query runs unchecked: %s", e)
+                return
+            error = (result.get("qErrorMsg") or "").strip()
+            bad = []
+            for rng in result.get("qBadFieldNames") or []:
+                start, count = rng.get("qFrom"), rng.get("qCount")
+                if isinstance(start, int) and isinstance(count, int) and count > 0:
+                    bad.append(expr[start:start + count])
+            if bad:
+                problems.append(f"{what}: unknown field(s) " + ", ".join(bad))
+            elif error:
+                problems.append(f"{what}: {error}")
+        if problems:
+            raise ValueError(
+                "Qlik rejected the query before running it — " + "; ".join(problems)
+                + ". Field names are case-sensitive and must match the catalog exactly "
+                "(wrap names with spaces in [brackets]). Use execute_query(app=..., search=...) "
+                "to find which field holds a value."
+            )
+
+    async def _open_doc(self, qix: QixSession, app_id: str) -> int:
+        opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
+        doc_handle = (opendoc.get("qReturn") or {}).get("qHandle")
+        if doc_handle is None:
+            raise RuntimeError("Qlik OpenDoc did not return a document handle")
+        return doc_handle
 
     async def _execute_hypercube(
         self,
@@ -1344,11 +1786,9 @@ class QlikSenseOnPremClient(DataSourceClient):
         max_rows: int,
     ) -> pd.DataFrame:
         async with self._qix_session(app_id, user) as qix:
-            opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
-            doc_handle = (opendoc.get("qReturn") or {}).get("qHandle")
-            if doc_handle is None:
-                raise RuntimeError("Qlik OpenDoc did not return a document handle")
+            doc_handle = await self._open_doc(qix, app_id)
 
+            await self._check_cube_expressions(qix, doc_handle, hypercube_def)
             await apply_field_selections(qix, doc_handle, selections)
 
             session = await qix.rpc(doc_handle, "CreateSessionObject", [{
@@ -1365,6 +1805,167 @@ class QlikSenseOnPremClient(DataSourceClient):
             rows = await fetch_hypercube_pages(qix, obj_handle, width, max_rows)
 
         return hypercube_matrix_to_df(hypercube_def, rows)
+
+    @staticmethod
+    def _object_cube_def(props: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The hypercube an object computes, reshaped for flat paging.
+
+        Charts keep their cube at `qHyperCubeDef`; a listbox has a list object,
+        which is the same as a one-dimension cube. The copy is forced into
+        straight-table mode (a pivot cannot be paged with GetHyperCubeData) and
+        its column reordering is dropped so columns come back as dimensions
+        then measures. Sorting, suppression and limits are kept — they are
+        part of what the chart shows.
+        """
+        cube = props.get("qHyperCubeDef")
+        if not isinstance(cube, dict):
+            lst = props.get("qListObjectDef")
+            if not isinstance(lst, dict):
+                return None
+            dim: Dict[str, Any] = {"qNullSuppression": True}
+            if lst.get("qLibraryId"):
+                dim["qLibraryId"] = lst["qLibraryId"]
+            else:
+                dim["qDef"] = {"qFieldDefs": list((lst.get("qDef") or {}).get("qFieldDefs") or [])}
+            cube = {"qDimensions": [dim], "qMeasures": []}
+            if lst.get("qStateName"):
+                cube["qStateName"] = lst["qStateName"]
+        cube = copy.deepcopy(cube)
+        cube["qMode"] = "S"
+        cube["qInitialDataFetch"] = []
+        cube["qColumnOrder"] = []
+        width = len(cube.get("qDimensions") or []) + len(cube.get("qMeasures") or [])
+        if len(cube.get("qInterColumnSortOrder") or []) != width:
+            cube.pop("qInterColumnSortOrder", None)
+        return cube
+
+    async def _execute_object(
+        self,
+        app_id: str,
+        user: str,
+        selections: List,
+        object_id: str,
+        max_rows: int,
+    ) -> pd.DataFrame:
+        async with self._qix_session(app_id, user) as qix:
+            doc_handle = await self._open_doc(qix, app_id)
+            await apply_field_selections(qix, doc_handle, selections)
+
+            try:
+                handle = await self._object_handle(qix, doc_handle, object_id)
+            except RuntimeError as e:
+                raise ValueError(f"Qlik object {object_id!r} was not found in this app: {e}")
+            if handle is None:
+                raise ValueError(f"Qlik object {object_id!r} was not found in this app")
+
+            # Effective properties include what a linked master visualization
+            # contributes; plain properties are the fallback for older Engines.
+            try:
+                props = (await qix.rpc(handle, "GetEffectiveProperties", [])).get("qProp") or {}
+            except RuntimeError:
+                props = (await qix.rpc(handle, "GetProperties", [])).get("qProp") or {}
+            if props.get("qExtendsId") and "qHyperCubeDef" not in props:
+                master = await self._object_handle(qix, doc_handle, props["qExtendsId"])
+                if master is not None:
+                    props = (await qix.rpc(master, "GetProperties", [])).get("qProp") or props
+
+            cube = self._object_cube_def(props)
+            if cube is None:
+                kind = props.get("visualization") or (props.get("qInfo") or {}).get("qType") or "object"
+                children: List[str] = []
+                try:
+                    infos = (await qix.rpc(handle, "GetChildInfos", [])).get("qInfos") or []
+                    children = [f"{i.get('qId')} ({i.get('qType')})" for i in infos if i.get("qId")]
+                except RuntimeError:
+                    pass
+                hint = f" Query one of its child objects instead: {', '.join(children)}." if children else ""
+                raise ValueError(f"Qlik object {object_id!r} is a {kind} and holds no data of its own.{hint}")
+
+            session = await qix.rpc(doc_handle, "CreateSessionObject", [{
+                "qInfo": {"qType": "bow-object-data"},
+                "qHyperCubeDef": cube,
+            }])
+            obj_handle = (session.get("qReturn") or {}).get("qHandle")
+            if obj_handle is None:
+                raise RuntimeError("Qlik CreateSessionObject did not return a handle")
+            layout = (await qix.rpc(obj_handle, "GetLayout", [])).get("qLayout") or {}
+            info = layout.get("qHyperCube") or {}
+            if info.get("qError"):
+                raise RuntimeError(f"Qlik could not calculate object {object_id!r}: {info['qError']}")
+            calc_msg = info.get("qCalcCondMsg")
+            if calc_msg and not (info.get("qSize") or {}).get("qcy"):
+                raise RuntimeError(
+                    f"Qlik object {object_id!r} is not calculated under the current selections: {calc_msg}"
+                )
+
+            def titles(infos: List[Dict[str, Any]], defs: List[Dict[str, Any]], is_measure: bool) -> List[str]:
+                out = []
+                for i, d in enumerate(defs):
+                    title = (infos[i].get("qFallbackTitle") if i < len(infos) else "") or ""
+                    if not title:
+                        qdef = d.get("qDef") or {}
+                        if is_measure:
+                            title = qdef.get("qLabel") or qdef.get("qDef") or "measure"
+                        else:
+                            title = ((qdef.get("qFieldLabels") or [""])[0]
+                                     or (qdef.get("qFieldDefs") or ["dimension"])[0])
+                    out.append(title)
+                return out
+
+            dim_titles = titles(info.get("qDimensionInfo") or [], cube.get("qDimensions") or [], False)
+            meas_titles = titles(info.get("qMeasureInfo") or [], cube.get("qMeasures") or [], True)
+            width = len(dim_titles) + len(meas_titles)
+            rows = await fetch_hypercube_pages(qix, obj_handle, width, max_rows)
+
+        shaped = {
+            "qDimensions": [{"qDef": {"qFieldDefs": [t]}} for t in dim_titles],
+            "qMeasures": [{"qDef": {"qLabel": t}} for t in meas_titles],
+        }
+        df = hypercube_matrix_to_df(shaped, rows)
+        total = (info.get("qSize") or {}).get("qcy")
+        if isinstance(total, int):
+            df.attrs["qlik_total_rows"] = total
+        return df
+
+    async def _execute_search(
+        self,
+        app_id: str,
+        user: str,
+        term: str,
+        fields: List[str],
+        limit: int,
+    ) -> pd.DataFrame:
+        options: Dict[str, Any] = {"qContext": "Cleared"}
+        if fields:
+            options["qSearchFields"] = fields
+        page = {
+            "qOffset": 0,
+            "qCount": 10,
+            "qMaxNbrFieldMatches": -1,
+            "qGroupOptions": [{"qGroupType": "DatasetType", "qOffset": 0, "qCount": -1}],
+            "qGroupItemOptions": [{"qGroupItemType": "Field", "qOffset": 0, "qCount": -1}],
+        }
+        async with self._qix_session(app_id, user) as qix:
+            doc_handle = await self._open_doc(qix, app_id)
+            result = await qix.rpc(doc_handle, "SearchResults", [options, [term], page])
+
+        rows: List[Dict[str, Any]] = []
+        for group in (result.get("qResult") or {}).get("qSearchGroupArray") or []:
+            for item in group.get("qItems") or []:
+                field = item.get("qIdentifier")
+                if not field:
+                    continue
+                for match in item.get("qItemMatches") or []:
+                    rows.append({
+                        "field": field,
+                        "value": match.get("qText"),
+                        "field_match_count": item.get("qTotalNumberOfMatches"),
+                    })
+                    if len(rows) >= limit:
+                        break
+                if len(rows) >= limit:
+                    break
+        return pd.DataFrame(rows, columns=["field", "value", "field_match_count"])
 
     # ------------------------------------------------------------------
     # Prompt / description
@@ -1397,14 +1998,34 @@ that is not in a stream. Pass the full name — or just `Stream/AppName` — to
 `execute_query()` as the `app` argument.
 
 Every app also exposes a `Stream/AppName/Master Items` entry. It is NOT a
-physical table: its columns are the app's published master measures (each with
-its Qlik expression in `metadata.expression`), master dimensions, and variables.
-Prefer a master measure's expression over one you invent — it encodes the set
-analysis the app's authors agreed on, which a raw `Sum()` will not reproduce.
+physical table. Its columns are the app's governed definitions, and each
+column's description carries the definition itself:
+- `dtype="measure"` — a master measure; the description ends with its Qlik
+  expression.
+- `dtype="dimension"` — a master dimension.
+- `dtype="variable"` — a variable; reference it inside an expression as
+  `$(vName)`. Its definition is in the description.
+- any other dtype (`barchart`, `kpi`, ...) — a master visualization.
+
+Each shared sheet is exposed as `Stream/AppName/Sheets/<Sheet Title>`, also NOT
+a physical table. Each column is one object on the sheet (`dtype` is the chart
+type) and its description reads
+`<type> id=<objectId>; dimensions: ...; measures: <label> = <expression>; ...`.
+A measure shown as `master measure 'X'` is the master measure X.
+
+Prefer, in this order:
+1. The data of an existing object, when the question matches what a chart
+   shows: `execute_query(app=..., object_id="<objectId>")` returns the chart's
+   own numbers (same dimensions, measures, sorting and suppression).
+2. The expression a sheet object or master measure already uses — it encodes
+   the set analysis the app's authors agreed on, which a raw `Sum()` will not
+   reproduce.
+3. An expression you write yourself, only when nothing above fits.
 
 ### How to Execute Queries
 
-Signature: `execute_query(app, dimensions, measures, filters=None, max_rows=10000)`
+Signature: `execute_query(app, dimensions=None, measures=None, filters=None, max_rows=10000,
+object_id=None, search=None, fields=None)`
 
 Filter values must retain their Qlik types: send numeric years/IDs as numbers,
 and textual IDs (including leading zeros) as strings. Dual/date fields may
@@ -1427,6 +2048,19 @@ df = client.execute_query(
                "alias": "Northeast Qty"}],
     max_rows=50,
 )
+
+# The numbers behind an existing chart (object id from a Sheets entry)
+df = client.execute_query(app="Sales/Consumer Sales", object_id="kPqRsT", max_rows=500)
+
+# Same chart, narrowed by a selection
+df = client.execute_query(
+    app="Sales/Consumer Sales", object_id="kPqRsT", filters={"Year": [2024]},
+)
+
+# Find which field holds a value and how it is spelled, before filtering on it
+df = client.execute_query(app="Sales/Consumer Sales", search="northeast")
+# -> columns: field, value, field_match_count
+df = client.execute_query(app="Sales/Consumer Sales", search="north", fields=["Region Name"])
 
 # Row count / profiling
 df = client.execute_query(
@@ -1459,6 +2093,16 @@ df = client.execute_query(
   `Avg(...)`, and set analysis `{$<Field={'Value'}>}`.
 - **Filters are Qlik selections**, not a SQL `WHERE`: they narrow the associative
   state and propagate to every linked table automatically.
+- **Look a value up before filtering on it** when you have not seen it in a
+  result: a filter or set modifier on a value that does not exist yields zeros,
+  not an error. `execute_query(app=..., search="text")` returns the matching
+  field values with their exact spelling.
+- Dimensions and measures are validated by the Engine before the cube runs; an
+  error naming `unknown field(s)` means the name is wrong, not that data is
+  missing. Re-check the catalog or search for the value.
+- `object_id` takes no dimensions or measures; `search` takes no dimensions,
+  measures or filters. An object that holds no data (a container, a text box)
+  is reported with the ids of its children.
 - **Do not write joins.** Fields associate through shared key fields, so name
   fields from several tables in one cube and Qlik resolves the path.
 - A table whose entry is inactive with `status: empty` belongs to an app that

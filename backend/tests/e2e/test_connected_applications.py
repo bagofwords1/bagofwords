@@ -96,6 +96,7 @@ def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, c
     from alembic.operations import Operations
     from app.dependencies import async_session_maker
     from tests.e2e.test_oauth_app import _pkce_pair
+    from tests.fixtures.dashboard_corpus.alembic_at import replay_after_connected_applications
 
     user = create_user()
     token = login_user(user['email'], user['password'])
@@ -134,6 +135,7 @@ def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, c
                     assert before == after
                     # Idempotence for the unstamped dashboard migration corpus.
                     migration.upgrade()
+                    replay_after_connected_applications()
             await db.run_sync(run)
             await db.commit()
     asyncio.run(migrate())

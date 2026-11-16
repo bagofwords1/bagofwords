@@ -16,7 +16,6 @@
             <DiagnosisFilterBuilder :facets="facetsForBar" :query="dq.committed.value" @add="addTerms" />
             <DiagnosisTimeRange :range="dq.range.value" @change="dq.setRange" />
         </div>
-        <ConsoleFolderRunActivity v-if="!dq.committed.value" :start="dq.range.value.start.toISOString()" :end="dq.range.value.end.toISOString()" />
         <DiagnosisQuickFilters :query="dq.text.value" :quick-filters="quickFilters" @toggle="toggleChip" />
 
         <div v-if="dq.serverError.value" class="mt-3 text-xs text-red-700 dark:text-red-400">{{ dq.serverError.value }}</div>

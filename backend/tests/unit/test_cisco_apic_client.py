@@ -410,6 +410,8 @@ def test_rca_story_is_answerable_from_the_tables(client, sim):
     assert versions["version"].nunique() == 2
 
 
+# The executor records each query against its connection (query_executions).
+@pytest.mark.db
 def test_runs_through_bow_code_executor(client):
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 

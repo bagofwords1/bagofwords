@@ -36,6 +36,17 @@ against the current routes/pages and update it rather than regenerating.
    tools/agent/boot_stack.sh                 # backend :8000 + built frontend :3000
    cd backend && uv run python ../tools/agent/seed_org.py --demo --invite member@example.com
    ```
+   Check `echo $BOW_SANDBOX_DEVBOX` first. If it is `1` (DevBox), don't run
+   `boot_stack.sh`: `bow-stack` already serves backend :8000 and frontend :3000
+   (`nuxt dev`, not a built frontend), with the admin, org, LLM and demo data
+   source seeded. Add only the member, as the DevBox admin:
+   ```bash
+   source tools/agent/devbox_env.sh
+   cd backend && uv run python ../tools/agent/seed_org.py --invite member@example.com
+   ```
+   (if `--invite` fails, use the manual recipe in
+   `.agents/skills/ui-audit/references/roles.md`). Backend log:
+   `bow-stack logs backend`. Skip the `PLAYWRIGHT_BROWSERS_PATH` export below.
 2. **Pick scope**: full map for release QA; affected areas + their neighbors
    for a change-scoped pass. Say explicitly in the report what was NOT covered.
 3. **Drive each flow with Playwright** like a careful human — through the UI at

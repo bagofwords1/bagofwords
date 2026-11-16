@@ -14,6 +14,18 @@
 #   TEST_DATABASE_URL   backend database URL   (default sqlite:///db/agent.db)
 set -euo pipefail
 
+# DevBox (BOW_SANDBOX_DEVBOX=1): the stack is booted, migrated and provisioned
+# by the DevBox runtime and owned by `bow-stack`. Starting or killing a second
+# backend here would fight it for :8000 and point at another database, so
+# refuse and name the equivalent instead. See AGENTS.md, "DevBox".
+if [ "${BOW_SANDBOX_DEVBOX:-0}" = "1" ]; then
+  # --status is harmless: answer it from bow-stack.
+  [ "${1:-}" = "--status" ] && exec bow-stack status
+  echo "boot_stack.sh: this is a DevBox (BOW_SANDBOX_DEVBOX=1); the stack is managed by bow-stack." >&2
+  echo "  use: bow-stack status | start | stop | restart [backend|frontend]" >&2
+  exit 1
+fi
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_DIR="${BOW_AGENT_RUN_DIR:-/tmp/bow-agent}"
 DB_URL="${TEST_DATABASE_URL:-sqlite:///db/agent.db}"

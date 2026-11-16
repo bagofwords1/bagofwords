@@ -147,7 +147,7 @@ async def test_overfit_create_is_rejected_and_not_persisted(
         CreateInstructionTool(),
         {
             "text": "The customer Ana Petrov changed her last name to Ivanova; show her as Ana Ivanova.",
-            "category": "general",
+            "destination": "global", "category": "general",
             "confidence": 0.95,
             "evidence": "User stated the name change.",
         },
@@ -182,7 +182,7 @@ async def test_general_create_passes_gate_and_persists(
         CreateInstructionTool(),
         {
             "text": "When calculating revenue, exclude orders with a cancelled or refunded status.",
-            "category": "code_gen",
+            "destination": "global", "category": "code_gen",
             "confidence": 0.9,
             "evidence": "User correction in session.",
         },
@@ -206,7 +206,7 @@ async def test_gate_fails_open_when_critic_errors(
         CreateInstructionTool(),
         {
             "text": "Treat unit prices as USD amounts in all revenue calculations.",
-            "category": "general",
+            "destination": "global", "category": "general",
             "confidence": 0.85,
         },
         user_id=user_id, org_id=org_id, extra_ctx=extra_ctx,
@@ -229,7 +229,7 @@ async def test_gate_skipped_entirely_without_model_in_ctx(
         CreateInstructionTool(),
         {
             "text": "Use bar charts for 'top N by metric' questions by default.",
-            "category": "visualization",
+            "destination": "global", "category": "visualization",
             "confidence": 0.9,
         },
         user_id=user_id, org_id=org_id,

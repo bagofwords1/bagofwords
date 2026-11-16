@@ -8,15 +8,15 @@ dots — must reflect only the changed rows, no matter how many instructions
 ride along in the snapshot.
 
 This lives in ``rbac/`` because producing a build that STAYS pending needs an
-author without publish authority over what the build CHANGES: an org admin's
-change is auto-approved and promoted, leaving nothing pending.
+author whose change is not published on the spot: an org admin's write through
+the API is auto-approved and promoted, leaving nothing pending.
 
 The proposal goes through the AI capture path (``CreateInstructionTool`` in
-knowledge mode) as a member holding no grants — the same route the knowledge
-harness uses in production, and the only one that yields a genuinely pending
-build. Writing through ``POST /instructions`` cannot: that route requires
-manage_instructions on the target agent, which is exactly the authority that
-publishes the resulting build.
+knowledge mode), the route the knowledge harness uses in production. Its
+author manages instructions on the first agent only, which the tool requires
+since 504b677a3; the capture stays in a draft build until the session ends,
+and nothing here ends it, so the build stays pending. Writing through
+``POST /instructions`` cannot do this: that route publishes at once.
 """
 import asyncio
 import uuid
@@ -41,8 +41,14 @@ def author_world(test_client, bootstrap_admin, invite_user_to_org, sqlite_data_s
     ds_a = sqlite_data_source(name=f"ds_a_{uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=org_id)
     ds_b = sqlite_data_source(name=f"ds_b_{uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=org_id)
 
-    # No grants anywhere: their capture must land in review, never live.
+    # Manages instructions on ds_a only, not org-wide: their capture lands in
+    # a draft build that stays pending, never live.
     author = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    grant_resource(
+        resource_type="data_source", resource_id=ds_a["id"],
+        principal_type="user", principal_id=author["user_id"],
+        permissions=["manage_instructions"], user_token=admin["token"], org_id=org_id,
+    )
     return {"org_id": org_id, "ds_a": ds_a, "ds_b": ds_b, "admin": admin, "author": author}
 
 
@@ -107,9 +113,8 @@ async def _stage_capture(*, user_id, org_id, ds_ids, text):
 
 
 def _propose(test_client, world, text):
-    """The author holds no manage_instructions anywhere, so their capture has
-    no publish authority and stays pending review — the shape the /agents tree
-    renders."""
+    """The author's capture sits in a draft build that nothing finalizes, so it
+    stays pending review — the shape the /agents tree renders."""
     return asyncio.run(_stage_capture(
         user_id=world["author"]["user_id"], org_id=world["org_id"],
         ds_ids=[world["ds_a"]["id"]], text=text,

@@ -88,6 +88,11 @@ intended". Ask why the UI offered it at all — that is the finding.
 ## Seeding the roles you need
 
 **Admin** comes from `seed_org.py` (`admin@example.com` / `Password123!`).
+In a DevBox (`BOW_SANDBOX_DEVBOX=1`) the admin is provisioned at boot with its own login:
+run `source tools/agent/devbox_env.sh` first, which exports it as `BOW_ADMIN_EMAIL` /
+`BOW_ADMIN_PASSWORD` and the app's SQLite file as `BOW_SQLITE_DB`; the recipe below reads
+those and falls back to the `seed_org.py` values elsewhere. (On a DevBox switched to
+PostgreSQL, read the invite token with `psql "$BOW_DATABASE_URL"` instead of sqlite3.)
 
 **Member** — `seed_org.py --invite` is currently broken: it posts
 `{"email", "role_id"}` but `MembershipCreate`
@@ -96,16 +101,17 @@ field `role`, so the invite 422s. Until that is fixed, invite by hand:
 
 ```bash
 cd backend && uv run python - <<'PY'
-import httpx, sqlite3
+import httpx, os, sqlite3
 c = httpx.Client(base_url="http://localhost:8000", timeout=30)
 tok = c.post("/api/auth/jwt/login",
-             data={"username": "admin@example.com", "password": "Password123!"}).json()["access_token"]
+             data={"username": os.environ.get("BOW_ADMIN_EMAIL", "admin@example.com"),
+                   "password": os.environ.get("BOW_ADMIN_PASSWORD", "Password123!")}).json()["access_token"]
 org = c.get("/api/organizations", headers={"Authorization": f"Bearer {tok}"}).json()[0]["id"]
 H = {"Authorization": f"Bearer {tok}", "X-Organization-Id": org}
 r = c.post(f"/api/organizations/{org}/members",
            json={"organization_id": org, "email": "member@example.com", "role": "member"}, headers=H)
 print("invite:", r.status_code, r.text[:200])
-row = sqlite3.connect("db/agent.db").execute(
+row = sqlite3.connect(os.environ.get("BOW_SQLITE_DB") or "db/agent.db").execute(
     "select invite_token from memberships order by rowid desc limit 1").fetchone()
 token = row[0] if row else None
 print("register:", c.post("/api/auth/register", json={

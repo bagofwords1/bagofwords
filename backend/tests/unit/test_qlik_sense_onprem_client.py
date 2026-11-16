@@ -344,8 +344,13 @@ class _CannedEngine:
                 "DimensionList": ("qDimensionList", "dimensions"),
                 "VariableList": ("qVariableList", "variables"),
                 "SheetList": ("qAppObjectList", "sheets"),
+                "MasterObjectList": ("qAppObjectList", "master_objects"),
             }[self._pending]
             return {"qLayout": {key[0]: {"qItems": self.payload.get(key[1]) or []}}}
+        if method == "GetObject":
+            # Sheet trees are covered by test_qlik_onprem_sheet_objects.py;
+            # these canned apps have no object definitions to return.
+            return {"qReturn": {"qType": "GenericObject", "qHandle": None}}
         if method == "GetLineage":
             return self.payload.get("lineage") or []
         if method == "GetScript":
@@ -1150,7 +1155,7 @@ class TestCrawl:
         assert engines["app-consumer-sales"].user == "UserDirectory=EXAMPLECORP; UserId=dana"
 
     def test_master_items_can_be_turned_off(self, monkeypatch):
-        client = make_client(include_master_items=False, include_lineage=False)
+        client = make_client(include_master_items=False, include_lineage=False, include_sheet_objects=False)
         install_qrs(client, {"app/full": [APPS[0]], "stream/full": STREAMS})
         engines = install_engine(monkeypatch, client, {"app-consumer-sales": CONSUMER_SALES_PAYLOAD})
 
@@ -1254,11 +1259,15 @@ def _install_ws(monkeypatch, connect):
     monkeypatch.setitem(sys.modules, "websockets", fake)
 
 
+_CHECK_OK = {"qErrorMsg": "", "qBadFieldNames": [], "qDangerousFieldNames": []}
+
 CUBE_CANNED = [
     {"jsonrpc": "2.0", "method": "OnConnected", "params": {"qSessionState": "SESSION_CREATED"}},
     {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 1}}},      # OpenDoc
-    {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qHandle": 2}}},      # CreateSessionObject
-    {"jsonrpc": "2.0", "id": 3, "result": {"qDataPages": [{"qMatrix": [
+    {"jsonrpc": "2.0", "id": 2, "result": _CHECK_OK},                        # CheckExpression (measure)
+    {"jsonrpc": "2.0", "id": 3, "result": _CHECK_OK},                        # CheckExpression (dimension)
+    {"jsonrpc": "2.0", "id": 4, "result": {"qReturn": {"qHandle": 2}}},      # CreateSessionObject
+    {"jsonrpc": "2.0", "id": 5, "result": {"qDataPages": [{"qMatrix": [
         [{"qText": "Northeast", "qNum": "NaN"}, {"qText": "12,500", "qNum": 12500}],
         [{"qText": "Midwest", "qNum": "NaN"}, {"qText": "8,100", "qNum": 8100}],
     ]}]}},
@@ -1290,8 +1299,9 @@ class TestExecuteQuery:
         install_qrs(client, {"app/full": APPS, "stream/full": STREAMS})
         connect = _StrictFakeConnect([
             {"jsonrpc": "2.0", "id": 1, "result": {"qReturn": {"qHandle": 1}}},
-            {"jsonrpc": "2.0", "id": 2, "result": {"qReturn": {"qHandle": 2}}},
-            {"jsonrpc": "2.0", "id": 3, "result": {"qDataPages": [{"qMatrix": [
+            {"jsonrpc": "2.0", "id": 2, "result": _CHECK_OK},
+            {"jsonrpc": "2.0", "id": 3, "result": {"qReturn": {"qHandle": 2}}},
+            {"jsonrpc": "2.0", "id": 4, "result": {"qDataPages": [{"qMatrix": [
                 [{"qText": "176,000", "qNum": 176000}],
             ]}]}},
         ])

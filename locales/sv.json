@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "Visa Värld i Agenter"
   },
+  "filePicker": {
+    "searchPlaceholder": "Sök filer…",
+    "uploadFile": "Ladda upp fil",
+    "uploadTitle": "Ladda upp filer",
+    "clickOrDrag": "Klicka eller dra filer för att ladda upp",
+    "dropHere": "Släpp filerna här",
+    "files": "Filer",
+    "noFilesYet": "Inga filer än",
+    "connect": "Anslut",
+    "searching": "Söker…",
+    "noResults": "Inga resultat"
+  },
   "agentLanding": {
     "actions": "Agentåtgärder",
     "countTasks": "{n} uppgift | {n} uppgifter",
@@ -1339,7 +1351,11 @@
       "duration": "Varaktighet: {ms} ms",
       "edit": "Redigera",
       "generationStopped": "Genereringen stoppad",
-      "code": "Kod"
+      "code": "Kod",
+      "waitingForSlot": "Väntar på plats i {connection} · {running}/{limit} körs",
+      "waitingForSlotAhead": "Väntar på plats i {connection} · {running}/{limit} körs · {ahead} före",
+      "waitingForSlotShort": "Väntar på plats i {connection}",
+      "theConnection": "anslutningen"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3340,7 +3356,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Samtidiga frågor per anslutning",
-          "description": "Hur många av agentens frågor som får köras mot en och samma anslutning samtidigt, per replik. Det som överstiger gränsen väntar på en plats i stället för att misslyckas. Sänk värdet för känsliga lokala källor (Oracle, SQL Server) som inte klarar parallella genomsökningar. En anslutnings konfiguration kan åsidosätta detta med ett eget värde för 'max_concurrent_queries'."
+          "description": "Hur många av agentens frågor som får köras mot en och samma anslutning samtidigt, sammanlagt över alla workers och repliker. Det som överstiger gränsen väntar på en plats i stället för att misslyckas. Sänk värdet för känsliga lokala källor (Oracle, SQL Server) som inte klarar parallella genomsökningar. En anslutnings konfiguration kan åsidosätta detta med ett eget värde för 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Topp K scheman",
@@ -3775,7 +3791,20 @@
       "testTitle": "Testa dina regler",
       "title": "Skydd av personuppgifter"
     },
-    "piiTab": "Personuppgifter"
+    "piiTab": "Personuppgifter",
+    "frameAncestors": {
+      "title": "Webbplatser som får visa BOW",
+      "description": "Era egna program som får visa BOW i en ram, till exempel en intern portal. Listan gäller alla organisationer på den här instansen.",
+      "placeholder": "https://portal.example.com",
+      "add": "Lägg till",
+      "removeSite": "Ta bort {site}",
+      "empty": "Inga webbplatser tillagda. BOW kan bara visas på sina egna sidor och i Microsoft Office.",
+      "ssoNote": "Inloggning i ramen fungerar med e-post och lösenord. Enkel inloggning (SSO) fungerar inte i en ram.",
+      "readOnly": "På en instans med flera organisationer kan bara en instansadministratör ändra listan.",
+      "duplicate": "Webbplatsen finns redan i listan.",
+      "invalidFormat": "Ange en adress som börjar med https://, utan sökväg. Till exempel: https://portal.example.com",
+      "publicNote": "Vem som helst kan se de här adresserna: webbläsare får dem med varje sida."
+    }
   },
   "data": {
     "keepSavedSecret": "Lämna tomt för att behålla sparad hemlighet",
@@ -4557,7 +4586,12 @@
     "access_request.too_soon": "Din tidigare begäran avslogs. Du kan begära igen senare.",
     "access_request.no_approvers": "Just nu finns det ingen som kan godkänna begäranden för den här instrumentpanelen.",
     "access_request.not_found": "Den här begäran finns inte längre.",
-    "access_request.already_decided": "Den här begäran har redan besvarats."
+    "access_request.already_decided": "Den här begäran har redan besvarats.",
+    "frame_ancestors.invalid": "De här webbplatsadresserna är inte giltiga: {origins}. Använd en https-adress utan sökväg, till exempel https://portal.example.com.",
+    "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser.",
+    "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
+    "connection.query_finished": "Frågan är redan avslutad ({status}).",
+    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns."
   },
   "email": {
     "dashboardShare": {
@@ -7273,8 +7307,6 @@
   },
   "sharedFolders": {
     "viewFolder": "Visa mapp",
-    "activity": "Mappaktivitet",
-    "viewTrace": "Visa spårning",
     "attach": "Länka befintligt",
     "addCase": "Lägg till testfall",
     "sameAccess": "Access stays the same.",
@@ -7299,5 +7331,88 @@
     "inherit": "Ärv åtkomst från överordnad mapp",
     "direct": "Direkt åtkomst för {name}",
     "stopConfirm": "Stäng av arv? Ärvda behörigheter från {names} slutar gälla."
+  },
+  "connectionQueries": {
+    "tabSettings": "Inställningar",
+    "tabQueries": "Frågor",
+    "runningNow": "körs nu",
+    "queuedCount": "{n} väntar på plats",
+    "limitFromConnection": "Gräns satt på den här anslutningen",
+    "limitFromOrg": "Organisationens standardgräns",
+    "limitDefault": "Systemets standardgräns",
+    "live": "Live",
+    "liveHint": "Uppdateras varannan sekund",
+    "refresh": "Uppdatera",
+    "loadFailed": "Det gick inte att läsa in frågorna",
+    "unavailableTitle": "Det gick inte att läsa in anslutningens frågor",
+    "unavailableOutdated": "Den här servern har inte vyn Frågor än. Den kör troligen en äldre version av Bag of Words än den här sidan; uppdatera servern och försök igen.",
+    "runningTitle": "Körs nu",
+    "noneRunning": "Inga frågor körs mot den här anslutningen.",
+    "waitingFor": "väntar {time}",
+    "runningFor": "körs {time}",
+    "stopping": "Stoppar…",
+    "killConfirm": "Stoppa den här frågan?",
+    "kill": "Stoppa",
+    "killFailed": "Det gick inte att stoppa frågan",
+    "notKillable": "Kan inte stoppas här",
+    "notKillableHint": "Anslutningens klient har en egen tidsgräns, så BOW kan inte avbryta den. Frågan avslutas av sig själv.",
+    "historyTitle": "Historik",
+    "filterAll": "Alla statusar",
+    "searchPlaceholder": "Sök i frågetexten",
+    "noMatches": "Inga frågor matchar filtren.",
+    "noHistory": "Inga frågor har körts mot den här anslutningen än.",
+    "colStatus": "Status",
+    "colQuery": "Fråga",
+    "colWho": "Vem",
+    "colDuration": "Tid",
+    "colWait": "Väntan",
+    "colRows": "Rader",
+    "colWhen": "När",
+    "loadMore": "Läs in fler",
+    "retentionNote": "Historiken sparas i 90 dagar. Endast anslutningens förvaltare kan se och stoppa frågor här.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "System",
+    "agent": "Agent",
+    "attempt": "Försök",
+    "attemptValue": "kodförsök {code} · verktygsförsök {tool} · fråga nr {seq}",
+    "started": "Startad",
+    "ended": "Avslutad",
+    "killedBy": "Stoppad av",
+    "sourceCancel": "Avbrott i källan",
+    "copied": "Kopierat",
+    "copy": "Kopiera",
+    "truncated": "Frågetexten kortades vid lagring.",
+    "openReport": "Öppna rapport",
+    "openReportNamed": "Öppna rapport: {title}",
+    "status": {
+      "queued": "Väntar",
+      "running": "Körs",
+      "success": "Lyckades",
+      "error": "Misslyckades",
+      "timeout": "Tidsgräns",
+      "busy": "Upptagen",
+      "cancelled": "Avbruten",
+      "stale": "Övergiven"
+    },
+    "source": {
+      "label": "Källa",
+      "chat": "Chatt",
+      "eval": "Utvärdering",
+      "query": "Fråga",
+      "entity": "Entitet",
+      "dashboard": "Instrumentpanel",
+      "viewer": "Läsaruppdatering",
+      "scheduled": "Schemalagd",
+      "system": "System"
+    },
+    "reason": {
+      "killed": "Avbruten av en förvaltare av anslutningen.",
+      "killed_waiting": "Avbruten av en förvaltare av anslutningen medan den väntade på plats.",
+      "run_stopped": "Stoppad eftersom körningen som skickade den stoppades.",
+      "stale": "Processen som körde frågan slutade svara; dess plats frigjordes.",
+      "busy": "Ingen plats blev ledig i tid: anslutningen låg på sin gräns för samtidiga frågor."
+    }
   }
 }

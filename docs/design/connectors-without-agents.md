@@ -496,6 +496,7 @@ then **manually** confirming in the running app.
 - Env setup (Python 3.12, `uv sync --extra dev`, `BOW_DATABASE_URL=sqlite:///db/app.db`) — mirror
   the existing runbooks.
 - Seed: org, admin, member; the two mock connectors.
+- DevBox (`BOW_SANDBOX_DEVBOX=1`): env setup, org and admin are provisioned; seed only the member and the mocks, as the DevBox admin (`source tools/agent/devbox_env.sh`). See the root `AGENTS.md`, "DevBox".
 - Scripted e2e per test case above (extend `tests/e2e/test_oauth_mcp.py`,
   `test_mcp_tools.py`, `test_custom_api_tools.py`).
 - **Manual pass:** run the app, connect each mock as admin and as member, confirm the selector,

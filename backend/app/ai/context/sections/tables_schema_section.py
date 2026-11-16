@@ -160,6 +160,12 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # TeradataClient: the primary index is Teradata's distribution key and the
     # cheapest join path; `kind` says view vs table. Neither is in the name.
     "teradata": ("kind", "primary_index", "primary_index_unique"),
+    # QlikSenseOnPremClient: `Master Items` and `Sheets/<title>` entries are not
+    # physical tables. `objectType` says which kind of entry the agent is
+    # reading (data tables carry none), and a sheet's description is the
+    # author's own statement of what the sheet answers — `Table.description`
+    # is not persisted with the catalog, so this is the only place it renders.
+    "qlik_sense_onprem": ("objectType", "sheetDescription"),
 }
 
 

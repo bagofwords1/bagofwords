@@ -1,0 +1,16 @@
+{
+ "uiManageButtonForMember": 0,
+ "memberList": 403,
+ "memberHistory": 403,
+ "memberKillOwnQuery": 403,
+ "memberKillViaOtherConnection": 403,
+ "managerKillWrongConnection": 404,
+ "managerKillUnknownId": 404,
+ "stillRunningAfterBypassAttempts": "running",
+ "killFinished": {
+  "status": 409,
+  "error_code": "connection.query_finished"
+ },
+ "managerKill": 200,
+ "finalStatus": "cancelled"
+}
