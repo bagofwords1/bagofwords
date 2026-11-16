@@ -4383,6 +4383,20 @@
         "none": "no transport"
       },
       "alertsHint": "Which system emails go out. In-app notifications are always delivered."
+    },
+    "frameAncestors": {
+      "title": "Sites that can show BOW",
+      "description": "Your own applications that may show BOW inside a frame, such as an internal portal. This list applies to every organization on this instance.",
+      "placeholder": "https://portal.example.com",
+      "add": "Add",
+      "removeSite": "Remove {site}",
+      "empty": "No sites added. BOW can only appear inside its own pages and Microsoft Office.",
+      "fromConfig": "Config file",
+      "fromConfigHint": "Set in the server's configuration file. To change it, edit that file.",
+      "ssoNote": "Signing in inside the frame works with email and password. Single sign-on (SSO) doesn't work inside a frame.",
+      "readOnly": "Only an instance administrator can change this list on an instance with several organizations.",
+      "duplicate": "This site is already in the list.",
+      "invalidFormat": "Enter an address that starts with https://, without a path. For example: https://portal.example.com"
     }
   },
   "data": {
@@ -5205,7 +5219,9 @@
     "access_request.too_soon": "Your previous request was declined. You can ask again later.",
     "access_request.no_approvers": "No one can approve requests for this dashboard right now.",
     "access_request.not_found": "This request no longer exists.",
-    "access_request.already_decided": "This request was already answered."
+    "access_request.already_decided": "This request was already answered.",
+    "frame_ancestors.invalid": "These aren't valid site addresses: {origins}. Use an https address without a path, for example https://portal.example.com.",
+    "frame_ancestors.too_many": "You can list at most {max} sites."
   },
   "email": {
     "dashboardShare": {

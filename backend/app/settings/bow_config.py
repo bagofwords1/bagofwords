@@ -395,6 +395,10 @@ class DataEncryptionConfig(BaseModel):
         return True if v is None else v
 
 
+def _comma_list(raw) -> List[str]:
+    return [p.strip() for p in (raw or "").split(",") if p.strip()]
+
+
 class SecurityConfig(BaseModel):
     # When true, admin-configured outbound URLs (git remotes, LLM base_url,
     # audit-stream endpoints) must resolve to public addresses. Off by default
@@ -432,6 +436,34 @@ class SecurityConfig(BaseModel):
             if os.getenv("BOW_TRUSTED_PROXIES") is not None else None
         )
     )
+    # Extra origins that may show BOW's pages in an iframe, added to this
+    # origin and Office on the web (core/security_headers.py). For an internal
+    # application that hosts BOW in a frame, e.g. ["https://erp.example.com",
+    # "https://*.example.com"]. Each entry is an https origin (http only for
+    # localhost/127.0.0.1), optionally with a leading "*." and a port; anything
+    # else, including a wildcard over a shared-hosting domain, is skipped with a
+    # warning. Every listed origin can frame the whole app, sign-in page
+    # included — list only sites you control. Password sign-in works inside such
+    # a frame; SSO does not (IdPs refuse frames, SameSite=Lax state cookies).
+    # Env: BOW_FRAME_ANCESTORS (comma separated).
+    frame_ancestors: List[str] = Field(
+        default_factory=lambda: _comma_list(os.getenv("BOW_FRAME_ANCESTORS"))
+    )
+
+    @field_validator("frame_ancestors", mode="before")
+    @classmethod
+    def _frame_ancestors_shape(cls, v):
+        # A config typo must not stop the server: empty means none, a single
+        # string (one origin, or several comma separated) is accepted, and a
+        # non-string item becomes text that security_headers rejects with a
+        # warning.
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return _comma_list(v)
+        if isinstance(v, (list, tuple)):
+            return [item if isinstance(item, str) else str(item) for item in v]
+        return [str(v)]
 
 
 class McpAppsConfig(BaseModel):

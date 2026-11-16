@@ -4321,6 +4321,20 @@
         "none": "ningún transporte"
       },
       "alertsHint": "Qué correos del sistema se envían. Las notificaciones en la aplicación siempre se entregan."
+    },
+    "frameAncestors": {
+      "title": "Sitios que pueden mostrar BOW",
+      "description": "Tus propias aplicaciones que pueden mostrar BOW dentro de un marco, como un portal interno. Esta lista se aplica a todas las organizaciones de esta instancia.",
+      "placeholder": "https://portal.example.com",
+      "add": "Añadir",
+      "removeSite": "Quitar {site}",
+      "empty": "No hay sitios añadidos. BOW solo puede aparecer dentro de sus propias páginas y de Microsoft Office.",
+      "fromConfig": "Archivo de configuración",
+      "fromConfigHint": "Definido en el archivo de configuración del servidor. Para cambiarlo, edita ese archivo.",
+      "ssoNote": "Iniciar sesión dentro del marco funciona con correo y contraseña. El inicio de sesión único (SSO) no funciona dentro de un marco.",
+      "readOnly": "Solo un administrador de la instancia puede cambiar esta lista en una instancia con varias organizaciones.",
+      "duplicate": "Este sitio ya está en la lista.",
+      "invalidFormat": "Introduce una dirección que empiece por https://, sin ruta. Por ejemplo: https://portal.example.com"
     }
   },
   "data": {
@@ -5145,7 +5159,9 @@
     "access_request.too_soon": "Tu solicitud anterior fue rechazada. Puedes volver a pedirla más adelante.",
     "access_request.no_approvers": "Ahora mismo no hay nadie que pueda aprobar solicitudes de este panel.",
     "access_request.not_found": "Esta solicitud ya no existe.",
-    "access_request.already_decided": "Esta solicitud ya fue respondida."
+    "access_request.already_decided": "Esta solicitud ya fue respondida.",
+    "frame_ancestors.invalid": "Estas direcciones de sitio no son válidas: {origins}. Usa una dirección https sin ruta, por ejemplo https://portal.example.com.",
+    "frame_ancestors.too_many": "Puedes añadir como máximo {max} sitios."
   },
   "email": {
     "dashboardShare": {

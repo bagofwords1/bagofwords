@@ -3775,7 +3775,21 @@
       "testTitle": "Testez vos règles",
       "title": "Protection des données personnelles"
     },
-    "piiTab": "Données personnelles"
+    "piiTab": "Données personnelles",
+    "frameAncestors": {
+      "title": "Sites pouvant afficher BOW",
+      "description": "Vos propres applications autorisées à afficher BOW dans un cadre, comme un portail interne. Cette liste s'applique à toutes les organisations de cette instance.",
+      "placeholder": "https://portal.example.com",
+      "add": "Ajouter",
+      "removeSite": "Retirer {site}",
+      "empty": "Aucun site ajouté. BOW ne peut apparaître que dans ses propres pages et dans Microsoft Office.",
+      "fromConfig": "Fichier de configuration",
+      "fromConfigHint": "Défini dans le fichier de configuration du serveur. Pour le modifier, éditez ce fichier.",
+      "ssoNote": "La connexion dans le cadre fonctionne avec e-mail et mot de passe. L'authentification unique (SSO) ne fonctionne pas dans un cadre.",
+      "readOnly": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut modifier cette liste.",
+      "duplicate": "Ce site est déjà dans la liste.",
+      "invalidFormat": "Saisissez une adresse commençant par https://, sans chemin. Par exemple : https://portal.example.com"
+    }
   },
   "data": {
     "keepSavedSecret": "Laisser vide pour conserver le secret enregistré",
@@ -4557,7 +4571,9 @@
     "access_request.too_soon": "Votre demande précédente a été refusée. Vous pourrez redemander plus tard.",
     "access_request.no_approvers": "Personne ne peut approuver les demandes pour ce tableau de bord pour le moment.",
     "access_request.not_found": "Cette demande n'existe plus.",
-    "access_request.already_decided": "Cette demande a déjà été traitée."
+    "access_request.already_decided": "Cette demande a déjà été traitée.",
+    "frame_ancestors.invalid": "Ces adresses de site ne sont pas valides : {origins}. Utilisez une adresse https sans chemin, par exemple https://portal.example.com.",
+    "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites."
   },
   "email": {
     "dashboardShare": {

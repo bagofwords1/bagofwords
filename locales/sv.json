@@ -3775,7 +3775,21 @@
       "testTitle": "Testa dina regler",
       "title": "Skydd av personuppgifter"
     },
-    "piiTab": "Personuppgifter"
+    "piiTab": "Personuppgifter",
+    "frameAncestors": {
+      "title": "Webbplatser som får visa BOW",
+      "description": "Era egna program som får visa BOW i en ram, till exempel en intern portal. Listan gäller alla organisationer på den här instansen.",
+      "placeholder": "https://portal.example.com",
+      "add": "Lägg till",
+      "removeSite": "Ta bort {site}",
+      "empty": "Inga webbplatser tillagda. BOW kan bara visas på sina egna sidor och i Microsoft Office.",
+      "fromConfig": "Konfigurationsfil",
+      "fromConfigHint": "Angiven i serverns konfigurationsfil. Redigera filen för att ändra den.",
+      "ssoNote": "Inloggning i ramen fungerar med e-post och lösenord. Enkel inloggning (SSO) fungerar inte i en ram.",
+      "readOnly": "På en instans med flera organisationer kan bara en instansadministratör ändra listan.",
+      "duplicate": "Webbplatsen finns redan i listan.",
+      "invalidFormat": "Ange en adress som börjar med https://, utan sökväg. Till exempel: https://portal.example.com"
+    }
   },
   "data": {
     "keepSavedSecret": "Lämna tomt för att behålla sparad hemlighet",
@@ -4557,7 +4571,9 @@
     "access_request.too_soon": "Din tidigare begäran avslogs. Du kan begära igen senare.",
     "access_request.no_approvers": "Just nu finns det ingen som kan godkänna begäranden för den här instrumentpanelen.",
     "access_request.not_found": "Den här begäran finns inte längre.",
-    "access_request.already_decided": "Den här begäran har redan besvarats."
+    "access_request.already_decided": "Den här begäran har redan besvarats.",
+    "frame_ancestors.invalid": "De här webbplatsadresserna är inte giltiga: {origins}. Använd en https-adress utan sökväg, till exempel https://portal.example.com.",
+    "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser."
   },
   "email": {
     "dashboardShare": {
