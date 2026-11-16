@@ -7319,6 +7319,8 @@
     "liveHint": "Aktualisiert sich alle 2 Sekunden",
     "refresh": "Aktualisieren",
     "loadFailed": "Abfragen konnten nicht geladen werden",
+    "unavailableTitle": "Die Abfragen dieser Verbindung konnten nicht geladen werden",
+    "unavailableOutdated": "Dieser Server hat die Abfragen-Ansicht noch nicht. Vermutlich läuft dort eine ältere Version von Bag of Words als diese Seite; aktualisieren Sie den Server und versuchen Sie es erneut.",
     "runningTitle": "Laufen gerade",
     "noneRunning": "Auf dieser Verbindung laufen keine Abfragen.",
     "waitingFor": "wartet seit {time}",

@@ -8149,6 +8149,8 @@
     "liveHint": "Updates every 2 seconds",
     "refresh": "Refresh",
     "loadFailed": "Could not load queries",
+    "unavailableTitle": "Couldn't load this connection's queries",
+    "unavailableOutdated": "This server doesn't have the Queries view yet. It is probably running an older version of Bag of Words than this page; update the server and try again.",
     "runningTitle": "Running now",
     "noneRunning": "No queries are running on this connection.",
     "waitingFor": "waiting {time}",

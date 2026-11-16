@@ -7319,6 +7319,8 @@
     "liveHint": "Si aggiorna ogni 2 secondi",
     "refresh": "Aggiorna",
     "loadFailed": "Impossibile caricare le query",
+    "unavailableTitle": "Impossibile caricare le query di questa connessione",
+    "unavailableOutdated": "Questo server non ha ancora la vista Query. Probabilmente esegue una versione di Bag of Words più vecchia di questa pagina; aggiorna il server e riprova.",
     "runningTitle": "In esecuzione",
     "noneRunning": "Nessuna query in esecuzione su questa connessione.",
     "waitingFor": "in attesa da {time}",

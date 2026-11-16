@@ -7319,6 +7319,8 @@
     "liveHint": "Mise à jour toutes les 2 secondes",
     "refresh": "Actualiser",
     "loadFailed": "Impossible de charger les requêtes",
+    "unavailableTitle": "Impossible de charger les requêtes de cette connexion",
+    "unavailableOutdated": "Ce serveur n'a pas encore la vue Requêtes. Il exécute probablement une version de Bag of Words plus ancienne que cette page ; mettez le serveur à jour et réessayez.",
     "runningTitle": "En cours",
     "noneRunning": "Aucune requête n'est en cours sur cette connexion.",
     "waitingFor": "en attente depuis {time}",

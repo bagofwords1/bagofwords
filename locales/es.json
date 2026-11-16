@@ -8120,6 +8120,8 @@
     "liveHint": "Se actualiza cada 2 segundos",
     "refresh": "Actualizar",
     "loadFailed": "No se pudieron cargar las consultas",
+    "unavailableTitle": "No se pudieron cargar las consultas de esta conexión",
+    "unavailableOutdated": "Este servidor aún no tiene la vista de Consultas. Probablemente ejecuta una versión de Bag of Words anterior a esta página; actualiza el servidor y vuelve a intentarlo.",
     "runningTitle": "En ejecución",
     "noneRunning": "No hay consultas en ejecución en esta conexión.",
     "waitingFor": "esperando {time}",

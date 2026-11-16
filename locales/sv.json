@@ -7319,6 +7319,8 @@
     "liveHint": "Uppdateras varannan sekund",
     "refresh": "Uppdatera",
     "loadFailed": "Det gick inte att läsa in frågorna",
+    "unavailableTitle": "Det gick inte att läsa in anslutningens frågor",
+    "unavailableOutdated": "Den här servern har inte vyn Frågor än. Den kör troligen en äldre version av Bag of Words än den här sidan; uppdatera servern och försök igen.",
     "runningTitle": "Körs nu",
     "noneRunning": "Inga frågor körs mot den här anslutningen.",
     "waitingFor": "väntar {time}",
