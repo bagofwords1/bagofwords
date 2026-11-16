@@ -120,8 +120,6 @@
     "sameParentAccess": "Inherited access stays the same.",
     "directUnchanged": "Direct grants and access from other sources still apply.",
     "viewFolder": "View folder",
-    "activity": "Folder activity",
-    "viewTrace": "View trace",
     "attach": "Attach existing",
     "addCase": "Add case",
     "sameAccess": "Access stays the same.",

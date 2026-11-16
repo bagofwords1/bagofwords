@@ -120,8 +120,6 @@
     "sameParentAccess": "El acceso heredado se mantiene.",
     "directUnchanged": "Los permisos directos y el acceso por otras vías siguen vigentes.",
     "viewFolder": "Ver carpeta",
-    "activity": "Actividad de la carpeta",
-    "viewTrace": "Ver traza",
     "attach": "Vincular existente",
     "addCase": "Añadir caso",
     "sameAccess": "El acceso se mantiene.",

@@ -7304,8 +7304,6 @@
   },
   "sharedFolders": {
     "viewFolder": "Ver pasta",
-    "activity": "Atividade da pasta",
-    "viewTrace": "Ver rastreamento",
     "attach": "Vincular existente",
     "addCase": "Adicionar caso",
     "sameAccess": "Access stays the same.",

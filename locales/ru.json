@@ -7304,8 +7304,6 @@
   },
   "sharedFolders": {
     "viewFolder": "Открыть папку",
-    "activity": "Активность папки",
-    "viewTrace": "Открыть трассировку",
     "attach": "Связать с существующим",
     "addCase": "Добавить сценарий",
     "sameAccess": "Access stays the same.",
