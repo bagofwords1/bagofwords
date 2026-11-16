@@ -507,7 +507,9 @@ class CreateInstructionMCPTool(MCPTool):
     description = (
         "Create a new instruction that guides AI behavior when generating code and analyzing data. "
         "Say where it applies: folder_ids (folders, from browse_agents) and/or data_source_ids "
-        "(agents) — one rule can be shared across several folders and agents; you need "
+        "(agents) — one rule can be shared across several folders and agents. A folder rule applies "
+        "in reports scoped to that folder, for every agent in it including later ones, not in reports "
+        "pinned to single agents; the response's applies_in says where. You need "
         "instruction-management rights on each. For a rule that applies in every report, pass "
         "scope: 'global' instead (org-level instruction admin only). folder_id (one owning "
         "folder) still works."
@@ -580,9 +582,26 @@ class CreateInstructionMCPTool(MCPTool):
             instruction_id=str(result.id), folder_id=input_data.folder_id,
             scope="targeted" if (folder_ids or ds_ids) else "global",
             folder_ids=folder_ids, data_source_ids=ds_ids,
+            applies_in=applies_in("targeted" if (folder_ids or ds_ids) else "global", folder_ids, ds_ids),
             build_status="pending_approval" if pending else "approved",
             requires_approval=pending,
         ).model_dump()
+
+
+def applies_in(scope: str, folder_ids, agent_ids) -> str:
+    """Where a rule takes effect, in the words a client should repeat."""
+    if scope == "global":
+        return "Every report."
+    parts = []
+    if folder_ids:
+        parts.append(
+            f"reports scoped to its {len(folder_ids)} folder(s) (create_report agent_folder_ids), for every "
+            "agent in them, including agents added later — not in reports pinned to individual agents or "
+            "title-only reports"
+        )
+    if agent_ids:
+        parts.append(f"any report that uses one of its {len(agent_ids)} agent(s)")
+    return ("In " + "; and in ".join(parts) + ".") if parts else "No report: it has no folder or agent."
 
 
 LAST_TARGET = (
@@ -793,6 +812,8 @@ class EditInstructionMCPTool(MCPTool):
 
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = await _waiting_for_review(db, data.instruction_id)
+        placement_after = (await load_placements(db, [data.instruction_id])).get(str(data.instruction_id))
+        placement = await PlacementRenderer(db, organization, user).render(placement_after) if placement_after else None
         status_changed = new_db_status is not None and new_db_status != base_status
         logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
@@ -804,8 +825,9 @@ class EditInstructionMCPTool(MCPTool):
             new_text=fresh.text if new_text is not None else None,
             previous_status=DB_TO_STATUS.get(base_status) if status_changed else None,
             new_status=data.status if status_changed else None,
-            instruction=_detail(fresh, can_edit=True, pending=pending,
-                                placement=await _placement(db, organization, user, data.instruction_id)),
+            instruction=_detail(fresh, can_edit=True, pending=pending, placement=placement),
+            applies_in=applies_in(placement_after.scope, placement_after.folder_ids, placement_after.agent_ids)
+            if placement_after else None,
         ).model_dump()
 
 

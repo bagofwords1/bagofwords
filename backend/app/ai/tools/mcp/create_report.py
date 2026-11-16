@@ -48,6 +48,56 @@ async def report_scope(db, organization, user, report) -> Dict[str, Any]:
     return {"mode": mode, "folders": folders, "hidden_folder_count": hidden, "pinned_agent_ids": pinned_ids}
 
 
+# At most this many folders are reported as missing from a report's scope.
+MISSING_FOLDER_RULES_LIMIT = 20
+
+
+async def missing_folder_rules(db, organization, user, report, agents) -> List[Dict[str, Any]]:
+    """Folders whose live rules this report does NOT apply, though it uses
+    agents filed in them.
+
+    Folder rules apply only in reports scoped to that folder. A report pinned
+    to an agent (or a title-only report, which pins every agent) runs without
+    the rules of the agent's folder, and nothing else tells the client. Only
+    folders the caller can query are named, so a direct grant on one agent
+    reveals nothing about its folder.
+    """
+    from app.models.report import report_folder_ids
+    from app.services.folder_knowledge import readable_folder_rules
+    from app.services.folder_service import browsable_folder_tree, folder_path
+
+    selected = set(report_folder_ids(report))
+    homes: Dict[str, List[str]] = {}
+    for a in agents or []:
+        home = getattr(a, "folder_id", None)
+        if home and home not in selected:
+            homes.setdefault(home, []).append(str(a.id))
+    if not homes:
+        return []
+    tree, rights = await browsable_folder_tree(db, organization, user)
+    out = []
+    for fid in sorted(homes, key=lambda f: folder_path(tree, f).lower() if f in tree else ""):
+        if fid not in tree or not rights.has_resource_permission("folder", fid, "view"):
+            continue
+        rules = await readable_folder_rules(db, organization, user, fid)
+        if rules:
+            out.append({"folder_id": fid, "path": folder_path(tree, fid), "rule_count": len(rules),
+                        "agent_ids": homes[fid]})
+        if len(out) >= MISSING_FOLDER_RULES_LIMIT:
+            break
+    return out
+
+
+def missing_folder_rules_hint(missing: List[Dict[str, Any]]) -> str:
+    paths = ", ".join(f"{m['path']} ({m['rule_count']})" for m in missing)
+    return (
+        f"Rules attached to these folders do NOT apply in this report: {paths}. Folder rules apply only "
+        "in reports scoped to the folder. If the user's question is about these agents, create the report "
+        "with agent_folder_ids set to these folder ids (keep data_source_ids for any other agents) so the "
+        "folder's rules are followed."
+    )
+
+
 class CreateReportTool(MCPTool):
     """Create a new analysis session (report).
 
@@ -62,7 +112,10 @@ class CreateReportTool(MCPTool):
         "Use that report_id in all subsequent create_data, inspect_data, and get_context calls. "
         "With only a title, the report uses every agent you can access. To scope it, pass "
         "agent_folder_ids (a folder covers every agent in its branch) and/or data_source_ids "
-        "(single agents) — find the ids with browse_agents."
+        "(single agents) — find the ids with browse_agents. Rules attached to a folder apply "
+        "only in reports scoped to that folder: when the user's agents live in a folder, scope by "
+        "the folder. The response lists missing_folder_rules when the report uses agents whose "
+        "folder rules it does not apply."
     )
 
     @property
@@ -173,6 +226,7 @@ class CreateReportTool(MCPTool):
             if picked_ids:
                 result["scope"] = {"mode": "agents", "folders": [], "hidden_folder_count": 0,
                                    "pinned_agent_ids": [str(ds.id) for ds in attached]}
+            self._add_missing(result, await missing_folder_rules(db, organization, user, report, attached))
             return result
 
         # Folder scope: report what the run will actually use — the folders'
@@ -187,5 +241,12 @@ class CreateReportTool(MCPTool):
              "folder_path": paths.get(str(ds.id))}
             for ds in effective
         ]
+        self._add_missing(result, await missing_folder_rules(db, organization, user, loaded, effective))
         await db.commit()
         return result
+
+    @staticmethod
+    def _add_missing(result: Dict[str, Any], missing: List[Dict[str, Any]]) -> None:
+        if missing:
+            result["missing_folder_rules"] = missing
+            result["missing_folder_rules_hint"] = missing_folder_rules_hint(missing)

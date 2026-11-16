@@ -452,3 +452,51 @@ def test_a_pending_curator_change_does_not_block_other_authors(world):
     assert made.get("success") and not made["requires_approval"], made
     # ...and the curator's suggestion is still waiting, untouched.
     assert _detail(world, world.admin, shared)["pending_review"]
+
+
+def _missing(out):
+    """Folder → rule count the response says the report does NOT apply."""
+    return {e["folder_id"]: e["rule_count"] for e in (out.get("missing_folder_rules") or [])}
+
+
+@pytest.mark.e2e
+def test_a_report_that_misses_its_agents_folder_rules_says_so(world):
+    """Folder rules apply only in folder-scoped reports. A report pinned to an
+    agent in that folder, or a title-only report, runs without them, so the
+    response must say which folder's rules are missing and how to apply them.
+    It must say nothing about folders the caller can't see."""
+    app_folder = world.folder("db-app")
+    prod, dev = world.agent("db-app prod", app_folder), world.agent("db-app dev", app_folder)
+    analyst = world.user()
+    world.share(app_folder, analyst, "Viewer")
+    rule = world.mcp(world.admin, "create_instruction", {
+        "text": "In db-app, merchant 7 is the QA merchant; exclude it from every total.",
+        "folder_ids": [app_folder]})
+    assert rule.get("success"), rule
+
+    for args in ({"data_source_ids": [prod]}, {"data_source_ids": [prod, dev]}, {}):
+        made = world.mcp(analyst, "create_report", {"title": "db-app totals", **args})
+        assert _missing(made).get(app_folder, 0) >= 1, (args, made)
+        ctx = world.mcp(analyst, "get_context", {"report_id": made["report_id"]})
+        assert _missing(ctx["scope"]).get(app_folder, 0) >= 1, (args, ctx["scope"])
+        assert rule["instruction_id"] not in {i["id"] for i in ctx["instructions"]}
+
+    scoped = world.mcp(analyst, "create_report", {"title": "db-app totals", "agent_folder_ids": [app_folder]})
+    assert app_folder not in _missing(scoped)
+    ctx = world.mcp(analyst, "get_context", {"report_id": scoped["report_id"]})
+    assert app_folder not in _missing(ctx["scope"])
+    assert rule["instruction_id"] in {i["id"] for i in ctx["instructions"]}
+
+    # A rule that no longer applies anywhere is not "missing".
+    world.mcp(world.admin, "edit_instruction", {"instruction_id": rule["instruction_id"], "status": "inactive"})
+    assert app_folder not in _missing(world.mcp(analyst, "create_report", {"title": "x", "data_source_ids": [prod]}))
+
+    # Someone who reaches an agent only by a direct grant learns nothing about its folder.
+    private = world.folder("Executive")
+    kpis = world.agent("exec kpis", private)
+    world.mcp(world.admin, "create_instruction", {"text": "Exec KPIs are board-confidential.", "folder_ids": [private]})
+    guest = world.user()
+    world.api(world.admin, "POST", f"data_sources/{kpis}/members",
+              {"principal_type": "user", "principal_id": guest["user_id"]})
+    out = world.mcp(guest, "create_report", {"title": "kpis", "data_source_ids": [kpis]})
+    assert not _missing(out) and "Executive" not in json.dumps(out), out
