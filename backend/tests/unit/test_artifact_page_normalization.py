@@ -253,3 +253,48 @@ def test_a_successful_build_resets_the_count():
 
 def test_builds_that_succeed_never_warn():
     assert _run([False] * 10) == [None] * 10
+
+
+BARE_CREATE_ROOT = re.compile(r"(?<![\w$.])createRoot\s*\(")
+
+
+@pytest.mark.parametrize("root, definition, export", [
+    ("ArtistDashboard", "const ArtistDashboard = () => <div>Artists</div>;", "export default ArtistDashboard;"),
+    ("SalesOverview", "function SalesOverview() { return <div/> }", "export default SalesOverview;"),
+    ("Board", "", "export default function Board() { return <div/> }"),
+])
+def test_a_page_whose_root_is_not_named_app_is_mounted_by_that_name(root, definition, export):
+    code = f"import React from 'react';\n{definition}\n{export}\n"
+    fixed, notes = normalize_page_code(code)
+
+    assert re.search(rf"\.render\(<{root} />\)", fixed)
+    assert "export" not in fixed and "<App />" not in fixed
+    assert any("mount" in n for n in notes)
+
+
+def test_a_page_that_defines_app_mounts_app_even_if_it_exports_another_name():
+    code = "function Card() { return <div/> }\nfunction App() { return <Card/> }\nexport default Card;\n"
+    fixed, _ = normalize_page_code(code)
+    assert ".render(<App />)" in fixed and ".render(<Card />)" not in fixed
+
+
+@pytest.mark.parametrize("imports", [
+    "import { createRoot } from 'react-dom/client';",
+    "import React from 'react';\nimport { createRoot } from \"react-dom/client\";",
+])
+def test_a_bare_create_root_call_uses_the_reactdom_global(imports):
+    code = f"{imports}\nfunction App() {{ return <div/> }}\ncreateRoot(document.getElementById('root')).render(<App />);\n"
+    fixed, notes = normalize_page_code(code)
+
+    assert not BARE_CREATE_ROOT.search(fixed)
+    assert fixed.count("ReactDOM.createRoot(") == 1
+    assert any("createRoot" in n for n in notes)
+
+
+@pytest.mark.parametrize("binding", [
+    "const { createRoot } = ReactDOM;",
+    "const createRoot = (el) => ReactDOM.createRoot(el);",
+])
+def test_a_create_root_the_page_binds_itself_is_left_alone(binding):
+    code = f"{binding}\nfunction App() {{ return <div/> }}\ncreateRoot(document.getElementById('root')).render(<App />);\n"
+    assert normalize_page_code(code) == (code, [])

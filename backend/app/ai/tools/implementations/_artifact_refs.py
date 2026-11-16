@@ -278,27 +278,68 @@ def strip_module_syntax(code: str) -> Tuple[str, List[str]]:
     return (fixed, list(dict.fromkeys(changed))) if fixed != src else (src, [])
 
 
-_DEFINES_APP_RE = re.compile(r"^[ \t]*(?:async\s+)?function\s+App\b|^[ \t]*(?:const|let|var)\s+App\s*=", re.MULTILINE)
 _MOUNTS_RE = re.compile(r"createRoot|hydrateRoot|\brender\s*\(")
 MOUNT_LINE = "ReactDOM.createRoot(document.getElementById('root')).render(<App />);"
+# The component a module-style page names as its root: `export default Dashboard`,
+# `export default function Dashboard`. Read before the export is stripped.
+_EXPORTED_COMPONENT_RE = re.compile(
+    r"^[ \t]*export\s+default\s+(?:(?:async\s+)?function\s+|class\s+)?([A-Z][\w$]*)\b", re.MULTILINE
+)
+# `createRoot(...)` with nothing before it (left from `import { createRoot }
+# from 'react-dom/client'`, which binds no name in the page runtime).
+_BARE_CREATE_ROOT_RE = re.compile(r"(?<![\w$.])createRoot(\s*\()")
+_CREATE_ROOT_BOUND_RE = re.compile(
+    r"\b(?:const|let|var|function)\s+createRoot\b"
+    r"|\{[^{}]*\bcreateRoot\b[^{}]*\}\s*=\s*(?:window\.)?ReactDOM\b"
+    r"|\bvar\s+[^;]*\bcreateRoot\s*="
+)
 
 
-def ensure_app_is_mounted(code: str) -> Tuple[str, bool]:
-    """Add the mount call to a page that defines `App` but never renders it.
+def _defines_component(code: str, name: str) -> bool:
+    n = re.escape(name)
+    return bool(re.search(
+        rf"^[ \t]*(?:async\s+)?function\s+{n}\b|^[ \t]*(?:const|let|var)\s+{n}\s*=|^[ \t]*class\s+{n}\b",
+        code, re.MULTILINE,
+    ))
+
+
+def mount_line(component: str = "App") -> str:
+    return MOUNT_LINE.replace("<App />", f"<{component} />")
+
+
+def ensure_app_is_mounted(code: str, component: str = "App") -> Tuple[str, bool]:
+    """Add the mount call to a page that defines its root component but never
+    renders it.
 
     Such a page parses, throws nothing and shows nothing: the dashboard stays
-    on "Loading artifact…" while every check passes. Applies only when there
-    is no mount call of any kind, so a page that mounts itself — however it
-    spells it — is returned untouched.
+    on "Loading artifact…" while every check passes. ``component`` is `App`
+    unless the page named another root (``export default Dashboard``). Applies
+    only when there is no mount call of any kind, so a page that mounts itself
+    — however it spells it — is returned untouched.
     """
     src = code or ""
-    if not _DEFINES_APP_RE.search(src) or _MOUNTS_RE.search(src):
+    if not _defines_component(src, component) or _MOUNTS_RE.search(src):
         return src, False
+    line = mount_line(component)
     close = src.rfind("</script>")
     if close == -1:
-        return src.rstrip("\n") + "\n" + MOUNT_LINE + "\n", True
+        return src.rstrip("\n") + "\n" + line + "\n", True
     head = src[:close].rstrip("\n")
-    return head + "\n" + MOUNT_LINE + "\n" + src[close:], True
+    return head + "\n" + line + "\n" + src[close:], True
+
+
+def qualify_bare_create_root(code: str) -> Tuple[str, bool]:
+    """``createRoot(...)`` → ``ReactDOM.createRoot(...)`` when nothing binds it.
+
+    ``import { createRoot } from 'react-dom/client'`` leaves a bare call that
+    throws "createRoot is not defined" in the page runtime. A page that binds
+    the name itself, or already writes ``ReactDOM.createRoot``, is untouched.
+    """
+    src = code or ""
+    if _CREATE_ROOT_BOUND_RE.search(src):
+        return src, False
+    fixed, count = _BARE_CREATE_ROOT_RE.subn(r"ReactDOM.createRoot\1", src)
+    return (fixed, True) if count else (src, False)
 
 
 def normalize_page_code(code: str) -> Tuple[str, List[str]]:
@@ -321,11 +362,19 @@ def normalize_page_code(code: str) -> Tuple[str, List[str]]:
             "Removed from a `const { … } = React` destructuring, because React does not "
             f"export them (they are runtime globals — use them directly): {', '.join(names)}."
         )
-    fixed, mounted = ensure_app_is_mounted(fixed)
+    fixed, qualified = qualify_bare_create_root(fixed)
+    if qualified:
+        notes.append(
+            "Changed createRoot(...) to ReactDOM.createRoot(...): nothing is imported, "
+            "so createRoot exists only on the ReactDOM global."
+        )
+    exported = _EXPORTED_COMPONENT_RE.search(code or "")
+    component = exported.group(1) if exported and not _defines_component(fixed, "App") else "App"
+    fixed, mounted = ensure_app_is_mounted(fixed, component)
     if mounted:
         notes.append(
             "Added the missing mount line — a page must end with "
-            f"`{MOUNT_LINE}` or nothing is shown."
+            f"`{mount_line(component)}` or nothing is shown."
         )
     return fixed, notes
 
