@@ -350,11 +350,21 @@ def test_rerun_executes_step_code_against_report_data_sources(
 
 @pytest.mark.e2e
 def test_rerun_cost_does_not_scale_with_stored_step_history(
-    create_report, create_user, login_user, whoami, rerun_report
+    create_report, create_user, login_user, whoami, rerun_report, monkeypatch
 ):
     """Rerun must only touch the steps it re-executes. Historical step
     versions (each holding a full stored dataset) must not be hydrated, so
     latency and SQL traffic must not scale with stored history size."""
+    # Each successful rerun fires a thumbnail job (asyncio.create_task, a
+    # headless-browser render) that loads its report on its own. record_sql
+    # listens process-wide, so when that job, from this test or an earlier
+    # one on the worker, lands inside a measurement it is counted as the
+    # rerun's own traffic. It is not part of the request measured here.
+    from app.services.thumbnail_service import ThumbnailService
+
+    async def _no_thumbnail(self, report_id):
+        return None
+    monkeypatch.setattr(ThumbnailService, "regenerate_for_report", _no_thumbnail)
     user = create_user()
     user_token = login_user(user["email"], user["password"])
     org_id = whoami(user_token)["organizations"][0]["id"]
