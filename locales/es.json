@@ -2798,7 +2798,6 @@
       "title": "Registros del sistema",
       "subtitle": "La salida de registros del propio servidor, para diagnosticar problemas. Solo la ven los administradores.",
       "retention": "Los registros se conservan {days} días, hasta {max} en total; por encima de eso se eliminan primero los más antiguos. En uso: {used}.",
-      "sensitiveWarning": "Los archivos de registro se guardan como texto sin cifrar y pueden incluir cualquier cosa que imprima el servidor, como detalles de errores, rutas de archivos o valores de solicitudes.",
       "droppedNotice": "No se pudieron guardar {count} líneas de esta instancia porque no se pudo escribir en el directorio de registros.",
       "writeError": "Esta instancia no puede escribir en el directorio de registros ({directory}). Comprueba que existe y que tiene permisos de escritura.",
       "searchPlaceholder": "Buscar mensajes…",

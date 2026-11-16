@@ -2493,7 +2493,6 @@
       "title": "Logs do sistema",
       "subtitle": "A saída de log do próprio servidor, para resolver problemas. Só os administradores a veem.",
       "retention": "Os logs são mantidos por {days} dias, até {max} no total; acima disso, os mais antigos são excluídos primeiro. Em uso: {used}.",
-      "sensitiveWarning": "Os arquivos de log são armazenados como texto simples e podem incluir qualquer coisa que o servidor imprima, como detalhes de erros, caminhos de arquivos ou valores de solicitações.",
       "droppedNotice": "Não foi possível salvar {count} linhas desta instância porque não foi possível gravar no diretório de logs.",
       "writeError": "Esta instância não consegue gravar no diretório de logs ({directory}). Verifique se ele existe e se permite gravação.",
       "searchPlaceholder": "Pesquisar mensagens…",

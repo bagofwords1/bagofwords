@@ -2493,7 +2493,6 @@
       "title": "Systemloggar",
       "subtitle": "Serverns egen loggutdata, för felsökning. Endast administratörer kan se den.",
       "retention": "Loggarna sparas i {days} dagar, upp till {max} totalt; därutöver raderas de äldsta först. {used} används.",
-      "sensitiveWarning": "Loggfilerna sparas som klartext och kan innehålla allt som servern skriver ut, till exempel felinformation, filsökvägar eller värden från förfrågningar.",
       "droppedNotice": "{count} rader på den här instansen kunde inte sparas eftersom det inte gick att skriva till loggkatalogen.",
       "writeError": "Den här instansen kan inte skriva till loggkatalogen ({directory}). Kontrollera att den finns och är skrivbar.",
       "searchPlaceholder": "Sök i meddelanden…",

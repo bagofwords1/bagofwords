@@ -26,10 +26,6 @@
         <p class="text-xs text-ink-2" data-testid="system-logs-retention">
           {{ $t('settings.systemLogs.retention', { days: status.retention_days, used: formatBytes(status.size_bytes), max: formatBytes(status.max_size_bytes) }) }}
         </p>
-        <p class="flex items-start gap-1.5 text-2xs text-amber-700 dark:text-amber-400" data-testid="system-logs-sensitive-warning">
-          <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 mt-px" />
-          {{ $t('settings.systemLogs.sensitiveWarning') }}
-        </p>
         <p v-if="status.write_error" class="text-2xs text-red-600 dark:text-red-400" data-testid="system-logs-write-error">
           {{ $t('settings.systemLogs.writeError', { directory: status.directory }) }}
         </p>

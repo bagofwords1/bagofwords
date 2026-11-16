@@ -2861,7 +2861,6 @@
       "title": "System logs",
       "subtitle": "The server's own log output, for troubleshooting. Only admins can see it.",
       "retention": "Logs are kept for {days} days, up to {max} in total; above that the oldest are deleted first. {used} used.",
-      "sensitiveWarning": "Log files are stored as plain text and can include anything the server prints, such as error details, file paths or values from requests.",
       "droppedNotice": "{count} lines on this instance could not be saved because the log directory could not be written to.",
       "writeError": "This instance cannot write to the log directory ({directory}). Check that it exists and is writable.",
       "searchPlaceholder": "Search messages…",

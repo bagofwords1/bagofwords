@@ -2493,7 +2493,6 @@
       "title": "Log di sistema",
       "subtitle": "L'output di log del server stesso, per la risoluzione dei problemi. Visibile solo agli amministratori.",
       "retention": "I log vengono conservati per {days} giorni, fino a {max} in totale; oltre, vengono eliminati prima i più vecchi. In uso: {used}.",
-      "sensitiveWarning": "I file di log sono salvati come testo normale e possono includere tutto ciò che il server stampa, come dettagli degli errori, percorsi di file o valori delle richieste.",
       "droppedNotice": "Non è stato possibile salvare {count} righe di questa istanza perché non è stato possibile scrivere nella cartella dei log.",
       "writeError": "Questa istanza non può scrivere nella cartella dei log ({directory}). Verifica che esista e sia scrivibile.",
       "searchPlaceholder": "Cerca nei messaggi…",

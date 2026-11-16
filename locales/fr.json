@@ -2493,7 +2493,6 @@
       "title": "Journaux système",
       "subtitle": "La sortie de journal du serveur lui-même, pour le dépannage. Visible uniquement par les administrateurs.",
       "retention": "Les journaux sont conservés {days} jours, jusqu'à {max} au total ; au-delà, les plus anciens sont supprimés en premier. Utilisé : {used}.",
-      "sensitiveWarning": "Les fichiers journaux sont stockés en texte brut et peuvent contenir tout ce que le serveur affiche, comme des détails d'erreur, des chemins de fichiers ou des valeurs de requêtes.",
       "droppedNotice": "{count} lignes de cette instance n'ont pas pu être enregistrées, car le répertoire des journaux n'était pas accessible en écriture.",
       "writeError": "Cette instance ne peut pas écrire dans le répertoire des journaux ({directory}). Vérifiez qu'il existe et qu'il est accessible en écriture.",
       "searchPlaceholder": "Rechercher dans les messages…",

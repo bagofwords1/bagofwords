@@ -2493,7 +2493,6 @@
       "title": "Systemprotokolle",
       "subtitle": "Die eigene Protokollausgabe des Servers, zur Fehlersuche. Nur für Administratoren sichtbar.",
       "retention": "Protokolle werden {days} Tage aufbewahrt, insgesamt bis zu {max}; darüber hinaus werden die ältesten zuerst gelöscht. Belegt: {used}.",
-      "sensitiveWarning": "Protokolldateien werden als Klartext gespeichert und können alles enthalten, was der Server ausgibt, etwa Fehlerdetails, Dateipfade oder Werte aus Anfragen.",
       "droppedNotice": "{count} Zeilen dieser Instanz konnten nicht gespeichert werden, weil das Protokollverzeichnis nicht beschreibbar war.",
       "writeError": "Diese Instanz kann nicht in das Protokollverzeichnis ({directory}) schreiben. Prüfen Sie, ob es existiert und beschreibbar ist.",
       "searchPlaceholder": "Meldungen durchsuchen…",
