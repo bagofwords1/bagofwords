@@ -280,11 +280,11 @@ class DuckDBClient(DataSourceClient):
             if self.database:
                 # Open local .duckdb file directly (read-only for safety)
                 con = duckdb.connect(database=self.database, read_only=True)
-                lock_down(con)
+                lock_down(con, database_path=self.database)
             elif local_db:
                 # Direct connection to local .duckdb file specified in URIs
                 con = duckdb.connect(database=local_db, read_only=True)
-                lock_down(con)
+                lock_down(con, database_path=local_db)
             else:
                 # In-memory database with views from URI patterns.
                 con = duckdb.connect(database=":memory:")

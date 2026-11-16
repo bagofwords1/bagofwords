@@ -25,7 +25,8 @@ Contract:
 - connections open at once on one database file (one shared engine) all
   read it and nothing else; a connection whose file's engine was locked
   with other settings (other paths or directories, a temp directory,
-  another database file attached) is refused, and the refusal does not
+  another database file attached, the file's database name re-pointed at
+  another file) is refused, and the refusal does not
   name what the engine read back (the server log does);
 - table selection compares names the way DuckDB folds them (ASCII
   letters only), on both sides;
@@ -283,22 +284,43 @@ def _attach_another_database_then_lock(con, files):
     con.execute("SET lock_configuration = true")
 
 
+def _repoint_own_name_then_lock(con, files):
+    # The engine's own database name re-pointed at another database file,
+    # then locked the way lock_down locks: a connection to the original
+    # file would read the other one.
+    name = con.execute("SELECT current_database()").fetchone()[0]
+    other = files.secret.parent / "other.duckdb"
+    writer = duckdb.connect(str(other))
+    writer.execute("CREATE TABLE orders AS SELECT 100 AS id, 1000 AS amount")
+    writer.close()
+    con.execute(f"ATTACH '{_sq(other)}' AS swap (READ_ONLY)")
+    con.execute("USE swap")
+    con.execute(f'DETACH "{name}"')
+    con.execute(f"ATTACH '{_sq(other)}' AS \"{name}\" (READ_ONLY)")
+    con.execute(f'USE "{name}"')
+    con.execute("DETACH swap")
+    lock_down(con)
+
+
+@pytest.mark.parametrize("how", ["database", "uris"])
 @pytest.mark.parametrize("first", [
     lambda con, files: lock_down(con, allowed_paths=[str(files.secret)]),
     lambda con, files: lock_down(con, allowed_directories=[f"{files.secret.parent}/"]),
     lambda con, files: _lock_with_raw_settings(con),
     _attach_another_database_then_lock,
-], ids=["wider_paths", "wider_directories", "temp_directory", "attached_other_database"])
-def test_a_database_file_engine_locked_with_other_settings_is_refused(first, db_file, files):
+    _repoint_own_name_then_lock,
+], ids=["wider_paths", "wider_directories", "temp_directory", "attached_other_database",
+        "own_name_on_another_file"])
+def test_a_database_file_engine_locked_with_other_settings_is_refused(first, how, db_file, files, tmp_path):
     holder = duckdb.connect(str(db_file), read_only=True)
     try:
         first(holder, files)
         with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked") as refused:
-            with DuckDBClient(database=str(db_file)).connect():
+            with DuckDBClient(**{how: str(db_file)}).connect():
                 pass
         # What the engine reads back names server files: the server log
         # has it, the refusal the agent sees does not.
-        assert str(files.secret.parent) not in str(refused.value)
+        assert str(tmp_path) not in str(refused.value)
     finally:
         holder.close()
 

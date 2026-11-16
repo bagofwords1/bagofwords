@@ -11,7 +11,7 @@ belong to the engine: a second connection to a file still open elsewhere
 finds them already locked. That connection is taken only when the engine
 reads back exactly what this call would have set; any other lock (other
 paths or directories, a temp directory, external access on, another
-database file attached) is refused.
+database file attached, its own database name on another file) is refused.
 The callers that open a database file all lock it with no paths of their
 own, so their connections to one file agree.
 """
@@ -58,12 +58,14 @@ def _resolved_on_scratch(setting: str, values: list[str]) -> set[str]:
         return _resolved(scratch, setting, values)
 
 
-def _check_read_back(con, paths: set[str], directories: set[str]) -> None:
+def _check_read_back(con, paths: set[str], directories: set[str], database_path: str | None) -> None:
     """Raise unless the engine of `con` reads back as locked to exactly
     `paths` (plus the files DuckDB adds for the connection's own database)
     and `directories`, with no temp directory, external access off and no
-    other database file attached. What the engine read back names server
-    files: it goes to the server log, not into the refusal."""
+    other database file attached; with `database_path` (as DuckDB stores
+    it), the connection's own database must be that file. What the engine
+    read back names server files: it goes to the server log, not into the
+    refusal."""
     try:
         locked, external, temp, got_paths, got_directories = con.execute(
             "SELECT current_setting('lock_configuration'), current_setting('enable_external_access'), "
@@ -78,25 +80,32 @@ def _check_read_back(con, paths: set[str], directories: set[str]) -> None:
     others = [path for is_own, path in databases if not is_own]
     paths = paths | {path + suffix for path in own for suffix in _DATABASE_FILE_SUFFIXES}
     for setting, ok, value in (
+        # Its name can be re-pointed at another file in this process.
+        ("own database", database_path is None or own == [database_path], own),
         # DuckDB lets the engine read every database file attached to it.
         ("attached databases", not others, others),
         ("lock_configuration", locked is True, locked),
         ("enable_external_access", external is False, external),
         ("temp_directory", temp == "", temp),
-        ("allowed_paths", set(got_paths) == paths, got_paths),
-        ("allowed_directories", set(got_directories) == directories, got_directories),
+        ("allowed_paths", got_paths is not None and set(got_paths) == paths, got_paths),
+        ("allowed_directories", got_directories is not None and set(got_directories) == directories,
+         got_directories),
     ):
         if not ok:
             logger.warning("duckdb_lockdown.refused %s: the engine reads back %r", setting, value)
             raise _refused(setting, "the engine reads back other settings than this connection's")
 
 
-def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: Iterable[str] = ()) -> None:
+def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: Iterable[str] = (),
+              database_path: str | None = None) -> None:
     """Restrict `con` to `allowed_paths` (exact files) and, when given,
     `allowed_directories`; turn external access off; lock the configuration.
     Raises RuntimeError if any step fails or the engine does not read back
     exactly those settings, so no caller is left holding an unlocked
-    connection, or one locked more widely than it asked.
+    connection, or one locked more widely than it asked. A connection
+    opened on a database file passes that file as `database_path`: its
+    own database must then be that file, not another one put under its
+    name.
 
     `allowed_paths` lets the connection write those files as well as read
     them: the engine alone does not keep a statement from overwriting the
@@ -104,6 +113,17 @@ def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: It
     is what refuses anything but a SELECT."""
     paths = [str(p) for p in allowed_paths]
     directories = [str(d) for d in allowed_directories]
+    own_database = None
+    if database_path is not None:
+        # The opened file in the form DuckDB stores a database's path
+        # (absolute, normalized, links resolved, no file: prefix).
+        try:
+            resolved = _resolved_on_scratch("allowed_paths", [str(database_path)])
+        except Exception as err:
+            raise _refused("own database", err) from err
+        if len(resolved) != 1:
+            raise _refused("own database", "the database path does not resolve to one file")
+        (own_database,) = resolved
     with _LOCKING:
         try:
             locked_already = con.execute("SELECT current_setting('lock_configuration')").fetchone()[0]
@@ -147,4 +167,4 @@ def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: It
                     con.execute(statement)
                 except Exception as err:
                     raise _refused(setting, err) from err
-        _check_read_back(con, expected_paths, expected_directories)
+        _check_read_back(con, expected_paths, expected_directories, own_database)

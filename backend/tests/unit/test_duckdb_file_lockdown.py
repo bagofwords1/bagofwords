@@ -704,6 +704,35 @@ def test_any_statement_of_lock_down_that_fails_is_a_refusal(tmp_path):
             con.close()
 
 
+class _ReadsBackNull:
+    """A connection on which every statement runs on `con`, except that the
+    read-back of the lock gives NULL for `setting`."""
+
+    _COLUMNS = ("lock_configuration", "enable_external_access", "temp_directory",
+                "allowed_paths", "allowed_directories")
+
+    def __init__(self, con, setting):
+        self._con, self._index = con, self._COLUMNS.index(setting)
+
+    def execute(self, sql, *args):
+        result = self._con.execute(sql, *args)
+        if "current_setting('allowed_directories')" not in sql:
+            return result
+        row = list(result.fetchone())
+        row[self._index] = None
+        return SimpleNamespace(fetchone=lambda: tuple(row))
+
+
+@pytest.mark.parametrize("setting", ["allowed_paths", "allowed_directories"])
+def test_a_lock_that_reads_back_null_is_a_refusal(setting):
+    con = duckdb.connect(":memory:")
+    try:
+        with pytest.raises(RuntimeError, match=rf"{_LOCK_REFUSED} \({setting}\)"):
+            lock_down(_ReadsBackNull(con, setting))
+    finally:
+        con.close()
+
+
 # ------------------------------------------------------------ through each client
 
 def test_each_connection_answers_a_select_over_its_tables(files):
