@@ -25,11 +25,14 @@ from app.data_sources.query_executions import ConnectionBusyError  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-# Chosen to be smaller than the engine pool (5 + 5 overflow) so the limit, not
-# the pool, is what a burst hits — queueing here is explicit and reported,
-# whereas pool exhaustion surfaces as an opaque SQLAlchemy TimeoutError after
-# pool_timeout has already been burned.
-DEFAULT_MAX_CONCURRENT_QUERIES = 4
+# App-wide per connection (every worker and replica together). 12 keeps what a
+# typical multi-worker install effectively had when the limit was per process
+# (4 x 3 workers). It must not exceed one worker's engine pool
+# (engine_pool.DEFAULT_POOL_SIZE + DEFAULT_MAX_OVERFLOW = 12): all of a
+# connection's slots can land on one worker, and the limit, not the pool, must
+# be what a burst hits — queueing here is explicit and reported, whereas pool
+# exhaustion surfaces as an opaque SQLAlchemy TimeoutError after pool_timeout.
+DEFAULT_MAX_CONCURRENT_QUERIES = 12
 
 
 def effective_limit(client, organization_settings) -> int:

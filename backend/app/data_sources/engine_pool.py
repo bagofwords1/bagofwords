@@ -71,8 +71,11 @@ except ImportError:
 # Per-engine pool sizing. Deliberately small: this is a cap on how many
 # connections BOW holds open against ONE source, and the whole point is to be
 # gentle with a box that cannot take load. Concurrency beyond this queues.
+# The pool's ceiling (5 + 7 = 12) matches the default app-wide concurrent-query
+# limit (query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES): every slot of a
+# connection may land on one worker. Overflow connections open only under load.
 DEFAULT_POOL_SIZE = 5
-DEFAULT_MAX_OVERFLOW = 5
+DEFAULT_MAX_OVERFLOW = 7
 DEFAULT_POOL_RECYCLE_S = 1800   # 30 min, under a typical idle-session timeout
 DEFAULT_POOL_TIMEOUT_S = 30
 

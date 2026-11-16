@@ -785,3 +785,45 @@ def test_a_database_stamped_by_an_earlier_queryexec01_gets_the_killable_column(t
     with engine.connect() as conn:
         assert "killable" in {c["name"] for c in inspect(conn).get_columns("query_executions")}
         assert conn.execute(text("SELECT killable FROM query_executions")).scalar() == 1
+
+
+def test_existing_organizations_move_from_the_old_default_to_12(tmp_path):
+    """Organization settings snapshot each feature's value, and that value wins
+    over the schema default: queryexec03 moves the old default (4) to 12 and
+    leaves any other admin-chosen value alone."""
+    import importlib.util
+    import json
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine, text
+
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic", "versions",
+                        "queryexec03_default_concurrent_queries_12.py")
+    spec = importlib.util.spec_from_file_location("queryexec03", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    def feature(value):
+        return {"value": value, "name": "Concurrent queries per connection", "description": "d"}
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'orgs.db'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE organization_settings (id VARCHAR(36) PRIMARY KEY, config JSON)"))
+        for row_id, config in (
+            ("default", {"max_concurrent_queries_per_connection": feature(4)}),
+            ("chosen", {"max_concurrent_queries_per_connection": feature(2)}),
+            ("unset", {"other": 1}),
+        ):
+            conn.execute(text("INSERT INTO organization_settings VALUES (:i, :c)"),
+                         {"i": row_id, "c": json.dumps(config)})
+        with Operations.context(MigrationContext.configure(conn)):
+            module.upgrade()
+            module.upgrade()  # idempotent
+
+    with engine.connect() as conn:
+        rows = {r[0]: json.loads(r[1]) for r in conn.execute(text("SELECT id, config FROM organization_settings"))}
+    assert rows["default"]["max_concurrent_queries_per_connection"]["value"] == 12
+    assert rows["chosen"]["max_concurrent_queries_per_connection"]["value"] == 2
+    assert rows["unset"] == {"other": 1}
+    assert qcc.DEFAULT_MAX_CONCURRENT_QUERIES == 12
