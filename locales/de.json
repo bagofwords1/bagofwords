@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "Welt unter Agenten anzeigen"
   },
+  "filePicker": {
+    "searchPlaceholder": "Dateien suchen…",
+    "uploadFile": "Datei hochladen",
+    "uploadTitle": "Dateien hochladen",
+    "clickOrDrag": "Dateien klicken oder hierher ziehen",
+    "dropHere": "Dateien hier ablegen",
+    "files": "Dateien",
+    "noFilesYet": "Noch keine Dateien",
+    "connect": "Verbinden",
+    "searching": "Suche…",
+    "noResults": "Keine Ergebnisse"
+  },
   "agentLanding": {
     "actions": "Agentenaktionen",
     "countTasks": "{n} Aufgabe | {n} Aufgaben",

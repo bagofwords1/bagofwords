@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "Visa Värld i Agenter"
   },
+  "filePicker": {
+    "searchPlaceholder": "Sök filer…",
+    "uploadFile": "Ladda upp fil",
+    "uploadTitle": "Ladda upp filer",
+    "clickOrDrag": "Klicka eller dra filer för att ladda upp",
+    "dropHere": "Släpp filerna här",
+    "files": "Filer",
+    "noFilesYet": "Inga filer än",
+    "connect": "Anslut",
+    "searching": "Söker…",
+    "noResults": "Inga resultat"
+  },
   "agentLanding": {
     "actions": "Agentåtgärder",
     "countTasks": "{n} uppgift | {n} uppgifter",

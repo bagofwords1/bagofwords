@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "Afficher Monde dans Agents"
   },
+  "filePicker": {
+    "searchPlaceholder": "Rechercher des fichiers…",
+    "uploadFile": "Importer un fichier",
+    "uploadTitle": "Importer des fichiers",
+    "clickOrDrag": "Cliquez ou glissez des fichiers à importer",
+    "dropHere": "Déposez les fichiers ici",
+    "files": "Fichiers",
+    "noFilesYet": "Aucun fichier pour l'instant",
+    "connect": "Connecter",
+    "searching": "Recherche…",
+    "noResults": "Aucun résultat"
+  },
   "agentLanding": {
     "actions": "Actions de l’agent",
     "countTasks": "{n} tâche | {n} tâches",

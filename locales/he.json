@@ -147,6 +147,18 @@
     "direct": "גישה ישירה עבור {name}",
     "stopConfirm": "להפסיק לרשת גישה? ההרשאות שהתקבלו דרך {names} יפסיקו לחול."
   },
+  "filePicker": {
+    "searchPlaceholder": "חיפוש קבצים…",
+    "uploadFile": "העלאת קובץ",
+    "uploadTitle": "העלאת קבצים",
+    "clickOrDrag": "לחצו או גררו קבצים להעלאה",
+    "dropHere": "שחררו כאן את הקבצים",
+    "files": "קבצים",
+    "noFilesYet": "אין עדיין קבצים",
+    "connect": "התחברות",
+    "searching": "מחפש…",
+    "noResults": "אין תוצאות"
+  },
   "agentLanding": {
     "actions": "פעולות סוכן",
     "countTasks": "משימה אחת | {n} משימות",

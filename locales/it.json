@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "Mostra Mondo in Agenti"
   },
+  "filePicker": {
+    "searchPlaceholder": "Cerca file…",
+    "uploadFile": "Carica file",
+    "uploadTitle": "Carica file",
+    "clickOrDrag": "Clicca o trascina i file da caricare",
+    "dropHere": "Rilascia i file qui",
+    "files": "File",
+    "noFilesYet": "Nessun file ancora",
+    "connect": "Connetti",
+    "searching": "Ricerca…",
+    "noResults": "Nessun risultato"
+  },
   "agentLanding": {
     "actions": "Azioni agente",
     "countTasks": "{n} attività | {n} attività",

@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "إظهار العالم في الوكلاء"
   },
+  "filePicker": {
+    "searchPlaceholder": "البحث عن الملفات…",
+    "uploadFile": "رفع ملف",
+    "uploadTitle": "رفع الملفات",
+    "clickOrDrag": "انقر أو اسحب الملفات للتحميل",
+    "dropHere": "أفلت الملفات هنا",
+    "files": "الملفات",
+    "noFilesYet": "لا توجد ملفات بعد",
+    "connect": "اتصال",
+    "searching": "جارٍ البحث…",
+    "noResults": "لا توجد نتائج"
+  },
   "agentLanding": {
     "actions": "إجراءات الوكيل",
     "countTasks": "لا مهام | مهمة واحدة | مهمتان | {n} مهام | {n} مهمة | {n} مهمة",

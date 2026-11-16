@@ -147,6 +147,18 @@
     "direct": "Direct access for {name}",
     "stopConfirm": "Turn off inheritance? Parent grants from {names} will stop applying."
   },
+  "filePicker": {
+    "searchPlaceholder": "Search files…",
+    "uploadFile": "Upload file",
+    "uploadTitle": "Upload files",
+    "clickOrDrag": "Click or drag files to upload",
+    "dropHere": "Drop files here",
+    "files": "Files",
+    "noFilesYet": "No files yet",
+    "connect": "Connect",
+    "searching": "Searching…",
+    "noResults": "No results"
+  },
   "agentLanding": {
     "actions": "Agent actions",
     "countTasks": "{n} task | {n} tasks",

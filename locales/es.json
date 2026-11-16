@@ -147,6 +147,18 @@
     "direct": "Acceso directo de {name}",
     "stopConfirm": "¿Desactivar la herencia? Dejarán de aplicarse los permisos de {names}."
   },
+  "filePicker": {
+    "searchPlaceholder": "Buscar archivos…",
+    "uploadFile": "Subir archivo",
+    "uploadTitle": "Subir archivos",
+    "clickOrDrag": "Haz clic o arrastra archivos para subirlos",
+    "dropHere": "Suelta los archivos aquí",
+    "files": "Archivos",
+    "noFilesYet": "Aún no hay archivos",
+    "connect": "Conectar",
+    "searching": "Buscando…",
+    "noResults": "Sin resultados"
+  },
   "agentLanding": {
     "actions": "Acciones del agente",
     "countTasks": "{n} tarea | {n} tareas",

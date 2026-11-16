@@ -766,6 +766,55 @@ class TestOAuthServiceWiring:
         assert "fullText contains" in captured["q"]
         assert "name contains" in captured["q"]
 
+    def _google_search_get(self, hits, tree):
+        """A fake `_get` for GDrive search: the search call returns `hits`; a
+        files/{id} call returns that folder's parents from `tree`."""
+        from app.data_sources.clients.google_drive_client import DRIVE_BASE
+
+        def fake_get(url, params=None, **kw):
+            if url.rstrip("/").endswith("/files"):
+                return {"files": hits}
+            fid = url.rsplit("/", 1)[-1]
+            return {"id": fid, "parents": tree.get(fid, [])}
+        return fake_get
+
+    def test_google_search_without_a_scoped_folder_returns_all_hits(self):
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t")  # no folder_id
+        hits = [{"id": "a", "name": "a.csv", "mimeType": "text/csv", "parents": ["anywhere"]},
+                {"id": "b", "name": "b.csv", "mimeType": "text/csv", "parents": ["elsewhere"]}]
+        with patch.object(c, "_get", side_effect=self._google_search_get(hits, {})):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"a", "b"}
+
+    def test_google_search_drops_hits_outside_the_scoped_folder(self):
+        """A folder-scoped connection must not surface drive-wide hits from
+        other folders — the same scope the Graph/OneDrive search enforces."""
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t", folder_id="F")  # recursive defaults on
+        hits = [
+            {"id": "direct", "name": "d.csv", "mimeType": "text/csv", "parents": ["F"]},
+            {"id": "nested", "name": "n.csv", "mimeType": "text/csv", "parents": ["sub"]},
+            {"id": "outside", "name": "o.csv", "mimeType": "text/csv", "parents": ["other"]},
+        ]
+        tree = {"sub": ["F"], "other": ["root"], "F": ["root"], "root": []}
+        with patch.object(c, "_get", side_effect=self._google_search_get(hits, tree)):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"direct", "nested"}
+        assert "outside" not in got
+
+    def test_google_search_nonrecursive_keeps_only_direct_children(self):
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t", folder_id="F", recursive=False)
+        hits = [
+            {"id": "direct", "name": "d.csv", "mimeType": "text/csv", "parents": ["F"]},
+            {"id": "nested", "name": "n.csv", "mimeType": "text/csv", "parents": ["sub"]},
+        ]
+        tree = {"sub": ["F"], "F": ["root"]}
+        with patch.object(c, "_get", side_effect=self._google_search_get(hits, tree)):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"direct"}
+
     def test_mcp_oauth_audience_propagates_to_token_request(self):
         """RFC 8707 `resource` parameter is added to token-exchange body when
         an audience is configured."""
@@ -983,3 +1032,117 @@ class TestGoogleDocumentRead:
         assert (content, name, mime) == (b"%PDF", "Notes.pdf", "application/pdf")
         assert gb.call_args.kwargs.get("params", {}).get("mimeType") == "application/pdf" or \
             "export" in gb.call_args.args[0]
+
+
+class TestGoogleReadScope:
+    """A read BY ID (the picker's attach, the read_file tool) must re-check the
+    connection's scope — the listing/search paths filter their results, but an
+    id the OAuth token can reach is not automatically inside THIS connection's
+    folder / shared drive / allowed types. Without this, a folder-scoped
+    connection leaks any file the user's token can see."""
+
+    def _fake_get(self, file_meta, tree):
+        """`_get` that returns `file_meta` for the file read, and a parents-only
+        doc for each folder-ancestry lookup from `tree`."""
+        from app.data_sources.clients.google_drive_client import DRIVE_BASE
+
+        def fake_get(url, params=None, **kw):
+            fid = url.rsplit("/", 1)[-1]
+            if fid == file_meta["id"]:
+                return file_meta
+            return {"id": fid, "parents": tree.get(fid, [])}
+        return fake_get
+
+    def test_rejects_file_outside_the_scoped_folder(self):
+        from app.data_sources.clients._file_source_common import GlobScopeError
+        c = GoogleDriveClient(access_token="tok", folder_id="F")
+        meta = {"id": "o", "name": "secret.csv", "mimeType": "text/csv",
+                "size": "10", "parents": ["other"]}
+        tree = {"other": ["root"], "root": [], "F": ["root"]}
+        with patch.object(c, "_get", side_effect=self._fake_get(meta, tree)), \
+             patch.object(c, "_get_bytes", return_value=b"x"), \
+             pytest.raises(GlobScopeError):
+            c.read_raw_bytes("o")
+
+    def test_allows_file_inside_the_scoped_folder(self):
+        c = GoogleDriveClient(access_token="tok", folder_id="F")
+        meta = {"id": "g", "name": "in.csv", "mimeType": "text/csv",
+                "size": "10", "parents": ["F"]}
+        with patch.object(c, "_get", side_effect=self._fake_get(meta, {})), \
+             patch.object(c, "_get_bytes", return_value=b"region,amount\n"):
+            content, name, mime = c.read_raw_bytes("g")
+        assert name == "in.csv" and content == b"region,amount\n"
+
+    def test_rejects_disallowed_extension(self):
+        from app.data_sources.clients._file_source_common import GlobScopeError
+        c = GoogleDriveClient(access_token="tok", allowed_extensions="csv")
+        meta = {"id": "p", "name": "export.pdf", "mimeType": "application/pdf",
+                "size": "10", "parents": ["anywhere"]}
+        with patch.object(c, "_get", side_effect=self._fake_get(meta, {})), \
+             patch.object(c, "_get_bytes", return_value=b"%PDF"), \
+             pytest.raises(GlobScopeError):
+            c.read_raw_bytes("p")
+
+    def test_rejects_file_outside_the_shared_drive(self):
+        from app.data_sources.clients._file_source_common import GlobScopeError
+        c = GoogleDriveClient(access_token="tok", shared_drive_id="SD")
+        meta = {"id": "x", "name": "a.csv", "mimeType": "text/csv",
+                "size": "10", "parents": ["p"], "driveId": "OTHER"}
+        with patch.object(c, "_get", side_effect=self._fake_get(meta, {})), \
+             patch.object(c, "_get_bytes", return_value=b"x"), \
+             pytest.raises(GlobScopeError):
+            c.read_raw_bytes("x")
+
+    def test_unscoped_personal_drive_allows_any_token_reachable_file(self):
+        c = GoogleDriveClient(access_token="tok")  # no folder / shared drive / exts
+        meta = {"id": "any", "name": "whatever.csv", "mimeType": "text/csv",
+                "size": "10", "parents": ["somewhere"]}
+        with patch.object(c, "_get", side_effect=self._fake_get(meta, {})), \
+             patch.object(c, "_get_bytes", return_value=b"ok"):
+            content, _, _ = c.read_raw_bytes("any")
+        assert content == b"ok"
+
+
+class TestGoogleSearchPagination:
+    def test_follows_pagination_until_in_scope_hits_found(self):
+        """A folder-scoped search drops out-of-scope hits AFTER the provider
+        pages, so an entirely out-of-scope first page must not starve the picker
+        — nextPageToken is followed until an in-scope match is found."""
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t", folder_id="F")
+        tree = {"other": ["root"], "root": []}
+
+        def fake_get(url, params=None, **kw):
+            if url.rstrip("/").endswith("/files"):
+                if (params or {}).get("pageToken") == "p2":
+                    return {"files": [{"id": "good", "name": "g.csv",
+                                       "mimeType": "text/csv", "parents": ["F"]}]}
+                return {"files": [{"id": "bad", "name": "b.csv", "mimeType": "text/csv",
+                                   "parents": ["other"]}], "nextPageToken": "p2"}
+            fid = url.rsplit("/", 1)[-1]
+            return {"id": fid, "parents": tree.get(fid, [])}
+
+        with patch.object(c, "_get", side_effect=fake_get):
+            got = {f["id"] for f in c.search_files("q")}
+        assert got == {"good"}
+
+    def test_stops_after_the_page_cap(self):
+        """A huge drive with no in-scope match must still terminate — the page
+        cap bounds how many pages a fruitless scoped search walks."""
+        from app.data_sources.clients.google_drive_client import GoogleDriveClient
+        c = GoogleDriveClient(access_token="t", folder_id="F")
+        calls = {"pages": 0}
+
+        def fake_get(url, params=None, **kw):
+            if url.rstrip("/").endswith("/files"):
+                calls["pages"] += 1
+                # Always out of scope, always another page.
+                return {"files": [{"id": f"x{calls['pages']}", "name": "x.csv",
+                                   "mimeType": "text/csv", "parents": ["other"]}],
+                        "nextPageToken": "more"}
+            return {"id": url.rsplit("/", 1)[-1], "parents": ["root"]}
+
+        with patch.object(c, "_get", side_effect=fake_get):
+            got = c.search_files("q")
+        assert got == []
+        assert calls["pages"] <= 10  # SEARCH_MAX_PAGES

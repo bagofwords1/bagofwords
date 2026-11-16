@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "Показывать мир в агентах"
   },
+  "filePicker": {
+    "searchPlaceholder": "Поиск файлов…",
+    "uploadFile": "Загрузить файл",
+    "uploadTitle": "Загрузка файлов",
+    "clickOrDrag": "Нажмите или перетащите файлы для загрузки",
+    "dropHere": "Перетащите файлы сюда",
+    "files": "Файлы",
+    "noFilesYet": "Пока нет файлов",
+    "connect": "Подключить",
+    "searching": "Поиск…",
+    "noResults": "Нет результатов"
+  },
   "agentLanding": {
     "actions": "Действия агента",
     "countTasks": "{n} задач | {n} задача | {n} задачи | {n} задач",
