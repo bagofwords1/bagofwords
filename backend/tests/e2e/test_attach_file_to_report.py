@@ -44,6 +44,20 @@ def _file_row(file_id):
     return asyncio.run(_go())
 
 
+def _set_source_kind(file_id, kind):
+    from app.dependencies import async_session_maker
+    from app.models.file import File
+
+    async def _go():
+        async with async_session_maker() as db:
+            f = await db.get(File, file_id)
+            f.source_kind = kind
+            await db.commit()
+    asyncio.run(_go())
+
+
+
+
 class _OneFileClient:
     """A connection client that hands back one file's original bytes."""
 
@@ -125,6 +139,22 @@ def test_attach_with_neither_shape_is_a_400(owner, test_client):
     assert r.status_code == 400, r.text
 
 
+@pytest.mark.e2e
+def test_cannot_attach_a_non_upload_file(owner, test_client, upload_csv_file, create_report):
+    """The existing-file path links the caller's own UPLOADS only. An
+    agent-fetched / tool-produced row (source_kind != 'upload') the caller
+    happens to own is excluded — exactly like Recent uploads and what
+    user_can_view_file allows for ordinary file access."""
+    token, org_id = owner
+    f = upload_csv_file(user_token=token, org_id=org_id, filename="tool-output.csv")
+    _set_source_kind(f["id"], "artifact_resource")
+    report = create_report(title="R", user_token=token, org_id=org_id)
+
+    r = test_client.post("/api/files/attach",
+                        json={"file_id": f["id"], "report_id": report["id"]}, headers=_h(token, org_id))
+    assert r.status_code == 404, r.text
+
+
 # --- Path 2: copy a picked Drive/OneDrive file in ----------------------------
 
 
@@ -179,6 +209,28 @@ def test_attach_rejects_an_oversize_drive_file(connection, test_client, monkeypa
         headers=headers,
     )
     assert r.status_code == 413, r.text
+
+
+@pytest.mark.e2e
+def test_member_cannot_attach_through_a_private_agents_connection(
+    connection, test_client, invite_user_to_org,
+):
+    """Copying a file THROUGH an agent's connection is a read on that agent, so
+    it must apply the same `data_source` view gate browse/search use.
+    manage_files is a baseline every org member holds, but it must NOT reach a
+    private agent's connection (whose system_only connections use shared
+    credentials). A denied member gets 403, before the connection is opened."""
+    ds_id, conn_id, headers = connection
+    owner_token = headers["Authorization"].split()[1]
+    org_id = headers["X-Organization-Id"]
+    member = invite_user_to_org(org_id=org_id, admin_token=owner_token)
+
+    r = test_client.post(
+        "/api/files/attach",
+        json={"data_source_id": ds_id, "connection_id": conn_id, "ref": "x"},
+        headers=_h(member["token"], org_id),
+    )
+    assert r.status_code == 403, r.text
 
 
 @pytest.mark.e2e

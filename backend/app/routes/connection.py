@@ -166,6 +166,12 @@ async def list_connections(
     resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
     is_admin = FULL_ADMIN in resolved.org_permissions or resolved.has_org_permission("manage_connections")
 
+    # None ⇒ admin, every attached agent is viewable. A set ⇒ the agent ids a
+    # member may view, used both to filter the list and to narrow each
+    # connection's `data_source_ids` below (so a picker never hands a browse/
+    # search call a private agent id the member can't view — that would 403 and
+    # show an empty drive).
+    viewable_ds_ids: Optional[set[str]] = None
     if not is_admin:
         granted_conn_ids = {
             rid for (rtype, rid) in resolved.resource_permissions
@@ -183,6 +189,7 @@ async def list_connections(
             )
         )
         accessible_ds_ids = granted_ds_ids | {str(r) for (r,) in public_ds_rows.all()}
+        viewable_ds_ids = accessible_ds_ids
 
         def _conn_visible(c):
             if str(c.id) in granted_conn_ids:
@@ -376,7 +383,10 @@ async def list_connections(
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
-            data_source_ids=[str(ds.id) for ds in conn.data_sources] if conn.data_sources else [],
+            data_source_ids=[
+                str(ds.id) for ds in (conn.data_sources or [])
+                if viewable_ds_ids is None or str(ds.id) in viewable_ds_ids
+            ],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
             user_status=user_status_payload,
             connector_key=_conn_connector_key(conn),

@@ -178,6 +178,13 @@ const RECENT_LIMIT = 20;
 const DRIVE_RECENT_LIMIT = 8;
 const DRIVE_SEARCH_LIMIT = 20;
 
+// Per-user `files` connectors the picker can actually ATTACH from — i.e. whose
+// client has a raw-bytes reader. Gmail / Outlook Mail are also per-user with a
+// `files` data shape, but a message has no downloadable original, so browsing
+// returns subjects, search reports unsupported, and a pick would fail. Restrict
+// to the Drive-style connectors instead of every `files` connection.
+const ATTACHABLE_DRIVE_TYPES = ['google_drive', 'onedrive', 'sharepoint'];
+
 const props = defineProps({
   report_id: String,
   // Project (folder) of the report — its files are inherited live into the
@@ -256,8 +263,10 @@ async function loadConnections() {
     const { data } = await useMyFetch('/connections', { method: 'GET' });
     const rows = Array.isArray(data.value) ? data.value : [];
     fileConnections.value = rows
-      // Only per-user file connections — never a shared org login.
+      // Only per-user Drive-style file connections we can attach from (never a
+      // shared org login, never a mail connector with no downloadable file).
       .filter((c: any) => c.data_shape === 'files' && c.auth_policy === 'user_required'
+        && ATTACHABLE_DRIVE_TYPES.includes(c.type)
         && Array.isArray(c.data_source_ids) && c.data_source_ids.length > 0)
       .map((c: any) => ({
         connection_id: c.id,
@@ -369,9 +378,12 @@ watch(searchQuery, (q) => {
 
 watch(isOpen, async (open) => {
   if (!open) { view.value = 'root'; activeDrive.value = null; searchQuery.value = ''; return; }
+  // Just list the drives as rows — do NOT walk them. A drive's recent files are
+  // fetched only when the user drills into it (openDrive), because the browse
+  // endpoint enumerates recursively and warming every drive on open would crawl
+  // several entire drives (and burn provider quota) for someone who only wanted
+  // a local upload.
   await Promise.all([getReportFiles(), loadRecentUploads(), loadConnections(), loadProjectFiles()]);
-  // Warm each connected drive's recent list so the root rows drill in instantly.
-  fileConnections.value.forEach((c) => c.connected && loadDriveFiles(c));
   emit('update:uploadedFiles', [...allFiles.value]);
 });
 

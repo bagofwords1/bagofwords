@@ -271,12 +271,21 @@ class FileService:
         """Return a file the user already owns, optionally linking it to a report
         without re-uploading it — the picker's "Recent uploads" path. The file
         must be this user's own upload in this org (404 otherwise, so other
-        users' file ids don't leak). With no report_id (the home screen, before
-        a report exists) it just validates ownership and hands the file back as
-        a chip. Idempotent: re-attaching an already-linked file is a no-op."""
+        users' file ids don't leak). Only genuine uploads qualify: an
+        agent-fetched or tool-produced row (source_kind 'connector'/'artifact'/
+        'artifact_resource') is excluded even when the caller owns it, matching
+        the 'upload'-only filter Recent uploads lists with and what
+        user_can_view_file allows for ordinary file access. With no report_id
+        (the home screen, before a report exists) it just validates ownership
+        and hands the file back as a chip. Idempotent: re-attaching an
+        already-linked file is a no-op."""
         file = await db.get(File, file_id)
+        # Mirror is_agent_owned_file's convention: a null/empty source_kind is a
+        # legacy plain upload.
+        kind = (getattr(file, 'source_kind', '') or '') if file is not None else ''
         if (file is None or str(file.organization_id) != str(organization.id)
-                or str(file.user_id) != str(current_user.id)):
+                or str(file.user_id) != str(current_user.id)
+                or (kind or 'upload') != 'upload'):
             raise HTTPException(status_code=404, detail="File not found")
 
         if report_id:

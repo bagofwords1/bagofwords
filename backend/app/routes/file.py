@@ -219,6 +219,18 @@ async def attach_file(
     from app.ai.tools.implementations._file_tool_common import (
         _ATTACH_MAX_BYTES, read_source_bytes, audit_file_access_denied,
     )
+    from app.core.permissions_decorator import check_resource_permissions
+
+    # Copying a file THROUGH an agent's connection is a read on that agent, so
+    # gate it exactly like the browse/search endpoints the picker calls
+    # (`data_source` view) — org-wide `manage_files` alone must not reach a
+    # private agent's connection, nor a system_only connection's shared
+    # credentials. 403 on a denied member, matching those endpoints.
+    await check_resource_permissions(
+        db, str(current_user.id), str(organization.id),
+        "data_source", [str(body.data_source_id)], "view",
+        name_resource=False,
+    )
 
     conn = await _attached_connection(db, body.data_source_id, body.connection_id, organization)
     try:
