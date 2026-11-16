@@ -100,9 +100,6 @@ def test_a_fresh_list_does_not_read_again(monkeypatch):
 
 
 def test_a_request_does_not_wait_for_a_stuck_database(monkeypatch):
-    from app.settings.config import settings
-
-    monkeypatch.setattr(settings.bow_config.security, "frame_ancestors", [])
     monkeypatch.setattr(svc, "READ_TIMEOUT_SECONDS", 30)  # as slow as a full pool
     _reader(monkeypatch, hang=asyncio.Event())
 

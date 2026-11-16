@@ -4391,8 +4391,6 @@
       "add": "Add",
       "removeSite": "Remove {site}",
       "empty": "No sites added. BOW can only appear inside its own pages and Microsoft Office.",
-      "fromConfig": "Config file",
-      "fromConfigHint": "Set in the server's configuration file. To change it, edit that file.",
       "ssoNote": "Signing in inside the frame works with email and password. Single sign-on (SSO) doesn't work inside a frame.",
       "readOnly": "Only an instance administrator can change this list on an instance with several organizations.",
       "duplicate": "This site is already in the list.",

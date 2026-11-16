@@ -3783,8 +3783,6 @@
       "add": "Lägg till",
       "removeSite": "Ta bort {site}",
       "empty": "Inga webbplatser tillagda. BOW kan bara visas på sina egna sidor och i Microsoft Office.",
-      "fromConfig": "Konfigurationsfil",
-      "fromConfigHint": "Angiven i serverns konfigurationsfil. Redigera filen för att ändra den.",
       "ssoNote": "Inloggning i ramen fungerar med e-post och lösenord. Enkel inloggning (SSO) fungerar inte i en ram.",
       "readOnly": "På en instans med flera organisationer kan bara en instansadministratör ändra listan.",
       "duplicate": "Webbplatsen finns redan i listan.",

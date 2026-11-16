@@ -2,7 +2,7 @@
 
 Instance-wide like the license, so on a multi-organization instance only an
 instance superuser may change it; with a single organization its admins own
-the instance. Sites from the config file are shown read-only.
+the instance.
 """
 
 import logging
@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
-from app.core.security_headers import frame_ancestor_source
 from app.dependencies import get_async_db, get_current_organization
 from app.models.organization import Organization
 from app.models.user import User
@@ -27,11 +26,7 @@ router = APIRouter(tags=["frame-ancestors"])
 
 
 class FrameAncestorsStatus(BaseModel):
-    # Saved here, in Settings → General.
     origins: List[str]
-    # From the config file (security.frame_ancestors / BOW_FRAME_ANCESTORS):
-    # in effect, but not editable in the UI.
-    configured_origins: List[str]
     can_edit: bool
 
 
@@ -43,14 +38,9 @@ def _can_edit(user: User) -> bool:
     return not settings.bow_config.features.allow_multiple_organizations or bool(user.is_superuser)
 
 
-def _configured() -> List[str]:
-    configured = settings.bow_config.security.frame_ancestors or []
-    return [s for s in (frame_ancestor_source(v) for v in configured) if s]
-
-
 async def _status(db: AsyncSession, user: User) -> FrameAncestorsStatus:
     return FrameAncestorsStatus(
-        origins=await svc.get_origins(db), configured_origins=_configured(), can_edit=_can_edit(user)
+        origins=await svc.get_origins(db), can_edit=_can_edit(user)
     )
 
 

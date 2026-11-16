@@ -3783,8 +3783,6 @@
       "add": "Adicionar",
       "removeSite": "Remover {site}",
       "empty": "Nenhum site adicionado. O BOW só pode aparecer em suas próprias páginas e no Microsoft Office.",
-      "fromConfig": "Arquivo de configuração",
-      "fromConfigHint": "Definido no arquivo de configuração do servidor. Para alterar, edite esse arquivo.",
       "ssoNote": "O login dentro do quadro funciona com e-mail e senha. O login único (SSO) não funciona dentro de um quadro.",
       "readOnly": "Em uma instância com várias organizações, só um administrador da instância pode alterar esta lista.",
       "duplicate": "Este site já está na lista.",

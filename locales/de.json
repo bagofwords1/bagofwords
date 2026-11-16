@@ -3783,8 +3783,6 @@
       "add": "Hinzufügen",
       "removeSite": "{site} entfernen",
       "empty": "Keine Websites hinzugefügt. BOW kann nur auf seinen eigenen Seiten und in Microsoft Office angezeigt werden.",
-      "fromConfig": "Konfigurationsdatei",
-      "fromConfigHint": "In der Konfigurationsdatei des Servers festgelegt. Zum Ändern diese Datei bearbeiten.",
       "ssoNote": "Die Anmeldung im Frame funktioniert mit E-Mail und Passwort. Single Sign-On (SSO) funktioniert in einem Frame nicht.",
       "readOnly": "Auf einer Instanz mit mehreren Organisationen kann nur ein Instanzadministrator diese Liste ändern.",
       "duplicate": "Diese Website ist bereits in der Liste.",

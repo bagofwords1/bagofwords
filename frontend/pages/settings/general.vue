@@ -52,7 +52,6 @@
                 <FrameAncestorsEditor
                     ref="frameAncestorsEditor"
                     v-model="form.frame_ancestors"
-                    :configured="frameAncestors.configured_origins"
                     :can-edit="frameAncestors.can_edit"
                 />
             </SettingsSection>
@@ -139,10 +138,9 @@ const form = ref<{ organization_name?: string; locale: string; timezone: string;
 // read-only for an org admin on a multi-organization instance.
 interface FrameAncestorsStatus {
     origins: string[]
-    configured_origins: string[]
     can_edit: boolean
 }
-const frameAncestors = ref<FrameAncestorsStatus & { loaded: boolean }>({ origins: [], configured_origins: [], can_edit: false, loaded: false })
+const frameAncestors = ref<FrameAncestorsStatus & { loaded: boolean }>({ origins: [], can_edit: false, loaded: false })
 const frameAncestorsEditor = ref<{ commitDraft: () => boolean } | null>(null)
 // Instance-wide opt-in to release notes and product updates. Hidden when the
 // instance can't send it (telemetry off, cloud) or the caller can't change it.

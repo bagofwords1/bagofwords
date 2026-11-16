@@ -3783,8 +3783,6 @@
       "add": "Ajouter",
       "removeSite": "Retirer {site}",
       "empty": "Aucun site ajouté. BOW ne peut apparaître que dans ses propres pages et dans Microsoft Office.",
-      "fromConfig": "Fichier de configuration",
-      "fromConfigHint": "Défini dans le fichier de configuration du serveur. Pour le modifier, éditez ce fichier.",
       "ssoNote": "La connexion dans le cadre fonctionne avec e-mail et mot de passe. L'authentification unique (SSO) ne fonctionne pas dans un cadre.",
       "readOnly": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut modifier cette liste.",
       "duplicate": "Ce site est déjà dans la liste.",

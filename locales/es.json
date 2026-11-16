@@ -4329,8 +4329,6 @@
       "add": "Añadir",
       "removeSite": "Quitar {site}",
       "empty": "No hay sitios añadidos. BOW solo puede aparecer dentro de sus propias páginas y de Microsoft Office.",
-      "fromConfig": "Archivo de configuración",
-      "fromConfigHint": "Definido en el archivo de configuración del servidor. Para cambiarlo, edita ese archivo.",
       "ssoNote": "Iniciar sesión dentro del marco funciona con correo y contraseña. El inicio de sesión único (SSO) no funciona dentro de un marco.",
       "readOnly": "Solo un administrador de la instancia puede cambiar esta lista en una instancia con varias organizaciones.",
       "duplicate": "Este sitio ya está en la lista.",

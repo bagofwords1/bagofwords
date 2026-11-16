@@ -16,11 +16,11 @@ add-in (routes/excel.py) loads the app in an iframe inside Office's frame, and
 ``frame-ancestors`` checks every ancestor. No ``X-Frame-Options`` for the same
 reason — it cannot express that allowlist, and ``frame-ancestors`` supersedes it.
 
-An install can add its own origins to that list for an internal application
-that hosts BOW in a frame: in the config file (``security.frame_ancestors`` /
-``BOW_FRAME_ANCESTORS``) or, by an admin, in Settings → General. Each entry goes straight into a response header, so only a plain
-origin is accepted; anything else is dropped with a warning rather than
-stopping the server.
+An admin can add the organization's own sites to that list, for an internal
+application that hosts BOW in a frame, in Settings → General
+(services/frame_ancestors_service.py). Each entry goes straight into a
+response header, so only a plain origin is accepted: on save, and again when
+the stored list is read.
 """
 from __future__ import annotations
 
@@ -91,27 +91,16 @@ def _is_shared_suffix(host: str) -> bool:
 
 
 def frame_ancestors_directive(extra=None) -> str:
-    """``frame-ancestors`` with this origin, Office on the web and the
-    install's valid extra origins (deduplicated, in configured order)."""
+    """``frame-ancestors`` with this origin, Office on the web and the valid
+    extra origins (deduplicated, in the order given)."""
     sources = list(DEFAULT_FRAME_ANCESTORS)
     for value in extra or ():
         source = frame_ancestor_source(value)
         if source is None:
-            logger.warning("Ignoring security.frame_ancestors entry %r: expected an https origin you control, "
-                           "e.g. https://erp.example.com or https://*.example.com", value)
+            logger.warning("Ignoring framing site %r: not a plain https origin", value)
         elif source not in sources:
             sources.append(source)
     return "frame-ancestors " + " ".join(sources)
-
-
-def _configured_frame_ancestors() -> list:
-    try:
-        from app.settings.config import settings
-
-        return list(settings.bow_config.security.frame_ancestors or ())
-    except Exception:
-        logger.exception("Could not read security.frame_ancestors; using the default frame policy")
-        return []
 
 
 def _is_https(scope) -> bool:
@@ -148,22 +137,19 @@ def _saved_frame_ancestors() -> tuple:
 
         return cached_origins()
     except Exception:
-        logger.debug("Allowed framing sites unavailable; using the config list only", exc_info=True)
+        logger.debug("Allowed framing sites unavailable; using the default policy", exc_info=True)
         return ()
 
 
 class SecurityHeadersMiddleware:
-    """``frame_ancestors`` given explicitly is the whole extra list (tests);
-    otherwise it is the config file's list plus the sites admins save in
-    Settings → General (services/frame_ancestors_service.py)."""
+    """The extra framing sites are the ones admins save in Settings → General
+    (services/frame_ancestors_service.py). ``frame_ancestors`` given
+    explicitly replaces that list with a fixed one (tests)."""
 
     def __init__(self, app, frame_ancestors=None):
         self.app = app
         self.dynamic = frame_ancestors is None
-        configured = _configured_frame_ancestors() if frame_ancestors is None else frame_ancestors
-        # Checked once here, so a bad config entry warns once, not per rebuild.
-        self.frame_ancestors = frame_ancestors_directive(configured)
-        self._configured = [s for s in (frame_ancestor_source(v) for v in configured or ()) if s]
+        self.frame_ancestors = frame_ancestors_directive(frame_ancestors)
         self._built = ((), self.frame_ancestors)
 
     def _directive(self, path: str) -> str:
@@ -171,7 +157,7 @@ class SecurityHeadersMiddleware:
             return self.frame_ancestors
         saved = _saved_frame_ancestors()
         if saved != self._built[0]:
-            self._built = (saved, frame_ancestors_directive([*self._configured, *saved]))
+            self._built = (saved, frame_ancestors_directive(saved))
         return self._built[1]
 
     async def __call__(self, scope, receive, send):

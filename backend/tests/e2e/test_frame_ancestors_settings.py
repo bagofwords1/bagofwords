@@ -7,7 +7,6 @@ Contract:
     and nothing is saved;
   * only manage_settings may read or change it; on a multi-organization
     instance only an instance superuser may change it;
-  * sites from the config file are listed read-only and still apply;
   * every change is audited with what was added and removed.
 """
 import re
@@ -130,17 +129,6 @@ def test_on_a_multi_org_instance_only_a_superuser_can_change_it(test_client, log
                         headers=_h(token, org_id))
     assert r.status_code == 403
     assert "https://other-tenant.example.net" not in _ancestors(test_client.get("/api/settings"))
-
-
-@pytest.mark.e2e
-def test_config_file_sites_are_listed_read_only_and_still_apply(test_client, login_user, whoami, monkeypatch):
-    from app.settings.config import settings
-
-    monkeypatch.setattr(settings.bow_config.security, "frame_ancestors", ["https://from-config.example-corp.com"])
-    token, org_id = _admin(test_client, login_user, whoami)
-    status = test_client.get("/api/settings/frame-ancestors", headers=_h(token, org_id)).json()
-    assert status["configured_origins"] == ["https://from-config.example-corp.com"]
-    assert status["origins"] == []
 
 
 @pytest.mark.e2e

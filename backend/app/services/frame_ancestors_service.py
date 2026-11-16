@@ -2,8 +2,8 @@
 
 Instance-wide, like the license: the sign-in page belongs to no organization,
 so one list serves the whole deployment. It lives in ``instance_settings``
-(key ``frame_ancestors``) and adds to ``security.frame_ancestors`` from the
-config file; core/security_headers.py puts both into ``frame-ancestors``.
+(key ``frame_ancestors``); core/security_headers.py adds it to the default
+``frame-ancestors`` list.
 
 The security-headers middleware runs on every request, /health included, so
 it must never wait on the database. ``cached_origins`` answers from memory at

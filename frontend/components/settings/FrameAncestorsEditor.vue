@@ -1,16 +1,6 @@
 <template>
     <div class="space-y-3" data-testid="frame-ancestors-editor">
-        <div v-if="configured.length || modelValue.length" class="flex flex-wrap gap-1.5">
-            <span
-                v-for="origin in configured"
-                :key="`config-${origin}`"
-                class="inline-flex max-w-full items-center gap-1.5 rounded-md border border-line bg-surface-subtle px-2 py-1 text-ink-muted"
-                :title="$t('settings.frameAncestors.fromConfigHint')"
-            >
-                <UIcon name="i-heroicons-lock-closed" class="h-3.5 w-3.5 shrink-0" />
-                <span class="truncate font-mono text-xs" dir="ltr">{{ origin }}</span>
-                <span class="shrink-0 text-[11px]">· {{ $t('settings.frameAncestors.fromConfig') }}</span>
-            </span>
+        <div v-if="modelValue.length" class="flex flex-wrap gap-1.5">
             <span
                 v-for="origin in modelValue"
                 :key="origin"
@@ -69,7 +59,7 @@ import { ref } from 'vue'
 // slips (no scheme, a path) before the admin presses Save.
 const LOOKS_LIKE_ORIGIN = /^(https:\/\/(\*\.)?[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1))(:(\d{1,5}|\*))?\/?$/i
 
-const props = defineProps<{ modelValue: string[]; configured: string[]; canEdit: boolean }>()
+const props = defineProps<{ modelValue: string[]; canEdit: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string[]] }>()
 const { t } = useI18n()
 
@@ -87,7 +77,7 @@ function add() {
         draftError.value = t('settings.frameAncestors.invalidFormat')
         return
     }
-    if (props.modelValue.includes(origin) || props.configured.includes(origin)) {
+    if (props.modelValue.includes(origin)) {
         draftError.value = t('settings.frameAncestors.duplicate')
         return
     }
@@ -105,7 +95,7 @@ function remove(origin: string) {
 // False only when the address is not valid.
 function commitDraft(): boolean {
     const origin = normalize(draft.value)
-    if (!origin || props.modelValue.includes(origin) || props.configured.includes(origin)) {
+    if (!origin || props.modelValue.includes(origin)) {
         draft.value = ''
         draftError.value = ''
         return true
