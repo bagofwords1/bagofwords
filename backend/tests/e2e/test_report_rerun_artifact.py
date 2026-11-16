@@ -60,12 +60,28 @@ def generate_df(ds_clients, excel_files):
 """
 
 
+from app.services.thumbnail_service import ThumbnailService
+
+# Derived, not typed: a renamed method must not silently disable the filter.
+_THUMBNAIL_TASK = ThumbnailService.regenerate_for_report.__qualname__
+
+
+def _issuing_task():
+    """Qualified name of the coroutine of the asyncio task running this
+    statement, or None outside a task."""
+    try:
+        task = asyncio.current_task()
+    except RuntimeError:
+        return None
+    return getattr(task.get_coro(), "__qualname__", None) if task else None
+
+
 @contextmanager
-def record_sql():
+def record_sql(with_task=False):
     statements = []
 
     def _before(conn, cursor, statement, parameters, context, executemany):
-        statements.append(statement)
+        statements.append((_issuing_task(), statement) if with_task else statement)
 
     event.listen(Engine, "before_cursor_execute", _before)
     try:
@@ -350,21 +366,11 @@ def test_rerun_executes_step_code_against_report_data_sources(
 
 @pytest.mark.e2e
 def test_rerun_cost_does_not_scale_with_stored_step_history(
-    create_report, create_user, login_user, whoami, rerun_report, monkeypatch
+    create_report, create_user, login_user, whoami, rerun_report
 ):
     """Rerun must only touch the steps it re-executes. Historical step
     versions (each holding a full stored dataset) must not be hydrated, so
     latency and SQL traffic must not scale with stored history size."""
-    # Each successful rerun fires a thumbnail job (asyncio.create_task, a
-    # headless-browser render) that loads its report on its own. record_sql
-    # listens process-wide, so when that job, from this test or an earlier
-    # one on the worker, lands inside a measurement it is counted as the
-    # rerun's own traffic. It is not part of the request measured here.
-    from app.services.thumbnail_service import ThumbnailService
-
-    async def _no_thumbnail(self, report_id):
-        return None
-    monkeypatch.setattr(ThumbnailService, "regenerate_for_report", _no_thumbnail)
     user = create_user()
     user_token = login_user(user["email"], user["password"])
     org_id = whoami(user_token)["organizations"][0]["id"]
@@ -375,11 +381,17 @@ def test_rerun_cost_does_not_scale_with_stored_step_history(
             report["id"], n_queries=2, default_step_data=None, newer_failed_attempt=False,
             extra_success_versions=3, rows_per_version=rows_per_version,
         ))
-        with record_sql() as statements:
+        with record_sql(with_task=True) as statements:
             t0 = time.perf_counter()
             rerun_report(report["id"], user_token=user_token, org_id=org_id)
             elapsed = time.perf_counter() - t0
-        return elapsed, _steps_selects(statements)
+        # Each successful rerun starts a thumbnail job in the background
+        # (asyncio.create_task), which loads its report on its own session. It
+        # runs real here; record_sql listens process-wide, so when that job,
+        # from this rerun or an earlier one on the worker, runs inside the
+        # window, leave its statements out: they aren't the request's work.
+        own = [stmt for task, stmt in statements if task != _THUMBNAIL_TASK]
+        return elapsed, _steps_selects(own)
 
     n_queries = 2
     small_dt, small_steps_sql = _measure(rows_per_version=10)
