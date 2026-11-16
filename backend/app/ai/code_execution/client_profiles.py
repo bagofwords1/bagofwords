@@ -229,7 +229,7 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("graph_onenote_client", "OnenoteClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
     _refused("graph_mail_client", "GraphMailClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
     _refused("graph_teams_client", "GraphTeamsClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
-    _refused("google_drive_client", "GoogleDriveClient", f"{_FILE}, google_drive_client.py:547"),
+    _refused("google_drive_client", "GoogleDriveClient", f"{_FILE}, google_drive_client.py:629"),
     _refused("s3_client", "S3Client", f"{_FILE}, inherited from _object_store_common.py:857"),
     _refused("gcs_client", "GCSClient", f"{_FILE}, inherited from _object_store_common.py:857"),
     _refused("azure_blob_client", "AzureBlobClient", f"{_FILE}, inherited from _object_store_common.py:857"),
@@ -243,7 +243,7 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("sharepoint_onprem_client", "SharepointOnpremClient", f"{_FILE}, sharepoint_onprem_client.py:393"),
     _refused("kms_lighthouse_client", "KmsLighthouseClient", f"{_FILE}, kms_lighthouse_client.py:2657"),
     _refused("qlik_sense_client", "QlikSenseClient", f"{_ID} (app), qlik_sense_client.py:478"),
-    _refused("qlik_sense_onprem_client", "QlikSenseOnPremClient", f"{_ID} (app), qlik_sense_onprem_client.py:1300"),
+    _refused("qlik_sense_onprem_client", "QlikSenseOnPremClient", f"{_ID} (app), qlik_sense_onprem_client.py:1635"),
     _refused("tableau_client", "TableauClient", f"{_ID} (datasource_luid), tableau_client.py:374"),
     _refused("aws_cost_client", "AwsCostClient", f"{_ID} (operation_name), aws_cost_client.py:149"),
     _refused("neo4j_client", "Neo4jClient",
@@ -350,7 +350,9 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("qlik_sense_client", "QlikSenseClient",
             f"{_SPEC}: app, dimensions and measures to a session hypercube, qlik_sense_client.py:533"),
     _exempt("qlik_sense_onprem_client", "QlikSenseOnPremClient",
-            f"{_SPEC}: app, dimensions and measures to a session hypercube, qlik_sense_onprem_client.py:1354"),
+            f"{_SPEC}: app with dimensions and measures to a session hypercube "
+            f"(qlik_sense_onprem_client.py:1780), an existing object's data by id (:1842), "
+            f"or a value search (:1930); all read-only Engine calls on an app in the connection's scope"),
     _exempt("tableau_client", "TableauClient",
             f"{_SPEC}: datasource and field specs to VizQL query-datasource, tableau_client.py:388"),
     _exempt("mecm_client", "MecmClient", f"{_SPEC}: OData options on a GET, mecm_client.py:292"),
