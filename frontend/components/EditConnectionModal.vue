@@ -1,12 +1,29 @@
 <template>
   <UModal v-model="open" :ui="{ width: 'sm:max-w-4xl' }">
     <div class="p-5 flex flex-col max-h-[calc(100dvh-5rem)]">
-      <div class="flex items-center gap-2 mb-4 shrink-0">
+      <div class="flex items-center gap-2 mb-3 shrink-0">
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
         <h3 class="text-lg font-semibold">{{ $t('data.manageConnection') }}</h3>
         <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-gray-600" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
       </div>
-      <div class="md:grid min-h-0 overflow-y-auto md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] -mx-5 border-t border-gray-100 dark:border-gray-800">
+      <!-- Settings | Queries (connection managers: what BOW runs on this connection) -->
+      <div v-if="canSeeQueries" class="flex gap-5 shrink-0" role="tablist" data-testid="connection-modal-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === tab.key"
+          class="relative -mb-px pb-2 text-sm border-b-2 transition-colors"
+          :class="activeTab === tab.key ? 'border-blue-500 text-ink font-medium' : 'border-transparent text-ink-muted hover:text-ink'"
+          :data-testid="`connection-tab-${tab.key}`"
+          @click="activeTab = tab.key"
+        >{{ tab.label }}</button>
+      </div>
+      <div v-if="activeTab === 'queries' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
+        <ConnectionQueriesPanel :connection-id="connection.id" :active="open && activeTab === 'queries'" />
+      </div>
+      <div v-else class="md:grid min-h-0 overflow-y-auto md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] -mx-5 border-t border-gray-100 dark:border-gray-800">
         <div class="min-w-0 px-6 py-6 md:px-8 md:max-h-[70vh] md:overflow-y-auto">
           <div class="flex items-center justify-between gap-3 mb-6"><h4 class="text-sm font-medium">{{ $t('data.connectionSettings') }}</h4><button v-if="!editing" :disabled="loading || state.busy" class="text-xs text-blue-600" @click="editing = true">{{ $t('data.editSettings') }}</button></div>
           <Spinner v-if="loading" class="w-5 h-5 mx-auto" />
@@ -52,6 +69,8 @@
 </template>
 <script setup lang="ts">
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import ConnectionQueriesPanel from '~/components/datasources/ConnectionQueriesPanel.vue'
+import { useCan } from '~/composables/usePermissions'
 import type { ConnectionIndexing } from '~/composables/useConnectionStatus'
 import { connectionSignInError } from '~/composables/useConnectionSignIn'
 import { isSafeHttpUrl } from '~/utils/safeUrl'
@@ -59,6 +78,15 @@ const props = defineProps<{ modelValue: boolean; connection: any; initialValues:
 const emit = defineEmits(['update:modelValue', 'success', 'deleted', 'tested'])
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
 const { t, locale } = useI18n()
+// The Queries tab lists every query BOW sends to this connection and lets the
+// viewer kill one: connection managers only (the API enforces the same).
+const canSeeQueries = computed(() => !!props.connection?.id && useCan('manage_connection', { type: 'connection', id: String(props.connection.id) }))
+const activeTab = ref<'settings' | 'queries'>('settings')
+const tabs = computed(() => [
+  { key: 'settings' as const, label: t('connectionQueries.tabSettings') },
+  { key: 'queries' as const, label: t('connectionQueries.tabQueries') },
+])
+watch(open, value => { if (value) activeTab.value = 'settings' })
 const editing = ref(false)
 const formRevision = ref(0)
 const savedValues = ref<any>(null)

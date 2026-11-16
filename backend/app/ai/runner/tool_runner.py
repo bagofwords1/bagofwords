@@ -156,6 +156,24 @@ class ToolRunner:
         runtime_ctx: dict[str, Any],
         emit,
     ) -> dict[str, Any]:
+        # Queries the tool sends are recorded on their connection's history
+        # with this tool call and attempt (see query_executions.attribution);
+        # each attempt re-stamps it, and the caller's value is restored after.
+        from app.data_sources import query_executions
+
+        token = query_executions.set_attribution()
+        try:
+            return await self._run(tool, arguments, runtime_ctx, emit)
+        finally:
+            query_executions.reset_attribution(token)
+
+    async def _run(
+        self,
+        tool,
+        arguments: dict[str, Any],
+        runtime_ctx: dict[str, Any],
+        emit,
+    ) -> dict[str, Any]:
         validation_round = self._validation_round(runtime_ctx)
         # Runtime mode access control - check if tool is allowed in current mode.
         # Prefer `spec` (class-cached metadata) over `metadata` (rebuilds tool
@@ -292,6 +310,9 @@ class ToolRunner:
         while True:
             attempt += 1
             hard_timeout_reached = False
+            from app.data_sources import query_executions as _qe
+
+            _qe.set_attribution(tool_execution_id=runtime_ctx.get("tool_call_id"), tool_attempt=attempt)
             try:
                 # envelope start
                 await emit({"type": "tool.start", "payload": {"attempt": attempt}})

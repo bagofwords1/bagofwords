@@ -1339,7 +1339,10 @@
       "duration": "المدة: {ms} مللي ثانية",
       "edit": "تعديل",
       "generationStopped": "تم إيقاف التوليد",
-      "code": "الكود"
+      "code": "الكود",
+      "waitingForSlot": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل",
+      "waitingForSlotShort": "في انتظار دور على {connection}",
+      "theConnection": "الاتصال"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3340,7 +3343,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "الاستعلامات المتزامنة لكل اتصال",
-          "description": "كم استعلاماً للوكيل يمكن أن يعمل على اتصال واحد في الوقت نفسه، لكل نسخة. ما يزيد عن ذلك ينتظر دوره بدلاً من الفشل. اخفضه للمصادر المحلية الحساسة (Oracle وSQL Server) التي لا تحتمل عمليات المسح المتوازية. يمكن لإعدادات الاتصال تجاوزها بقيمة 'max_concurrent_queries' الخاصة بها."
+          "description": "كم استعلاماً للوكيل يمكن أن يعمل على اتصال واحد في الوقت نفسه، عبر جميع العمليات والنسخ معاً. ما يزيد عن ذلك ينتظر دوره بدلاً من الفشل. اخفضه للمصادر المحلية الحساسة (Oracle وSQL Server) التي لا تحتمل عمليات المسح المتوازية. يمكن لإعدادات الاتصال تجاوزها بقيمة 'max_concurrent_queries' الخاصة بها."
         },
         "top_k_schema": {
           "name": "أفضل K من المخططات",
@@ -4571,7 +4574,9 @@
     "access_request.not_found": "هذا الطلب لم يعد موجودًا.",
     "access_request.already_decided": "تمت الإجابة على هذا الطلب بالفعل.",
     "frame_ancestors.invalid": "عناوين المواقع هذه غير صالحة: {origins}. استخدم عنوان https بدون مسار، مثل https://portal.example.com.",
-    "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى."
+    "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى.",
+    "connection.query_not_found": "الاستعلام غير موجود على هذا الاتصال.",
+    "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status})."
   },
   "email": {
     "dashboardShare": {
@@ -7313,5 +7318,84 @@
     "inherit": "وراثة الوصول من المجلد الأصل",
     "direct": "الوصول المباشر لـ {name}",
     "stopConfirm": "إيقاف الوراثة؟ سيتوقف تطبيق أذونات {names}."
+  },
+  "connectionQueries": {
+    "tabSettings": "الإعدادات",
+    "tabQueries": "الاستعلامات",
+    "runningNow": "قيد التشغيل الآن",
+    "queuedCount": "{n} في انتظار دورها",
+    "limitFromConnection": "حدّ مضبوط على هذا الاتصال",
+    "limitFromOrg": "الحدّ الافتراضي للمؤسسة",
+    "limitDefault": "الحدّ الافتراضي للنظام",
+    "live": "مباشر",
+    "liveHint": "يتحدّث كل ثانيتين",
+    "refresh": "تحديث",
+    "loadFailed": "تعذّر تحميل الاستعلامات",
+    "runningTitle": "قيد التشغيل الآن",
+    "noneRunning": "لا توجد استعلامات قيد التشغيل على هذا الاتصال.",
+    "waitingFor": "في الانتظار منذ {time}",
+    "runningFor": "قيد التشغيل منذ {time}",
+    "stopping": "جارٍ الإيقاف…",
+    "killConfirm": "إيقاف هذا الاستعلام؟",
+    "kill": "إيقاف",
+    "killFailed": "تعذّر إيقاف الاستعلام",
+    "historyTitle": "السجل",
+    "filterAll": "كل الحالات",
+    "searchPlaceholder": "ابحث في نص الاستعلام",
+    "noMatches": "لا توجد استعلامات تطابق عوامل التصفية.",
+    "noHistory": "لم يُشغَّل أي استعلام على هذا الاتصال بعد.",
+    "colStatus": "الحالة",
+    "colQuery": "الاستعلام",
+    "colWho": "مَن",
+    "colDuration": "المدة",
+    "colWait": "الانتظار",
+    "colRows": "الصفوف",
+    "colWhen": "متى",
+    "loadMore": "تحميل المزيد",
+    "retentionNote": "يُحتفظ بالسجل 90 يوماً. يستطيع مديرو الاتصال فقط رؤية الاستعلامات وإيقافها هنا.",
+    "ms": "{n} م.ث",
+    "seconds": "{n} ث",
+    "minutes": "{m} د {s} ث",
+    "system": "النظام",
+    "agent": "الوكيل",
+    "attempt": "المحاولة",
+    "attemptValue": "محاولة الكود {code} · محاولة الأداة {tool} · الاستعلام رقم {seq}",
+    "started": "البدء",
+    "ended": "الانتهاء",
+    "killedBy": "أوقفه",
+    "sourceCancel": "الإلغاء في المصدر",
+    "copied": "تم النسخ",
+    "copy": "نسخ",
+    "truncated": "اقتُطع نص الاستعلام عند الحفظ.",
+    "openReport": "فتح التقرير",
+    "openReportNamed": "فتح التقرير: {title}",
+    "status": {
+      "queued": "في الانتظار",
+      "running": "قيد التشغيل",
+      "success": "نجح",
+      "error": "فشل",
+      "timeout": "انتهت المهلة",
+      "busy": "مشغول",
+      "cancelled": "أُلغي",
+      "stale": "متروك"
+    },
+    "source": {
+      "label": "المصدر",
+      "chat": "المحادثة",
+      "eval": "التقييم",
+      "query": "استعلام",
+      "entity": "كيان",
+      "dashboard": "لوحة المعلومات",
+      "viewer": "تحديث العارض",
+      "scheduled": "مجدول",
+      "system": "النظام"
+    },
+    "reason": {
+      "killed": "أُلغي بواسطة مدير الاتصال.",
+      "killed_waiting": "أُلغي بواسطة مدير الاتصال أثناء انتظار دوره.",
+      "run_stopped": "توقف لأن التشغيل الذي أرسله توقف.",
+      "stale": "توقفت العملية التي تشغّل هذا الاستعلام عن الاستجابة؛ وتحرر مكانها.",
+      "busy": "لم يتوفر مكان في الوقت المناسب: كان الاتصال عند حده من الاستعلامات المتزامنة."
+    }
   }
 }

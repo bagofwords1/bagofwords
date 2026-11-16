@@ -1339,7 +1339,10 @@
       "duration": "Duração: {ms} ms",
       "edit": "Editar",
       "generationStopped": "Geração interrompida",
-      "code": "Código"
+      "code": "Código",
+      "waitingForSlot": "Aguardando vez em {connection} · {running}/{limit} em execução",
+      "waitingForSlotShort": "Aguardando vez em {connection}",
+      "theConnection": "a conexão"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3340,7 +3343,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Consultas simultâneas por conexão",
-          "description": "Quantas consultas do agente podem ser executadas ao mesmo tempo contra uma mesma conexão, por réplica. O que exceder aguarda uma vaga em vez de falhar. Reduza para fontes on-premise sensíveis (Oracle, SQL Server) que não suportam varreduras paralelas. A configuração de uma conexão pode substituí-lo com seu próprio valor de 'max_concurrent_queries'."
+          "description": "Quantas consultas do agente podem ser executadas ao mesmo tempo contra uma mesma conexão, somando todos os workers e réplicas. O que exceder aguarda uma vaga em vez de falhar. Reduza para fontes on-premise sensíveis (Oracle, SQL Server) que não suportam varreduras paralelas. A configuração de uma conexão pode substituí-lo com seu próprio valor de 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K de esquemas",
@@ -4571,7 +4574,9 @@
     "access_request.not_found": "Esta solicitação não existe mais.",
     "access_request.already_decided": "Esta solicitação já foi respondida.",
     "frame_ancestors.invalid": "Estes endereços de site não são válidos: {origins}. Use um endereço https sem caminho, por exemplo https://portal.example.com.",
-    "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites."
+    "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites.",
+    "connection.query_not_found": "Consulta não encontrada nesta conexão.",
+    "connection.query_finished": "Esta consulta já terminou ({status})."
   },
   "email": {
     "dashboardShare": {
@@ -7313,5 +7318,84 @@
     "inherit": "Herdar acesso da pasta superior",
     "direct": "Acesso direto de {name}",
     "stopConfirm": "Desativar herança? As permissões herdadas de {names} deixarão de ser aplicadas."
+  },
+  "connectionQueries": {
+    "tabSettings": "Configurações",
+    "tabQueries": "Consultas",
+    "runningNow": "em execução",
+    "queuedCount": "{n} aguardando vez",
+    "limitFromConnection": "Limite definido nesta conexão",
+    "limitFromOrg": "Limite padrão da organização",
+    "limitDefault": "Limite padrão do sistema",
+    "live": "Ao vivo",
+    "liveHint": "Atualiza a cada 2 segundos",
+    "refresh": "Atualizar",
+    "loadFailed": "Não foi possível carregar as consultas",
+    "runningTitle": "Em execução",
+    "noneRunning": "Nenhuma consulta está em execução nesta conexão.",
+    "waitingFor": "aguardando há {time}",
+    "runningFor": "executando há {time}",
+    "stopping": "Parando…",
+    "killConfirm": "Parar esta consulta?",
+    "kill": "Parar",
+    "killFailed": "Não foi possível parar a consulta",
+    "historyTitle": "Histórico",
+    "filterAll": "Todos os status",
+    "searchPlaceholder": "Pesquisar no texto da consulta",
+    "noMatches": "Nenhuma consulta corresponde a estes filtros.",
+    "noHistory": "Nenhuma consulta foi executada nesta conexão ainda.",
+    "colStatus": "Status",
+    "colQuery": "Consulta",
+    "colWho": "Quem",
+    "colDuration": "Duração",
+    "colWait": "Espera",
+    "colRows": "Linhas",
+    "colWhen": "Quando",
+    "loadMore": "Carregar mais",
+    "retentionNote": "O histórico é mantido por 90 dias. Só os gestores da conexão podem ver e parar consultas aqui.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Sistema",
+    "agent": "Agente",
+    "attempt": "Tentativa",
+    "attemptValue": "tentativa de código {code} · tentativa da ferramenta {tool} · consulta nº {seq}",
+    "started": "Início",
+    "ended": "Fim",
+    "killedBy": "Parada por",
+    "sourceCancel": "Cancelamento na origem",
+    "copied": "Copiado",
+    "copy": "Copiar",
+    "truncated": "O texto da consulta foi truncado ao salvar.",
+    "openReport": "Abrir relatório",
+    "openReportNamed": "Abrir relatório: {title}",
+    "status": {
+      "queued": "Aguardando",
+      "running": "Em execução",
+      "success": "Concluída",
+      "error": "Falhou",
+      "timeout": "Tempo esgotado",
+      "busy": "Ocupada",
+      "cancelled": "Cancelada",
+      "stale": "Abandonada"
+    },
+    "source": {
+      "label": "Origem",
+      "chat": "Chat",
+      "eval": "Avaliação",
+      "query": "Consulta",
+      "entity": "Entidade",
+      "dashboard": "Painel",
+      "viewer": "Atualização do leitor",
+      "scheduled": "Agendada",
+      "system": "Sistema"
+    },
+    "reason": {
+      "killed": "Cancelada por um gestor da conexão.",
+      "killed_waiting": "Cancelada por um gestor da conexão enquanto aguardava vez.",
+      "run_stopped": "Parada porque a execução que a enviou foi parada.",
+      "stale": "O processo que executava esta consulta parou de responder; sua vaga foi liberada.",
+      "busy": "Nenhuma vaga abriu a tempo: a conexão estava no limite de consultas simultâneas."
+    }
   }
 }

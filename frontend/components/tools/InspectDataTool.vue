@@ -30,6 +30,7 @@
             </span>
             <span v-else>{{ t('tools.inspectData.dataRunning') }}</span>
           </Transition>
+          <span v-if="slotWait" class="text-ink-muted" data-testid="waiting-for-slot-header">· {{ slotWaitLabel }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center flex-wrap gap-1">
           <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-ink-muted" />
@@ -76,7 +77,8 @@
         <div v-if="showExecutingStep" class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
           <Spinner v-if="isExecuting" class="w-2.5 h-2.5 me-1 text-ink-muted" />
           <Icon v-else-if="executionDone" name="heroicons-check" class="w-2.5 h-2.5 me-1 text-green-500" />
-          <span v-if="isExecuting" class="tool-shimmer">{{ t('tools.inspectData.executing') }}</span>
+          <span v-if="isExecuting && slotWait" class="tool-shimmer" data-testid="waiting-for-slot">{{ slotWaitLabel }}</span>
+          <span v-else-if="isExecuting" class="tool-shimmer">{{ t('tools.inspectData.executing') }}</span>
           <span v-else-if="executionDone" class="text-gray-500 dark:text-gray-400">{{ t('tools.inspectData.executed') }}</span>
         </div>
         <!-- Execution error from stdout -->
@@ -204,10 +206,13 @@ const errorMessage = computed<string>(() => {
 // Live progress stages
 const isCodeGenerating = computed(() => progressStage.value === 'generating_code')
 const codeGenDone = computed(() => {
-  const past = ['generated_code', 'executing_code'].includes(progressStage.value)
+  const past = ['generated_code', 'executing_code', 'waiting_for_slot'].includes(progressStage.value)
   return past || (!!code.value && !isCodeGenerating.value && status.value === 'running')
 })
-const isExecuting = computed(() => progressStage.value === 'executing_code')
+const isExecuting = computed(() => progressStage.value === 'executing_code' || progressStage.value === 'waiting_for_slot')
+// The connection is at its concurrent-query limit and this query waits its turn.
+const slotWait = computed(() => progressStage.value === 'waiting_for_slot' ? ((props.toolExecution as any).progress_slot || {}) : null)
+const slotWaitLabel = computed(() => slotWaitText(t, slotWait.value))
 const executionDone = computed(() => status.value !== 'running' && status.value !== '' && !isExecuting.value)
 const showExecutingStep = computed(() => codeGenDone.value || isExecuting.value)
 

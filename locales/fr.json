@@ -1339,7 +1339,10 @@
       "duration": "Durée : {ms} ms",
       "edit": "Modifier",
       "generationStopped": "Génération arrêtée",
-      "code": "Code"
+      "code": "Code",
+      "waitingForSlot": "En attente d'une place sur {connection} · {running}/{limit} en cours",
+      "waitingForSlotShort": "En attente d'une place sur {connection}",
+      "theConnection": "la connexion"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3340,7 +3343,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Requêtes simultanées par connexion",
-          "description": "Combien de requêtes de l'agent peuvent s'exécuter en même temps sur une même connexion, par réplique. Ce qui dépasse attend une place au lieu d'échouer. À abaisser pour les sources on-premise fragiles (Oracle, SQL Server) qui ne supportent pas les analyses parallèles. La configuration d'une connexion peut le remplacer par sa propre valeur 'max_concurrent_queries'."
+          "description": "Combien de requêtes de l'agent peuvent s'exécuter en même temps sur une même connexion, tous workers et répliques confondus. Ce qui dépasse attend une place au lieu d'échouer. À abaisser pour les sources on-premise fragiles (Oracle, SQL Server) qui ne supportent pas les analyses parallèles. La configuration d'une connexion peut le remplacer par sa propre valeur 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K des schémas",
@@ -4571,7 +4574,9 @@
     "access_request.not_found": "Cette demande n'existe plus.",
     "access_request.already_decided": "Cette demande a déjà été traitée.",
     "frame_ancestors.invalid": "Ces adresses de site ne sont pas valides : {origins}. Utilisez une adresse https sans chemin, par exemple https://portal.example.com.",
-    "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites."
+    "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites.",
+    "connection.query_not_found": "Requête introuvable sur cette connexion.",
+    "connection.query_finished": "Cette requête est déjà terminée ({status})."
   },
   "email": {
     "dashboardShare": {
@@ -7313,5 +7318,84 @@
     "inherit": "Hériter des accès du dossier parent",
     "direct": "Accès direct de {name}",
     "stopConfirm": "Désactiver l’héritage ? Les droits hérités de {names} ne s’appliqueront plus."
+  },
+  "connectionQueries": {
+    "tabSettings": "Paramètres",
+    "tabQueries": "Requêtes",
+    "runningNow": "en cours",
+    "queuedCount": "{n} en attente d'une place",
+    "limitFromConnection": "Limite définie sur cette connexion",
+    "limitFromOrg": "Limite par défaut de l'organisation",
+    "limitDefault": "Limite par défaut du système",
+    "live": "En direct",
+    "liveHint": "Mise à jour toutes les 2 secondes",
+    "refresh": "Actualiser",
+    "loadFailed": "Impossible de charger les requêtes",
+    "runningTitle": "En cours",
+    "noneRunning": "Aucune requête n'est en cours sur cette connexion.",
+    "waitingFor": "en attente depuis {time}",
+    "runningFor": "en cours depuis {time}",
+    "stopping": "Arrêt…",
+    "killConfirm": "Arrêter cette requête ?",
+    "kill": "Arrêter",
+    "killFailed": "Impossible d'arrêter la requête",
+    "historyTitle": "Historique",
+    "filterAll": "Tous les statuts",
+    "searchPlaceholder": "Rechercher dans le texte",
+    "noMatches": "Aucune requête ne correspond à ces filtres.",
+    "noHistory": "Aucune requête n'a encore été exécutée sur cette connexion.",
+    "colStatus": "Statut",
+    "colQuery": "Requête",
+    "colWho": "Qui",
+    "colDuration": "Durée",
+    "colWait": "Attente",
+    "colRows": "Lignes",
+    "colWhen": "Quand",
+    "loadMore": "Charger plus",
+    "retentionNote": "L'historique est conservé 90 jours. Seuls les gestionnaires de la connexion peuvent voir et arrêter les requêtes ici.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Système",
+    "agent": "Agent",
+    "attempt": "Tentative",
+    "attemptValue": "tentative de code {code} · tentative d'outil {tool} · requête n° {seq}",
+    "started": "Début",
+    "ended": "Fin",
+    "killedBy": "Arrêtée par",
+    "sourceCancel": "Annulation à la source",
+    "copied": "Copié",
+    "copy": "Copier",
+    "truncated": "Le texte de la requête a été tronqué à l'enregistrement.",
+    "openReport": "Ouvrir le rapport",
+    "openReportNamed": "Ouvrir le rapport : {title}",
+    "status": {
+      "queued": "En attente",
+      "running": "En cours",
+      "success": "Réussie",
+      "error": "Échouée",
+      "timeout": "Délai dépassé",
+      "busy": "Occupée",
+      "cancelled": "Annulée",
+      "stale": "Abandonnée"
+    },
+    "source": {
+      "label": "Origine",
+      "chat": "Chat",
+      "eval": "Évaluation",
+      "query": "Requête",
+      "entity": "Entité",
+      "dashboard": "Tableau de bord",
+      "viewer": "Actualisation lecteur",
+      "scheduled": "Planifiée",
+      "system": "Système"
+    },
+    "reason": {
+      "killed": "Annulée par un gestionnaire de la connexion.",
+      "killed_waiting": "Annulée par un gestionnaire de la connexion pendant l'attente d'une place.",
+      "run_stopped": "Arrêtée parce que l'exécution qui l'a envoyée a été arrêtée.",
+      "stale": "Le processus qui exécutait cette requête ne répond plus ; sa place a été libérée.",
+      "busy": "Aucune place libérée à temps : la connexion était à sa limite de requêtes simultanées."
+    }
   }
 }

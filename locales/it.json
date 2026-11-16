@@ -1339,7 +1339,10 @@
       "duration": "Durata: {ms} ms",
       "edit": "Modifica",
       "generationStopped": "Generazione interrotta",
-      "code": "Codice"
+      "code": "Codice",
+      "waitingForSlot": "In attesa del turno su {connection} · {running}/{limit} in esecuzione",
+      "waitingForSlotShort": "In attesa del turno su {connection}",
+      "theConnection": "la connessione"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3340,7 +3343,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Query contemporanee per connessione",
-          "description": "Quante query dell'agente possono essere eseguite contemporaneamente su una stessa connessione, per replica. Ciò che eccede attende un posto libero invece di fallire. Conviene abbassarlo per sorgenti on-premise delicate (Oracle, SQL Server) che non reggono scansioni parallele. La configurazione di una connessione può sovrascriverlo con il proprio valore 'max_concurrent_queries'."
+          "description": "Quante query dell'agente possono essere eseguite contemporaneamente su una stessa connessione, sommando tutti i worker e le repliche. Ciò che eccede attende un posto libero invece di fallire. Conviene abbassarlo per sorgenti on-premise delicate (Oracle, SQL Server) che non reggono scansioni parallele. La configurazione di una connessione può sovrascriverlo con il proprio valore 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K degli schemi",
@@ -4571,7 +4574,9 @@
     "access_request.not_found": "Questa richiesta non esiste più.",
     "access_request.already_decided": "Questa richiesta è già stata gestita.",
     "frame_ancestors.invalid": "Questi indirizzi di sito non sono validi: {origins}. Usa un indirizzo https senza percorso, ad esempio https://portal.example.com.",
-    "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti."
+    "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
+    "connection.query_not_found": "Query non trovata su questa connessione.",
+    "connection.query_finished": "Questa query è già terminata ({status})."
   },
   "email": {
     "dashboardShare": {
@@ -7313,5 +7318,84 @@
     "inherit": "Eredita accesso dalla cartella superiore",
     "direct": "Accesso diretto per {name}",
     "stopConfirm": "Disattivare l’ereditarietà? I permessi ereditati da {names} non saranno più applicati."
+  },
+  "connectionQueries": {
+    "tabSettings": "Impostazioni",
+    "tabQueries": "Query",
+    "runningNow": "in esecuzione",
+    "queuedCount": "{n} in attesa del turno",
+    "limitFromConnection": "Limite impostato su questa connessione",
+    "limitFromOrg": "Limite predefinito dell'organizzazione",
+    "limitDefault": "Limite predefinito del sistema",
+    "live": "Live",
+    "liveHint": "Si aggiorna ogni 2 secondi",
+    "refresh": "Aggiorna",
+    "loadFailed": "Impossibile caricare le query",
+    "runningTitle": "In esecuzione",
+    "noneRunning": "Nessuna query in esecuzione su questa connessione.",
+    "waitingFor": "in attesa da {time}",
+    "runningFor": "in esecuzione da {time}",
+    "stopping": "Arresto…",
+    "killConfirm": "Fermare questa query?",
+    "kill": "Ferma",
+    "killFailed": "Impossibile fermare la query",
+    "historyTitle": "Cronologia",
+    "filterAll": "Tutti gli stati",
+    "searchPlaceholder": "Cerca nel testo della query",
+    "noMatches": "Nessuna query corrisponde ai filtri.",
+    "noHistory": "Su questa connessione non è ancora stata eseguita nessuna query.",
+    "colStatus": "Stato",
+    "colQuery": "Query",
+    "colWho": "Chi",
+    "colDuration": "Durata",
+    "colWait": "Attesa",
+    "colRows": "Righe",
+    "colWhen": "Quando",
+    "loadMore": "Carica altro",
+    "retentionNote": "La cronologia è conservata per 90 giorni. Solo i gestori della connessione possono vedere e fermare le query qui.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Sistema",
+    "agent": "Agente",
+    "attempt": "Tentativo",
+    "attemptValue": "tentativo di codice {code} · tentativo dello strumento {tool} · query n. {seq}",
+    "started": "Inizio",
+    "ended": "Fine",
+    "killedBy": "Fermata da",
+    "sourceCancel": "Annullamento alla sorgente",
+    "copied": "Copiato",
+    "copy": "Copia",
+    "truncated": "Il testo della query è stato troncato in archiviazione.",
+    "openReport": "Apri report",
+    "openReportNamed": "Apri report: {title}",
+    "status": {
+      "queued": "In attesa",
+      "running": "In esecuzione",
+      "success": "Riuscita",
+      "error": "Non riuscita",
+      "timeout": "Timeout",
+      "busy": "Occupata",
+      "cancelled": "Annullata",
+      "stale": "Abbandonata"
+    },
+    "source": {
+      "label": "Origine",
+      "chat": "Chat",
+      "eval": "Valutazione",
+      "query": "Query",
+      "entity": "Entità",
+      "dashboard": "Dashboard",
+      "viewer": "Aggiornamento lettore",
+      "scheduled": "Pianificata",
+      "system": "Sistema"
+    },
+    "reason": {
+      "killed": "Annullata da un gestore della connessione.",
+      "killed_waiting": "Annullata da un gestore della connessione mentre attendeva il turno.",
+      "run_stopped": "Fermata perché l'esecuzione che l'ha inviata è stata fermata.",
+      "stale": "Il processo che eseguiva questa query non risponde più; il suo posto è stato liberato.",
+      "busy": "Nessun posto si è liberato in tempo: la connessione era al limite di query simultanee."
+    }
   }
 }

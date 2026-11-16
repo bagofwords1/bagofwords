@@ -1339,7 +1339,10 @@
       "duration": "Varaktighet: {ms} ms",
       "edit": "Redigera",
       "generationStopped": "Genereringen stoppad",
-      "code": "Kod"
+      "code": "Kod",
+      "waitingForSlot": "Väntar på plats i {connection} · {running}/{limit} körs",
+      "waitingForSlotShort": "Väntar på plats i {connection}",
+      "theConnection": "anslutningen"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3340,7 +3343,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Samtidiga frågor per anslutning",
-          "description": "Hur många av agentens frågor som får köras mot en och samma anslutning samtidigt, per replik. Det som överstiger gränsen väntar på en plats i stället för att misslyckas. Sänk värdet för känsliga lokala källor (Oracle, SQL Server) som inte klarar parallella genomsökningar. En anslutnings konfiguration kan åsidosätta detta med ett eget värde för 'max_concurrent_queries'."
+          "description": "Hur många av agentens frågor som får köras mot en och samma anslutning samtidigt, sammanlagt över alla workers och repliker. Det som överstiger gränsen väntar på en plats i stället för att misslyckas. Sänk värdet för känsliga lokala källor (Oracle, SQL Server) som inte klarar parallella genomsökningar. En anslutnings konfiguration kan åsidosätta detta med ett eget värde för 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Topp K scheman",
@@ -4571,7 +4574,9 @@
     "access_request.not_found": "Den här begäran finns inte längre.",
     "access_request.already_decided": "Den här begäran har redan besvarats.",
     "frame_ancestors.invalid": "De här webbplatsadresserna är inte giltiga: {origins}. Använd en https-adress utan sökväg, till exempel https://portal.example.com.",
-    "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser."
+    "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser.",
+    "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
+    "connection.query_finished": "Frågan är redan avslutad ({status})."
   },
   "email": {
     "dashboardShare": {
@@ -7313,5 +7318,84 @@
     "inherit": "Ärv åtkomst från överordnad mapp",
     "direct": "Direkt åtkomst för {name}",
     "stopConfirm": "Stäng av arv? Ärvda behörigheter från {names} slutar gälla."
+  },
+  "connectionQueries": {
+    "tabSettings": "Inställningar",
+    "tabQueries": "Frågor",
+    "runningNow": "körs nu",
+    "queuedCount": "{n} väntar på plats",
+    "limitFromConnection": "Gräns satt på den här anslutningen",
+    "limitFromOrg": "Organisationens standardgräns",
+    "limitDefault": "Systemets standardgräns",
+    "live": "Live",
+    "liveHint": "Uppdateras varannan sekund",
+    "refresh": "Uppdatera",
+    "loadFailed": "Det gick inte att läsa in frågorna",
+    "runningTitle": "Körs nu",
+    "noneRunning": "Inga frågor körs mot den här anslutningen.",
+    "waitingFor": "väntar {time}",
+    "runningFor": "körs {time}",
+    "stopping": "Stoppar…",
+    "killConfirm": "Stoppa den här frågan?",
+    "kill": "Stoppa",
+    "killFailed": "Det gick inte att stoppa frågan",
+    "historyTitle": "Historik",
+    "filterAll": "Alla statusar",
+    "searchPlaceholder": "Sök i frågetexten",
+    "noMatches": "Inga frågor matchar filtren.",
+    "noHistory": "Inga frågor har körts mot den här anslutningen än.",
+    "colStatus": "Status",
+    "colQuery": "Fråga",
+    "colWho": "Vem",
+    "colDuration": "Tid",
+    "colWait": "Väntan",
+    "colRows": "Rader",
+    "colWhen": "När",
+    "loadMore": "Läs in fler",
+    "retentionNote": "Historiken sparas i 90 dagar. Endast anslutningens förvaltare kan se och stoppa frågor här.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "System",
+    "agent": "Agent",
+    "attempt": "Försök",
+    "attemptValue": "kodförsök {code} · verktygsförsök {tool} · fråga nr {seq}",
+    "started": "Startad",
+    "ended": "Avslutad",
+    "killedBy": "Stoppad av",
+    "sourceCancel": "Avbrott i källan",
+    "copied": "Kopierat",
+    "copy": "Kopiera",
+    "truncated": "Frågetexten kortades vid lagring.",
+    "openReport": "Öppna rapport",
+    "openReportNamed": "Öppna rapport: {title}",
+    "status": {
+      "queued": "Väntar",
+      "running": "Körs",
+      "success": "Lyckades",
+      "error": "Misslyckades",
+      "timeout": "Tidsgräns",
+      "busy": "Upptagen",
+      "cancelled": "Avbruten",
+      "stale": "Övergiven"
+    },
+    "source": {
+      "label": "Källa",
+      "chat": "Chatt",
+      "eval": "Utvärdering",
+      "query": "Fråga",
+      "entity": "Entitet",
+      "dashboard": "Instrumentpanel",
+      "viewer": "Läsaruppdatering",
+      "scheduled": "Schemalagd",
+      "system": "System"
+    },
+    "reason": {
+      "killed": "Avbruten av en förvaltare av anslutningen.",
+      "killed_waiting": "Avbruten av en förvaltare av anslutningen medan den väntade på plats.",
+      "run_stopped": "Stoppad eftersom körningen som skickade den stoppades.",
+      "stale": "Processen som körde frågan slutade svara; dess plats frigjordes.",
+      "busy": "Ingen plats blev ledig i tid: anslutningen låg på sin gräns för samtidiga frågor."
+    }
   }
 }
