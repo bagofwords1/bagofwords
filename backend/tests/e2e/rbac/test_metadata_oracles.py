@@ -167,11 +167,13 @@ def test_build_reads_of_foreign_build_read_as_missing(test_client, foreign_build
 # ────────────────────────────────────────────────────────────────────
 
 
-def _seed_run(report_id, suite_id, case_statuses, created_at):
+def _seed_run(report_id, suite_id, case_statuses, created_at, targets):
     """Insert a finished TestRun with one result per case.
 
     Direct DB write (tests/AGENTS.md rule 5 exception): results only come from
-    executing a live eval run, which crosses the LLM boundary.
+    executing a live eval run, which crosses the LLM boundary. Like a real run,
+    each result records the agents its case targeted when it was submitted
+    (``targets``: case id -> agent ids); read access is checked against that.
     """
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
@@ -193,7 +195,8 @@ def _seed_run(report_id, suite_id, case_statuses, created_at):
                 s.add(head)
                 s.flush()
                 s.add(TestResult(run_id=run.id, case_id=str(case_id),
-                                 head_completion_id=head.id, status=status))
+                                 head_completion_id=head.id, status=status,
+                                 data_source_ids_json=list(targets[case_id])))
             s.commit()
             return str(run.id)
     finally:
@@ -220,12 +223,13 @@ def eval_world(test_client, bootstrap_admin, invite_user_to_org, sqlite_data_sou
                               user_token=admin["token"], org_id=org_id)
     report = create_report(title="eval", user_token=admin["token"], org_id=org_id)
     t0 = datetime.utcnow() - timedelta(hours=2)
+    targets = {case_a["id"]: [ds_a["id"]], case_b["id"]: [ds_b["id"]]}
     # Readable to the manager (only case A).
-    older_visible = _seed_run(report["id"], suite["id"], {case_a["id"]: "fail"}, t0)
+    older_visible = _seed_run(report["id"], suite["id"], {case_a["id"]: "fail"}, t0, targets)
     # Shares case A but also ran case B, which the manager can't see.
     hidden = _seed_run(report["id"], suite["id"],
-                       {case_a["id"]: "pass", case_b["id"]: "fail"}, t0 + timedelta(minutes=30))
-    current = _seed_run(report["id"], suite["id"], {case_a["id"]: "pass"}, t0 + timedelta(hours=1))
+                       {case_a["id"]: "pass", case_b["id"]: "fail"}, t0 + timedelta(minutes=30), targets)
+    current = _seed_run(report["id"], suite["id"], {case_a["id"]: "pass"}, t0 + timedelta(hours=1), targets)
     return {"org_id": org_id, "admin": admin, "manager": manager,
             "older_visible": older_visible, "hidden": hidden, "current": current}
 

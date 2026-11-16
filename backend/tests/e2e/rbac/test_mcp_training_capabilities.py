@@ -108,11 +108,15 @@ def test_mcp_eval_runs_preserve_read_stop_and_dedup_authority(
     monkeypatch.setenv("OPENAI_API_KEY_TEST", "test-provider-key")
     create_llm_provider_and_models(user_token=w["admin"]["token"], org_id=w["org_id"])
     admin_headers = {'Authorization': f"Bearer {w['admin']['token']}", 'X-Organization-Id': w['org_id']}
+    mgr_a_headers = {'Authorization': f"Bearer {w['mgr_a']['token']}", 'X-Organization-Id': w['org_id']}
     runs = {}
     for key in ('case_a', 'case_b', 'case_ab', 'case_global'):
         # The REST API creates pending runs without opening an execution stream.
-        # This also exercises MCP run_eval's existing-run deduplication contract.
-        created = test_client.post('/api/tests/runs', json={'case_ids': [w[key]]}, headers=admin_headers)
+        # This also exercises MCP run_eval's existing-run deduplication contract,
+        # which adopts only the caller's own run (21717b7ba), so mgr_a requests
+        # the case_a run; the admin requests the runs mgr_a must not reach.
+        headers = mgr_a_headers if key == 'case_a' else admin_headers
+        created = test_client.post('/api/tests/runs', json={'case_ids': [w[key]]}, headers=headers)
         assert created.status_code == 200, created.text
         runs[key] = created.json()['id']
     c = client(test_client, w, 'mgr_a')

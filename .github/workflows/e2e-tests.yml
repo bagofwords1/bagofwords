@@ -113,6 +113,12 @@ jobs:
 
     - uses: ./.github/actions/setup-backend
 
+    # The artifact render check (create_artifact/edit_artifact) renders pages
+    # with these libraries (frontend-unit-tests downloads them too); without them it reports
+    # "render check unavailable" and test_artifact_render_unchecked fails.
+    - name: Download vendored artifact libraries
+      run: bash scripts/download-vendor-libs.sh frontend/public/libs
+
     - name: Install offline packet decoder
       if: matrix.name != 'postgres-dashboards'
       run: sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
