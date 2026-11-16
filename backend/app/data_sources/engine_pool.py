@@ -66,6 +66,21 @@ Correctness notes:
     ``readonly`` at ``False``, and the next plain transaction would start with
     ``BEGIN READ WRITE`` — refused on a hot standby, and overriding a database
     whose default is read-only.
+  * A Postgres (psycopg2) engine is built for ``PostgresqlClient``'s
+    one-message read (``pg_one_message``), unless ``BOW_PG_ONE_MESSAGE=off``
+    when the engine is built; the choice stays with the engine. That read
+    turns psycopg2's local ``autocommit`` flag on and off again before it
+    returns the connection. Such an engine has a pool ``reset`` listener as
+    a backstop: a connection that comes back with ``autocommit`` still on is
+    dropped, not pooled, since the pool's rollback sends nothing in
+    autocommit and a later streamed read needs a transaction. It looks at
+    that flag only: ``connect()`` users return with their transaction open,
+    and the pool's rollback ends it. The ``reset`` event comes before the
+    checkin listeners, so the read-only reset above never runs in
+    autocommit, where it would send a SET. Dropping the connection there
+    makes the pool's own rollback log "Exception during reset"; that is
+    expected. Nothing else may use ``isolation_level="AUTOCOMMIT"`` on a
+    pooled Postgres engine: its connections would be dropped the same way.
 """
 
 import logging
@@ -134,6 +149,11 @@ _QUEUEPOOL_ONLY_KWARGS = ("pool_size", "max_overflow", "pool_timeout", "pool_use
 # (or 0/false/no) drops the listener and gives Postgres the plain pre-ping.
 DEFAULT_PG_IDLE_PING_S = 120.0
 _PG_CHECKIN_AT = "bow_pg_checkin_at"
+# Set on a Postgres engine built for the one-message read (see the module
+# docstring). Env, read when an engine is built: ``BOW_PG_ONE_MESSAGE=off``
+# (or 0/false/no) builds it for the read-only ``connect()`` read instead.
+PG_ONE_MESSAGE_ATTR = "bow_pg_one_message"
+_OFF = ("off", "0", "false", "no")
 
 _lock = threading.Lock()
 _engines: "OrderedDict[Tuple, sqlalchemy.engine.Engine]" = OrderedDict()
@@ -165,7 +185,7 @@ def _pg_idle_ping_s(uri: Any) -> Optional[float]:
     keyword arguments, so a caller-passed choice could land on an engine
     built with the other one.
     """
-    if os.environ.get("BOW_PG_PING_LISTENER", "on").strip().lower() in ("off", "0", "false", "no"):
+    if os.environ.get("BOW_PG_PING_LISTENER", "on").strip().lower() in _OFF:
         return None
     try:
         url = sqlalchemy.engine.make_url(uri)
@@ -281,6 +301,38 @@ def _reset_readonly_on_checkin(dbapi_connection: Any, connection_record: Any) ->
         connection_record.invalidate(e)
 
 
+def _drop_autocommit_on_reset(dbapi_connection: Any, connection_record: Any, reset_state: Any) -> None:
+    """Pool ``reset`` listener on engines built for the one-message read: a
+    psycopg2 connection that comes back with ``autocommit`` on is dropped.
+
+    In autocommit the pool's rollback sends nothing, so a transaction still
+    open on the server would stay with the pooled session; and a later
+    ``connect()`` user's streamed read needs a transaction. Only the flag is
+    looked at, never the transaction status: ``connect()`` users come back
+    mid-transaction and the pool's rollback ends it.
+
+    It must never raise: the pool would lose the slot. On failure the
+    connection is dropped too.
+    """
+    try:
+        if dbapi_connection is None or dbapi_connection.closed or not dbapi_connection.autocommit:
+            return
+        logger.warning("engine_pool.returned_in_autocommit; the connection is dropped")
+        connection_record.invalidate()
+    except Exception as e:
+        # The type only, like the other connection warnings.
+        logger.warning("engine_pool.autocommit_check_failed; the connection is dropped error=%s", type(e).__name__)
+        try:
+            connection_record.invalidate(e)
+        except Exception:
+            pass
+
+
+def pg_one_message(eng: Any) -> bool:
+    """Whether `eng` was built for ``PostgresqlClient``'s one-message read."""
+    return getattr(eng, PG_ONE_MESSAGE_ATTR, False) is True
+
+
 def _is_psycopg2_postgres(uri: str) -> bool:
     """`postgresql://` (psycopg2 is SQLAlchemy's default driver) or
     `postgresql+psycopg2://`, resolved the way SQLAlchemy resolves them."""
@@ -296,6 +348,9 @@ def _attach_listeners(eng: sqlalchemy.engine.Engine, uri: str,
         sqlalchemy.event.listen(eng, "connect", on_connect)
     if _is_psycopg2_postgres(uri):
         sqlalchemy.event.listen(eng, "checkin", _reset_readonly_on_checkin)
+        if os.environ.get("BOW_PG_ONE_MESSAGE", "on").strip().lower() not in _OFF:
+            sqlalchemy.event.listen(eng, "reset", _drop_autocommit_on_reset)
+            setattr(eng, PG_ONE_MESSAGE_ATTR, True)
 
 
 def _key(uri: str, connect_args: Optional[Dict[str, Any]], key_extra: Optional[str]) -> Tuple:
@@ -327,10 +382,14 @@ def get_engine(
     must put what varies into ``key_extra``, or it gets an engine built with
     somebody else's hook.
 
-    A Postgres engine on psycopg2 also gets a ``checkin`` listener that
-    returns each connection to the session default (``readonly=None``), and,
-    unless ``BOW_PG_PING_LISTENER=off``, the ping listeners instead of
-    ``pool_pre_ping``.
+    A Postgres engine on psycopg2 also gets:
+
+    * a ``checkin`` listener that returns each connection to the session
+      default (``readonly=None``);
+    * the ping listeners instead of ``pool_pre_ping``, unless
+      ``BOW_PG_PING_LISTENER=off``;
+    * the mark ``pg_one_message`` reads and the ``reset`` backstop that goes
+      with it, unless ``BOW_PG_ONE_MESSAGE=off``.
     """
     bucket = _ephemeral_engines.get()
     if bucket is not None:

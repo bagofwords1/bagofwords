@@ -4,7 +4,8 @@ Contract: an agent query on Postgres or MySQL reaches the server exactly as
 the read-only guard returned it. Nothing rewrites it on the way: no
 `:name` bind markers, no `%` handling, so literals holding them come back
 unchanged, and the server's own record of the statement equals the text the
-client was handed.
+client was handed (on Postgres, after the one message's read-only prefix
+line).
 
 Needs Docker. CI does not collect tests/integrations; these run on the test
 harness. Without a Docker daemon they skip, or fail when CI is set.
@@ -102,7 +103,9 @@ def test_postgres_receives_the_checked_text_with_its_literals_unchanged(mode, po
     sql = "SELECT current_query() AS q, ':x' AS a, '%' AS b, 'a%%b' AS c /* note */"
     checked = ensure_read_only(client, sql)
     rows, queries = _run(client, sql)
-    assert rows == [{"q": checked, "a": ":x", "b": "%", "c": "a%%b"}]
+    # The server's record is the one message: the read-only prefix on its
+    # own line, then the checked text byte for byte.
+    assert rows == [{"q": "BEGIN READ ONLY;\n" + checked, "a": ":x", "b": "%", "c": "a%%b"}]
     assert client.sent == queries == [checked]
 
 

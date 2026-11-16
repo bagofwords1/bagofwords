@@ -12,8 +12,16 @@ Servers older than 9.1, and Redshift, read backslashes in plain literals as
 escapes whatever they report, so there the Redshift rule applies: no
 backslash in a literal and no E-string at all.
 
-Every SET runs as its own statement inside the read's transaction, which
-ends in a rollback, so the session keeps the server's own setting.
+`prepare_pg_session` does all of it for a caller already inside the read's
+transaction (a `connect(read_only=True)` user): its SET runs as its own
+statement there, and the transaction ends in a rollback, so the session
+keeps the server's own setting. A caller that opens the transaction itself
+uses the two halves instead: `pg_session_needs_switch` decides without a
+round trip, and when it answers yes the caller sends `SET LOCAL ... = on`
+inside its own transaction (`STANDARD_STRINGS_ON_LOCAL`), then calls
+`confirm_pg_session`. Either way `verify_pg_session_after` runs after the
+read and before the rollback: after it, a server whose setting is off
+reports off again.
 """
 
 import logging
@@ -23,8 +31,9 @@ from app.ai.code_execution.sql_guard import ReadOnlyViolation
 logger = logging.getLogger(__name__)
 
 _SCS = "standard_conforming_strings"
-# Set on the connection by `prepare_pg_session` when the read starts with
-# the setting confirmed on.
+# The switch for a caller that runs it inside its own transaction.
+STANDARD_STRINGS_ON_LOCAL = f"SET LOCAL {_SCS} = on"
+# Set on the connection when the read starts with the setting confirmed on.
 _CONFIRMED = "bow_pg_standard_strings_on"
 _FIRST_STANDARD_VERSION = 90100
 
@@ -36,6 +45,17 @@ def _reported(conn, name: str):
 def prepare_pg_session(conn, sql: str) -> None:
     """Get the session on `conn` ready to run `sql`, or refuse `sql`
     (`ReadOnlyViolation`). Runs before `sql`, inside its transaction."""
+    if pg_session_needs_switch(conn, sql):
+        conn.exec_driver_sql(f"SET {_SCS} = on")
+        confirm_pg_session(conn, sql)
+
+
+def pg_session_needs_switch(conn, sql: str) -> bool:
+    """Decide, without a round trip, what `sql` needs from the session on
+    `conn`. True: the server reports the setting off, so the caller switches
+    it on inside the read's transaction and then calls `confirm_pg_session`.
+    False: nothing is to be sent, and `sql` was refused
+    (`ReadOnlyViolation`) if it had to be."""
     from app.ai.code_execution.pg_lexer import lex_postgres
 
     dbapi = conn.connection.dbapi_connection
@@ -45,11 +65,21 @@ def prepare_pg_session(conn, sql: str) -> None:
         # what the text holds.
         lex_postgres(sql, mode="redshift")
         conn.info[_CONFIRMED] = False
-        return
+        return False
+    if _reported(conn, _SCS) == "off":
+        return True
+    confirm_pg_session(conn, sql)
+    return False
+
+
+def confirm_pg_session(conn, sql: str) -> None:
+    """Read the setting the server reports now, keep for
+    `verify_pg_session_after` whether it is on, and refuse `sql`
+    (`ReadOnlyViolation`) when it is not on and a literal holds a
+    backslash."""
+    from app.ai.code_execution.pg_lexer import lex_postgres
+
     status = _reported(conn, _SCS)
-    if status == "off":
-        conn.exec_driver_sql(f"SET {_SCS} = on")
-        status = _reported(conn, _SCS)
     conn.info[_CONFIRMED] = status == "on"
     if status != "on" and lex_postgres(sql).has_backslash_literal:
         raise ReadOnlyViolation(

@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.ai.code_execution.sql_guard import ReadOnlyViolation
+from app.data_sources.clients import _pg_session
 from app.data_sources.clients._pg_session import prepare_pg_session, verify_pg_session_after
 
 BS = chr(92)
@@ -139,3 +140,67 @@ def test_a_session_still_reading_standard_strings_is_kept(scs):
     prepare_pg_session(conn, BACKSLASH_READ)
     verify_pg_session_after(conn)
     assert conn.invalidated is False
+
+
+# --------------------------------------------------------------- the split for a caller that sends its own SET
+#
+# `pg_session_needs_switch(conn, sql)` decides without a round trip: True
+# when the server reports the setting off, so the caller sends the switch
+# itself, inside its own transaction, then calls `confirm_pg_session(conn,
+# sql)`, which re-reads the reported setting and applies the refusal.
+
+@pytest.mark.parametrize("sql", [BACKSLASH_READ, E_STRING_READ, PLAIN_READ])
+def test_a_server_reading_standard_strings_needs_no_switch_and_nothing_is_sent(sql):
+    conn = FakeConn(FakeDbapi("on"))
+    assert _pg_session.pg_session_needs_switch(conn, sql) is False
+    assert conn.sent == []
+    verify_pg_session_after(conn)
+    assert conn.invalidated is False
+
+
+def test_a_server_reporting_standard_strings_off_needs_the_switch_and_the_decision_sends_nothing():
+    conn = FakeConn(FakeDbapi("off"))
+    assert _pg_session.pg_session_needs_switch(conn, BACKSLASH_READ) is True
+    assert conn.sent == []
+
+
+def test_after_the_callers_switch_the_session_is_confirmed_and_checked_after_the_read():
+    dbapi = FakeDbapi("off")
+    conn = FakeConn(dbapi)
+    assert _pg_session.pg_session_needs_switch(conn, BACKSLASH_READ) is True
+    dbapi.status[SCS] = "on"  # the caller's SET LOCAL ... = on
+    _pg_session.confirm_pg_session(conn, BACKSLASH_READ)
+    dbapi.status[SCS] = "off"  # the read turned it off again
+    verify_pg_session_after(conn)
+    assert conn.invalidated is True
+
+
+@pytest.mark.parametrize("becomes", ["off", None])
+@pytest.mark.parametrize("sql", [BACKSLASH_READ, E_BACKSLASH_READ])
+def test_after_a_switch_that_did_not_take_a_backslash_literal_is_refused(becomes, sql):
+    dbapi = FakeDbapi("off")
+    conn = FakeConn(dbapi)
+    assert _pg_session.pg_session_needs_switch(conn, sql) is True
+    dbapi.status[SCS] = becomes
+    with pytest.raises(ReadOnlyViolation, match="standard_conforming_strings"):
+        _pg_session.confirm_pg_session(conn, sql)
+
+
+def test_a_server_that_does_not_report_the_setting_refuses_a_backslash_literal_without_a_switch():
+    conn = FakeConn(FakeDbapi(None))
+    with pytest.raises(ReadOnlyViolation, match="standard_conforming_strings"):
+        _pg_session.pg_session_needs_switch(conn, BACKSLASH_READ)
+    assert _pg_session.pg_session_needs_switch(conn, PLAIN_READ) is False
+    assert conn.sent == []
+
+
+@pytest.mark.parametrize("dbapi", [
+    FakeDbapi("off", server_version=90000, version_text="9.0.0"),
+    FakeDbapi("on", server_version=150004, version_text="8.0.2 Redshift 1.0.1"),
+])
+def test_an_old_or_redshift_like_server_gets_the_redshift_rule_and_never_the_switch(dbapi):
+    with pytest.raises(ReadOnlyViolation):
+        _pg_session.pg_session_needs_switch(FakeConn(dbapi), BACKSLASH_READ)
+    conn = FakeConn(dbapi)
+    assert _pg_session.pg_session_needs_switch(conn, PLAIN_READ) is False
+    assert conn.sent == []
