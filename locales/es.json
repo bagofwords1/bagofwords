@@ -4345,7 +4345,8 @@
       "ssoNote": "Iniciar sesión dentro del marco funciona con correo y contraseña. El inicio de sesión único (SSO) no funciona dentro de un marco.",
       "readOnly": "Solo un administrador de la instancia puede cambiar esta lista en una instancia con varias organizaciones.",
       "duplicate": "Este sitio ya está en la lista.",
-      "invalidFormat": "Introduce una dirección que empiece por https://, sin ruta. Por ejemplo: https://portal.example.com"
+      "invalidFormat": "Introduce una dirección que empiece por https://, sin ruta. Por ejemplo: https://portal.example.com",
+      "publicNote": "Cualquiera puede ver estas direcciones: los navegadores las reciben con cada página."
     }
   },
   "data": {

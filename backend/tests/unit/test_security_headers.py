@@ -96,6 +96,9 @@ def test_route_set_headers_still_win_with_extra_origins():
     "https://erp_example.com", "", "   ", None, 42,
     "https://*.github.io", "https://*.myorg.github.io", "https://*.azurewebsites.net",
     "https://*.vercel.app", "https://*.co.uk", "https://*.co.il", "https://*.com.au",
+    "https://*.azureedge.net", "https://*.fly.dev", "https://*.eu.org", "https://*.me.uk",
+    "https://*.blogspot.co.il", "https://*.1.2.3", "https://*.10.0.0.1",
+    "https://" + "a" * 300 + ".example.com",
 ])
 def test_anything_but_a_plain_origin_is_rejected(value):
     assert frame_ancestor_source(value) is None
@@ -104,6 +107,7 @@ def test_anything_but_a_plain_origin_is_rejected(value):
 @pytest.mark.parametrize("value", [
     "http://localhost:3000", "http://127.0.0.1:8080", "https://intranet", "https://erp.example.com:*",
     "https://*.example.com", "https://*.example.co.uk", "https://myorg.github.io",
+    "https://10.0.0.5", "https://portal.example.co.il",
 ])
 def test_local_http_intranet_hosts_and_any_port_are_accepted(value):
     assert frame_ancestor_source(value) == value

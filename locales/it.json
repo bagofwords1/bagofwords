@@ -3801,7 +3801,8 @@
       "ssoNote": "L'accesso all'interno del frame funziona con email e password. Il Single Sign-On (SSO) non funziona in un frame.",
       "readOnly": "In un'istanza con più organizzazioni, solo un amministratore dell'istanza può modificare questo elenco.",
       "duplicate": "Questo sito è già nell'elenco.",
-      "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com"
+      "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com",
+      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina."
     }
   },
   "data": {

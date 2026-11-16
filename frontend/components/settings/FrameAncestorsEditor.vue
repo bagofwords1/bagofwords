@@ -45,10 +45,16 @@
         </div>
         <p v-else class="text-xs text-ink-muted">{{ $t('settings.frameAncestors.readOnly') }}</p>
 
-        <p class="flex items-start gap-1.5 text-xs text-ink-muted">
-            <UIcon name="i-heroicons-information-circle" class="mt-px h-3.5 w-3.5 shrink-0" />
-            <span>{{ $t('settings.frameAncestors.ssoNote') }}</span>
-        </p>
+        <div class="space-y-1 text-xs text-ink-muted">
+            <p class="flex items-start gap-1.5">
+                <UIcon name="i-heroicons-information-circle" class="mt-px h-3.5 w-3.5 shrink-0" />
+                <span>{{ $t('settings.frameAncestors.ssoNote') }}</span>
+            </p>
+            <p class="flex items-start gap-1.5">
+                <UIcon name="i-heroicons-eye" class="mt-px h-3.5 w-3.5 shrink-0" />
+                <span>{{ $t('settings.frameAncestors.publicNote') }}</span>
+            </p>
+        </div>
     </div>
 </template>
 

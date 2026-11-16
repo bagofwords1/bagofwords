@@ -9,9 +9,11 @@ The security-headers middleware runs on every request, /health included, so
 it must never wait on the database. ``cached_origins`` answers from memory at
 once; when the list is older than ``REFRESH_SECONDS`` it starts one background
 read (bounded by ``READ_TIMEOUT_SECONDS``) and the next requests get the
-result. A failed or slow read keeps the previous list; before the first read
-lands only the default policy applies (the stricter side). A save refreshes
-this process at once; other workers and replicas follow within the window.
+result. A failed or slow read keeps the previous list. Each worker reads the
+list once at startup (``warm``), so a restart does not serve the bare default
+to the first framed page. A save refreshes this process at once, and a
+background read that started before the save cannot overwrite it; other
+workers and replicas follow within the window.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from datetime import datetime
 from typing import Iterable, List, Optional, Tuple
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -38,7 +41,9 @@ READ_TIMEOUT_SECONDS = 2
 MAX_ORIGINS = 50
 
 # "task" keeps a reference to the running refresh so it is not collected.
-_cache: dict = {"origins": (), "loaded_at": None, "task": None}
+# "generation" changes on every save or reset; a background read that started
+# under an older generation drops its result instead of overwriting newer data.
+_cache: dict = {"origins": (), "loaded_at": None, "task": None, "generation": 0}
 
 
 def normalize(origins: Iterable[str]) -> List[str]:
@@ -55,10 +60,11 @@ def normalize(origins: Iterable[str]) -> List[str]:
         elif source not in result:
             result.append(source)
     if invalid:
+        shown = ", ".join(v if len(v) <= 100 else v[:100] + "…" for v in invalid[:10])
         raise AppError.bad_request(
             ErrorCode.FRAME_ANCESTORS_INVALID,
-            f"Not a valid site address: {', '.join(invalid)}",
-            origins=", ".join(invalid),
+            f"Not a valid site address: {shown}",
+            origins=shown,
         )
     if len(result) > MAX_ORIGINS:
         raise AppError.bad_request(
@@ -69,20 +75,25 @@ def normalize(origins: Iterable[str]) -> List[str]:
     return result
 
 
-async def _row(db: AsyncSession) -> Optional[InstanceSettings]:
-    result = await db.execute(
-        select(InstanceSettings).where(
-            InstanceSettings.key == SETTING_KEY,
-            InstanceSettings.deleted_at.is_(None),
-        )
-    )
-    return result.scalar_one_or_none()
+async def _row(db: AsyncSession, *, include_deleted: bool = False) -> Optional[InstanceSettings]:
+    query = select(InstanceSettings).where(InstanceSettings.key == SETTING_KEY)
+    if not include_deleted:
+        query = query.where(InstanceSettings.deleted_at.is_(None))
+    return (await db.execute(query)).scalar_one_or_none()
 
 
 def _stored_origins(row: Optional[InstanceSettings]) -> List[str]:
-    origins = (row.value or {}).get("origins") if row is not None else None
-    # Re-check on read: a row edited by hand must not reach the header.
-    return [s for s in (frame_ancestor_source(o) for o in origins or ()) if s]
+    # Re-check on read: a row edited by hand must not reach the header, and a
+    # malformed one reads as empty instead of failing the page.
+    value = row.value if row is not None and isinstance(row.value, dict) else {}
+    origins = value.get("origins")
+    if not isinstance(origins, list):
+        return []
+    clean: List[str] = []
+    for source in (frame_ancestor_source(o) for o in origins):
+        if source and source not in clean:
+            clean.append(source)
+    return clean[:MAX_ORIGINS]
 
 
 async def get_origins(db: AsyncSession) -> List[str]:
@@ -91,18 +102,35 @@ async def get_origins(db: AsyncSession) -> List[str]:
 
 async def save_origins(db: AsyncSession, origins: Iterable[str], *, user_id: str) -> List[str]:
     clean = normalize(origins)
-    row = await _row(db)
     value = {"origins": clean, "updated_by": str(user_id), "updated_at": datetime.utcnow().isoformat()}
+    try:
+        await _write(db, value)
+    except IntegrityError:
+        # Two first saves at once: the other one inserted the row; update it.
+        await db.rollback()
+        await _write(db, value)
+    _set_saved(tuple(clean))
+    return clean
+
+
+async def _write(db: AsyncSession, value: dict) -> None:
+    # A soft-deleted row still holds the unique key, so revive it rather
+    # than insert next to it.
+    row = await _row(db, include_deleted=True)
     if row is None:
         db.add(InstanceSettings(key=SETTING_KEY, value=value))
     else:
         row.value = value
+        row.deleted_at = None
         row.updated_at = datetime.utcnow()
         flag_modified(row, "value")
         db.add(row)
     await db.commit()
-    _cache.update(origins=tuple(clean), loaded_at=time.monotonic())
-    return clean
+
+
+def _set_saved(origins: Tuple[str, ...]) -> None:
+    _cache["generation"] += 1
+    _cache.update(origins=origins, loaded_at=time.monotonic())
 
 
 def cached_origins() -> Tuple[str, ...]:
@@ -127,12 +155,25 @@ async def _read() -> Tuple[str, ...]:
 
 
 async def _refresh() -> None:
+    generation = _cache["generation"]
     try:
-        _cache["origins"] = await asyncio.wait_for(_read(), READ_TIMEOUT_SECONDS)
+        origins = await asyncio.wait_for(_read(), READ_TIMEOUT_SECONDS)
+        if _cache["generation"] == generation:
+            _cache["origins"] = origins
+    except asyncio.CancelledError:
+        raise
     except Exception:
         logger.warning("Could not read the allowed framing sites; keeping the previous list", exc_info=True)
     finally:
-        _cache["loaded_at"] = time.monotonic()
+        # A save or reset during the read owns loaded_at now.
+        if _cache["generation"] == generation:
+            _cache["loaded_at"] = time.monotonic()
+
+
+async def warm() -> None:
+    """Read the list once at startup (bounded), so the first framed page after
+    a restart already gets the saved sites."""
+    await _refresh()
 
 
 def reset_cache() -> None:
@@ -140,4 +181,5 @@ def reset_cache() -> None:
     task = _cache["task"]
     if task is not None and not task.done():
         task.cancel()
+    _cache["generation"] += 1
     _cache.update(origins=(), loaded_at=None, task=None)

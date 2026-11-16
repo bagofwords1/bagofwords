@@ -3801,7 +3801,8 @@
       "ssoNote": "La connexion dans le cadre fonctionne avec e-mail et mot de passe. L'authentification unique (SSO) ne fonctionne pas dans un cadre.",
       "readOnly": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut modifier cette liste.",
       "duplicate": "Ce site est déjà dans la liste.",
-      "invalidFormat": "Saisissez une adresse commençant par https://, sans chemin. Par exemple : https://portal.example.com"
+      "invalidFormat": "Saisissez une adresse commençant par https://, sans chemin. Par exemple : https://portal.example.com",
+      "publicNote": "Ces adresses sont visibles par tous : les navigateurs les reçoivent avec chaque page."
     }
   },
   "data": {

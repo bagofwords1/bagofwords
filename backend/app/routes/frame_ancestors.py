@@ -6,7 +6,7 @@ the instance.
 """
 
 import logging
-from typing import List
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -31,7 +31,7 @@ class FrameAncestorsStatus(BaseModel):
 
 
 class FrameAncestorsUpdate(BaseModel):
-    origins: List[str] = Field(default_factory=list, max_length=svc.MAX_ORIGINS * 2)
+    origins: List[Annotated[str, Field(max_length=2048)]] = Field(default_factory=list, max_length=svc.MAX_ORIGINS * 2)
 
 
 def _can_edit(user: User) -> bool:

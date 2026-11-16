@@ -4407,7 +4407,8 @@
       "ssoNote": "Signing in inside the frame works with email and password. Single sign-on (SSO) doesn't work inside a frame.",
       "readOnly": "Only an instance administrator can change this list on an instance with several organizations.",
       "duplicate": "This site is already in the list.",
-      "invalidFormat": "Enter an address that starts with https://, without a path. For example: https://portal.example.com"
+      "invalidFormat": "Enter an address that starts with https://, without a path. For example: https://portal.example.com",
+      "publicNote": "Anyone can see these addresses: browsers receive them with every page."
     }
   },
   "data": {
