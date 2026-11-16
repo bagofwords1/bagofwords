@@ -590,19 +590,35 @@ function errorBoundaryScript(): string {
 `;
 }
 
+// How long the readiness check waits for the app to replace the loading
+// placeholder before reporting that it never mounted.
+const MOUNT_WAIT_MS = 15000;
+
 function readySignalScript(): string {
   return `
     // After Babel processes text/babel scripts, signal readiness to the parent.
+    // The "Loading…" placeholder sits inside #root until React's first commit
+    // replaces it, so it is not content: while it is all #root holds, the
+    // app has not mounted yet (slow compile) or never will (no
+    // ReactDOM.createRoot(...).render call). Wait for a mount, then give up.
     window.addEventListener('DOMContentLoaded', function() {
-      setTimeout(function() {
+      var started = Date.now();
+      function check() {
         if (window.__artifactErrorSent) return;
         var root = document.getElementById('root');
-        if (root && root.children.length > 0) {
+        var placeholderOnly = !!root && root.children.length === 1
+          && root.firstElementChild.hasAttribute('data-bow-placeholder');
+        if (root && root.children.length > 0 && !placeholderOnly) {
           window.parent.postMessage({ type: 'ARTIFACT_READY' }, '*');
+        } else if (placeholderOnly && Date.now() - started < ${MOUNT_WAIT_MS}) {
+          setTimeout(check, 250);
         } else {
-          reportArtifactError('Dashboard code did not render any content');
+          reportArtifactError(placeholderOnly
+            ? 'Dashboard code never mounted: end it with ReactDOM.createRoot(document.getElementById("root")).render(<App />)'
+            : 'Dashboard code did not render any content');
         }
-      }, 500);
+      }
+      setTimeout(check, 500);
     });
 `;
 }
@@ -656,7 +672,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   </style>
 </head>
 <body>
-  <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">${loadingLabel}</div></div>
+  <div id="root"><div data-bow-placeholder style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">${loadingLabel}</div></div>
 
   <script>
     // Live color-mode toggle from the host (no iframe reload).

@@ -19,6 +19,14 @@ from app.models.report_file_association import report_file_association
 
 logger = logging.getLogger(__name__)
 
+# Fatal render error for a page that threw nothing but rendered nothing.
+EMPTY_RENDER_ERROR = (
+    "The page rendered no content (#root is empty): App was never mounted, or every "
+    "component returned null. End the script with "
+    "ReactDOM.createRoot(document.getElementById('root')).render(<App />); and make App "
+    "return the dashboard (a loading state while data is null), never null."
+)
+
 
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -184,6 +192,12 @@ class CreateArtifactTool(Tool):
                         pass  # Take screenshot anyway — partial render is still useful
 
                     await asyncio.sleep(0.3)
+                    # No thrown error is not the same as a working page: an
+                    # App that is never mounted, or renders null, throws
+                    # nothing and leaves #root empty. Fatal (no
+                    # "[console.error]" prefix) so it gates like a crash.
+                    if not self.fatal_render_errors(js_errors) and await self._root_is_empty(page):
+                        js_errors.append(EMPTY_RENDER_ERROR)
                     screenshot_bytes = await page.screenshot(type="png", full_page=False)
                     await browser.close()
                     return base64.b64encode(screenshot_bytes).decode("utf-8"), js_errors
@@ -198,6 +212,17 @@ class CreateArtifactTool(Tool):
                 f"check until this is fixed (set BOW_CHROMIUM_EXECUTABLE to a working Chromium): {e}"
             )
             return None, js_errors
+
+    @staticmethod
+    async def _root_is_empty(page) -> bool:
+        """True when the page has a #root and nothing was rendered into it."""
+        try:
+            return bool(await page.evaluate(
+                "(() => { const r = document.getElementById('root');"
+                " return !!r && r.children.length === 0 && !r.textContent.trim(); })()"
+            ))
+        except Exception:
+            return False
 
     async def _generate_thumbnail_background(
         self,
