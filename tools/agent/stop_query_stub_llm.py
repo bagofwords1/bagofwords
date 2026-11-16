@@ -10,7 +10,12 @@ Postgres). The probe presses Stop while that query is running and watches
   STUB_TOOL (``create_data`` or ``inspect_data``) targeting the data source in
   STUB_DS_FILE. Once a tool result is in the prompt: a short final answer.
 - Codegen call (prompt mentions generate_df): code running the slow query on
-  the first client in ``ds_clients``.
+  the first client in ``ds_clients`` — or, when the user's message carries
+  ``SQL: <statement>``, exactly that statement (any engine: pg_sleep,
+  WAITFOR DELAY, ...).
+- With ``agents`` in STUB_DS_FILE (``{"warehouse": {"id": ..., "table": ...}}``)
+  the agent named in the message is targeted. The final answer reports a
+  query cancelled by a connection admin or refused as "connection busy".
 - Anything else (titles, judges, suggestions): short generic text.
 
 Env:
@@ -25,6 +30,7 @@ Run from backend/ (for deps): uv run python ../tools/agent/stop_query_stub_llm.p
 """
 import json
 import os
+import re
 import time
 import uuid
 
@@ -96,25 +102,79 @@ def _json(content: str):
     })
 
 
-def _planner(body: dict):
-    if any(m.get("role") == "tool" for m in body.get("messages", [])):
-        return "The query step finished.", None
+_SQL_MARK = re.compile(r"BOWSQL<<(.*?)>>BOWSQL", re.S)
+
+
+def _message_text(m: dict) -> str:
+    c = m.get("content")
+    if isinstance(c, str):
+        return c
+    if isinstance(c, list):
+        return "\n".join(i.get("text", "") for i in c if isinstance(i, dict))
+    return ""
+
+
+def _user_request(body: dict) -> str:
+    users = [m for m in body.get("messages", []) if m.get("role") == "user"]
+    return _message_text(users[-1]) if users else ""
+
+
+def _pick_source(text: str) -> dict:
+    """``agents`` in STUB_DS_FILE ({name: {id, table}}): the one named in the message."""
     src = _source()
+    agents = src.get("agents") or {}
+    lowered = text.lower()
+    for name, agent in agents.items():
+        if name.lower() in lowered:
+            return {**src, **agent}
+    return src
+
+
+def _planner(body: dict):
+    tool_msgs = [m for m in body.get("messages", []) if m.get("role") == "tool"]
+    if tool_msgs:
+        result = _message_text(tool_msgs[-1])
+        if "cancelled by a connection admin" in result:
+            return "Your query was cancelled by an admin of the connection, so there is no result.", None
+        if "Connection busy" in result:
+            return ("The connection is busy right now — it is already running its maximum number of "
+                    "queries. Please try again in a moment."), None
+        return "Here is the result of your query.", None
+    system = " ".join(_message_text(m) for m in body.get("messages", []) if m.get("role") == "system")
+    if "Knowledge Harness" in system:
+        return "Nothing to capture.", None
+    request = _user_request(body)
+    src = _pick_source(request)
     tool = src.get("tool") or os.environ.get("STUB_TOOL", "create_data")
     targets = [{"data_source_id": src["id"], "tables": [src.get("table", "orders")]}]
+    # "SQL: <statement>" in the message: run exactly that statement.
+    # The rendered prompt carries more context after the message: one line only.
+    # The rendered prompt carries more context after the message (and closing
+    # tags on the same line): keep the statement only.
+    sql = request.split("SQL:", 1)[1].strip().splitlines()[0].split("<", 1)[0].strip() if "SQL:" in request else None
+    marker = f" BOWSQL<<{sql}>>BOWSQL" if sql else ""
     if tool == "inspect_data":
-        args = {"user_prompt": "Profile the orders table", "tables_by_source": targets}
+        args = {"user_prompt": "Profile the orders table" + marker, "tables_by_source": targets}
     else:
         args = {
             "title": "Orders by region",
-            "user_prompt": "Total order amount by region",
-            "interpreted_prompt": "Sum of orders.amount grouped by region.",
+            "user_prompt": "Total order amount by region" + marker,
+            "interpreted_prompt": "Sum of orders.amount grouped by region." + marker,
             "tables_by_source": targets,
         }
     return "Running the query now.", {"name": tool, "arguments": args}
 
 
-def _codegen() -> str:
+def _codegen(text: str = "") -> str:
+    found = _SQL_MARK.search(text)
+    if found:
+        return (
+            "def generate_df(ds_clients, excel_files):\n"
+            "    key = list(ds_clients.keys())[0]\n"
+            f"    df = ds_clients[key].execute_query({found.group(1).strip()!r})\n"
+            "    print('rows:', len(df))\n"
+            "    return df\n"
+        )
     sleep_s = int(float(os.environ.get("STUB_SLEEP_S", "120")))
     return (
         "def generate_df(ds_clients, excel_files):\n"
@@ -139,7 +199,7 @@ async def chat_completions(request: Request):
         return _stream(content, tool_call) if stream else _json(content)
     if "generate_df" in _all_text(body):
         _calls["codegen"] += 1
-        code = _codegen()
+        code = _codegen(_all_text(body))
         return _stream(code, None) if stream else _json(code)
     generic = "Stop-query probe."
     return _stream(generic, None) if stream else _json(generic)

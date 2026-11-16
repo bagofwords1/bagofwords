@@ -678,6 +678,37 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule custom table run history purge job: {e}")
 
+    # Connection query history (query_executions): stamp rows whose worker
+    # died as stale (their lease already stopped them holding a slot), and
+    # drop finished history past its retention.
+    if is_scheduler_leader:
+        try:
+            from app.data_sources.query_executions import run_stale_sweep, run_history_purge
+            scheduler.add_job(
+                run_stale_sweep,
+                trigger="interval",
+                minutes=1,
+                id="query_executions_stale_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            scheduler.add_job(
+                run_history_purge,
+                trigger="cron",
+                hour=3,
+                minute=50,
+                id="query_executions_history_purge",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled jobs: query_executions stale sweep (1 min) and history purge (daily)")
+        except Exception as e:
+            logger.error(f"Failed to schedule query history jobs: {e}")
+
     # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
     if is_scheduler_leader:
         try:

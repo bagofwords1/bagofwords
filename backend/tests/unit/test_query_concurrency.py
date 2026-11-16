@@ -1,27 +1,36 @@
-"""A burst of agent queries must not arrive at one source all at once.
+"""The per-connection query limit is app-wide, queues bursts, and is killable.
 
-The timeout bounds how long a query runs and the rate limiter bounds how often
-a connection is queried; neither bounds how many run simultaneously, which is
-the number a struggling on-prem box actually feels. These tests pin the cap's
-behaviour: bursts queue rather than fail, connections don't share a budget, a
-slot is always released, and paths outside the agent (indexing, health checks)
-are never gated.
+What a connection manager is promised:
+
+- No more than the connection's limit of queries run at once — counted across
+  every worker and replica, not per process (two real processes below).
+- A burst waits its turn, first come first served; only a query that cannot get
+  a slot within its wait budget fails, with a terminal "connection busy" error.
+- A dead worker cannot hold slots forever: its leases run out.
+- Every query leaves a history row with the exact text sent and how it ended.
+- A manager can kill a running or a queued query; the source is asked to stop
+  the statement and the query fails with a terminal "cancelled by admin" error.
+- Paths without a connection (indexing, health checks) are neither limited nor
+  recorded.
 """
+from __future__ import annotations
 
+import multiprocessing
+import os
 import threading
 import time
+import uuid
+from datetime import datetime, timedelta
 
+import pandas as pd
 import pytest
+from sqlalchemy import insert, select, update
 
+from app.ai.code_execution.code_execution import QueryCapturingClientWrapper, QueryTimeoutError
 from app.data_sources import query_concurrency as qcc
+from app.data_sources import query_executions as qe
 from app.data_sources.query_concurrency import ConnectionBusyError
-
-
-@pytest.fixture(autouse=True)
-def _clean():
-    qcc.reset()
-    yield
-    qcc.reset()
+from app.data_sources.query_executions import QueryKilledError
 
 
 class FakeClient:
@@ -40,211 +49,448 @@ class FakeSettings:
 
 
 # --------------------------------------------------------------------------
-# Limit resolution
+# Limit resolution (no database)
 # --------------------------------------------------------------------------
+
 
 def test_connection_override_wins_over_the_org_default():
     client = FakeClient(_bow_connection_max_concurrent_queries=2)
-    assert qcc.effective_limit(client, FakeSettings(8)) == 2
+    assert qcc.effective_limit(client, FakeSettings(9)) == 2
 
 
 def test_org_default_applies_without_a_connection_override():
-    assert qcc.effective_limit(FakeClient(), FakeSettings(8)) == 8
+    assert qcc.effective_limit(FakeClient(), FakeSettings(6)) == 6
 
 
 def test_falls_back_to_the_builtin_without_any_setting():
     assert qcc.effective_limit(FakeClient(), None) == qcc.DEFAULT_MAX_CONCURRENT_QUERIES
 
 
-def test_a_zero_does_not_mean_unlimited():
-    """An accidental 0 must not silently remove the protection."""
-    client = FakeClient(_bow_connection_max_concurrent_queries=0)
-    assert qcc.effective_limit(client, FakeSettings(0)) == qcc.DEFAULT_MAX_CONCURRENT_QUERIES
+@pytest.mark.parametrize("bad", [0, -3, None, "4"])
+def test_a_zero_does_not_mean_unlimited(bad):
+    client = FakeClient(_bow_connection_max_concurrent_queries=bad)
+    assert qcc.effective_limit(client, None) == qcc.DEFAULT_MAX_CONCURRENT_QUERIES
 
 
 def test_broken_org_settings_do_not_break_queries():
-    class Exploding:
+    class Broken:
         def get_config(self, name):
             raise RuntimeError("settings unavailable")
 
-    assert qcc.effective_limit(FakeClient(), Exploding()) == qcc.DEFAULT_MAX_CONCURRENT_QUERIES
+    assert qcc.effective_limit(FakeClient(), Broken()) == qcc.DEFAULT_MAX_CONCURRENT_QUERIES
+
+
+def test_busy_and_killed_errors_end_the_attempt():
+    # Terminal: the code retry must not rewrite and resend the same query.
+    assert ConnectionBusyError("db", 2, 3.0).terminal_execution_error is True
+    assert QueryKilledError().terminal_execution_error is True
 
 
 # --------------------------------------------------------------------------
-# The cap itself
+# The database-backed limiter
 # --------------------------------------------------------------------------
 
-def test_slot_is_held_for_the_duration_and_then_released():
-    with qcc.slot("conn-1", 2, wait_seconds=5):
-        assert qcc.in_flight("conn-1") == 1
-    assert qcc.in_flight("conn-1") == 0
+
+@pytest.fixture
+def connection_id():
+    from app.models.connection import Connection
+    from app.models.organization import Organization
+
+    qe.reset_engine()
+    org_id, conn_id = str(uuid.uuid4()), str(uuid.uuid4())
+    now = datetime.utcnow()
+    with qe.get_engine().begin() as conn:
+        conn.execute(insert(Organization.__table__).values(id=org_id, name="Org", created_at=now, updated_at=now))
+        conn.execute(insert(Connection.__table__).values(
+            id=conn_id, name="warehouse", type="postgresql", config={}, organization_id=org_id,
+            created_at=now, updated_at=now,
+        ))
+    yield conn_id
+    qe.reset_engine()
 
 
-def test_slot_is_released_even_when_the_query_raises():
-    with pytest.raises(ValueError):
-        with qcc.slot("conn-1", 1, wait_seconds=5):
-            raise ValueError("query failed")
-    assert qcc.in_flight("conn-1") == 0
-    # And the freed slot is immediately reusable.
-    with qcc.slot("conn-1", 1, wait_seconds=1):
-        pass
+def _rows(connection_id):
+    table = qe._table()
+    with qe.get_engine().connect() as conn:
+        return conn.execute(
+            select(table).where(table.c.connection_id == connection_id).order_by(table.c.queued_at)
+        ).mappings().all()
 
 
-def test_a_burst_queues_instead_of_failing():
-    """Serialising a burst is the point; failing would just make the agent
-    retry and add more load."""
-    limit = 2
-    peak = {"value": 0}
-    peak_lock = threading.Lock()
-    start = threading.Barrier(6)
-    errors = []
+def _row(row_id):
+    table = qe._table()
+    with qe.get_engine().connect() as conn:
+        return conn.execute(select(table).where(table.c.id == row_id)).mappings().one()
 
-    def worker():
-        try:
-            start.wait(10)
-            with qcc.slot("conn-burst", limit, wait_seconds=20):
-                with peak_lock:
-                    now = qcc.in_flight("conn-burst")
-                    peak["value"] = max(peak["value"], now)
-                time.sleep(0.3)
-        except Exception as e:
-            errors.append(e)
 
-    threads = [threading.Thread(target=worker, daemon=True) for _ in range(6)]
+def _foreign_running(connection_id, *, lease_seconds=30, worker="other-host:1:x"):
+    """A query held by another worker (or a dead one, with a lapsed lease)."""
+    table = qe._table()
+    row_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+    with qe.get_engine().begin() as conn:
+        conn.execute(insert(table).values(
+            id=row_id, connection_id=connection_id, status="running", queued_at=now - timedelta(seconds=5),
+            started_at=now, worker_id=worker, lease_expires_at=now + timedelta(seconds=lease_seconds),
+            query_text="SELECT 1", query_truncated=0, created_at=now, updated_at=now,
+        ))
+    return row_id
+
+
+def _request_kill(row_id):
+    """What the API does: stamp the row; the owning worker's supervisor acts."""
+    table = qe._table()
+    with qe.get_engine().begin() as conn:
+        conn.execute(update(table).where(table.c.id == row_id).values(kill_requested_at=datetime.utcnow()))
+
+
+def _wait_for(predicate, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.05)
+    raise AssertionError("condition not met in time")
+
+
+def _begin(connection_id, *, limit, wait=5.0, text="SELECT 1"):
+    return qe.begin(connection_id=connection_id, limit=limit, wait_seconds=wait, query_text=text, meta={})
+
+
+@pytest.mark.db
+def test_queries_held_by_other_workers_count_against_the_limit(connection_id):
+    _foreign_running(connection_id)
+    _foreign_running(connection_id)
+
+    t0 = time.monotonic()
+    with pytest.raises(ConnectionBusyError) as err:
+        _begin(connection_id, limit=2, wait=1.0)
+    assert time.monotonic() - t0 >= 1.0
+    assert "limit 2" in str(err.value)
+
+    busy = [r for r in _rows(connection_id) if r["worker_id"] == qe.worker_id()]
+    assert [r["status"] for r in busy] == ["busy"]
+    assert busy[0]["started_at"] is None
+
+
+@pytest.mark.db
+def test_a_dead_workers_queries_stop_holding_slots(connection_id):
+    _foreign_running(connection_id, lease_seconds=-1)  # its worker stopped renewing
+    _foreign_running(connection_id, lease_seconds=-1)
+
+    handle = _begin(connection_id, limit=2, wait=1.0)
+    assert _row(handle.id)["status"] == "running"
+    qe.finish(handle, "success", rows=1)
+
+
+@pytest.mark.db
+def test_a_burst_waits_its_turn_first_come_first_served(connection_id):
+    limit, n = 2, 6
+    order, peak, lock = [], [0], threading.Lock()
+    running = [0]
+
+    def one(i):
+        time.sleep(i * 0.05)  # arrive in a known order
+        handle = _begin(connection_id, limit=limit, wait=20.0, text=f"SELECT {i}")
+        with lock:
+            order.append(i)
+            running[0] += 1
+            peak[0] = max(peak[0], running[0])
+        time.sleep(0.3)
+        with lock:
+            running[0] -= 1
+        qe.finish(handle, "success", rows=1)
+
+    threads = [threading.Thread(target=one, args=(i,)) for i in range(n)]
     for t in threads:
         t.start()
     for t in threads:
         t.join(30)
 
-    assert errors == []
-    assert peak["value"] <= limit, f"observed {peak['value']} concurrent, cap {limit}"
-    assert qcc.in_flight("conn-burst") == 0
+    assert peak[0] <= limit
+    assert order == sorted(order)  # first come, first served
+    rows = _rows(connection_id)
+    assert [r["status"] for r in rows] == ["success"] * n
+    assert sum(1 for r in rows if (r["queued_ms"] or 0) > 100) >= n - limit  # the rest really queued
 
 
-def test_waiting_past_the_budget_raises_a_legible_error():
-    held = threading.Event()
-    release = threading.Event()
+def _child_burst(test_db_url, connection_id, limit, n, hold):
+    os.environ["TEST_DATABASE_URL"] = test_db_url
+    os.environ["TESTING"] = "true"
+    from app.data_sources import query_executions as child_qe
 
-    def hog():
-        with qcc.slot("conn-busy", 1, wait_seconds=5):
-            held.set()
-            release.wait(10)
+    child_qe.reset_engine()
 
-    t = threading.Thread(target=hog, daemon=True)
-    t.start()
-    held.wait(5)
-    try:
-        with pytest.raises(ConnectionBusyError) as exc:
-            with qcc.slot("conn-busy", 1, wait_seconds=1, connection_name="Oracle Prod"):
-                pass
-        message = str(exc.value)
-        # The agent has to be able to act on this: name the source, the cap,
-        # and what to do differently.
-        assert "Oracle Prod" in message
-        assert "limit 1 concurrent" in message
-        assert "fewer queries at once" in message
-    finally:
-        release.set()
-        t.join(10)
+    def one(i):
+        handle = child_qe.begin(connection_id=connection_id, limit=limit, wait_seconds=60,
+                                query_text=f"SELECT {i}", meta={})
+        time.sleep(hold)
+        child_qe.finish(handle, "success", rows=1)
+
+    threads = [threading.Thread(target=one, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(120)
 
 
-def test_connections_do_not_share_a_budget():
-    with qcc.slot("conn-a", 1, wait_seconds=5):
-        # conn-b is a different source; saturating conn-a must not block it.
-        with qcc.slot("conn-b", 1, wait_seconds=1):
-            assert qcc.in_flight("conn-a") == 1
-            assert qcc.in_flight("conn-b") == 1
+@pytest.mark.db
+def test_the_limit_holds_across_separate_processes(connection_id):
+    limit = 2
+    ctx = multiprocessing.get_context("spawn")
+    url = os.environ["TEST_DATABASE_URL"]
+    procs = [ctx.Process(target=_child_burst, args=(url, connection_id, limit, 4, 0.4)) for _ in range(2)]
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join(180)
+        assert p.exitcode == 0
 
-
-def test_paths_without_a_connection_id_are_not_gated():
-    """Indexing and connection tests are not the burst source, and gating them
-    would let a slow agent query block a health check."""
-    with qcc.slot(None, 1, wait_seconds=1) as acquired:
-        assert acquired is False
-    with qcc.slot(None, 1, wait_seconds=1) as acquired:
-        assert acquired is False
-
-
-def test_changing_the_cap_rebuilds_the_semaphore():
-    with qcc.slot("conn-c", 1, wait_seconds=5):
-        pass
-    # Admin raises the cap; the new value must take effect.
-    a = threading.Event()
-    done = threading.Event()
-
-    def hold():
-        with qcc.slot("conn-c", 3, wait_seconds=5):
-            a.set()
-            done.wait(10)
-
-    t = threading.Thread(target=hold, daemon=True)
-    t.start()
-    a.wait(5)
-    try:
-        with qcc.slot("conn-c", 3, wait_seconds=2):
-            assert qcc.in_flight("conn-c") == 2
-    finally:
-        done.set()
-        t.join(10)
-
-
-# --------------------------------------------------------------------------
-# Wired into the query wrapper
-# --------------------------------------------------------------------------
-
-def test_the_wrapper_holds_a_slot_while_a_query_runs():
-    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
-
-    observed = []
-
-    class Client:
-        _bow_connection_id = "conn-wrapped"
-        _bow_connection_name = "Shop"
-
-        def execute_query(self, sql):
-            observed.append(qcc.in_flight("conn-wrapped"))
-            return [1]
-
-    w = QueryCapturingClientWrapper(Client(), [], [], max_concurrent_queries=3)
-    w.execute_query("SELECT 1")
-    assert observed == [1]
-    assert qcc.in_flight("conn-wrapped") == 0
-
-
-def test_the_wrapper_releases_the_slot_when_a_query_fails():
-    from app.ai.code_execution.code_execution import QueryCapturingClientWrapper
-
-    class Client:
-        _bow_connection_id = "conn-fail"
-
-        def execute_query(self, sql):
-            raise RuntimeError("syntax error")
-
-    w = QueryCapturingClientWrapper(Client(), [], [], max_concurrent_queries=2)
-    with pytest.raises(RuntimeError):
-        w.execute_query("SELCT 1")
-    assert qcc.in_flight("conn-fail") == 0
-
-
-def test_a_timed_out_query_releases_its_slot():
-    """The timeout abandons a thread; the slot must not be abandoned with it,
-    or a connection silently loses capacity for the process lifetime."""
-    from app.ai.code_execution.code_execution import (
-        QueryCapturingClientWrapper, QueryTimeoutError,
+    rows = _rows(connection_id)
+    assert len(rows) == 8 and all(r["status"] == "success" for r in rows)
+    assert len({r["worker_id"] for r in rows}) == 2
+    # Peak overlap of the recorded run intervals never exceeds the limit.
+    events = sorted(
+        [(r["started_at"], 1) for r in rows] + [(r["ended_at"], -1) for r in rows],
+        key=lambda e: (e[0], e[1]),
     )
+    level = peak = 0
+    for _, delta in events:
+        level += delta
+        peak = max(peak, level)
+    assert peak <= limit
 
-    class Slow:
-        _bow_connection_id = "conn-timeout"
 
-        def execute_query(self, sql):
-            threading.Event().wait(30)
+@pytest.mark.db
+def test_killing_a_queued_query_stops_its_wait(connection_id):
+    _foreign_running(connection_id)
+    result = {}
 
-    w = QueryCapturingClientWrapper(
-        Slow(), [], [], query_timeout_seconds=1, max_concurrent_queries=1,
-    )
+    def waiter():
+        try:
+            _begin(connection_id, limit=1, wait=30.0)
+        except BaseException as e:  # noqa: BLE001 - recorded for the assertion
+            result["error"] = e
+
+    t = threading.Thread(target=waiter)
+    t.start()
+    queued = _wait_for(lambda: [r for r in _rows(connection_id) if r["status"] == "queued"])
+    t0 = time.monotonic()
+    _request_kill(queued[0]["id"])
+    t.join(10)
+
+    assert isinstance(result.get("error"), QueryKilledError)
+    assert time.monotonic() - t0 < 5
+    row = _row(queued[0]["id"])
+    assert row["status"] == "cancelled" and row["started_at"] is None
+
+
+class _BlockingSource:
+    """A source whose query runs until the database is told to cancel it."""
+
+    def __init__(self, connection_id, **attrs):
+        self._bow_connection_id = connection_id
+        self.started = threading.Event()
+        self.cancelled = threading.Event()
+        for k, v in attrs.items():
+            setattr(self, k, v)
+
+    def execute_query(self, query):
+        self.started.set()
+        if self.cancelled.wait(timeout=30):
+            raise RuntimeError("canceling statement due to user request")
+        return pd.DataFrame({"x": [1]})
+
+
+@pytest.mark.db
+def test_killing_a_running_query_cancels_it_at_the_source(connection_id, monkeypatch):
+    from app.data_sources import query_cancellation
+
+    source = _BlockingSource(connection_id)
+
+    def cancel_thread(client, ident):
+        assert client is source and ident
+        source.cancelled.set()
+        return "cancelled"
+
+    monkeypatch.setattr(query_cancellation, "cancel_thread", cancel_thread)
+    wrapper = QueryCapturingClientWrapper(source, [], [], query_timeout_seconds=60, max_concurrent_queries=4)
+    result = {}
+
+    def run():
+        try:
+            wrapper.execute_query("SELECT pg_sleep(30)")
+        except BaseException as e:  # noqa: BLE001
+            result["error"] = e
+
+    t = threading.Thread(target=run)
+    t.start()
+    assert source.started.wait(10)
+    running = _wait_for(lambda: [r for r in _rows(connection_id) if r["status"] == "running"])
+    t0 = time.monotonic()
+    _request_kill(running[0]["id"])  # picked up by this process's supervisor
+    t.join(15)
+
+    assert isinstance(result.get("error"), QueryKilledError)
+    assert time.monotonic() - t0 < 5
+    assert source.cancelled.is_set(), "the source was not asked to cancel the statement"
+    row = _row(running[0]["id"])
+    assert row["status"] == "cancelled"
+    assert row["cancel_outcome"] == "cancelled"
+    assert row["query_text"] == "SELECT pg_sleep(30)"
+
+
+@pytest.mark.db
+def test_each_query_leaves_a_history_row_with_the_text_sent(connection_id):
+    class Source:
+        _bow_connection_id = connection_id
+
+        def __init__(self):
+            self.calls = 0
+
+        def execute_query(self, query):
+            self.calls += 1
+            if "boom" in query:
+                raise ValueError("relation does not exist")
+            return pd.DataFrame({"n": [1, 2, 3]})
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=30, max_concurrent_queries=4)
+    wrapper.execute_query("SELECT n FROM t WHERE region = :region", params={"region": "EU"})
+    with pytest.raises(ValueError):
+        wrapper.execute_query("SELECT boom")
+
+    rows = _rows(connection_id)
+    assert [r["status"] for r in rows] == ["success", "error"]
+    # The rendered query that reached the source — values bound, no Python.
+    assert "'EU'" in rows[0]["query_text"] and ":region" not in rows[0]["query_text"]
+    assert rows[0]["rows"] == 3 and rows[0]["duration_ms"] is not None
+    assert "relation does not exist" in rows[1]["error"]
+    assert all(r["lease_expires_at"] is None for r in rows)  # no slot left held
+
+
+@pytest.mark.db
+def test_a_timed_out_query_is_recorded_and_frees_its_slot(connection_id, monkeypatch):
+    from app.data_sources import query_cancellation
+
+    source = _BlockingSource(connection_id)
+    monkeypatch.setattr(query_cancellation, "cancel_thread", lambda c, i: (source.cancelled.set(), "cancelled")[1])
+    wrapper = QueryCapturingClientWrapper(source, [], [], query_timeout_seconds=1, max_concurrent_queries=1)
     with pytest.raises(QueryTimeoutError):
-        w.execute_query("SELECT pg_sleep(30)")
-    assert qcc.in_flight("conn-timeout") == 0
-    # Capacity is back: the next query is admitted immediately.
-    with qcc.slot("conn-timeout", 1, wait_seconds=1):
-        pass
+        wrapper.execute_query("SELECT slow")
+    row = _rows(connection_id)[0]
+    assert row["status"] == "timeout" and row["lease_expires_at"] is None
+    handle = _begin(connection_id, limit=1, wait=1.0)  # the slot is free again
+    qe.finish(handle, "success")
+
+
+@pytest.mark.db
+def test_a_stopped_run_records_its_query_as_cancelled(connection_id, monkeypatch):
+    from app.data_sources import query_cancellation
+
+    source = _BlockingSource(connection_id)
+    monkeypatch.setattr(query_cancellation, "cancel_thread", lambda c, i: (source.cancelled.set(), "cancelled")[1])
+    wrapper = QueryCapturingClientWrapper(source, [], [], query_timeout_seconds=60, max_concurrent_queries=4)
+    t = threading.Thread(target=lambda: pytest.raises(RuntimeError, wrapper.execute_query, "SELECT slow"))
+    t.start()
+    assert source.started.wait(10)
+    wrapper.cancel_active_query()  # what the sandbox runner does on Stop
+    t.join(10)
+    row = _rows(connection_id)[0]
+    assert row["status"] == "cancelled" and row["error"] == "The run was stopped"
+
+
+@pytest.mark.db
+def test_the_owning_worker_keeps_its_leases_alive(connection_id):
+    handle = _begin(connection_id, limit=1)
+    table = qe._table()
+    soon = datetime.utcnow() + timedelta(seconds=1)
+    with qe.get_engine().begin() as conn:
+        conn.execute(update(table).where(table.c.id == handle.id).values(lease_expires_at=soon))
+    qe.supervisor_tick(last_heartbeat=0.0)
+    assert _row(handle.id)["lease_expires_at"] > soon + timedelta(seconds=10)
+    qe.finish(handle, "success")
+
+
+@pytest.mark.db
+def test_sweeps_close_dead_rows_and_purge_only_old_history(connection_id):
+    dead = _foreign_running(connection_id, lease_seconds=-(qe.STALE_GRACE_SECONDS + 5))
+    alive = _foreign_running(connection_id)
+    assert qe.sweep_stale() == 1
+    assert _row(dead)["status"] == "stale"
+    assert _row(alive)["status"] == "running"
+
+    table = qe._table()
+    old = datetime.utcnow() - timedelta(days=qe.HISTORY_RETENTION_DAYS + 1)
+    with qe.get_engine().begin() as conn:
+        conn.execute(update(table).where(table.c.id.in_([dead, alive])).values(created_at=old))
+    assert qe.purge_history() == 1  # the live row is never purged
+    assert {r["id"] for r in _rows(connection_id)} == {alive}
+
+
+def test_paths_without_a_connection_id_are_neither_limited_nor_recorded(monkeypatch):
+    def fail(**kwargs):
+        raise AssertionError("must not touch query_executions")
+
+    monkeypatch.setattr(qe, "begin", fail)
+
+    class Source:
+        def execute_query(self, query):
+            return pd.DataFrame({"x": [1]})
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=5, max_concurrent_queries=1)
+    assert len(wrapper.execute_query("SELECT 1")) == 1
+
+
+@pytest.mark.db
+def test_a_locked_sqlite_database_never_stalls_the_query(connection_id):
+    """SQLite has one writer, and the flow running a query may hold it.
+
+    The query path must not wait the app's 30 s busy_timeout for it (the
+    usage-metering stall rule). While the lock is held the limit is kept per
+    process, and the history rows are written as soon as the lock frees.
+    """
+    import sqlite3
+
+    engine = qe.get_engine()
+    if engine.dialect.name != "sqlite":
+        pytest.skip("SQLite's single writer lock")
+    raw = sqlite3.connect(engine.url.database)
+    try:
+        raw.execute("PRAGMA busy_timeout = 100")
+        raw.execute("BEGIN IMMEDIATE")  # another writer holds the database
+
+        start = time.monotonic()
+        first = _begin(connection_id, limit=1, text="SELECT 'first'")
+        assert first is not None and first.deferred
+        assert time.monotonic() - start < 3.0
+
+        # The limit still holds within this process: the second query waits
+        # behind the first and gives up when its wait budget runs out.
+        with pytest.raises(ConnectionBusyError):
+            _begin(connection_id, limit=1, wait=0.5, text="SELECT 'second'")
+        qe.finish(first, "success", rows=1)
+        third = _begin(connection_id, limit=1, wait=2.0, text="SELECT 'third'")
+        qe.finish(third, "success", rows=3)
+        assert time.monotonic() - start < 6.0
+        assert _rows(connection_id) == []  # readers still work; nothing written yet
+        assert qe.flush_pending_writes() == 0  # still locked: kept, not dropped
+    finally:
+        raw.rollback()
+        raw.close()
+
+    assert qe.flush_pending_writes() == 5  # 3 inserts + 2 closing updates
+    rows = {r["query_text"]: r for r in _rows(connection_id)}
+    assert rows["SELECT 'first'"]["status"] == "success"
+    assert rows["SELECT 'first'"]["rows"] == 1
+    assert rows["SELECT 'second'"]["status"] == "busy"
+    assert rows["SELECT 'second'"]["started_at"] is None
+    assert rows["SELECT 'third'"]["status"] == "success"
+    assert all(r["lease_expires_at"] is None for r in rows.values())
+
+
+@pytest.mark.db
+def test_a_deleted_connection_runs_its_query_untracked(connection_id):
+    # A client built before its connection was deleted: nothing to record the
+    # row against (foreign key) and nothing left to protect.
+    assert _begin(str(uuid.uuid4()), limit=1) is None

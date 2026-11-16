@@ -130,6 +130,9 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_LOGIN_PAUSED = "connection.kms_login_paused"
     CONNECTION_KMS_SESSION_REFUSED = "connection.kms_session_refused"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
+    # Connection Queries view (query_executions)
+    CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"
+    CONNECTION_QUERY_FINISHED = "connection.query_finished"
     TABLE_PREVIEW_UNSUPPORTED = "connection.table_preview_unsupported"
     TABLE_PREVIEW_FAILED = "connection.table_preview_failed"
     USER_NOT_FOUND = "user.not_found"

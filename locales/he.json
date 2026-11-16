@@ -1417,7 +1417,10 @@
       "duration": "משך: {ms} מילישניות",
       "edit": "עריכה",
       "generationStopped": "היצירה נעצרה",
-      "code": "קוד"
+      "code": "קוד",
+      "waitingForSlot": "ממתינה לתור ב-{connection} · {running}/{limit} רצות",
+      "waitingForSlotShort": "ממתינה לתור ב-{connection}",
+      "theConnection": "החיבור"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3659,7 +3662,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "שאילתות מקבילות לכל חיבור",
-          "description": "כמה שאילתות של הסוכן יכולות לרוץ מול חיבור אחד בו-זמנית, לכל רפליקה. עומס מעבר לכך ממתין לתור במקום להיכשל. כדאי להנמיך עבור מקורות on-prem רגישים (Oracle, SQL Server) שאינם עומדים בסריקות מקביליות. הגדרות החיבור יכולות לדרוס זאת עם ערך 'max_concurrent_queries' משלהן."
+          "description": "כמה שאילתות של הסוכן יכולות לרוץ מול חיבור אחד בו-זמנית, בסך הכול בכל העובדים והרפליקות. עומס מעבר לכך ממתין לתור במקום להיכשל. כדאי להנמיך עבור מקורות on-prem רגישים (Oracle, SQL Server) שאינם עומדים בסריקות מקביליות. הגדרות החיבור יכולות לדרוס זאת עם ערך 'max_concurrent_queries' משלהן."
         },
         "top_k_schema": {
           "name": "Top K סכמות",
@@ -5145,7 +5148,9 @@
     "access_request.too_soon": "הבקשה הקודמת שלך נדחתה. אפשר לבקש שוב מאוחר יותר.",
     "access_request.no_approvers": "אין כרגע מי שיכול לאשר בקשות לגלריה הזו.",
     "access_request.not_found": "הבקשה הזו כבר לא קיימת.",
-    "access_request.already_decided": "הבקשה הזו כבר נענתה."
+    "access_request.already_decided": "הבקשה הזו כבר נענתה.",
+    "connection.query_not_found": "השאילתה לא נמצאה בחיבור הזה.",
+    "connection.query_finished": "השאילתה כבר הסתיימה ({status})."
   },
   "email": {
     "dashboardShare": {
@@ -8120,5 +8125,84 @@
     "settingsTitle": "עדכוני מוצר",
     "toggleLabel": "שלחו לי עדכוני מוצר באימייל",
     "sentTo": "נשלח אל {email}"
+  },
+  "connectionQueries": {
+    "tabSettings": "הגדרות",
+    "tabQueries": "שאילתות",
+    "runningNow": "רצות עכשיו",
+    "queuedCount": "{n} ממתינות לתור",
+    "limitFromConnection": "מגבלה שהוגדרה בחיבור הזה",
+    "limitFromOrg": "מגבלת ברירת המחדל של הארגון",
+    "limitDefault": "מגבלת ברירת המחדל של המערכת",
+    "live": "חי",
+    "liveHint": "מתעדכן כל 2 שניות",
+    "refresh": "רענון",
+    "loadFailed": "לא ניתן לטעון את השאילתות",
+    "runningTitle": "רצות עכשיו",
+    "noneRunning": "אין שאילתות שרצות בחיבור הזה.",
+    "waitingFor": "ממתינה {time}",
+    "runningFor": "רצה {time}",
+    "stopping": "עוצרת…",
+    "killConfirm": "לעצור את השאילתה?",
+    "kill": "עצירה",
+    "killFailed": "לא ניתן לעצור את השאילתה",
+    "historyTitle": "היסטוריה",
+    "filterAll": "כל הסטטוסים",
+    "searchPlaceholder": "חיפוש בטקסט השאילתה",
+    "noMatches": "אין שאילתות שתואמות לסינון.",
+    "noHistory": "עדיין לא רצו שאילתות בחיבור הזה.",
+    "colStatus": "סטטוס",
+    "colQuery": "שאילתה",
+    "colWho": "מי",
+    "colDuration": "משך",
+    "colWait": "המתנה",
+    "colRows": "שורות",
+    "colWhen": "מתי",
+    "loadMore": "טעינת עוד",
+    "retentionNote": "ההיסטוריה נשמרת 90 יום. רק מנהלי החיבור יכולים לראות ולעצור כאן שאילתות.",
+    "ms": "{n} מ״ש",
+    "seconds": "{n} ש׳",
+    "minutes": "{m} ד׳ {s} ש׳",
+    "system": "מערכת",
+    "agent": "סוכן",
+    "attempt": "ניסיון",
+    "attemptValue": "ניסיון קוד {code} · ניסיון כלי {tool} · שאילתה {seq}",
+    "started": "התחלה",
+    "ended": "סיום",
+    "killedBy": "נעצרה על ידי",
+    "sourceCancel": "ביטול במקור",
+    "copied": "הועתק",
+    "copy": "העתקה",
+    "truncated": "טקסט השאילתה קוצר לצורך השמירה.",
+    "openReport": "פתיחת הדוח",
+    "openReportNamed": "פתיחת הדוח: {title}",
+    "status": {
+      "queued": "ממתינה",
+      "running": "רצה",
+      "success": "הצליחה",
+      "error": "נכשלה",
+      "timeout": "חרגה מהזמן",
+      "busy": "עמוס",
+      "cancelled": "בוטלה",
+      "stale": "נזנחה"
+    },
+    "source": {
+      "label": "מקור",
+      "chat": "צ׳אט",
+      "eval": "בדיקת איכות",
+      "query": "שאילתה",
+      "entity": "ישות",
+      "dashboard": "גלריה",
+      "viewer": "רענון צופה",
+      "scheduled": "מתוזמנת",
+      "system": "מערכת"
+    },
+    "reason": {
+      "killed": "בוטלה על ידי מנהל החיבור.",
+      "killed_waiting": "בוטלה על ידי מנהל החיבור בזמן ההמתנה לתור.",
+      "run_stopped": "נעצרה כי ההרצה ששלחה אותה נעצרה.",
+      "stale": "התהליך שהריץ את השאילתה הפסיק להגיב; התור שלה שוחרר.",
+      "busy": "לא התפנה תור בזמן: החיבור היה במגבלת השאילתות המקבילות שלו."
+    }
   }
 }
