@@ -376,8 +376,26 @@ class QueryTimeoutError(AppError):
     is closed; we just stop waiting for it.
     """
 
-    def __init__(self, timeout_seconds: int, sql: Optional[str] = None) -> None:
-        message = (
+    def __init__(
+        self,
+        timeout_seconds: int,
+        sql: Optional[str] = None,
+        cancellation: Optional[str] = None,
+    ) -> None:
+        from app.data_sources.query_cancellation import cancellation_failed
+
+        # A failed stop goes first: it is the fact that changes what to do
+        # next, and recorded errors are truncated from the end.
+        still_running = cancellation_failed(cancellation)
+        message = ""
+        if still_running:
+            detail = cancellation.split(":", 1)[-1].strip() if cancellation else ""
+            message = (
+                f"BOW could not stop this query on the database ({detail}), so it "
+                "may still be running there and holding locks. Do not rerun the "
+                "same query: each retry adds another copy on the source. "
+            )
+        message += (
             f"Query exceeded {timeout_seconds}s timeout. "
             f"Run multiple smaller queries instead of one large scan — "
             f"each execute_query call gets its own {timeout_seconds}s budget. "
@@ -392,6 +410,8 @@ class QueryTimeoutError(AppError):
         )
         self.timeout_seconds = int(timeout_seconds)
         self.sql = sql
+        self.cancellation = cancellation
+        self.source_still_running = still_running
 
 
 class SwallowedQueryError(AppError):
@@ -1097,6 +1117,11 @@ class QueryCapturingClientWrapper:
                     "error_type": "timeout",
                     "timeout_seconds": self._query_timeout_seconds,
                     "cancellation": self._last_cancel_outcome,
+                    # Untruncated, so a failed stop on the source reaches the
+                    # planner and the user whole (create_data/inspect_data
+                    # prefer error_message over the clipped error).
+                    "error_message": str(e),
+                    "source_still_running": bool(getattr(e, "source_still_running", False)),
                 })
                 if self._last_cancel_outcome:
                     span.set_attribute("datasource.cancellation", self._last_cancel_outcome)
@@ -1185,6 +1210,7 @@ class QueryCapturingClientWrapper:
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,
+                cancellation=self._last_cancel_outcome,
             )
         if "exc" in holder:
             raise holder["exc"]
