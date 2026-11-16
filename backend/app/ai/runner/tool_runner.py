@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import random
 import time
 from collections.abc import AsyncIterator
@@ -9,6 +10,8 @@ from typing import Any
 from pydantic import ValidationError as PydValidationError
 
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
+
+logger = logging.getLogger(__name__)
 
 # Error-message fragments that mark a failure as non-recoverable: replaying the
 # identical call cannot succeed (the prompt is still too big, the account is
@@ -217,6 +220,26 @@ class ToolRunner:
                 "observation": observation,
                 "output": {"success": False, "error_message": error_message},
             }
+
+        # Gemma 4 via vLLM can quote a string with a backtick or plain quotes
+        # instead of its <|"|> delimiter. A backtick shifts the following
+        # arguments into a garbage key ("page<|\"|>,prompt") and fails
+        # validation with a misleading "prompt: Field required"; plain quotes
+        # survive into the value ("'page'") and fail a Literal field. Both are
+        # repaired against this tool's own schema before validating.
+        input_model = getattr(tool, "input_model", None)
+        if isinstance(arguments, dict) and input_model is not None:
+            from app.ai.llm.toolcall_args import repair_delimiter_leaks, unquote_choice_values
+            arguments, restored = repair_delimiter_leaks(
+                arguments, getattr(input_model, "model_fields", {}).keys()
+            )
+            arguments, unquoted = unquote_choice_values(arguments, input_model)
+            if restored or unquoted:
+                logger.warning(
+                    "tool-call arguments for %r repaired (Gemma <|\"|> delimiter skipped): "
+                    "restored=%s unquoted=%s",
+                    tool.name, restored, unquoted,
+                )
 
         # Validate input if tool declares schema
         try:

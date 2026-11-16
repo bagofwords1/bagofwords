@@ -240,3 +240,125 @@ def _salvage(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
                 return parsed, rung
 
     return None, ""
+
+
+# ---------------------------------------------------------------------------
+# Gemma 4 string-delimiter leaks
+# ---------------------------------------------------------------------------
+# Gemma 4 writes tool-call strings between its own <|"|> delimiter tokens
+# (``title:<|"|>Sales<|"|>``), which vLLM's ``gemma4`` tool parser turns into
+# JSON. The model sometimes closes a string with a backtick instead — a
+# JavaScript habit, most often after a long code value — and the parser then
+# reads past the end of that string. The result is VALID JSON with the wrong
+# shape, so the salvage ladder above never sees it:
+#
+#   model wrote:  code:<|"|>...</script>`,mode:<|"|>page<|"|>,prompt:<|"|>...
+#   parsed as:    {"code": "...</script>`,mode:", "page<|\"|>,prompt": "..."}
+#
+# The string that was closed wrongly ends with the swallowed ``,<key>:``, and
+# the following member's key is ``<that key's value><|"|>,<real next key>``.
+# Both halves name exactly what was lost, so the split is undone without
+# guessing. Only fields of the tool's own schema are restored, and a leak this
+# cannot fully resolve is left untouched for validation to report as before.
+# Upstream: https://github.com/vllm-project/vllm/issues/51284 (same parser,
+# same root cause: the model skipping the <|"|> delimiter).
+GEMMA_STRING_DELIMITER = '<|"|>'
+_LEAK_SPLIT = GEMMA_STRING_DELIMITER + ","
+_LEAK_TAIL_RE = re.compile(r"(?:`|</code>)?\s*,+\s*([A-Za-z_]\w*)\s*:\s*$")
+
+
+def repair_delimiter_leaks(
+    arguments: Dict[str, Any], field_names: Any
+) -> Tuple[Dict[str, Any], list[str]]:
+    """Undo argument splits caused by a string closed without ``<|"|>``.
+
+    Returns ``(arguments, restored_fields)``. ``restored_fields`` is empty —
+    and ``arguments`` is returned unchanged — when there is nothing to repair
+    or the damage does not match the leak shape exactly.
+    """
+    if not isinstance(arguments, dict) or not any(
+        isinstance(k, str) and GEMMA_STRING_DELIMITER in k for k in arguments
+    ):
+        return arguments, []
+
+    fields = set(field_names)
+    out: Dict[str, Any] = {}
+    restored: list[str] = []
+    # (key whose value swallowed the next member, the swallowed key, the value trimmed)
+    pending: Optional[Tuple[str, str, str]] = None
+
+    for key, value in arguments.items():
+        if pending is not None and isinstance(key, str) and _LEAK_SPLIT in key:
+            owner, lost_key, trimmed = pending
+            lost_value, real_key = key.rsplit(_LEAK_SPLIT, 1)
+            real_key = real_key.strip()
+            if lost_key in out or not real_key:
+                return arguments, []
+            out[owner] = trimmed
+            out[lost_key] = lost_value.strip()
+            restored.append(lost_key)
+            key = real_key
+        pending = None
+        if key in out:
+            return arguments, []
+        out[key] = value
+        if isinstance(value, str):
+            match = _LEAK_TAIL_RE.search(value)
+            if match and match.group(1) in fields:
+                pending = (key, match.group(1), value[: match.start()].rstrip())
+
+    if not restored or any(GEMMA_STRING_DELIMITER in k for k in out):
+        return arguments, []
+    return out, restored
+
+
+_QUOTE_CHARS = ("'", '"', "`")
+
+
+def _choices(annotation: Any) -> Optional[set]:
+    """The allowed values of a Literal/Enum field (through Optional), else None."""
+    import enum
+    from typing import Literal, Union, get_args, get_origin
+
+    origin = get_origin(annotation)
+    if origin is Literal:
+        return {v for v in get_args(annotation) if isinstance(v, str)}
+    if origin is Union:
+        found: set = set()
+        for arg in get_args(annotation):
+            sub = _choices(arg)
+            if sub:
+                found |= sub
+        return found or None
+    if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+        return {m.value for m in annotation if isinstance(m.value, str)}
+    return None
+
+
+def unquote_choice_values(
+    arguments: Dict[str, Any], input_model: Any
+) -> Tuple[Dict[str, Any], list[str]]:
+    """Strip literal quotes the Gemma 4 parser kept around a fixed-choice value.
+
+    When Gemma 4 writes a string with plain quotes instead of ``<|"|>``, vLLM's
+    ``gemma4`` parser keeps the quotes in the value (``mode: "'page'"``), and a
+    Literal/Enum field rejects it. Only a value wrapped in one pair of matching
+    quotes whose inside is one of the field's allowed values is unwrapped;
+    free-text fields are never touched.
+    """
+    fields = getattr(input_model, "model_fields", None)
+    if not isinstance(arguments, dict) or not fields:
+        return arguments, []
+    fixed: Dict[str, Any] = {}
+    for name, value in arguments.items():
+        if not (isinstance(value, str) and len(value) >= 2 and name in fields):
+            continue
+        if value[0] != value[-1] or value[0] not in _QUOTE_CHARS:
+            continue
+        choices = _choices(fields[name].annotation)
+        inner = value[1:-1].strip()
+        if choices and value not in choices and inner in choices:
+            fixed[name] = inner
+    if not fixed:
+        return arguments, []
+    return {**arguments, **fixed}, list(fixed)
