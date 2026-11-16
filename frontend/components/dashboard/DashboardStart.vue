@@ -57,7 +57,7 @@
                             <Icon v-else name="heroicons:squares-2x2" class="w-3.5 h-3.5 text-gray-400" />
                         </div>
                         <div class="min-w-0 flex-1">
-                            <div class="text-sm text-gray-900 dark:text-gray-100 truncate">{{ d.title || $t('dashboardStart.untitled') }}</div>
+                            <TruncatedLabel :text="d.title || $t('dashboardStart.untitled')" :description="d.description" class="text-sm text-gray-900 dark:text-gray-100" />
                             <div class="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                                 {{ roleOf(d) === 'owner' ? $t('dashboardStart.owner') : $t('dashboardCollab.list.canEdit') }}<template v-if="roleOf(d) !== 'owner' && d.owner?.name"> · {{ $t('dashboardStart.byOwner', { name: d.owner.name }) }}</template>
                             </div>
@@ -73,6 +73,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import TruncatedLabel from '~/components/TruncatedLabel.vue'
 import DashboardThumbnail from '~/components/dashboards/DashboardThumbnail.vue'
 
 const props = defineProps<{ chartCount: number; reportId: string }>()

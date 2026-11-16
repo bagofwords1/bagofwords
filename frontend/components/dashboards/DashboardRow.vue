@@ -34,12 +34,15 @@
 
         <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5 flex-wrap">
-                <NuxtLink
-                    v-text-dir
+                <TruncatedLabel
+                    :as="NuxtLink"
+                    :text="title"
+                    :description="dashboard.description"
                     :to="link"
-                    class="text-sm font-medium text-ink hover:text-blue-600 truncate"
+                    class="text-sm font-medium text-ink hover:text-blue-600"
+                    data-testid="dashboard-row-title"
                     @click.stop
-                >{{ title }}</NuxtLink>
+                />
                 <ReportStatusDot :report-id="dashboard.report_id || dashboard.id" />
                 <span
                     v-if="pill"
@@ -122,6 +125,8 @@
 import DashboardAccessLabel from '~/components/dashboards/DashboardAccessLabel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ReportStatusDot from '~/components/ReportStatusDot.vue'
+import TruncatedLabel from '~/components/TruncatedLabel.vue'
+import { NuxtLink } from '#components'
 import { isolate, refreshLine, statusPill, type DashboardCardData } from '~/utils/dashboardList'
 
 const props = defineProps<{

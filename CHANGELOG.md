@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.624 (November 16, 2026)
+- Added the full dashboard name on hover when it is cut off, in the dashboards grid and list, the dashboard header and the "open a dashboard" list (#1730)
+- Fixed dashboards rendering blank or failing to save when the model names its root component something other than `App`, wraps its export, or imports `createRoot` (#1735)
+- Fixed tool calls from self-hosted Gemma 4 on vLLM failing or losing arguments when the model quotes a string without its delimiter (#1750)
+
 ## Version 0.0.623 (November 16, 2026)
 - Added a Queries tab in Manage connection: running and past queries with their SQL, who sent them, wait and run time, and a Kill button (#1753)
 - Added a "Waiting for a free slot" status on chats whose query is queued behind a connection's concurrency limit (#1753) — `BOW_QUERY_SLOT_WAIT_SECONDS` (default 60)
