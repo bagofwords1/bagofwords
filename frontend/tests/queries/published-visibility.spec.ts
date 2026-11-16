@@ -40,15 +40,19 @@ test('a published query is listed under its agent', async ({ page }) => {
       contentType: 'application/json',
       body: JSON.stringify([published]),
     }));
-  await page.route('**/api/data_sources/active**', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([{
-        id: AGENT_ID, name: 'Visible Agent', type: 'sqlite',
-        is_public: true, status: 'active', publish_status: 'published',
-      }]),
-    }));
+  // The agents tree lists from GET /api/data_sources?show_all=…; other
+  // pickers still read /data_sources/active.
+  for (const pattern of ['**/api/data_sources/active**', '**/api/data_sources?**']) {
+    await page.route(pattern, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{
+          id: AGENT_ID, name: 'Visible Agent', type: 'sqlite',
+          is_public: true, status: 'active', publish_status: 'published',
+        }]),
+      }));
+  }
 
   await page.goto('/agents', { waitUntil: 'commit' });
 

@@ -1895,7 +1895,25 @@ class ReportService:
         connection_errors: list = []
         # Auto (an unattached report) resolves like the interactive path — the
         # credential user's accessible agents — instead of to an empty set.
-        run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        # A pinned agent the credential user cannot reach is left out of the
+        # run (and when none is reachable the resolver refuses outright); the
+        # viewer still needs it named as no_access so the gate can offer
+        # "ask an admin" rather than a bare failure.
+        from app.services.access_errors import NO_ACCESS_CODE
+        try:
+            run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        except HTTPException as e:
+            if e.status_code != 409:
+                raise
+            run_agents = []
+        reachable_ids = {str(ds.id) for ds in run_agents}
+        if getattr(report, "report_type", None) != "artifact_chat" and not getattr(report, "agent_folder_id", None):
+            for pinned in list(getattr(report, "data_sources", None) or []):
+                if str(pinned.id) not in reachable_ids:
+                    data_source_errors.append({
+                        "data_source": pinned.name, "data_source_id": str(pinned.id),
+                        "code": NO_ACCESS_CODE, "error": "You do not have access to this data source",
+                    })
         for data_source in run_agents:
             try:
                 # Rows filter for the viewer whose result this is, also when

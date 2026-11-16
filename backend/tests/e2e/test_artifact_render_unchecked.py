@@ -124,6 +124,11 @@ def browser(request, monkeypatch):
     async def _validate(self, code, artifact_data, mode, runtime_ctx, **kwargs):
         yield {"code": code, "clean": True, "screenshot": shot, "errors": [], "repair_attempts": 0}
 
+    # The page the browser would load: assembling it inlines the vendored
+    # artifact libraries, which the e2e job does not download. What is under
+    # test is what the browser did with the page, not the bundle.
+    monkeypatch.setattr(CreateArtifactTool, "_build_thumbnail_html",
+                        lambda self, *_args, **_kwargs: "<html></html>")
     monkeypatch.setattr(CreateArtifactTool, "_take_preview_screenshot", _screenshot)
     monkeypatch.setattr(CreateArtifactTool, "_validate_and_repair_stream", _validate)
     return rendered

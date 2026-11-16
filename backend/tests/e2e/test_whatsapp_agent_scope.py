@@ -87,7 +87,7 @@ def test_agent_scope_roundtrip_and_clear(
 
 
 @pytest.mark.e2e
-def test_agent_scope_drops_unknown_ids(
+def test_agent_scope_rejects_unknown_ids(
     mock_whatsapp_probe, create_user, login_user, whoami,
     create_data_source, test_client, tmp_path
 ):
@@ -97,14 +97,21 @@ def test_agent_scope_drops_unknown_ids(
 
     platform_id = _connect_number(test_client, token, org_id)
     ds1 = _sqlite_agent(create_data_source, token, org_id, tmp_path, "sales")
+    r = test_client.put(f"/api/settings/integrations/{platform_id}/agents",
+                        json={"agent_ids": [ds1]}, headers=_headers(token, org_id))
+    assert r.status_code == 200, r.json()
 
-    # A non-existent / cross-org id is silently dropped; the real one stays.
+    # A non-existent / cross-org id fails the whole save instead of being
+    # silently dropped, and the stored scope is left as it was.
     r = test_client.put(
         f"/api/settings/integrations/{platform_id}/agents",
         json={"agent_ids": [ds1, "not-a-real-agent-" + uuid.uuid4().hex]},
         headers=_headers(token, org_id),
     )
-    assert r.status_code == 200, r.json()
+    assert r.status_code == 422, r.json()
+    assert r.json()["detail"] == "Agent unavailable"
+    r = test_client.get(f"/api/settings/integrations/{platform_id}/agents",
+                        headers=_headers(token, org_id))
     assert r.json()["agent_ids"] == [ds1]
 
 

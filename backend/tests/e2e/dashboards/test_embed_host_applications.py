@@ -313,9 +313,14 @@ def test_schema_upgrade_preserves_embed_sessions_keys_and_replay_protection(embe
     try:
         with engine.begin() as conn:
             migration = script_directory().get_revision("connapps01").module
+            # folder10 adds a column to connected_applications; replaying
+            # connapps01 alone recreates the table without it.
+            later = [script_directory().get_revision("folder10").module]
             with Operations.context(MigrationContext.configure(conn)):
                 migration.downgrade()
                 migration.upgrade()
+                for revision in later:
+                    revision.upgrade()
     finally:
         engine.dispose()
 

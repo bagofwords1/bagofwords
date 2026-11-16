@@ -33,6 +33,9 @@ def downgrade():
         if any(db.scalars(sa.select(table.c.agent_folder_ids))):
             raise RuntimeError("Clear folder selections before downgrading")
     op.drop_table("external_platform_folder_scopes")
+    # Native DROP COLUMN, not batch_alter_table (see shwinfo01): on SQLite a
+    # batch drop rebuilds the table, and with foreign keys on, dropping the old
+    # connected_applications cascades into application_oauth_config and
+    # application_embedding_config, losing every application's credentials.
     for table in tables:
-        with op.batch_alter_table(table) as batch:
-            batch.drop_column("agent_folder_ids")
+        op.drop_column(table, "agent_folder_ids")

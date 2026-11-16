@@ -46,16 +46,19 @@ def _agent(i):
 
 @pytest.mark.asyncio
 async def test_manual_scope_is_selection_only(monkeypatch):
+    # The selection bounds the pool: reachable agents outside it never join,
+    # and a pinned agent the user can no longer reach (deleted, disabled,
+    # access revoked) drops out instead of running.
     async def fake_accessible(db, org, user):
-        raise AssertionError("manual scope must not enumerate accessible agents")
+        return [_agent(1), _agent(2), _agent(3)]
     monkeypatch.setattr(afc, "accessible_agents", fake_accessible)
 
-    report = SimpleNamespace(data_sources=[_agent(1), _agent(2)])  # manual pick
+    report = SimpleNamespace(data_sources=[_agent(1), _agent(2), _agent(4)])  # manual pick
     agents, scope, attached_ids = await resolve_candidate_agents(
         _FakeDB([]), SimpleNamespace(id="org"), SimpleNamespace(id="u"), report, "chat"
     )
     assert scope == "attached"
-    assert [a.id for a in agents] == ["id1", "id2"]  # the selection, nothing else
+    assert [a.id for a in agents] == ["id1", "id2"]  # the reachable selection, nothing else
     assert attached_ids == {"id1", "id2"}
     assert not report_selection_is_auto(report)
 

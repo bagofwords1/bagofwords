@@ -116,11 +116,19 @@ def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, c
     assert pending.status_code == 200, pending.text
     code = parse_qs(urlparse(pending.json()['redirect_url']).query)['code'][0]
 
+    def load(name):
+        path = Path(__file__).parents[2] / f'alembic/versions/{name}.py'
+        spec = importlib.util.spec_from_file_location(f'{name}_preservation', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
     async def migrate():
-        path = Path(__file__).parents[2] / 'alembic/versions/connapps01_connected_applications.py'
-        spec = importlib.util.spec_from_file_location('connapps01_preservation', path)
-        migration = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(migration)
+        migration = load('connapps01_connected_applications')
+        # Later revisions that add columns to connected_applications: replaying
+        # connapps01 alone recreates the table without them, so re-apply their
+        # (idempotent) upgrades to bring the schema back to head.
+        later = [load('folder10_selector_scope')]
         async with async_session_maker() as db:
             def run(session):
                 conn = session.connection()
@@ -134,6 +142,8 @@ def test_migration_preserves_oauth_credentials_and_pending_grants(test_client, c
                     assert before == after
                     # Idempotence for the unstamped dashboard migration corpus.
                     migration.upgrade()
+                    for revision in later:
+                        revision.upgrade()
             await db.run_sync(run)
             await db.commit()
     asyncio.run(migrate())

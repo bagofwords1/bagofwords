@@ -329,7 +329,8 @@ async def test_a_text_edit_on_a_pending_create_keeps_it_going_live(
         _instruction(create_global_instruction, token, org_id, "active")
     created = await _edit(
         {"text": "Exclude internal test accounts from every customer metric.",
-         "category": "general", "confidence": 0.9, "evidence": "User confirmed."},
+         "category": "general", "confidence": 0.9, "evidence": "User confirmed.",
+         "destination": "global"},
         user_id=user_id, org_id=org_id,
         build_id=await _session_build(org_id, user_id), tool=CreateInstructionTool())
     iid = created["instruction_id"]

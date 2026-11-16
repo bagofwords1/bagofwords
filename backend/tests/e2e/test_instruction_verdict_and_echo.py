@@ -156,7 +156,7 @@ async def test_create_returns_the_stored_text(
     text = "Exclude internal test accounts from every customer metric."
     output, observation = await _run_tool(
         CreateInstructionTool(),
-        {"text": text, "category": "general", "confidence": 0.9,
+        {"destination": "global", "text": text, "category": "general", "confidence": 0.9,
          "evidence": "User confirmed."},
         user_id=user_id, org_id=org_id,
     )

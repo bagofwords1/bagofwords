@@ -17,6 +17,13 @@ harness uses in production, and the only one that yields a genuinely pending
 build. Writing through ``POST /instructions`` cannot: that route requires
 manage_instructions on the target agent, which is exactly the authority that
 publishes the resulting build.
+
+Capture by a member with no grants is closed today twice over: the planner
+hides the tool (AgentV2's catalog filter) and the tool itself checks scope
+authority before staging. These tests are about the publication side, which
+stays in place so capture can be re-opened later, so the ``reopened_capture``
+fixture lifts only that capture-time check. Everything downstream (staging,
+review, promotion, the pending signal) runs for real.
 """
 import asyncio
 import uuid
@@ -27,6 +34,13 @@ import pytest
 
 def _hdr(token, org_id):
     return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+
+@pytest.fixture(autouse=True)
+def reopened_capture(monkeypatch):
+    async def _open(*_args, **_kwargs):
+        return None
+    monkeypatch.setattr("app.services.instruction_authority.require_scope_authority", _open)
 
 
 @pytest.fixture

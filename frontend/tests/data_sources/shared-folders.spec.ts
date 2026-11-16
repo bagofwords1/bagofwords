@@ -1,21 +1,49 @@
+import type { Locator, Page } from '@playwright/test'
 import { expect, test } from '../fixtures/feature-test'
+
+// The agents tree on /agents: one "Agents" region holding folders and agents.
+// Each folder row carries an expand chevron (aria-expanded, named after the
+// folder) and an open button (titled with the folder name); its actions
+// (New subfolder, Folder settings, Share) appear on hover.
+const agentsTree = (page: Page) => page.getByRole('region', {name:'Agents'})
+const folderOpen = (tree: Locator, name: string) => tree.getByTitle(name, {exact:true})
+const expandFolder = (tree: Locator, name: string) =>
+  tree.getByRole('button', {name, exact:true, expanded:false}).first().click()
+// After a move or a drop the tree reveals the destination itself, so expand
+// a folder only if it is still collapsed.
+async function ensureExpanded(tree: Locator, name: string) {
+  const collapsed = tree.getByRole('button', {name, exact:true, expanded:false})
+  const open = tree.getByRole('button', {name, exact:true, expanded:true})
+  await expect(collapsed.or(open).first()).toBeVisible()
+  if (await open.count() === 0) await collapsed.first().click()
+}
+async function folderAction(tree: Locator, name: string, action: 'New subfolder' | 'Folder settings' | 'Share') {
+  const open = folderOpen(tree, name)
+  await open.hover()
+  await open.locator('..').getByRole('button', {name:action, exact:true}).click()
+}
+async function createFolder(page: Page, name: string) {
+  await agentsTree(page).getByRole('button', {name:'New folder', exact:true}).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByRole('textbox', {name:'Folder name'}).fill(name)
+  await dialog.getByRole('button', {name:'Create', exact:true}).click()
+  await expect(dialog).toBeHidden()
+  await expect(folderOpen(agentsTree(page), name)).toBeVisible()
+}
 
 test('create and rename an organization folder in Knowledge Explorer', async ({page}) => {
   const original = 'Marketing ' + Date.now()
   const renamed = original + ' campaigns'
   await page.goto('/agents')
-  const tree = page.getByRole('region', {name:'Folders'})
-  await tree.getByRole('button', {name:'New folder', exact:true}).click()
-  await page.getByPlaceholder('Folder name').fill(original)
-  await page.locator('form').getByRole('button', {name:'New folder', exact:true}).click()
-  await page.getByRole('button', {name:original, exact:true}).click()
-  await page.getByRole('button', {name:'Folder settings', exact:true}).click()
+  const tree = agentsTree(page)
+  await createFolder(page, original)
+  await folderAction(tree, original, 'Folder settings')
   const dialog = page.getByRole('dialog')
-  await dialog.locator('form input').fill(renamed)
+  await dialog.getByRole('textbox', {name:'Folder name'}).fill(renamed)
   await dialog.getByRole('button', {name:'Rename', exact:true}).click()
   await expect(dialog).toBeHidden()
-  await page.getByRole('button', {name:'Back', exact:true}).click()
-  await expect(page.getByRole('button', {name:renamed, exact:true})).toBeVisible()
+  await expect(folderOpen(tree, renamed)).toBeVisible()
+  await expect(folderOpen(tree, original)).toHaveCount(0)
 })
 
 test('browse a 64-level hierarchy and move a leaf between same-named subfolders', async ({page}, testInfo) => {
@@ -37,45 +65,49 @@ test('browse a 64-level hierarchy and move a leaf between same-named subfolders'
   const source = await seed(['East','Campaigns','Quarterly review'], parent)
   const destination = await seed(['West','Campaigns'], parent)
   await page.goto('/agents')
-  const tree = page.getByRole('region', {name:'Folders'})
-  for (const name of [...names,'East','Campaigns','Quarterly review']) {
-    await tree.getByRole('button', {name,exact:true}).click()
-  }
-  await tree.getByRole('button',{name:'Folder settings'}).click()
+  const tree = agentsTree(page)
+  // Browse all the way down; West stays collapsed, so one "Campaigns" shows.
+  for (const name of [...names,'East','Campaigns']) await expandFolder(tree, name)
+  await expect(folderOpen(tree, 'Quarterly review')).toBeVisible()
+
+  await folderAction(tree, 'Quarterly review', 'Folder settings')
   const dialog = page.getByRole('dialog')
-  for (let i=0;i<2;i++) await dialog.getByRole('button',{name:'Back',exact:true}).click()
-  await dialog.getByRole('button',{name:'West',exact:true}).click()
-  await dialog.getByRole('button',{name:'Campaigns',exact:true}).click()
-  const pathToggle = dialog.getByRole('button', {name:'… / West / Campaigns'})
-  await pathToggle.click()
-  await expect(dialog.getByRole('button', {expanded:true})).toHaveText([...names, 'West', 'Campaigns'].join(' / '))
-  await dialog.getByRole('button', {expanded:true}).click()
-  await dialog.getByRole('button',{name:'Preview move'}).click()
-  await expect(dialog.getByText('Access stays the same.')).toBeVisible()
+  await dialog.getByRole('button', {name:'Move folder', exact:true}).click()
+  await expect(dialog.getByRole('heading', {name:'Move Quarterly review?'})).toBeVisible()
+  await expect(dialog.getByRole('definition').first()).toHaveText([...names, 'East', 'Campaigns'].join(' / '))
+  // Destinations are full paths, so the two "Campaigns" folders stay distinct.
+  await dialog.getByRole('combobox', {name:'To'}).selectOption({label:[...names, 'West', 'Campaigns'].join(' / ')})
+  await expect(dialog.getByText('Inherited access stays the same.')).toBeVisible()
   await page.screenshot({path:testInfo.outputPath('move-preview.png')})
   const [moveResponse] = await Promise.all([
     page.waitForResponse(response => response.url().endsWith('/' + source + '/placement')
       && response.request().method() === 'PUT' && !response.request().postDataJSON().preview),
-    dialog.getByRole('button',{name:'Move',exact:true}).click(),
+    dialog.getByRole('button',{name:'Move folder',exact:true}).click(),
   ])
   expect(moveResponse.ok(), await moveResponse.text()).toBeTruthy()
   await expect(dialog).toBeHidden()
   const rows = await (await page.request.get('/api/folders',{headers:scopedHeaders})).json()
   expect(rows.folders.find((f:{id:string})=>f.id===source).parent_id).toBe(destination)
-  await tree.getByRole('button',{name:'Back',exact:true}).click()
-  await expect(tree.getByRole('button',{name:'Quarterly review'})).toBeVisible()
-  await tree.getByRole('button',{name:'Back',exact:true}).click()
-  await tree.getByRole('button',{name:'Back',exact:true}).click()
-  await tree.getByRole('button',{name:'Share',exact:true}).click()
+  // The leaf now lives under West / Campaigns (East's Campaigns is the one
+  // already open, so any collapsed "Campaigns" left is West's).
+  await ensureExpanded(tree, 'West')
+  const westCampaigns = tree.getByRole('button', {name:'Campaigns', exact:true, expanded:false})
+  if (await westCampaigns.count()) await westCampaigns.first().click()
+  await expect(folderOpen(tree, 'Quarterly review')).toHaveCount(1)
+
+  await folderAction(tree, names[1], 'Share')
   await expect(dialog.getByText('People with access')).toBeVisible()
   const inherited = dialog.getByText('Can manage · Via', {exact:false})
   await expect(inherited).toBeVisible()
-  await dialog.getByRole('combobox').selectOption('Manager')
+  // Each change saves, then reloads the audience; on a 64-level branch that
+  // reload is slow, so wait for it rather than for a fixed time.
+  const reloaded = () => page.waitForResponse(r => r.url().endsWith('/audience') && r.request().method() === 'GET')
+  await Promise.all([reloaded(), dialog.getByRole('combobox').selectOption('Manager')])
   await expect(dialog.getByRole('combobox')).toHaveValue('Manager')
   page.once('dialog', confirmation => confirmation.accept())
-  await dialog.getByRole('checkbox', {name:'Inherit access from parent'}).uncheck()
+  await Promise.all([reloaded(), dialog.getByRole('checkbox', {name:'Inherit access from parent'}).uncheck()])
   await expect(inherited).toHaveCount(0)
-  await dialog.getByRole('checkbox', {name:'Inherit access from parent'}).check()
+  await Promise.all([reloaded(), dialog.getByRole('checkbox', {name:'Inherit access from parent'}).check()])
   await expect(inherited).toBeVisible()
   for (const width of [1360,390]) {
     await page.setViewportSize({width,height:820})
@@ -124,59 +156,50 @@ test('manage folder access in Roles and drag an agent between a nested folder an
   await expect(level.locator('option:checked')).toHaveText('Can manage')
 
   await page.goto('/agents')
-  const tree = page.getByRole('region',{name:'Folders'})
-  const row = page.locator('[draggable=true]').filter({hasText:agent.name}).first()
+  const tree = agentsTree(page)
+  const row = tree.locator('[draggable=true]').filter({hasText:agent.name}).first()
   const dialog = page.getByRole('dialog')
-  const start = async () => {
+  // Native drag and drop onto a folder row, or onto the "Agents" header for
+  // the organization root; the drop opens the move confirmation.
+  const dragTo = async (target: Locator, label: string) => {
     await row.scrollIntoViewIfNeeded()
-    const box = (await row.boundingBox())!
-    await page.mouse.move(box.x + 15, box.y + box.height / 2)
-    await page.mouse.down()
-    await page.mouse.move(box.x + 40, box.y + box.height / 2, {steps:6})
-    await expect(tree.getByRole('button',{name:'Organization root'})).toBeVisible()
-  }
-  const drop = async (name:string) => {
-    const target = tree.getByRole('button',{name,exact:true})
-    await target.hover()
-    await target.hover()
-    await page.mouse.up()
-    await expect(dialog.getByRole('button',{name:'Move',exact:true})).toBeEnabled()
-    await page.screenshot({path:testInfo.outputPath(name === 'Organization root' ? 'drag-to-root.png' : 'drag-to-folder.png')})
+    await row.dragTo(target)
+    await expect(dialog.getByRole('combobox', {name:'To'}).locator('option:checked')).toHaveText(label)
+    await expect(dialog.getByRole('button',{name:'Move agent',exact:true})).toBeEnabled()
+    await page.screenshot({path:testInfo.outputPath(label === 'Organization root' ? 'drag-to-root.png' : 'drag-to-folder.png')})
     const [response] = await Promise.all([page.waitForResponse(r=>r.url().endsWith(agent.id+'/placement') &&
-      !r.request().postDataJSON().preview), dialog.getByRole('button',{name:'Move',exact:true}).click()])
+      !r.request().postDataJSON().preview), dialog.getByRole('button',{name:'Move agent',exact:true}).click()])
     expect(response.ok()).toBeTruthy()
     await expect(dialog).toBeHidden()
   }
-  await start()
-  const branch = tree.getByRole('button',{name:home,exact:true})
-  await branch.hover()
-  await branch.hover({position:{x:15,y:8}})
-  await expect(tree.getByRole('button',{name:'Acquisition',exact:true})).toBeVisible({timeout:4000})
-  await drop('Acquisition')
-  await tree.getByRole('button',{name:home,exact:true}).click()
-  await tree.getByRole('button',{name:'Acquisition',exact:true}).click()
-  await start()
-  await drop('Organization root')
+  await expandFolder(tree, home)
+  await dragTo(folderOpen(tree, 'Acquisition'), path)
+  const moved = await page.request.get('/api/data_sources/'+agent.id,{headers:scoped})
+  expect((await moved.json()).folder_id).not.toBeNull()
+  await ensureExpanded(tree, 'Acquisition')
+  await expect(row).toBeVisible()
+  await dragTo(tree.getByText('Agents', {exact:true}), 'Organization root')
   const persisted = await page.request.get('/api/data_sources/'+agent.id,{headers:scoped})
   expect((await persisted.json()).folder_id).toBeNull()
 })
 
 test('create and reopen a rule in the selected folder', async ({page}) => {
   await page.goto('/agents')
-  const tree = page.getByRole('region', {name:'Folders'})
+  const tree = agentsTree(page)
   const name = 'Routing ' + Date.now()
-  await tree.getByRole('button', {name:'New folder', exact:true}).click()
-  await tree.getByPlaceholder('Folder name').fill(name)
-  await tree.locator('form').getByRole('button', {name:'New folder', exact:true}).click()
-  await tree.getByRole('button', {name, exact:true}).click()
+  await createFolder(page, name)
+  await folderOpen(tree, name).click()
   const panel = page.getByTestId('folder-knowledge')
-  const rules = panel.locator('section').filter({has:page.getByRole('heading', {name:'Instructions', exact:true})})
-  await rules.getByRole('button', {name:'Create', exact:true}).click()
-  const dialog = page.getByRole('dialog')
-  await dialog.getByPlaceholder('Title').fill('Paid attribution')
-  await dialog.locator('textarea').fill('Use the attribution agent for customer acquisition cost.')
-  await dialog.getByRole('button', {name:'Save', exact:true}).click()
-  await expect(dialog).toBeHidden()
-  await rules.getByRole('button', {name:'Paid attribution', exact:true}).click()
+  await panel.getByRole('button', {name:/^Instructions/}).click()
+  await page.getByRole('button', {name:'+ Add', exact:true}).first().click()
+  // The new instruction is scoped to the folder it was created from.
+  await expect(page.getByRole('button', {name, exact:true}).last()).toBeVisible()
+  await page.getByRole('textbox', {name:'Untitled instruction'}).fill('Paid attribution')
+  const body = page.locator('[contenteditable=true]').last()
+  await body.click()
+  await body.pressSequentially('Use the attribution agent for customer acquisition cost.')
+  await page.getByRole('button', {name:'Create', exact:true}).click()
+  await expect(page.getByText('Paid attribution', {exact:true}).first()).toBeVisible()
+  await page.getByText('Paid attribution', {exact:true}).first().click()
   await expect(page.getByText('Use the attribution agent for customer acquisition cost.', {exact:true}).first()).toBeVisible()
 })

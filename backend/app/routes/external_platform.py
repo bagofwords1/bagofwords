@@ -162,8 +162,8 @@ async def set_integration_agent_scope(
     """Replace a scope key's agent set.
 
     ``channel`` selects the key: empty (default) is the connection default; a
-    channel id scopes that one channel. Only agents belonging to the
-    organization are stored; unknown ids are dropped. An empty list clears that
+    channel id scopes that one channel. Every id must be an agent of the
+    organization; an unknown id fails the save with 422. An empty list clears that
     key (exposes everything the messaging user can access for it). When a
     channel is given, it is also registered/relabeled in the discovered-channel
     list so a hand-added channel shows up in the picker.

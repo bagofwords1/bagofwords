@@ -8,7 +8,16 @@ down_revision = "folder06"
 branch_labels = depends_on = None
 
 
+def _applied():
+    """Idempotent: the dashboard test corpus replays this revision unstamped
+    (tests/fixtures/dashboard_corpus/alembic_at.py), then `upgrade head` runs
+    it again."""
+    return sa.inspect(op.get_bind()).has_table("folder_execution_agents")
+
+
 def upgrade():
+    if _applied():
+        return
     op.add_column("agent_executions", sa.Column("starting_folder_id", sa.String(36)))
     op.create_table(
         "folder_execution_agents",
@@ -21,5 +30,7 @@ def upgrade():
 
 
 def downgrade():
+    if not _applied():
+        return
     op.drop_table("folder_execution_agents")
     op.drop_column("agent_executions", "starting_folder_id")

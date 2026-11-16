@@ -107,12 +107,15 @@ def test_mcp_eval_runs_preserve_read_stop_and_dedup_authority(
     w = tool_world
     monkeypatch.setenv("OPENAI_API_KEY_TEST", "test-provider-key")
     create_llm_provider_and_models(user_token=w["admin"]["token"], org_id=w["org_id"])
-    admin_headers = {'Authorization': f"Bearer {w['admin']['token']}", 'X-Organization-Id': w['org_id']}
+    def headers(actor):
+        return {'Authorization': f"Bearer {w[actor]['token']}", 'X-Organization-Id': w['org_id']}
     runs = {}
     for key in ('case_a', 'case_b', 'case_ab', 'case_global'):
         # The REST API creates pending runs without opening an execution stream.
-        # This also exercises MCP run_eval's existing-run deduplication contract.
-        created = test_client.post('/api/tests/runs', json={'case_ids': [w[key]]}, headers=admin_headers)
+        # mgr_a requests its own case_a run: MCP run_eval dedups only onto the
+        # caller's own in-progress run, never onto someone else's.
+        created = test_client.post('/api/tests/runs', json={'case_ids': [w[key]]},
+                                   headers=headers('mgr_a' if key == 'case_a' else 'admin'))
         assert created.status_code == 200, created.text
         runs[key] = created.json()['id']
     c = client(test_client, w, 'mgr_a')

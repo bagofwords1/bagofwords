@@ -70,7 +70,7 @@ async def test_create_instruction_evidence_surfaces_on_detail(
 
     output, _ = await _run_tool(
         CreateInstructionTool(),
-        {
+        {"destination": "global", 
             "text": "Exclude cancelled and refunded orders from revenue calculations.",
             "title": "Revenue exclusions",
             "category": "code_gen",
@@ -158,7 +158,7 @@ async def test_overlong_evidence_is_clamped_not_rejected(
 
     output, _ = await _run_tool(
         CreateInstructionTool(),
-        {
+        {"destination": "global", 
             "text": "Amounts in the transactions table are stored in cents; divide by 100 for display.",
             "category": "code_gen",
             "confidence": 0.85,

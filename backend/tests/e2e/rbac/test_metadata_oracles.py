@@ -176,7 +176,7 @@ def _seed_run(report_id, suite_id, case_statuses, created_at):
     from sqlalchemy import create_engine
     from sqlalchemy.orm import Session
     from app.models.completion import Completion
-    from app.models.eval import TestRun, TestResult
+    from app.models.eval import TestCase, TestRun, TestResult
 
     url = os.environ["TEST_DATABASE_URL"]
     sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
@@ -192,8 +192,12 @@ def _seed_run(report_id, suite_id, case_statuses, created_at):
                                   role="user", message_type="user_message", report_id=report_id)
                 s.add(head)
                 s.flush()
+                # Results snapshot their case's targets at submission, as
+                # the run service does; reads authorize against the snapshot.
+                case = s.get(TestCase, str(case_id))
                 s.add(TestResult(run_id=run.id, case_id=str(case_id),
-                                 head_completion_id=head.id, status=status))
+                                 head_completion_id=head.id, status=status,
+                                 data_source_ids_json=list(case.data_source_ids_json or [])))
             s.commit()
             return str(run.id)
     finally:
