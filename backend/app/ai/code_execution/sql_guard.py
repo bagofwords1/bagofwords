@@ -671,10 +671,13 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
 # only; the reads below are recognised first, on DuckDB's tokens.
 _DUCKDB_LISTING_PRAGMAS = ("show_tables", "show_tables_expanded", "database_list", "version", "platform")
 # The characters outside ASCII DuckDB 1.5.4 reads as whitespace (pinned by
-# the dialect tests); it reads U+0085, U+1680, U+2028 and U+2029 as name
-# characters.
-_DUCKDB_UNICODE_SPACES = frozenset(chr(c) for c in (0xA0, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000))
-_DUCKDB_SPACE = frozenset(" \t\n\r\f\v") | _DUCKDB_UNICODE_SPACES
+# the dialect tests against a scan of the BMP), the zero-width U+200B, U+2060
+# and U+FEFF included; it reads U+0085, U+1680, U+2028 and U+2029 as name
+# characters. Of ASCII it does not read U+000B as whitespace.
+_DUCKDB_UNICODE_SPACES = frozenset(
+    chr(c) for c in (0xA0, *range(0x2000, 0x200C), 0x202F, 0x205F, 0x2060, 0x3000, 0xFEFF)
+)
+_DUCKDB_SPACE = frozenset(" \t\n\r\f") | _DUCKDB_UNICODE_SPACES
 _DUCKDB_UNREAD = ("The statement could not be read as a SELECT or as one of this connection's reads. "
                   "Only SELECT queries are allowed.")
 # A word of the reads list. `$`, which DuckDB also reads inside a name, is
@@ -1378,7 +1381,8 @@ _NON_ASCII_SPACES = frozenset(
 _NON_ASCII_SPACE = re.compile("[" + "".join(sorted(_NON_ASCII_SPACES)) + "]")
 # The ones an engine was shown to read as whitespace, by dialect (pinned by
 # the dialect tests): SQL Server 2019 every one; DuckDB 1.5.4 all but U+0085,
-# U+1680, U+2028 and U+2029, which it reads as name characters.
+# U+1680, U+2028 and U+2029, which it reads as name characters, and also the
+# zero-width U+200B, U+2060 and U+FEFF, which sqlglot reads as name characters.
 _ENGINE_SPACES = {
     "tsql": _NON_ASCII_SPACES,
     "duckdb": _DUCKDB_UNICODE_SPACES,
@@ -1597,6 +1601,14 @@ def check_engine_reading(sql: str, dialect: str, *, unknown_lexer: bool = False)
             raise ReadOnlyViolation(
                 f"The query has a space outside ASCII (U+{ord(space.group()):04X}) outside a string or a quoted "
                 "name, which this source may read as part of a name. Use a plain space."
+            )
+    # Spaces the engine reads that sqlglot reads as name characters (the
+    # zero-width ones DuckDB reads as whitespace).
+    for space in sorted(spaces - _NON_ASCII_SPACES):
+        if space in masked:
+            raise ReadOnlyViolation(
+                f"The query has an invisible space (U+{ord(space):04X}) outside a string or a quoted name, which "
+                "this source reads as a space where the query checks read part of a name. Remove it."
             )
     _check_names_outside_ascii(masked, code, spaces)
     comments = _gap_comments(sql, tokens, reader.tokenizer_class)

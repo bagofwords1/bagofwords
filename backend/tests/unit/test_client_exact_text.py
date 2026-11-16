@@ -395,9 +395,9 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
         client.execute_query(checked)
     assert sent[-1] == checked and sent.count(checked) == 1
     # The views, then the engine lock, then the query.
-    assert all(s.startswith("CREATE ") for s in sent[:-4])
-    assert [s.split("=")[0] for s in sent[-4:-1]] == [
-        "SET python_enable_replacements", "SET enable_external_access", "SET lock_configuration"]
+    assert all(s.startswith("CREATE ") for s in sent[:-5])
+    assert [s.split("=")[0] for s in sent[-5:-1]] == [
+        "SET temp_directory", "SET python_enable_replacements", "SET enable_external_access", "SET lock_configuration"]
 
 
 @pytest.mark.parametrize("query_options", [None, "timeoutMs=1000"])

@@ -278,8 +278,9 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "powerbi_report_server_client.py:704"),
     _exempt("fast_client", "FastQueryClient",
             f"{_DISPATCH}: artifacts attached READ_ONLY, external access off and configuration locked "
-            "before any agent SQL (fast_client.py:167), introspection refused, fast_client.py:286, "
-            "one SELECT as the locked engine parses it (fast_client.py:290)",
+            "before any agent SQL (fast_client.py:224), introspection refused, fast_client.py:343, "
+            "one SELECT as the locked engine parses it (fast_client.py:347), calling no blocked function "
+            "as DuckDB's parser reads it (fast_client.py:352)",
             package="app.data_sources.fast"),
     # Read-only rules at the dispatch point (P5c).
     _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:198"),

@@ -585,7 +585,8 @@ _CITED_CALLS = {
     "QVDClient": ("check_duckdb_file_query(",),
     "PBIXClient": ("check_duckdb_file_query(",),
     "PowerBIReportServerClient": ("check_duckdb_file_query(",),
-    "FastQueryClient": ("lock_query_session(con)", "assert_no_blocked_introspection(sql)", "extract_statements(sql)"),
+    "FastQueryClient": ("lock_query_session(con)", "assert_no_blocked_introspection(sql)", "extract_statements(sql)",
+                        "assert_no_blocked_calls(sql)"),
     "NetworkDirClient": ("def read_file(", "reads_as_statements(query)", "query_tables(self, query)"),
 }
 

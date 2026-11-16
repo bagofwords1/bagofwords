@@ -147,7 +147,7 @@ _FORMS = [
 ]
 
 # The code points outside ASCII DuckDB 1.5.4 reads as whitespace.
-_DUCKDB_UNICODE_SPACES = [0xA0, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000]
+_DUCKDB_UNICODE_SPACES = [0xA0, *range(0x2000, 0x200C), 0x202F, 0x205F, 0x2060, 0x3000, 0xFEFF]
 
 
 def _form(template: str, watched) -> str:
@@ -177,7 +177,7 @@ def test_the_duckdb_text_check_keeps_the_read_pragmas(sql):
 
 @pytest.mark.parametrize("code_point", _DUCKDB_UNICODE_SPACES, ids=lambda c: f"U+{c:04X}")
 def test_the_duckdb_text_check_reads_each_unicode_space_as_duckdb_does(code_point):
-    assert len(_DUCKDB_UNICODE_SPACES) == 15
+    assert len(_DUCKDB_UNICODE_SPACES) == 18
     with pytest.raises(ReadOnlyViolation):
         check_sql(chr(code_point) + "PRAGMA import_database('/nonexistent/db')", "duckdb")
     with pytest.raises(ReadOnlyViolation):

@@ -210,7 +210,11 @@ def reads_as_statements(text):
 
 def query_tables(client, sql):
     from app.ai.code_execution.sql_guard import check_sql
-    from app.data_sources.fast.fast_client import assert_no_blocked_introspection, lock_query_session
+    from app.data_sources.fast.fast_client import (
+        assert_no_blocked_calls,
+        assert_no_blocked_introspection,
+        lock_query_session,
+    )
 
     allowed = getattr(client, "_network_dir_relations", frozenset())
     if not allowed:
@@ -224,6 +228,7 @@ def query_tables(client, sql):
         statements = con.extract_statements(sql)
         if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
             raise ValueError("Only one read-only SELECT or DESCRIBE is supported")
+        assert_no_blocked_calls(sql)
         status_rows, captures = [], []
         scan = ds.ParquetFragmentScanOptions(decryption_properties=decryption_properties())
         parquet = ds.ParquetFileFormat(default_fragment_scan_options=scan)

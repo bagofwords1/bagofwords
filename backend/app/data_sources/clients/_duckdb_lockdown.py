@@ -3,7 +3,8 @@
 For connections over local files: once their views exist, the connection
 may read only the files those views read (`allowed_paths`, plus
 `allowed_directories` when given), reaches nothing else on disk or on the
-network, cannot load extensions, and cannot change any of that again.
+network (no temp directory either: spilling to disk is off), cannot load
+extensions, and cannot change any of that again.
 """
 
 from __future__ import annotations
@@ -25,7 +26,12 @@ def lock_down(con, *, allowed_paths: Iterable[str] = (), allowed_directories: It
     them: the engine alone does not keep a statement from overwriting the
     connection's own files. The query check (`check_duckdb_file_query`)
     is what refuses anything but a SELECT."""
-    steps = [("allowed_paths", f"SET allowed_paths = {_list_literal(allowed_paths)}")]
+    # DuckDB allows a connection its own temp directory under the lock; with
+    # none set, spilling is off and no temp directory is reachable.
+    steps = [
+        ("temp_directory", "SET temp_directory = ''"),
+        ("allowed_paths", f"SET allowed_paths = {_list_literal(allowed_paths)}"),
+    ]
     directories = list(allowed_directories)
     if directories:
         steps.append(("allowed_directories", f"SET allowed_directories = {_list_literal(directories)}"))

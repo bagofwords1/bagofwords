@@ -24,6 +24,8 @@ from typing import Generator, List, Optional
 import duckdb
 import pandas as pd
 
+from app.ai.code_execution.duckdb_guard import inspect_duckdb_sql
+from app.ai.code_execution.sql_guard import DENIED_FUNCTIONS, duckdb_read
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import Capability, DataSourceClient
 from app.data_sources.fast.rls import Filter
@@ -55,6 +57,53 @@ def assert_no_blocked_introspection(sql: str) -> None:
         raise ValueError(
             "System introspection functions are not available on accelerated data; "
             "query the registered tables instead."
+        )
+
+
+# A dynamic PIVOT (no IN list) is two statements to DuckDB.
+_PIVOT = re.compile(r"\bPIVOT\b", re.IGNORECASE)
+
+# The calls refused on DuckDB's own reading of the statement, so a quoted
+# name, or a comment or space between a name and its `(`, changes nothing:
+# the DuckDB connections' denied functions (files, settings, secrets, the
+# environment, SQL held in a string) and the rest of DuckDB's file readers,
+# logging functions and server-state catalog functions.
+_BLOCKED_FUNCTION = re.compile(
+    DENIED_FUNCTIONS["duckdb"].pattern
+    + r"|which_secret|sniff_csv|parquet_.*|json_execute_serialized_sql"
+    r"|enable_logging|disable_logging|write_log|truncate_duckdb_logs|duckdb_logs?|duckdb_log_contexts"
+    r"|duckdb_databases|duckdb_temporary_files|duckdb_memory|(?:pragma_)?database_list",
+    re.DOTALL,
+)
+# The catalog views of that kind, and the catalogs artifacts are attached
+# under, refused as any part of a table name.
+_BLOCKED_TABLE = re.compile(
+    r"duckdb_(?:databases|settings|extensions|secrets|temporary_files|memory|logs?|log_contexts)"
+    r"|(?:pragma_)?database_list|pg_settings|bow_a\d+"
+)
+
+
+def assert_no_blocked_calls(sql: str) -> None:
+    """Refuse `sql`, one statement its caller has taken as a SELECT on a
+    locked engine, when DuckDB's parser finds a blocked call
+    (`_BLOCKED_FUNCTION`) or catalog name (`_BLOCKED_TABLE`) in it. The
+    DuckDB connections' reads (DESCRIBE, SHOW, PRAGMA table_info, ...) are
+    read as those connections read them; text neither reading takes is
+    refused."""
+    read = duckdb_read(sql)
+    names = set(read.name or ()) if read is not None else set()
+    select = sql if read is None else read.select
+    calls: set[str] = set()
+    if select is not None:
+        stmt = inspect_duckdb_sql(select)
+        calls = set(stmt.functions | stmt.table_functions)
+        names |= {part for table in stmt.tables for part in table}
+    blocked = sorted(c for c in calls if _BLOCKED_FUNCTION.fullmatch(c))
+    blocked += sorted(n for n in names if _BLOCKED_TABLE.fullmatch(n))
+    if blocked:
+        raise ValueError(
+            f"{blocked[0]} is not available on this connection: system introspection, file and logging "
+            "functions are disabled. Query its tables instead."
         )
 
 
@@ -90,7 +139,13 @@ class FastRelation:
 
 
 def lock_query_session(con):
-    """Seal a session after trusted code has registered its authorized relations."""
+    """Seal a session after trusted code has registered its authorized relations.
+
+    DuckDB allows a session its own temp directory under the lock, and the
+    default one (`.tmp` under the working directory) is shared by every
+    in-memory session of the process; with none set, spilling is off and no
+    temp directory is reachable."""
+    con.execute("SET temp_directory=''")
     con.execute("SET python_enable_replacements=false")
     con.execute("SET enable_external_access=false")
     con.execute("SET lock_configuration=true")
@@ -121,7 +176,9 @@ class FastQueryClient(DataSourceClient):
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con = None
         try:
-            con = duckdb.connect(database=":memory:")
+            # No temp directory from the start: the row-filtered copies made
+            # before the lock never spill where another session can read.
+            con = duckdb.connect(database=":memory:", config={"temp_directory": ""})
             attached = 0
             for i, rel in enumerate(self.relations):
                 if not rel.artifact_path:
@@ -289,7 +346,10 @@ class FastQueryClient(DataSourceClient):
             # Read on the locked engine, before anything runs.
             statements = con.extract_statements(sql)
             if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
-                raise ValueError("Only one read-only SELECT is supported on accelerated data.")
+                hint = (" A PIVOT needs an IN list (PIVOT ... ON <column> IN (...)), or use SELECT ... PIVOT (...)."
+                        if _PIVOT.search(sql) else "")
+                raise ValueError("Only one read-only SELECT is supported on accelerated data." + hint)
+            assert_no_blocked_calls(sql)
             df = con.execute(sql).df()
         logger.info(
             "fast.query.done",

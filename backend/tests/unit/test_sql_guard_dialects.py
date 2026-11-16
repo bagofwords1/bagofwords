@@ -1304,6 +1304,55 @@ def test_duckdb_reads_these_spaces_outside_ascii_as_whitespace_and_the_others_as
                 con.execute(sql)
 
 
+def test_the_duckdb_whitespace_set_is_exactly_what_duckdb_reads_as_whitespace():
+    """Every character of the BMP (but NUL and the surrogates): DuckDB reads
+    it as whitespace when `SELECT a<c>b` parses as `SELECT a b`."""
+    from app.ai.code_execution import sql_guard
+
+    con = duckdb.connect()
+    spaced = con.execute("SELECT json_serialize_sql('SELECT a b')").fetchone()[0]
+    rows = con.execute(
+        "SELECT cp FROM range(1, 65536) t(cp) WHERE (cp < 55296 OR cp > 57343) "
+        "AND json_serialize_sql('SELECT a' || chr(cp::INTEGER) || 'b') = $1", [spaced]).fetchall()
+    engine = {chr(cp) for (cp,) in rows}
+    assert {" ", "\t", chr(0x200B), chr(0x2060), chr(0xFEFF)} <= engine
+    assert chr(0x0B) not in engine
+    assert engine == sql_guard._DUCKDB_SPACE
+
+
+ZERO_WIDTH = [chr(0x200B), chr(0x2060), chr(0xFEFF)]
+
+
+@pytest.mark.parametrize("zw", ZERO_WIDTH, ids=lambda c: f"U+{ord(c):04X}")
+@pytest.mark.parametrize("template", [
+    "SELECT 1 FROM{zw}read_text('x.txt')",
+    "SELECT * FROM glob{zw}('*')",
+    "SELECT current_setting{zw}('temp_directory') AS s",
+    "{zw}SELECT current_setting('temp_directory') AS s",
+])
+def test_duckdb_refuses_a_space_it_reads_where_the_checks_read_a_name_character(zw, template):
+    from app.ai.code_execution.sql_guard import check_sql
+
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(template.format(zw=zw), "duckdb")
+
+
+@pytest.mark.parametrize("zw", ZERO_WIDTH, ids=lambda c: f"U+{ord(c):04X}")
+def test_a_zero_width_space_inside_a_duckdb_string_or_quoted_name_still_reads(zw):
+    from app.ai.code_execution.sql_guard import check_sql
+
+    check_sql("SELECT 'a" + zw + "b' AS \"x" + zw + "y\" FROM orders", "duckdb")
+
+
+def test_a_duckdb_statement_starting_with_a_vertical_tab_is_not_read_as_a_read():
+    """DuckDB does not read U+000B as whitespace, so the reads list does not
+    skip it: the start is unreadable and refused."""
+    from app.ai.code_execution.sql_guard import duckdb_read
+
+    with pytest.raises(ReadOnlyViolation):
+        duckdb_read(chr(0x0B) + "PRAGMA show_tables")
+
+
 @pytest.mark.parametrize("family", sorted(set(SQL_FAMILIES) - LEXED))
 @pytest.mark.parametrize("sql", [
     "SELECT * FROM orders -- note" + CR + "LIMIT 5",
