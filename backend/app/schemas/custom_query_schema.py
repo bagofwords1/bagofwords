@@ -119,9 +119,11 @@ class CustomQueryRlsPreviewResponse(BaseModel):
     denied: bool = False
     column: Optional[str] = None
     allowed_values: List[str] = []
-    # Column-level verdict: which columns were projected away for this user.
-    # `columns` above already reflects the projection; these name what is gone.
+    # Column-level verdict, kept separate from the row verdict above so neither
+    # is mislabelled as the other. `columns` already reflects the projection;
+    # `hidden_columns` names what is gone, `column_denied` means none are visible.
     column_filtered: bool = False
+    column_denied: bool = False
     hidden_columns: List[str] = []
     reason: str = ""
 

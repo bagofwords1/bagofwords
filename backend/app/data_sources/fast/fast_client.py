@@ -85,12 +85,23 @@ class FastRelation:
     @property
     def is_row_filtered(self) -> bool:
         f = self.rls_filter
-        return f is not None and (f.deny_all or f.allowed_values is not None)
+        return f is not None and f.is_row_filtered
 
     @property
     def is_column_filtered(self) -> bool:
         f = self.rls_filter
-        return f is not None and f.allowed_columns is not None
+        return f is not None and f.is_column_filtered
+
+    @property
+    def needs_copy(self) -> bool:
+        """Goes through the copy+detach path (not served as a plain view).
+
+        True for any governed relation — row-filtered, column-projected, or
+        denied. The attach-failure guard keys off this: if registration stops
+        between ATTACH and DETACH for any of these, the raw artifact is still
+        nameable and the session must refuse to serve."""
+        f = self.rls_filter
+        return f is not None and not f.unrestricted
 
     def visible_columns(self) -> list:
         """The column descriptors this identity may see — what the schema
@@ -152,14 +163,15 @@ class FastQueryClient(DataSourceClient):
                         "fast.connect.attach_failed",
                         extra={"relation": rel.name, "error": str(e)},
                     )
-                    if rel.is_row_filtered:
-                        # Except when the failure was on a row-filtered
-                        # relation: registration may have stopped after the
-                        # ATTACH and before the DETACH, leaving the unfiltered
-                        # artifact nameable. Serving the rest of the session
-                        # would mean serving that.
+                    if rel.needs_copy:
+                        # Except when the failure was on a governed relation
+                        # (row-filtered, column-projected, or denied): its
+                        # registration copies the slice and DETACHes the source,
+                        # so a failure between the ATTACH and the DETACH leaves
+                        # the unfiltered artifact nameable (bow_aN). Serving the
+                        # rest of the session would expose every row and column.
                         raise RuntimeError(
-                            f"Refusing to serve accelerated data: row-filtered "
+                            f"Refusing to serve accelerated data: secured "
                             f"relation '{rel.name}' could not be registered "
                             f"safely ({e})"
                         )
@@ -223,10 +235,11 @@ class FastQueryClient(DataSourceClient):
         # of a positive projection. `star` stands when only rows are restricted.
         projection = self._projection(rel, f, star)
 
-        if f.deny_all:
-            # The relation still exists and still has its shape — the schema
-            # context advertises it, and an agent asking for it should get an
-            # empty answer rather than "no such table", which reads as a bug.
+        if f.deny_all or f.column_denied:
+            # No rows (row deny) or no visible columns (every column restricted,
+            # none granted) — serve an empty relation that still keeps its shape,
+            # so the schema context can advertise it and an agent gets an empty
+            # answer rather than "no such table", which reads as a bug.
             logger.info(
                 "fast.rls.denied",
                 extra={"relation": rel.name, "reason": f.reason},
@@ -239,6 +252,15 @@ class FastQueryClient(DataSourceClient):
 
         # Row predicate is optional: a column-only policy has no values table
         # and no WHERE, just the narrowed projection copied into the session.
+        #
+        # Cost note (column-only): with rows unrestricted this copies ALL rows
+        # (narrowed to the allowed columns) into the session, because a plain
+        # view over the attached artifact would be bypassable via `bow_aN`, so
+        # the source must be DETACHed — and that needs a materialized copy. A
+        # row filter keeps the copy proportional to the user's slice; a
+        # column-only policy does not. On a very large relation this is a per
+        # query cost; a per-identity cached projection is the follow-up if it
+        # bites. (RLS never hits this: unrestricted serves a view at zero copy.)
         where = ""
         values_table = None
         if f.allowed_values is not None:

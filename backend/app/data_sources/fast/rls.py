@@ -120,6 +120,31 @@ class Filter:
             and self.allowed_columns is None
         )
 
+    @property
+    def is_row_filtered(self) -> bool:
+        """Rows are governed — a value filter or a row-level deny."""
+        return self.deny_all or self.allowed_values is not None
+
+    @property
+    def is_column_filtered(self) -> bool:
+        """Columns are governed — a projection (list) or a column-level deny ([])."""
+        return self.allowed_columns is not None
+
+    @property
+    def column_denied(self) -> bool:
+        """Zero columns visible — every column restricted and none granted.
+
+        Kept distinct from ``deny_all`` (which is rows), so a preview can say
+        'no columns' without mislabelling it as a row policy, and vice versa.
+        """
+        return self.allowed_columns == []
+
+    @property
+    def is_empty(self) -> bool:
+        """Serves no useful data: no rows, or no columns. Both render as an
+        empty relation that still advertises its shape."""
+        return self.deny_all or self.column_denied
+
 
 UNRESTRICTED = Filter(reason="no policy")
 
@@ -350,38 +375,44 @@ def compile_column_policy(
     """The columns `identity` may see, in `available_columns` order.
 
     Returns None when nothing is restricted (serve every column) and a list
-    otherwise. An empty list means every column is restricted and none was
-    granted — the caller maps that to a full relation-level deny, because a
-    projection with no columns is not a query.
+    otherwise. An empty list means no column is visible — either every column
+    is restricted and none granted, or the policy no longer fits the relation
+    (see fail-closed below); the caller maps that to a relation-level deny,
+    because a projection with no columns is not a query.
 
-    Never raises: like the row compiler, every way the policy can be malformed
-    resolves to *more* hidden, never less. A restricted column that is not in
-    the materialized relation is dropped (it cannot leak), and a grant naming a
-    column that is not restricted is ignored.
+    Never raises, and never widens: every way the policy can be malformed
+    resolves to *more* hidden. Names are normalised (stripped) so an API write
+    of `" Email"` protects `Email` rather than silently matching nothing.
+
+    **Fail closed on a shape change.** If any restricted name named in the
+    policy is no longer in the materialized relation, we deny the whole relation
+    rather than serve it — the column may have been renamed to one that would
+    now be exposed (e.g. `email` → `email_address`, same PII). This mirrors the
+    row compiler, which denies when its filter column vanishes.
     """
     if not policy:
         return None
 
     available = [str(c) for c in (available_columns or [])]
     available_set = set(available)
-    # Only restrict columns that actually exist — a policy naming a column the
-    # relation no longer has should not silently hide a *different* one, and a
-    # stale name must not deny the whole table.
     restricted = {
-        str(c) for c in (policy.get("restricted_columns") or []) if c
-    } & available_set
+        str(c).strip() for c in (policy.get("restricted_columns") or []) if str(c).strip()
+    }
     if not restricted:
         return None
+    if restricted - available_set:
+        # A restricted column is gone from the relation — fail closed.
+        return []
 
     granted: Set[str] = set()
     for grant in policy.get("grants") or []:
         if not isinstance(grant, dict) or not _principal_matches(grant, identity):
             continue
-        cols = _as_values(grant.get("columns"))
+        cols = {str(c).strip() for c in _as_values(grant.get("columns"))}
         if WILDCARD in cols:
             granted |= restricted
         else:
-            granted |= {c for c in cols if c in restricted}
+            granted |= (cols & restricted)
 
     # Everything not restricted stays; a restricted column survives only if it
     # was granted. Order follows the relation so the projection is stable.
@@ -410,8 +441,12 @@ def validate_column_policy(
         name = str(col or "").strip()
         if not name:
             raise ValueError("A restricted column has no name.")
-        if not _COLUMN_RE.match(name):
-            raise ValueError(f"'{name}' is not a valid column name.")
+        # No identifier regex here (unlike the row policy's filter column, which
+        # is interpolated): a restricted name is only ever quoted and intersected
+        # with the materialized columns in `_projection`, so membership in the
+        # relation is the sufficient — and correct — check. A regex would make a
+        # Hebrew column (טלפון) or a hyphenated one (phone-number) impossible to
+        # protect, which an RTL-locale org ships with.
         if available_set and name not in available_set:
             raise ValueError(
                 f"'{name}' is not a column of this query's result. "

@@ -93,10 +93,14 @@ def test_groups_and_roles_match_by_name_as_well_as_id():
 # Every wrong policy hides more, never less
 # --------------------------------------------------------------------------
 
-def test_a_restricted_column_not_in_the_relation_is_dropped_not_fatal():
-    """The admin edited the query and the restricted column is gone. It cannot
-    leak, so restricting it is a no-op — not a denial of the whole table."""
-    assert _compile(_policy(restricted_columns=["ghost"]), _identity()) is None
+def test_a_restricted_column_no_longer_in_the_relation_denies():
+    """The admin edited the query and a restricted column is gone — possibly
+    renamed to one that would now be exposed (email → email_address, same PII).
+    Fail closed (deny the relation), exactly as the row compiler does when its
+    filter column vanishes — rather than silently serving."""
+    assert _compile(_policy(restricted_columns=["ghost"]), _identity()) == []
+    # Only one of two restricted columns missing is still a shape change → deny.
+    assert _compile(_policy(restricted_columns=["amount", "ghost"]), _identity()) == []
 
 
 def test_a_grant_naming_a_non_restricted_column_is_ignored():
@@ -155,7 +159,10 @@ def test_validation_accepts_a_well_formed_policy():
     ({}, "required"),
     ({"restricted_columns": []}, "at least one column"),
     ({"restricted_columns": ["nope"]}, "not a column of this query"),
-    ({"restricted_columns": ['a"; DROP TABLE x']}, "not a valid column name"),
+    # No identifier regex for CLS (names are quoted + intersected at compile):
+    # an injection-shaped name is rejected by not being a real column, which is
+    # the correct boundary and also lets a Hebrew/hyphenated column be restricted.
+    ({"restricted_columns": ['a"; DROP TABLE x']}, "not a column of this query"),
     (_policy(grants=[{"principal_type": "alien", "principal_id": "x",
                       "columns": ["*"]}]), "must target a user, a group or a role"),
     (_policy(grants=[{"principal_type": "group", "principal_id": "",
@@ -325,14 +332,70 @@ def test_a_denied_row_policy_short_circuits_before_columns(monkeypatch):
     assert f.deny_all
 
 
-def test_every_column_restricted_compiles_to_deny_all(monkeypatch):
+def test_every_column_restricted_compiles_to_a_column_deny(monkeypatch):
+    """All columns restricted, none granted → a COLUMN deny (allowed_columns==[])
+    — kept distinct from a row deny_all so the preview labels each correctly."""
     from app.data_sources.fast import artifacts
     from app.services.custom_query_service import CustomQueryService
 
     monkeypatch.setattr(artifacts, "decrypt_key", lambda enc: "key")
     row = _Row(cls_policy={"restricted_columns": ["region", "amount", "status"]})
-    client = CustomQueryService.build_fast_client([row], identity=_identity())
-    assert client.relations[0].rls_filter.deny_all
+    f = CustomQueryService.build_fast_client([row], identity=_identity()).relations[0].rls_filter
+    assert f.allowed_columns == []
+    assert f.column_denied and f.is_empty
+    assert not f.deny_all           # a COLUMN deny, not a ROW deny
+
+
+def test_filter_reports_row_and_column_verdicts_separately():
+    """The two halves never masquerade as each other."""
+    row_deny = rls.Filter(deny_all=True)
+    assert row_deny.deny_all and row_deny.is_row_filtered and row_deny.is_empty
+    assert not row_deny.column_denied and not row_deny.is_column_filtered
+
+    col_deny = rls.Filter(allowed_columns=[])
+    assert col_deny.column_denied and col_deny.is_column_filtered and col_deny.is_empty
+    assert not col_deny.deny_all and not col_deny.is_row_filtered
+
+    col_proj = rls.Filter(allowed_columns=["region"])
+    assert col_proj.is_column_filtered and not col_proj.column_denied and not col_proj.is_empty
+
+
+def test_a_leading_space_in_a_restricted_name_still_protects_the_column():
+    """An API write of ' amount' must restrict `amount`, not match nothing."""
+    cols = _compile(_policy(restricted_columns=[" amount"]), _identity())
+    assert "amount" not in cols
+    # and a grant with stray whitespace still unlocks it
+    granted = _compile(
+        _policy(restricted_columns=[" amount"],
+                grants=[{"principal_type": "group", "principal_id": "g1",
+                         "columns": [" amount "]}]),
+        _identity(group_ids={"g1"}))
+    assert "amount" in granted
+
+
+def test_a_non_ascii_column_can_be_restricted():
+    """A Hebrew (or hyphenated) column name must be protectable — `he` ships."""
+    cols = ["id", "טלפון", "phone-number"]
+    rls.validate_column_policy({"restricted_columns": ["טלפון", "phone-number"]}, cols)
+    allowed = rls.compile_column_policy(
+        {"restricted_columns": ["טלפון", "phone-number"]}, _identity(), available_columns=cols)
+    assert allowed == ["id"]
+
+
+def test_a_column_only_relation_that_fails_to_register_aborts_the_session(artifact, monkeypatch):
+    """#1 regression: a column-only policy goes through copy+detach too, so a
+    failure between ATTACH and DETACH must refuse to serve — otherwise the raw
+    artifact stays nameable via bow_a0 and every restricted column leaks."""
+    from app.data_sources.fast.fast_client import FastQueryClient
+
+    client = _client(artifact, rls.Filter(allowed_columns=["region"]))
+    monkeypatch.setattr(
+        FastQueryClient, "_detach",
+        staticmethod(lambda con, alias, rel: (_ for _ in ()).throw(RuntimeError("stuck"))),
+    )
+    with pytest.raises(RuntimeError) as e:
+        client.execute_query("SELECT 1")
+    assert "Refusing to serve" in str(e.value)
 
 
 # --------------------------------------------------------------------------
@@ -340,6 +403,8 @@ def test_every_column_restricted_compiles_to_deny_all(monkeypatch):
 # --------------------------------------------------------------------------
 
 def test_validation_rejects_a_grant_naming_a_non_restricted_column():
+    """A grant that names a column outside the restricted set is a typo — reject
+    it at save rather than silently ignoring it at compile."""
     with pytest.raises(ValueError) as e:
         rls.validate_column_policy(
             _policy(grants=[{"principal_type": "group", "principal_id": "g1",
@@ -350,6 +415,8 @@ def test_validation_rejects_a_grant_naming_a_non_restricted_column():
 
 
 def test_all_columns_restricted_denies_without_advertising_names(artifact):
+    """Every column restricted, none granted → a column deny: no restricted name
+    is advertised to the agent, none is materialized, no rows are served."""
     from app.services.custom_query_service import CustomQueryService
 
     class Row:
@@ -359,15 +426,19 @@ def test_all_columns_restricted_denies_without_advertising_names(artifact):
         columns = [{"name": c} for c in COLUMNS]
 
     f = CustomQueryService.compile_rls(Row(), _identity())
-    assert f.deny_all and f.allowed_columns == []
+    assert f.column_denied and f.allowed_columns == []   # column deny, not deny_all
+    assert not f.deny_all
     client = _client(artifact, f)
     assert client.relations[0].visible_columns() == []
     df = client.execute_query("SELECT * FROM sales")
     assert len(df) == 0
-    assert not set(df.columns) & set(COLUMNS)
+    assert not set(df.columns) & set(COLUMNS)   # no real column names leak
 
 
 def test_row_denied_user_still_gets_column_projection(artifact):
+    """A row-denied user also carries the column projection, so the two policies
+    compose: deny_all for rows (it is a row deny), the allowed columns for the
+    shape."""
     from app.services.custom_query_service import CustomQueryService
 
     class Row:

@@ -669,7 +669,7 @@
           </div>
 
           <!-- Right: preview as a specific person -->
-          <div class="w-1/2 border-l border-gray-100 dark:border-gray-800 pl-5">
+          <div class="w-1/2 border-s border-gray-100 dark:border-gray-800 ps-5">
             <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">
               Preview as
             </label>
@@ -717,7 +717,7 @@
                   <thead class="bg-gray-50 dark:bg-gray-800/50 sticky top-0">
                     <tr>
                       <th v-for="c in rlsPreview.columns" :key="c.name"
-                          class="text-left px-2 py-1 font-medium text-gray-600 dark:text-gray-300">{{ c.name }}</th>
+                          class="text-start px-2 py-1 font-medium text-gray-600 dark:text-gray-300">{{ c.name }}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -831,7 +831,7 @@
           </div>
 
           <!-- Right: preview as a specific person -->
-          <div class="w-1/2 border-l border-gray-100 dark:border-gray-800 pl-5">
+          <div class="w-1/2 border-s border-gray-100 dark:border-gray-800 ps-5">
             <label class="block text-2xs text-gray-500 dark:text-gray-400 mb-1">
               Preview as
             </label>
@@ -858,13 +858,17 @@
             <div v-if="clsPreview" class="mt-3">
               <div data-testid="cq-cls-verdict"
                    class="text-2xs rounded-md px-2 py-1.5 mb-2"
-                   :class="clsPreview.denied
+                   :class="(clsPreview.column_denied || clsPreview.denied)
                      ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'
                      : clsPreview.column_filtered
                        ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-300'
                        : 'bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-300'">
-                <template v-if="clsPreview.denied">
+                <template v-if="clsPreview.column_denied">
                   Sees <b>no columns</b> — {{ clsPreview.reason }}.
+                </template>
+                <template v-else-if="clsPreview.denied">
+                  Sees <b>no rows</b> (a row policy denies this user) — but would see
+                  {{ clsPreview.hidden_columns.length ? 'every column except ' : 'every column' }}<b v-if="clsPreview.hidden_columns.length">{{ clsPreview.hidden_columns.join(', ') }}</b>.
                 </template>
                 <template v-else-if="clsPreview.column_filtered">
                   Sees <b>{{ clsPreview.columns.length }}</b> columns.
@@ -879,7 +883,7 @@
                   <thead class="bg-gray-50 dark:bg-gray-800/50 sticky top-0">
                     <tr>
                       <th v-for="c in clsPreview.columns" :key="c.name"
-                          class="text-left px-2 py-1 font-medium text-gray-600 dark:text-gray-300">{{ c.name }}</th>
+                          class="text-start px-2 py-1 font-medium text-gray-600 dark:text-gray-300">{{ c.name }}</th>
                     </tr>
                   </thead>
                   <tbody>
