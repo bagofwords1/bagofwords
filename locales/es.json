@@ -1429,6 +1429,7 @@
       "generationStopped": "Generación detenida",
       "code": "Código",
       "waitingForSlot": "Esperando turno en {connection} · {running}/{limit} en ejecución",
+      "waitingForSlotAhead": "Esperando turno en {connection} · {running}/{limit} en ejecución · {ahead} antes",
       "waitingForSlotShort": "Esperando turno en {connection}",
       "theConnection": "la conexión"
     },
@@ -5175,7 +5176,8 @@
     "frame_ancestors.invalid": "Estas direcciones de sitio no son válidas: {origins}. Usa una dirección https sin ruta, por ejemplo https://portal.example.com.",
     "frame_ancestors.too_many": "Puedes añadir como máximo {max} sitios.",
     "connection.query_not_found": "La consulta no existe en esta conexión.",
-    "connection.query_finished": "Esta consulta ya terminó ({status})."
+    "connection.query_finished": "Esta consulta ya terminó ({status}).",
+    "connection.query_not_killable": "Esta consulta no se puede detener desde BOW: su cliente aplica su propio límite de tiempo."
   },
   "email": {
     "dashboardShare": {
@@ -8143,6 +8145,8 @@
     "liveHint": "Se actualiza cada 2 segundos",
     "refresh": "Actualizar",
     "loadFailed": "No se pudieron cargar las consultas",
+    "unavailableTitle": "No se pudieron cargar las consultas de esta conexión",
+    "unavailableOutdated": "Este servidor aún no tiene la vista de Consultas. Probablemente ejecuta una versión de Bag of Words anterior a esta página; actualiza el servidor y vuelve a intentarlo.",
     "runningTitle": "En ejecución",
     "noneRunning": "No hay consultas en ejecución en esta conexión.",
     "waitingFor": "esperando {time}",
@@ -8151,6 +8155,8 @@
     "killConfirm": "¿Detener esta consulta?",
     "kill": "Detener",
     "killFailed": "No se pudo detener la consulta",
+    "notKillable": "No se puede detener aquí",
+    "notKillableHint": "El cliente de esta conexión aplica su propio límite de tiempo, así que BOW no puede interrumpirlo. La consulta terminará por sí sola.",
     "historyTitle": "Historial",
     "filterAll": "Todos los estados",
     "searchPlaceholder": "Buscar en el texto de la consulta",

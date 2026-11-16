@@ -1353,6 +1353,7 @@
       "generationStopped": "Génération arrêtée",
       "code": "Code",
       "waitingForSlot": "En attente d'une place sur {connection} · {running}/{limit} en cours",
+      "waitingForSlotAhead": "En attente d'une place sur {connection} · {running}/{limit} en cours · {ahead} avant",
       "waitingForSlotShort": "En attente d'une place sur {connection}",
       "theConnection": "la connexion"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "Ces adresses de site ne sont pas valides : {origins}. Utilisez une adresse https sans chemin, par exemple https://portal.example.com.",
     "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites.",
     "connection.query_not_found": "Requête introuvable sur cette connexion.",
-    "connection.query_finished": "Cette requête est déjà terminée ({status})."
+    "connection.query_finished": "Cette requête est déjà terminée ({status}).",
+    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "Mise à jour toutes les 2 secondes",
     "refresh": "Actualiser",
     "loadFailed": "Impossible de charger les requêtes",
+    "unavailableTitle": "Impossible de charger les requêtes de cette connexion",
+    "unavailableOutdated": "Ce serveur n'a pas encore la vue Requêtes. Il exécute probablement une version de Bag of Words plus ancienne que cette page ; mettez le serveur à jour et réessayez.",
     "runningTitle": "En cours",
     "noneRunning": "Aucune requête n'est en cours sur cette connexion.",
     "waitingFor": "en attente depuis {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "Arrêter cette requête ?",
     "kill": "Arrêter",
     "killFailed": "Impossible d'arrêter la requête",
+    "notKillable": "Impossible d'arrêter ici",
+    "notKillableHint": "Le client de cette connexion applique sa propre limite de temps : BOW ne peut pas l'interrompre. La requête se terminera d'elle-même.",
     "historyTitle": "Historique",
     "filterAll": "Tous les statuts",
     "searchPlaceholder": "Rechercher dans le texte",

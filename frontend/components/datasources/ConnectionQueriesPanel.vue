@@ -1,5 +1,17 @@
 <template>
   <div class="connection-queries min-w-0" data-testid="connection-queries">
+    <!-- Nothing loaded yet: a spinner, or why it could not load. Never a
+         made-up "0 / —" with empty lists that read as "no queries". -->
+    <div v-if="!loaded && !loadError" class="flex justify-center py-10" data-testid="queries-loading">
+      <Spinner class="h-5 w-5" />
+    </div>
+    <div v-else-if="!loaded" role="alert" class="flex flex-col items-center gap-2 rounded-lg border border-dashed border-line px-6 py-10 text-center" data-testid="queries-unavailable">
+      <UIcon name="i-heroicons-exclamation-triangle" class="h-6 w-6 text-amber-500" aria-hidden="true" />
+      <p class="text-sm font-medium text-ink">{{ $t('connectionQueries.unavailableTitle') }}</p>
+      <p class="max-w-md text-xs text-ink-muted" data-testid="queries-unavailable-reason">{{ loadError }}</p>
+      <UButton size="xs" color="gray" variant="soft" icon="i-heroicons-arrow-path" class="mt-1" :loading="refreshing" data-testid="queries-retry" @click="refreshAll">{{ $t('common.retry') }}</UButton>
+    </div>
+    <template v-else>
     <!-- Slot summary: how busy the connection is against its app-wide limit -->
     <div class="flex flex-wrap items-center gap-x-4 gap-y-2" data-testid="queries-summary">
       <div class="flex items-baseline gap-1.5">
@@ -44,7 +56,10 @@
               </div>
             </div>
             <div class="shrink-0">
-              <span v-if="q.kill_requested_at" class="inline-flex items-center gap-1.5 text-xs text-ink-muted" data-testid="query-stopping">
+              <UTooltip v-if="q.killable === false && q.status !== 'queued'" :text="$t('connectionQueries.notKillableHint')">
+                <span class="text-xs text-ink-muted" data-testid="query-not-killable">{{ $t('connectionQueries.notKillable') }}</span>
+              </UTooltip>
+              <span v-else-if="q.kill_requested_at" class="inline-flex items-center gap-1.5 text-xs text-ink-muted" data-testid="query-stopping">
                 <Spinner class="h-3 w-3" />{{ $t('connectionQueries.stopping') }}
               </span>
               <template v-else-if="confirming === q.id">
@@ -58,6 +73,9 @@
           <QueryDetail v-if="expanded === q.id" :query="q" class="mt-2" />
         </li>
       </ul>
+      <div v-if="runningHasMore" class="mt-2 flex justify-center">
+        <UButton size="xs" color="gray" variant="ghost" data-testid="running-load-more" @click="loadMoreRunning">{{ $t('connectionQueries.loadMore') }}</UButton>
+      </div>
       <p v-if="killError" role="alert" class="mt-2 text-xs text-red-600">{{ killError }}</p>
     </section>
 
@@ -69,7 +87,7 @@
         <UInput v-model="search" size="xs" icon="i-heroicons-magnifying-glass" :placeholder="$t('connectionQueries.searchPlaceholder')" class="w-52" data-testid="history-search" />
       </div>
       <div v-if="historyLoading && !history.length" class="mt-4 flex justify-center"><Spinner class="h-5 w-5" /></div>
-      <div v-else-if="!history.length" class="mt-2 rounded-lg border border-dashed border-line px-4 py-5 text-center text-sm text-ink-muted" data-testid="queries-history-empty">
+      <div v-else-if="!history.length && historyLoaded" class="mt-2 rounded-lg border border-dashed border-line px-4 py-5 text-center text-sm text-ink-muted" data-testid="queries-history-empty">
         {{ hasFilters ? $t('connectionQueries.noMatches') : $t('connectionQueries.noHistory') }}
       </div>
       <div v-else class="mt-2 overflow-x-auto rounded-lg border border-line">
@@ -114,6 +132,7 @@
       </div>
       <p class="mt-3 text-2xs text-ink-muted">{{ $t('connectionQueries.retentionNote') }}</p>
     </section>
+    </template>
   </div>
 </template>
 
@@ -153,16 +172,26 @@ const props = defineProps<{ connectionId: string; active?: boolean }>()
 const { t } = useI18n()
 const { relativeTime } = useRelativeTime()
 const { formatDateTime, toDate } = useFormatDate()
-const { getErrorMessage } = useErrorMessage()
+const { getErrorMessage, getErrorCode } = useErrorMessage()
 
 const summary = ref<{ running: number; queued: number; limit: number | null; limit_source?: string }>({ running: 0, queued: 0, limit: null })
 const running = ref<QueryItem[]>([])
+// The live list is paged like history: a burst bigger than one page stays
+// reachable (and killable). Polling refreshes every row shown so far.
+const RUNNING_PAGE = 50
+const RUNNING_FETCH_MAX = 200
+const runningShown = ref(RUNNING_PAGE)
+const runningHasMore = ref(false)
 const history = ref<QueryItem[]>([])
 const historyTotal = ref(0)
 const historyHasMore = ref(false)
 const historyLoading = ref(false)
 const refreshing = ref(false)
 const loadError = ref('')
+// True once the live list has loaded at least once. Until then the tab shows a
+// spinner or the reason it could not load, never an empty-looking summary.
+const loaded = ref(false)
+const historyLoaded = ref(false)
 const killError = ref('')
 const expanded = ref<string | null>(null)
 const confirming = ref<string | null>(null)
@@ -233,18 +262,42 @@ function toggle(id: string) {
 }
 
 async function fetchRunning() {
-  const { data, error } = await useMyFetch(`/connections/${props.connectionId}/queries`, {
-    method: 'GET', query: { scope: 'running' },
-  })
-  if (error.value) {
-    loadError.value = getErrorMessage(error.value, t('connectionQueries.loadFailed'))
-    return
+  const items: QueryItem[] = []
+  let body: any = {}
+  let offset = 0
+  while (offset < runningShown.value) {
+    const limit = Math.min(RUNNING_FETCH_MAX, runningShown.value - offset)
+    const { data, error } = await useMyFetch(`/connections/${props.connectionId}/queries`, {
+      method: 'GET', query: { scope: 'running', limit, offset },
+    })
+    if (error.value) {
+      loadError.value = loadFailure(error.value)
+      return
+    }
+    body = data.value || {}
+    items.push(...(body.items || []))
+    offset += limit
+    if (!body.has_more) break
   }
   loadError.value = ''
-  const body: any = data.value || {}
+  loaded.value = true
   summary.value = body.summary || summary.value
-  running.value = body.items || []
+  running.value = items
+  runningHasMore.value = !!body.has_more
   if (confirming.value && !running.value.some(q => q.id === confirming.value)) confirming.value = null
+}
+
+// A 404 that is not one of our typed errors means the route itself is missing:
+// the server predates the Queries view (frontend and backend out of step).
+function loadFailure(err: any): string {
+  const status = err?.statusCode ?? err?.status ?? err?.response?.status
+  if (status === 404 && !getErrorCode(err)) return t('connectionQueries.unavailableOutdated')
+  return getErrorMessage(err, t('connectionQueries.loadFailed'))
+}
+
+function loadMoreRunning() {
+  runningShown.value += RUNNING_PAGE
+  fetchRunning()
 }
 
 async function fetchHistory(reset = true) {
@@ -256,10 +309,11 @@ async function fetchHistory(reset = true) {
     if (search.value.trim()) query.search = search.value.trim()
     const { data, error } = await useMyFetch(`/connections/${props.connectionId}/queries`, { method: 'GET', query })
     if (error.value) {
-      loadError.value = getErrorMessage(error.value, t('connectionQueries.loadFailed'))
+      loadError.value = loadFailure(error.value)
       return
     }
     const body: any = data.value || {}
+    historyLoaded.value = true
     history.value = reset ? (body.items || []) : [...history.value, ...(body.items || [])]
     historyTotal.value = body.total || 0
     historyHasMore.value = !!body.has_more

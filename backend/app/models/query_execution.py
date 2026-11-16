@@ -1,5 +1,6 @@
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Index, Integer, String
 
+from app.ee.encryption import EncryptedText
 from app.models.base import BaseSchema
 
 
@@ -53,7 +54,11 @@ class QueryExecution(BaseSchema):
     source = Column(String(64), nullable=True)
     client_type = Column(String(64), nullable=True)
 
-    query_text = Column(Text, nullable=True)
+    # The rendered query carries the literal values it ran with (parameters,
+    # filters), and a source error often quotes them: both are analytical
+    # payload, encrypted at rest when data_encryption is on, like
+    # Step.applied_params and Entity.code. The DDL stays plain TEXT.
+    query_text = Column(EncryptedText, nullable=True)
     query_truncated = Column(Integer, nullable=False, default=0)
 
     # queued | running | success | error | timeout | busy | cancelled | stale
@@ -64,7 +69,7 @@ class QueryExecution(BaseSchema):
     queued_ms = Column(Float, nullable=True)
     duration_ms = Column(Float, nullable=True)
     rows = Column(Integer, nullable=True)
-    error = Column(Text, nullable=True)
+    error = Column(EncryptedText, nullable=True)
     cancel_outcome = Column(String(255), nullable=True)
 
     # Retry chain: the tool call's attempt, the code attempt inside it, and the
@@ -72,6 +77,10 @@ class QueryExecution(BaseSchema):
     tool_attempt = Column(Integer, nullable=True)
     code_attempt = Column(Integer, nullable=True)
     seq = Column(Integer, nullable=True)
+
+    # 0 for clients that enforce their own deadline (``_manages_query_deadline``):
+    # BOW cannot interrupt their call in flight, so a kill is refused.
+    killable = Column(Integer, nullable=False, default=1)
 
     worker_id = Column(String(128), nullable=True)
     lease_expires_at = Column(DateTime, nullable=True)

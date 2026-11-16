@@ -1353,6 +1353,7 @@
       "generationStopped": "تم إيقاف التوليد",
       "code": "الكود",
       "waitingForSlot": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل",
+      "waitingForSlotAhead": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل · {ahead} قبلك",
       "waitingForSlotShort": "في انتظار دور على {connection}",
       "theConnection": "الاتصال"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "عناوين المواقع هذه غير صالحة: {origins}. استخدم عنوان https بدون مسار، مثل https://portal.example.com.",
     "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى.",
     "connection.query_not_found": "الاستعلام غير موجود على هذا الاتصال.",
-    "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status})."
+    "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status}).",
+    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "يتحدّث كل ثانيتين",
     "refresh": "تحديث",
     "loadFailed": "تعذّر تحميل الاستعلامات",
+    "unavailableTitle": "تعذّر تحميل استعلامات هذا الاتصال",
+    "unavailableOutdated": "لا يتضمن هذا الخادم عرض الاستعلامات بعد. على الأرجح يعمل بإصدار من Bag of Words أقدم من هذه الصفحة؛ حدّث الخادم وحاول مرة أخرى.",
     "runningTitle": "قيد التشغيل الآن",
     "noneRunning": "لا توجد استعلامات قيد التشغيل على هذا الاتصال.",
     "waitingFor": "في الانتظار منذ {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "إيقاف هذا الاستعلام؟",
     "kill": "إيقاف",
     "killFailed": "تعذّر إيقاف الاستعلام",
+    "notKillable": "لا يمكن إيقافه من هنا",
+    "notKillableHint": "يفرض عميل هذا الاتصال مهلة خاصة به، لذا لا يستطيع BOW مقاطعته. سينتهي الاستعلام من تلقاء نفسه.",
     "historyTitle": "السجل",
     "filterAll": "كل الحالات",
     "searchPlaceholder": "ابحث في نص الاستعلام",

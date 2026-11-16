@@ -133,6 +133,7 @@ class ErrorCode(str, Enum):
     # Connection Queries view (query_executions)
     CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"
     CONNECTION_QUERY_FINISHED = "connection.query_finished"
+    CONNECTION_QUERY_NOT_KILLABLE = "connection.query_not_killable"
     TABLE_PREVIEW_UNSUPPORTED = "connection.table_preview_unsupported"
     TABLE_PREVIEW_FAILED = "connection.table_preview_failed"
     USER_NOT_FOUND = "user.not_found"

@@ -1353,6 +1353,7 @@
       "generationStopped": "Geração interrompida",
       "code": "Código",
       "waitingForSlot": "Aguardando vez em {connection} · {running}/{limit} em execução",
+      "waitingForSlotAhead": "Aguardando vaga em {connection} · {running}/{limit} em execução · {ahead} à frente",
       "waitingForSlotShort": "Aguardando vez em {connection}",
       "theConnection": "a conexão"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "Estes endereços de site não são válidos: {origins}. Use um endereço https sem caminho, por exemplo https://portal.example.com.",
     "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites.",
     "connection.query_not_found": "Consulta não encontrada nesta conexão.",
-    "connection.query_finished": "Esta consulta já terminou ({status})."
+    "connection.query_finished": "Esta consulta já terminou ({status}).",
+    "connection.query_not_killable": "Esta consulta não pode ser parada pelo BOW: o cliente dela impõe o próprio limite de tempo."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "Atualiza a cada 2 segundos",
     "refresh": "Atualizar",
     "loadFailed": "Não foi possível carregar as consultas",
+    "unavailableTitle": "Não foi possível carregar as consultas desta conexão",
+    "unavailableOutdated": "Este servidor ainda não tem a visualização de Consultas. Provavelmente executa uma versão do Bag of Words mais antiga que esta página; atualize o servidor e tente novamente.",
     "runningTitle": "Em execução",
     "noneRunning": "Nenhuma consulta está em execução nesta conexão.",
     "waitingFor": "aguardando há {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "Parar esta consulta?",
     "kill": "Parar",
     "killFailed": "Não foi possível parar a consulta",
+    "notKillable": "Não é possível parar aqui",
+    "notKillableHint": "O cliente desta conexão impõe o próprio limite de tempo, então o BOW não pode interrompê-lo. A consulta termina sozinha.",
     "historyTitle": "Histórico",
     "filterAll": "Todos os status",
     "searchPlaceholder": "Pesquisar no texto da consulta",

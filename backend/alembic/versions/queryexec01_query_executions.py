@@ -21,7 +21,7 @@ depends_on = None
 
 
 def _has_table() -> bool:
-    return "query_executions" in sa.inspect(op.get_bind()).get_table_names()
+    return sa.inspect(op.get_bind()).has_table("query_executions")
 
 
 def upgrade() -> None:
@@ -58,6 +58,7 @@ def upgrade() -> None:
         sa.Column("tool_attempt", sa.Integer(), nullable=True),
         sa.Column("code_attempt", sa.Integer(), nullable=True),
         sa.Column("seq", sa.Integer(), nullable=True),
+        sa.Column("killable", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("worker_id", sa.String(length=128), nullable=True),
         sa.Column("lease_expires_at", sa.DateTime(), nullable=True),
         sa.Column("kill_requested_at", sa.DateTime(), nullable=True),

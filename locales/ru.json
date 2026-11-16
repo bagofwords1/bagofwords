@@ -1353,6 +1353,7 @@
       "generationStopped": "Генерация остановлена",
       "code": "Код",
       "waitingForSlot": "Ждёт свободного места в {connection} · выполняется {running}/{limit}",
+      "waitingForSlotAhead": "Ожидание свободного места в {connection} · выполняется {running}/{limit} · впереди {ahead}",
       "waitingForSlotShort": "Ждёт свободного места в {connection}",
       "theConnection": "подключении"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "Недопустимые адреса сайтов: {origins}. Используйте адрес https без пути, например https://portal.example.com.",
     "frame_ancestors.too_many": "Можно указать не более {max} сайтов.",
     "connection.query_not_found": "Запрос не найден в этом подключении.",
-    "connection.query_finished": "Этот запрос уже завершён ({status})."
+    "connection.query_finished": "Этот запрос уже завершён ({status}).",
+    "connection.query_not_killable": "Этот запрос нельзя остановить из BOW: его клиент сам ограничивает время выполнения."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "Обновляется каждые 2 секунды",
     "refresh": "Обновить",
     "loadFailed": "Не удалось загрузить запросы",
+    "unavailableTitle": "Не удалось загрузить запросы этого подключения",
+    "unavailableOutdated": "На этом сервере ещё нет раздела «Запросы». Вероятно, на нём работает более старая версия Bag of Words, чем эта страница; обновите сервер и повторите попытку.",
     "runningTitle": "Выполняется сейчас",
     "noneRunning": "Для этого подключения сейчас ничего не выполняется.",
     "waitingFor": "ждёт {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "Остановить этот запрос?",
     "kill": "Остановить",
     "killFailed": "Не удалось остановить запрос",
+    "notKillable": "Нельзя остановить здесь",
+    "notKillableHint": "Клиент этого подключения сам ограничивает время выполнения, поэтому BOW не может его прервать. Запрос завершится сам.",
     "historyTitle": "История",
     "filterAll": "Все статусы",
     "searchPlaceholder": "Поиск по тексту запроса",

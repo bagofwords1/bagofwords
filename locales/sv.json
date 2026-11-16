@@ -1353,6 +1353,7 @@
       "generationStopped": "Genereringen stoppad",
       "code": "Kod",
       "waitingForSlot": "Väntar på plats i {connection} · {running}/{limit} körs",
+      "waitingForSlotAhead": "Väntar på plats i {connection} · {running}/{limit} körs · {ahead} före",
       "waitingForSlotShort": "Väntar på plats i {connection}",
       "theConnection": "anslutningen"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "De här webbplatsadresserna är inte giltiga: {origins}. Använd en https-adress utan sökväg, till exempel https://portal.example.com.",
     "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser.",
     "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
-    "connection.query_finished": "Frågan är redan avslutad ({status})."
+    "connection.query_finished": "Frågan är redan avslutad ({status}).",
+    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "Uppdateras varannan sekund",
     "refresh": "Uppdatera",
     "loadFailed": "Det gick inte att läsa in frågorna",
+    "unavailableTitle": "Det gick inte att läsa in anslutningens frågor",
+    "unavailableOutdated": "Den här servern har inte vyn Frågor än. Den kör troligen en äldre version av Bag of Words än den här sidan; uppdatera servern och försök igen.",
     "runningTitle": "Körs nu",
     "noneRunning": "Inga frågor körs mot den här anslutningen.",
     "waitingFor": "väntar {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "Stoppa den här frågan?",
     "kill": "Stoppa",
     "killFailed": "Det gick inte att stoppa frågan",
+    "notKillable": "Kan inte stoppas här",
+    "notKillableHint": "Anslutningens klient har en egen tidsgräns, så BOW kan inte avbryta den. Frågan avslutas av sig själv.",
     "historyTitle": "Historik",
     "filterAll": "Alla statusar",
     "searchPlaceholder": "Sök i frågetexten",

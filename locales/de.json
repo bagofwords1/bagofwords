@@ -1353,6 +1353,7 @@
       "generationStopped": "Generierung gestoppt",
       "code": "Code",
       "waitingForSlot": "Wartet auf einen freien Platz in {connection} · {running}/{limit} laufen",
+      "waitingForSlotAhead": "Warte auf einen freien Platz in {connection} · {running}/{limit} laufen · {ahead} davor",
       "waitingForSlotShort": "Wartet auf einen freien Platz in {connection}",
       "theConnection": "der Verbindung"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "Diese Website-Adressen sind ungültig: {origins}. Verwenden Sie eine https-Adresse ohne Pfad, zum Beispiel https://portal.example.com.",
     "frame_ancestors.too_many": "Sie können höchstens {max} Websites angeben.",
     "connection.query_not_found": "Abfrage auf dieser Verbindung nicht gefunden.",
-    "connection.query_finished": "Diese Abfrage ist bereits beendet ({status})."
+    "connection.query_finished": "Diese Abfrage ist bereits beendet ({status}).",
+    "connection.query_not_killable": "Diese Abfrage kann nicht aus BOW gestoppt werden: Ihr Client setzt ein eigenes Zeitlimit durch."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "Aktualisiert sich alle 2 Sekunden",
     "refresh": "Aktualisieren",
     "loadFailed": "Abfragen konnten nicht geladen werden",
+    "unavailableTitle": "Die Abfragen dieser Verbindung konnten nicht geladen werden",
+    "unavailableOutdated": "Dieser Server hat die Abfragen-Ansicht noch nicht. Vermutlich läuft dort eine ältere Version von Bag of Words als diese Seite; aktualisieren Sie den Server und versuchen Sie es erneut.",
     "runningTitle": "Laufen gerade",
     "noneRunning": "Auf dieser Verbindung laufen keine Abfragen.",
     "waitingFor": "wartet seit {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "Diese Abfrage stoppen?",
     "kill": "Stoppen",
     "killFailed": "Die Abfrage konnte nicht gestoppt werden",
+    "notKillable": "Hier nicht stoppbar",
+    "notKillableHint": "Der Client dieser Verbindung setzt ein eigenes Zeitlimit durch, daher kann BOW ihn nicht unterbrechen. Die Abfrage endet von selbst.",
     "historyTitle": "Verlauf",
     "filterAll": "Alle Status",
     "searchPlaceholder": "Abfragetext durchsuchen",

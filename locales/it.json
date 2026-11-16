@@ -1353,6 +1353,7 @@
       "generationStopped": "Generazione interrotta",
       "code": "Codice",
       "waitingForSlot": "In attesa del turno su {connection} · {running}/{limit} in esecuzione",
+      "waitingForSlotAhead": "In attesa di un posto su {connection} · {running}/{limit} in esecuzione · {ahead} prima",
       "waitingForSlotShort": "In attesa del turno su {connection}",
       "theConnection": "la connessione"
     },
@@ -4589,7 +4590,8 @@
     "frame_ancestors.invalid": "Questi indirizzi di sito non sono validi: {origins}. Usa un indirizzo https senza percorso, ad esempio https://portal.example.com.",
     "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
     "connection.query_not_found": "Query non trovata su questa connessione.",
-    "connection.query_finished": "Questa query è già terminata ({status})."
+    "connection.query_finished": "Questa query è già terminata ({status}).",
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo."
   },
   "email": {
     "dashboardShare": {
@@ -7342,6 +7344,8 @@
     "liveHint": "Si aggiorna ogni 2 secondi",
     "refresh": "Aggiorna",
     "loadFailed": "Impossibile caricare le query",
+    "unavailableTitle": "Impossibile caricare le query di questa connessione",
+    "unavailableOutdated": "Questo server non ha ancora la vista Query. Probabilmente esegue una versione di Bag of Words più vecchia di questa pagina; aggiorna il server e riprova.",
     "runningTitle": "In esecuzione",
     "noneRunning": "Nessuna query in esecuzione su questa connessione.",
     "waitingFor": "in attesa da {time}",
@@ -7350,6 +7354,8 @@
     "killConfirm": "Fermare questa query?",
     "kill": "Ferma",
     "killFailed": "Impossibile fermare la query",
+    "notKillable": "Non si può fermare qui",
+    "notKillableHint": "Il client di questa connessione applica un proprio limite di tempo, quindi BOW non può interromperlo. La query terminerà da sola.",
     "historyTitle": "Cronologia",
     "filterAll": "Tutti gli stati",
     "searchPlaceholder": "Cerca nel testo della query",
