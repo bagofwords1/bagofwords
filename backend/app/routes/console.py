@@ -336,12 +336,3 @@ async def diagnosis_fields(
 ):
     """The field registry: powers the filter builder, suggestions and syntax help."""
     return diagnosis_service.fields()
-
-
-@router.get("/console/folder-activity")
-async def folder_activity(start: Optional[datetime] = None, end: Optional[datetime] = None,
-                          organization: Organization = Depends(get_current_organization),
-                          current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db),
-                          scope: ConsoleScope = Depends(console_identity)):
-    from app.services.folder_monitoring import activity
-    return await activity(db, organization, current_user, scope.data_source_ids, start, end)

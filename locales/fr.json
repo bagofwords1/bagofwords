@@ -7273,8 +7273,6 @@
   },
   "sharedFolders": {
     "viewFolder": "Voir le dossier",
-    "activity": "Activité du dossier",
-    "viewTrace": "Voir la trace",
     "attach": "Associer un élément",
     "addCase": "Ajouter un cas",
     "sameAccess": "Access stays the same.",
