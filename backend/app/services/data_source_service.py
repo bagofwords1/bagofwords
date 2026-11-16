@@ -780,9 +780,15 @@ class DataSourceService:
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
             # Save-time guards (the validation above is skipped for user_required).
-            from app.services.connection_service import _check_network_dir_root, _reject_unsafe_google_keys, _validate_connection_config
+            from app.services.connection_service import (
+                _check_network_dir_root,
+                _check_pg_schemas,
+                _reject_unsafe_google_keys,
+                _validate_connection_config,
+            )
             _check_network_dir_root(ds_type, config)
             _validate_connection_config(ds_type, config)
+            _check_pg_schemas(ds_type, config, credentials)
             _reject_unsafe_google_keys(credentials)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
 
@@ -2643,11 +2649,13 @@ class DataSourceService:
             # transport guards the connect itself, rebinding included).
             from app.services.connection_service import (
                 _check_network_dir_root,
+                _check_pg_schemas,
                 _check_tool_provider_url,
                 _reject_unsafe_google_keys,
                 _validate_connection_config,
             )
             _validate_connection_config(data_source_type, config)
+            _check_pg_schemas(data_source_type, config, credentials)
             try:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
@@ -2825,7 +2833,9 @@ class DataSourceService:
         # Overlay variants (e.g. Qlik on-prem "identity") carry only the user's
         # identity fields — the connection's system credentials supply the rest.
         from app.schemas.data_source_registry import overlay_system_credentials
-        return overlay_system_credentials(conn, row.decrypt_credentials() or {}, row.auth_mode)
+        from app.services.user_data_source_credentials_service import applied_member_credentials
+        return overlay_system_credentials(
+            conn, applied_member_credentials(conn.type, row.auth_mode, row.decrypt_credentials()), row.auth_mode)
 
     async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
         """
@@ -3501,8 +3511,11 @@ class DataSourceService:
                     # Overlay variants merge over the connection's system
                     # credentials instead of replacing them.
                     from app.schemas.data_source_registry import overlay_system_credentials
+                    from app.services.user_data_source_credentials_service import applied_member_credentials
                     return overlay_system_credentials(
-                        connection, row.decrypt_credentials() or {}, row.auth_mode
+                        connection,
+                        applied_member_credentials(connection.type, row.auth_mode, row.decrypt_credentials()),
+                        row.auth_mode,
                     )
             except Exception:
                 pass

@@ -80,20 +80,51 @@ def _plain_name(item: str) -> bool:
     return all(_name_char(c, _ASCII_NAME_REST) for c in item[1:])
 
 
+def schema_items(schema) -> List[str]:
+    """The connection's `schema` setting as the client reads it: split on
+    commas, trimmed, empty and repeated items dropped, case kept."""
+    items: List[str] = []
+    if isinstance(schema, str):
+        for item in (s.strip() for s in schema.split(",")):
+            if item and item not in items:
+                items.append(item)
+    return items
+
+
+def schema_item_problem(item: str) -> Optional[str]:
+    """None when `checked_search_path` accepts `item`, else the kind of rule
+    it breaks, for reports that must not show the item itself."""
+    if (_QUOTED_NAME.fullmatch(item) or _QUOTED_TEXT.fullmatch(item) or _DIGITS.fullmatch(item)
+            or _plain_name(item)):
+        return None
+    if ";" in item:
+        return "semicolon"
+    if "--" in item or "/*" in item:
+        return "comment"
+    if "\\" in item:
+        return "backslash"
+    if any(unicodedata.category(c) == "Cc" for c in item):
+        return "control character"
+    if any(c.isspace() or unicodedata.category(c) == "Cf" for c in item):
+        return "whitespace or format character"
+    if item[:1] in ("'", '"') or item[:3].upper() == 'U&"':
+        return "unbalanced quotes"
+    return "unquoted punctuation"
+
+
 def checked_search_path(schemas: List[str]) -> str:
     """The `search_path` value for the configured schema items, each as
     written, or `ValueError` naming the setting (never its value) when an
     item is none of: a double-quoted name (`"..."`, `U&"..."`), a
     single-quoted string, digits, or a plain name. Nothing is quoted or
-    lower-cased here: the server reads each item as it always has.
+    lower-cased here: the server reads each item as it always has. The
+    same rule is applied when a connection is saved.
 
     Some items the server accepts are refused all the same: a tab or other
     control character inside quotes, a backslash inside single quotes, and
     numbers that are not plain digits (`1.5`, `-1`)."""
-    for item in schemas:
-        if not (_QUOTED_NAME.fullmatch(item) or _QUOTED_TEXT.fullmatch(item) or _DIGITS.fullmatch(item)
-                or _plain_name(item)):
-            raise ValueError(_SCHEMA_RULE)
+    if any(schema_item_problem(item) for item in schemas):
+        raise ValueError(_SCHEMA_RULE)
     return ", ".join(schemas)
 
 
@@ -198,16 +229,8 @@ class PostgresqlClient(DataSourceClient):
         self.sslmode = sslmode
         # Optional schema or comma-separated list of schemas
         self.schema = schema
-        self._schemas = []
-        if isinstance(self.schema, str) and self.schema.strip():
-            parts = [s.strip() for s in self.schema.split(",") if s.strip()]
-            # Dedupe while preserving order
-            seen = set()
-            for p in parts:
-                low = p  # keep case as provided; Postgres lowercases unquoted names
-                if low not in seen:
-                    seen.add(low)
-                    self._schemas.append(low)
+        # Case kept as provided; Postgres lowercases unquoted names.
+        self._schemas = schema_items(self.schema)
 
     def _system_schema_filter(self, column: str) -> List[str]:
         """WHERE clauses that hide system schemas, or none when they are opted in."""
@@ -239,6 +262,15 @@ class PostgresqlClient(DataSourceClient):
         default: on checkin the connection returns to the session default
         (engine_pool), so the next user's plain transaction starts the way
         the server's own default says, on a read replica too.
+
+        The schema setting is sent as written and the schema rule
+        (`checked_search_path`) is not applied here, as before the rule
+        existed: indexing, discovery and the connection test use this path,
+        and a setting saved before the rule must keep working for them until
+        someone edits it. A new or changed setting is checked when the
+        connection is saved; the agent read applies the rule itself, and
+        scripts/scan_postgres_schema_settings.py lists the saved settings it
+        refuses.
         """
         conn = None
         try:

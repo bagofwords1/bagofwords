@@ -20,7 +20,7 @@ from app.models.connection_table import ConnectionTable, KIND_BOW, KIND_TABLE
 from app.models.connection_tool import ConnectionTool
 from app.models.data_source import DataSource
 from app.dependencies import get_current_organization
-from app.services.connection_service import ConnectionService
+from app.services.connection_service import ConnectionService, _check_pg_schemas, _check_pg_test_overrides
 from app.services.ssh_host_keys import SSHHostKeyRequest, discover_host_keys
 from app.core.permissions_decorator import (
     requires_permission, requires_resource_permission, check_resource_permissions, require_org_permission,
@@ -757,6 +757,9 @@ async def test_connection_params(
     organization: Organization = Depends(get_current_organization),
 ):
     """Test connection parameters before saving. Works for all types including MCP/API."""
+    # Here and not in the service: the service also tests saved configs
+    # (a credential change, a member's identity), which are not re-checked.
+    _check_pg_schemas(data.type, data.config, data.credentials)
     result = await connection_service.test_connection_params(
         data_source_type=data.type,
         config=data.config,
@@ -822,6 +825,10 @@ async def test_connection(
     """Test management credentials independently of the caller's query identity."""
     from app.services.connection_identity import management_requires_user_auth
     connection = await connection_service.get_connection(db, connection_id, organization)
+    if overrides is not None:
+        # The edit form's unsaved values; a saved setting they leave alone
+        # is not re-checked.
+        _check_pg_test_overrides(connection, overrides.config, overrides.credentials)
     result = await connection_service.test_connection(
         db=db,
         connection_id=connection_id,

@@ -122,6 +122,100 @@ def _check_query_tag_label(config) -> None:
         raise AppError.bad_request(ErrorCode.VALIDATION, f"Query tag label {problem}.")
 
 
+def _decoded_config(config) -> dict:
+    """A config as a dict. Saved configs may sit in their JSON column as a
+    JSON string, sometimes encoded twice; an unreadable one reads as {}."""
+    for _ in range(2):
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except ValueError:
+                return {}
+    return config if isinstance(config, dict) else {}
+
+
+def _nonblank(values) -> dict:
+    """The values that override saved ones. A credential edit and a test's
+    overrides are partial: a blank value (None or "") keeps the saved one.
+    The schema check and the client both merge through this."""
+    return {k: v for k, v in (values or {}).items() if v is not None and v != ""}
+
+
+def _is_text(setting) -> bool:
+    return setting is None or isinstance(setting, str)
+
+
+def _pg_schema_refused(reason: str) -> AppError:
+    reason = f"schema: {reason}"
+    return AppError.bad_request(ErrorCode.CONNECTION_CONFIG_INVALID, reason, detail=reason)
+
+
+def _check_pg_schemas(connection_type: str, config, credentials=None, saved: Optional["Connection"] = None) -> None:
+    """Save/test-time guard: a Postgres connection's schema setting must
+    pass the rule the read applies before it sends anything
+    (`postgresql_client.checked_search_path`). The error names the setting,
+    never its value.
+
+    The setting is the one the client gets: the credentials are merged over
+    the config. `credentials` are the submitted ones, and a `schema` among
+    them is refused (it would win over the config, and the credentials are
+    encrypted, out of the pre-release scan's sight). On a new connection any
+    `schema` key is refused, a blank one too: stored, it would win over the
+    config's setting.
+
+    `saved` is the connection being edited, `config` its config after the
+    edit. Its submitted credentials are a partial update (`_nonblank`: a
+    blank value keeps the saved one, so only a non-blank `schema` that
+    differs from the saved one is refused), and the check runs only when the
+    edit changes the setting: the edit form always resends the full config,
+    and a setting saved before this check keeps working until someone edits
+    it (the scan lists those). Saved settings are not re-checked when they
+    load. Saved credentials that cannot be decrypted read as none.
+
+    A setting that is not text (nor None) is refused: the client ignores
+    it."""
+    if connection_type != "postgresql":
+        return
+    from app.data_sources.clients.postgresql_client import checked_search_path, schema_items
+
+    submitted = credentials if isinstance(credentials, dict) else {}
+    saved_credentials = {}
+    if saved is not None:
+        try:
+            saved_credentials = saved.decrypt_credentials() or {}
+        except Exception:
+            saved_credentials = {}
+    changes = _nonblank(submitted)
+    if (saved is None and "schema" in submitted) or (
+            saved is not None and "schema" in changes and changes["schema"] != saved_credentials.get("schema")):
+        raise _pg_schema_refused("the schema setting belongs in the connection settings, not the credentials")
+
+    effective_credentials = submitted if saved is None else {**saved_credentials, **changes}
+    setting = {**_decoded_config(config), **effective_credentials}.get("schema")
+    items = schema_items(setting)
+    if saved is not None:
+        saved_setting = {**_decoded_config(saved.config), **saved_credentials}.get("schema")
+        if setting == saved_setting or (
+                _is_text(setting) and _is_text(saved_setting) and items == schema_items(saved_setting)):
+            return
+    if not _is_text(setting):
+        raise _pg_schema_refused("the schema setting must be text")
+    try:
+        checked_search_path(items)
+    except ValueError as e:
+        raise _pg_schema_refused(str(e))
+
+
+def _check_pg_test_overrides(connection, config_overrides, credential_overrides) -> None:
+    """`_check_pg_schemas` for a test of a saved connection with the edit
+    form's values. The overrides merge as `construct_client` merges them:
+    a non-empty value wins, a blank one keeps the saved value."""
+    if not (config_overrides or credential_overrides):
+        return
+    _check_pg_schemas(connection.type, {**_decoded_config(connection.config), **_nonblank(config_overrides)},
+                      credential_overrides, saved=connection)
+
+
 _GOOGLE_SA_KEYS = ("credentials_json", "service_account_json")
 
 
@@ -607,6 +701,7 @@ class ConnectionService:
         _reject_unsafe_google_keys(credentials)
         _check_network_dir_root(type, config)
         _validate_connection_config(type, config)
+        _check_pg_schemas(type, config, credentials)
         _check_query_tag_label(config)
 
         # Check enterprise license for restricted data sources
@@ -842,6 +937,9 @@ class ConnectionService:
         _reject_unsafe_google_keys(updates.get("credentials"))
         connection = await self.get_connection(db, connection_id, organization)
         _validate_connection_config(connection.type, updates.get("config"))
+        if updates.get("config") is not None or updates.get("credentials"):
+            edited_config = updates["config"] if updates.get("config") is not None else connection.config
+            _check_pg_schemas(connection.type, edited_config, updates.get("credentials"), saved=connection)
         _reject_athena_mode_switch(connection, updates.get("config"))
 
         if "config" in updates or "allowed_user_auth_modes" in updates:
@@ -1005,7 +1103,7 @@ class ConnectionService:
                 # omitted/blank values keep the saved value. Never replace the
                 # entire blob when rotating a single secret or identifier.
                 existing = connection.decrypt_credentials() or {}
-                changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+                changes = _nonblank(new_credentials)
                 if changes:
                     connection.encrypt_credentials({**existing, **changes})
                     connection_changed = True
@@ -2827,17 +2925,13 @@ class ConnectionService:
         config = json.loads(connection.config) if isinstance(connection.config, str) else dict(connection.config or {})
         # Merge config overrides (non-empty values win)
         if config_overrides:
-            for k, v in config_overrides.items():
-                if v is not None and v != "":
-                    config[k] = v
+            config.update(_nonblank(config_overrides))
         logger.info(f"construct_client: Config keys={list(config.keys()) if config else []}")
 
         creds = await self.resolve_credentials(db, connection, current_user)
         # Merge credential overrides (non-empty values win, blank keeps saved)
         if credential_overrides:
-            for k, v in credential_overrides.items():
-                if v is not None and v != "":
-                    creds[k] = v
+            creds.update(_nonblank(credential_overrides))
         logger.info(f"construct_client: Credentials resolved, keys={list(creds.keys()) if creds else []}")
 
         params = {**(config or {}), **(creds or {})}
