@@ -670,7 +670,13 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
 # parser (`duckdb_guard.inspect_duckdb_sql`), which serializes one SELECT
 # only; the reads below are recognised first, on DuckDB's tokens.
 _DUCKDB_LISTING_PRAGMAS = ("show_tables", "show_tables_expanded", "database_list", "version", "platform")
-_DUCKDB_SPACE = frozenset(" \t\n\r\f\v")
+# The characters outside ASCII DuckDB 1.5.4 reads as whitespace (pinned by
+# the dialect tests); it reads U+0085, U+1680, U+2028 and U+2029 as name
+# characters.
+_DUCKDB_UNICODE_SPACES = frozenset(chr(c) for c in (0xA0, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000))
+_DUCKDB_SPACE = frozenset(" \t\n\r\f\v") | _DUCKDB_UNICODE_SPACES
+_DUCKDB_UNREAD = ("The statement could not be read as a SELECT or as one of this connection's reads. "
+                  "Only SELECT queries are allowed.")
 # A word of the reads list. `$`, which DuckDB also reads inside a name, is
 # left out: a name holding one is read as a SELECT instead.
 _DUCKDB_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -700,7 +706,8 @@ class DuckdbRead:
 def _duckdb_tokens(sql: str):
     """The tokens of `sql` as DuckDB reads them, for the few kinds the reads
     list is made of: (kind, value, end) for a word, a "quoted" name, a
-    'string' or one of `( ) . ;`. Whitespace and comments are skipped (block
+    'string' or one of `( ) . ;`. Whitespace (`_DUCKDB_SPACE`, the spaces
+    outside ASCII DuckDB reads included) and comments are skipped (block
     comments nest and a line comment ends at a CR or an LF, as in DuckDB).
     Anything else, an unterminated comment or quote included, yields one
     ("other", "", position) and ends the tokens."""
@@ -773,8 +780,11 @@ def duckdb_read(sql: str) -> Optional[DuckdbRead]:
     EXPLAIN <select>, whose SELECT is the rest of the text after the
     command. Case-insensitive, with comments anywhere and one optional
     trailing `;`. Any other PRAGMA, an assignment included, raises
-    ReadOnlyViolation."""
+    ReadOnlyViolation, and so does text whose start these tokens cannot
+    read."""
     tokens = list(_duckdb_tokens(sql))
+    if tokens and tokens[0][0] == "other":
+        raise ReadOnlyViolation(_DUCKDB_UNREAD)
     if not tokens or tokens[0][0] != "word":
         return None
     verb, after_verb = tokens[0][1].upper(), tokens[0][2]
@@ -823,11 +833,14 @@ def _check_duckdb_statement_words(sql: str) -> None:
     """Refuse DuckDB text whose statements, as DuckDB splits them, start
     with IMPORT or EXPORT, or with a PRAGMA other than the DuckDB
     connections' reads (`duckdb_read`). DuckDB opens the files and addresses
-    the import forms name while it parses them, so they never reach it."""
+    the import forms name while it parses them, so they never reach it. A
+    statement whose start these tokens cannot read is refused too."""
     previous = None
     for i, (kind, value, _end) in enumerate(_duckdb_tokens(sql)):
         starts = i == 0 or previous == ("punct", ";")
         previous = (kind, value)
+        if starts and kind == "other":
+            raise ReadOnlyViolation(_DUCKDB_UNREAD)
         if not starts or kind != "word":
             continue
         verb = value.upper()
@@ -1368,7 +1381,7 @@ _NON_ASCII_SPACE = re.compile("[" + "".join(sorted(_NON_ASCII_SPACES)) + "]")
 # U+1680, U+2028 and U+2029, which it reads as name characters.
 _ENGINE_SPACES = {
     "tsql": _NON_ASCII_SPACES,
-    "duckdb": _NON_ASCII_SPACES - {chr(0x85), chr(0x1680), chr(0x2028), chr(0x2029)},
+    "duckdb": _DUCKDB_UNICODE_SPACES,
 }
 # Dialects whose sqlglot tokenizer nests block comments while the engine
 # may not (Calcite, behind Druid and Dremio, ends a block comment at its

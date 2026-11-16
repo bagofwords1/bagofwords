@@ -394,7 +394,10 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
             connect=lambda *a, **k: Recording(real_connect(*a, **k))))
         client.execute_query(checked)
     assert sent[-1] == checked and sent.count(checked) == 1
-    assert all(s.startswith("CREATE ") for s in sent[:-1])
+    # The views, then the engine lock, then the query.
+    assert all(s.startswith("CREATE ") for s in sent[:-4])
+    assert [s.split("=")[0] for s in sent[-4:-1]] == [
+        "SET python_enable_replacements", "SET enable_external_access", "SET lock_configuration"]
 
 
 @pytest.mark.parametrize("query_options", [None, "timeoutMs=1000"])

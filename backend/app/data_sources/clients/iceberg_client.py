@@ -296,6 +296,7 @@ class IcebergClient(DataSourceClient):
         from sqlglot import exp
 
         from app.ai.code_execution.sql_guard import check_sql
+        from app.data_sources.fast.fast_client import lock_query_session
 
         check_sql(sql, "duckdb")
         tree = sqlglot.parse_one(sql, read="duckdb")
@@ -360,6 +361,9 @@ class IcebergClient(DataSourceClient):
                 con.register(view, arrow)
                 con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"')
                 con.execute(f'CREATE OR REPLACE VIEW "{schema_name}"."{table_name}" AS SELECT * FROM {view}')
+            # Locked before the query runs: no file, URL or extension install
+            # past the views registered above.
+            lock_query_session(con)
             result = con.execute(sql)
             rows = result.fetchmany(MAX_RESULT_ROWS + 1)
             cols = [d[0] for d in result.description]

@@ -286,6 +286,10 @@ class FastQueryClient(DataSourceClient):
         assert_no_blocked_introspection(sql)
         t0 = time.perf_counter()
         with self.connect() as con:
+            # Read on the locked engine, before anything runs.
+            statements = con.extract_statements(sql)
+            if len(statements) != 1 or statements[0].type != duckdb.StatementType.SELECT:
+                raise ValueError("Only one read-only SELECT is supported on accelerated data.")
             df = con.execute(sql).df()
         logger.info(
             "fast.query.done",

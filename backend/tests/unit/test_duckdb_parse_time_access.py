@@ -37,6 +37,7 @@ import pytest
 from app.ai.code_execution.duckdb_guard import inspect_duckdb_sql
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_sql, ensure_read_only
 from tests.unit.test_duckdb_file_lockdown import files  # noqa: F401  (the four file connections)
+from tests.unit.test_lakehouse_clients import _ice, iceberg_catalog  # noqa: F401  (a real Iceberg catalog)
 
 pytestmark = pytest.mark.skipif(not sys.platform.startswith("linux"), reason="inotify is Linux only")
 
@@ -139,7 +140,14 @@ _FORMS = [
     "IMPORT DATABASE '{url}/one'",
     "PRAGMA import_database('{url}/two')",
     "EXPORT DATABASE '{local}/out'",
+    # A leading space outside ASCII that DuckDB reads as whitespace.
+    chr(0xA0) + "PRAGMA import_database('{local}')",
+    chr(0x2000) + "PRAGMA import_database('{url}/three')",
+    chr(0x3000) + "IMPORT DATABASE '{local}'",
 ]
+
+# The code points outside ASCII DuckDB 1.5.4 reads as whitespace.
+_DUCKDB_UNICODE_SPACES = [0xA0, *range(0x2000, 0x200B), 0x202F, 0x205F, 0x3000]
 
 
 def _form(template: str, watched) -> str:
@@ -165,6 +173,34 @@ def test_the_duckdb_text_check_refuses_the_import_and_export_forms(watched, temp
 ])
 def test_the_duckdb_text_check_keeps_the_read_pragmas(sql):
     check_sql(sql, "duckdb")
+
+
+@pytest.mark.parametrize("code_point", _DUCKDB_UNICODE_SPACES, ids=lambda c: f"U+{c:04X}")
+def test_the_duckdb_text_check_reads_each_unicode_space_as_duckdb_does(code_point):
+    assert len(_DUCKDB_UNICODE_SPACES) == 15
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(chr(code_point) + "PRAGMA import_database('/nonexistent/db')", "duckdb")
+    with pytest.raises(ReadOnlyViolation):
+        check_sql("SELECT 1;" + chr(code_point) + "PRAGMA import_database('/nonexistent/db')", "duckdb")
+
+
+def test_a_read_pragma_after_a_unicode_space_is_still_a_read(tmp_path):
+    from app.ai.code_execution.sql_guard import DuckdbRead, duckdb_read
+    from app.data_sources.clients.duckdb_client import DuckDBClient
+
+    sql = chr(0xA0) + "PRAGMA show_tables"
+    assert duckdb_read(sql) == DuckdbRead("PRAGMA")
+    check_sql(sql, "duckdb")
+    (tmp_path / "sales.csv").write_text("id,amount\n1,10\n")
+    ensure_read_only(DuckDBClient(uris=str(tmp_path / "sales.csv")), sql)
+
+
+@pytest.mark.parametrize("sql", ["@x", "1 AS n", chr(0x85) + "PRAGMA show_tables"])
+def test_text_the_reads_list_cannot_read_at_its_start_is_refused(sql):
+    from app.ai.code_execution.sql_guard import duckdb_read
+
+    with pytest.raises(ReadOnlyViolation):
+        duckdb_read(sql)
 
 
 @pytest.mark.parametrize("template", _FORMS)
@@ -235,7 +271,7 @@ def test_the_network_directory_parses_only_on_a_locked_engine(watched, tmp_path,
 def test_the_accelerated_client_refuses_them_on_its_locked_engine(watched, template):
     from app.data_sources.fast.fast_client import FastQueryClient
 
-    with pytest.raises(duckdb.Error):
+    with pytest.raises((duckdb.Error, ValueError)):
         FastQueryClient([]).execute_query(_form(template, watched))
     _nothing_reached(watched)
 
@@ -263,6 +299,33 @@ def test_each_file_connection_refuses_them(watched, files, template):  # noqa: F
     with pytest.raises(ReadOnlyViolation):
         run(_form(template, watched))
     _nothing_reached(watched)
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT excel_text(amount, '0.0') AS t FROM sales.orders",
+    "SELECT CAST('10.0.0.1' AS INET) AS a, region FROM sales.orders",
+    "SELECT stem(region, 'english') AS s FROM sales.orders",
+])
+def test_iceberg_runs_the_query_on_a_locked_engine(watched, iceberg_catalog, tmp_path, monkeypatch, query):  # noqa: F811
+    """A function or type from an extension not loaded is not installed: the
+    engine that runs the query has external access off. The engine here may
+    install extensions from the loopback listener into an empty directory."""
+    connect = duckdb.connect
+
+    def connect_installing(database=":memory:", *args, config=None, **kwargs):
+        config = {**(config or {}), "extension_directory": str(tmp_path / "extensions"),
+                  "custom_extension_repository": watched.url,
+                  "autoinstall_known_extensions": True, "autoload_known_extensions": True}
+        return connect(database, *args, config=config, **kwargs)
+
+    monkeypatch.setattr(duckdb, "connect", connect_installing)
+    client = _ice(iceberg_catalog)
+    with pytest.raises(duckdb.Error):
+        client.execute_query(query)
+    _nothing_reached(watched)
+    assert not (tmp_path / "extensions").exists() or not any((tmp_path / "extensions").rglob("*.duckdb_extension"))
+    df = client.execute_query("SELECT region, COUNT(*) AS n FROM sales.orders GROUP BY region ORDER BY region")
+    assert dict(zip(df.region, df.n, strict=True)) == {"AMER": 30, "APAC": 30, "EMEA": 30}
 
 
 @pytest.mark.parametrize("template", _FORMS)

@@ -585,8 +585,8 @@ _CITED_CALLS = {
     "QVDClient": ("check_duckdb_file_query(",),
     "PBIXClient": ("check_duckdb_file_query(",),
     "PowerBIReportServerClient": ("check_duckdb_file_query(",),
-    "FastQueryClient": ("lock_query_session(con)", "assert_no_blocked_introspection(sql)"),
-    "NetworkDirClient": ("def read_file(", "def execute_query(", "query_tables(self, query)"),
+    "FastQueryClient": ("lock_query_session(con)", "assert_no_blocked_introspection(sql)", "extract_statements(sql)"),
+    "NetworkDirClient": ("def read_file(", "reads_as_statements(query)", "query_tables(self, query)"),
 }
 
 
@@ -677,19 +677,27 @@ def custom_table(tmp_path):
 def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_engine(custom_table, tmp_path):
     assert custom_table.execute_query("SELECT id FROM notes ORDER BY id")["id"].tolist() == [1, 2]
 
+    # Statements other than a SELECT are refused before they run; a SELECT
+    # reading a file outside the session meets the locked engine.
+    refused = "(?i)external access|disabled|permission|one read-only SELECT"
     copied = tmp_path / "copied.csv"
-    with pytest.raises(Exception, match="(?i)external access|disabled|permission"):
+    with pytest.raises(Exception, match=refused):
         custom_table.execute_query(f"COPY (SELECT * FROM notes) TO '{copied}'")
     assert not copied.exists()
 
     other = tmp_path / "other.duckdb"
     duckdb.connect(str(other)).close()
-    with pytest.raises(Exception, match="(?i)external access|disabled|permission"):
+    with pytest.raises(Exception, match=refused):
         custom_table.execute_query(f"ATTACH '{other}' AS other")
+
+    outside = tmp_path / "outside.csv"
+    outside.write_text("id\n7\n")
+    with pytest.raises(Exception, match="(?i)external access|disabled|permission"):
+        custom_table.execute_query(f"SELECT * FROM read_csv('{outside}')")
 
     artifact = Path(custom_table.relations[0].artifact_path)
     before = artifact.read_bytes()
-    with pytest.raises(Exception, match="(?i)external access|disabled|permission"):
+    with pytest.raises(Exception, match=refused):
         custom_table.execute_query(f"COPY (SELECT 1 AS id, 'x' AS v) TO '{artifact}'")
     assert artifact.read_bytes() == before
     assert custom_table.execute_query("SELECT count(*) AS n FROM notes")["n"].tolist() == [2]
