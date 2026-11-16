@@ -14,7 +14,12 @@ Contract, on a real Postgres 15:
 * on a server with `standard_conforming_strings=off` the client switches it
   on for the query (also behind PgBouncer), so a backslash literal holds the
   value the guard read;
-* a query that leaves the setting off does not hand its connection back.
+* a query that leaves the setting off does not hand its connection back;
+* a read on a reused pooled connection costs three statements (four with
+  pinned schemas): no health-check ping unless the connection looks dead or
+  sat idle past the threshold (`BOW_PG_PING_LISTENER=off` gives back the
+  pre-ping's `SELECT 1`); a backend the server ended is replaced without
+  failing the next read.
 
 Needs Docker. CI does not collect tests/integrations; these run on the test
 harness. Without a Docker daemon they skip, or fail when CI is set.
@@ -26,6 +31,7 @@ import logging
 import os
 import sys
 import time
+import uuid
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -33,6 +39,7 @@ import pytest
 
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, UnsafeSQLError
 from app.ai.code_execution.sql_guard import ensure_read_only
+from app.data_sources import engine_pool
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.fast import artifacts, extractor
 from app.data_sources.fast.sources import source_for
@@ -142,6 +149,7 @@ def _wait_for(settings: dict, sql: str, expected) -> None:
 def logged_server():
     """Logs every statement it receives."""
     with _postgres("-c log_statement=all") as settings:
+        _admin(settings, "CREATE TABLE scratch (v text)")
         yield settings
 
 
@@ -441,18 +449,7 @@ def test_a_plain_connection_after_a_read_starts_a_plain_transaction(logged_serve
     with client.connect() as conn:
         assert conn.exec_driver_sql(plain).scalar() == pid
     assert _backend_log(logged_server, pid, "plain-1", "plain-2") == [
-        read, "ROLLBACK", "SELECT 1", "BEGIN", plain, "ROLLBACK"]
-
-
-@pytest.mark.parametrize("schema,setup", [(None, []), ("public", ["SET search_path TO public"])])
-def test_a_read_on_a_reused_connection_sends_ping_begin_query_rollback(logged_server, schema, setup):
-    client = _client(logged_server, schema=schema)
-    first = f"SELECT 'reuse-1-{schema}' AS m"
-    client.execute_query(first)
-    second = f"SELECT pg_backend_pid() AS pid, 'reuse-2-{schema}' AS m"
-    pid = int(client.execute_query(second)["pid"].iloc[0])
-    log = _backend_log(logged_server, pid, f"reuse-1-{schema}", f"reuse-2-{schema}")
-    assert log[log.index("ROLLBACK") + 1:] == ["SELECT 1", "BEGIN READ ONLY", *setup, second, "ROLLBACK"]
+        read, "ROLLBACK", "BEGIN", plain, "ROLLBACK"]
 
 
 def test_fast_preview_and_estimate_hold_a_backslash_literal_to_its_value(scs_off_server):
@@ -494,3 +491,76 @@ def test_a_full_extract_streams_every_row_through_a_cursor_inside_the_read_only_
         con.close()
     assert (count, ro_values, cursors) == (2500, ["on"], [1])
     assert _discovery_backend(client)[:3] == (pids[0], "off", "off")
+
+
+# --------------------------------------------------------------- round trips on a reused pooled connection
+
+@pytest.fixture
+def fresh_pool():
+    """The switches are read when an engine is built: each test using this
+    starts from an empty engine cache and leaves it empty."""
+    engine_pool.dispose_all()
+    yield
+    engine_pool.dispose_all()
+
+
+@pytest.mark.parametrize("env,ping", [
+    ({}, []),
+    ({"BOW_PG_IDLE_PING_S": "0"}, ["SELECT 1"]),
+    ({"BOW_PG_PING_LISTENER": "off"}, ["SELECT 1"]),
+], ids=["listener", "idle-ping", "switch-off"])
+@pytest.mark.parametrize("schema,setup", [(None, []), ("public", ["SET search_path TO public"])],
+                         ids=["no-schema", "pinned-schema"])
+def test_a_read_on_a_reused_connection_sends_begin_query_rollback(logged_server, fresh_pool, monkeypatch,
+                                                                  env, ping, schema, setup):
+    """Three statements (four with pinned schemas). The ping listener adds a
+    `SELECT 1` only past the idle threshold; the switch off gives back the
+    pre-ping's `SELECT 1` on every reuse."""
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    client = _client(logged_server, schema=schema)
+    tag = uuid.uuid4().hex[:12]
+    client.execute_query(f"SELECT 'reuse-1-{tag}' AS m")
+    second = f"SELECT pg_backend_pid() AS pid, 'reuse-2-{tag}' AS m"
+    pid = int(client.execute_query(second)["pid"].iloc[0])
+    log = _backend_log(logged_server, pid, f"reuse-1-{tag}", f"reuse-2-{tag}")
+    assert log[log.index("ROLLBACK") + 1:] == [*ping, "BEGIN READ ONLY", *setup, second, "ROLLBACK"]
+
+
+def _end_backend(settings: dict, pid: int) -> None:
+    _admin(settings, f"SELECT pg_terminate_backend({pid})")
+    deadline = time.monotonic() + 10
+    while _admin(settings, f"SELECT count(*) FROM pg_stat_activity WHERE pid = {pid}") != [(0,)]:
+        assert time.monotonic() < deadline, "the backend did not end"
+        time.sleep(0.1)
+
+
+def test_a_pooled_backend_the_server_ended_is_replaced_for_a_read_and_a_streamed_read(logged_server, fresh_pool):
+    client = _client(logged_server)
+    pid = int(client.execute_query("SELECT pg_backend_pid() AS pid")["pid"].iloc[0])
+    _end_backend(logged_server, pid)
+    df = client.execute_query("SELECT 7 AS n, pg_backend_pid() AS pid")
+    assert int(df["n"].iloc[0]) == 7
+    replacement = int(df["pid"].iloc[0])
+    assert replacement != pid
+    _end_backend(logged_server, replacement)
+    _cols, rows = source_for(client).preview("SELECT g AS n FROM generate_series(1, 3) g", 5)
+    assert rows == [[1], [2], [3]]
+
+
+def test_a_plain_connect_after_a_read_can_write_on_the_same_backend(logged_server, fresh_pool):
+    client = _client(logged_server)
+    pid = int(client.execute_query("SELECT pg_backend_pid() AS pid")["pid"].iloc[0])
+    tag = uuid.uuid4().hex[:12]
+    with client.connect() as conn:
+        assert conn.exec_driver_sql("SELECT pg_backend_pid()").scalar() == pid
+        conn.exec_driver_sql(f"INSERT INTO scratch VALUES ('{tag}')")
+        conn.commit()
+    assert _admin(logged_server, f"SELECT count(*) FROM scratch WHERE v = '{tag}'") == [(1,)]
+
+
+def test_a_reused_read_behind_pgbouncer_is_still_right(bouncer, fresh_pool):
+    client = _client(bouncer)
+    for _ in range(2):
+        df = client.execute_query(BACKSLASH_SQL)
+        assert df.to_dict("records") == [{"v": BACKSLASH_VALUE, "scs": "on"}]

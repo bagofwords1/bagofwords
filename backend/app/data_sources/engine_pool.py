@@ -23,6 +23,29 @@ Correctness notes:
   * ``pool_pre_ping`` — sources here really do go away (restarts, failovers), and
     a pooled connection that died in the pool must be detected rather than handed
     out mid-query.
+  * Postgres (psycopg2) engines replace ``pool_pre_ping`` with a checkout
+    listener, because the pre-ping is one ``SELECT 1`` round trip on every
+    query. The listener pings (with the dialect's own ping) only a pooled
+    connection whose socket is readable — a backend the server ended has
+    already sent its goodbye — or one that sat in the pool longer than
+    ``BOW_PG_IDLE_PING_S`` (default 120 s), which covers links dropped quietly
+    by a firewall. Readable is not always dead (a pending notification is
+    readable too), so it pings rather than discarding. The readable check
+    uses ``select.poll``, which is POSIX-only (the product runs on Linux),
+    and counts a connection with no usable descriptor as readable. A
+    brand-new connection is not pinged, as with pre-ping, and a disconnect
+    raises the error the pre-ping raises, so the pool flushes its older
+    connections and retries the same way. At checkin the listener stamps
+    the time.
+    ``BOW_PG_PING_LISTENER=off`` gives Postgres engines the plain pre-ping
+    and no ping listeners (the read-only reset below stays). Both settings
+    are read when an engine is built. One case is weaker than pre-ping: a
+    peer that vanishes without a FIN or RST (a host crash, a failover that
+    moves the address, a firewall that drops the link) within the idle
+    window leaves a socket that is not readable, so one query fails after
+    the TCP timeout where pre-ping would have retried it. libpq TCP
+    keepalives in ``connect_args`` (``keepalives_idle`` and friends) would
+    shorten that wait; they are not set here.
   * ``pool_recycle`` — many DBAs set an idle-session timeout; recycling below it
     avoids handing out a connection the server already closed.
   * The cache key includes credentials via the URI, so rotating a password
@@ -47,6 +70,7 @@ Correctness notes:
 
 import logging
 import os
+import select
 import threading
 import time
 from collections import OrderedDict
@@ -56,6 +80,7 @@ from typing import Any, Callable, Dict, Iterator, Optional, Tuple
 
 import sqlalchemy
 import sqlalchemy.event
+from sqlalchemy import exc as sa_exc
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +127,14 @@ _REAPER_INTERVAL_S = 60
 # ``pool_recycle`` pass through untouched.
 _QUEUEPOOL_ONLY_KWARGS = ("pool_size", "max_overflow", "pool_timeout", "pool_use_lifo")
 
+# Postgres engines ping a pooled connection that sat idle longer than this
+# (see the module docstring). Well under typical load-balancer and NAT idle
+# timeouts, and under the reaper's TTL. Env, read when an engine is built:
+# ``BOW_PG_IDLE_PING_S`` (seconds) overrides it; ``BOW_PG_PING_LISTENER=off``
+# (or 0/false/no) drops the listener and gives Postgres the plain pre-ping.
+DEFAULT_PG_IDLE_PING_S = 120.0
+_PG_CHECKIN_AT = "bow_pg_checkin_at"
+
 _lock = threading.Lock()
 _engines: "OrderedDict[Tuple, sqlalchemy.engine.Engine]" = OrderedDict()
 # Monotonic timestamp of each engine's last get_engine() hit, for the reaper.
@@ -123,6 +156,82 @@ def idle_ttl_s() -> float:
         return float(os.environ.get("BOW_ENGINE_IDLE_TTL", DEFAULT_IDLE_TTL_S))
     except (TypeError, ValueError):
         return float(DEFAULT_IDLE_TTL_S)
+
+
+def _pg_idle_ping_s(uri: Any) -> Optional[float]:
+    """The idle threshold when `uri`'s engine gets the ping listener, else None.
+
+    Decided here from the URL rather than by the caller: the cache key ignores
+    keyword arguments, so a caller-passed choice could land on an engine
+    built with the other one.
+    """
+    if os.environ.get("BOW_PG_PING_LISTENER", "on").strip().lower() in ("off", "0", "false", "no"):
+        return None
+    try:
+        url = sqlalchemy.engine.make_url(uri)
+        if url.get_backend_name() != "postgresql" or url.get_driver_name() != "psycopg2":
+            return None
+    except Exception:
+        return None  # create_engine reports a bad URL
+    try:
+        return float(os.environ.get("BOW_PG_IDLE_PING_S", DEFAULT_PG_IDLE_PING_S))
+    except (TypeError, ValueError):
+        return DEFAULT_PG_IDLE_PING_S
+
+
+def _readable(dbapi_connection: Any) -> bool:
+    """Whether the connection's socket has something to read, or is gone.
+
+    ``select.poll`` rather than ``select.select``, which fails on file
+    descriptors above 1024. ``select.poll`` is POSIX-only; the product runs
+    on Linux. With no usable descriptor (``fileno()`` fails or gives -1, or
+    ``poll`` refuses it) the answer is "readable", so the ping decides.
+    """
+    try:
+        fd = dbapi_connection.fileno()
+        if fd < 0:
+            return True
+        poller = select.poll()
+        poller.register(fd, select.POLLIN | select.POLLPRI)
+        return bool(poller.poll(0))
+    except Exception:
+        return True
+
+
+class _PingWhenNeeded:
+    """The Postgres checkout/checkin listeners (see the module docstring)."""
+
+    def __init__(self, dialect: Any, idle_s: float, clock: Callable[[], float] = time.monotonic):
+        self._dialect = dialect
+        self._idle_s = idle_s
+        self._clock = clock
+
+    def checkout(self, dbapi_connection: Any, connection_record: Any, connection_proxy: Any) -> None:
+        checked_in_at = connection_record.info.get(_PG_CHECKIN_AT)
+        if checked_in_at is None:
+            return  # brand new; the pool clears ``info`` on every reconnect
+        if self._clock() - checked_in_at <= self._idle_s and not _readable(dbapi_connection):
+            return
+        try:
+            self._dialect.do_ping(dbapi_connection)
+        except self._dialect.loaded_dbapi.Error as err:
+            if self._dialect.is_disconnect(err, dbapi_connection, None):
+                # What the pre-ping raises: the pool invalidates this and every
+                # older connection, then retries with a new one.
+                raise sa_exc.InvalidatePoolError() from err
+            raise
+
+    def checkin(self, dbapi_connection: Any, connection_record: Any) -> None:
+        # The read-only flag goes back to the default in
+        # `_reset_readonly_on_checkin`, which every psycopg2 Postgres engine
+        # has, so the ping's autocommit toggle sends no SET.
+        connection_record.info[_PG_CHECKIN_AT] = self._clock()
+
+
+def _attach_pg_ping(eng: sqlalchemy.engine.Engine, idle_s: float) -> None:
+    listener = _PingWhenNeeded(eng.dialect, idle_s)
+    sqlalchemy.event.listen(eng, "checkout", listener.checkout)
+    sqlalchemy.event.listen(eng, "checkin", listener.checkin)
 
 
 @contextmanager
@@ -219,7 +328,9 @@ def get_engine(
     somebody else's hook.
 
     A Postgres engine on psycopg2 also gets a ``checkin`` listener that
-    returns each connection to the session default (``readonly=None``).
+    returns each connection to the session default (``readonly=None``), and,
+    unless ``BOW_PG_PING_LISTENER=off``, the ping listeners instead of
+    ``pool_pre_ping``.
     """
     bucket = _ephemeral_engines.get()
     if bucket is not None:
@@ -231,6 +342,9 @@ def get_engine(
             kwargs["connect_args"] = connect_args
         eng = sqlalchemy.create_engine(uri, **kwargs)
         _attach_listeners(eng, uri, on_connect)
+        pg_idle_s = _pg_idle_ping_s(uri)
+        if pg_idle_s is not None:
+            _attach_pg_ping(eng, pg_idle_s)
         bucket.append(eng)
         return eng
 
@@ -245,10 +359,12 @@ def get_engine(
 
     # Build outside the lock: create_engine can do real work (driver import,
     # DSN parsing) and must not serialize every other connection's lookup.
+    pg_idle_s = _pg_idle_ping_s(uri)
     kwargs: Dict[str, Any] = {
         "pool_size": pool_size,
         "max_overflow": max_overflow,
-        "pool_pre_ping": True,
+        # Postgres engines get the ping listener instead (module docstring).
+        "pool_pre_ping": pg_idle_s is None,
         "pool_recycle": DEFAULT_POOL_RECYCLE_S,
         "pool_timeout": DEFAULT_POOL_TIMEOUT_S,
         # LIFO checkout: steady light traffic keeps reusing the same warm
@@ -261,6 +377,10 @@ def get_engine(
         kwargs["connect_args"] = connect_args
     eng = sqlalchemy.create_engine(uri, **kwargs)
     _attach_listeners(eng, uri, on_connect)
+    if pg_idle_s is not None:
+        # Before publishing too: an engine without pre-ping must never hand
+        # out a connection without the listener.
+        _attach_pg_ping(eng, pg_idle_s)
 
     evicted = None
     with _lock:
