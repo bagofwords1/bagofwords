@@ -1468,33 +1468,44 @@ class QueryCapturingClientWrapper:
                 # (query_executions). Waits its turn when the connection is at
                 # its limit; raises ConnectionBusyError / QueryKilledError.
                 handle = self._begin_tracking(capture, idx)
-                returned = False
+                # The handle holds the connection's slot until it is finished:
+                # every exit below finishes it exactly once.
+                tracking_open = True
                 try:
-                    # The checked text is what is sent.
-                    result = self._call_with_timeout(
-                        checked, args, kwargs, self._odata_send_observer(sent, refused) if odata else None,
-                        handle=handle)
-                    returned = True
+                    returned = False
+                    try:
+                        # The checked text is what is sent.
+                        result = self._call_with_timeout(
+                            checked, args, kwargs, self._odata_send_observer(sent, refused) if odata else None,
+                            handle=handle)
+                        returned = True
+                    except BaseException as exc:
+                        tracking_open = False
+                        self._finish_tracking(handle, exc)
+                        # Refused by the client's own check before the query
+                        # ran (Splunk SPL stored in a dashboard or saved search
+                        # is only known there), or by the OData send check
+                        # with nothing sent: the query is not charged. The
+                        # rate-limit request stays counted, as for any call
+                        # that reached the client.
+                        if isinstance(exc, (UnsafeSQLError, TableAccessError)) or (refused and not sent):
+                            self._refund_query_quota(usage_event)
+                        raise
+                    finally:
+                        # Every path that returns rows must set identity_reads:
+                        # the identity check passes a call left at (), which is
+                        # right only because such a call always raised before
+                        # sending anything and returned no rows.
+                        if odata and (returned or sent):
+                            captured.identity_reads = self._sent_reads(sent)
+                    rows = len(result) if hasattr(result, '__len__') else None
                 except BaseException as exc:
-                    self._finish_tracking(handle, exc)
-                    # Refused by the client's own check before the query
-                    # ran (Splunk SPL stored in a dashboard or saved search
-                    # is only known there), or by the OData send check
-                    # with nothing sent: the query is not charged. The
-                    # rate-limit request stays counted, as for any call
-                    # that reached the client.
-                    if isinstance(exc, (UnsafeSQLError, TableAccessError)) or (refused and not sent):
-                        self._refund_query_quota(usage_event)
+                    if tracking_open:
+                        tracking_open = False
+                        self._finish_tracking(handle, exc)
                     raise
-                finally:
-                    # Every path that returns rows must set identity_reads:
-                    # the identity check passes a call left at (), which is
-                    # right only because such a call always raised before
-                    # sending anything and returned no rows.
-                    if odata and (returned or sent):
-                        captured.identity_reads = self._sent_reads(sent)
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                rows = len(result) if hasattr(result, '__len__') else None
+                tracking_open = False
                 self._finish_tracking(handle, None, rows=rows)
                 result_bytes = estimate_result_size_bytes(result)
                 self._consume_data_bytes_quota(capture, result_bytes, rows)
