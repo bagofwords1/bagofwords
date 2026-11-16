@@ -7,8 +7,10 @@ Contract, on a real Postgres 15:
   connection runs in a read-only transaction that ends in a rollback, so a
   write the guard lets through (a user function, a locking read) or a call
   that never met the guard fails on the server or leaves nothing behind;
-* the pooled session keeps no read-only default, so discovery on the same
-  backend still works;
+* the pooled session keeps no read-only default: after a read it goes back
+  to the server's default, so discovery on the same backend still works, a
+  read replica keeps serving plain connections, and a database whose
+  default is read-only stays read-only for them;
 * on a server with `standard_conforming_strings=off` the client switches it
   on for the query (also behind PgBouncer), so a backslash literal holds the
   value the guard read;
@@ -114,15 +116,76 @@ def scs_off_server():
         yield settings
 
 
+def _address(container) -> str:
+    """The container's address on the Docker network."""
+    inner = container.get_wrapped_container()
+    inner.reload()
+    networks = inner.attrs["NetworkSettings"]["Networks"]
+    return next(n["IPAddress"] for n in networks.values() if n.get("IPAddress"))
+
+
+def _wait_for(settings: dict, sql: str, expected) -> None:
+    deadline = time.monotonic() + 60
+    while True:
+        try:
+            if _admin(settings, sql) == expected:
+                return
+        except Exception:
+            if time.monotonic() > deadline:
+                raise
+        if time.monotonic() > deadline:
+            raise AssertionError(f"{sql} never returned {expected}")
+        time.sleep(0.5)
+
+
+@pytest.fixture(scope="module")
+def logged_server():
+    """Logs every statement it receives."""
+    with _postgres("-c log_statement=all") as settings:
+        yield settings
+
+
+@pytest.fixture(scope="module")
+def read_only_database(server):
+    """A database on `server` whose sessions default to read-only."""
+    _admin(server, "CREATE DATABASE read_only_default")
+    _admin(server, "ALTER DATABASE read_only_default SET default_transaction_read_only = on")
+    yield {**server, "dbname": "read_only_default"}
+
+
+@pytest.fixture(scope="module")
+def standby():
+    """A hot standby streaming from its own seeded primary."""
+    from testcontainers.core.container import DockerContainer
+
+    with _postgres() as primary:
+        primary["container"].exec(
+            ["bash", "-c", "echo 'host replication all all scram-sha-256' >> \"$PGDATA/pg_hba.conf\""])
+        _admin(primary, "SELECT pg_reload_conf()")
+        script = (
+            'mkdir -p "$PGDATA" && chown postgres "$PGDATA" && chmod 700 "$PGDATA" && '
+            f'gosu postgres pg_basebackup -h {_address(primary["container"])} -p 5432 -U {primary["user"]} '
+            '-D "$PGDATA" -R -X stream && exec docker-entrypoint.sh postgres'
+        )
+        container = (
+            DockerContainer("postgres:15")
+            .with_env("PGPASSWORD", primary["password"])
+            .with_exposed_ports(5432)
+            .with_command(["bash", "-c", script])
+        )
+        with container:
+            settings = {**primary, "host": container.get_container_host_ip(),
+                        "port": int(container.get_exposed_port(5432)), "container": container}
+            _wait_for(settings, "SELECT pg_is_in_recovery(), (SELECT count(*) FROM orders)", [(True, 2)])
+            yield settings
+
+
 @pytest.fixture(scope="module")
 def bouncer(scs_off_server):
     """PgBouncer in transaction mode in front of the scs=off server."""
     from testcontainers.core.container import DockerContainer
 
-    inner = scs_off_server["container"].get_wrapped_container()
-    inner.reload()
-    networks = inner.attrs["NetworkSettings"]["Networks"]
-    address = next(n["IPAddress"] for n in networks.values() if n.get("IPAddress"))
+    address = _address(scs_off_server["container"])
     container = (
         DockerContainer(PGBOUNCER_IMAGE)
         .with_env("DB_HOST", address).with_env("DB_PORT", "5432")
@@ -154,9 +217,9 @@ class LivePostgresqlClient(PostgresqlClient):
         return super().execute_query(sql)
 
 
-def _client(settings: dict) -> LivePostgresqlClient:
+def _client(settings: dict, **options) -> LivePostgresqlClient:
     client = LivePostgresqlClient(host=settings["host"], port=settings["port"], database=settings["dbname"],
-                                  user=settings["user"], password=settings["password"])
+                                  user=settings["user"], password=settings["password"], **options)
     client.sent = []
     return client
 
@@ -217,6 +280,21 @@ def test_a_read_runs_read_only_and_its_pooled_session_keeps_no_read_only_default
     assert df["ro"].tolist() == ["on"]
     pid = int(df["pid"].iloc[0])
     assert _discovery_backend(client) == (pid, "off", "off", 1)
+
+
+def test_after_a_read_a_database_whose_default_is_read_only_stays_read_only(read_only_database):
+    client = _client(read_only_database)
+    pid = int(client.execute_query("SELECT pg_backend_pid() AS pid")["pid"].iloc[0])
+    assert _discovery_backend(client) == (pid, "on", "on", 1)
+
+
+def test_a_read_replica_keeps_serving_plain_connections_after_a_read(standby):
+    client = _client(standby)
+    assert client.execute_query("SELECT count(*) AS n FROM orders")["n"].tolist() == [2]
+    status = client.test_connection()
+    assert status["success"] is True, status["message"]
+    with client.connect() as conn:
+        assert conn.exec_driver_sql("SELECT pg_is_in_recovery()").scalar() is True
 
 
 def test_a_large_object_made_during_a_read_is_gone_after_it(server):
@@ -336,6 +414,45 @@ def _statements(settings: dict) -> list[tuple[str, str]]:
         pid = line.split("[", 1)[1].split("]", 1)[0]
         out.append((pid, line.split("statement: ", 1)[1]))
     return out
+
+
+def _backend_log(settings: dict, pid: int, first: str, last: str) -> list[str]:
+    """What backend `pid` logged from the statement holding `first` to the
+    ROLLBACK after the one holding `last`."""
+    deadline = time.monotonic() + 10
+    while True:
+        mine = [s for p, s in _statements(settings) if p == str(pid)]
+        try:
+            start = next(i for i, s in enumerate(mine) if first in s)
+            end = next(i for i, s in enumerate(mine) if i > start and last in s)
+            stop = next(i for i, s in enumerate(mine) if i > end and s == "ROLLBACK")
+            return mine[start:stop + 1]
+        except StopIteration:
+            if time.monotonic() > deadline:
+                raise AssertionError(f"backend {pid} logged {mine[-12:]}")
+            time.sleep(0.2)
+
+
+def test_a_plain_connection_after_a_read_starts_a_plain_transaction(logged_server):
+    client = _client(logged_server)
+    read = "SELECT pg_backend_pid() AS pid, 'plain-1' AS m"
+    pid = int(client.execute_query(read)["pid"].iloc[0])
+    plain = "SELECT pg_backend_pid(), 'plain-2'"
+    with client.connect() as conn:
+        assert conn.exec_driver_sql(plain).scalar() == pid
+    assert _backend_log(logged_server, pid, "plain-1", "plain-2") == [
+        read, "ROLLBACK", "SELECT 1", "BEGIN", plain, "ROLLBACK"]
+
+
+@pytest.mark.parametrize("schema,setup", [(None, []), ("public", ["SET search_path TO public"])])
+def test_a_read_on_a_reused_connection_sends_ping_begin_query_rollback(logged_server, schema, setup):
+    client = _client(logged_server, schema=schema)
+    first = f"SELECT 'reuse-1-{schema}' AS m"
+    client.execute_query(first)
+    second = f"SELECT pg_backend_pid() AS pid, 'reuse-2-{schema}' AS m"
+    pid = int(client.execute_query(second)["pid"].iloc[0])
+    log = _backend_log(logged_server, pid, f"reuse-1-{schema}", f"reuse-2-{schema}")
+    assert log[log.index("ROLLBACK") + 1:] == ["SELECT 1", "BEGIN READ ONLY", *setup, second, "ROLLBACK"]
 
 
 def test_fast_preview_and_estimate_hold_a_backslash_literal_to_its_value(scs_off_server):

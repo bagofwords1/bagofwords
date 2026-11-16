@@ -94,7 +94,9 @@ class PostgresqlClient(DataSourceClient):
         always ends in a rollback, never a commit, so what a read could
         still change inside it (a large object, say) does not last. Only the
         transaction is read-only; the pooled session keeps no read-only
-        default.
+        default: on checkin the connection returns to the session default
+        (engine_pool), so the next user's plain transaction starts the way
+        the server's own default says, on a read replica too.
         """
         conn = None
         try:
