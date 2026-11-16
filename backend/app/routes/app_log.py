@@ -1,11 +1,15 @@
-"""Settings → System logs: read, clear and switch on/off the app_logs capture.
+"""Settings → System logs: read and clear the server's own log files.
 
 These are the deployment's own logs, not an organization's data, so access
 follows the instance license (``app/ee/routes.py``): an organization admin
 (``full_admin_access``), and on an instance that allows more than one
 organization, where anyone can create an org and become its admin, only an
 instance superuser.
+
+The files are on disk (``app_log_service``), so every read runs in a thread
+to keep the event loop free.
 """
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -23,8 +27,7 @@ from app.schemas.app_log_schema import (
     AppLogDeleteResult,
     AppLogEntry,
     AppLogList,
-    AppLogSettings,
-    AppLogSettingsUpdate,
+    AppLogStatus,
 )
 from app.services import app_log_service as svc
 
@@ -57,26 +60,24 @@ async def _audit(db, organization, user, action: str, details: dict) -> None:
             organization_id=str(organization.id) if organization else None,
             action=action,
             user_id=str(user.id) if user else None,
-            resource_type="instance_settings",
-            resource_id=svc.SETTING_KEY,
+            resource_type="system_logs",
+            resource_id=None,
             details=details,
         )
     except Exception:
         logger.debug("system logs audit failed", exc_info=True)
 
 
-async def _settings_response(db: AsyncSession) -> AppLogSettings:
-    await svc.refresh_state(db)
-    status = svc.capture_status()
-    return AppLogSettings(
-        enabled=status["enabled"],
-        expires_at=status["expires_at"],
+def _status() -> AppLogStatus:
+    config = svc.get_config()
+    return AppLogStatus(
         instance_id=svc.INSTANCE_ID,
-        instances=await svc.list_instances(db),
-        retention_days=svc.RETENTION.days,
-        max_size_bytes=svc.MAX_TABLE_BYTES,
-        size_bytes=await svc.table_size_bytes(db),
-        dropped_lines=status["dropped_lines"],
+        instances=svc.list_instances(config),
+        directory=str(config.directory),
+        retention_days=config.retention.days,
+        max_size_bytes=config.max_bytes,
+        size_bytes=svc.size_bytes(config),
+        **svc.writer_status(),
     )
 
 
@@ -90,6 +91,7 @@ async def list_system_logs(
     search: Optional[str] = Query(None, max_length=500, description="Case-insensitive substring of the message"),
     limit: int = Query(svc.DEFAULT_LIMIT, ge=1, le=svc.MAX_LIMIT),
     current_user: User = Depends(current_user),
+    # Not used here; requires_permission checks membership with it.
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
@@ -97,56 +99,37 @@ async def list_system_logs(
     start, end = _naive_utc(start), _naive_utc(end)
     if start and end and start > end:
         raise AppError.bad_request(ErrorCode.SYSTEM_LOGS_INVALID_RANGE, "start must be before end")
-    # Write what this instance has buffered first, so the newest lines show.
-    await svc.flush()
-    rows, has_more = await svc.query_logs(
-        db,
-        start=start,
-        end=end,
-        instance_id=instance_id or None,
-        errors_only=errors_only,
-        search=(search or "").strip() or None,
-        limit=limit,
-    )
+
+    def read():
+        # Write what this process has buffered first, so the newest lines show.
+        svc.flush()
+        return svc.query_logs(
+            start=start,
+            end=end,
+            instance_id=instance_id or None,
+            errors_only=errors_only,
+            search=(search or "").strip() or None,
+            limit=limit,
+        )
+
+    rows, has_more = await asyncio.to_thread(read)
     return AppLogList(
-        items=[AppLogEntry.model_validate(r) for r in rows],
+        items=[AppLogEntry(**r) for r in rows],
         limit=limit,
         has_more=has_more,
     )
 
 
-@router.get("/system-logs/settings", response_model=AppLogSettings)
+@router.get("/system-logs/status", response_model=AppLogStatus)
 @requires_permission('full_admin_access')
-async def get_system_logs_settings(
+async def get_system_logs_status(
     current_user: User = Depends(current_user),
+    # Not used here; requires_permission checks membership with it.
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
     _ensure_instance_admin(current_user)
-    return await _settings_response(db)
-
-
-@router.put("/system-logs/settings", response_model=AppLogSettings)
-@requires_permission('full_admin_access')
-async def update_system_logs_settings(
-    payload: AppLogSettingsUpdate,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization),
-):
-    _ensure_instance_admin(current_user)
-    await svc.set_enabled(
-        db,
-        enabled=payload.enabled,
-        duration_minutes=payload.duration_minutes,
-        user_id=str(current_user.id),
-    )
-    await _audit(
-        db, organization, current_user,
-        "system_logs.enabled" if payload.enabled else "system_logs.disabled",
-        {"duration_minutes": payload.duration_minutes} if payload.enabled else {},
-    )
-    return await _settings_response(db)
+    return await asyncio.to_thread(_status)
 
 
 @router.delete("/system-logs", response_model=AppLogDeleteResult)
@@ -157,6 +140,6 @@ async def delete_system_logs(
     organization: Organization = Depends(get_current_organization),
 ):
     _ensure_instance_admin(current_user)
-    deleted = await svc.delete_all(db)
-    await _audit(db, organization, current_user, "system_logs.cleared", {"deleted": deleted})
-    return AppLogDeleteResult(deleted=deleted)
+    deleted = await asyncio.to_thread(svc.delete_all)
+    await _audit(db, organization, current_user, "system_logs.cleared", {"deleted_files": deleted})
+    return AppLogDeleteResult(deleted_files=deleted)

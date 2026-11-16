@@ -1,85 +1,84 @@
-"""System logs: copy the application's stdout/stderr into the ``app_logs`` table.
+"""System logs: keep the application's stdout/stderr as files for Settings → System logs.
 
-Admins switch this on from Settings → System logs, optionally for a fixed
-period, to read the server's own logs in the UI without shell access to the
-pod. It is off by default, and capture costs one boolean check per log line
-while it is off.
+Admins read the server's own logs in the UI without shell access to the pod.
+Nothing is stored in the database: every worker process appends its lines to
+its own files in one directory (``bow_config.system_logs.directory``), and the
+page reads every file in it. Put that directory on storage the replicas share
+and the page shows every instance.
 
-How a line gets into the table
-------------------------------
+How a line gets into a file
+---------------------------
 * ``AppLogHandler`` sits on the root logger (and on uvicorn's loggers, which
-  do not propagate to root). Every log record at INFO or above becomes a row.
+  do not propagate to root). Every log record at INFO or above is kept.
 * ``install_stream_capture`` wraps ``sys.stdout``/``sys.stderr`` so writes
   that bypass ``logging`` (``print()``, raw tracebacks, ``warnings``) are
   copied too. Logging's own console handlers hold the original streams, so a
   logged line is not captured twice.
-* Neither of those touches the database. They append to an in-memory buffer
-  that ``flush`` writes in batches, from the background worker every few
-  seconds and before every read, so an admin reading the page sees the newest
-  lines of the instance that served the request.
+* Neither of those touches the disk. They append to an in-memory buffer that
+  a writer thread appends to this process's file every second, and that every
+  read flushes first, so an admin sees the newest lines of the process that
+  served the request.
 
-Every worker process has its own buffer and worker. The on/off switch is
-stored in ``instance_settings`` (key ``app_logs``) and every worker re-reads
-it, so switching it on one worker reaches the others within
-``SETTINGS_REFRESH_SECONDS``.
-
-Rotation (``rotate``) deletes rows older than ``RETENTION``, and if the table
-is larger than ``MAX_TABLE_BYTES`` keeps only today's rows (UTC).
+Files
+-----
+* One JSON object per line: ``t`` (UTC timestamp), ``l`` (level), ``g``
+  (logger), ``s`` (stdout/stderr), ``m`` (message).
+* Named ``<instance>__<pid>__<start ms>-<n>.jsonl``, so no two processes ever
+  write the same file (nothing to lock, safe on network file systems), and the
+  instance a line came from is in the file name. A file is reopened in append
+  mode for every write, so a file deleted under a writer is simply created
+  again.
+* A file that reaches ``segment_bytes`` is closed and a new one started.
+  ``cleanup`` deletes files whose newest line is older than the retention
+  period, and above the size cap deletes the oldest files first.
+* "Delete all" writes the time to ``.cleared_at`` and deletes every file.
+  Other processes still hold up to a second of buffered lines; they drop the
+  ones from before that time instead of writing them, and reads ignore any
+  that slipped through.
 """
 from __future__ import annotations
 
-import asyncio
-import contextvars
+import atexit
+import heapq
+import itertools
+import json
 import logging
+import os
+import re
 import socket
 import sys
 import threading
 import time
-import uuid
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Optional
 
-from sqlalchemy import delete, distinct, func, insert, or_, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.app_log import AppLog
-from app.models.instance_settings import InstanceSettings
-
-SETTING_KEY = "app_logs"
-RETENTION = timedelta(days=7)
-MAX_TABLE_BYTES = 1024 ** 3  # 1 GB
 DEFAULT_LIMIT = 1000
 MAX_LIMIT = 10_000
-# Longest enable period the API accepts; "until turned off" is no duration.
-MAX_DURATION_MINUTES = 7 * 24 * 60
 ERROR_LEVELS = ("ERROR", "CRITICAL")
 
 # A single log line longer than this is cut, so one runaway payload dump
-# cannot fill the table.
+# cannot fill the directory.
 MAX_MESSAGE_CHARS = 32_000
-# Lines waiting for the writer. When the database cannot keep up, the oldest
+# Lines waiting for the writer. If the directory cannot be written, the oldest
 # lines are dropped rather than growing memory without bound.
 BUFFER_MAX = 50_000
-FLUSH_BATCH = 2_000
-# Every write is SQLite write contention, which the scheduler's job store
-# already feels as "database is locked" (see ResilientAsyncIOScheduler), so
-# batch for a few seconds. Reads flush first, so the page is never stale.
-FLUSH_INTERVAL_SECONDS = 5.0
-SETTINGS_REFRESH_SECONDS = 10.0
-ROTATE_INTERVAL_SECONDS = 600.0
-# Per-row overhead added to the message bytes when estimating table size.
-_ROW_OVERHEAD_BYTES = 200
-# Rows whose message length is averaged for the size estimate (the newest).
-_SIZE_SAMPLE_ROWS = 1_000
-# When today's lines alone exceed the cap, trim to this share of it, so the
-# next lines do not put the table straight back over.
+FLUSH_INTERVAL_SECONDS = 1.0
+CLEANUP_INTERVAL_SECONDS = 60.0
+# Largest single file; small enough that a read can skip whole files.
+MAX_SEGMENT_BYTES = 16 * 1024 ** 2
+# Above the size cap, delete down to this share of it, so the next lines do
+# not put the directory straight back over.
 _TRIM_TARGET = 0.9
 # This page's own requests; recording them would make auto-refresh fill the
 # log with its own polling.
 _OWN_PATH_PREFIX = "/api/system-logs"
+_SUFFIX = ".jsonl"
+_CLEARED_MARKER = ".cleared_at"
 
-INSTANCE_ID = (socket.gethostname() or "unknown")[:255]
+INSTANCE_ID = re.sub(r"[^A-Za-z0-9._-]", "-", socket.gethostname() or "unknown")[:200].replace("__", "_")
 
 _logger = logging.getLogger(__name__)
 
@@ -88,47 +87,46 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-class _CaptureState:
+@dataclass
+class LogConfig:
+    directory: Path
+    retention: timedelta
+    max_bytes: int
+
+    @property
+    def segment_bytes(self) -> int:
+        return max(64 * 1024, min(MAX_SEGMENT_BYTES, self.max_bytes // 8))
+
+
+class _State:
     def __init__(self) -> None:
-        self.enabled = False
-        self.expires_at: Optional[datetime] = None
-        # Last "Delete all": buffered lines from before it are not written.
-        self.cleared_at: Optional[datetime] = None
+        # None until ``configure``: nothing is captured before that (imports,
+        # test runs that never start the app).
+        self.config: Optional[LogConfig] = None
         self.buffer: deque = deque(maxlen=BUFFER_MAX)
         self.dropped = 0
-
-    def active(self, now: Optional[datetime] = None) -> bool:
-        if not self.enabled:
-            return False
-        if self.expires_at is None:
-            return True
-        return (now or _utcnow()) < self.expires_at
+        # The last write failed (directory missing, read-only, full).
+        self.write_error: Optional[str] = None
+        self.segment: Optional[str] = None
+        self.cleared_at: Optional[datetime] = None
+        self.cleared_mtime: Optional[float] = None
 
 
-_state = _CaptureState()
-# Set while this process writes to app_logs, so the writer's own log lines
-# (SQLAlchemy warnings, a failed insert) are not fed back into the buffer.
-_flushing: contextvars.ContextVar[bool] = contextvars.ContextVar("app_log_flushing", default=False)
-# Re-entrancy guard: a handler error printed to stderr must not be captured
-# from inside the handler that is reporting it.
+_state = _State()
+# Serialises flushes (writer thread, reads, shutdown) within this process.
+_flush_lock = threading.Lock()
+# Per thread: ``busy`` while this process is writing its own files or
+# capturing a line (so the writer's own log lines and handler errors are not
+# fed back in), ``in_logging`` while a log record is being handled.
 _local = threading.local()
 
 
 def _busy() -> bool:
-    return _flushing.get() or getattr(_local, "busy", False)
+    return getattr(_local, "busy", False)
 
 
 def _in_logging() -> bool:
     return getattr(_local, "in_logging", False)
-
-
-def _requeue(batch: list) -> None:
-    """Put an unwritten batch back at the front, oldest first."""
-    overflow = len(_state.buffer) + len(batch) - BUFFER_MAX
-    if overflow > 0:
-        # extendleft on a full deque discards from the right (the newest).
-        _state.dropped += overflow
-    _state.buffer.extendleft(reversed(batch))
 
 
 def _is_own_request(record: logging.LogRecord) -> bool:
@@ -145,28 +143,70 @@ def _enqueue(level: Optional[str], logger_name: Optional[str], stream: str,
     if len(_state.buffer) >= BUFFER_MAX:
         _state.dropped += 1
     _state.buffer.append({
-        "id": str(uuid.uuid4()),
-        "timestamp": ts or _utcnow(),
-        "instance_id": INSTANCE_ID,
-        "level": level,
-        "logger": (logger_name or None) and logger_name[:255],
-        "stream": stream,
-        "message": message,
+        "t": (ts or _utcnow()).isoformat(timespec="microseconds"),
+        "l": level,
+        "g": logger_name or None,
+        "s": stream,
+        "m": message,
     })
+
+
+# ── Configuration ────────────────────────────────────────────────────────
+
+
+def config_from_settings() -> LogConfig:
+    from app.settings.config import settings
+
+    cfg = settings.bow_config.system_logs
+    return LogConfig(
+        directory=Path(cfg.directory).expanduser().resolve(),
+        retention=timedelta(days=cfg.retention_days),
+        max_bytes=cfg.max_size_mb * 1024 ** 2,
+    )
+
+
+def configure(config: LogConfig) -> None:
+    """Start capturing into ``config.directory`` (created if missing)."""
+    with _flush_lock:
+        _state.config = config
+        _state.segment = None
+        _state.cleared_at = None
+        _state.cleared_mtime = None
+        _state.write_error = None
+        try:
+            config.directory.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            _state.write_error = str(e)
+
+
+def get_config() -> LogConfig:
+    return _state.config or config_from_settings()
+
+
+def reset() -> None:
+    """Stop capturing and forget buffered lines (tests, reloads)."""
+    with _flush_lock:
+        _state.config = None
+        _state.buffer.clear()
+        _state.dropped = 0
+        _state.write_error = None
+        _state.segment = None
+        _state.cleared_at = None
+        _state.cleared_mtime = None
 
 
 # ── Capture ──────────────────────────────────────────────────────────────
 
 
 class AppLogHandler(logging.Handler):
-    """Buffers log records for ``app_logs`` while capture is switched on."""
+    """Buffers log records for this process's log file."""
 
     def __init__(self) -> None:
         super().__init__(level=logging.INFO)
         self._exc_formatter = logging.Formatter()
 
     def emit(self, record: logging.LogRecord) -> None:
-        if not _state.active() or _busy():
+        if _state.config is None or _busy():
             return
         if record.name == "uvicorn.access" and _is_own_request(record):
             return
@@ -207,7 +247,7 @@ class _StreamTee:
         written = self._wrapped.write(s)
         # A console handler writing a log record through this stream: the
         # record is already captured by AppLogHandler.
-        if not s or not isinstance(s, str) or not _state.active() or _busy() or _in_logging():
+        if not s or not isinstance(s, str) or _state.config is None or _busy() or _in_logging():
             return written
         try:
             with self._lock:
@@ -292,336 +332,341 @@ def uninstall_stream_capture() -> None:
         sys.stderr = sys.stderr.wrapped
 
 
-def reset() -> None:
-    """Forget this process's switch state and buffered lines (tests, reloads)."""
-    _state.enabled = False
-    _state.expires_at = None
-    _state.cleared_at = None
-    _state.buffer.clear()
-    _state.dropped = 0
-
-
-# ── Switch ───────────────────────────────────────────────────────────────
-
-
-def _parse_dt(value: Any) -> Optional[datetime]:
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
-
-
-async def _get_row(db: AsyncSession) -> Optional[InstanceSettings]:
-    result = await db.execute(
-        select(InstanceSettings).where(
-            InstanceSettings.key == SETTING_KEY,
-            InstanceSettings.deleted_at.is_(None),
-        )
-    )
-    return result.scalar_one_or_none()
-
-
-async def refresh_state(db: AsyncSession) -> None:
-    """Load the stored switch into this process."""
-    row = await _get_row(db)
-    value = (row.value or {}) if row else {}
-    _state.enabled = bool(value.get("enabled"))
-    _state.expires_at = _parse_dt(value.get("expires_at"))
-    _state.cleared_at = _parse_dt(value.get("cleared_at"))
-
-
-async def _save_value(db: AsyncSession, changes: dict) -> None:
-    row = await _get_row(db)
-    if row is None:
-        db.add(InstanceSettings(key=SETTING_KEY, value=dict(changes)))
-    else:
-        # A new dict, so the JSON column is marked dirty.
-        row.value = {**(row.value or {}), **changes}
-    await db.commit()
-
-
-def capture_status(now: Optional[datetime] = None) -> dict:
-    """This process's view of the switch, after ``refresh_state``."""
-    now = now or _utcnow()
-    active = _state.active(now)
-    return {
-        "enabled": active,
-        "expires_at": _state.expires_at if active else None,
-        "dropped_lines": _state.dropped,
-    }
-
-
-async def set_enabled(
-    db: AsyncSession,
-    enabled: bool,
-    duration_minutes: Optional[int] = None,
-    user_id: Optional[str] = None,
-    now: Optional[datetime] = None,
-) -> dict:
-    """Switch capture on (optionally for ``duration_minutes``) or off."""
-    now = now or _utcnow()
-    expires_at = now + timedelta(minutes=duration_minutes) if enabled and duration_minutes else None
-    await _save_value(db, {
-        "enabled": bool(enabled),
-        "expires_at": expires_at.isoformat() if expires_at else None,
-        "updated_by": user_id,
-        "updated_at": now.isoformat(),
-    })
-    _state.enabled = bool(enabled)
-    _state.expires_at = expires_at
-    if not enabled:
-        # Lines buffered before the switch went off are still written.
-        await flush()
-    return capture_status(now)
-
-
 # ── Writer ───────────────────────────────────────────────────────────────
 
 
-async def flush() -> int:
-    """Write this process's buffered lines. Returns how many were written.
-
-    A batch that fails to write (SQLite "database is locked", a dropped
-    connection, cancellation) goes back to the front of the buffer for the
-    next flush; lines are lost only if the buffer overflows meanwhile.
-    """
-    from app.dependencies import async_session_maker
-
-    if not _state.buffer:
-        return 0
-    written = 0
-    token = _flushing.set(True)
+def _parse_ts(value: Any) -> Optional[datetime]:
     try:
-        # Re-read the switch first: another worker may have run "Delete all"
-        # (or turned recording off) since these lines were buffered.
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_cleared_at(directory: Path) -> Optional[datetime]:
+    """The last "Delete all" time, re-read only when the marker changes."""
+    marker = directory / _CLEARED_MARKER
+    try:
+        mtime = marker.stat().st_mtime
+    except OSError:
+        _state.cleared_at, _state.cleared_mtime = None, None
+        return None
+    if mtime != _state.cleared_mtime:
         try:
-            async with async_session_maker() as db:
-                await refresh_state(db)
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001 — write with what this worker knows
+            _state.cleared_at = _parse_ts(marker.read_text().strip())
+            _state.cleared_mtime = mtime
+        except OSError:
             pass
-        while _state.buffer:
-            batch = []
-            while _state.buffer and len(batch) < FLUSH_BATCH:
-                batch.append(_state.buffer.popleft())
-            cleared_at = _state.cleared_at
-            if cleared_at is not None:
-                batch = [r for r in batch if r["timestamp"] > cleared_at]
-                if not batch:
-                    continue
-            try:
-                async with async_session_maker() as db:
-                    await db.execute(insert(AppLog), batch)
-                    await db.commit()
-                written += len(batch)
-            except asyncio.CancelledError:
-                _requeue(batch)
-                raise
-            except Exception as e:  # noqa: BLE001 — retry on the next flush
-                _requeue(batch)
-                _logger.warning(f"System logs: could not write {len(batch)} lines, will retry: {e}")
-                break
-    finally:
-        _flushing.reset(token)
-    return written
+    return _state.cleared_at
 
 
-# ── Rotation ─────────────────────────────────────────────────────────────
+_segment_seq = itertools.count()
 
 
-async def _logical_size_bytes(db: AsyncSession) -> int:
-    """Row count times the average size of the newest rows.
+def _new_segment_name() -> str:
+    # The sequence keeps two files opened in the same millisecond apart.
+    return f"{INSTANCE_ID}__{os.getpid()}__{int(time.time() * 1000)}-{next(_segment_seq)}{_SUFFIX}"
 
-    Summing every message would read the whole table; counting rows only walks
-    an index, and recent lines are representative of what rotation keeps.
+
+def flush() -> int:
+    """Append this process's buffered lines to its file. Returns how many.
+
+    If the write fails (directory missing, read-only or full) the lines stay
+    buffered for the next flush; they are lost only if the buffer overflows
+    meanwhile.
     """
-    rows = int(await db.scalar(select(func.count()).select_from(AppLog)) or 0)
-    if not rows:
+    config = _state.config
+    if config is None or not _state.buffer:
         return 0
-    sample = (
-        select(func.length(AppLog.message).label("n"))
-        .order_by(AppLog.timestamp.desc())
-        .limit(_SIZE_SAMPLE_ROWS)
-        .subquery()
-    )
-    avg_len = float(await db.scalar(select(func.avg(sample.c.n))) or 0)
-    return int(rows * (avg_len + _ROW_OVERHEAD_BYTES))
+    previous_busy = _busy()
+    _local.busy = True
+    try:
+        with _flush_lock:
+            count = len(_state.buffer)
+            if not count:
+                return 0
+            batch = [_state.buffer[i] for i in range(count)]
+            cleared_at = _read_cleared_at(config.directory)
+            if cleared_at is not None:
+                batch = [r for r in batch if (_parse_ts(r["t"]) or cleared_at) > cleared_at]
+            if _state.segment is None:
+                _state.segment = _new_segment_name()
+            try:
+                if batch:
+                    data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in batch)
+                    with open(config.directory / _state.segment, "a", encoding="utf-8") as f:
+                        f.write(data)
+                        size = f.tell()
+                    if size >= config.segment_bytes:
+                        _state.segment = None
+                _state.write_error = None
+            except OSError as e:
+                if _state.write_error != str(e):
+                    _logger.warning(f"System logs: could not write to {config.directory}, will retry: {e}")
+                _state.write_error = str(e)
+                return 0
+            for _ in range(count):
+                _state.buffer.popleft()
+            return len(batch)
+    finally:
+        _local.busy = previous_busy
 
 
-async def table_size_bytes(db: AsyncSession, max_bytes: int = MAX_TABLE_BYTES) -> int:
-    """Approximate storage used by app_logs.
+# ── Files ────────────────────────────────────────────────────────────────
 
-    On PostgreSQL the on-disk size is cheap to read but does not shrink after a
-    DELETE until VACUUM, so above the limit it is confirmed against the size of
-    the rows that are actually there. Elsewhere the row estimate is used.
+
+@dataclass
+class _Segment:
+    path: Path
+    instance_id: str
+    mtime: float
+    size: int
+
+
+def _segments(directory: Path) -> list[_Segment]:
+    out = []
+    try:
+        entries = list(os.scandir(directory))
+    except OSError:
+        return out
+    for entry in entries:
+        if not entry.name.endswith(_SUFFIX) or entry.name.startswith("."):
+            continue
+        parts = entry.name[: -len(_SUFFIX)].rsplit("__", 2)
+        if len(parts) != 3:
+            continue
+        try:
+            st = entry.stat()
+        except OSError:  # deleted by another process meanwhile
+            continue
+        out.append(_Segment(Path(entry.path), parts[0], st.st_mtime, st.st_size))
+    return out
+
+
+def _unlink(path: Path) -> bool:
+    try:
+        path.unlink()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def size_bytes(config: Optional[LogConfig] = None) -> int:
+    config = config or get_config()
+    return sum(s.size for s in _segments(config.directory))
+
+
+def writer_status() -> dict:
+    """This process's writer health: last write failed, lines lost so far."""
+    return {"write_error": _state.write_error is not None, "dropped_lines": _state.dropped}
+
+
+def list_instances(config: Optional[LogConfig] = None) -> list[str]:
+    config = config or get_config()
+    return sorted({s.instance_id for s in _segments(config.directory)})
+
+
+def cleanup(config: Optional[LogConfig] = None, now: Optional[datetime] = None) -> dict:
+    """Apply retention and the size cap; returns what was deleted.
+
+    A file goes when its newest line (its modification time) is older than the
+    retention period or from before the last "Delete all". Over the cap the
+    oldest files go first until the total is under 90% of it. Several
+    processes may run this at once; a file another one deleted is skipped.
     """
-    if db.get_bind().dialect.name == "postgresql":
-        physical = (await db.execute(text("SELECT pg_total_relation_size('app_logs')"))).scalar() or 0
-        if int(physical) <= max_bytes:
-            return int(physical)
-    return await _logical_size_bytes(db)
+    config = config or get_config()
+    now_ts = (now or _utcnow()).replace(tzinfo=timezone.utc).timestamp()
+    cutoff = now_ts - config.retention.total_seconds()
+    cleared_at = _read_cleared_at(config.directory)
+    cleared_ts = cleared_at.replace(tzinfo=timezone.utc).timestamp() if cleared_at else None
 
-
-async def rotate(
-    db: AsyncSession,
-    now: Optional[datetime] = None,
-    max_bytes: int = MAX_TABLE_BYTES,
-) -> dict:
-    """Apply retention and the size cap.
-
-    * Rows older than ``RETENTION`` are deleted.
-    * Rows from before the last "Delete all" are deleted (lines another worker
-      wrote while the delete was happening).
-    * Over ``max_bytes``: only today's rows (UTC) are kept, and if today's rows
-      alone are still over, the oldest are deleted until the estimate is under
-      the cap.
-    """
-    now = now or _utcnow()
-    expired = await db.execute(delete(AppLog).where(AppLog.timestamp < now - RETENTION))
-    removed = expired.rowcount or 0
-    await refresh_state(db)
-    if _state.cleared_at is not None:
-        stale = await db.execute(delete(AppLog).where(AppLog.timestamp <= _state.cleared_at))
-        removed += stale.rowcount or 0
-    await db.commit()
-
-    size = await table_size_bytes(db, max_bytes)
-    trimmed = 0
-    if size > max_bytes:
-        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        result = await db.execute(delete(AppLog).where(AppLog.timestamp < start_of_today))
-        await db.commit()
-        trimmed += result.rowcount or 0
-        size = await table_size_bytes(db, max_bytes)
-    if size > max_bytes:
-        rows = int(await db.scalar(select(func.count()).select_from(AppLog)) or 0)
-        keep = int(rows * (max_bytes * _TRIM_TARGET) / size)
-        if keep <= 0:
-            result = await db.execute(delete(AppLog))
+    expired = 0
+    kept: list[_Segment] = []
+    for seg in _segments(config.directory):
+        if seg.mtime < cutoff or (cleared_ts is not None and seg.mtime <= cleared_ts):
+            expired += _unlink(seg.path)
         else:
-            # The oldest row still kept; everything before it goes.
-            boundary = await db.scalar(
-                select(AppLog.timestamp).order_by(AppLog.timestamp.desc()).offset(keep - 1).limit(1)
-            )
-            result = await db.execute(delete(AppLog).where(AppLog.timestamp < boundary))
-        await db.commit()
-        trimmed += result.rowcount or 0
-        size = await table_size_bytes(db, max_bytes)
-    return {"expired": removed, "trimmed": trimmed, "size_bytes": size}
+            kept.append(seg)
+
+    trimmed = 0
+    total = sum(s.size for s in kept)
+    if total > config.max_bytes:
+        target = config.max_bytes * _TRIM_TARGET
+        for seg in sorted(kept, key=lambda s: s.mtime):
+            if total <= target:
+                break
+            trimmed += _unlink(seg.path)
+            total -= seg.size
+    return {"expired": expired, "trimmed": trimmed, "size_bytes": max(total, 0)}
+
+
+def delete_all(config: Optional[LogConfig] = None, now: Optional[datetime] = None) -> int:
+    """Delete every log file of every instance. Returns the number of files.
+
+    The time goes to ``.cleared_at`` first, so other processes drop the lines
+    they buffered before it instead of writing them afterwards.
+    """
+    config = config or get_config()
+    now = now or _utcnow()
+    with _flush_lock:
+        _state.buffer.clear()
+    config.directory.mkdir(parents=True, exist_ok=True)
+    marker = config.directory / _CLEARED_MARKER
+    tmp = config.directory / f"{_CLEARED_MARKER}.{os.getpid()}.tmp"
+    tmp.write_text(now.isoformat(timespec="microseconds"))
+    os.replace(tmp, marker)
+    _read_cleared_at(config.directory)
+    deleted = 0
+    for seg in _segments(config.directory):
+        deleted += _unlink(seg.path)
+    return deleted
 
 
 # ── Reads ────────────────────────────────────────────────────────────────
 
 
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def _read_segment(seg: _Segment, cleared_at, start, end, errors_only, needle):
+    """Yield (timestamp, entry) for the lines of one file that match."""
+    name = seg.path.name
+    try:
+        with open(seg.path, "rb") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return
+    # A cheap pre-check on the raw line; safe only when the search text is
+    # written to the file unescaped.
+    raw_needle = needle if needle and not any(c in needle for c in '"\\') and needle.isprintable() else None
+    offset = 0
+    for line in raw.split(b"\n"):
+        line_offset = offset
+        offset += len(line) + 1
+        if not line:
+            continue
+        try:
+            text = line.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        if raw_needle and raw_needle not in text.lower():
+            continue
+        try:
+            rec = json.loads(text)
+        except ValueError:  # a line cut short by a crash
+            continue
+        ts = _parse_ts(rec.get("t"))
+        if ts is None:
+            continue
+        if cleared_at is not None and ts <= cleared_at:
+            continue
+        if start is not None and ts < start:
+            continue
+        if end is not None and ts > end:
+            continue
+        level, stream, message = rec.get("l"), rec.get("s") or "stdout", rec.get("m") or ""
+        if errors_only and level not in ERROR_LEVELS and stream != "stderr":
+            continue
+        if needle and needle not in message.lower():
+            continue
+        yield ts, {
+            "id": f"{name}:{line_offset}",
+            "timestamp": ts,
+            "instance_id": seg.instance_id,
+            "level": level,
+            "logger": rec.get("g"),
+            "stream": stream,
+            "message": message,
+        }
 
 
-async def query_logs(
-    db: AsyncSession,
+def query_logs(
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     instance_id: Optional[str] = None,
     errors_only: bool = False,
     search: Optional[str] = None,
     limit: int = DEFAULT_LIMIT,
-) -> tuple[list[AppLog], bool]:
-    """Newest-first rows matching the filters, and whether more matched."""
-    stmt = select(AppLog)
-    if start is not None:
-        stmt = stmt.where(AppLog.timestamp >= start)
-    if end is not None:
-        stmt = stmt.where(AppLog.timestamp <= end)
-    if instance_id:
-        stmt = stmt.where(AppLog.instance_id == instance_id)
-    if errors_only:
-        stmt = stmt.where(or_(AppLog.level.in_(ERROR_LEVELS), AppLog.stream == "stderr"))
-    if search:
-        stmt = stmt.where(AppLog.message.ilike(f"%{_escape_like(search)}%", escape="\\"))
-    stmt = stmt.order_by(AppLog.timestamp.desc(), AppLog.id.desc()).limit(limit + 1)
-    rows = list((await db.execute(stmt)).scalars().all())
-    return rows[:limit], len(rows) > limit
+    config: Optional[LogConfig] = None,
+) -> tuple[list[dict], bool]:
+    """Newest-first lines matching the filters, and whether more matched.
 
-
-async def list_instances(db: AsyncSession) -> list[str]:
-    result = await db.execute(select(distinct(AppLog.instance_id)).order_by(AppLog.instance_id))
-    return [r for r in result.scalars().all() if r]
-
-
-async def delete_all(db: AsyncSession, now: Optional[datetime] = None) -> int:
-    """Delete every stored line, on every instance.
-
-    Other workers still hold a few seconds of buffered lines; ``cleared_at``
-    tells them (at their next flush) to discard the ones from before now.
+    Times are naive UTC. Files are read newest first; a file's modification
+    time is its newest line, so once ``limit`` newer matches are in hand the
+    remaining (older) files are not read at all.
     """
-    now = now or _utcnow()
-    _state.buffer.clear()
-    _state.cleared_at = now
-    result = await db.execute(delete(AppLog))
-    await _save_value(db, {"cleared_at": now.isoformat()})
-    return result.rowcount or 0
+    config = config or get_config()
+    cleared_at = _read_cleared_at(config.directory)
+    needle = search.lower() if search else None
+    segments = [
+        s for s in _segments(config.directory)
+        if (not instance_id or s.instance_id == instance_id)
+        # Margin for clock granularity between a line's stamp and the write.
+        and (start is None or s.mtime + 2 >= start.replace(tzinfo=timezone.utc).timestamp())
+    ]
+    segments.sort(key=lambda s: s.mtime, reverse=True)
+
+    # Min-heap of the newest limit+1 matches: (timestamp, tiebreak, entry).
+    keep = limit + 1
+    heap: list = []
+    for seg in segments:
+        if len(heap) >= keep:
+            oldest_kept = heap[0][0].replace(tzinfo=timezone.utc).timestamp()
+            if seg.mtime + 2 < oldest_kept:
+                break
+        for ts, entry in _read_segment(seg, cleared_at, start, end, errors_only, needle):
+            item = (ts, entry["id"], entry)
+            if len(heap) < keep:
+                heapq.heappush(heap, item)
+            elif item > heap[0]:
+                heapq.heapreplace(heap, item)
+    ordered = [e for _, _, e in sorted(heap, key=lambda x: (x[0], x[1]), reverse=True)]
+    return ordered[:limit], len(ordered) > limit
 
 
-# ── Background worker ────────────────────────────────────────────────────
+# ── Background writer ────────────────────────────────────────────────────
 
 
-async def load_at_startup() -> None:
-    from app.dependencies import async_session_maker
-
-    try:
-        async with async_session_maker() as db:
-            await refresh_state(db)
-    except Exception as e:  # noqa: BLE001 — never block startup on this
-        _logger.warning(f"System logs: could not load settings: {e}")
+_writer: Optional[threading.Thread] = None
+_writer_stop = threading.Event()
 
 
-async def run_app_log_worker(stop_event: Optional[asyncio.Event] = None) -> None:
-    """Flush buffered lines, follow the switch, and rotate, until stopped.
-
-    Runs in every worker process (each has its own buffer and switch cache),
-    so it is deliberately not behind the scheduler-leader lock.
-    """
-    from app.dependencies import async_session_maker
-
-    last_refresh = time.monotonic()
-    last_rotate = 0.0  # rotate on the first tick
-    while True:
-        stopping = False
-        if stop_event is not None:
-            try:
-                await asyncio.wait_for(stop_event.wait(), timeout=FLUSH_INTERVAL_SECONDS)
-                stopping = True
-            except asyncio.TimeoutError:
-                pass
-        else:
-            await asyncio.sleep(FLUSH_INTERVAL_SECONDS)
-
+def _writer_loop() -> None:
+    _local.busy = True  # nothing this thread logs is captured
+    last_cleanup = 0.0
+    while not _writer_stop.wait(FLUSH_INTERVAL_SECONDS):
         try:
-            await flush()
-            if stopping:
-                return
-            now = time.monotonic()
-            if now - last_refresh >= SETTINGS_REFRESH_SECONDS:
-                last_refresh = now
-                async with async_session_maker() as db:
-                    await refresh_state(db)
-            if now - last_rotate >= ROTATE_INTERVAL_SECONDS:
-                last_rotate = now
-                token = _flushing.set(True)
-                try:
-                    async with async_session_maker() as db:
-                        await rotate(db)
-                finally:
-                    _flushing.reset(token)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001 — a bad tick must not kill the loop
-            _logger.warning(f"System logs worker tick failed: {e}")
-            if stopping:
-                return
+            flush()
+            if time.monotonic() - last_cleanup >= CLEANUP_INTERVAL_SECONDS:
+                last_cleanup = time.monotonic()
+                if _state.config is not None:
+                    cleanup(_state.config)
+        except Exception as e:  # noqa: BLE001 — a bad tick must not kill the thread
+            _logger.warning(f"System logs writer tick failed: {e}")
+    try:
+        flush()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def start(config: Optional[LogConfig] = None) -> None:
+    """Configure from bow_config and start this process's writer thread.
+
+    Runs in every worker process (each has its own buffer and files).
+    """
+    global _writer
+    configure(config or config_from_settings())
+    if _writer is None or not _writer.is_alive():
+        _writer_stop.clear()
+        _writer = threading.Thread(target=_writer_loop, name="system-logs-writer", daemon=True)
+        _writer.start()
+
+
+def stop(timeout: float = 5.0) -> None:
+    """Stop the writer thread after a final flush."""
+    global _writer
+    _writer_stop.set()
+    if _writer is not None:
+        _writer.join(timeout)
+        _writer = None
+
+
+# A worker that exits without shutdown events (a crash) still writes what it
+# has buffered, including the traceback that killed it.
+atexit.register(lambda: flush() if _state.config is not None else None)

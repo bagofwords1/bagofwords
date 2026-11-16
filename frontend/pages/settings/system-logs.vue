@@ -8,7 +8,7 @@
         size="xs"
         icon="i-heroicons-trash"
         data-testid="system-logs-delete-all"
-        :disabled="!settings || deleting"
+        :disabled="!status || deleting"
         :loading="deleting"
         @click="showDeleteModal = true"
       >
@@ -21,39 +21,20 @@
     </div>
 
     <template v-else>
-      <!-- Capture switch -->
-      <div class="rounded-lg border border-line bg-surface p-4 mb-4 flex items-center gap-4 flex-wrap">
-        <UToggle
-          :model-value="!!settings?.enabled"
-          :disabled="!settings || switching"
-          data-testid="system-logs-toggle"
-          :aria-label="$t('settings.systemLogs.captureLabel')"
-          @update:model-value="setEnabled"
-        />
-        <div class="min-w-0 flex-1">
-          <p class="text-sm text-ink">{{ $t('settings.systemLogs.captureLabel') }}</p>
-          <p class="text-xs text-ink-muted" data-testid="system-logs-status">{{ statusText }}</p>
-        </div>
-        <label v-if="!settings?.enabled" class="flex items-center gap-2 text-xs text-ink-muted">
-          {{ $t('settings.systemLogs.durationLabel') }}
-          <USelect
-            v-model="duration"
-            size="xs"
-            :options="durationOptions"
-            option-attribute="label"
-            value-attribute="value"
-            data-testid="system-logs-duration"
-          />
-        </label>
-        <p v-if="settings" class="w-full text-2xs text-ink-muted">
-          {{ $t('settings.systemLogs.retention', { days: settings.retention_days, used: formatBytes(settings.size_bytes), max: formatBytes(settings.max_size_bytes) }) }}
+      <!-- Where the logs are kept. Recording is always on. -->
+      <div v-if="status" class="rounded-lg border border-line bg-surface p-4 mb-4 flex flex-col gap-1.5">
+        <p class="text-xs text-ink-2" data-testid="system-logs-retention">
+          {{ $t('settings.systemLogs.retention', { days: status.retention_days, used: formatBytes(status.size_bytes), max: formatBytes(status.max_size_bytes) }) }}
         </p>
-        <p class="w-full flex items-start gap-1.5 text-2xs text-amber-700 dark:text-amber-400" data-testid="system-logs-sensitive-warning">
+        <p class="flex items-start gap-1.5 text-2xs text-amber-700 dark:text-amber-400" data-testid="system-logs-sensitive-warning">
           <UIcon name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 mt-px" />
           {{ $t('settings.systemLogs.sensitiveWarning') }}
         </p>
-        <p v-if="settings?.dropped_lines" class="w-full text-2xs text-red-600 dark:text-red-400" data-testid="system-logs-dropped">
-          {{ $t('settings.systemLogs.droppedNotice', { count: settings.dropped_lines }) }}
+        <p v-if="status.write_error" class="text-2xs text-red-600 dark:text-red-400" data-testid="system-logs-write-error">
+          {{ $t('settings.systemLogs.writeError', { directory: status.directory }) }}
+        </p>
+        <p v-if="status.dropped_lines" class="text-2xs text-red-600 dark:text-red-400" data-testid="system-logs-dropped">
+          {{ $t('settings.systemLogs.droppedNotice', { count: status.dropped_lines }) }}
         </p>
       </div>
 
@@ -129,7 +110,7 @@
         :class="loading && !entries.length ? 'opacity-60' : ''"
       >
         <div v-if="!entries.length" class="px-3 py-6 text-center text-ink-muted font-sans" data-testid="system-logs-empty">
-          {{ settings?.enabled ? $t('settings.systemLogs.emptyEnabled') : $t('settings.systemLogs.emptyDisabled') }}
+          {{ $t('settings.systemLogs.empty') }}
         </div>
         <div
           v-for="entry in entries"
@@ -185,27 +166,25 @@ type LogEntry = {
   message: string
 }
 
-type LogSettings = {
-  enabled: boolean
-  expires_at: string | null
+type LogStatus = {
   instance_id: string
   instances: string[]
+  directory: string
   retention_days: number
   max_size_bytes: number
   size_bytes: number
+  write_error: boolean
   dropped_lines: number
 }
 
 const { t, locale } = useI18n({ useScope: 'global' })
 const toast = useToast()
 const { getErrorMessage } = useErrorMessage()
-const _df = useFormatDate()
 
-const settings = ref<LogSettings | null>(null)
+const status = ref<LogStatus | null>(null)
 const entries = ref<LogEntry[]>([])
 const hasMore = ref(false)
 const loading = ref(false)
-const switching = ref(false)
 const deleting = ref(false)
 const loadError = ref<string | null>(null)
 const rangeError = ref<string | null>(null)
@@ -218,37 +197,19 @@ const to = ref('')
 const instance = ref('')
 const errorsOnly = ref(false)
 const autoRefresh = ref(false)
-const duration = ref<number>(60)
-
-const durationOptions = computed(() => [
-  { value: 15, label: t('settings.systemLogs.durations.m15') },
-  { value: 60, label: t('settings.systemLogs.durations.h1') },
-  { value: 240, label: t('settings.systemLogs.durations.h4') },
-  { value: 1440, label: t('settings.systemLogs.durations.h24') },
-  { value: 10080, label: t('settings.systemLogs.durations.d7') },
-  { value: 0, label: t('settings.systemLogs.durations.untilOff') },
-])
 
 const instanceOptions = computed(() => [
   { value: '', label: t('settings.systemLogs.allInstances') },
-  ...(settings.value?.instances || []).map((id) => ({
+  ...(status.value?.instances || []).map((id) => ({
     value: id,
-    label: id === settings.value?.instance_id ? t('settings.systemLogs.thisInstance', { id }) : id,
+    label: id === status.value?.instance_id ? t('settings.systemLogs.thisInstance', { id }) : id,
   })),
 ])
 
 // The instance column only earns its width when there is more than one.
-const showInstance = computed(() => (settings.value?.instances.length || 0) > 1 && !instance.value)
+const showInstance = computed(() => (status.value?.instances.length || 0) > 1 && !instance.value)
 
 const hasFilters = computed(() => !!(search.value || from.value || to.value || instance.value || errorsOnly.value))
-
-const statusText = computed(() => {
-  const s = settings.value
-  if (!s) return ''
-  if (!s.enabled) return t('settings.systemLogs.statusOff')
-  if (s.expires_at) return t('settings.systemLogs.statusUntil', { time: _df.formatDateTime(parseUtc(s.expires_at)) })
-  return t('settings.systemLogs.statusOn')
-})
 
 // The API speaks naive UTC; mark it as such before the browser parses it.
 function parseUtc(value: string): Date {
@@ -287,10 +248,10 @@ function toIso(local: string): string | undefined {
   return Number.isNaN(d.getTime()) ? undefined : d.toISOString()
 }
 
-async function loadSettings() {
-  const res = await useMyFetch('/api/system-logs/settings')
+async function loadStatus() {
+  const res = await useMyFetch('/api/system-logs/status')
   if (res.status.value === 'success') {
-    settings.value = res.data.value as LogSettings
+    status.value = res.data.value as LogStatus
     loadError.value = null
   } else {
     loadError.value = getErrorMessage(res.error.value, t('settings.systemLogs.loadFailed'))
@@ -335,26 +296,8 @@ async function fetchLogs() {
 }
 
 async function refreshAll() {
-  await loadSettings()
+  await loadStatus()
   if (!loadError.value) await fetchLogs()
-}
-
-async function setEnabled(enabled: boolean) {
-  switching.value = true
-  try {
-    const body: Record<string, unknown> = { enabled }
-    if (enabled && duration.value) body.duration_minutes = duration.value
-    const res = await useMyFetch('/api/system-logs/settings', { method: 'PUT', body })
-    if (res.status.value === 'success') {
-      settings.value = res.data.value as LogSettings
-      toast.add({ title: enabled ? t('settings.systemLogs.enabledToast') : t('settings.systemLogs.disabledToast'), color: 'green' })
-      await fetchLogs()
-    } else {
-      toast.add({ title: t('settings.systemLogs.saveFailed'), description: getErrorMessage(res.error.value), color: 'red' })
-    }
-  } finally {
-    switching.value = false
-  }
 }
 
 async function deleteAll() {
@@ -362,9 +305,8 @@ async function deleteAll() {
   try {
     const res = await useMyFetch('/api/system-logs', { method: 'DELETE' })
     if (res.status.value === 'success') {
-      const { deleted } = res.data.value as { deleted: number }
       showDeleteModal.value = false
-      toast.add({ title: t('settings.systemLogs.deletedToast', { count: deleted }), color: 'green' })
+      toast.add({ title: t('settings.systemLogs.deletedToast'), color: 'green' })
       await refreshAll()
     } else {
       toast.add({ title: t('settings.systemLogs.deleteFailed'), description: getErrorMessage(res.error.value), color: 'red' })

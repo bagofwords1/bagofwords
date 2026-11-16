@@ -1,15 +1,16 @@
-"""E2E: Settings → System logs (the app's own log lines, kept in app_logs).
+"""E2E: Settings → System logs (the app's own log lines, kept as files).
 
-The contract the UI depends on: capture is off until an admin switches it on,
-log records written while it is on come back through the API with their level,
-stream and instance, the read filters (time range, instance, errors only,
-search, limit) narrow the result, clearing empties it, and only an instance
-admin can use any of it.
+The contract the UI depends on: log records come back through the API with
+their level, stream and instance, lines from every instance writing to the
+shared directory are shown, the read filters (time range, instance, errors
+only, search, limit) narrow the result, clearing empties it, nothing touches
+the database, and only an instance admin can use any of it.
 
 Lines are produced through Python's ``logging`` exactly as app code does. The
-background writer does not run under the test client (startup events do not
-fire), so the read endpoint's own flush is what puts them in the table.
+writer thread does not run under the test client (startup events do not
+fire), so the read endpoint's own flush is what writes them.
 """
+import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -26,14 +27,19 @@ log.setLevel(logging.INFO)
 
 
 @pytest.fixture(autouse=True)
-def _fresh_capture_state():
-    # The switch and buffer are per process; each test gets a new database,
-    # so start (and leave) the process with nothing captured.
+def log_dir(tmp_path):
+    # Each test gets its own log directory and an empty buffer.
     # Building the test database runs alembic's fileConfig, which resets the
     # root logger's handlers; attach ours again.
     app_log_service.install_log_handler()
     app_log_service.reset()
-    yield
+    config = app_log_service.LogConfig(
+        directory=tmp_path / "system-logs",
+        retention=timedelta(days=7),
+        max_bytes=1024 ** 3,
+    )
+    app_log_service.configure(config)
+    yield config.directory
     app_log_service.reset()
 
 
@@ -64,8 +70,8 @@ def member(test_client, admin, create_user, login_user):
     return {"token": token, "headers": _h(token, admin["org_id"])}
 
 
-def _enable(test_client, headers, **body):
-    resp = test_client.put("/api/system-logs/settings", json={"enabled": True, **body}, headers=headers)
+def _status(test_client, headers):
+    resp = test_client.get("/api/system-logs/status", headers=headers)
     assert resp.status_code == 200, resp.json()
     return resp.json()
 
@@ -83,21 +89,25 @@ def _emit_at(level, message, when):
     log.handle(record)
 
 
-def test_capture_is_off_by_default_and_records_nothing(test_client, admin):
-    settings = test_client.get("/api/system-logs/settings", headers=admin["headers"]).json()
-    assert settings["enabled"] is False
-    assert settings["expires_at"] is None
-    assert settings["dropped_lines"] == 0
-
-    marker = f"off-{uuid.uuid4().hex}"
+def test_lines_are_recorded_without_any_switch_and_status_describes_the_files(test_client, admin, log_dir):
+    marker = f"always-{uuid.uuid4().hex}"
     log.warning(marker)
 
-    assert _logs(test_client, admin["headers"], search=marker)["items"] == []
+    items = _logs(test_client, admin["headers"], search=marker)["items"]
+    assert [i["message"] for i in items] == [marker]
+
+    status = _status(test_client, admin["headers"])
+    assert status["directory"] == str(log_dir)
+    assert status["retention_days"] == 7
+    assert status["max_size_bytes"] == 1024 ** 3
+    assert status["size_bytes"] > 0
+    assert status["write_error"] is False
+    assert status["dropped_lines"] == 0
+    assert any(p.suffix == ".jsonl" for p in log_dir.iterdir())
 
 
 def test_captured_lines_carry_level_stream_and_instance(test_client, admin):
-    settings = _enable(test_client, admin["headers"])
-    assert settings["enabled"] is True
+    settings = _status(test_client, admin["headers"])
 
     info_marker = f"info-{uuid.uuid4().hex}"
     error_marker = f"error-{uuid.uuid4().hex}"
@@ -118,13 +128,32 @@ def test_captured_lines_carry_level_stream_and_instance(test_client, admin):
     assert info["instance_id"] == settings["instance_id"]
     assert info["logger"] == log.name
 
-    # The instance shows up in the filter list once it has rows.
-    settings = test_client.get("/api/system-logs/settings", headers=admin["headers"]).json()
+    # The instance shows up in the filter list once it has files.
+    settings = _status(test_client, admin["headers"])
     assert settings["instance_id"] in settings["instances"]
 
 
+def test_lines_from_other_instances_on_the_shared_directory_are_shown(test_client, admin, log_dir):
+    tag = uuid.uuid4().hex
+    log.info(f"{tag} from this instance")
+    # Another pod writing to the same shared directory.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    (log_dir / "other-pod-7f9c__12__1700000000000-0.jsonl").write_text(
+        json.dumps({"t": now.isoformat(), "l": "ERROR", "g": "app.x", "s": "stderr", "m": f"{tag} from the other pod"}) + "\n"
+    )
+
+    items = _logs(test_client, admin["headers"], search=tag)["items"]
+    assert {i["instance_id"]: i["message"] for i in items} == {
+        app_log_service.INSTANCE_ID: f"{tag} from this instance",
+        "other-pod-7f9c": f"{tag} from the other pod",
+    }
+    assert set(_status(test_client, admin["headers"])["instances"]) == {app_log_service.INSTANCE_ID, "other-pod-7f9c"}
+    only_other = _logs(test_client, admin["headers"], search=tag, instance_id="other-pod-7f9c")["items"]
+    assert [i["message"] for i in only_other] == [f"{tag} from the other pod"]
+
+
 def test_filters_errors_only_search_and_instance(test_client, admin):
-    settings = _enable(test_client, admin["headers"])
+    settings = _status(test_client, admin["headers"])
     tag = uuid.uuid4().hex
     log.info(f"Alpha {tag} request served")
     log.warning(f"Beta {tag} slow query")
@@ -137,7 +166,7 @@ def test_filters_errors_only_search_and_instance(test_client, admin):
     found = _logs(test_client, admin["headers"], search=f"BETA {tag.upper()}")["items"]
     assert [e["message"] for e in found] == [f"Beta {tag} slow query"]
 
-    # LIKE wildcards in the search are literal text.
+    # Wildcards in the search are literal text.
     assert _logs(test_client, admin["headers"], search=f"{tag}%served")["items"] == []
 
     mine = _logs(test_client, admin["headers"], search=tag, instance_id=settings["instance_id"])["items"]
@@ -146,7 +175,6 @@ def test_filters_errors_only_search_and_instance(test_client, admin):
 
 
 def test_time_range_filter_is_inclusive_and_validated(test_client, admin):
-    _enable(test_client, admin["headers"])
     tag = uuid.uuid4().hex
     base = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0) - timedelta(days=2)
     stamps = [base + timedelta(hours=h) for h in (0, 5, 9, 13)]
@@ -175,7 +203,6 @@ def test_time_range_filter_is_inclusive_and_validated(test_client, admin):
 
 
 def test_default_fetch_is_newest_1000_lines(test_client, admin):
-    _enable(test_client, admin["headers"])
     tag = uuid.uuid4().hex
     base = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
     total = 1007
@@ -194,52 +221,7 @@ def test_default_fetch_is_newest_1000_lines(test_client, admin):
     assert len(small["items"]) == 5 and small["has_more"] is True
 
 
-def test_turning_capture_off_stops_recording(test_client, admin):
-    _enable(test_client, admin["headers"])
-    before = f"before-{uuid.uuid4().hex}"
-    log.info(before)
-
-    resp = test_client.put("/api/system-logs/settings", json={"enabled": False}, headers=admin["headers"])
-    assert resp.status_code == 200 and resp.json()["enabled"] is False
-
-    after = f"after-{uuid.uuid4().hex}"
-    log.info(after)
-    # Lines captured while it was on are kept.
-    assert len(_logs(test_client, admin["headers"], search=before)["items"]) == 1
-    assert _logs(test_client, admin["headers"], search=after)["items"] == []
-
-
-def test_timed_capture_reports_when_it_switches_off(test_client, admin):
-    before = datetime.now(timezone.utc).replace(tzinfo=None)
-    settings = _enable(test_client, admin["headers"], duration_minutes=90)
-    assert settings["enabled"] is True
-    expires = datetime.fromisoformat(settings["expires_at"]).replace(tzinfo=None)
-    assert before + timedelta(minutes=89) < expires < before + timedelta(minutes=91)
-
-    for bad in (0, -5, 7 * 24 * 60 + 1):
-        resp = test_client.put(
-            "/api/system-logs/settings",
-            json={"enabled": True, "duration_minutes": bad},
-            headers=admin["headers"],
-        )
-        assert resp.status_code == 422, bad
-
-
-def test_switch_is_stored_for_every_worker(test_client, admin):
-    """Another worker process (simulated by forgetting this one's state)
-    learns the switch from the database, not from the worker that set it."""
-    _enable(test_client, admin["headers"])
-    app_log_service.reset()
-
-    settings = test_client.get("/api/system-logs/settings", headers=admin["headers"]).json()
-    assert settings["enabled"] is True
-    marker = f"worker-{uuid.uuid4().hex}"
-    log.info(marker)
-    assert len(_logs(test_client, admin["headers"], search=marker)["items"]) == 1
-
-
-def test_delete_all_empties_the_table(test_client, admin):
-    _enable(test_client, admin["headers"])
+def test_delete_all_removes_every_file(test_client, admin, log_dir):
     tag = uuid.uuid4().hex
     for i in range(3):
         log.info(f"{tag} {i}")
@@ -247,23 +229,22 @@ def test_delete_all_empties_the_table(test_client, admin):
 
     resp = test_client.delete("/api/system-logs", headers=admin["headers"])
     assert resp.status_code == 200
-    assert resp.json()["deleted"] >= 3
+    assert resp.json()["deleted_files"] >= 1
+    assert not any(p.suffix == ".jsonl" for p in log_dir.iterdir())
 
     assert _logs(test_client, admin["headers"], search=tag)["items"] == []
-    # Clearing does not switch capture off.
+    # Recording carries on after a delete.
     later = f"later-{uuid.uuid4().hex}"
     log.info(later)
     assert len(_logs(test_client, admin["headers"], search=later)["items"]) == 1
 
 
-def test_member_cannot_read_clear_or_switch(test_client, admin, member):
-    _enable(test_client, admin["headers"])
+def test_member_cannot_read_or_clear(test_client, admin, member):
     log.info(f"secret-{uuid.uuid4().hex}")
 
     calls = [
         ("get", "/api/system-logs", {}),
-        ("get", "/api/system-logs/settings", {}),
-        ("put", "/api/system-logs/settings", {"json": {"enabled": False}}),
+        ("get", "/api/system-logs/status", {}),
         ("delete", "/api/system-logs", {}),
     ]
     for method, url, kw in calls:
@@ -271,8 +252,6 @@ def test_member_cannot_read_clear_or_switch(test_client, admin, member):
         assert resp.status_code == 403, (method, url, resp.status_code)
 
     # The member's attempts changed nothing.
-    settings = test_client.get("/api/system-logs/settings", headers=admin["headers"]).json()
-    assert settings["enabled"] is True
     assert _logs(test_client, admin["headers"])["items"]
 
 
@@ -281,8 +260,7 @@ def test_multi_org_instance_requires_instance_superuser(test_client, admin, monk
 
     for method, url, kw in [
         ("get", "/api/system-logs", {}),
-        ("get", "/api/system-logs/settings", {}),
-        ("put", "/api/system-logs/settings", {"json": {"enabled": True}}),
+        ("get", "/api/system-logs/status", {}),
         ("delete", "/api/system-logs", {}),
     ]:
         resp = getattr(test_client, method)(url, headers=admin["headers"], **kw)
@@ -302,5 +280,5 @@ def test_multi_org_instance_requires_instance_superuser(test_client, admin, monk
             await db.commit()
 
     asyncio.run(_make_superuser())
-    resp = test_client.get("/api/system-logs/settings", headers=admin["headers"])
+    resp = test_client.get("/api/system-logs/status", headers=admin["headers"])
     assert resp.status_code == 200, resp.json()
