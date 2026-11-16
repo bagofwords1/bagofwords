@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
 from app.ai.prompt_formatters import Table, TableColumn
-from app.data_sources.clients._pcap_parquet import FRAME_SCHEMA, convert_capture
+from app.data_sources.clients._pcap_parquet import FRAME_SCHEMA, DecodeError, convert_capture
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.fast.parquet_crypto import decryption_properties, encrypt_parquet
 from app.services import storage
@@ -87,18 +88,35 @@ class Source:
     def schema(self):
         return pq.read_schema(self.artifact, decryption_properties=decryption_properties())
 
+    def _failure(self):
+        """(reason, retryable) recorded for this exact file version, or None."""
+        failure = self.artifact.with_suffix(".error")
+        if not storage.ensure_local(failure, fresh=False):
+            return None
+        text = failure.read_text()
+        try:
+            record = json.loads(text)
+            return str(record["reason"]), bool(record["retryable"])
+        except (ValueError, KeyError, TypeError):
+            return text, True  # pre-structured marker: retry once to classify it
+
     def status(self):
         if self.too_large:
             return "failed", "Exceeds the connection file size limit"
         if storage.ensure_local(self.artifact, fresh=False):
             return "ready", None
-        failure = self.artifact.with_suffix(".error")
-        if storage.ensure_local(failure, fresh=False):
-            return "failed", failure.read_text()
+        failure = self._failure()
+        if failure:
+            return "failed", failure[0]
         return "pending", None
 
     def prepare(self, client, checkpoint):
         if self.too_large or storage.ensure_local(self.artifact, fresh=False):
+            return
+        failure = self._failure()
+        if failure and not failure[1]:
+            # The version is part of the cache key, so a changed file is retried;
+            # an unchanged one would fail the same way and burn the decode budget.
             return
         self.artifact.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         # A private staging path per attempt. Readers only see completed versions.
@@ -117,10 +135,12 @@ class Source:
                             return True
                         return False
 
-                    with TemporaryDirectory() as scratch:
-                        plain = Path(scratch) / "qvd.parquet"
-                        QVDClient(str(self.path)).convert_to_parquet(str(self.path), plain, cancel_check=check_cancel)
-                        encrypt_parquet(plain, result)
+                    # The plaintext stays inside this attempt's private 0700 staging
+                    # directory and is removed with it.
+                    plain = Path(work) / "qvd.parquet"
+                    QVDClient(str(self.path)).convert_to_parquet(str(self.path), plain, cancel_check=check_cancel)
+                    encrypt_parquet(plain, result)
+                    plain.unlink()
                 if Source.resolve(client, self.file_id).artifact != self.artifact:
                     return  # source changed during conversion; the new version is pending
                 os.replace(result, self.artifact)
@@ -132,13 +152,16 @@ class Source:
             except IndexingCancelled:
                 raise
             except Exception as exc:
-                if isinstance(exc, FileNotFoundError) and exc.filename == "tshark":
-                    reason = "TShark is not installed"
+                if isinstance(exc, DecodeError):
+                    reason, retryable = exc.reason, exc.retryable
+                elif isinstance(exc, FileNotFoundError) and exc.filename == "tshark":
+                    reason, retryable = "TShark is not installed", True
                 else:
-                    reason = "Conversion failed; see the indexing log"
+                    # Unclassified (disk full, converter error): may be transient.
+                    reason, retryable = "Conversion failed; see the indexing log", True
                 logger.warning("Could not index %s: %s", self.file_id, exc)
                 error = Path(work) / "error"
-                error.write_text(reason)
+                error.write_text(json.dumps({"reason": reason, "retryable": retryable}))
                 failure = self.artifact.with_suffix(".error")
                 os.replace(error, failure)
                 storage.persist(failure)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
+import signal
 import subprocess
 import shutil
 import sys
@@ -56,10 +57,45 @@ def _write_batch(rows, path):
     )
 
 
-def _watch_decoder(proc, done):
-    deadline = monotonic() + 600
+class DecodeError(ValueError):
+    """A capture could not be decoded.
+
+    `reason` is shown to users in `indexed_files`. `retryable` is False when the
+    same file version would fail the same way again (malformed input, a resource
+    limit), so indexing does not spend the decode budget on it every refresh.
+    """
+
+    def __init__(self, reason, retryable=False):
+        super().__init__(reason)
+        self.reason = reason
+        self.retryable = retryable
+
+
+# Must match _tshark_worker.SANDBOX_UNAVAILABLE_EXIT / CPU_LIMIT_SECONDS.
+SANDBOX_UNAVAILABLE_EXIT = 78
+CPU_LIMIT_SECONDS = 300
+WALL_LIMIT_SECONDS = 600
+
+
+def _decode_failure(returncode, killed):
+    if returncode == SANDBOX_UNAVAILABLE_EXIT:
+        return DecodeError("The packet decoder sandbox is unavailable on this host", retryable=True)
+    if killed == "time" or returncode == -signal.SIGXCPU:
+        return DecodeError(
+            f"Decoding exceeded the time limit ({CPU_LIMIT_SECONDS} s CPU, {WALL_LIMIT_SECONDS} s total)"
+        )
+    if killed == "memory" or returncode in (-signal.SIGABRT, -signal.SIGKILL):
+        return DecodeError("Decoding exceeded the memory limit")
+    if returncode < 0:
+        return DecodeError(f"The decoder crashed on this capture (signal {-returncode})")
+    return DecodeError(f"TShark could not decode this capture (exit {returncode})")
+
+
+def _watch_decoder(proc, done, killed):
+    deadline = monotonic() + WALL_LIMIT_SECONDS
     while not done.wait(1):
         if monotonic() >= deadline:
+            killed["reason"] = "time"
             proc.kill()
             return
         # Darwin does not implement RLIMIT_AS. Enforce the resident memory
@@ -67,6 +103,7 @@ def _watch_decoder(proc, done):
         if sys.platform == "darwin":
             rss = subprocess.run(["/bin/ps", "-o", "rss=", "-p", str(proc.pid)], capture_output=True).stdout.strip()
             if rss.isdigit() and int(rss) > 2 * 1024 * 1024:
+                killed["reason"] = "memory"
                 proc.kill()
                 return
 
@@ -77,7 +114,9 @@ def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint
     if not tshark:
         raise FileNotFoundError(2, "TShark is not installed", "tshark")
     launcher = Path(__file__).with_name("_tshark_worker.py")
-    with TemporaryDirectory() as spool, source.open("rb") as capture:
+    # Stage next to the destination (the connection's private cache directory),
+    # not in the system temp dir, which may be a small shared tmpfs.
+    with TemporaryDirectory(dir=destination.parent) as spool, source.open("rb") as capture:
         with subprocess.Popen(
             [sys.executable, "-I", "-S", str(launcher), str(Path(tshark).resolve())],
             stdin=capture,
@@ -87,10 +126,12 @@ def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint
             stderr=subprocess.DEVNULL,
         ) as proc:
             done = Event()
-            watchdog = Thread(target=_watch_decoder, args=(proc, done), daemon=True)
+            killed = {}
+            watchdog = Thread(target=_watch_decoder, args=(proc, done, killed), daemon=True)
             watchdog.start()
             parts, rows = [], []
             batch_bytes = 0
+            incomplete = False
             try:
                 for _, packet in etree.iterparse(
                     proc.stdout, events=("end",), tag="packet", no_network=True, resolve_entities=False
@@ -110,9 +151,13 @@ def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint
                         batch_bytes = 0
                         if checkpoint:
                             checkpoint()
-            except etree.XMLSyntaxError as exc:
-                proc.kill()
-                raise ValueError("TShark did not return a complete capture decode") from exc
+            except etree.XMLSyntaxError:
+                # Usually the decoder died mid-stream and its exit status says
+                # why. If it is still running, its output itself was unusable.
+                incomplete = True
+                if proc.poll() is None:
+                    killed["reason"] = "parser"
+                    proc.kill()
             except BaseException:
                 proc.kill()
                 raise
@@ -121,8 +166,10 @@ def convert_capture(source: Path, capture_id: str, destination: Path, checkpoint
                 returncode = proc.wait()
                 done.set()
                 watchdog.join()
-            if returncode:
-                raise ValueError(f"TShark could not decode this capture (exit {returncode})")
+            if killed.get("reason") == "parser" or (incomplete and not returncode):
+                raise DecodeError("TShark returned an incomplete decode of this capture")
+            if returncode or killed:
+                raise _decode_failure(returncode, killed.get("reason"))
         if not parts:
             _write_batch(rows, destination)
             return

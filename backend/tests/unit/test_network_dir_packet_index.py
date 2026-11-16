@@ -92,6 +92,59 @@ def test_cache_is_scoped_and_failed_files_are_visible(share, monkeypatch):
     assert client.execute_query("SELECT count(*) AS n FROM packets").iloc[0].n == 2
 
 
+def _statuses(client):
+    rows = client.execute_query("SELECT file_id, status, reason FROM indexed_files")
+    return {r.file_id: (r.status, r.reason) for r in rows.itertuples(index=False)}
+
+
+@pytest.mark.skipif(not shutil.which("tshark"), reason="requires tshark")
+def test_permanent_decode_failure_is_kept_until_the_file_changes(share, monkeypatch, tmp_path):
+    client = NetworkDirClient(root_path=str(share), allowed_extensions="pcap")
+    (share / "broken.pcap").write_bytes(b"\xd4\xc3\xb2\xa1 truncated capture header")
+    index_and_bind(client)
+    status, reason = _statuses(client)["broken.pcap"]
+    assert status == "failed" and reason
+
+    # An unchanged file is not decoded again: with no decoder on the host a
+    # retry would replace the recorded reason, so the reason must survive.
+    monkeypatch.setenv("PATH", str(tmp_path / "no-decoder"))
+    index_and_bind(client)
+    assert _statuses(client)["broken.pcap"] == (status, reason)
+
+    # A changed file is a new version and is decoded.
+    monkeypatch.undo()
+    write_capture(share / "broken.pcap", [ARP, ARP, ARP])
+    index_and_bind(client)
+    assert _statuses(client)["broken.pcap"][0] == "ready"
+    assert client.execute_query(
+        "SELECT count(*) AS n FROM packets WHERE capture_id = 'broken.pcap'"
+    ).iloc[0].n == 3
+
+
+@pytest.mark.skipif(not shutil.which("tshark"), reason="requires tshark")
+@pytest.mark.parametrize("decoder", ["missing", "unlaunchable"])
+def test_host_side_decoder_failures_are_retried(share, monkeypatch, tmp_path, decoder):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    if decoder == "unlaunchable":
+        # On PATH but cannot start inside the sandbox (a script needs /bin/sh,
+        # which the sandbox does not allow to execute; on hosts without the
+        # sandbox the launcher refuses outright).
+        fake = bin_dir / "tshark"
+        fake.write_text("#!/bin/sh\nexit 0\n")
+        fake.chmod(0o755)
+    real_path = __import__("os").environ["PATH"]
+    monkeypatch.setenv("PATH", str(bin_dir))
+    client = NetworkDirClient(root_path=str(share), allowed_extensions="pcap,pcapng")
+    index_and_bind(client)
+    assert {s for s, _ in _statuses(client).values()} == {"failed"}
+
+    # Fixing the host is enough: the same unchanged files decode on the next refresh.
+    monkeypatch.setenv("PATH", real_path)
+    index_and_bind(client)
+    assert {s for s, _ in _statuses(client).values()} == {"ready"}
+
+
 @pytest.mark.parametrize("mode", ["none", "metadata"])
 def test_listing_only_modes_do_not_create_packet_relations(share, mode):
     client = NetworkDirClient(root_path=str(share), index_mode=mode)

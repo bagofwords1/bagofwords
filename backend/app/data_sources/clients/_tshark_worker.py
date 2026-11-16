@@ -11,6 +11,11 @@ from pathlib import Path
 import resource
 import sys
 
+# Exit status when the decoder cannot be started inside the sandbox (setup
+# failed or the exec was refused). Must match _pcap_parquet.SANDBOX_UNAVAILABLE_EXIT.
+SANDBOX_UNAVAILABLE_EXIT = 78
+CPU_LIMIT_SECONDS = 300
+
 
 def linux_sandbox(binary):
     sandbox = Path(__file__).resolve().parents[2] / "ai/code_execution/sandbox"
@@ -51,7 +56,7 @@ def linux_sandbox(binary):
 
 def main():
     binary = sys.argv[1]
-    resource.setrlimit(resource.RLIMIT_CPU, (300, 305))
+    resource.setrlimit(resource.RLIMIT_CPU, (CPU_LIMIT_SECONDS, CPU_LIMIT_SECONDS + 5))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_NOFILE, (128, 128))
     argv = [binary, "-n", "-r", "-", "-T", "pdml"]
@@ -81,4 +86,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:  # setup or exec failed: nothing was decoded
+        print(f"decoder sandbox unavailable: {type(exc).__name__}: {exc}", file=sys.stderr)
+        os._exit(SANDBOX_UNAVAILABLE_EXIT)

@@ -16,6 +16,7 @@
 - Fixed agent-authored instructions in a folder-scoped report being pinned to the folder's agents instead of the folder (#1738)
 - Fixed the agent scope picker always showing a folder icon, even for a single agent or all agents (#1731)
 - Fixed SQL Server timeouts BOW could not stop being reported only in logs; the error and the connection test name the missing permission (#1739)
+- Fixed unreadable packet captures being decoded again on every refresh; a failed file now shows a specific reason in `indexed_files` and is retried only when it changes or the host is fixed (#1747)
 
 ## Version 0.0.621 (November 15, 2026)
 - Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
