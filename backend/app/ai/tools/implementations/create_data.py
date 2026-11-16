@@ -2134,6 +2134,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             else:
                 await _writer_db.commit()
 
+        query_stopped = False
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
                 request=CodeGenRequest(context=codegen_context),
@@ -2183,11 +2184,32 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     query_timings = e["payload"].get("query_timings") or []
                     codegen_ms = e["payload"].get("codegen_ms")
                     execution_ms = e["payload"].get("execution_ms")
+                    query_stopped = bool(e["payload"].get("stopped"))
                     # Reasoning inside that codegen_ms (last attempt, like it).
                     codegen_reasoning_ms = getattr(coder, "reasoning_ms", None) or None
             codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
             codegen_span.set_attribute("codegen.error_count", len(code_errors))
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
+
+        if query_stopped:
+            # The user pressed Stop and the in-flight query was cancelled: no
+            # widget/step for an aborted run, and not an execution failure.
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "code": generated_code or "",
+                        "data": {},
+                        "data_preview": {},
+                        "stats": {},
+                        "execution_log": output_log,
+                        "errors": [],
+                    },
+                    "observation": {"summary": "Data query stopped by user", "stopped": True},
+                },
+            )
+            return
 
         if generated_code is None or exec_df is None:
             # Audit: tool execution failure
