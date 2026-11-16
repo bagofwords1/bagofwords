@@ -287,6 +287,7 @@ Queries are subject to a per-connection timeout.
         execution_ms = None
         execution_start = time.monotonic()
         raw_errors: List[Any] = []
+        query_stopped = False
 
         # One retry: with error feedback wired into the prompt a second attempt
         # can self-correct (e.g. after a sandbox violation) while staying fast.
@@ -343,6 +344,7 @@ Queries are subject to a per-connection timeout.
                 codegen_ms = e["payload"].get("codegen_ms")
                 codegen_reasoning_ms = getattr(coder, "reasoning_ms", None) or None
                 execution_ms = e["payload"].get("execution_ms")
+                query_stopped = bool(e["payload"].get("stopped"))
                 if e["payload"].get("errors"):
                     success = False
                     raw_errors = e["payload"]["errors"] or []
@@ -358,6 +360,22 @@ Queries are subject to a per-connection timeout.
                 full_log = e["payload"].get("execution_log")
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
+
+        if query_stopped:
+            # User pressed Stop; the in-flight query was cancelled.
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "code": generated_code,
+                        "execution_log": output_log[:3000],
+                        "error_message": "Stopped by user",
+                    },
+                    "observation": {"summary": "Data inspection stopped by user", "stopped": True},
+                },
+            )
+            return
 
         # 5. Audit
         _ds_ids = list({g.get("data_source_id") for g in resolved_tables if g.get("data_source_id")})
