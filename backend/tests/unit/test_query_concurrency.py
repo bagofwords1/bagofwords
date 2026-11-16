@@ -494,3 +494,107 @@ def test_a_deleted_connection_runs_its_query_untracked(connection_id):
     # A client built before its connection was deleted: nothing to record the
     # row against (foreign key) and nothing left to protect.
     assert _begin(str(uuid.uuid4()), limit=1) is None
+
+
+# --------------------------------------------------------------------------
+# Review follow-ups
+# --------------------------------------------------------------------------
+
+
+def test_batch_sources_wait_their_whole_query_timeout_for_a_slot(monkeypatch):
+    # A dashboard refresh or scheduled report sending a burst must queue and
+    # finish, as it did before the limit was app-wide; only someone watching
+    # (chat, a step run, a viewer refresh) gets the short cap.
+    monkeypatch.setenv("BOW_QUERY_SLOT_WAIT_SECONDS", "60")
+    assert qe.slot_wait_seconds(300, "agent") == 60
+    assert qe.slot_wait_seconds(300, "step_run") == 60
+    assert qe.slot_wait_seconds(30, "agent") == 30  # never above the query timeout
+    assert qe.slot_wait_seconds(300, "dashboard_refresh.scheduled") == 300
+    assert qe.slot_wait_seconds(300, "report_refresh") == 300
+    assert qe.slot_wait_seconds(300, None) == 300
+    assert qe.slot_wait_seconds(None, "dashboard_refresh.manual") == 60
+
+
+@pytest.mark.db
+def test_a_stopped_run_gives_up_its_place_in_line_without_starting(connection_id):
+    """A user Stop while the query waits for a slot: the statement never starts."""
+    _foreign_running(connection_id)  # the only slot is taken
+
+    started = threading.Event()
+
+    class Source:
+        _bow_connection_id = connection_id
+
+        def execute_query(self, query):
+            started.set()
+            return pd.DataFrame({"x": [1]})
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=60, max_concurrent_queries=1)
+    outcome = {}
+
+    def run():
+        try:
+            wrapper.execute_query("SELECT 'waits'")
+        except BaseException as e:  # noqa: BLE001 - asserted below
+            outcome["error"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    _wait_for(lambda: any(r["status"] == "queued" for r in _rows(connection_id)))
+    stop_at = time.monotonic()
+    wrapper.cancel_active_query()  # what the sandbox runner does on Stop
+    t.join(5)
+
+    assert not t.is_alive() and time.monotonic() - stop_at < 3.0
+    assert isinstance(outcome.get("error"), qe.QueryRunStoppedError)
+    assert not started.is_set()  # nothing reached the source
+    [row] = [r for r in _rows(connection_id) if r["query_text"] == "SELECT 'waits'"]
+    assert row["status"] == "cancelled"
+    assert row["started_at"] is None
+    assert row["error"] == "The run was stopped"
+    assert row["cancel_outcome"] == "not_started"
+
+
+@pytest.mark.db
+def test_the_busy_error_counts_the_queue_ahead_not_only_running_queries(connection_id):
+    # Limit 2: one running, one queued earlier. "1 running" alone reads as a
+    # free slot; the error must say what this query was actually behind.
+    _foreign_running(connection_id)
+    table = qe._table()
+    now = datetime.utcnow()
+    with qe.get_engine().begin() as conn:
+        conn.execute(insert(table).values(
+            id=str(uuid.uuid4()), connection_id=connection_id, status="queued",
+            queued_at=now - timedelta(seconds=3), worker_id="other-host:1:x",
+            lease_expires_at=now + timedelta(seconds=30), query_text="SELECT 'ahead'",
+            query_truncated=0, created_at=now, updated_at=now,
+        ))
+    with pytest.raises(ConnectionBusyError) as err:
+        _begin(connection_id, limit=2, wait=0.5)
+    assert err.value.running == 1 and err.value.queued_ahead == 1
+    assert "1 running, 1 queued ahead of this one, limit 2" in str(err.value)
+
+
+@pytest.mark.db
+def test_an_open_transaction_on_the_connection_row_does_not_hold_up_queries(connection_id):
+    """Postgres: slot decisions take an advisory lock, not the connection's row.
+
+    An indexing run (or any writer) holding the row — an uncommitted update, or
+    the key-share lock an FK insert takes — must not stall every query.
+    """
+    engine = qe.get_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Postgres row locks")
+    from sqlalchemy import text
+
+    holder = engine.connect()
+    tx = holder.begin()
+    try:
+        holder.execute(text("UPDATE connections SET name = name WHERE id = :id"), {"id": connection_id})
+        start = time.monotonic()
+        handle = _begin(connection_id, limit=1, wait=5.0)
+        assert time.monotonic() - start < 2.0
+        qe.finish(handle, "success", rows=1)
+    finally:
+        tx.rollback()
+        holder.close()

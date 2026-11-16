@@ -9,10 +9,11 @@ threads, not event-loop tasks, and must not borrow the request's session.
 **The limit is app-wide.** A query may run only while fewer than the
 connection's ``max_concurrent_queries`` live rows are ``running`` or queued
 ahead of it (so a burst is served first come, first served). Live means the
-row's lease has not expired. The count and the switch to ``running`` happen in
-one transaction holding a lock on the connection's row (``SELECT … FOR UPDATE``
-on Postgres; ``BEGIN IMMEDIATE`` on SQLite, which has a single writer anyway),
-so two workers cannot both take the last slot. Because the count is read from
+row's lease has not expired, by the database's clock. The count and the
+switch to ``running`` happen in one transaction holding a per-connection lock
+(a transaction-scoped advisory lock on Postgres; ``BEGIN IMMEDIATE`` on
+SQLite, which has a single writer anyway), so two workers cannot both take
+the last slot. Because the count is read from
 the shared database, every worker and every replica sees the same number —
 the per-process semaphore this replaces admitted N × the limit with N
 processes.
@@ -100,8 +101,23 @@ LIVE_STATUSES = ("queued", "running")
 FINAL_STATUSES = ("success", "error", "timeout", "busy", "cancelled", "stale")
 
 
-def slot_wait_seconds(query_timeout_seconds: float | None) -> float:
-    """Wait budget for a free slot: the configured cap, never above the query timeout."""
+# Entry points with someone watching the result. Their wait for a slot is
+# capped (BOW_QUERY_SLOT_WAIT_SECONDS) so a full connection is reported while
+# the user is still there. Every other source (dashboard and report refreshes,
+# entity runs, evals, …) is a batch job: it may wait its whole query timeout,
+# as it did before the limit was app-wide, so a burst queues and finishes.
+INTERACTIVE_SOURCES = frozenset({"agent", "step_run", "viewer_refresh"})
+
+
+def slot_wait_seconds(query_timeout_seconds: float | None, source: str | None = None) -> float:
+    """Wait budget for a free slot.
+
+    Interactive sources: the configured cap, never above the query timeout.
+    Batch sources: the query timeout itself (the configured cap only when the
+    query has no timeout).
+    """
+    if source not in INTERACTIVE_SOURCES and query_timeout_seconds and query_timeout_seconds > 0:
+        return float(query_timeout_seconds)
     try:
         configured = float(os.environ.get("BOW_QUERY_SLOT_WAIT_SECONDS") or DEFAULT_SLOT_WAIT_SECONDS)
     except ValueError:
@@ -135,6 +151,7 @@ class ConnectionBusyError(Exception):
         waited: float,
         running: int | None = None,
         own_running: int | None = None,
+        queued_ahead: int | None = None,
     ):
         target = connection_name or "this connection"
         if own_running:
@@ -148,15 +165,30 @@ class ConnectionBusyError(Exception):
                 "tell the user the connection is busy and to try again shortly. Do not retry right away."
             )
         running_text = f"{running} running, " if running is not None else ""
+        ahead_text = f"{queued_ahead} queued ahead of this one, " if queued_ahead else ""
         super().__init__(
-            f"Connection busy: {target} is already running its maximum of {limit} concurrent "
-            f"queries ({running_text}limit {limit}). Waited {waited:.0f}s for a free slot. {advice}"
+            f"Connection busy: {target} allows {limit} concurrent queries and none freed up for this one "
+            f"({running_text}{ahead_text}limit {limit}). Waited {waited:.0f}s for a free slot. {advice}"
         )
         self.connection_name = connection_name
         self.limit = limit
         self.waited = waited
         self.running = running
         self.own_running = own_running
+        self.queued_ahead = queued_ahead
+
+
+class QueryRunStoppedError(Exception):
+    """The run that issued this query was stopped while the query waited for a slot.
+
+    The query never started, so there is nothing to cancel at the source.
+    Terminal: the run is ending anyway.
+    """
+
+    terminal_execution_error = True
+
+    def __init__(self):
+        super().__init__("The run was stopped before this query started")
 
 
 class QueryKilledError(Exception):
@@ -320,6 +352,26 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
+def _db_now(conn) -> datetime:
+    """The current time by the database's clock (naive UTC, like the columns).
+
+    Leases and queue order are compared across workers and replicas, so they
+    must come from one clock. SQLite runs on the worker's own host, where the
+    worker clock is the database clock.
+    """
+    if conn.dialect.name == "postgresql":
+        return conn.execute(select(func.timezone("UTC", func.clock_timestamp()))).scalar()
+    return _now()
+
+
+def _is_transient_lock_error(exc: BaseException) -> bool:
+    """SQLite's writer lock, or a Postgres ``lock_timeout`` on the slot lock."""
+    if _is_sqlite_lock_error(exc):
+        return True
+    orig = getattr(exc, "orig", None)
+    return isinstance(exc, OperationalError) and getattr(orig, "pgcode", None) == "55P03"
+
+
 _connections = table("connections", column("id"), column("organization_id"))
 
 
@@ -381,6 +433,13 @@ def _unregister(handle: QueryHandle) -> None:
 def live_handles() -> dict[str, QueryHandle]:
     with _registry_lock:
         return dict(_registry)
+
+
+def wake_waiters() -> None:
+    """Wake this process's queries waiting for a slot so they re-check their
+    abort condition (a stopped run) right away."""
+    with _slot_changed:
+        _slot_changed.notify_all()
 
 
 def request_kill_local(query_execution_id: str) -> bool:
@@ -471,7 +530,7 @@ def supervisor_tick(last_heartbeat: float = 0.0) -> float:
     ids = list(handles)
     qe = _table()
     with get_engine().begin() as conn:
-        now = _now()
+        now = _db_now(conn)
         if time.monotonic() - last_heartbeat >= HEARTBEAT_SECONDS:
             conn.execute(
                 update(qe)
@@ -507,15 +566,31 @@ def _supervise() -> None:
 # ---------------------------------------------------------------------------
 
 
+# Postgres: longest a slot decision waits for another worker's decision on the
+# same connection. Those decisions take milliseconds; the bound only matters if
+# something unexpected holds the lock.
+SLOT_LOCK_TIMEOUT = "5s"
+
+
 def _lock_connection(conn, connection_id: str) -> str | None:
     """Serialize slot decisions for one connection; return its organization id.
 
-    Postgres: a row lock on the connection (``FOR UPDATE``). SQLite: the
-    engine's transactions start with BEGIN IMMEDIATE, so the decision already
-    holds the database's single write lock (``FOR UPDATE`` does not exist there).
+    Postgres: a transaction-scoped advisory lock keyed on the connection. It
+    conflicts only with other slot decisions, never with the connection row's
+    foreign-key inserts or updates (a row lock would, and an open indexing
+    transaction could then hold every query on the connection), and
+    ``lock_timeout`` bounds the wait. SQLite: slot transactions start with
+    BEGIN IMMEDIATE, so the decision already holds the database's single write
+    lock.
     """
+    dialect = conn.dialect.name
+    if dialect == "postgresql":
+        conn.exec_driver_sql(f"SET LOCAL lock_timeout = '{SLOT_LOCK_TIMEOUT}'")
+        conn.execute(select(func.pg_advisory_xact_lock(
+            func.hashtextextended(f"bow_query_slot:{connection_id}", 0)
+        )))
     stmt = select(_connections.c.organization_id).where(_connections.c.id == connection_id)
-    if conn.dialect.name != "sqlite":
+    if dialect not in ("sqlite", "postgresql"):
         stmt = stmt.with_for_update()
     return conn.execute(stmt).scalar()
 
@@ -544,7 +619,7 @@ def _ahead_count(conn, handle: QueryHandle, now: datetime) -> dict[str, int]:
 def _try_acquire(conn, handle: QueryHandle) -> dict[str, Any]:
     """One attempt to move ``handle`` from queued to running. Caller holds the lock."""
     qe = _table()
-    now = _now()
+    now = _db_now(conn)
     state = conn.execute(
         select(qe.c.status, qe.c.kill_requested_at).where(qe.c.id == handle.id)
     ).one_or_none()
@@ -576,7 +651,7 @@ def _own_running(conn, connection_id: str, agent_execution_id: str | None) -> in
             qe.c.connection_id == connection_id,
             qe.c.agent_execution_id == agent_execution_id,
             qe.c.status == "running",
-            qe.c.lease_expires_at > _now(),
+            qe.c.lease_expires_at > _db_now(conn),
         )
     ).scalar() or 0)
 
@@ -629,13 +704,16 @@ def begin(
     meta: dict[str, Any],
     connection_name: str | None = None,
     progress: Callable[[dict[str, Any] | None], None] | None = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> QueryHandle | None:
     """Record the query and wait for a slot on its connection.
 
     Returns a running handle, or None when the connection no longer exists
     (the query then runs untracked). Raises ``ConnectionBusyError`` when no slot opens
     within ``wait_seconds`` and ``QueryKilledError`` when a manager kills the
-    query while it waits; both leave the row in its final state.
+    query while it waits; both leave the row in its final state. Raises
+    ``QueryRunStoppedError`` when ``should_abort`` turns true while it waits
+    (the run was stopped): the query never starts.
     """
     limit = max(1, int(limit or 1))
     engine = get_engine()
@@ -670,6 +748,7 @@ def begin(
         "tool_attempt": meta.get("tool_attempt"),
         "code_attempt": meta.get("code_attempt"),
         "seq": meta.get("seq"),
+        "killable": 0 if meta.get("killable") is False else 1,
         "worker_id": worker_id(),
         "lease_expires_at": now + timedelta(seconds=LEASE_SECONDS),
         "created_at": now,
@@ -688,7 +767,16 @@ def begin(
                 # to record against (the row's foreign key) and nothing left
                 # to protect. The query runs untracked, as it did before.
                 return {"missing": True}
-            conn.execute(insert(qe).values(**{**row, "organization_id": row["organization_id"] or org_id}))
+            db_now = _db_now(conn)
+            handle.queued_at = db_now
+            conn.execute(insert(qe).values(**{
+                **row,
+                "organization_id": row["organization_id"] or org_id,
+                "queued_at": db_now,
+                "lease_expires_at": db_now + timedelta(seconds=LEASE_SECONDS),
+                "created_at": db_now,
+                "updated_at": db_now,
+            }))
             return _try_acquire(conn, handle)
 
     try:
@@ -698,7 +786,7 @@ def begin(
     except OperationalError as exc:
         if not (sqlite and _is_sqlite_lock_error(exc)):
             raise
-        return _begin_local(handle, row, wait_seconds, connection_name, progress)
+        return _begin_local(handle, row, wait_seconds, connection_name, progress, should_abort)
     if outcome.get("missing"):
         return None
     _register(handle)
@@ -712,6 +800,9 @@ def begin(
                 finish(handle, "cancelled", error="Cancelled by a connection admin while waiting for a slot",
                        cancel_outcome="not_started")
                 raise QueryKilledError(cancellation="not_started")
+            if should_abort is not None and should_abort():
+                finish(handle, "cancelled", error="The run was stopped", cancel_outcome="not_started")
+                raise QueryRunStoppedError()
             last_counts = {k: outcome[k] for k in ("running", "queued_ahead") if k in outcome}
             if progress is not None:
                 reported_waiting = True
@@ -732,6 +823,7 @@ def begin(
                     logger.debug("Could not count this run's own queries", exc_info=True)
                 error = ConnectionBusyError(
                     connection_name, limit, waited, running=last_counts.get("running"), own_running=own,
+                    queued_ahead=last_counts.get("queued_ahead"),
                 )
                 finish(handle, "busy", error=str(error))
                 raise error
@@ -741,11 +833,11 @@ def begin(
             try:
                 outcome = _with_retries(lambda: _attempt_locked(engine, handle), attempts=1 if sqlite else 4)
             except OperationalError as exc:
-                if not (sqlite and _is_sqlite_lock_error(exc)):
+                if not _is_transient_lock_error(exc):
                     raise
                 # Locked for a moment: still queued, try again next round.
                 outcome = {"acquired": False, **last_counts}
-    except (ConnectionBusyError, QueryKilledError):
+    except (ConnectionBusyError, QueryKilledError, QueryRunStoppedError):
         raise
     except BaseException:
         # A bookkeeping failure must not leave a queued row holding its place.
@@ -772,6 +864,7 @@ def _begin_local(
     wait_seconds: float,
     connection_name: str | None,
     progress: Callable[[dict[str, Any] | None], None] | None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> QueryHandle:
     """SQLite with the writer lock held: admit against this process's count.
 
@@ -787,51 +880,66 @@ def _begin_local(
     qe = _table()
     deadline = time.monotonic() + max(0.0, float(wait_seconds))
     reported_waiting = False
+    outcome = "busy"
+    running = 0
 
     def _record(**final: Any) -> None:
         values = {**row, **final}
         _defer_write(lambda conn: conn.execute(insert(qe).values(**values)))
 
     try:
-        with _slot_changed:
-            while True:
+        while True:
+            # Decide under the condition; report and wait outside it, so a
+            # slow progress sink never holds up finish() or a kill.
+            with _slot_changed:
                 if handle.killed:
-                    handle.state = "finished"
+                    outcome = "killed"
+                    break
+                if should_abort is not None and should_abort():
+                    outcome = "stopped"
                     break
                 running = _local_running(handle.connection_id)
                 if running < handle.limit:
                     handle.state = "running"
+                    outcome = "running"
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
-                if progress is not None:
-                    reported_waiting = True
-                    _safe_progress(progress, {
-                        "connection_id": handle.connection_id,
-                        "connection_name": connection_name,
-                        "limit": handle.limit,
-                        "running": running,
-                        "queued_ahead": 0,
-                    })
-                _slot_changed.wait(timeout=min(0.5, remaining))
+            if progress is not None:
+                reported_waiting = True
+                _safe_progress(progress, {
+                    "connection_id": handle.connection_id,
+                    "connection_name": connection_name,
+                    "limit": handle.limit,
+                    "running": running,
+                    "queued_ahead": 0,
+                })
+            with _slot_changed:
+                if not handle.killed and not (should_abort is not None and should_abort()):
+                    _slot_changed.wait(timeout=min(0.5, max(0.0, deadline - time.monotonic())))
     finally:
         if progress is not None and reported_waiting:
             _safe_progress(progress, None)
 
     now = _now()
     waited_ms = round((time.monotonic() - handle.queued_monotonic) * 1000.0, 1)
-    if handle.state == "running":
+    if outcome == "running":
         handle.started_monotonic = time.monotonic()
         _record(status="running", started_at=now, queued_ms=waited_ms)
         return handle
+    handle.state = "finished"
     handle.finished = True
     _unregister(handle)
-    if handle.killed:
+    if outcome == "killed":
         _record(status="cancelled", ended_at=now, queued_ms=waited_ms, lease_expires_at=None,
                 cancel_outcome="not_started", error="Cancelled by a connection admin while waiting for a slot")
         raise QueryKilledError(cancellation="not_started")
-    error = ConnectionBusyError(connection_name, handle.limit, waited_ms / 1000.0, running=handle.limit)
+    if outcome == "stopped":
+        _record(status="cancelled", ended_at=now, queued_ms=waited_ms, lease_expires_at=None,
+                cancel_outcome="not_started", error="The run was stopped")
+        raise QueryRunStoppedError()
+    error = ConnectionBusyError(connection_name, handle.limit, waited_ms / 1000.0, running=running)
     _record(status="busy", ended_at=now, queued_ms=waited_ms, lease_expires_at=None, error=str(error))
     raise error
 
@@ -848,7 +956,7 @@ def finish(
     if handle.finished:
         return
     handle.finished = True
-    now = _now()
+    now = _now()  # the database's clock replaces it when written in line
     values: dict[str, Any] = {
         "status": status if status in FINAL_STATUSES else "error",
         "ended_at": now,
@@ -867,11 +975,16 @@ def finish(
     qe = _table()
 
     def _apply(conn):
+        # Deferred (SQLite, locked): keeps the time it was queued, not the
+        # time the supervisor got to write it.
         conn.execute(update(qe).where(qe.c.id == handle.id).values(**values))
 
     def _close():
         with get_engine().begin() as conn:
-            _apply(conn)
+            db_now = _db_now(conn)
+            conn.execute(update(qe).where(qe.c.id == handle.id).values(
+                **{**values, "ended_at": db_now, "updated_at": db_now}
+            ))
 
     try:
         if handle.deferred:
@@ -902,10 +1015,10 @@ def finish(
 
 def sweep_stale(now: datetime | None = None) -> int:
     """Mark live rows whose worker stopped renewing their lease as stale."""
-    now = now or _now()
-    cutoff = now - timedelta(seconds=STALE_GRACE_SECONDS)
     qe = _table()
     with get_engine().begin() as conn:
+        now = now or _db_now(conn)
+        cutoff = now - timedelta(seconds=STALE_GRACE_SECONDS)
         result = conn.execute(
             update(qe)
             .where(qe.c.status.in_(LIVE_STATUSES), qe.c.lease_expires_at < cutoff)

@@ -1445,6 +1445,7 @@
       "generationStopped": "Generation stopped",
       "code": "Code",
       "waitingForSlot": "Waiting for a free slot on {connection} · {running}/{limit} running",
+      "waitingForSlotAhead": "Waiting for a free slot on {connection} · {running}/{limit} running · {ahead} ahead",
       "waitingForSlotShort": "Waiting for a free slot on {connection}",
       "theConnection": "the connection"
     },
@@ -5210,7 +5211,8 @@
     "access_request.not_found": "This request no longer exists.",
     "access_request.already_decided": "This request was already answered.",
     "connection.query_not_found": "Query not found on this connection.",
-    "connection.query_finished": "This query has already finished ({status})."
+    "connection.query_finished": "This query has already finished ({status}).",
+    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit."
   },
   "email": {
     "dashboardShare": {
@@ -8155,6 +8157,8 @@
     "killConfirm": "Kill this query?",
     "kill": "Kill",
     "killFailed": "Could not kill the query",
+    "notKillable": "Can't be stopped here",
+    "notKillableHint": "This connection's client enforces its own time limit, so BOW cannot interrupt it. The query ends on its own.",
     "historyTitle": "History",
     "filterAll": "All statuses",
     "searchPlaceholder": "Search query text",

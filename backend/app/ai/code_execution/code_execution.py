@@ -1259,16 +1259,22 @@ class QueryCapturingClientWrapper:
             "tool_attempt": attribution.get("tool_attempt"),
             "code_attempt": attribution.get("code_attempt"),
             "seq": seq,
+            # A client that enforces its own deadline runs on this thread with
+            # no join loop to interrupt, so a manager's kill could not reach it.
+            "killable": not getattr(self._original, "_manages_query_deadline", False),
         }
         sink = attribution.get("progress_sink")
         return query_executions.begin(
             connection_id=connection_id,
             limit=self._max_concurrent_queries,
-            wait_seconds=query_executions.slot_wait_seconds(self._query_timeout_seconds),
+            wait_seconds=query_executions.slot_wait_seconds(self._query_timeout_seconds, tag.get("source")),
             query_text=capture,
             meta=meta,
             connection_name=getattr(self._original, "_bow_connection_name", None),
             progress=sink if callable(sink) else None,
+            # A user Stop (or tool timeout) while the query waits for a slot:
+            # give up the place in line instead of starting the statement.
+            should_abort=lambda: self._run_aborted,
         )
 
     def _finish_tracking(self, handle, exc: Optional[BaseException], rows: Optional[int] = None) -> None:
@@ -1277,6 +1283,8 @@ class QueryCapturingClientWrapper:
             return
         if exc is None:
             query_executions.finish(handle, "success", rows=rows)
+        elif isinstance(exc, query_executions.QueryRunStoppedError):
+            return  # begin() already closed the row (never started)
         elif isinstance(exc, query_executions.QueryKilledError):
             query_executions.finish(handle, "cancelled", error="Cancelled by a connection admin",
                                     cancel_outcome=exc.cancellation)
@@ -1382,6 +1390,8 @@ class QueryCapturingClientWrapper:
         the two sides can never miss each other.
         """
         self._run_aborted = True
+        # A query still waiting for a slot re-checks _run_aborted at once.
+        query_executions.wake_waiters()
         with self._active_query_lock:
             thread = self._active_query_thread
             if thread is None or thread.ident is None:

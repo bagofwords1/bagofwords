@@ -1419,6 +1419,7 @@
       "generationStopped": "היצירה נעצרה",
       "code": "קוד",
       "waitingForSlot": "ממתינה לתור ב-{connection} · {running}/{limit} רצות",
+      "waitingForSlotAhead": "ממתינה לתור ב-{connection} · {running}/{limit} רצות · {ahead} לפנייך",
       "waitingForSlotShort": "ממתינה לתור ב-{connection}",
       "theConnection": "החיבור"
     },
@@ -5150,7 +5151,8 @@
     "access_request.not_found": "הבקשה הזו כבר לא קיימת.",
     "access_request.already_decided": "הבקשה הזו כבר נענתה.",
     "connection.query_not_found": "השאילתה לא נמצאה בחיבור הזה.",
-    "connection.query_finished": "השאילתה כבר הסתיימה ({status})."
+    "connection.query_finished": "השאילתה כבר הסתיימה ({status}).",
+    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו."
   },
   "email": {
     "dashboardShare": {
@@ -8146,6 +8148,8 @@
     "killConfirm": "לעצור את השאילתה?",
     "kill": "עצירה",
     "killFailed": "לא ניתן לעצור את השאילתה",
+    "notKillable": "לא ניתן לעצור מכאן",
+    "notKillableHint": "הלקוח של החיבור הזה אוכף מגבלת זמן משלו, ולכן BOW לא יכול לקטוע אותו. השאילתה תסתיים מעצמה.",
     "historyTitle": "היסטוריה",
     "filterAll": "כל הסטטוסים",
     "searchPlaceholder": "חיפוש בטקסט השאילתה",

@@ -1419,6 +1419,7 @@
       "generationStopped": "Generación detenida",
       "code": "Código",
       "waitingForSlot": "Esperando turno en {connection} · {running}/{limit} en ejecución",
+      "waitingForSlotAhead": "Esperando turno en {connection} · {running}/{limit} en ejecución · {ahead} antes",
       "waitingForSlotShort": "Esperando turno en {connection}",
       "theConnection": "la conexión"
     },
@@ -5150,7 +5151,8 @@
     "access_request.not_found": "Esta solicitud ya no existe.",
     "access_request.already_decided": "Esta solicitud ya fue respondida.",
     "connection.query_not_found": "La consulta no existe en esta conexión.",
-    "connection.query_finished": "Esta consulta ya terminó ({status})."
+    "connection.query_finished": "Esta consulta ya terminó ({status}).",
+    "connection.query_not_killable": "Esta consulta no se puede detener desde BOW: su cliente aplica su propio límite de tiempo."
   },
   "email": {
     "dashboardShare": {
@@ -8126,6 +8128,8 @@
     "killConfirm": "¿Detener esta consulta?",
     "kill": "Detener",
     "killFailed": "No se pudo detener la consulta",
+    "notKillable": "No se puede detener aquí",
+    "notKillableHint": "El cliente de esta conexión aplica su propio límite de tiempo, así que BOW no puede interrumpirlo. La consulta terminará por sí sola.",
     "historyTitle": "Historial",
     "filterAll": "Todos los estados",
     "searchPlaceholder": "Buscar en el texto de la consulta",

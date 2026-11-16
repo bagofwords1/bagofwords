@@ -203,3 +203,100 @@ def test_history_lists_finished_queries_newest_first_with_filters(test_client, w
     # Another connection's history stays separate.
     other = test_client.get(f"/api/connections/{world['other']['id']}/queries", headers=hdr).json()
     assert other["items"] == []
+
+
+@pytest.mark.e2e
+def test_a_kill_is_refused_where_bow_cannot_interrupt_the_query(test_client, world):
+    """Clients that enforce their own deadline run in line: a kill could not
+    reach them, so it is refused instead of audited as if it had happened."""
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["conn_admin"]["token"], world["org_id"])
+    release = threading.Event()
+
+    class SelfTimedSource:
+        _bow_connection_id = conn_id
+        _manages_query_deadline = True
+
+        def execute_query(self, query):
+            release.wait(30)
+            return pd.DataFrame({"x": [1]})
+
+    wrapper = QueryCapturingClientWrapper(SelfTimedSource(), [], [], query_timeout_seconds=60, max_concurrent_queries=4)
+    t = threading.Thread(target=lambda: wrapper.execute_query("SELECT 'self timed'"), daemon=True)
+    t.start()
+    try:
+        deadline = time.monotonic() + 10
+        items = []
+        while time.monotonic() < deadline and not items:
+            items = _running(test_client, hdr, conn_id)["items"]
+            time.sleep(0.05)
+        [item] = items
+        assert item["killable"] is False
+        r = test_client.post(f"/api/connections/{conn_id}/queries/{item['id']}/kill", headers=hdr)
+        assert r.status_code == 409
+        assert r.json()["error_code"] == "connection.query_not_killable"
+        [still] = _running(test_client, hdr, conn_id)["items"]
+        assert still["kill_requested_at"] is None and still["killed_by"] is None
+    finally:
+        release.set()
+        t.join(10)
+
+
+@pytest.mark.e2e
+def test_a_kill_that_loses_the_race_with_completion_is_reported_as_finished(test_client, world, monkeypatch):
+    from sqlalchemy import update
+
+    from app.services import query_execution_service as svc
+
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["conn_admin"]["token"], world["org_id"])
+    source, thread, outcome = _start_query(conn_id, monkeypatch)
+    [item] = _running(test_client, hdr, conn_id)["items"]
+
+    real = svc.effective_status
+    calls = {"n": 0}
+
+    def finishes_mid_request(row, now=None):
+        # The query completes between the kill's read and its update.
+        calls["n"] += 1
+        if calls["n"] == 1:
+            table = query_executions._table()
+            with query_executions.get_engine().begin() as conn:
+                conn.execute(update(table).where(table.c.id == item["id"]).values(
+                    status="success", lease_expires_at=None))
+            return "running"
+        return real(row, now)
+
+    monkeypatch.setattr(svc, "effective_status", finishes_mid_request)
+    r = test_client.post(f"/api/connections/{conn_id}/queries/{item['id']}/kill", headers=hdr)
+    monkeypatch.setattr(svc, "effective_status", real)
+    assert r.status_code == 409, r.text
+    assert r.json()["error_code"] == "connection.query_finished"
+    source.cancelled.set()
+    thread.join(10)
+    [done] = [i for i in test_client.get(f"/api/connections/{conn_id}/queries", headers=hdr).json()["items"]
+              if i["id"] == item["id"]]
+    assert done["kill_requested_at"] is None and done["killed_by"] is None
+
+
+@pytest.mark.e2e
+def test_history_search_matches_underscores_and_percent_literally(test_client, world):
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["admin"]["token"], world["org_id"])
+
+    class Source:
+        _bow_connection_id = conn_id
+
+        def execute_query(self, query):
+            return pd.DataFrame({"x": [1]})
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=30, max_concurrent_queries=4)
+    for sql in ("SELECT * FROM order_items", "SELECT * FROM orderXitems", "SELECT 100 AS pct"):
+        wrapper.execute_query(sql)
+
+    def search(term):
+        body = test_client.get(f"/api/connections/{conn_id}/queries", params={"search": term}, headers=hdr).json()
+        return [i["query_text"] for i in body["items"]]
+
+    assert search("order_items") == ["SELECT * FROM order_items"]
+    assert search("%") == []

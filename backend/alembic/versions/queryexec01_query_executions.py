@@ -20,7 +20,14 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table() -> bool:
+    return sa.inspect(op.get_bind()).has_table("query_executions")
+
+
 def upgrade() -> None:
+    # Idempotent: the dashboard test corpus applies this unstamped.
+    if _has_table():
+        return
     op.create_table(
         "query_executions",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -51,6 +58,7 @@ def upgrade() -> None:
         sa.Column("tool_attempt", sa.Integer(), nullable=True),
         sa.Column("code_attempt", sa.Integer(), nullable=True),
         sa.Column("seq", sa.Integer(), nullable=True),
+        sa.Column("killable", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("worker_id", sa.String(length=128), nullable=True),
         sa.Column("lease_expires_at", sa.DateTime(), nullable=True),
         sa.Column("kill_requested_at", sa.DateTime(), nullable=True),
@@ -69,6 +77,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if not _has_table():
+        return
     op.drop_index("ix_query_executions_created", table_name="query_executions")
     op.drop_index("ix_query_executions_conn_queued", table_name="query_executions")
     op.drop_index("ix_query_executions_conn_status", table_name="query_executions")

@@ -1341,6 +1341,7 @@
       "generationStopped": "Генерация остановлена",
       "code": "Код",
       "waitingForSlot": "Ждёт свободного места в {connection} · выполняется {running}/{limit}",
+      "waitingForSlotAhead": "Ожидание свободного места в {connection} · выполняется {running}/{limit} · впереди {ahead}",
       "waitingForSlotShort": "Ждёт свободного места в {connection}",
       "theConnection": "подключении"
     },
@@ -4562,7 +4563,8 @@
     "access_request.not_found": "Этот запрос больше не существует.",
     "access_request.already_decided": "На этот запрос уже ответили.",
     "connection.query_not_found": "Запрос не найден в этом подключении.",
-    "connection.query_finished": "Этот запрос уже завершён ({status})."
+    "connection.query_finished": "Этот запрос уже завершён ({status}).",
+    "connection.query_not_killable": "Этот запрос нельзя остановить из BOW: его клиент сам ограничивает время выполнения."
   },
   "email": {
     "dashboardShare": {
@@ -7325,6 +7327,8 @@
     "killConfirm": "Остановить этот запрос?",
     "kill": "Остановить",
     "killFailed": "Не удалось остановить запрос",
+    "notKillable": "Нельзя остановить здесь",
+    "notKillableHint": "Клиент этого подключения сам ограничивает время выполнения, поэтому BOW не может его прервать. Запрос завершится сам.",
     "historyTitle": "История",
     "filterAll": "Все статусы",
     "searchPlaceholder": "Поиск по тексту запроса",

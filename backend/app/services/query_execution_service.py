@@ -26,6 +26,15 @@ from app.models.user import User
 HISTORY_PAGE_MAX = 200
 
 
+async def _db_now(db: AsyncSession) -> datetime:
+    """The database's clock (naive UTC): leases are written with it, so they
+    are judged by it too (``query_executions._db_now``)."""
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        return (await db.execute(select(func.timezone("UTC", func.clock_timestamp())))).scalar()
+    return datetime.utcnow()
+
+
 def effective_status(row: QueryExecution, now: datetime | None = None) -> str:
     """A live row whose lease ran out belongs to a dead worker: show it stale."""
     now = now or datetime.utcnow()
@@ -98,7 +107,7 @@ def _reason_code(row: QueryExecution, status: str) -> str | None:
 
 
 async def _serialize(db: AsyncSession, rows: list[QueryExecution]) -> list[dict[str, Any]]:
-    now = datetime.utcnow()
+    now = await _db_now(db)
     user_ids = {r.user_id for r in rows if r.user_id} | {r.killed_by_user_id for r in rows if r.killed_by_user_id}
     ds_ids = {r.data_source_id for r in rows if r.data_source_id}
     report_ids = {r.report_id for r in rows if r.report_id}
@@ -126,6 +135,7 @@ async def _serialize(db: AsyncSession, rows: list[QueryExecution]) -> list[dict[
             waiting_ms = max(0.0, (now - r.queued_at).total_seconds() * 1000.0)
         out.append({
             "error_code": _reason_code(r, status),
+            "killable": bool(r.killable) if r.killable is not None else True,
             "id": str(r.id),
             "connection_id": str(r.connection_id),
             "status": status,
@@ -177,7 +187,7 @@ async def list_queries(
 ) -> dict[str, Any]:
     """Live queries, or a page of finished ones, plus the connection's slot summary."""
     connection = await _connection(db, organization, connection_id)
-    now = datetime.utcnow()
+    now = await _db_now(db)
     base = select(QueryExecution).where(
         QueryExecution.connection_id == str(connection.id),
         QueryExecution.organization_id == str(organization.id),
@@ -224,7 +234,8 @@ async def list_queries(
     if user_id:
         stmt = stmt.where(QueryExecution.user_id == str(user_id))
     if search:
-        stmt = stmt.where(QueryExecution.query_text.ilike(f"%{search.strip()}%"))
+        # SQL is full of "_" and "%": match them literally, not as wildcards.
+        stmt = stmt.where(QueryExecution.query_text.icontains(search.strip(), autoescape=True))
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
     limit = max(1, min(int(limit or 50), HISTORY_PAGE_MAX))
     offset = max(0, int(offset or 0))
@@ -257,7 +268,7 @@ async def kill_query(
     )).scalar_one_or_none()
     if row is None:
         raise AppError.not_found(ErrorCode.CONNECTION_QUERY_NOT_FOUND)
-    now = datetime.utcnow()
+    now = await _db_now(db)
     status = effective_status(row, now)
     if status == "stale" and row.status in query_executions.LIVE_STATUSES:
         # Its worker is gone: nothing to cancel, just close the row.
@@ -270,10 +281,14 @@ async def kill_query(
         await db.commit()
     elif status not in query_executions.LIVE_STATUSES:
         raise AppError.conflict(ErrorCode.CONNECTION_QUERY_FINISHED, status=status)
+    elif not row.killable:
+        # The client enforces its own deadline in line: BOW cannot interrupt
+        # it, so do not record (or audit) a kill that would not happen.
+        raise AppError.conflict(ErrorCode.CONNECTION_QUERY_NOT_KILLABLE)
     elif row.kill_requested_at is None:
         # Conditional on still being live, so a query that ended a moment ago
         # is not stamped as killed.
-        await db.execute(
+        result = await db.execute(
             update(QueryExecution)
             .where(
                 QueryExecution.id == row.id,
@@ -283,6 +298,11 @@ async def kill_query(
             .values(kill_requested_at=now, killed_by_user_id=str(user.id), updated_at=now)
         )
         await db.commit()
+        if not result.rowcount:
+            # It finished between the read and the update: report that, so the
+            # route does not audit a kill that never happened.
+            await db.refresh(row)
+            raise AppError.conflict(ErrorCode.CONNECTION_QUERY_FINISHED, status=effective_status(row, now))
     # Same-worker fast path; other workers pick it up on their next tick.
     query_executions.request_kill_local(str(row.id))
     await db.refresh(row)

@@ -44,7 +44,10 @@
               </div>
             </div>
             <div class="shrink-0">
-              <span v-if="q.kill_requested_at" class="inline-flex items-center gap-1.5 text-xs text-ink-muted" data-testid="query-stopping">
+              <UTooltip v-if="q.killable === false" :text="$t('connectionQueries.notKillableHint')">
+                <span class="text-xs text-ink-muted" data-testid="query-not-killable">{{ $t('connectionQueries.notKillable') }}</span>
+              </UTooltip>
+              <span v-else-if="q.kill_requested_at" class="inline-flex items-center gap-1.5 text-xs text-ink-muted" data-testid="query-stopping">
                 <Spinner class="h-3 w-3" />{{ $t('connectionQueries.stopping') }}
               </span>
               <template v-else-if="confirming === q.id">

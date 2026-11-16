@@ -1341,6 +1341,7 @@
       "generationStopped": "تم إيقاف التوليد",
       "code": "الكود",
       "waitingForSlot": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل",
+      "waitingForSlotAhead": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل · {ahead} قبلك",
       "waitingForSlotShort": "في انتظار دور على {connection}",
       "theConnection": "الاتصال"
     },
@@ -4562,7 +4563,8 @@
     "access_request.not_found": "هذا الطلب لم يعد موجودًا.",
     "access_request.already_decided": "تمت الإجابة على هذا الطلب بالفعل.",
     "connection.query_not_found": "الاستعلام غير موجود على هذا الاتصال.",
-    "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status})."
+    "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status}).",
+    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به."
   },
   "email": {
     "dashboardShare": {
@@ -7325,6 +7327,8 @@
     "killConfirm": "إيقاف هذا الاستعلام؟",
     "kill": "إيقاف",
     "killFailed": "تعذّر إيقاف الاستعلام",
+    "notKillable": "لا يمكن إيقافه من هنا",
+    "notKillableHint": "يفرض عميل هذا الاتصال مهلة خاصة به، لذا لا يستطيع BOW مقاطعته. سينتهي الاستعلام من تلقاء نفسه.",
     "historyTitle": "السجل",
     "filterAll": "كل الحالات",
     "searchPlaceholder": "ابحث في نص الاستعلام",

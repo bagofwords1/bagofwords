@@ -14,13 +14,21 @@ process.
   the history entry, the slot behind the concurrency limit, and the kill
   target.
 - **App-wide limit** (`backend/app/data_sources/query_executions.py`). Before a
-  query starts, the wrapper locks the connection's row and counts the live
+  query starts, the wrapper takes a per-connection lock and counts the live
   `running` rows plus the `queued` rows ahead of it. The count and the claim
-  happen in one transaction: `SELECT … FOR UPDATE` on Postgres, `BEGIN IMMEDIATE`
-  on SQLite. If the connection is full, the query waits its turn, first come
-  first served, up to `BOW_QUERY_SLOT_WAIT_SECONDS` (default 60, never more
-  than the query timeout). It then fails with a terminal `ConnectionBusyError`.
-  The per-process semaphore in `query_concurrency.py` is gone.
+  happen in one transaction. On Postgres the lock is an advisory lock
+  (`pg_advisory_xact_lock`, bounded by `lock_timeout`). It never conflicts
+  with the connection row's foreign-key inserts or updates, which a
+  `FOR UPDATE` would. On SQLite it is `BEGIN IMMEDIATE`. Leases and queue order
+  use the database's clock, so replicas with skewed clocks agree. If the
+  connection is full, the query waits its turn, first come first served. Chat,
+  step runs and viewer refreshes wait up to `BOW_QUERY_SLOT_WAIT_SECONDS`
+  (default 60, never more than the query timeout). Batch sources (dashboard
+  and report refreshes, entity runs, evals) wait their whole query timeout, so a
+  burst queues and finishes. When the wait runs out, the query fails with a
+  terminal `ConnectionBusyError` that names how many queries were running and
+  how many were queued ahead. The per-process semaphore in
+  `query_concurrency.py` is gone.
 - **Leases.** A per-process supervisor thread renews its rows' leases every 5 s
   (lease 30 s) and delivers kill requests every second. A dead worker's rows
   stop counting once their lease lapses. A leader job stamps them `stale`, and
@@ -29,7 +37,14 @@ process.
   sets `kill_requested_at`. The owning worker cancels the statement at the source
   through the existing `query_cancellation` path. The query fails with a
   terminal `QueryKilledError`. The agent explains it and does not resend the
-  query: no code retry and no tool retry.
+  query: no code retry and no tool retry. Clients that enforce their own
+  deadline (`_manages_query_deadline`) run in line and cannot be interrupted,
+  so their kill is refused (409 `connection.query_not_killable`) and the tab
+  shows "Can't be stopped here". A kill that loses the race with the query
+  finishing returns 409 `connection.query_finished` and is not audited.
+- **A user Stop while the query waits for a slot** gives up its place: the row
+  closes as `cancelled` ("The run was stopped") and the statement never
+  reaches the source.
 - **SQLite never stalls a query on its writer lock.** The flow running a query
   can hold SQLite's single writer lock; usage metering already follows this
   rule. The slot claim waits at most 1 s for the lock. If it is still held, the
@@ -132,8 +147,8 @@ Screenshots, the flow GIF and the raw samples are in
   that gap needs the source session id (backend pid / SPID) stored on the row
   and cancelled from the sweep. That is a follow-up.
 - **Clients that enforce their own deadline** (`_manages_query_deadline`, for
-  example the BOW source client) are limited and recorded, but a kill cannot
-  interrupt the call in flight. It ends when the client returns.
+  example the BOW source client) are limited and recorded, but they cannot be
+  killed from the tab (the kill is refused, not faked).
 - **On SQLite, while another writer holds the lock**, the limit is kept per
   worker instead of app-wide, and the queued rows are not visible (or killable
   from another worker) until they are written. The API still signals the

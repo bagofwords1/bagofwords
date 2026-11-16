@@ -73,6 +73,10 @@ class QueryExecution(BaseSchema):
     code_attempt = Column(Integer, nullable=True)
     seq = Column(Integer, nullable=True)
 
+    # 0 for clients that enforce their own deadline (``_manages_query_deadline``):
+    # BOW cannot interrupt their call in flight, so a kill is refused.
+    killable = Column(Integer, nullable=False, default=1)
+
     worker_id = Column(String(128), nullable=True)
     lease_expires_at = Column(DateTime, nullable=True)
     kill_requested_at = Column(DateTime, nullable=True)

@@ -1341,6 +1341,7 @@
       "generationStopped": "Genereringen stoppad",
       "code": "Kod",
       "waitingForSlot": "Väntar på plats i {connection} · {running}/{limit} körs",
+      "waitingForSlotAhead": "Väntar på plats i {connection} · {running}/{limit} körs · {ahead} före",
       "waitingForSlotShort": "Väntar på plats i {connection}",
       "theConnection": "anslutningen"
     },
@@ -4562,7 +4563,8 @@
     "access_request.not_found": "Den här begäran finns inte längre.",
     "access_request.already_decided": "Den här begäran har redan besvarats.",
     "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
-    "connection.query_finished": "Frågan är redan avslutad ({status})."
+    "connection.query_finished": "Frågan är redan avslutad ({status}).",
+    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns."
   },
   "email": {
     "dashboardShare": {
@@ -7325,6 +7327,8 @@
     "killConfirm": "Stoppa den här frågan?",
     "kill": "Stoppa",
     "killFailed": "Det gick inte att stoppa frågan",
+    "notKillable": "Kan inte stoppas här",
+    "notKillableHint": "Anslutningens klient har en egen tidsgräns, så BOW kan inte avbryta den. Frågan avslutas av sig själv.",
     "historyTitle": "Historik",
     "filterAll": "Alla statusar",
     "searchPlaceholder": "Sök i frågetexten",

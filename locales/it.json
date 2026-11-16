@@ -1341,6 +1341,7 @@
       "generationStopped": "Generazione interrotta",
       "code": "Codice",
       "waitingForSlot": "In attesa del turno su {connection} · {running}/{limit} in esecuzione",
+      "waitingForSlotAhead": "In attesa di un posto su {connection} · {running}/{limit} in esecuzione · {ahead} prima",
       "waitingForSlotShort": "In attesa del turno su {connection}",
       "theConnection": "la connessione"
     },
@@ -4562,7 +4563,8 @@
     "access_request.not_found": "Questa richiesta non esiste più.",
     "access_request.already_decided": "Questa richiesta è già stata gestita.",
     "connection.query_not_found": "Query non trovata su questa connessione.",
-    "connection.query_finished": "Questa query è già terminata ({status})."
+    "connection.query_finished": "Questa query è già terminata ({status}).",
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo."
   },
   "email": {
     "dashboardShare": {
@@ -7325,6 +7327,8 @@
     "killConfirm": "Fermare questa query?",
     "kill": "Ferma",
     "killFailed": "Impossibile fermare la query",
+    "notKillable": "Non si può fermare qui",
+    "notKillableHint": "Il client di questa connessione applica un proprio limite di tempo, quindi BOW non può interromperlo. La query terminerà da sola.",
     "historyTitle": "Cronologia",
     "filterAll": "Tutti gli stati",
     "searchPlaceholder": "Cerca nel testo della query",

@@ -1341,6 +1341,7 @@
       "generationStopped": "Génération arrêtée",
       "code": "Code",
       "waitingForSlot": "En attente d'une place sur {connection} · {running}/{limit} en cours",
+      "waitingForSlotAhead": "En attente d'une place sur {connection} · {running}/{limit} en cours · {ahead} avant",
       "waitingForSlotShort": "En attente d'une place sur {connection}",
       "theConnection": "la connexion"
     },
@@ -4562,7 +4563,8 @@
     "access_request.not_found": "Cette demande n'existe plus.",
     "access_request.already_decided": "Cette demande a déjà été traitée.",
     "connection.query_not_found": "Requête introuvable sur cette connexion.",
-    "connection.query_finished": "Cette requête est déjà terminée ({status})."
+    "connection.query_finished": "Cette requête est déjà terminée ({status}).",
+    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps."
   },
   "email": {
     "dashboardShare": {
@@ -7325,6 +7327,8 @@
     "killConfirm": "Arrêter cette requête ?",
     "kill": "Arrêter",
     "killFailed": "Impossible d'arrêter la requête",
+    "notKillable": "Impossible d'arrêter ici",
+    "notKillableHint": "Le client de cette connexion applique sa propre limite de temps : BOW ne peut pas l'interrompre. La requête se terminera d'elle-même.",
     "historyTitle": "Historique",
     "filterAll": "Tous les statuts",
     "searchPlaceholder": "Rechercher dans le texte",
