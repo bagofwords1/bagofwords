@@ -110,7 +110,16 @@ test('browse a 64-level hierarchy and move a leaf between same-named subfolders'
   await expect(page.getByRole('dialog').getByRole('heading', {name:'Share “' + names[0] + '”', exact:true})).toBeVisible()
 })
 
+// Roles is enterprise-gated (custom_roles). CI's Playwright stack runs
+// unlicensed, as audit-log.spec.ts notes, so skip there. Without the license
+// the Roles tab falls back to Members with no notice to detect, so ask
+// /api/license with the same rule the UI uses (useEnterprise's hasFeature).
 test('manage folder access in Roles', async ({page}, testInfo) => {
+  const license = await page.request.get('/api/license')
+  const info = license.ok() ? await license.json() : {}
+  const features: string[] = info?.features || []
+  test.skip(!info?.licensed || (features.length > 0 && !features.includes('custom_roles')),
+    'Roles need an enterprise license with custom_roles on this stack')
   const scoped = await apiHeaders(page)
   const stamp = Date.now()
   const home = 'Channels ' + stamp
