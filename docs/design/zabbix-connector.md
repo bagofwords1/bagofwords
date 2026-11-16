@@ -142,6 +142,7 @@ Reference: the official compose stack at
 `<host>/api_jsonrpc.php`, default UI login `Admin` / `zabbix`.
 
 ### 5. Live UI pass
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip `boot_stack.sh` and `seed_org.py`; the stack is already running with the admin, org, LLM and demo data source provisioned (`bow-stack status`; pick up a new client or dependency with `bow-stack restart backend`). See the root `AGENTS.md`, "DevBox".
 `tools/agent/boot_stack.sh` + `seed_org.py`, then in the app: create a Zabbix
 connection → **Test connection** succeeds → the tables selector lists the
 virtual tables → run a prompt that queries `problems` and `history`. Capture the
