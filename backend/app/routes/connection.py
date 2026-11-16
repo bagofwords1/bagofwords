@@ -2091,6 +2091,7 @@ async def list_connection_queries(
         search=(search or None),
         limit=limit,
         offset=offset,
+        viewer=current_user,
     )
 
 
@@ -2113,9 +2114,13 @@ async def kill_connection_query(
     """
     from app.services import query_execution_service
 
-    item = await query_execution_service.kill_query(
+    item, requested = await query_execution_service.kill_query(
         db, organization, connection_id, query_execution_id, current_user,
     )
+    if not requested:
+        # A repeat click, someone else's kill already on record, or closing a
+        # dead worker's row: nothing was killed by this call, so no audit entry.
+        return item
     try:
         await audit_service.log(
             db=db, organization_id=str(organization.id), action="connection.query_killed",

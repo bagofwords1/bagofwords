@@ -300,3 +300,245 @@ def test_history_search_matches_underscores_and_percent_literally(test_client, w
 
     assert search("order_items") == ["SELECT * FROM order_items"]
     assert search("%") == []
+
+
+# --------------------------------------------------------------------------
+# Review round 2
+# --------------------------------------------------------------------------
+
+
+def _wait(predicate, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.05)
+    raise AssertionError("condition not met in time")
+
+
+@pytest.mark.e2e
+def test_the_live_queue_is_paged_so_every_query_stays_reachable(test_client, world, monkeypatch):
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["conn_admin"]["token"], world["org_id"])
+    started = [_start_query(conn_id, monkeypatch, sql=f"SELECT {i} /* slow */") for i in range(3)]
+    try:
+        first = test_client.get(f"/api/connections/{conn_id}/queries",
+                                params={"scope": "running", "limit": 2}, headers=hdr).json()
+        assert len(first["items"]) == 2 and first["total"] == 3 and first["has_more"] is True
+        rest = test_client.get(f"/api/connections/{conn_id}/queries",
+                               params={"scope": "running", "limit": 2, "offset": 2}, headers=hdr).json()
+        assert len(rest["items"]) == 1 and rest["has_more"] is False
+        ids = {i["id"] for i in first["items"]} | {i["id"] for i in rest["items"]}
+        assert len(ids) == 3
+    finally:
+        for source, thread, _ in started:
+            source.cancelled.set()
+            thread.join(10)
+
+
+@pytest.mark.e2e
+def test_history_only_names_reports_the_manager_may_open(test_client, world, create_data_source, create_report):
+    """Managing a connection does not grant its reports: a report built on a
+    data source the manager cannot see keeps its title and link to itself."""
+    from app.data_sources import query_tag
+
+    conn_id = world["conn"]["id"]
+    admin = world["admin"]
+    ds = create_data_source(name="private agent", type="sqlite", config={"database": str(CHINOOK)},
+                            credentials={}, user_token=admin["token"], org_id=world["org_id"])
+    report = create_report(title="Board pay review", user_token=admin["token"], org_id=world["org_id"],
+                           data_sources=[ds["id"]])
+
+    class Source:
+        _bow_connection_id = conn_id
+
+        def execute_query(self, query):
+            return pd.DataFrame({"x": [1]})
+
+    with query_tag.query_tag_defaults(report_id=report["id"], source="agent"):
+        wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=30, max_concurrent_queries=4)
+    wrapper.execute_query("SELECT salary FROM pay")
+
+    def item(token):
+        body = test_client.get(f"/api/connections/{conn_id}/queries", headers=_hdr(token, world["org_id"])).json()
+        [only] = body["items"]
+        return only
+
+    as_admin = item(admin["token"])
+    assert as_admin["report"]["title"] == "Board pay review" and as_admin["report_id"] == report["id"]
+    as_manager = item(world["conn_admin"]["token"])
+    assert as_manager["report"] is None and as_manager["report_id"] is None
+    assert as_manager["query_text"] == "SELECT salary FROM pay"  # the query itself stays visible
+
+
+@pytest.mark.e2e
+def test_a_queued_query_bow_cannot_interrupt_can_still_be_killed_while_it_waits(test_client, world, monkeypatch):
+    """Clients that enforce their own deadline cannot be stopped once running,
+    but while they wait for a slot a kill simply ends the wait."""
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["conn_admin"]["token"], world["org_id"])
+    release = threading.Event()
+
+    class SelfTimed:
+        _bow_connection_id = conn_id
+        _manages_query_deadline = True
+
+        def execute_query(self, query):
+            release.wait(30)
+            return pd.DataFrame({"x": [1]})
+
+    outcomes = {}
+
+    def run(name):
+        wrapper = QueryCapturingClientWrapper(SelfTimed(), [], [], query_timeout_seconds=60, max_concurrent_queries=1)
+        try:
+            wrapper.execute_query(f"SELECT '{name}'")
+            outcomes[name] = "ok"
+        except BaseException as e:  # noqa: BLE001 - asserted below
+            outcomes[name] = e
+
+    holder = threading.Thread(target=run, args=("holder",), daemon=True)
+    holder.start()
+    _wait(lambda: _running(test_client, hdr, conn_id)["items"])
+    waiter = threading.Thread(target=run, args=("waiter",), daemon=True)
+    waiter.start()
+    try:
+        queued = _wait(lambda: [i for i in _running(test_client, hdr, conn_id)["items"] if i["status"] == "queued"])
+        r = test_client.post(f"/api/connections/{conn_id}/queries/{queued[0]['id']}/kill", headers=hdr)
+        assert r.status_code == 200, r.text
+        waiter.join(10)
+        assert isinstance(outcomes.get("waiter"), QueryKilledError)
+        running = [i for i in _running(test_client, hdr, conn_id)["items"] if i["status"] == "running"]
+        r = test_client.post(f"/api/connections/{conn_id}/queries/{running[0]['id']}/kill", headers=hdr)
+        assert r.status_code == 409 and r.json()["error_code"] == "connection.query_not_killable"
+    finally:
+        release.set()
+        holder.join(10)
+
+
+@pytest.mark.e2e
+def test_only_the_kill_that_requests_the_cancel_is_audited(test_client, world, monkeypatch):
+    from app.routes import connection as connection_routes
+
+    calls = []
+
+    async def record(**kwargs):
+        calls.append(kwargs.get("action"))
+
+    monkeypatch.setattr(connection_routes.audit_service, "log", record)
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["conn_admin"]["token"], world["org_id"])
+    release = threading.Event()
+
+    class Stubborn:
+        _bow_connection_id = conn_id
+
+        def execute_query(self, query):
+            release.wait(30)  # ignores the cancel, so the row stays live a while
+            return pd.DataFrame({"x": [1]})
+
+    from app.data_sources import query_cancellation
+
+    monkeypatch.setattr(query_cancellation, "cancel_thread", lambda client, ident: "not_running")
+    wrapper = QueryCapturingClientWrapper(Stubborn(), [], [], query_timeout_seconds=60, max_concurrent_queries=4)
+    t = threading.Thread(target=lambda: pytest.raises(QueryKilledError, wrapper.execute_query, "SELECT 1"), daemon=True)
+    t.start()
+    try:
+        [item] = _wait(lambda: _running(test_client, hdr, conn_id)["items"])
+        first = test_client.post(f"/api/connections/{conn_id}/queries/{item['id']}/kill", headers=hdr)
+        again = test_client.post(f"/api/connections/{conn_id}/queries/{item['id']}/kill", headers=hdr)
+        assert first.status_code == 200 and again.status_code == 200
+        assert calls == ["connection.query_killed"]  # one kill, one entry
+    finally:
+        release.set()
+        t.join(10)
+
+
+@pytest.mark.e2e
+def test_closing_a_dead_workers_row_never_overwrites_a_query_that_finished(test_client, world, monkeypatch):
+    """The kill sees a lapsed lease (dead worker), but the slow worker finishes
+    the query before the close: the finished row must stay as it ended."""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import insert, update
+
+    from app.services import query_execution_service as svc
+
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["conn_admin"]["token"], world["org_id"])
+    table = query_executions._table()
+    now = datetime.utcnow()
+    row_id = "11111111-2222-3333-4444-555555555555"
+    with query_executions.get_engine().begin() as conn:
+        conn.execute(insert(table).values(
+            id=row_id, connection_id=conn_id, organization_id=world["org_id"], status="running",
+            queued_at=now - timedelta(minutes=2), started_at=now - timedelta(minutes=2),
+            lease_expires_at=now - timedelta(seconds=40), worker_id="slow:1:x", query_text="SELECT 1",
+            query_truncated=0, killable=1, created_at=now, updated_at=now,
+        ))
+
+    real = svc.effective_status
+    calls = {"n": 0}
+
+    def finishes_mid_request(row, now=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            with query_executions.get_engine().begin() as conn:
+                conn.execute(update(table).where(table.c.id == row_id).values(status="success", lease_expires_at=None))
+            return "stale"
+        return real(row, now)
+
+    monkeypatch.setattr(svc, "effective_status", finishes_mid_request)
+    r = test_client.post(f"/api/connections/{conn_id}/queries/{row_id}/kill", headers=hdr)
+    monkeypatch.setattr(svc, "effective_status", real)
+    assert r.status_code == 409 and r.json()["error_code"] == "connection.query_finished"
+    with query_executions.get_engine().connect() as conn:
+        from sqlalchemy import select
+
+        assert conn.execute(select(table.c.status).where(table.c.id == row_id)).scalar() == "success"
+
+
+@pytest.mark.e2e
+def test_query_text_is_encrypted_at_rest_and_still_searchable(test_client, world, monkeypatch):
+    """With data encryption on, the rendered SQL (and any error quoting its
+    values) is ciphertext in the database, and the tab still shows and finds it."""
+    from sqlalchemy import Text, cast, select
+
+    from app.ee.encryption import types as enc
+
+    monkeypatch.setattr(enc, "encryption_active", lambda: True)
+    conn_id = world["conn"]["id"]
+    hdr = _hdr(world["admin"]["token"], world["org_id"])
+
+    class Source:
+        _bow_connection_id = conn_id
+
+        def execute_query(self, query):
+            if "missing" in query:
+                raise ValueError("no rows for customer 'acme_42'")
+            return pd.DataFrame({"x": [1]})
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=30, max_concurrent_queries=4)
+    wrapper.execute_query("SELECT * FROM orders WHERE customer = 'acme_42'")
+    wrapper.execute_query("SELECT * FROM orders WHERE customer = 'other'")
+    with pytest.raises(ValueError):
+        wrapper.execute_query("SELECT * FROM missing WHERE customer = 'acme_42'")
+
+    table = query_executions._table()
+    with query_executions.get_engine().connect() as conn:
+        # Cast to plain TEXT: read what is stored, without the column type decrypting it.
+        raw = conn.execute(
+            select(cast(table.c.query_text, Text), cast(table.c.error, Text)).where(table.c.connection_id == conn_id)
+        ).all()
+    assert raw and all(text.startswith(enc.TEXT_ENVELOPE_PREFIX) for text, _ in raw)
+    assert all(err is None or err.startswith(enc.TEXT_ENVELOPE_PREFIX) for _, err in raw)
+
+    found = test_client.get(f"/api/connections/{conn_id}/queries", params={"search": "acme_42"}, headers=hdr).json()
+    assert sorted(i["query_text"] for i in found["items"]) == [
+        "SELECT * FROM missing WHERE customer = 'acme_42'",
+        "SELECT * FROM orders WHERE customer = 'acme_42'",
+    ]
+    assert found["total"] == 2 and found["has_more"] is False
+    failed = [i for i in found["items"] if i["status"] == "error"]
+    assert "acme_42" in failed[0]["error"]  # decrypted for the manager

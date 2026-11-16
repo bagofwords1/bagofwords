@@ -44,7 +44,7 @@
               </div>
             </div>
             <div class="shrink-0">
-              <UTooltip v-if="q.killable === false" :text="$t('connectionQueries.notKillableHint')">
+              <UTooltip v-if="q.killable === false && q.status !== 'queued'" :text="$t('connectionQueries.notKillableHint')">
                 <span class="text-xs text-ink-muted" data-testid="query-not-killable">{{ $t('connectionQueries.notKillable') }}</span>
               </UTooltip>
               <span v-else-if="q.kill_requested_at" class="inline-flex items-center gap-1.5 text-xs text-ink-muted" data-testid="query-stopping">
@@ -61,6 +61,9 @@
           <QueryDetail v-if="expanded === q.id" :query="q" class="mt-2" />
         </li>
       </ul>
+      <div v-if="runningHasMore" class="mt-2 flex justify-center">
+        <UButton size="xs" color="gray" variant="ghost" data-testid="running-load-more" @click="loadMoreRunning">{{ $t('connectionQueries.loadMore') }}</UButton>
+      </div>
       <p v-if="killError" role="alert" class="mt-2 text-xs text-red-600">{{ killError }}</p>
     </section>
 
@@ -160,6 +163,12 @@ const { getErrorMessage } = useErrorMessage()
 
 const summary = ref<{ running: number; queued: number; limit: number | null; limit_source?: string }>({ running: 0, queued: 0, limit: null })
 const running = ref<QueryItem[]>([])
+// The live list is paged like history: a burst bigger than one page stays
+// reachable (and killable). Polling refreshes every row shown so far.
+const RUNNING_PAGE = 50
+const RUNNING_FETCH_MAX = 200
+const runningShown = ref(RUNNING_PAGE)
+const runningHasMore = ref(false)
 const history = ref<QueryItem[]>([])
 const historyTotal = ref(0)
 const historyHasMore = ref(false)
@@ -236,18 +245,33 @@ function toggle(id: string) {
 }
 
 async function fetchRunning() {
-  const { data, error } = await useMyFetch(`/connections/${props.connectionId}/queries`, {
-    method: 'GET', query: { scope: 'running' },
-  })
-  if (error.value) {
-    loadError.value = getErrorMessage(error.value, t('connectionQueries.loadFailed'))
-    return
+  const items: QueryItem[] = []
+  let body: any = {}
+  let offset = 0
+  while (offset < runningShown.value) {
+    const limit = Math.min(RUNNING_FETCH_MAX, runningShown.value - offset)
+    const { data, error } = await useMyFetch(`/connections/${props.connectionId}/queries`, {
+      method: 'GET', query: { scope: 'running', limit, offset },
+    })
+    if (error.value) {
+      loadError.value = getErrorMessage(error.value, t('connectionQueries.loadFailed'))
+      return
+    }
+    body = data.value || {}
+    items.push(...(body.items || []))
+    offset += limit
+    if (!body.has_more) break
   }
   loadError.value = ''
-  const body: any = data.value || {}
   summary.value = body.summary || summary.value
-  running.value = body.items || []
+  running.value = items
+  runningHasMore.value = !!body.has_more
   if (confirming.value && !running.value.some(q => q.id === confirming.value)) confirming.value = null
+}
+
+function loadMoreRunning() {
+  runningShown.value += RUNNING_PAGE
+  fetchRunning()
 }
 
 async function fetchHistory(reset = true) {

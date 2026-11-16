@@ -335,7 +335,8 @@ def test_killing_a_running_query_cancels_it_at_the_source(connection_id, monkeyp
     assert isinstance(result.get("error"), QueryKilledError)
     assert time.monotonic() - t0 < 5
     assert source.cancelled.is_set(), "the source was not asked to cancel the statement"
-    row = _row(running[0]["id"])
+    # The row closes once the source call has exited (it holds the slot until then).
+    row = _wait_for(lambda: (r := _row(running[0]["id"]))["status"] == "cancelled" and r, timeout=5)
     assert row["status"] == "cancelled"
     assert row["cancel_outcome"] == "cancelled"
     assert row["query_text"] == "SELECT pg_sleep(30)"
@@ -378,8 +379,9 @@ def test_a_timed_out_query_is_recorded_and_frees_its_slot(connection_id, monkeyp
     wrapper = QueryCapturingClientWrapper(source, [], [], query_timeout_seconds=1, max_concurrent_queries=1)
     with pytest.raises(QueryTimeoutError):
         wrapper.execute_query("SELECT slow")
-    row = _rows(connection_id)[0]
-    assert row["status"] == "timeout" and row["lease_expires_at"] is None
+    # Closed once the cancelled source call exits, which frees the slot.
+    row = _wait_for(lambda: (r := _rows(connection_id)[0])["status"] == "timeout" and r, timeout=5)
+    assert row["lease_expires_at"] is None
     handle = _begin(connection_id, limit=1, wait=1.0)  # the slot is free again
     qe.finish(handle, "success")
 
@@ -598,3 +600,188 @@ def test_an_open_transaction_on_the_connection_row_does_not_hold_up_queries(conn
     finally:
         tx.rollback()
         holder.close()
+
+
+# --------------------------------------------------------------------------
+# Review round 2
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.db
+def test_a_killed_query_keeps_its_slot_until_the_source_call_exits(connection_id, monkeypatch):
+    """Kill returns at once, but a source call the cancel did not reach still
+    occupies a connection at the source: its slot is held until it exits."""
+    from app.data_sources import query_cancellation
+
+    release = threading.Event()
+    entered = threading.Event()
+
+    class Stubborn:
+        _bow_connection_id = connection_id
+
+        def execute_query(self, query):
+            entered.set()
+            release.wait(30)  # ignores the cancel
+            return pd.DataFrame({"x": [1]})
+
+    monkeypatch.setattr(query_cancellation, "cancel_thread", lambda client, ident: "not_running")
+    wrapper = QueryCapturingClientWrapper(Stubborn(), [], [], query_timeout_seconds=60, max_concurrent_queries=1)
+    outcome = {}
+
+    def run():
+        try:
+            wrapper.execute_query("SELECT 'stubborn'")
+        except BaseException as e:  # noqa: BLE001 - asserted below
+            outcome["error"] = e
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    assert entered.wait(10)
+    [row] = _rows(connection_id)
+    qe.request_kill_local(row["id"])
+    t.join(5)
+    assert isinstance(outcome.get("error"), QueryKilledError)  # the caller is free
+
+    try:
+        with pytest.raises(ConnectionBusyError):
+            _begin(connection_id, limit=1, wait=0.5)  # the slot is still held
+        assert _row(row["id"])["status"] == "running"
+    finally:
+        release.set()
+    _wait_for(lambda: _row(row["id"])["status"] == "cancelled")
+    handle = _begin(connection_id, limit=1, wait=2.0)  # now it is free
+    qe.finish(handle, "success")
+
+
+@pytest.mark.db
+def test_queries_admitted_while_sqlite_was_locked_count_once_the_lock_clears(connection_id):
+    """The first query ran while the writer lock was held (its row not yet
+    written). Once the lock clears, a database claim must still see it."""
+    import sqlite3
+
+    engine = qe.get_engine()
+    if engine.dialect.name != "sqlite":
+        pytest.skip("SQLite's single writer lock")
+    raw = sqlite3.connect(engine.url.database)
+    raw.execute("PRAGMA busy_timeout = 100")
+    raw.execute("BEGIN IMMEDIATE")
+    try:
+        first = _begin(connection_id, limit=1, text="SELECT 'first'")
+        assert first.deferred
+    finally:
+        raw.rollback()
+        raw.close()
+    # Lock released; the supervisor may or may not have written the row yet.
+    with pytest.raises(ConnectionBusyError):
+        _begin(connection_id, limit=1, wait=0.5, text="SELECT 'second'")
+    qe.finish(first, "success")
+    qe.flush_pending_writes()
+    handle = _begin(connection_id, limit=1, wait=2.0, text="SELECT 'third'")
+    qe.finish(handle, "success")
+
+
+@pytest.mark.db
+def test_a_stop_that_lands_while_the_slot_frees_never_reaches_the_source(connection_id, monkeypatch):
+    blocker = _foreign_running(connection_id)
+    called = threading.Event()
+
+    class Source:
+        _bow_connection_id = connection_id
+
+        def execute_query(self, query):
+            called.set()
+            return pd.DataFrame({"x": [1]})
+
+    wrapper = QueryCapturingClientWrapper(Source(), [], [], query_timeout_seconds=60, max_concurrent_queries=1)
+    real_attempt = qe._attempt_locked
+    first = {"done": False}
+
+    def stop_during_claim(engine, handle, timeout_seconds=None):
+        if not first["done"]:
+            first["done"] = True
+            # The user presses Stop and the occupied slot frees, both just
+            # before this claim: the claim succeeds.
+            wrapper._run_aborted = True
+            table = qe._table()
+            with qe.get_engine().begin() as conn:
+                conn.execute(update(table).where(table.c.id == blocker).values(status="success", lease_expires_at=None))
+        return real_attempt(engine, handle, timeout_seconds)
+
+    monkeypatch.setattr(qe, "_attempt_locked", stop_during_claim)
+    with pytest.raises(qe.QueryRunStoppedError):
+        wrapper.execute_query("SELECT 'stopped'")
+    assert first["done"] and not called.is_set()
+    [row] = [r for r in _rows(connection_id) if r["query_text"] == "SELECT 'stopped'"]
+    assert row["status"] == "cancelled" and row["error"] == "The run was stopped"
+
+
+@pytest.mark.db
+def test_a_held_slot_lock_never_stretches_the_wait_budget(connection_id):
+    """Postgres: the slot wait budget covers lock waits too."""
+    engine = qe.get_engine()
+    if engine.dialect.name != "postgresql":
+        pytest.skip("Postgres advisory lock")
+    from sqlalchemy import text
+
+    holder = engine.connect()
+    try:
+        holder.execute(text("SELECT pg_advisory_lock(hashtextextended(:k, 0))"),
+                       {"k": f"bow_query_slot:{connection_id}"})
+        holder.commit()
+        start = time.monotonic()
+        with pytest.raises(ConnectionBusyError):
+            _begin(connection_id, limit=4, wait=1.0)
+        assert time.monotonic() - start < 2.0
+    finally:
+        holder.execute(text("SELECT pg_advisory_unlock_all()"))
+        holder.commit()
+        holder.close()
+
+
+def test_runs_nobody_is_watching_wait_like_batch_jobs(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.ai.agent_v2 import AgentV2
+
+    monkeypatch.setenv("BOW_QUERY_SLOT_WAIT_SECONDS", "60")
+    assert qe.slot_wait_seconds(300, "agent", True) == 60
+    assert qe.slot_wait_seconds(300, "agent", None) == 60
+    assert qe.slot_wait_seconds(300, "agent", False) == 300
+
+    def watched(**head):
+        fields = {"trigger_source": None, "webhook_id": None, "scheduled_prompt_id": None, **head}
+        agent = SimpleNamespace(is_eval_run=False, head_completion=SimpleNamespace(**fields))
+        return AgentV2._is_watched_run(agent)
+
+    assert watched() is True
+    assert watched(scheduled_prompt_id="sp-1") is False
+    assert watched(webhook_id="wh-1") is False
+    assert watched(trigger_source="sub_agent") is False
+    assert AgentV2._is_watched_run(SimpleNamespace(is_eval_run=True, head_completion=None)) is False
+
+
+def test_a_database_stamped_by_an_earlier_queryexec01_gets_the_killable_column(tmp_path):
+    """A database that ran an earlier build of queryexec01 is stamped with it,
+    so that revision never runs again: queryexec02 adds the missing column."""
+    import importlib.util
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    from sqlalchemy import create_engine, inspect, text
+
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "alembic", "versions",
+                        "queryexec02_query_executions_killable.py")
+    spec = importlib.util.spec_from_file_location("queryexec02", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    engine = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE query_executions (id VARCHAR(36) PRIMARY KEY, connection_id VARCHAR(36))"))
+        conn.execute(text("INSERT INTO query_executions (id, connection_id) VALUES ('a', 'b')"))
+        with Operations.context(MigrationContext.configure(conn)):
+            module.upgrade()
+            module.upgrade()  # still idempotent
+    with engine.connect() as conn:
+        assert "killable" in {c["name"] for c in inspect(conn).get_columns("query_executions")}
+        assert conn.execute(text("SELECT killable FROM query_executions")).scalar() == 1

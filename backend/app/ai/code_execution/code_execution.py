@@ -1267,7 +1267,9 @@ class QueryCapturingClientWrapper:
         return query_executions.begin(
             connection_id=connection_id,
             limit=self._max_concurrent_queries,
-            wait_seconds=query_executions.slot_wait_seconds(self._query_timeout_seconds, tag.get("source")),
+            wait_seconds=query_executions.slot_wait_seconds(
+                self._query_timeout_seconds, tag.get("source"), attribution.get("interactive"),
+            ),
             query_text=capture,
             meta=meta,
             connection_name=getattr(self._original, "_bow_connection_name", None),
@@ -1281,15 +1283,23 @@ class QueryCapturingClientWrapper:
         """Close the history row with how the query ended. Never raises."""
         if handle is None:
             return
+        # A killed or timed-out call may still be running at the source: keep
+        # its slot until its thread exits (bounded), so the limit stays true.
+        source_thread = handle.source_thread
+        hold = max(60.0, float(self._query_timeout_seconds or 0))
         if exc is None:
             query_executions.finish(handle, "success", rows=rows)
         elif isinstance(exc, query_executions.QueryRunStoppedError):
-            return  # begin() already closed the row (never started)
+            # Stopped before the source saw it (begin() may already have
+            # closed the row; finish() is idempotent).
+            handle.started_monotonic = None
+            query_executions.finish(handle, "cancelled", error="The run was stopped", cancel_outcome="not_started")
         elif isinstance(exc, query_executions.QueryKilledError):
-            query_executions.finish(handle, "cancelled", error="Cancelled by a connection admin",
-                                    cancel_outcome=exc.cancellation)
+            query_executions.finish_after(handle, source_thread, "cancelled", max_hold_seconds=hold,
+                                          error="Cancelled by a connection admin", cancel_outcome=exc.cancellation)
         elif isinstance(exc, QueryTimeoutError):
-            query_executions.finish(handle, "timeout", error=str(exc), cancel_outcome=self._last_cancel_outcome)
+            query_executions.finish_after(handle, source_thread, "timeout", max_hold_seconds=hold,
+                                          error=str(exc), cancel_outcome=self._last_cancel_outcome)
         elif self._run_aborted:
             query_executions.finish(handle, "cancelled", error="The run was stopped",
                                     cancel_outcome=self._last_cancel_outcome)
@@ -1316,6 +1326,10 @@ class QueryCapturingClientWrapper:
         are about to orphan — the client may have other queries in flight and
         those must survive.
         """
+        if self._run_aborted:
+            # Stopped between the slot claim and the handoff: the statement
+            # must not reach the source at all.
+            raise query_executions.QueryRunStoppedError()
         if getattr(self._original, "_manages_query_deadline", False):
             with query_tag.applied_query_tag(self._query_tag):
                 return self._original.execute_query(query, *args, **kwargs)
@@ -1369,9 +1383,13 @@ class QueryCapturingClientWrapper:
                 self._active_query_thread = None
         if t.is_alive() and handle is not None and handle.killed:
             self._last_cancel_outcome = self._cancel_orphan(t, aborted=True)
+            # The caller returns now; the slot is held until this thread exits.
+            handle.source_thread = t
             raise query_executions.QueryKilledError(cancellation=self._last_cancel_outcome)
         if t.is_alive():
             self._last_cancel_outcome = self._cancel_orphan(t)
+            if handle is not None:
+                handle.source_thread = t
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,

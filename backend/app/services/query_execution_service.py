@@ -11,8 +11,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import Text, func, or_, select, type_coerce, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.data_sources import query_executions
 from app.errors import AppError, ErrorCode
@@ -24,11 +25,15 @@ from app.models.report import Report
 from app.models.user import User
 
 HISTORY_PAGE_MAX = 200
+# Search over encrypted query text cannot run in SQL: the newest rows are
+# decrypted and matched in Python, up to this many per search.
+ENCRYPTED_SEARCH_SCAN_MAX = 5000
+ENCRYPTED_SEARCH_BATCH = 500
 
 
 async def _db_now(db: AsyncSession) -> datetime:
     """The database's clock (naive UTC): leases are written with it, so they
-    are judged by it too (``query_executions._db_now``)."""
+    are judged by it too (``query_executions._now_sql``)."""
     bind = db.get_bind()
     if bind.dialect.name == "postgresql":
         return (await db.execute(select(func.timezone("UTC", func.clock_timestamp())))).scalar()
@@ -106,7 +111,33 @@ def _reason_code(row: QueryExecution, status: str) -> str | None:
     return None
 
 
-async def _serialize(db: AsyncSession, rows: list[QueryExecution]) -> list[dict[str, Any]]:
+async def _visible_reports(
+    db: AsyncSession, report_ids: set[str], viewer: User | None, organization: Organization | None,
+) -> dict[str, Any]:
+    """Reports the viewer may open, by id. Managing a connection does not
+    grant its reports: a report in a restricted folder, or one built on data
+    sources the viewer cannot see, keeps its title and link to itself."""
+    if not report_ids:
+        return {}
+    reports = (await db.execute(
+        select(Report).options(selectinload(Report.data_sources)).where(Report.id.in_(report_ids))
+    )).scalars().all()
+    if viewer is not None and organization is not None:
+        from app.core.derived_access import filter_visible_reports
+
+        reports = await filter_visible_reports(db, viewer, organization, reports)
+    elif viewer is None:
+        reports = []
+    return {str(r.id): {"id": str(r.id), "title": r.title} for r in reports}
+
+
+async def _serialize(
+    db: AsyncSession,
+    rows: list[QueryExecution],
+    *,
+    viewer: User | None = None,
+    organization: Organization | None = None,
+) -> list[dict[str, Any]]:
     now = await _db_now(db)
     user_ids = {r.user_id for r in rows if r.user_id} | {r.killed_by_user_id for r in rows if r.killed_by_user_id}
     ds_ids = {r.data_source_id for r in rows if r.data_source_id}
@@ -119,10 +150,7 @@ async def _serialize(db: AsyncSession, rows: list[QueryExecution]) -> list[dict[
     if ds_ids:
         for d in (await db.execute(select(DataSource.id, DataSource.name).where(DataSource.id.in_(ds_ids)))).all():
             agents[str(d.id)] = {"id": str(d.id), "name": d.name}
-    reports: dict[str, Any] = {}
-    if report_ids:
-        for r in (await db.execute(select(Report.id, Report.title).where(Report.id.in_(report_ids)))).all():
-            reports[str(r.id)] = {"id": str(r.id), "title": r.title}
+    reports = await _visible_reports(db, report_ids, viewer, organization)
 
     out = []
     for r in rows:
@@ -146,7 +174,8 @@ async def _serialize(db: AsyncSession, rows: list[QueryExecution]) -> list[dict[
             "user": users.get(str(r.user_id)) if r.user_id else None,
             "agent": agents.get(str(r.data_source_id)) if r.data_source_id else None,
             "report": reports.get(str(r.report_id)) if r.report_id else None,
-            "report_id": r.report_id,
+            # Only a report the viewer may open is linked.
+            "report_id": r.report_id if r.report_id and str(r.report_id) in reports else None,
             "completion_id": r.completion_id,
             "agent_execution_id": r.agent_execution_id,
             "tool_execution_id": r.tool_execution_id,
@@ -184,9 +213,16 @@ async def list_queries(
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    viewer: User | None = None,
 ) -> dict[str, Any]:
     """Live queries, or a page of finished ones, plus the connection's slot summary."""
     connection = await _connection(db, organization, connection_id)
+    limit = max(1, min(int(limit or 50), HISTORY_PAGE_MAX))
+    offset = max(0, int(offset or 0))
+
+    async def serialize(rows):
+        return await _serialize(db, rows, viewer=viewer, organization=organization)
+
     now = await _db_now(db)
     base = select(QueryExecution).where(
         QueryExecution.connection_id == str(connection.id),
@@ -205,10 +241,20 @@ async def list_queries(
     summary.update(await _effective_limit(db, organization, connection))
 
     if scope == "running":
-        # Only rows whose worker is alive; a dead worker's rows are history (stale).
-        stmt = base.where(*_live_filter(now)).order_by(QueryExecution.queued_at.asc())
-        rows = (await db.execute(stmt.limit(HISTORY_PAGE_MAX))).scalars().all()
-        return {"summary": summary, "items": await _serialize(db, rows), "total": len(rows), "has_more": False}
+        # Only rows whose worker is alive; a dead worker's rows are history
+        # (stale). Paged like history, so a burst larger than a page can still
+        # be reached (and killed) from the tab.
+        stmt = base.where(*_live_filter(now))
+        total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
+        rows = (await db.execute(
+            stmt.order_by(QueryExecution.queued_at.asc(), QueryExecution.id.asc()).limit(limit).offset(offset)
+        )).scalars().all()
+        return {
+            "summary": summary,
+            "items": await serialize(rows),
+            "total": int(total),
+            "has_more": offset + len(rows) < int(total),
+        }
 
     stmt = base
     wanted = [s for s in (statuses or []) if s and s != "all"]
@@ -233,20 +279,62 @@ async def list_queries(
         stmt = stmt.where(or_(*conditions))
     if user_id:
         stmt = stmt.where(QueryExecution.user_id == str(user_id))
+    newest_first = (QueryExecution.queued_at.desc(), QueryExecution.id.desc())
     if search:
-        # SQL is full of "_" and "%": match them literally, not as wildcards.
-        stmt = stmt.where(QueryExecution.query_text.icontains(search.strip(), autoescape=True))
+        term = search.strip()
+        from app.ee.encryption.types import text_envelope_expr
+
+        # Compare as plain TEXT: through the column's encrypting type the
+        # search term (and the envelope prefix pattern) would themselves be
+        # encrypted before the comparison. SQL is full of "_" and "%": match
+        # them literally, not as wildcards.
+        stored = type_coerce(QueryExecution.query_text, Text)
+        encrypted = text_envelope_expr(stored)
+        plain_match = ~encrypted & stored.icontains(term, autoescape=True)
+        has_encrypted = (await db.execute(
+            select(func.count()).select_from(stmt.where(encrypted).subquery())
+        )).scalar()
+        if has_encrypted:
+            return await _search_with_encrypted_rows(
+                db, stmt.where(or_(plain_match, encrypted)).order_by(*newest_first),
+                term, limit, offset, summary, serialize,
+            )
+        stmt = stmt.where(plain_match)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar() or 0
-    limit = max(1, min(int(limit or 50), HISTORY_PAGE_MAX))
-    offset = max(0, int(offset or 0))
-    rows = (await db.execute(
-        stmt.order_by(QueryExecution.queued_at.desc(), QueryExecution.id.desc()).limit(limit).offset(offset)
-    )).scalars().all()
+    rows = (await db.execute(stmt.order_by(*newest_first).limit(limit).offset(offset))).scalars().all()
     return {
         "summary": summary,
-        "items": await _serialize(db, rows),
+        "items": await serialize(rows),
         "total": int(total),
         "has_more": offset + len(rows) < int(total),
+    }
+
+
+async def _search_with_encrypted_rows(db, stmt, term, limit, offset, summary, serialize) -> dict[str, Any]:
+    """Search when query text is encrypted at rest (data_encryption enabled).
+
+    Ciphertext cannot be matched in SQL. Plaintext rows are pre-filtered in
+    SQL; encrypted ones are decrypted by the column type and matched here,
+    newest first, scanning at most ``ENCRYPTED_SEARCH_SCAN_MAX`` rows.
+    """
+    needle = term.lower()
+    matches: list[QueryExecution] = []
+    scanned = 0
+    exhausted = False
+    while scanned < ENCRYPTED_SEARCH_SCAN_MAX and len(matches) <= offset + limit:
+        batch = (await db.execute(stmt.limit(ENCRYPTED_SEARCH_BATCH).offset(scanned))).scalars().all()
+        scanned += len(batch)
+        matches.extend(r for r in batch if needle in (r.query_text or "").lower())
+        if len(batch) < ENCRYPTED_SEARCH_BATCH:
+            exhausted = True
+            break
+    page = matches[offset:offset + limit]
+    return {
+        "summary": summary,
+        "items": await serialize(page),
+        # Exact when the scan reached the end; otherwise what was found so far.
+        "total": len(matches),
+        "has_more": len(matches) > offset + limit or not exhausted,
     }
 
 
@@ -256,8 +344,12 @@ async def kill_query(
     connection_id: str,
     query_execution_id: str,
     user: User,
-) -> dict[str, Any]:
-    """Ask the worker running this query to cancel it. Idempotent."""
+) -> tuple[dict[str, Any], bool]:
+    """Ask the worker running this query to cancel it.
+
+    Returns the row and whether THIS call requested the kill (the route audits
+    only then: not for a repeat click, nor for closing a dead worker's row).
+    """
     connection = await _connection(db, organization, connection_id)
     row = (await db.execute(
         select(QueryExecution).where(
@@ -270,40 +362,66 @@ async def kill_query(
         raise AppError.not_found(ErrorCode.CONNECTION_QUERY_NOT_FOUND)
     now = await _db_now(db)
     status = effective_status(row, now)
+    requested = False
+
+    async def serialize():
+        await db.refresh(row)
+        return (await _serialize(db, [row], viewer=user, organization=organization))[0]
+
     if status == "stale" and row.status in query_executions.LIVE_STATUSES:
-        # Its worker is gone: nothing to cancel, just close the row.
-        await db.execute(
-            update(QueryExecution).where(QueryExecution.id == row.id).values(
+        # Its worker is gone: nothing to cancel, just close the row. Only if it
+        # is still live with a lapsed lease — a slow worker may have finished it
+        # (or renewed it) since the read.
+        result = await db.execute(
+            update(QueryExecution).where(
+                QueryExecution.id == row.id,
+                QueryExecution.status.in_(query_executions.LIVE_STATUSES),
+                or_(QueryExecution.lease_expires_at.is_(None), QueryExecution.lease_expires_at < now),
+            ).values(
                 status="stale", ended_at=now, lease_expires_at=None, updated_at=now,
                 error=row.error or query_executions.STALE_ERROR,
             )
         )
         await db.commit()
-    elif status not in query_executions.LIVE_STATUSES:
+        if result.rowcount:
+            return await serialize(), False
+        await db.refresh(row)
+        status = effective_status(row, now)
+    if status not in query_executions.LIVE_STATUSES:
         raise AppError.conflict(ErrorCode.CONNECTION_QUERY_FINISHED, status=status)
-    elif not row.killable:
-        # The client enforces its own deadline in line: BOW cannot interrupt
-        # it, so do not record (or audit) a kill that would not happen.
+    if not row.killable and row.status != "queued":
+        # The client enforces its own deadline in line: once running, BOW
+        # cannot interrupt it, so do not record (or audit) a kill that would
+        # not happen. While it still waits for a slot it can be cancelled.
         raise AppError.conflict(ErrorCode.CONNECTION_QUERY_NOT_KILLABLE)
-    elif row.kill_requested_at is None:
-        # Conditional on still being live, so a query that ended a moment ago
-        # is not stamped as killed.
+    if row.kill_requested_at is None:
+        # Conditional on still being live (and, for a client BOW cannot
+        # interrupt, still queued), so a query that ended or started a moment
+        # ago is not stamped as killed.
+        conditions = [
+            QueryExecution.id == row.id,
+            QueryExecution.status.in_(query_executions.LIVE_STATUSES),
+            QueryExecution.kill_requested_at.is_(None),
+        ]
+        if not row.killable:
+            conditions.append(QueryExecution.status == "queued")
         result = await db.execute(
-            update(QueryExecution)
-            .where(
-                QueryExecution.id == row.id,
-                QueryExecution.status.in_(query_executions.LIVE_STATUSES),
-                QueryExecution.kill_requested_at.is_(None),
-            )
+            update(QueryExecution).where(*conditions)
             .values(kill_requested_at=now, killed_by_user_id=str(user.id), updated_at=now)
         )
         await db.commit()
-        if not result.rowcount:
-            # It finished between the read and the update: report that, so the
-            # route does not audit a kill that never happened.
+        if result.rowcount:
+            requested = True
+        else:
             await db.refresh(row)
-            raise AppError.conflict(ErrorCode.CONNECTION_QUERY_FINISHED, status=effective_status(row, now))
+            status = effective_status(row, now)
+            if status not in query_executions.LIVE_STATUSES:
+                # Finished between the read and the update.
+                raise AppError.conflict(ErrorCode.CONNECTION_QUERY_FINISHED, status=status)
+            if row.kill_requested_at is None:
+                # A client BOW cannot interrupt started meanwhile.
+                raise AppError.conflict(ErrorCode.CONNECTION_QUERY_NOT_KILLABLE)
+            # Someone else's kill landed first: theirs is the one on record.
     # Same-worker fast path; other workers pick it up on their next tick.
     query_executions.request_kill_local(str(row.id))
-    await db.refresh(row)
-    return (await _serialize(db, [row]))[0]
+    return await serialize(), requested

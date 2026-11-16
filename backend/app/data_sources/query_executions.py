@@ -64,7 +64,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, case, column, delete, event, func, insert, or_, select, table, update
+from sqlalchemy import DateTime, and_, case, column, delete, event, func, insert, or_, select, table, update
 from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
@@ -109,14 +109,21 @@ FINAL_STATUSES = ("success", "error", "timeout", "busy", "cancelled", "stale")
 INTERACTIVE_SOURCES = frozenset({"agent", "step_run", "viewer_refresh"})
 
 
-def slot_wait_seconds(query_timeout_seconds: float | None, source: str | None = None) -> float:
+def slot_wait_seconds(
+    query_timeout_seconds: float | None,
+    source: str | None = None,
+    interactive: bool | None = None,
+) -> float:
     """Wait budget for a free slot.
 
-    Interactive sources: the configured cap, never above the query timeout.
-    Batch sources: the query timeout itself (the configured cap only when the
-    query has no timeout).
+    Watched queries (an interactive source, and not a run someone started
+    without watching — ``interactive=False`` comes from the agent for
+    scheduled, webhook, check-in and sub-agent turns): the configured cap,
+    never above the query timeout. Everything else: the query timeout itself
+    (the configured cap only when the query has no timeout).
     """
-    if source not in INTERACTIVE_SOURCES and query_timeout_seconds and query_timeout_seconds > 0:
+    watched = source in INTERACTIVE_SOURCES and interactive is not False
+    if not watched and query_timeout_seconds and query_timeout_seconds > 0:
         return float(query_timeout_seconds)
     try:
         configured = float(os.environ.get("BOW_QUERY_SLOT_WAIT_SECONDS") or DEFAULT_SLOT_WAIT_SECONDS)
@@ -212,7 +219,7 @@ class QueryKilledError(Exception):
 # ---------------------------------------------------------------------------
 
 _attribution: ContextVar[dict[str, Any] | None] = ContextVar("bow_query_attribution", default=None)
-_ATTRIBUTION_KEYS = ("tool_execution_id", "tool_attempt", "code_attempt", "progress_sink")
+_ATTRIBUTION_KEYS = ("tool_execution_id", "tool_attempt", "code_attempt", "progress_sink", "interactive")
 
 
 @contextlib.contextmanager
@@ -352,15 +359,11 @@ def _now() -> datetime:
     return datetime.utcnow()
 
 
-def _db_now(conn) -> datetime:
-    """The current time by the database's clock (naive UTC, like the columns).
-
-    Leases and queue order are compared across workers and replicas, so they
-    must come from one clock. SQLite runs on the worker's own host, where the
-    worker clock is the database clock.
-    """
+def _now_sql(conn):
+    """The database's clock as an expression for INSERT/UPDATE/WHERE clauses
+    (no extra round trip). SQLite: the worker's clock, as a bound value."""
     if conn.dialect.name == "postgresql":
-        return conn.execute(select(func.timezone("UTC", func.clock_timestamp()))).scalar()
+        return func.timezone("UTC", func.clock_timestamp(), type_=DateTime)
     return _now()
 
 
@@ -400,6 +403,12 @@ class QueryHandle:
     # SQLite only: admitted while the database was locked, so the row's
     # writes are queued for the supervisor instead of written in line.
     deferred: bool = False
+    # Deferred only: the supervisor has written the row, so database claims
+    # now count it themselves.
+    persisted: bool = False
+    # The thread running the source call, once the caller stopped waiting on
+    # it (kill, timeout): the slot is released only when it exits.
+    source_thread: threading.Thread | None = None
 
     def request_kill(self) -> None:
         self.kill_event.set()
@@ -530,12 +539,11 @@ def supervisor_tick(last_heartbeat: float = 0.0) -> float:
     ids = list(handles)
     qe = _table()
     with get_engine().begin() as conn:
-        now = _db_now(conn)
         if time.monotonic() - last_heartbeat >= HEARTBEAT_SECONDS:
             conn.execute(
                 update(qe)
                 .where(qe.c.id.in_(ids), qe.c.status.in_(LIVE_STATUSES))
-                .values(lease_expires_at=now + timedelta(seconds=LEASE_SECONDS))
+                .values(lease_expires_at=_now_sql(conn) + timedelta(seconds=LEASE_SECONDS))
             )
             last_heartbeat = time.monotonic()
         killed = conn.execute(
@@ -567,12 +575,13 @@ def _supervise() -> None:
 
 
 # Postgres: longest a slot decision waits for another worker's decision on the
-# same connection. Those decisions take milliseconds; the bound only matters if
-# something unexpected holds the lock.
-SLOT_LOCK_TIMEOUT = "5s"
+# same connection (never longer than the query's remaining slot wait). Those
+# decisions take milliseconds; the bound only matters if something
+# unexpected holds the lock.
+SLOT_LOCK_TIMEOUT_SECONDS = 5.0
 
 
-def _lock_connection(conn, connection_id: str) -> str | None:
+def _lock_connection(conn, connection_id: str, timeout_seconds: float | None = None) -> tuple[str | None, datetime]:
     """Serialize slot decisions for one connection; return its organization id.
 
     Postgres: a transaction-scoped advisory lock keyed on the connection. It
@@ -582,17 +591,27 @@ def _lock_connection(conn, connection_id: str) -> str | None:
     ``lock_timeout`` bounds the wait. SQLite: slot transactions start with
     BEGIN IMMEDIATE, so the decision already holds the database's single write
     lock.
+
+    Returns the connection's organization id and the current time by the
+    database's clock (on Postgres both come back with the lock, in one round
+    trip, read after the lock is held).
     """
     dialect = conn.dialect.name
     if dialect == "postgresql":
-        conn.exec_driver_sql(f"SET LOCAL lock_timeout = '{SLOT_LOCK_TIMEOUT}'")
-        conn.execute(select(func.pg_advisory_xact_lock(
-            func.hashtextextended(f"bow_query_slot:{connection_id}", 0)
-        )))
+        wait = SLOT_LOCK_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+        wait_ms = max(1, int(min(SLOT_LOCK_TIMEOUT_SECONDS, max(0.0, wait)) * 1000))
+        conn.exec_driver_sql(f"SET LOCAL lock_timeout = '{wait_ms}ms'")
+        org = select(_connections.c.organization_id).where(_connections.c.id == connection_id).scalar_subquery()
+        row = conn.execute(select(
+            func.pg_advisory_xact_lock(func.hashtextextended(f"bow_query_slot:{connection_id}", 0)),
+            org,
+            func.timezone("UTC", func.clock_timestamp()),
+        )).one()
+        return row[1], row[2]
     stmt = select(_connections.c.organization_id).where(_connections.c.id == connection_id)
-    if dialect not in ("sqlite", "postgresql"):
+    if dialect != "sqlite":
         stmt = stmt.with_for_update()
-    return conn.execute(stmt).scalar()
+    return conn.execute(stmt).scalar(), _now()
 
 
 def _ahead_count(conn, handle: QueryHandle, now: datetime) -> dict[str, int]:
@@ -616,10 +635,19 @@ def _ahead_count(conn, handle: QueryHandle, now: datetime) -> dict[str, int]:
     return {"running": int(row.running or 0), "queued_ahead": int(row.queued_ahead or 0)}
 
 
-def _try_acquire(conn, handle: QueryHandle) -> dict[str, Any]:
+def _unrecorded_running(connection_id: str) -> int:
+    """This worker's queries admitted while SQLite was locked whose rows the
+    supervisor has not written yet: they hold slots the database cannot see."""
+    return sum(
+        1 for h in live_handles().values()
+        if h.connection_id == connection_id and h.deferred and not h.persisted
+        and h.state == "running" and not h.finished
+    )
+
+
+def _try_acquire(conn, handle: QueryHandle, now: datetime) -> dict[str, Any]:
     """One attempt to move ``handle`` from queued to running. Caller holds the lock."""
     qe = _table()
-    now = _db_now(conn)
     state = conn.execute(
         select(qe.c.status, qe.c.kill_requested_at).where(qe.c.id == handle.id)
     ).one_or_none()
@@ -628,6 +656,7 @@ def _try_acquire(conn, handle: QueryHandle) -> dict[str, Any]:
     if state.kill_requested_at is not None:
         return {"acquired": False, "killed": True}
     counts = _ahead_count(conn, handle, now)
+    counts["running"] += _unrecorded_running(handle.connection_id)
     if counts["running"] + counts["queued_ahead"] < handle.limit:
         conn.execute(
             update(qe).where(qe.c.id == handle.id).values(
@@ -651,7 +680,7 @@ def _own_running(conn, connection_id: str, agent_execution_id: str | None) -> in
             qe.c.connection_id == connection_id,
             qe.c.agent_execution_id == agent_execution_id,
             qe.c.status == "running",
-            qe.c.lease_expires_at > _db_now(conn),
+            qe.c.lease_expires_at > _now_sql(conn),
         )
     ).scalar() or 0)
 
@@ -682,10 +711,10 @@ def _stored_query_text(capture: Any) -> tuple[str | None, int]:
     return capture, 0
 
 
-def _attempt_locked(engine, handle: QueryHandle) -> dict[str, Any]:
+def _attempt_locked(engine, handle: QueryHandle, timeout_seconds: float | None = None) -> dict[str, Any]:
     with _slot_transaction(engine) as conn:
-        _lock_connection(conn, handle.connection_id)
-        return _try_acquire(conn, handle)
+        _, now = _lock_connection(conn, handle.connection_id, timeout_seconds)
+        return _try_acquire(conn, handle, now)
 
 
 def _safe_progress(progress: Callable, value: dict[str, Any] | None) -> None:
@@ -755,11 +784,20 @@ def begin(
         "updated_at": now,
     }
     sqlite = engine.dialect.name == "sqlite"
+    # The whole wait — including the first claim and any lock waits — counts
+    # against the budget, from the moment the query asked for a slot.
+    deadline = time.monotonic() + max(0.0, float(wait_seconds))
+
+    def _remaining() -> float:
+        return deadline - time.monotonic()
+
+    def _stopped() -> bool:
+        return should_abort is not None and bool(should_abort())
 
     def _insert_and_try():
         qe = _table()
         with _slot_transaction(engine) as conn:
-            org_id = _lock_connection(conn, handle.connection_id)
+            org_id, db_now = _lock_connection(conn, handle.connection_id, _remaining())
             if org_id is None and conn.execute(
                 select(_connections.c.id).where(_connections.c.id == handle.connection_id)
             ).first() is None:
@@ -767,7 +805,6 @@ def begin(
                 # to record against (the row's foreign key) and nothing left
                 # to protect. The query runs untracked, as it did before.
                 return {"missing": True}
-            db_now = _db_now(conn)
             handle.queued_at = db_now
             conn.execute(insert(qe).values(**{
                 **row,
@@ -777,32 +814,49 @@ def begin(
                 "created_at": db_now,
                 "updated_at": db_now,
             }))
-            return _try_acquire(conn, handle)
+            return _try_acquire(conn, handle, db_now)
 
-    try:
-        # SQLite: one short attempt. The writer lock may be held by the very
-        # flow waiting on this query, so retrying could only stall it.
-        outcome = _with_retries(_insert_and_try, attempts=1 if sqlite else 4)
-    except OperationalError as exc:
-        if not (sqlite and _is_sqlite_lock_error(exc)):
-            raise
-        return _begin_local(handle, row, wait_seconds, connection_name, progress, should_abort)
+    # First claim (records the row). SQLite: one short attempt — the writer
+    # lock may be held by the very flow waiting on this query, so retrying
+    # could only stall it. Postgres: retry only while the budget lasts.
+    outcome = None
+    delay = 0.1
+    while outcome is None:
+        if _stopped():
+            raise QueryRunStoppedError()
+        try:
+            outcome = _insert_and_try()
+        except OperationalError as exc:
+            if sqlite and _is_sqlite_lock_error(exc):
+                return _begin_local(handle, row, deadline, connection_name, progress, should_abort)
+            if not _is_transient_lock_error(exc) or _remaining() <= 0:
+                if _is_transient_lock_error(exc):
+                    # Never got the lock within the budget: busy, not a crash.
+                    raise ConnectionBusyError(
+                        connection_name, limit, time.monotonic() - handle.queued_monotonic,
+                    ) from exc
+                raise
+            time.sleep(min(delay, max(0.0, _remaining())))
+            delay = min(delay * 2, 1.0)
     if outcome.get("missing"):
         return None
     _register(handle)
-    deadline = time.monotonic() + max(0.0, float(wait_seconds))
     delay = 0.2
     last_counts: dict[str, int] = {}
     reported_waiting = False
     try:
-        while not outcome.get("acquired"):
+        while True:
             if outcome.get("killed") or handle.killed:
                 finish(handle, "cancelled", error="Cancelled by a connection admin while waiting for a slot",
                        cancel_outcome="not_started")
                 raise QueryKilledError(cancellation="not_started")
-            if should_abort is not None and should_abort():
+            if _stopped():
+                # Checked after every claim too: a Stop that lands while the
+                # slot frees must not hand the statement to the source.
                 finish(handle, "cancelled", error="The run was stopped", cancel_outcome="not_started")
                 raise QueryRunStoppedError()
+            if outcome.get("acquired"):
+                break
             last_counts = {k: outcome[k] for k in ("running", "queued_ahead") if k in outcome}
             if progress is not None:
                 reported_waiting = True
@@ -812,8 +866,7 @@ def begin(
                     "limit": limit,
                     **last_counts,
                 })
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            if _remaining() <= 0:
                 waited = time.monotonic() - handle.queued_monotonic
                 own = None
                 try:
@@ -828,10 +881,13 @@ def begin(
                 finish(handle, "busy", error=str(error))
                 raise error
             with _slot_changed:
-                _slot_changed.wait(timeout=min(delay, remaining))
+                if not handle.killed and not _stopped():
+                    _slot_changed.wait(timeout=min(delay, max(0.0, _remaining())))
             delay = min(delay * 1.5, 1.0)
+            if handle.killed or _stopped():
+                continue  # decided at the top, without claiming
             try:
-                outcome = _with_retries(lambda: _attempt_locked(engine, handle), attempts=1 if sqlite else 4)
+                outcome = _attempt_locked(engine, handle, _remaining())
             except OperationalError as exc:
                 if not _is_transient_lock_error(exc):
                     raise
@@ -861,7 +917,7 @@ def _local_running(connection_id: str) -> int:
 def _begin_local(
     handle: QueryHandle,
     row: dict[str, Any],
-    wait_seconds: float,
+    deadline: float,
     connection_name: str | None,
     progress: Callable[[dict[str, Any] | None], None] | None,
     should_abort: Callable[[], bool] | None = None,
@@ -878,14 +934,19 @@ def _begin_local(
     handle.deferred = True
     _register(handle)
     qe = _table()
-    deadline = time.monotonic() + max(0.0, float(wait_seconds))
     reported_waiting = False
     outcome = "busy"
     running = 0
 
     def _record(**final: Any) -> None:
         values = {**row, **final}
-        _defer_write(lambda conn: conn.execute(insert(qe).values(**values)))
+
+        def _insert(conn):
+            conn.execute(insert(qe).values(**values))
+            # From here database claims see this row and count it themselves.
+            handle.persisted = True
+
+        _defer_write(_insert)
 
     try:
         while True:
@@ -981,7 +1042,7 @@ def finish(
 
     def _close():
         with get_engine().begin() as conn:
-            db_now = _db_now(conn)
+            db_now = _now_sql(conn)
             conn.execute(update(qe).where(qe.c.id == handle.id).values(
                 **{**values, "ended_at": db_now, "updated_at": db_now}
             ))
@@ -1008,6 +1069,38 @@ def finish(
             _slot_changed.notify_all()
 
 
+def finish_after(
+    handle: QueryHandle,
+    source_thread: threading.Thread | None,
+    status: str,
+    *,
+    max_hold_seconds: float,
+    **kwargs: Any,
+) -> None:
+    """Close the row once the source call has really exited.
+
+    A killed or timed-out query returns to its caller at once, but the source
+    call keeps running on its own thread until the database honours the
+    cancel. Until then it still occupies a connection at the source, so it
+    keeps its slot (and its row stays live, "Stopping…" in the Queries tab).
+    ``max_hold_seconds`` bounds the hold for a call that never returns.
+    """
+    if source_thread is None or not source_thread.is_alive():
+        finish(handle, status, **kwargs)
+        return
+
+    def _release():
+        source_thread.join(max_hold_seconds)
+        if source_thread.is_alive():
+            note = "source call still running; slot released after the hold limit"
+            prior = kwargs.get("cancel_outcome")
+            kwargs["cancel_outcome"] = f"{prior}; {note}" if prior else note
+            logger.warning("Query %s: %s", handle.id, note)
+        finish(handle, status, **kwargs)
+
+    threading.Thread(target=_release, name="bow_query_release", daemon=True).start()
+
+
 # ---------------------------------------------------------------------------
 # Leader jobs
 # ---------------------------------------------------------------------------
@@ -1017,7 +1110,7 @@ def sweep_stale(now: datetime | None = None) -> int:
     """Mark live rows whose worker stopped renewing their lease as stale."""
     qe = _table()
     with get_engine().begin() as conn:
-        now = now or _db_now(conn)
+        now = now if now is not None else _now_sql(conn)
         cutoff = now - timedelta(seconds=STALE_GRACE_SECONDS)
         result = conn.execute(
             update(qe)
