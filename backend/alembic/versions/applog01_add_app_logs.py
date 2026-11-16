@@ -5,7 +5,7 @@ admin has System logs switched on. Instance-wide, not per organization. The
 on/off switch lives in instance_settings under the key "app_logs".
 
 Revision ID: applog01
-Revises: fileindex01
+Revises: dashdesc01
 Create Date: 2026-11-11
 """
 from alembic import op
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 
 revision = 'applog01'
-down_revision = 'fileindex01'
+down_revision = 'dashdesc01'
 branch_labels = None
 depends_on = None
 
