@@ -29,9 +29,21 @@ PASSWORD = "app-db-password-1"
 
 @pytest.fixture(scope="module")
 def password_server(db_backend):
-    """A Postgres server that requires a password, shared by this module."""
+    """A Postgres server that requires a password, shared by this module.
+
+    TEST_PASSWORD_DATABASE_URL points at one provisioned outside the suite (a
+    scratch database whose server checks passwords), the counterpart of a
+    pre-set TEST_DATABASE_URL. Otherwise a container is started. A run with
+    no Docker at all (a pre-set TEST_DATABASE_URL needs none) skips; on CI a
+    container that fails to start where Docker is present is an error, so a
+    broken setup can't pass as skipped.
+    """
     if db_backend != "postgres":
         pytest.skip("password auth is a Postgres server property")
+    provided = os.environ.get("TEST_PASSWORD_DATABASE_URL")
+    if provided:
+        yield make_url(provided).set(drivername="postgresql")
+        return
     try:
         from testcontainers.postgres import PostgresContainer
 
@@ -41,9 +53,10 @@ def password_server(db_backend):
         )
         container.start()
     except Exception as exc:  # no Docker daemon on this machine
-        if os.environ.get("CI"):
+        docker_present = bool(os.environ.get("DOCKER_HOST")) or os.path.exists("/var/run/docker.sock")
+        if os.environ.get("CI") and docker_present:
             raise
-        pytest.skip(f"cannot start a Postgres container: {exc}")
+        pytest.skip(f"cannot start a Postgres container (set TEST_PASSWORD_DATABASE_URL): {exc}")
     try:
         url = make_url(container.get_connection_url()).set(drivername="postgresql")
         yield url
@@ -73,9 +86,17 @@ def _sync_select_user(monkeypatch, url):
         engine.dispose()
 
 
+def _production_async_engine(monkeypatch):
+    """The app's own async engine (create_async_database_engine, the one
+    app.dependencies uses), built fresh for this config. The process-wide
+    singleton is cleared for the call and monkeypatch restores it after."""
+    monkeypatch.setattr(app_database, "_async_engine_singleton", None)
+    return app_database.create_async_database_engine()
+
+
 def _async_select_user(monkeypatch, url):
     with _production_config(monkeypatch, url):
-        engine = app_database._build_async_database_engine()
+        engine = _production_async_engine(monkeypatch)
 
     async def _run():
         try:
@@ -126,7 +147,7 @@ def test_migrations_run_through_the_production_config(monkeypatch, password_serv
     cfg = Config("alembic.ini")
     with _production_config(monkeypatch, password_server):
         command.upgrade(cfg, "head")
-        engine = app_database._build_async_database_engine()
+        engine = _production_async_engine(monkeypatch)
     head = ScriptDirectory.from_config(cfg).get_current_head()
 
     async def _read():
