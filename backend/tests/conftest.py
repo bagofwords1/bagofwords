@@ -77,8 +77,18 @@ def _setup_test_database():
             # A throwaway test server needs no crash safety. Without fsync,
             # every commit and the checkpoint each CREATE/DROP DATABASE forces
             # stop waiting on the disk; query behavior is unchanged.
-            _postgres_container = PostgresContainer("postgres:15").with_command(
-                "postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off"
+            #
+            # Trust auth: every TestClient request runs on its own event loop
+            # and so opens a new connection, and a SCRAM handshake (computed in
+            # Python by asyncpg) cost ~15ms of each, about a quarter of the
+            # rbac suite's time. Trust is safe only because the port is
+            # published on 127.0.0.1 alone. Password auth against a real
+            # server stays covered by tests/e2e/test_app_database_password_auth.py.
+            _postgres_container = (
+                PostgresContainer("postgres:15")
+                .with_command("postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off")
+                .with_env("POSTGRES_HOST_AUTH_METHOD", "trust")
+                .with_bind_ports(5432, ("127.0.0.1", None))
             )
             _postgres_container.start()
 

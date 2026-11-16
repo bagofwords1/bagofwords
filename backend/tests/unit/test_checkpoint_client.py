@@ -626,6 +626,8 @@ def test_query_alias_and_async_wrapper_use_same_contract(client, http):
     assert asyncio.run(client.aexecute_query({"table": "hosts"})).empty
 
 
+# The executor records each query against its connection (query_executions).
+@pytest.mark.db
 def test_rca_query_runs_through_bow_code_executor(client, http, monkeypatch):
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 

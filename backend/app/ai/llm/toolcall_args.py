@@ -240,3 +240,104 @@ def _salvage(text: str) -> Tuple[Optional[Dict[str, Any]], str]:
                 return parsed, rung
 
     return None, ""
+
+
+# ---------------------------------------------------------------------------
+# Skipped string delimiters (Gemma 4 via vLLM's ``gemma4`` tool parser)
+# ---------------------------------------------------------------------------
+# Gemma 4 writes tool-call strings between its own <|"|> delimiter tokens
+# (``title:<|"|>Sales<|"|>``), which the parser turns into JSON. The model
+# sometimes quotes a string with a backtick or plain quotes instead — most
+# often right after a long code value — and the parser returns VALID JSON
+# with the wrong shape, so the salvage ladder above never sees it:
+#
+#   closing backtick:  code:<|"|>...</script>`,mode:<|"|>page<|"|>,prompt:...
+#                      -> {"code": "...</script>`,mode:", "page<|\"|>,prompt": "..."}
+#   plain quotes:      mode:'page'  -> {"mode": "'page'"}
+#
+# In the first shape the damaged string ends with the swallowed ``,<key>:``
+# and the next member's key is ``<that key's value><|"|>,<real next key>``:
+# the damage names exactly what was lost. Repairs here only restore fields the
+# tool's schema declares, never change a value's content (whitespace included),
+# and leave anything that does not match exactly for validation to report.
+# Upstream: https://github.com/vllm-project/vllm/issues/51284
+STRING_DELIMITER = '<|"|>'
+_LEAK_SPLIT = STRING_DELIMITER + ","
+# What follows the real end of a damaged string: an optional stray closer (with
+# any spacing after it), the separator, the swallowed key and its colon.
+_LEAK_TAIL_RE = re.compile(r"(?:(?:`|</code>)\s*)?,+\s*([A-Za-z_]\w*)\s*:\s*$")
+_QUOTE_CHARS = ("'", '"', "`")
+
+
+def _schema_choices(prop: Any) -> Optional[set]:
+    """The fixed string values a JSON-schema property allows, else None."""
+    if not isinstance(prop, dict):
+        return None
+    found: set = set()
+    if isinstance(prop.get("enum"), list):
+        found |= {v for v in prop["enum"] if isinstance(v, str)}
+    if isinstance(prop.get("const"), str):
+        found.add(prop["const"])
+    for key in ("anyOf", "oneOf"):
+        for sub in prop.get(key) or []:
+            found |= _schema_choices(sub) or set()
+    return found or None
+
+
+def _restore_split_members(arguments: Dict[str, Any], fields: set) -> Tuple[Dict[str, Any], list]:
+    out: Dict[str, Any] = {}
+    restored: list = []
+    # (key whose value swallowed the next member, the swallowed key, the value without the damage)
+    pending: Optional[Tuple[str, str, str]] = None
+    for key, value in arguments.items():
+        if pending is not None and isinstance(key, str) and _LEAK_SPLIT in key:
+            owner, lost_key, intact = pending
+            lost_value, real_key = key.rsplit(_LEAK_SPLIT, 1)
+            if lost_key in out or not real_key.strip():
+                return arguments, []
+            out[owner] = intact
+            out[lost_key] = lost_value
+            restored.append(lost_key)
+            key = real_key.strip()
+        pending = None
+        if key in out:
+            return arguments, []
+        out[key] = value
+        if isinstance(value, str):
+            match = _LEAK_TAIL_RE.search(value)
+            if match and match.group(1) in fields:
+                pending = (key, match.group(1), value[: match.start()])
+    if not restored or any(STRING_DELIMITER in k for k in out):
+        return arguments, []
+    return out, restored
+
+
+def repair_mangled_arguments(
+    arguments: Dict[str, Any], input_schema: Optional[Dict[str, Any]]
+) -> Tuple[Dict[str, Any], list]:
+    """Undo parser damage from a tool-call string quoted without ``<|"|>``.
+
+    ``input_schema`` is the tool's JSON schema. Returns ``(arguments, fields)``:
+    ``fields`` names what was restored or unquoted, and is empty — with
+    ``arguments`` returned as given — when nothing matched exactly.
+    """
+    props = (input_schema or {}).get("properties") if isinstance(input_schema, dict) else None
+    if not isinstance(arguments, dict) or not isinstance(props, dict) or arguments.get(UNPARSABLE_KEY):
+        return arguments, []
+
+    repaired: list = []
+    if any(isinstance(k, str) and STRING_DELIMITER in k for k in arguments):
+        arguments, restored = _restore_split_members(arguments, set(props))
+        repaired += restored
+
+    unquoted: Dict[str, Any] = {}
+    for name, value in arguments.items():
+        if not (isinstance(value, str) and len(value) >= 2 and value[0] == value[-1] and value[0] in _QUOTE_CHARS):
+            continue
+        choices = _schema_choices(props.get(name))
+        if choices and value not in choices and value[1:-1] in choices:
+            unquoted[name] = value[1:-1]
+    if unquoted:
+        arguments = {**arguments, **unquoted}
+        repaired += list(unquoted)
+    return arguments, repaired

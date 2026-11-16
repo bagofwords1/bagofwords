@@ -72,6 +72,7 @@ from app.models.user_data_source_overlay import UserDataSourceTable as UserOverl
 from app.models.connection import Connection
 from app.models.connection_indexing import ConnectionIndexing
 from app.models.connection_rate_limit_counter import ConnectionRateLimitCounter
+from app.models.query_execution import QueryExecution
 from app.models.connection_table import ConnectionTable
 from app.models.file_index import FileIndexFile, FileIndexSection
 from app.models.sub_agent import SubAgentRun, SubAgentWave

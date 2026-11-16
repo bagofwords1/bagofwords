@@ -158,6 +158,8 @@ eval/training) remains a reasonable future addition.
 
 ## Verification
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): the running sandbox is the `bow-stack` one and `audit_logs` lives in `$BOW_DATABASE_URL` (`$BOW_SQLITE_DB` after `source tools/agent/devbox_env.sh`). See the root `AGENTS.md`, "DevBox".
+
 Manual, against a running sandbox (uvicorn + SQLite `db/app.db`), driving real
 HTTP requests with curl and inspecting `audit_logs` directly — not automated
 tests.

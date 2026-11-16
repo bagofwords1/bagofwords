@@ -56,6 +56,17 @@ mkdir -p db
   including the database. Running tests still applies.
 - Playwright browsers are pre-installed in the default location: don't set
   `PLAYWRIGHT_BROWSERS_PATH`, and never run `playwright install`.
+- Log in as the DevBox admin, not `admin@example.com`: `source
+  tools/agent/devbox_env.sh` exports it (`BOW_ADMIN_EMAIL`/`BOW_ADMIN_PASSWORD`,
+  `BOW_EMAIL`/`BOW_PASSWORD`). Extra fixtures (`seed_org.py --sqlite-sources N`,
+  other `tools/agent/seed_*.py`) are fine after that.
+- The app database is `$BOW_DATABASE_URL` (`$BOW_SQLITE_DB` after sourcing),
+  not `backend/db/app.db`; logs are `bow-stack logs backend|frontend`.
+- Branches: `bow-stack switch <ref>`, not `git checkout` (deps + migrations).
+- `pytest --db=postgres|external` would use the app database
+  (`TEST_DATABASE_URL` is pre-set to it): see `backend/tests/AGENTS.md`.
+- A loop doc you write keeps the fresh-sandbox commands; add a DevBox line only
+  where it differs. Full mapping: root `AGENTS.md`, "DevBox".
 - Everything else in this skill (process, tests, verification, doc template)
   still applies.
 

@@ -73,7 +73,7 @@ async def test_create_instruction_evidence_surfaces_on_detail(
         {
             "text": "Exclude cancelled and refunded orders from revenue calculations.",
             "title": "Revenue exclusions",
-            "category": "code_gen",
+            "destination": "global", "category": "code_gen",
             "confidence": 0.9,
             "evidence": evidence,
             "load_mode": "intelligent",
@@ -160,7 +160,7 @@ async def test_overlong_evidence_is_clamped_not_rejected(
         CreateInstructionTool(),
         {
             "text": "Amounts in the transactions table are stored in cents; divide by 100 for display.",
-            "category": "code_gen",
+            "destination": "global", "category": "code_gen",
             "confidence": 0.85,
             "evidence": long_evidence,
         },

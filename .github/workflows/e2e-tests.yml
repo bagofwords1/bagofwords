@@ -71,9 +71,9 @@ jobs:
             - '**/{Dockerfile*,*.lock,*-lock.*}'
 
   # `if` is evaluated before the matrix expands, so when this job is skipped
-  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite)`,
-  # `e2e-tests (postgres-dashboards)` and `e2e-tests (postgres-rest)` then never
-  # appear, and a PR that required any of them
+  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite-dashboards)`,
+  # `e2e-tests (sqlite-rest)`, `e2e-tests (postgres-dashboards)` and
+  # `e2e-tests (postgres-rest)` then never appear, and a PR that required any of them
   # would wait forever. Require `e2e-tests-result` instead.
   e2e-tests:
     needs: changes
@@ -89,16 +89,21 @@ jobs:
     name: e2e-tests (${{ matrix.name }})
     strategy:
       fail-fast: false
-      # Postgres runs in two halves on separate runners: tests/e2e/dashboards and
-      # everything else take about the same worker time (113 and 117 minutes on
-      # #1650's CI), so each finishes in about half the wall time. SQLite stays
-      # in one job, which already finishes well inside the Postgres halves.
+      # Each database runs in two halves on separate runners: tests/e2e/dashboards
+      # and everything else take about the same worker time (Postgres: 113 and
+      # 117 minutes on #1650's CI; SQLite: 95 and 100 on a Nov 16 fork run), so
+      # each finishes in about half the wall time. The AI tests (-m ai, not
+      # path-scoped) run once per database, on the dashboards half.
       matrix:
         include:
-          - name: sqlite
+          - name: sqlite-dashboards
             db: sqlite
-            paths: tests/e2e tests/unit/test_fast_artifact_lifecycle.py
+            paths: tests/e2e/dashboards
             ai: true
+          - name: sqlite-rest
+            db: sqlite
+            paths: tests/e2e --ignore=tests/e2e/dashboards tests/unit/test_fast_artifact_lifecycle.py
+            ai: false
           - name: postgres-dashboards
             db: postgres
             paths: tests/e2e/dashboards
@@ -113,12 +118,19 @@ jobs:
 
     - uses: ./.github/actions/setup-backend
 
+    # The artifact render check (create_artifact/edit_artifact) renders pages
+    # with these libraries (frontend-unit-tests downloads them too); without them it reports
+    # "render check unavailable" and test_artifact_render_unchecked fails.
+    - name: Download vendored artifact libraries
+      run: bash scripts/download-vendor-libs.sh frontend/public/libs
+
+    # The packet-capture tests live outside tests/e2e/dashboards.
     - name: Install offline packet decoder
-      if: matrix.name != 'postgres-dashboards'
+      if: ${{ !endsWith(matrix.name, '-dashboards') }}
       run: sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
 
     - name: Verify sandboxed packet decoding on Linux
-      if: matrix.name == 'sqlite'
+      if: matrix.name == 'sqlite-rest'
       working-directory: ./backend
       env:
         TESTING: "true"

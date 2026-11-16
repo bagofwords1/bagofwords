@@ -188,6 +188,14 @@ _IMPORT_INLINE_RE = re.compile(r"import\s*\{[^}]*\}\s*from\s*['\"][^'\"]+['\"]\s
 _IMPORT_LINE_RE = re.compile(r"^[ \t]*import\b(?!\s*\().*$", re.MULTILINE)
 _IMPORT_PART_RE = re.compile(r"^([\w$]+)(?:\s+as\s+([\w$]+))?$")
 _EXPORT_DEFAULT_NAME_RE = re.compile(r"^[ \t]*export\s+default\s+[A-Za-z_$][\w$]*[ \t]*;?[ \t]*$", re.MULTILINE)
+# `export default React.memo(Dashboard)` / `withTheme(Dashboard)`: a call
+# expression. Kept as a declaration so the page still has its root component.
+DEFAULT_EXPORT_NAME = "BowDefaultExport"
+_EXPORT_DEFAULT_CALL_RE = re.compile(
+    r"^(?P<indent>[ \t]*)export\s+default\s+(?=[A-Za-z_$][\w$.]*\s*\()(?!(?:async\s+)?function\b|class\b)",
+    re.MULTILINE,
+)
+_REACT_MODULES = {"react", "react-dom", "react-dom/client"}
 _EXPORT_LIST_RE = re.compile(r"^[ \t]*export\s*\{[^{}]*\}[ \t]*;?[ \t]*$", re.MULTILINE)
 _EXPORT_DECL_RE = re.compile(
     r"^(?P<indent>[ \t]*)export\s+(?:default\s+)?(?=(?:async\s+)?function\b|class\b|const\b|let\b|var\b)",
@@ -216,7 +224,10 @@ def _import_bindings(clause: str, mod: str) -> str:
             if imported == "default":
                 if canonical and local != canonical:
                     bind(local, "default")
-            elif local != imported:
+            elif local != imported or (mod in _REACT_MODULES and imported not in RUNTIME_GLOBALS):
+                # A same-name import binds nothing when the runtime has no
+                # global of that name (`import { createRoot } from
+                # 'react-dom/client'`): bind it to the module's export.
                 bind(local, imported)
         rest = rest.replace(braces.group(0), "")
     namespace = re.search(r"\*\s*as\s+([\w$]+)", rest)
@@ -275,30 +286,69 @@ def strip_module_syntax(code: str) -> Tuple[str, List[str]]:
     fixed = _EXPORT_DEFAULT_NAME_RE.sub(_drop("export default"), fixed)
     fixed = _EXPORT_LIST_RE.sub(_drop("export { … }"), fixed)
     fixed = _EXPORT_DECL_RE.sub(_decl, fixed)
+
+    def _default_call(m: "re.Match") -> str:
+        changed.append("export default")
+        return m.group("indent") + f"var {DEFAULT_EXPORT_NAME} = "
+
+    fixed = _EXPORT_DEFAULT_CALL_RE.sub(_default_call, fixed)
     return (fixed, list(dict.fromkeys(changed))) if fixed != src else (src, [])
 
 
-_DEFINES_APP_RE = re.compile(r"^[ \t]*(?:async\s+)?function\s+App\b|^[ \t]*(?:const|let|var)\s+App\s*=", re.MULTILINE)
-_MOUNTS_RE = re.compile(r"createRoot|hydrateRoot|\brender\s*\(")
+# A mount call, not any `render(`: a column's `render(v) { … }` is not one,
+# `render(<App />, el)` (React 17 style, however it is bound) is.
+_MOUNTS_RE = re.compile(
+    r"\bcreateRoot\s*\(|\bhydrateRoot\s*\(|\bReactDOM\s*\.\s*render\s*\(|\brender\s*\(\s*<"
+)
 MOUNT_LINE = "ReactDOM.createRoot(document.getElementById('root')).render(<App />);"
+_EXPORT_DEFAULT_DECL_NAME_RE = re.compile(
+    r"^[ \t]*export\s+default\s+(?:(?:async\s+)?function\s*\*?\s*|class\s+)([A-Z][\w$]*)", re.MULTILINE
+)
+_EXPORT_DEFAULT_BARE_NAME_RE = re.compile(r"^[ \t]*export\s+default\s+([A-Z][\w$]*)[ \t]*;?[ \t]*$", re.MULTILINE)
 
 
-def ensure_app_is_mounted(code: str) -> Tuple[str, bool]:
-    """Add the mount call to a page that defines `App` but never renders it.
+def mount_line(component: str = "App") -> str:
+    return MOUNT_LINE.replace("<App />", f"<{component} />")
+
+
+def exported_root(code: str) -> Optional[str]:
+    """The component a module-style page exports as its root, read before
+    `export` is stripped: `export default function Dashboard`, `export default
+    Dashboard`, or a wrapped root (`export default React.memo(Dashboard)`),
+    which strip_module_syntax keeps as DEFAULT_EXPORT_NAME."""
+    src = code or ""
+    for pattern in (_EXPORT_DEFAULT_DECL_NAME_RE, _EXPORT_DEFAULT_BARE_NAME_RE):
+        m = pattern.search(src)
+        if m:
+            return m.group(1)
+    return DEFAULT_EXPORT_NAME if _EXPORT_DEFAULT_CALL_RE.search(src) else None
+
+
+def _defines(code: str, name: str) -> bool:
+    n = re.escape(name)
+    return bool(re.search(
+        rf"^[ \t]*(?:async\s+)?function\s+{n}\b|^[ \t]*(?:const|let|var)\s+{n}\s*=|^[ \t]*class\s+{n}\b",
+        code, re.MULTILINE,
+    ))
+
+
+def ensure_app_is_mounted(code: str, component: str = "App") -> Tuple[str, bool]:
+    """Add the mount call to a page that defines its root but never renders it.
 
     Such a page parses, throws nothing and shows nothing: the dashboard stays
-    on "Loading artifact…" while every check passes. Applies only when there
-    is no mount call of any kind, so a page that mounts itself — however it
-    spells it — is returned untouched.
+    on "Loading artifact…" while every check passes. ``component`` is `App`
+    unless the page exported another root. Applies only when there is no mount
+    call of any kind, so a page that mounts itself is returned untouched.
     """
     src = code or ""
-    if not _DEFINES_APP_RE.search(src) or _MOUNTS_RE.search(src):
+    if not _defines(src, component) or _MOUNTS_RE.search(src):
         return src, False
+    line = mount_line(component)
     close = src.rfind("</script>")
     if close == -1:
-        return src.rstrip("\n") + "\n" + MOUNT_LINE + "\n", True
+        return src.rstrip("\n") + "\n" + line + "\n", True
     head = src[:close].rstrip("\n")
-    return head + "\n" + MOUNT_LINE + "\n" + src[close:], True
+    return head + "\n" + line + "\n" + src[close:], True
 
 
 def normalize_page_code(code: str) -> Tuple[str, List[str]]:
@@ -321,11 +371,13 @@ def normalize_page_code(code: str) -> Tuple[str, List[str]]:
             "Removed from a `const { … } = React` destructuring, because React does not "
             f"export them (they are runtime globals — use them directly): {', '.join(names)}."
         )
-    fixed, mounted = ensure_app_is_mounted(fixed)
+    root = exported_root(code)
+    component = root if root and _defines(fixed, root) else "App"
+    fixed, mounted = ensure_app_is_mounted(fixed, component)
     if mounted:
         notes.append(
             "Added the missing mount line — a page must end with "
-            f"`{MOUNT_LINE}` or nothing is shown."
+            f"`{mount_line(component)}` or nothing is shown."
         )
     return fixed, notes
 

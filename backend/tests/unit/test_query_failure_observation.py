@@ -118,3 +118,25 @@ def test_ordinary_query_failure_remains_correctable():
     assert not observation.get("analysis_complete")
     assert not observation.get("terminal_execution_error")
     assert not observation.get("final_answer")
+
+
+@pytest.mark.parametrize("error_type", ["cancelled_by_admin", "connection_busy"])
+@pytest.mark.parametrize("swallowed_by_a_later_error", [False, True])
+def test_a_killed_or_busy_query_ends_the_attempt_not_the_conversation(error_type, swallowed_by_a_later_error):
+    # A connection admin's kill and a full connection both stop the code
+    # attempt (terminal) — but the planner must explain it to the user, not
+    # publish the raw error as a failed run.
+    message = ("Query cancelled by a connection admin." if error_type == "cancelled_by_admin"
+               else "Connection busy: warehouse is already running its maximum of 2 concurrent queries.")
+    timings = [{"error": message[:40], "error_message": message, "error_type": error_type,
+                "terminal": True, "sql": "SELECT region FROM orders"}]
+    if swallowed_by_a_later_error:
+        timings.append({"error": "Unknown column", "terminal": False, "sql": "SELECT typo FROM orders"})
+    observation = CreateDataTool.build_execution_failure_observation([], timings)
+
+    assert observation["error"]["type"] == error_type
+    assert observation["error"]["message"] == message  # the full text, not the clipped one
+    assert observation["retry_guidance"]
+    assert not observation.get("analysis_complete")
+    assert not observation.get("terminal_execution_error")
+    assert not observation.get("final_answer")

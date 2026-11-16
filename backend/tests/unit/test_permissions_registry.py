@@ -38,7 +38,10 @@ def test_full_admin_access_is_not_in_all_permissions():
 
 
 def test_resource_permissions_cover_the_grantable_resource_types():
-    assert set(RESOURCE_PERMISSIONS.keys()) == {"data_source", "connection", "project"}
+    assert set(RESOURCE_PERMISSIONS.keys()) == {"data_source", "connection", "project", "folder"}
+    assert set(RESOURCE_PERMISSIONS["folder"]) == {
+        "view", "manage", "manage_instructions", "manage_files", "manage_evals",
+    }
     assert set(RESOURCE_PERMISSIONS["data_source"]) == {
         "manage_instructions",
         "create_entities",

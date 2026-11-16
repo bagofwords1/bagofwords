@@ -531,6 +531,7 @@ against the live API.
   (the Zabbix/Splunk seed convention).
 
 ### 6. Live UI pass
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip `boot_stack.sh` and `seed_org.py`; the stack is already running with the admin, org, LLM and demo data source provisioned (`bow-stack status`; pick up a new client or dependency with `bow-stack restart backend`). See the root `AGENTS.md`, "DevBox".
 `tools/agent/boot_stack.sh` + `seed_org.py`, then: open the Kubernetes tile
 → the setup guide renders with three steps and working copy buttons → paste
 the access file from the sandbox → **Test connection** reports the server

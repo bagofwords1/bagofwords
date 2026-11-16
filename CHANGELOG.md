@@ -1,5 +1,24 @@
 # Release Notes
 
+## Version 0.0.624 (November 16, 2026)
+- Added the full dashboard name on hover when it is cut off, in the dashboards grid and list, the dashboard header and the "open a dashboard" list (#1730)
+- Fixed dashboards rendering blank or failing to save when the model names its root component something other than `App`, wraps its export, or imports `createRoot` (#1735)
+- Fixed tool calls from self-hosted Gemma 4 on vLLM failing or losing arguments when the model quotes a string without its delimiter (#1750)
+
+## Version 0.0.623 (November 16, 2026)
+- Added a Queries tab in Manage connection: running and past queries with their SQL, who sent them, wait and run time, and a Kill button (#1753)
+- Added a "Waiting for a free slot" status on chats whose query is queued behind a connection's concurrency limit (#1753) — `BOW_QUERY_SLOT_WAIT_SECONDS` (default 60)
+- Added allowing your own sites to show BOW in an iframe (#1755) — Settings → General → "Sites that can show BOW"
+- Added Qlik Sense on-prem sheet and chart catalog: the agent reads a chart's own data, reuses its expressions, and looks up field values (#1752)
+- Added attaching recent uploads and Google Drive / OneDrive files from the prompt box, without re-uploading (#1728)
+- Changed a connection's concurrent-query limit to hold across all workers and replicas, not per process (#1753)
+- Changed the default concurrent queries per connection from 4 to 12; organizations still on the old default of 4 move to 12 (#1753)
+- Removed the Folder activity card from Monitoring and Diagnosis; pick a folder in the agent selector instead (#1758)
+- Fixed Qlik Sense on-prem queries with a misspelled field returning zeros instead of an error (#1752)
+- Fixed a private Qlik sheet's title showing on every table of its app (#1752)
+- Fixed viewers of a shared dashboard whose agent they can't use getting a failed run instead of "ask an admin for access" (#1751)
+- Fixed every request about a report loading the report's whole history (#1751)
+
 ## Version 0.0.622 (November 15, 2026)
 - Added MCP tools to browse agent folders, scope a report to folders or agents, and share one instruction across several folders (#1742)
 - Added an optional dashboard description, set in Settings → General and shown on hover in the dashboard list (#1732)

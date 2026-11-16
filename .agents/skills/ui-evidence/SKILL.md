@@ -18,6 +18,15 @@ with zero visual effect — and say so explicitly in the PR description.
    cd backend && uv run python ../tools/agent/seed_org.py --demo
    export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers   # cloud sandboxes
    ```
+   Check `echo $BOW_SANDBOX_DEVBOX` first. If it is `1` (DevBox), skip all three
+   lines: `bow-stack` already runs the stack (`bow-stack status`), the admin,
+   org, LLM and demo data source are seeded, and Playwright browsers are in the
+   default location (don't set `PLAYWRIGHT_BROWSERS_PATH`, never
+   `playwright install`). Log in as the DevBox admin
+   (`source tools/agent/devbox_env.sh` → `$BOW_EMAIL` / `$BOW_PASSWORD`).
+   For the **before** shot, `git stash` / `git stash pop` is enough (HMR picks
+   it up, there is no prod build to redo); for another ref use
+   `bow-stack switch <ref>` rather than `git checkout`.
 2. Capture **before** (on the base branch or with your change stashed) and
    **after** — same page, same viewport:
    ```bash

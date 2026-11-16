@@ -100,6 +100,18 @@
     "stopLoading": "Stop loading",
     "setting": "إظهار العالم في الوكلاء"
   },
+  "filePicker": {
+    "searchPlaceholder": "البحث عن الملفات…",
+    "uploadFile": "رفع ملف",
+    "uploadTitle": "رفع الملفات",
+    "clickOrDrag": "انقر أو اسحب الملفات للتحميل",
+    "dropHere": "أفلت الملفات هنا",
+    "files": "الملفات",
+    "noFilesYet": "لا توجد ملفات بعد",
+    "connect": "اتصال",
+    "searching": "جارٍ البحث…",
+    "noResults": "لا توجد نتائج"
+  },
   "agentLanding": {
     "actions": "إجراءات الوكيل",
     "countTasks": "لا مهام | مهمة واحدة | مهمتان | {n} مهام | {n} مهمة | {n} مهمة",
@@ -1339,7 +1351,11 @@
       "duration": "المدة: {ms} مللي ثانية",
       "edit": "تعديل",
       "generationStopped": "تم إيقاف التوليد",
-      "code": "الكود"
+      "code": "الكود",
+      "waitingForSlot": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل",
+      "waitingForSlotAhead": "في انتظار دور على {connection} · {running}/{limit} قيد التشغيل · {ahead} قبلك",
+      "waitingForSlotShort": "في انتظار دور على {connection}",
+      "theConnection": "الاتصال"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3341,7 +3357,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "الاستعلامات المتزامنة لكل اتصال",
-          "description": "كم استعلاماً للوكيل يمكن أن يعمل على اتصال واحد في الوقت نفسه، لكل نسخة. ما يزيد عن ذلك ينتظر دوره بدلاً من الفشل. اخفضه للمصادر المحلية الحساسة (Oracle وSQL Server) التي لا تحتمل عمليات المسح المتوازية. يمكن لإعدادات الاتصال تجاوزها بقيمة 'max_concurrent_queries' الخاصة بها."
+          "description": "كم استعلاماً للوكيل يمكن أن يعمل على اتصال واحد في الوقت نفسه، عبر جميع العمليات والنسخ معاً. ما يزيد عن ذلك ينتظر دوره بدلاً من الفشل. اخفضه للمصادر المحلية الحساسة (Oracle وSQL Server) التي لا تحتمل عمليات المسح المتوازية. يمكن لإعدادات الاتصال تجاوزها بقيمة 'max_concurrent_queries' الخاصة بها."
         },
         "top_k_schema": {
           "name": "أفضل K من المخططات",
@@ -3776,7 +3792,20 @@
       "testTitle": "اختبر قواعدك",
       "title": "حماية البيانات الشخصية"
     },
-    "piiTab": "البيانات الشخصية"
+    "piiTab": "البيانات الشخصية",
+    "frameAncestors": {
+      "title": "المواقع التي يمكنها عرض BOW",
+      "description": "تطبيقاتك التي يُسمح لها بعرض BOW داخل إطار، مثل بوابة داخلية. تنطبق هذه القائمة على جميع المؤسسات في هذا الخادم.",
+      "placeholder": "https://portal.example.com",
+      "add": "إضافة",
+      "removeSite": "إزالة {site}",
+      "empty": "لم تتم إضافة مواقع. يمكن أن يظهر BOW فقط داخل صفحاته وفي Microsoft Office.",
+      "ssoNote": "تسجيل الدخول داخل الإطار يعمل بالبريد الإلكتروني وكلمة المرور. تسجيل الدخول الموحّد (SSO) لا يعمل داخل إطار.",
+      "readOnly": "في خادم يضم عدة مؤسسات، يمكن لمسؤول الخادم فقط تغيير هذه القائمة.",
+      "duplicate": "هذا الموقع موجود بالفعل في القائمة.",
+      "invalidFormat": "أدخل عنوانًا يبدأ بـ https://، بدون مسار. مثال: https://portal.example.com",
+      "publicNote": "هذه العناوين مرئية للجميع: يتلقاها المتصفح مع كل صفحة."
+    }
   },
   "data": {
     "keepSavedSecret": "اتركه فارغًا للاحتفاظ بالسر المحفوظ",
@@ -4560,7 +4589,12 @@
     "access_request.too_soon": "تم رفض طلبك السابق. يمكنك الطلب مرة أخرى لاحقًا.",
     "access_request.no_approvers": "لا يوجد حاليًا من يمكنه الموافقة على طلبات هذه اللوحة.",
     "access_request.not_found": "هذا الطلب لم يعد موجودًا.",
-    "access_request.already_decided": "تمت الإجابة على هذا الطلب بالفعل."
+    "access_request.already_decided": "تمت الإجابة على هذا الطلب بالفعل.",
+    "frame_ancestors.invalid": "عناوين المواقع هذه غير صالحة: {origins}. استخدم عنوان https بدون مسار، مثل https://portal.example.com.",
+    "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى.",
+    "connection.query_not_found": "الاستعلام غير موجود على هذا الاتصال.",
+    "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status}).",
+    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به."
   },
   "email": {
     "dashboardShare": {
@@ -7276,8 +7310,6 @@
   },
   "sharedFolders": {
     "viewFolder": "عرض المجلد",
-    "activity": "نشاط المجلد",
-    "viewTrace": "عرض التتبّع",
     "attach": "ربط عنصر موجود",
     "addCase": "إضافة حالة",
     "sameAccess": "Access stays the same.",
@@ -7302,5 +7334,88 @@
     "inherit": "وراثة الوصول من المجلد الأصل",
     "direct": "الوصول المباشر لـ {name}",
     "stopConfirm": "إيقاف الوراثة؟ سيتوقف تطبيق أذونات {names}."
+  },
+  "connectionQueries": {
+    "tabSettings": "الإعدادات",
+    "tabQueries": "الاستعلامات",
+    "runningNow": "قيد التشغيل الآن",
+    "queuedCount": "{n} في انتظار دورها",
+    "limitFromConnection": "حدّ مضبوط على هذا الاتصال",
+    "limitFromOrg": "الحدّ الافتراضي للمؤسسة",
+    "limitDefault": "الحدّ الافتراضي للنظام",
+    "live": "مباشر",
+    "liveHint": "يتحدّث كل ثانيتين",
+    "refresh": "تحديث",
+    "loadFailed": "تعذّر تحميل الاستعلامات",
+    "unavailableTitle": "تعذّر تحميل استعلامات هذا الاتصال",
+    "unavailableOutdated": "لا يتضمن هذا الخادم عرض الاستعلامات بعد. على الأرجح يعمل بإصدار من Bag of Words أقدم من هذه الصفحة؛ حدّث الخادم وحاول مرة أخرى.",
+    "runningTitle": "قيد التشغيل الآن",
+    "noneRunning": "لا توجد استعلامات قيد التشغيل على هذا الاتصال.",
+    "waitingFor": "في الانتظار منذ {time}",
+    "runningFor": "قيد التشغيل منذ {time}",
+    "stopping": "جارٍ الإيقاف…",
+    "killConfirm": "إيقاف هذا الاستعلام؟",
+    "kill": "إيقاف",
+    "killFailed": "تعذّر إيقاف الاستعلام",
+    "notKillable": "لا يمكن إيقافه من هنا",
+    "notKillableHint": "يفرض عميل هذا الاتصال مهلة خاصة به، لذا لا يستطيع BOW مقاطعته. سينتهي الاستعلام من تلقاء نفسه.",
+    "historyTitle": "السجل",
+    "filterAll": "كل الحالات",
+    "searchPlaceholder": "ابحث في نص الاستعلام",
+    "noMatches": "لا توجد استعلامات تطابق عوامل التصفية.",
+    "noHistory": "لم يُشغَّل أي استعلام على هذا الاتصال بعد.",
+    "colStatus": "الحالة",
+    "colQuery": "الاستعلام",
+    "colWho": "مَن",
+    "colDuration": "المدة",
+    "colWait": "الانتظار",
+    "colRows": "الصفوف",
+    "colWhen": "متى",
+    "loadMore": "تحميل المزيد",
+    "retentionNote": "يُحتفظ بالسجل 90 يوماً. يستطيع مديرو الاتصال فقط رؤية الاستعلامات وإيقافها هنا.",
+    "ms": "{n} م.ث",
+    "seconds": "{n} ث",
+    "minutes": "{m} د {s} ث",
+    "system": "النظام",
+    "agent": "الوكيل",
+    "attempt": "المحاولة",
+    "attemptValue": "محاولة الكود {code} · محاولة الأداة {tool} · الاستعلام رقم {seq}",
+    "started": "البدء",
+    "ended": "الانتهاء",
+    "killedBy": "أوقفه",
+    "sourceCancel": "الإلغاء في المصدر",
+    "copied": "تم النسخ",
+    "copy": "نسخ",
+    "truncated": "اقتُطع نص الاستعلام عند الحفظ.",
+    "openReport": "فتح التقرير",
+    "openReportNamed": "فتح التقرير: {title}",
+    "status": {
+      "queued": "في الانتظار",
+      "running": "قيد التشغيل",
+      "success": "نجح",
+      "error": "فشل",
+      "timeout": "انتهت المهلة",
+      "busy": "مشغول",
+      "cancelled": "أُلغي",
+      "stale": "متروك"
+    },
+    "source": {
+      "label": "المصدر",
+      "chat": "المحادثة",
+      "eval": "التقييم",
+      "query": "استعلام",
+      "entity": "كيان",
+      "dashboard": "لوحة المعلومات",
+      "viewer": "تحديث العارض",
+      "scheduled": "مجدول",
+      "system": "النظام"
+    },
+    "reason": {
+      "killed": "أُلغي بواسطة مدير الاتصال.",
+      "killed_waiting": "أُلغي بواسطة مدير الاتصال أثناء انتظار دوره.",
+      "run_stopped": "توقف لأن التشغيل الذي أرسله توقف.",
+      "stale": "توقفت العملية التي تشغّل هذا الاستعلام عن الاستجابة؛ وتحرر مكانها.",
+      "busy": "لم يتوفر مكان في الوقت المناسب: كان الاتصال عند حده من الاستعلامات المتزامنة."
+    }
   }
 }

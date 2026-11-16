@@ -34,7 +34,10 @@
           </template>
         </span>
       </Transition>
-      <span v-if="status === 'running' && liveStageKey" class="ms-1.5 text-ink-muted">
+      <span v-if="status === 'running' && slotWait" class="ms-1.5 text-ink-muted" data-testid="waiting-for-slot-header">
+        · <span class="tool-shimmer">{{ slotWaitLabel }}</span>
+      </span>
+      <span v-else-if="status === 'running' && liveStageKey" class="ms-1.5 text-ink-muted">
         · <span class="tool-shimmer">{{ t(`tools.createData.${liveStageKey}`) }}</span>
       </span>
       <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
@@ -113,7 +116,8 @@
             <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
             <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300 dark:text-gray-600" />
-            <span v-if="isExecuting && status !== 'stopped'" class="tool-shimmer">{{ t('tools.createData.executing') }}</span>
+            <span v-if="isExecuting && status !== 'stopped' && slotWait" class="tool-shimmer" data-testid="waiting-for-slot">{{ slotWaitLabel }}</span>
+            <span v-else-if="isExecuting && status !== 'stopped'" class="tool-shimmer">{{ t('tools.createData.executing') }}</span>
             <span v-else-if="executionFailed" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.executionFailed') }}</span>
             <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.executionSucceeded') }}</span>
             <span v-if="executionDone && executionRowCount != null" class="ms-1.5 text-ink-muted">· {{ t('tools.common.rows', { n: executionRowCount }) }}</span>
@@ -280,7 +284,7 @@ const liveStageKey = computed<string>(() => {
   const stage = progressStage.value
   if (!stage) return ''
   if (stage === 'generating_code') return 'generatingCode'
-  if (stage === 'executing_code' || stage === 'retry') return 'executing'
+  if (stage === 'executing_code' || stage === 'waiting_for_slot' || stage === 'retry') return 'executing'
   if (['formatting_widget', 'inferring_visualization', 'visualization_inferred', 'series_configured'].includes(stage)) {
     return 'visualizing'
   }
@@ -290,7 +294,10 @@ const liveStageKey = computed<string>(() => {
 // Stage-based state
 const isCodeGenerating = computed(() => progressStage.value === 'generating_code')
 const codeGenDone = computed(() => !!codeContent.value && !isCodeGenerating.value)
-const isExecuting = computed(() => progressStage.value === 'executing_code')
+const isExecuting = computed(() => progressStage.value === 'executing_code' || progressStage.value === 'waiting_for_slot')
+// The connection is at its concurrent-query limit and this query waits its turn.
+const slotWait = computed(() => progressStage.value === 'waiting_for_slot' ? ((props.toolExecution as any).progress_slot || {}) : null)
+const slotWaitLabel = computed(() => slotWaitText(t, slotWait.value))
 const isRetrying = computed(() => progressStage.value === 'retry')
 const executionDone = computed(() => {
   if (status.value === 'success') return true
@@ -309,7 +316,7 @@ const showExecutingSection = computed(() => {
   // After refresh: show if we have code (success or error with code)
   if (status.value !== 'running' && codeContent.value) return true
   // During streaming: show once past code generation
-  const pastCodeGen = ['generated_code', 'executing_code', 'retry', 'inferring_visualization', 'formatting_widget', 'visualization_inferred', 'series_configured'].includes(progressStage.value)
+  const pastCodeGen = ['generated_code', 'executing_code', 'waiting_for_slot', 'retry', 'inferring_visualization', 'formatting_widget', 'visualization_inferred', 'series_configured'].includes(progressStage.value)
   return pastCodeGen || isExecuting.value || executionDone.value
 })
 

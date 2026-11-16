@@ -3,6 +3,16 @@
 # /api -> :8000). Used to swap buggy/fixed code between before/after legs.
 #   tools/agent/restart_backend.sh <db-file>
 set -euo pipefail
+
+# DevBox (BOW_SANDBOX_DEVBOX=1): the stack is booted, migrated and provisioned
+# by the DevBox runtime and owned by `bow-stack`. Starting or killing a second
+# backend here would fight it for :8000 and point at another database, so
+# refuse and name the equivalent instead. See AGENTS.md, "DevBox".
+if [ "${BOW_SANDBOX_DEVBOX:-0}" = "1" ]; then
+  echo "restart_backend.sh: this is a DevBox (BOW_SANDBOX_DEVBOX=1); the stack is managed by bow-stack." >&2
+  echo "  use: bow-stack restart backend   (or bow-stack reset-db for a fresh database)" >&2
+  exit 1
+fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RUN_DIR="${BOW_AGENT_RUN_DIR:-/tmp/bow-agent}"
 DB_FILE="${1:?usage: restart_backend.sh <db-file>}"

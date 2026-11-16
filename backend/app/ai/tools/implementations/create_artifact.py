@@ -2843,6 +2843,12 @@ Now create the dashboard:"""
         # Check if code already has an App function/component
         if re.search(r'function\s+App\s*\(', code) or re.search(r'(?:const|let|var)\s+App\s*=', code):
             return code
+        # A page that mounts itself, or exports its root under another name
+        # (`export default ArtistDashboard`), already has a component: wrapping
+        # it inside a new App that returns nothing would render a blank page.
+        from app.ai.tools.implementations._artifact_refs import _MOUNTS_RE, exported_root
+        if _MOUNTS_RE.search(code) or exported_root(code):
+            return code
 
         # Extract inner code between script tags
         inner_match = re.search(

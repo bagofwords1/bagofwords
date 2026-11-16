@@ -71,15 +71,50 @@ async def _run_create_tool(*, user_id, org_id, mode, ds_ids=None):
         return end.payload["output"]
 
 
+@pytest.fixture
+def reopened_capture(monkeypatch):
+    """Lift only the tool's capture-time scope check, as re-opening member
+    capture would. The publication-side gates under test stay real."""
+    async def _open(*_args, **_kwargs):
+        return None
+    monkeypatch.setattr("app.services.instruction_authority.require_scope_authority", _open)
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_member_staged_suggestion_never_self_publishes(test_client, world):
-    """Publication-side safety, pinned independently of the catalog filter:
-    if a member's capture ever reaches the tool (the filter currently hides it,
-    but any future re-open or direct path must stay safe), the result is a
-    pending suggestion — never live/published text."""
+async def test_member_capture_is_refused_at_the_tool(world):
+    """Capture-time gate: a member with no manage_instructions anywhere cannot
+    stage a suggestion through the tool, on an agent or org-wide."""
+    from app.dependencies import async_session_maker
+    from app.ai.tools.implementations.create_instruction import CreateInstructionTool
+
+    for ds_ids, destination in (([world["ds_a"]["id"]], None), (None, "global")):
+        async with async_session_maker() as db:
+            ctx = {"db": db, "user": SimpleNamespace(id=world["member"]["user_id"]),
+                   "organization": SimpleNamespace(id=world["org_id"]), "mode": "knowledge"}
+            if ds_ids:
+                ctx["report"] = SimpleNamespace(id=str(uuid.uuid4()),
+                                                data_sources=[SimpleNamespace(id=d) for d in ds_ids])
+            tool_input = {"text": "Members' suggestions must reach review, not publication.",
+                          "category": "general", "confidence": 0.9, "evidence": "User confirmed."}
+            if destination:
+                tool_input["destination"] = destination
+            events = [evt async for evt in CreateInstructionTool().run_stream(tool_input, ctx)]
+        ends = [e for e in events if e.type == "tool.end"]
+        errors = [e for e in events if e.type == "tool.error"]
+        assert errors or (ends and ends[-1].payload["output"].get("success") is False), events
+        assert not any(e.payload["output"].get("instruction_id") for e in ends), events
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_member_staged_suggestion_never_self_publishes(test_client, world, reopened_capture):
+    """Publication-side safety, pinned independently of the catalog filter and
+    the tool's capture gate: if a member's capture is ever re-opened, the result
+    is a pending suggestion — never live/published text."""
     out = await _run_create_tool(
         user_id=world["member"]["user_id"], org_id=world["org_id"], mode="knowledge",
+        ds_ids=[world["ds_a"]["id"]],
     )
     assert out["success"] is True, out
     iid = out["instruction_id"]
@@ -182,16 +217,17 @@ def test_manager_modal_flow_fails_on_foreign_agent_then_succeeds_on_own(test_cli
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_member_can_retract_own_suggestion_but_not_others(test_client, world):
-    """Suggesting is open, so retracting your own unpublished suggestion must be
-    too. Someone ELSE's suggestion — or anything published — stays gated."""
+async def test_member_can_retract_own_suggestion_but_not_others(test_client, world, reopened_capture):
+    """Retracting your own unpublished suggestion is open. Someone ELSE's
+    suggestion — or anything published — stays gated."""
     out = await _run_create_tool(
         user_id=world["member"]["user_id"], org_id=world["org_id"], mode="knowledge",
+        ds_ids=[world["ds_a"]["id"]],
     )
     iid = out["instruction_id"]
 
-    # Another plain member cannot delete it.
-    other = world["manager_b"]  # has manage on ds_b only; suggestion is global
+    # Another member cannot delete it.
+    other = world["manager_b"]  # has manage on ds_b only; suggestion is on ds_a
     r_other = test_client.delete(f"/api/instructions/{iid}",
                                  headers=_hdr(other["token"], world["org_id"]))
     assert r_other.status_code == 403, r_other.text
