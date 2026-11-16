@@ -265,12 +265,21 @@ def test_check_resource_permissions_uses_known_resource_perms():
     WHITELIST_PER_RESOURCE = {
         "connection": {"manage_data_sources"},
     }
+    # Recognised by the resolver without being grantable: any grant on a data
+    # source implies these (ResolvedPermissions.has_resource_permission in
+    # app/core/permission_resolver.py; test_view_and_view_schema_not_explicit_
+    # resource_perms keeps them out of RESOURCE_PERMISSIONS). The same
+    # ('data_source', 'view') a @requires_resource_permission route uses.
+    IMPLICIT_PER_RESOURCE = {
+        "data_source": {"view", "view_schema"},
+    }
 
     findings = _collect_check_resource_permissions_calls()
     unknown = []
     for fname, resource_type, perm in findings:
         valid = set(registry.RESOURCE_PERMISSIONS.get(resource_type, []))
         valid |= WHITELIST_PER_RESOURCE.get(resource_type, set())
+        valid |= IMPLICIT_PER_RESOURCE.get(resource_type, set())
         if perm not in valid:
             unknown.append((fname, resource_type, perm))
 

@@ -254,6 +254,7 @@ def _stdout_router() -> _ThreadLocalStdoutRouter:
         return router
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from app.data_sources import query_concurrency
+from app.data_sources import query_executions
 from app.data_sources import query_tag
 from app.services.usage_policy_service import UsageLimitContext
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
@@ -285,7 +286,21 @@ def _stop_requested(sigkill_event) -> bool:
     return bool(sigkill_event is not None and hasattr(sigkill_event, "is_set") and sigkill_event.is_set())
 
 
-async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int, sigkill_event=None):
+def _slot_wait_event(status: Dict[str, Any], attempt: int) -> Dict[str, Any]:
+    """Progress event for a query waiting for a free slot on its connection."""
+    return {"type": "progress", "payload": {
+        "stage": "waiting_for_slot",
+        "attempt": attempt,
+        "connection_name": status.get("connection_name"),
+        "running": status.get("running"),
+        "queued_ahead": status.get("queued_ahead"),
+        "limit": status.get("limit"),
+        "timing": False,
+    }}
+
+
+async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int, sigkill_event=None,
+                                         status_probe=None):
     """Stream stage-preserving heartbeats until ``awaitable`` completes.
 
     The private ``_result`` event is consumed inside StreamingCodeExecutor and
@@ -298,6 +313,12 @@ async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int,
     Cancelling ``execute_code_async`` is what kills the sandbox child and asks
     the database to cancel the running statement — Stop only sets a flag, so
     without this race a query ran to completion after the user stopped it.
+
+    ``status_probe`` (optional) returns the query's current wait for a
+    connection slot (a dict) or None. A change is streamed at once as a
+    ``waiting_for_slot`` progress event — and the original stage again when
+    the wait ends — so the user sees "waiting: 4/4 running" instead of a
+    query that looks stuck.
     """
     task = asyncio.ensure_future(awaitable)
     stop_task = (
@@ -306,17 +327,43 @@ async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int,
         else None
     )
     interval = max(0.001, float(_EXECUTION_HEARTBEAT_INTERVAL_S))
+    poll = min(interval, 0.5) if status_probe is not None else interval
+    last_beat = _time.monotonic()
+    last_status = None
     try:
         while True:
             waiters = {task} if stop_task is None else {task, stop_task}
             done, _ = await asyncio.wait(
-                waiters, timeout=interval, return_when=asyncio.FIRST_COMPLETED
+                waiters, timeout=poll, return_when=asyncio.FIRST_COMPLETED
             )
             if task in done:
                 yield {"type": "_result", "value": task.result()}
                 return
             if stop_task is not None and stop_task in done:
                 return
+            if status_probe is not None:
+                try:
+                    status = status_probe()
+                except Exception:
+                    status = None
+                if status != last_status:
+                    last_status = dict(status) if isinstance(status, dict) else status
+                    if status:
+                        yield _slot_wait_event(status, attempt)
+                    else:
+                        yield {"type": "progress", "payload": {"stage": stage, "attempt": attempt, "timing": False}}
+                    last_beat = _time.monotonic()
+                    continue
+            if _time.monotonic() - last_beat < interval:
+                continue
+            last_beat = _time.monotonic()
+            if last_status:
+                # Still waiting for a slot: the heartbeat repeats that, so the
+                # stage shown does not flip back to "executing".
+                event = _slot_wait_event(last_status, attempt)
+                event["payload"]["heartbeat"] = True
+                yield event
+                continue
             yield {
                 "type": "progress",
                 "payload": {
@@ -956,6 +1003,7 @@ class QueryCapturingClientWrapper:
         captured_column_titles: Optional[Dict[str, Any]] = None,
         hide_values_in_errors: bool = False,
         query_tag_defaults: Optional[Dict[str, Any]] = None,
+        query_attribution: Optional[Dict[str, Any]] = None,
     ):
         self._original = original_client
         # With "Allow LLM to see data" off, a recorded query error stops where
@@ -991,6 +1039,12 @@ class QueryCapturingClientWrapper:
         # thread (and, sandboxed, from an RPC thread) that inherits none.
         with query_tag.query_tag_defaults(**(query_tag_defaults or {})):
             self._query_tag = query_tag.current_query_tag()
+        # The tool call / attempt numbers (and the live progress sink) for the
+        # connection's query history, snapshotted for the same reason.
+        self._attribution = {**query_executions.current_attribution(), **(query_attribution or {})}
+        # Set when the run stops this query (Stop, tool timeout): its history
+        # row then ends "cancelled" rather than "error".
+        self._run_aborted = False
 
     def execute_query(self, query=_NO_QUERY, *args, **kwargs):
         """Intercept execute_query calls to capture the query string and wall-clock duration.
@@ -1089,15 +1143,18 @@ class QueryCapturingClientWrapper:
                 # the query itself would have been given, because a slot that
                 # never opens in that time is a failure either way.
                 span.set_attribute("datasource.max_concurrent_queries", self._max_concurrent_queries)
-                with query_concurrency.slot(
-                    self._connection_id(),
-                    self._max_concurrent_queries,
-                    wait_seconds=self._query_timeout_seconds,
-                    connection_name=getattr(self._original, "_bow_connection_name", None),
-                ):
-                    result = self._call_with_timeout(query, args, kwargs)
+                # Record the query and take an app-wide slot on its connection
+                # (query_executions). Waits its turn when the connection is at
+                # its limit; raises ConnectionBusyError / QueryKilledError.
+                handle = self._begin_tracking(capture, idx)
+                try:
+                    result = self._call_with_timeout(query, args, kwargs, handle=handle)
+                except BaseException as exc:
+                    self._finish_tracking(handle, exc)
+                    raise
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
                 rows = len(result) if hasattr(result, '__len__') else None
+                self._finish_tracking(handle, None, rows=rows)
                 result_bytes = estimate_result_size_bytes(result)
                 self._consume_data_bytes_quota(capture, result_bytes, rows)
                 if rows is not None:
@@ -1163,10 +1220,91 @@ class QueryCapturingClientWrapper:
                     **({"source_query_id": _source_query_id(e)} if _source_query_id(e) else {}),
                     **({"error_type": "table_access_denied", "error_message": str(e)}
                        if isinstance(e, TableAccessError) else {}),
+                    **({"error_type": "connection_busy", "error_message": str(e)}
+                       if isinstance(e, query_executions.ConnectionBusyError) else {}),
+                    **({"error_type": "cancelled_by_admin", "error_message": str(e),
+                        "cancellation": getattr(e, "cancellation", None)}
+                       if isinstance(e, query_executions.QueryKilledError) else {}),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
+
+    def _begin_tracking(self, capture, seq: int):
+        """Record this query and wait for a slot (None when no connection id).
+
+        Paths without a connection id (indexing, connection tests, clients
+        built outside the data-source service) are neither recorded nor
+        limited — they are not the burst source, and gating them would let a
+        slow agent query block a health check.
+        """
+        connection_id = self._connection_id()
+        if not connection_id:
+            return None
+        tag = self._query_tag or {}
+        attribution = self._attribution or {}
+        meta = {
+            "organization_id": tag.get("org_id"),
+            "user_id": tag.get("user_id"),
+            "report_id": tag.get("report_id"),
+            "completion_id": tag.get("completion_id"),
+            "agent_execution_id": tag.get("agent_execution_id"),
+            "step_id": tag.get("step_id"),
+            "query_id": tag.get("query_id"),
+            "entity_id": tag.get("entity_id"),
+            "data_source_id": tag.get("data_source_id") or getattr(self._original, "_bow_data_source_id", None),
+            "source": tag.get("source"),
+            "client_type": type(self._original).__name__,
+            "tool_execution_id": attribution.get("tool_execution_id"),
+            "tool_attempt": attribution.get("tool_attempt"),
+            "code_attempt": attribution.get("code_attempt"),
+            "seq": seq,
+            # A client that enforces its own deadline runs on this thread with
+            # no join loop to interrupt, so a manager's kill could not reach it.
+            "killable": not getattr(self._original, "_manages_query_deadline", False),
+        }
+        sink = attribution.get("progress_sink")
+        return query_executions.begin(
+            connection_id=connection_id,
+            limit=self._max_concurrent_queries,
+            wait_seconds=query_executions.slot_wait_seconds(
+                self._query_timeout_seconds, tag.get("source"), attribution.get("interactive"),
+            ),
+            query_text=capture,
+            meta=meta,
+            connection_name=getattr(self._original, "_bow_connection_name", None),
+            progress=sink if callable(sink) else None,
+            # A user Stop (or tool timeout) while the query waits for a slot:
+            # give up the place in line instead of starting the statement.
+            should_abort=lambda: self._run_aborted,
+        )
+
+    def _finish_tracking(self, handle, exc: Optional[BaseException], rows: Optional[int] = None) -> None:
+        """Close the history row with how the query ended. Never raises."""
+        if handle is None:
+            return
+        # A killed or timed-out call may still be running at the source: keep
+        # its slot until its thread exits (bounded), so the limit stays true.
+        source_thread = handle.source_thread
+        hold = max(60.0, float(self._query_timeout_seconds or 0))
+        if exc is None:
+            query_executions.finish(handle, "success", rows=rows)
+        elif isinstance(exc, query_executions.QueryRunStoppedError):
+            # Stopped before the source saw it (begin() may already have
+            # closed the row; finish() is idempotent).
+            handle.started_monotonic = None
+            query_executions.finish(handle, "cancelled", error="The run was stopped", cancel_outcome="not_started")
+        elif isinstance(exc, query_executions.QueryKilledError):
+            query_executions.finish_after(handle, source_thread, "cancelled", max_hold_seconds=hold,
+                                          error="Cancelled by a connection admin", cancel_outcome=exc.cancellation)
+        elif isinstance(exc, QueryTimeoutError):
+            query_executions.finish_after(handle, source_thread, "timeout", max_hold_seconds=hold,
+                                          error=str(exc), cancel_outcome=self._last_cancel_outcome)
+        elif self._run_aborted:
+            query_executions.finish(handle, "cancelled", error="The run was stopped",
+                                    cancel_outcome=self._last_cancel_outcome)
+        else:
+            query_executions.finish(handle, "error", error=str(exc))
 
     def _recorded_error(self, e: BaseException) -> str:
         text = str(e)
@@ -1174,7 +1312,7 @@ class QueryCapturingClientWrapper:
             text = redact_error_text(text, type(e).__name__)
         return text[:200]
 
-    def _call_with_timeout(self, query, args, kwargs):
+    def _call_with_timeout(self, query, args, kwargs, handle=None):
         """Run original.execute_query in a daemon thread; abandon it on timeout.
 
         Threading is intentional rather than asyncio.wait_for: we're already
@@ -1188,6 +1326,10 @@ class QueryCapturingClientWrapper:
         are about to orphan — the client may have other queries in flight and
         those must survive.
         """
+        if self._run_aborted:
+            # Stopped between the slot claim and the handoff: the statement
+            # must not reach the source at all.
+            raise query_executions.QueryRunStoppedError()
         if getattr(self._original, "_manages_query_deadline", False):
             with query_tag.applied_query_tag(self._query_tag):
                 return self._original.execute_query(query, *args, **kwargs)
@@ -1224,12 +1366,30 @@ class QueryCapturingClientWrapper:
         if abort_pending:
             self._last_cancel_outcome = self._cancel_orphan(t, aborted=True)
         try:
-            t.join(self._query_timeout_seconds)
+            if handle is None:
+                t.join(self._query_timeout_seconds)
+            else:
+                # Short joins so a manager's kill (handle.kill_event) stops the
+                # wait within a fraction of a second; join returns at once when
+                # the query finishes, so a normal query pays nothing.
+                deadline = _time.monotonic() + self._query_timeout_seconds
+                while t.is_alive() and not handle.killed:
+                    remaining = deadline - _time.monotonic()
+                    if remaining <= 0:
+                        break
+                    t.join(min(0.25, remaining))
         finally:
             with self._active_query_lock:
                 self._active_query_thread = None
+        if t.is_alive() and handle is not None and handle.killed:
+            self._last_cancel_outcome = self._cancel_orphan(t, aborted=True)
+            # The caller returns now; the slot is held until this thread exits.
+            handle.source_thread = t
+            raise query_executions.QueryKilledError(cancellation=self._last_cancel_outcome)
         if t.is_alive():
             self._last_cancel_outcome = self._cancel_orphan(t)
+            if handle is not None:
+                handle.source_thread = t
             raise QueryTimeoutError(
                 self._query_timeout_seconds,
                 sql=query if isinstance(query, str) else None,
@@ -1247,6 +1407,9 @@ class QueryCapturingClientWrapper:
         and the query path cancels itself as soon as its thread starts, so
         the two sides can never miss each other.
         """
+        self._run_aborted = True
+        # A query still waiting for a slot re-checks _run_aborted at once.
+        query_executions.wake_waiters()
         with self._active_query_lock:
             thread = self._active_query_thread
             if thread is None or thread.ident is None:
@@ -1401,6 +1564,7 @@ def wrap_clients_for_capture(
     usage_context: Optional[UsageLimitContext] = None,
     organization_settings: Optional[OrganizationSettingsConfig] = None,
     captured_column_titles: Optional[Dict[str, Any]] = None,
+    query_attribution: Optional[Dict[str, Any]] = None,
 ) -> Dict:
     """Wrap all database clients to capture queries and per-query timing.
 
@@ -1451,6 +1615,7 @@ def wrap_clients_for_capture(
                 captured_column_titles=captured_column_titles,
                 hide_values_in_errors=not allow_llm_see_data(organization_settings),
                 query_tag_defaults=tag_defaults,
+                query_attribution=query_attribution,
             )
         else:
             wrapped[key] = client
@@ -1515,7 +1680,8 @@ class StreamingCodeExecutor:
                      captured_queries: Optional[List[str]] = None,
                      loadables: Optional[Dict] = None,
                      params: Optional[Dict] = None,
-                     cancel_event: Optional[threading.Event] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                     cancel_event: Optional[threading.Event] = None,
+                     query_attribution: Optional[Dict[str, Any]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         captured_timings: if provided, per-query wall-clock timings are appended to this list.
@@ -1568,6 +1734,7 @@ class StreamingCodeExecutor:
                 self.usage_context,
                 organization_settings=self.organization_settings,
                 captured_column_titles=_column_titles,
+                query_attribution=query_attribution,
             )
 
             # Inject a sync HTTP client when the org allows web fetch in code.
@@ -1822,8 +1989,15 @@ class StreamingCodeExecutor:
                                  captured_timings: Optional[List[dict]] = None,
                                  captured_queries: Optional[List[str]] = None,
                                  loadables: Optional[Dict] = None,
-                                 params: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
-        """Run execute_code in a thread so it doesn't block the event loop."""
+                                 params: Optional[Dict] = None,
+                                 query_attribution: Optional[Dict[str, Any]] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+        """Run execute_code in a thread so it doesn't block the event loop.
+
+        ``query_attribution`` names the code attempt (and the live progress
+        sink) on the connection's query history; passed explicitly because
+        this runs inside an async generator, where a context variable set and
+        reset across yields would land in different contexts.
+        """
         loop = asyncio.get_running_loop()
         if self.usage_context is not None:
             self.usage_context.loop = loop
@@ -1848,6 +2022,7 @@ class StreamingCodeExecutor:
                     loadables=loadables,
                     params=params,
                     cancel_event=cancel_event,
+                    **({"query_attribution": query_attribution} if query_attribution else {}),
                 )
 
             try:
@@ -2346,6 +2521,13 @@ class StreamingCodeExecutor:
                 # scope so the failure branch can surface the failing SQL / DB error.
                 query_timings.clear()
                 executed_queries.clear()
+                # A query waiting for a connection slot reports it here; the
+                # heartbeat streams it as a "waiting_for_slot" stage.
+                _slot_wait: Dict[str, Any] = {"value": None}
+
+                def _slot_sink(value, _holder=_slot_wait):
+                    _holder["value"] = value
+
                 async for _execution_event in _await_with_progress_heartbeat(
                     self.execute_code_async(
                         code=final_code,
@@ -2355,10 +2537,12 @@ class StreamingCodeExecutor:
                         captured_queries=executed_queries,
                         loadables=loadables,
                         params=params,
+                        query_attribution={"code_attempt": retries + 1, "progress_sink": _slot_sink},
                     ),
                     stage="data_query_execution",
                     attempt=retries,
                     sigkill_event=sigkill_event,
+                    status_probe=lambda _holder=_slot_wait: _holder["value"],
                 ):
                     if _execution_event["type"] == "_result":
                         exec_df, execution_log, _ = _execution_event["value"]

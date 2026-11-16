@@ -4073,7 +4073,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
 class QlikSenseOnPremConfig(BaseModel):
     """Connection form for QSEoW — deliberately small, like the Power BI and
     BigQuery forms. Crawl-behavior knobs (impersonate_app_owner,
-    include_master_items, include_lineage, max_apps,
+    include_master_items, include_lineage, include_sheet_objects, max_apps,
     timeout_sec) stay client constructor defaults rather than form fields:
     they tune discovery internals, not connection identity."""
 

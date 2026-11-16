@@ -162,14 +162,18 @@ async def guard_route(db, user, kwargs, organization=None):
             raise HTTPException(status_code=404, detail="Entity not found")
     from app.services.folder_service import can_read_folder_output
     for rid in report_ids:
-        # lazyload("*"): Report declares lazy="selectin" on every relationship,
-        # so a plain get hydrates the whole graph (every step version's stored
-        # data) on every report route. The folder check reads scalars and
-        # loads additional_folders itself (load_report_folders).
-        report = (await db.execute(
-            select(Report).options(lazyload("*")).where(Report.id == rid)
-        )).scalar_one_or_none()
-        if report and not await can_read_folder_output(db, report, user):
+        # lazyload("*"): this runs on every request that names a report, and
+        # Report declares lazy="selectin" on every relationship, so a plain
+        # get hydrates the whole graph (widgets, queries, every step version).
+        # The folder check reads scalar columns and loads its own folders. A
+        # report loaded only for this check leaves the session again, so the
+        # route's own db.get(Report, ...) still loads it the usual way.
+        loaded_here = db.sync_session.identity_key(Report, rid) not in db.identity_map
+        report = await db.get(Report, rid, options=[lazyload("*")])
+        readable = report is None or await can_read_folder_output(db, report, user)
+        if report is not None and loaded_here:
+            db.expunge(report)
+        if not readable:
             raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND)
         await assert_read(db, await report_access(db, rid), user)
 

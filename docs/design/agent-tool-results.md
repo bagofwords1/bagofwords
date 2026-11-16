@@ -803,6 +803,8 @@ Per `.claude/skills/sandbox-feedback-loop`, extended for multi-provider.
 
 ### 6.1 Sandbox
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip the boot, sign-up and onboarding; one Anthropic provider is already provisioned. Seed the other providers via the API as described below, authenticating as the DevBox admin (`source tools/agent/devbox_env.sh`). See the root `AGENTS.md`, "DevBox".
+
 Boot per the skill (backend :8000 with `BOW_DATABASE_URL='sqlite:///db/app.db'`,
 frontend :3000, seed via `/users/sign-up`, skip onboarding, configure models in
 `/settings/models`).

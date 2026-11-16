@@ -299,6 +299,8 @@ def test_continuation_rejects_added_controls_and_duplicate_keys(client, http, qu
         client.execute_query({"table": "volumes"})
 
 
+# The executor records each query against its connection (query_executions).
+@pytest.mark.db
 def test_rca_query_runs_through_bow_code_executor(client, http):
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 

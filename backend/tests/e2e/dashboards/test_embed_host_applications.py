@@ -294,7 +294,7 @@ def test_schema_upgrade_preserves_embed_sessions_keys_and_replay_protection(embe
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
     from sqlalchemy import create_engine
-    from tests.fixtures.dashboard_corpus.alembic_at import script_directory
+    from tests.fixtures.dashboard_corpus.alembic_at import replay_after_connected_applications, script_directory
     from tests.fixtures.dashboard_corpus.rows import sync_test_url
 
     subject = f"employee-{uuid.uuid4().hex}"
@@ -313,14 +313,10 @@ def test_schema_upgrade_preserves_embed_sessions_keys_and_replay_protection(embe
     try:
         with engine.begin() as conn:
             migration = script_directory().get_revision("connapps01").module
-            # folder10 adds a column to connected_applications; replaying
-            # connapps01 alone recreates the table without it.
-            later = [script_directory().get_revision("folder10").module]
             with Operations.context(MigrationContext.configure(conn)):
                 migration.downgrade()
                 migration.upgrade()
-                for revision in later:
-                    revision.upgrade()
+                replay_after_connected_applications()
     finally:
         engine.dispose()
 

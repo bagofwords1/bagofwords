@@ -120,8 +120,6 @@
     "sameParentAccess": "Inherited access stays the same.",
     "directUnchanged": "Direct grants and access from other sources still apply.",
     "viewFolder": "View folder",
-    "activity": "Folder activity",
-    "viewTrace": "View trace",
     "attach": "Attach existing",
     "addCase": "Add case",
     "sameAccess": "Access stays the same.",
@@ -146,6 +144,18 @@
     "inherit": "Inherit access from parent",
     "direct": "Direct access for {name}",
     "stopConfirm": "Turn off inheritance? Parent grants from {names} will stop applying."
+  },
+  "filePicker": {
+    "searchPlaceholder": "Search files…",
+    "uploadFile": "Upload file",
+    "uploadTitle": "Upload files",
+    "clickOrDrag": "Click or drag files to upload",
+    "dropHere": "Drop files here",
+    "files": "Files",
+    "noFilesYet": "No files yet",
+    "connect": "Connect",
+    "searching": "Searching…",
+    "noResults": "No results"
   },
   "agentLanding": {
     "actions": "Agent actions",
@@ -1443,7 +1453,11 @@
       "duration": "Duration: {ms}ms",
       "edit": "Edit",
       "generationStopped": "Generation stopped",
-      "code": "Code"
+      "code": "Code",
+      "waitingForSlot": "Waiting for a free slot on {connection} · {running}/{limit} running",
+      "waitingForSlotAhead": "Waiting for a free slot on {connection} · {running}/{limit} running · {ahead} ahead",
+      "waitingForSlotShort": "Waiting for a free slot on {connection}",
+      "theConnection": "the connection"
     },
     "createData": {
       "bowSource": "BOW",
@@ -3745,7 +3759,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Concurrent queries per connection",
-          "description": "How many agent queries may run against one connection at the same time, per replica. A burst above this waits for a slot rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value."
+          "description": "How many queries BOW may run against one connection at the same time, across all workers and replicas. A burst above this waits its turn rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value."
         },
         "top_k_schema": {
           "name": "Top K schema",
@@ -4383,6 +4397,19 @@
         "none": "no transport"
       },
       "alertsHint": "Which system emails go out. In-app notifications are always delivered."
+    },
+    "frameAncestors": {
+      "title": "Sites that can show BOW",
+      "description": "Your own applications that may show BOW inside a frame, such as an internal portal. This list applies to every organization on this instance.",
+      "placeholder": "https://portal.example.com",
+      "add": "Add",
+      "removeSite": "Remove {site}",
+      "empty": "No sites added. BOW can only appear inside its own pages and Microsoft Office.",
+      "ssoNote": "Signing in inside the frame works with email and password. Single sign-on (SSO) doesn't work inside a frame.",
+      "readOnly": "Only an instance administrator can change this list on an instance with several organizations.",
+      "duplicate": "This site is already in the list.",
+      "invalidFormat": "Enter an address that starts with https://, without a path. For example: https://portal.example.com",
+      "publicNote": "Anyone can see these addresses: browsers receive them with every page."
     }
   },
   "data": {
@@ -5205,7 +5232,12 @@
     "access_request.too_soon": "Your previous request was declined. You can ask again later.",
     "access_request.no_approvers": "No one can approve requests for this dashboard right now.",
     "access_request.not_found": "This request no longer exists.",
-    "access_request.already_decided": "This request was already answered."
+    "access_request.already_decided": "This request was already answered.",
+    "frame_ancestors.invalid": "These aren't valid site addresses: {origins}. Use an https address without a path, for example https://portal.example.com.",
+    "frame_ancestors.too_many": "You can list at most {max} sites.",
+    "connection.query_not_found": "Query not found on this connection.",
+    "connection.query_finished": "This query has already finished ({status}).",
+    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit."
   },
   "email": {
     "dashboardShare": {
@@ -8129,5 +8161,88 @@
     "settingsTitle": "Product updates",
     "toggleLabel": "Email me product updates",
     "sentTo": "Sent to {email}"
+  },
+  "connectionQueries": {
+    "tabSettings": "Settings",
+    "tabQueries": "Queries",
+    "runningNow": "running now",
+    "queuedCount": "{n} waiting for a slot",
+    "limitFromConnection": "Limit set on this connection",
+    "limitFromOrg": "Organization default limit",
+    "limitDefault": "Built-in default limit",
+    "live": "Live",
+    "liveHint": "Updates every 2 seconds",
+    "refresh": "Refresh",
+    "loadFailed": "Could not load queries",
+    "unavailableTitle": "Couldn't load this connection's queries",
+    "unavailableOutdated": "This server doesn't have the Queries view yet. It is probably running an older version of Bag of Words than this page; update the server and try again.",
+    "runningTitle": "Running now",
+    "noneRunning": "No queries are running on this connection.",
+    "waitingFor": "waiting {time}",
+    "runningFor": "running {time}",
+    "stopping": "Stopping…",
+    "killConfirm": "Kill this query?",
+    "kill": "Kill",
+    "killFailed": "Could not kill the query",
+    "notKillable": "Can't be stopped here",
+    "notKillableHint": "This connection's client enforces its own time limit, so BOW cannot interrupt it. The query ends on its own.",
+    "historyTitle": "History",
+    "filterAll": "All statuses",
+    "searchPlaceholder": "Search query text",
+    "noMatches": "No queries match these filters.",
+    "noHistory": "No queries have run on this connection yet.",
+    "colStatus": "Status",
+    "colQuery": "Query",
+    "colWho": "Who",
+    "colDuration": "Duration",
+    "colWait": "Wait",
+    "colRows": "Rows",
+    "colWhen": "When",
+    "loadMore": "Load more",
+    "retentionNote": "History is kept for 90 days. Only connection managers can see and kill queries here.",
+    "ms": "{n} ms",
+    "seconds": "{n}s",
+    "minutes": "{m}m {s}s",
+    "system": "System",
+    "agent": "Agent",
+    "attempt": "Attempt",
+    "attemptValue": "code attempt {code} · tool attempt {tool} · query #{seq}",
+    "started": "Started",
+    "ended": "Ended",
+    "killedBy": "Killed by",
+    "sourceCancel": "Cancellation at the source",
+    "copied": "Copied",
+    "copy": "Copy",
+    "truncated": "Query text was truncated for storage.",
+    "openReport": "Open report",
+    "openReportNamed": "Open report: {title}",
+    "status": {
+      "queued": "Waiting",
+      "running": "Running",
+      "success": "Succeeded",
+      "error": "Failed",
+      "timeout": "Timed out",
+      "busy": "Busy",
+      "cancelled": "Cancelled",
+      "stale": "Stale"
+    },
+    "source": {
+      "label": "Source",
+      "chat": "Chat",
+      "eval": "Eval",
+      "query": "Query",
+      "entity": "Entity",
+      "dashboard": "Dashboard",
+      "viewer": "Viewer refresh",
+      "scheduled": "Scheduled",
+      "system": "System"
+    },
+    "reason": {
+      "killed": "Cancelled by a connection admin.",
+      "killed_waiting": "Cancelled by a connection admin while waiting for a slot.",
+      "run_stopped": "Stopped because the run that sent it was stopped.",
+      "stale": "The worker running this query stopped responding; its slot was released.",
+      "busy": "No slot opened in time: the connection was at its concurrent-query limit."
+    }
   }
 }

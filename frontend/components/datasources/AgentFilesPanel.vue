@@ -47,7 +47,7 @@
         </div>
       </div>
       <div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
-        <ConnectionFileBrowser :ds-id="dsId" :connection-id="conn.id" :connection-type="conn.type" />
+        <ConnectionFileBrowser :ds-id="dsId!" :connection-id="conn.id" :connection-type="conn.type" />
       </div>
     </section>
 

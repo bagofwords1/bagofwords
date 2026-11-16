@@ -253,3 +253,65 @@ def test_a_successful_build_resets_the_count():
 
 def test_builds_that_succeed_never_warn():
     assert _run([False] * 10) == [None] * 10
+
+
+# --- a root that is not `App`, imports of names the runtime has no global for ---
+
+ROOT_MOUNTED = lambda name: re.compile(rf"ReactDOM\.createRoot\(document\.getElementById\('root'\)\)\.render\(<{name} />\);")
+
+
+@pytest.mark.parametrize("root, code", [
+    ("ArtistDashboard", "const ArtistDashboard = () => <div>Artists</div>;\nexport default ArtistDashboard;\n"),
+    ("SalesOverview", "function SalesOverview() { return <div/> }\nexport default SalesOverview;\n"),
+    ("Board", "export default function Board() { return <div/> }\n"),
+    # The exported root wraps App: the wrapper is the root, App is only a child.
+    ("Dashboard", "function App() { return <p/> }\nfunction Dashboard() { return <main><App/></main> }\nexport default Dashboard;\n"),
+])
+def test_the_component_a_page_exports_as_its_root_is_mounted(root, code):
+    fixed, notes = normalize_page_code("import React from 'react';\n" + code)
+
+    assert ROOT_MOUNTED(root).search(fixed), fixed
+    assert fixed.count(".render(") == 1 and not re.search(r"^\s*export\b", fixed, re.M)
+    assert any("mount" in n for n in notes)
+
+
+@pytest.mark.parametrize("wrapped", ["React.memo(Dashboard)", "memo(Dashboard)", "withTheme(Dashboard)",
+                                     "React.forwardRef((props, ref) => <Dashboard {...props} />)"])
+def test_a_wrapped_default_export_is_kept_and_mounted(wrapped):
+    code = f"function Dashboard() {{ return <div/> }}\nexport default {wrapped};\n"
+    fixed, _ = normalize_page_code(code)
+
+    assert not re.search(r"^\s*export\b", fixed, re.M)
+    assert f"var BowDefaultExport = {wrapped};" in fixed
+    assert ROOT_MOUNTED("BowDefaultExport").search(fixed)
+
+
+def test_a_method_or_column_named_render_is_not_taken_for_a_mount():
+    code = ("export default function Dashboard() {\n"
+            "  const cols = [{ field: 'a', render(v) { return v } }];\n"
+            "  return <DataTable columns={cols} />;\n}\n")
+    fixed, _ = normalize_page_code(code)
+    assert ROOT_MOUNTED("Dashboard").search(fixed)
+
+
+@pytest.mark.parametrize("imports, binding", [
+    ("import { createRoot } from 'react-dom/client';", 'var createRoot = window.__bowResolveImport("react-dom/client", "createRoot");'),
+    ("import { StrictMode, useState } from 'react';", 'var StrictMode = window.__bowResolveImport("react", "StrictMode");'),
+])
+def test_a_same_name_import_with_no_runtime_global_stays_bound(imports, binding):
+    code = f"{imports}\nfunction App() {{ return <div/> }}\ncreateRoot(document.getElementById('root')).render(<App />);\n"
+    fixed, _ = normalize_page_code(code)
+
+    assert binding in fixed
+    assert "useState = window" not in fixed  # names the runtime already provides stay unbound
+    # Call sites are never rewritten.
+    assert "\ncreateRoot(document.getElementById('root')).render(<App />);" in fixed
+
+
+@pytest.mark.parametrize("code", [
+    "const x = { createRoot(a) { return a } };\nfunction App() { return <div/> }\nReactDOM.createRoot(document.getElementById('root')).render(<App />);\n",
+    "function mountInto(createRoot, el) { return createRoot(el) }\nfunction App() { return <div/> }\nReactDOM.createRoot(document.getElementById('root')).render(<App />);\n",
+    "const { createRoot } = ReactDOM;\nfunction App() { return <div/> }\ncreateRoot(document.getElementById('root')).render(<App />);\n",
+])
+def test_code_that_uses_the_name_create_root_itself_is_returned_byte_for_byte(code):
+    assert normalize_page_code(code) == (code, [])

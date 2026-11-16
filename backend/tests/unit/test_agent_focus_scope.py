@@ -3,8 +3,8 @@
 Requirements pinned here:
   - TRAINING: search/set operate only on agents the user can MANAGE.
   - Chat/deep MANUAL selection: hard scope — the candidate pool is EXACTLY the
-    user's selected agents; other accessible agents are never searched, loaded,
-    or proposed.
+    user's selected agents that they can still use; other accessible agents are
+    never proposed, and a selected agent that is no longer usable is dropped.
   - Chat/deep AUTO (empty selection): the working set is every accessible
     agent, and everything counts as in-scope (nothing needs attach/approval).
 """
@@ -46,9 +46,8 @@ def _agent(i):
 
 @pytest.mark.asyncio
 async def test_manual_scope_is_selection_only(monkeypatch):
-    # The selection bounds the pool: reachable agents outside it never join,
-    # and a pinned agent the user can no longer reach (deleted, disabled,
-    # access revoked) drops out instead of running.
+    # Agents 1-3 are usable; agent 4 was picked earlier but is no longer
+    # usable (deleted, disabled or access revoked).
     async def fake_accessible(db, org, user):
         return [_agent(1), _agent(2), _agent(3)]
     monkeypatch.setattr(afc, "accessible_agents", fake_accessible)
@@ -58,7 +57,9 @@ async def test_manual_scope_is_selection_only(monkeypatch):
         _FakeDB([]), SimpleNamespace(id="org"), SimpleNamespace(id="u"), report, "chat"
     )
     assert scope == "attached"
-    assert [a.id for a in agents] == ["id1", "id2"]  # the reachable selection, nothing else
+    # The selection, nothing else: the unselected agent 3 is never proposed,
+    # and a pinned agent the user can no longer use is not offered either.
+    assert [a.id for a in agents] == ["id1", "id2"]
     assert attached_ids == {"id1", "id2"}
     assert not report_selection_is_auto(report)
 

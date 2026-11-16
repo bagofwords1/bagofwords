@@ -133,8 +133,8 @@ async def _create_and_edit(create_first, report_id, existing_id, *, user_id, org
     async def create():
         return await _run_message(
             report_id, CreateInstructionTool(),
-            {"destination": "global", "text": f"Join invoice lines to invoices by invoice_id ({uuid.uuid4().hex[:6]}).",
-             "category": "code_gen", "confidence": 0.9, "evidence": "User said so."},
+            {"text": f"Join invoice lines to invoices by invoice_id ({uuid.uuid4().hex[:6]}).",
+             "destination": "global", "category": "code_gen", "confidence": 0.9, "evidence": "User said so."},
             user_id=user_id, org_id=org_id,
         )
 

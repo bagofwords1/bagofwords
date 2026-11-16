@@ -4200,6 +4200,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							if (typeof p.attempt === 'number') {
 								te.progress_attempt = p.attempt
 							}
+							// A query waiting for a free slot on its connection (the
+							// connection is at its concurrent-query limit).
+							te.progress_slot = p.stage === 'waiting_for_slot'
+								? { connection_name: p.connection_name || null, running: p.running ?? null, limit: p.limit ?? null, queued_ahead: p.queued_ahead ?? null }
+								: null
 							// On retry, capture the error that triggered it
 							if (p.stage === 'retry') {
 								te.progress_errors = te.progress_errors || []

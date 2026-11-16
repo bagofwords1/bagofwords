@@ -349,6 +349,7 @@ is complete for free.
 - Start by reproducing §0 with an **Auto** report (the composer's default), not
   a report with an agent attached. That is how the first version passed every
   test and still failed for the user.
+- DevBox (`BOW_SANDBOX_DEVBOX=1`): skip `boot_stack.sh`, the `BOW_ENCRYPTION_KEY` pin and `seed_org.py --demo` (all provisioned, the key is pinned per volume); `source tools/agent/devbox_env.sh` and go straight to `tools/agent/embed/`. See the root `AGENTS.md`, "DevBox".
 - Use the existing loop: `tools/agent/boot_stack.sh --dev` with a stable
   `BOW_ENCRYPTION_KEY` (a restart otherwise invalidates tokens and stored
   credentials), `tools/agent/seed_org.py --demo`, then the scripts in

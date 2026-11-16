@@ -1492,6 +1492,23 @@ Do not use generic placeholders like "value" unless that is the actual column na
                         "Explain any remaining limitation in the user's language and "
                         "continue independent permitted parts of the task."
                     )
+                elif last_failed.get("error_type") in ("cancelled_by_admin", "connection_busy"):
+                    # Ends this code attempt (no rewrite/resend), not the
+                    # conversation: the planner tells the user what happened
+                    # in their language and may finish independent work.
+                    kind = last_failed["error_type"]
+                    error_observation["error"]["type"] = kind
+                    error_observation["error"]["message"] = error_observation["error"]["db_message"]
+                    error_observation["retry_guidance"] = (
+                        "A connection admin cancelled this query. Do not run it again, in this or any "
+                        "other form. Tell the user it was cancelled by an admin of the connection; "
+                        "continue only with parts of the task that do not need this query."
+                        if kind == "cancelled_by_admin" else
+                        "The connection was at its limit of concurrent queries and no slot opened in "
+                        "time. Do not retry right away and do not rewrite the query. If the message "
+                        "says the queries belong to this run, combine them or run them one at a time; "
+                        "otherwise tell the user the connection is busy and to try again shortly."
+                    )
                 elif last_failed.get("terminal"):
                     error_observation["error"]["type"] = "infrastructure_failure"
                     error_observation["terminal_execution_error"] = True

@@ -9,15 +9,8 @@ branch_labels = None
 depends_on = None
 
 
-def _applied():
-    """Idempotent: the dashboard test corpus replays this revision unstamped
-    (tests/fixtures/dashboard_corpus/alembic_at.py), then `upgrade head` runs
-    it again."""
-    return sa.inspect(op.get_bind()).has_table("folder_report_knowledge")
-
-
 def upgrade():
-    if _applied():
+    if sa.inspect(op.get_bind()).has_table("folder_report_knowledge"):
         return
     op.create_table(
         "folder_report_knowledge",
@@ -29,6 +22,4 @@ def upgrade():
 
 
 def downgrade():
-    if not _applied():
-        return
     op.drop_table("folder_report_knowledge")
