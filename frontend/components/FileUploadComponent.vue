@@ -475,7 +475,9 @@ defineExpose({
   text-align: start;
 }
 .row:hover { background-color: rgba(0, 0, 0, 0.04); }
-:global(.dark) .row:hover { background-color: rgba(255, 255, 255, 0.06); }
+/* `.dark .row`, never `:global(.dark) .row`: Vue drops what follows :global()
+   and the rule becomes a bare `.dark {…}` (tests/unit/darkSelectorsScoped.mjs). */
+.dark .row:hover { background-color: rgba(255, 255, 255, 0.06); }
 .row-ic {
   width: 1.05rem;
   height: 1.05rem;
