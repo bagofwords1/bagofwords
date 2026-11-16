@@ -32,6 +32,8 @@ Session (pick one):
                         session at <out>/state.json and reuse it on later runs.
                         Credentials from $BOW_EMAIL / $BOW_PASSWORD, defaulting to the
                         seed_org.py admin (admin@example.com / Password123!).
+                        In a DevBox, run 'source tools/agent/devbox_env.sh' first: it
+                        sets both to the provisioned DevBox admin.
   --storage <path>      Use an existing Playwright storageState JSON instead.
                         --storage none sweeps logged out (for the auth pages).
   --fresh-login         With --login, ignore a cached state.json and sign in again.
@@ -161,7 +163,7 @@ async function login (browser, opts, statePath) {
     await page.waitForSelector('#email', { state: 'visible', timeout: opts.timeout })
   } catch {
     await context.close()
-    throw new Error(`no sign-in form at ${opts.baseUrl}/users/sign-in after ${opts.timeout}ms. Is the stack up? tools/agent/boot_stack.sh --status`)
+    throw new Error(`no sign-in form at ${opts.baseUrl}/users/sign-in after ${opts.timeout}ms. Is the stack up? ${process.env.BOW_SANDBOX_DEVBOX === '1' ? 'bow-stack status' : 'tools/agent/boot_stack.sh --status'}`)
   }
   await page.fill('#email', email)
   await page.fill('#password', password)

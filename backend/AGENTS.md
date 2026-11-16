@@ -55,6 +55,9 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
 ### debugging
 - when working locally, we use `sqlite` db by default, so it is a great resource to debug
 - sqlite3 `backend/db/app.db`
+- DevBox (`BOW_SANDBOX_DEVBOX=1`): the app database is `$BOW_DATABASE_URL`, not
+  `backend/db/app.db` (`source tools/agent/devbox_env.sh` gives the SQLite path as
+  `$BOW_SQLITE_DB`); logs via `bow-stack logs backend`. See the root `AGENTS.md`, "DevBox".
 
 ### Locale / i18n
 

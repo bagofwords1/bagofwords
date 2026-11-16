@@ -21,11 +21,19 @@ Flags:
     --db-path     sqlite db file, used only to read invite tokens
                   (default backend/db/agent.db — matches boot_stack.sh)
 
+DevBox (BOW_SANDBOX_DEVBOX=1): the admin, org, LLM and demo data source are
+already provisioned, so don't run this for them. It is still the way to add
+extras (--sqlite-sources, --invite); there --email/--password default to the
+DevBox admin ($BOW_ADMIN_EMAIL/$BOW_ADMIN_PASSWORD from
+`source tools/agent/devbox_env.sh`, else $BOW_WORKSPACE/data/admin.*) and
+--db-path to the app's SQLite file from $BOW_DATABASE_URL.
+
 Prints a JSON summary (tokens included) to stdout. Idempotent-ish: falls back
 to login when the user already exists.
 """
 import argparse
 import json
+import os
 import pathlib
 import sqlite3
 import sys
@@ -75,11 +83,33 @@ def pending_invite_token(db_path: str, email: str) -> str | None:
     return row[0] if row else None
 
 
+def devbox_defaults() -> dict:
+    """Defaults for a DevBox (BOW_SANDBOX_DEVBOX=1), where provisioning created the
+    admin with its own login and the app database lives on the workspace volume."""
+    if os.environ.get("BOW_SANDBOX_DEVBOX") != "1":
+        return {}
+    data = pathlib.Path(os.environ.get("BOW_WORKSPACE", "/app/workspace")) / "data"
+
+    def read(env: str, name: str) -> str | None:
+        if os.environ.get(env):
+            return os.environ[env]
+        f = data / name
+        return f.read_text().strip() if f.is_file() else None
+
+    out = {"email": read("BOW_ADMIN_EMAIL", "admin.email"),
+           "password": read("BOW_ADMIN_PASSWORD", "admin.password")}
+    url = os.environ.get("BOW_DATABASE_URL", "")
+    if url.startswith("sqlite:///"):
+        out["db_path"] = url[len("sqlite:///"):]
+    return {k: v for k, v in out.items() if v}
+
+
 def main() -> None:
+    dbx = devbox_defaults()
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--base-url", default="http://localhost:8000")
-    p.add_argument("--email", default="admin@example.com")
-    p.add_argument("--password", default="Password123!")
+    p.add_argument("--email", default=dbx.get("email", "admin@example.com"))
+    p.add_argument("--password", default=dbx.get("password", "Password123!"))
     p.add_argument("--name", default="Agent Admin")
     p.add_argument("--org-name", default="Agent Org")
     p.add_argument("--demo", action="store_true")
@@ -95,7 +125,8 @@ def main() -> None:
     p.add_argument("--invite", action="append", default=[])
     p.add_argument(
         "--db-path",
-        default=str(pathlib.Path(__file__).resolve().parents[2] / "backend" / "db" / "agent.db"),
+        default=dbx.get("db_path")
+        or str(pathlib.Path(__file__).resolve().parents[2] / "backend" / "db" / "agent.db"),
     )
     args = p.parse_args()
 
