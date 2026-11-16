@@ -51,6 +51,8 @@ async function load(kind: Kind) {
 // Key on what is listed, not on the folder object: the tree replaces every
 // folder object on each reload (a rename, share or move), and reloading three
 // lists for every expanded folder each time queued the next request behind them.
+// A change that moves knowledge between folders (deleting a folder and keeping
+// its contents) must bump `revision` instead: KnowledgeExplorer does on delete.
 const sectionKey = computed(() => props.folder.id + ':' + sections.value.map(({kind}) => kind).join(','))
 watch([sectionKey, () => props.revision], () => Promise.all(sections.value.map(({kind}) => load(kind))), {immediate:true})
 </script>

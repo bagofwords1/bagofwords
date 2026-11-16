@@ -1028,7 +1028,7 @@
           </div>
         </template>
 
-        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :folders="folderExplorer.folders" :access-revision="folderExplorer.accessRevision" @share="folderExplorer.openMemberAccess(selectedFolder, $event)" @deleted="folderExplorer.afterDelete()" :key="selectedFolder + (folderSection || '')" :section="folderSection" :agents="folderAgents" @agent="openAgent" @section="folderSection = $event" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById">
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :folders="folderExplorer.folders" :access-revision="folderExplorer.accessRevision" @share="folderExplorer.openMemberAccess(selectedFolder, $event)" @deleted="folderExplorer.afterDelete(); folderKnowledgeRevision++" :key="selectedFolder + (folderSection || '')" :section="folderSection" :agents="folderAgents" @agent="openAgent" @section="folderSection = $event" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById">
           <template #instruction="{ item }"><InstrLeaf :ins="item" :indent="0" snippet /></template>
           <template #empty="{search, canAdd}"><EmptyHint :text="search ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!search && canAdd" :pad="20" @add="openCreate({folderId:selectedFolder!})" /></template>
         </FolderKnowledge>
