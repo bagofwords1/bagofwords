@@ -3775,7 +3775,19 @@
       "testTitle": "Regeln testen",
       "title": "Schutz personenbezogener Daten"
     },
-    "piiTab": "PII-Schutz"
+    "piiTab": "PII-Schutz",
+    "frameAncestors": {
+      "title": "Websites, die BOW anzeigen dürfen",
+      "description": "Ihre eigenen Anwendungen, die BOW in einem Frame anzeigen dürfen, etwa ein internes Portal. Die Liste gilt für alle Organisationen auf dieser Instanz.",
+      "placeholder": "https://portal.example.com",
+      "add": "Hinzufügen",
+      "removeSite": "{site} entfernen",
+      "empty": "Keine Websites hinzugefügt. BOW kann nur auf seinen eigenen Seiten und in Microsoft Office angezeigt werden.",
+      "ssoNote": "Die Anmeldung im Frame funktioniert mit E-Mail und Passwort. Single Sign-On (SSO) funktioniert in einem Frame nicht.",
+      "readOnly": "Auf einer Instanz mit mehreren Organisationen kann nur ein Instanzadministrator diese Liste ändern.",
+      "duplicate": "Diese Website ist bereits in der Liste.",
+      "invalidFormat": "Geben Sie eine Adresse ein, die mit https:// beginnt, ohne Pfad. Zum Beispiel: https://portal.example.com"
+    }
   },
   "data": {
     "keepSavedSecret": "Leer lassen, um das gespeicherte Geheimnis beizubehalten",
@@ -4557,7 +4569,9 @@
     "access_request.too_soon": "Deine vorherige Anfrage wurde abgelehnt. Du kannst es später erneut versuchen.",
     "access_request.no_approvers": "Derzeit kann niemand Anfragen für dieses Dashboard genehmigen.",
     "access_request.not_found": "Diese Anfrage existiert nicht mehr.",
-    "access_request.already_decided": "Diese Anfrage wurde bereits beantwortet."
+    "access_request.already_decided": "Diese Anfrage wurde bereits beantwortet.",
+    "frame_ancestors.invalid": "Diese Website-Adressen sind ungültig: {origins}. Verwenden Sie eine https-Adresse ohne Pfad, zum Beispiel https://portal.example.com.",
+    "frame_ancestors.too_many": "Sie können höchstens {max} Websites angeben."
   },
   "email": {
     "dashboardShare": {

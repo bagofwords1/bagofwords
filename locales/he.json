@@ -4321,6 +4321,18 @@
         "none": "ללא ערוץ"
       },
       "alertsHint": "אילו הודעות דוא\"ל של המערכת נשלחות. התראות בתוך האפליקציה נשלחות תמיד."
+    },
+    "frameAncestors": {
+      "title": "אתרים שיכולים להציג את BOW",
+      "description": "אפליקציות שלכם שמותר להן להציג את BOW בתוך מסגרת, למשל פורטל פנימי. הרשימה חלה על כל הארגונים בשרת הזה.",
+      "placeholder": "https://portal.example.com",
+      "add": "הוספה",
+      "removeSite": "הסרת {site}",
+      "empty": "לא נוספו אתרים. BOW יכול להופיע רק בתוך הדפים שלו וב-Microsoft Office.",
+      "ssoNote": "התחברות בתוך המסגרת עובדת עם אימייל וסיסמה. כניסה יחידה (SSO) לא עובדת בתוך מסגרת.",
+      "readOnly": "בשרת עם כמה ארגונים, רק מנהל השרת יכול לשנות את הרשימה.",
+      "duplicate": "האתר כבר נמצא ברשימה.",
+      "invalidFormat": "יש להזין כתובת שמתחילה ב-https://, בלי נתיב. לדוגמה: https://portal.example.com"
     }
   },
   "data": {
@@ -5145,7 +5157,9 @@
     "access_request.too_soon": "הבקשה הקודמת שלך נדחתה. אפשר לבקש שוב מאוחר יותר.",
     "access_request.no_approvers": "אין כרגע מי שיכול לאשר בקשות לגלריה הזו.",
     "access_request.not_found": "הבקשה הזו כבר לא קיימת.",
-    "access_request.already_decided": "הבקשה הזו כבר נענתה."
+    "access_request.already_decided": "הבקשה הזו כבר נענתה.",
+    "frame_ancestors.invalid": "הכתובות האלה לא תקינות: {origins}. יש להשתמש בכתובת https בלי נתיב, לדוגמה https://portal.example.com.",
+    "frame_ancestors.too_many": "אפשר להוסיף עד {max} אתרים."
   },
   "email": {
     "dashboardShare": {

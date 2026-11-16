@@ -3775,7 +3775,19 @@
       "testTitle": "اختبر قواعدك",
       "title": "حماية البيانات الشخصية"
     },
-    "piiTab": "البيانات الشخصية"
+    "piiTab": "البيانات الشخصية",
+    "frameAncestors": {
+      "title": "المواقع التي يمكنها عرض BOW",
+      "description": "تطبيقاتك التي يُسمح لها بعرض BOW داخل إطار، مثل بوابة داخلية. تنطبق هذه القائمة على جميع المؤسسات في هذا الخادم.",
+      "placeholder": "https://portal.example.com",
+      "add": "إضافة",
+      "removeSite": "إزالة {site}",
+      "empty": "لم تتم إضافة مواقع. يمكن أن يظهر BOW فقط داخل صفحاته وفي Microsoft Office.",
+      "ssoNote": "تسجيل الدخول داخل الإطار يعمل بالبريد الإلكتروني وكلمة المرور. تسجيل الدخول الموحّد (SSO) لا يعمل داخل إطار.",
+      "readOnly": "في خادم يضم عدة مؤسسات، يمكن لمسؤول الخادم فقط تغيير هذه القائمة.",
+      "duplicate": "هذا الموقع موجود بالفعل في القائمة.",
+      "invalidFormat": "أدخل عنوانًا يبدأ بـ https://، بدون مسار. مثال: https://portal.example.com"
+    }
   },
   "data": {
     "keepSavedSecret": "اتركه فارغًا للاحتفاظ بالسر المحفوظ",
@@ -4557,7 +4569,9 @@
     "access_request.too_soon": "تم رفض طلبك السابق. يمكنك الطلب مرة أخرى لاحقًا.",
     "access_request.no_approvers": "لا يوجد حاليًا من يمكنه الموافقة على طلبات هذه اللوحة.",
     "access_request.not_found": "هذا الطلب لم يعد موجودًا.",
-    "access_request.already_decided": "تمت الإجابة على هذا الطلب بالفعل."
+    "access_request.already_decided": "تمت الإجابة على هذا الطلب بالفعل.",
+    "frame_ancestors.invalid": "عناوين المواقع هذه غير صالحة: {origins}. استخدم عنوان https بدون مسار، مثل https://portal.example.com.",
+    "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى."
   },
   "email": {
     "dashboardShare": {

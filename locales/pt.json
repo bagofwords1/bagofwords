@@ -3775,7 +3775,19 @@
       "testTitle": "Teste suas regras",
       "title": "Proteção de dados pessoais"
     },
-    "piiTab": "Dados pessoais"
+    "piiTab": "Dados pessoais",
+    "frameAncestors": {
+      "title": "Sites que podem exibir o BOW",
+      "description": "Seus próprios aplicativos que podem exibir o BOW dentro de um quadro, como um portal interno. Esta lista vale para todas as organizações desta instância.",
+      "placeholder": "https://portal.example.com",
+      "add": "Adicionar",
+      "removeSite": "Remover {site}",
+      "empty": "Nenhum site adicionado. O BOW só pode aparecer em suas próprias páginas e no Microsoft Office.",
+      "ssoNote": "O login dentro do quadro funciona com e-mail e senha. O login único (SSO) não funciona dentro de um quadro.",
+      "readOnly": "Em uma instância com várias organizações, só um administrador da instância pode alterar esta lista.",
+      "duplicate": "Este site já está na lista.",
+      "invalidFormat": "Digite um endereço que comece com https://, sem caminho. Por exemplo: https://portal.example.com"
+    }
   },
   "data": {
     "keepSavedSecret": "Deixe em branco para manter o segredo salvo",
@@ -4557,7 +4569,9 @@
     "access_request.too_soon": "Sua solicitação anterior foi recusada. Você pode pedir novamente mais tarde.",
     "access_request.no_approvers": "No momento, ninguém pode aprovar solicitações para este painel.",
     "access_request.not_found": "Esta solicitação não existe mais.",
-    "access_request.already_decided": "Esta solicitação já foi respondida."
+    "access_request.already_decided": "Esta solicitação já foi respondida.",
+    "frame_ancestors.invalid": "Estes endereços de site não são válidos: {origins}. Use um endereço https sem caminho, por exemplo https://portal.example.com.",
+    "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites."
   },
   "email": {
     "dashboardShare": {

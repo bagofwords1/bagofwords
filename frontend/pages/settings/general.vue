@@ -48,6 +48,14 @@
                 </SettingsRow>
             </SettingsSection>
 
+            <SettingsSection v-if="frameAncestors.loaded" :title="$t('settings.frameAncestors.title')" :description="$t('settings.frameAncestors.description')">
+                <FrameAncestorsEditor
+                    ref="frameAncestorsEditor"
+                    v-model="form.frame_ancestors"
+                    :can-edit="frameAncestors.can_edit"
+                />
+            </SettingsSection>
+
             <SettingsSection v-if="productUpdates.available" :title="$t('productUpdates.settingsTitle')">
                 <SettingsRow
                     :label="$t('productUpdates.toggleLabel')"
@@ -73,8 +81,10 @@ import SettingsSection from '~/components/settings/SettingsSection.vue'
 import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsFooter from '~/components/settings/SettingsFooter.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
+import FrameAncestorsEditor from '~/components/settings/FrameAncestorsEditor.vue'
 
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 interface GeneralConfig {
     ai_analyst_name: string
@@ -115,14 +125,23 @@ definePageMeta({ auth: true, permissions: ['manage_settings'] })
 const loading = ref(true)
 const error = ref('')
 const general = ref<GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
-const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string; product_updates: boolean } & GeneralConfig>({
+const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string; product_updates: boolean; frame_ancestors: string[] } & GeneralConfig>({
     ai_analyst_name: 'AI Analyst',
     bow_credit: true,
     locale: '',
     timezone: '',
     week_start: '',
     product_updates: false,
+    frame_ancestors: [],
 })
+// Sites allowed to show BOW in an iframe. Instance-wide like the license:
+// read-only for an org admin on a multi-organization instance.
+interface FrameAncestorsStatus {
+    origins: string[]
+    can_edit: boolean
+}
+const frameAncestors = ref<FrameAncestorsStatus & { loaded: boolean }>({ origins: [], can_edit: false, loaded: false })
+const frameAncestorsEditor = ref<{ commitDraft: () => boolean } | null>(null)
 // Instance-wide opt-in to release notes and product updates. Hidden when the
 // instance can't send it (telemetry off, cloud) or the caller can't change it.
 interface ProductUpdatesStatus {
@@ -198,6 +217,10 @@ const fetchSettings = async () => {
         if (updatesResp.status.value === 'success' && updatesResp.data.value) {
             productUpdates.value = updatesResp.data.value as ProductUpdatesStatus
         }
+        const framingResp = await useMyFetch('/api/settings/frame-ancestors')
+        if (framingResp.status.value === 'success' && framingResp.data.value) {
+            frameAncestors.value = { ...(framingResp.data.value as FrameAncestorsStatus), loaded: true }
+        }
         if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
         const cfg = (settingsResp.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
@@ -220,7 +243,7 @@ const fetchSettings = async () => {
 
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
-        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, product_updates: productUpdates.value.opted_in, ...general.value }
+        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, product_updates: productUpdates.value.opted_in, frame_ancestors: [...frameAncestors.value.origins], ...general.value }
     } catch (e: any) {
         error.value = e.message || t('settings.failedToLoad')
         toast.add({ title: t('common.error'), description: error.value, color: 'red' })
@@ -230,8 +253,22 @@ const fetchSettings = async () => {
 }
 
 const saveAll = async () => {
+    // An address typed but not added counts; an invalid one stops the save.
+    if (frameAncestors.value.can_edit && frameAncestorsEditor.value && !frameAncestorsEditor.value.commitDraft()) return
     saving.value = true
     try {
+        // 0) Allowed framing sites first: an invalid address is the likeliest
+        // refusal, and it stops the save before anything else changes. If a
+        // later step fails, the sites saved here stay saved.
+        const framingChanged = frameAncestors.value.can_edit
+            && JSON.stringify(form.value.frame_ancestors) !== JSON.stringify(frameAncestors.value.origins)
+        if (framingChanged) {
+            const framingResp = await useMyFetch('/api/settings/frame-ancestors', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origins: form.value.frame_ancestors }) })
+            if (framingResp.status.value !== 'success') throw new Error(getErrorMessage(framingResp.error.value, t('settings.failedToUpdate')))
+            frameAncestors.value = { ...(framingResp.data.value as FrameAncestorsStatus), loaded: true }
+            form.value.frame_ancestors = [...frameAncestors.value.origins]
+        }
+
         // 1) If a new icon is selected or removal queued, handle icon first
         if (pendingIconFile.value) {
             const formData = new FormData()

@@ -194,6 +194,10 @@ class ErrorCode(str, Enum):
 
     SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"
 
+    # Sites allowed to frame BOW (Settings → General)
+    FRAME_ANCESTORS_INVALID = "frame_ancestors.invalid"
+    FRAME_ANCESTORS_TOO_MANY = "frame_ancestors.too_many"
+
     # Connections
     CONNECTION_CONFIG_INVALID = "connection.config_invalid"
     CONNECTION_ATHENA_MODE_SWITCH = "connection.athena_mode_switch"

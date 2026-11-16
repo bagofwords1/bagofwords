@@ -3775,7 +3775,19 @@
       "testTitle": "Prova le tue regole",
       "title": "Protezione dei dati personali"
     },
-    "piiTab": "Dati personali"
+    "piiTab": "Dati personali",
+    "frameAncestors": {
+      "title": "Siti che possono mostrare BOW",
+      "description": "Le vostre applicazioni autorizzate a mostrare BOW in un frame, come un portale interno. L'elenco vale per tutte le organizzazioni di questa istanza.",
+      "placeholder": "https://portal.example.com",
+      "add": "Aggiungi",
+      "removeSite": "Rimuovi {site}",
+      "empty": "Nessun sito aggiunto. BOW può apparire solo nelle sue pagine e in Microsoft Office.",
+      "ssoNote": "L'accesso all'interno del frame funziona con email e password. Il Single Sign-On (SSO) non funziona in un frame.",
+      "readOnly": "In un'istanza con più organizzazioni, solo un amministratore dell'istanza può modificare questo elenco.",
+      "duplicate": "Questo sito è già nell'elenco.",
+      "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com"
+    }
   },
   "data": {
     "keepSavedSecret": "Lascia vuoto per mantenere il segreto salvato",
@@ -4557,7 +4569,9 @@
     "access_request.too_soon": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
     "access_request.no_approvers": "Al momento nessuno può approvare le richieste per questa dashboard.",
     "access_request.not_found": "Questa richiesta non esiste più.",
-    "access_request.already_decided": "Questa richiesta è già stata gestita."
+    "access_request.already_decided": "Questa richiesta è già stata gestita.",
+    "frame_ancestors.invalid": "Questi indirizzi di sito non sono validi: {origins}. Usa un indirizzo https senza percorso, ad esempio https://portal.example.com.",
+    "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti."
   },
   "email": {
     "dashboardShare": {
