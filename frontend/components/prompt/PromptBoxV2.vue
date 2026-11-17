@@ -1429,7 +1429,13 @@ function dismissCompactStatus() {
 }
 
 async function compactContext(args: CompactArgs = {}) {
-    if (!props.report_id || isCompacting.value) return
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // Another context command is mid-request: hold this one, it fires
+        // when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'compact', args }
+        return
+    }
     if (props.latestInProgressCompletion) {
         // The agent is mid-run: compacting now would race the run's own
         // context. Hold the command and fire it the moment the run ends.
@@ -1498,7 +1504,14 @@ async function compactContext(args: CompactArgs = {}) {
 // "Context cleared" divider, but the agent no longer sees them. No LLM call.
 // Idle-only like /compact, and deferred the same way while a run streams.
 async function clearContext() {
-    if (!props.report_id || isCompacting.value) return
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // A /compact (or another /clear) is mid-request. Dropping the command
+        // here left the user believing the context was cleared: hold it, it
+        // fires when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'clear' }
+        return
+    }
     if (props.latestInProgressCompletion) {
         pendingCompact.value = { command: 'clear' }
         setCompactStatus('pending', undefined, false, 'clear')
@@ -1572,6 +1585,14 @@ watch(() => props.latestInProgressCompletion, (running) => {
     // Give the server a beat to mark the execution finished.
     if (compactRetryTimer) clearTimeout(compactRetryTimer)
     compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, 800)
+})
+
+// A command held behind another context request runs as soon as that request
+// settles. Not when a retry is already scheduled (409 backoff) — that timer
+// owns the pending command.
+watch(isCompacting, (busy) => {
+    if (busy || !pendingCompact.value || compactRetryTimer) return
+    firePendingCompact()
 })
 
 function runSlashCommand(cmd: ParsedSlashCommand) {

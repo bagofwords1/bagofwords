@@ -163,6 +163,8 @@ async def clear_report_context(
     result = await context_compaction_service.clear(db, report)
     if result.get("status") == "already_running":
         raise HTTPException(status_code=409, detail="Context compaction is in progress on this report; try again when it finishes.")
+    if result.get("status") == "busy":
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("message", "Clear failed"))
 

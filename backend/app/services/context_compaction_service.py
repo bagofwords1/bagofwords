@@ -79,6 +79,16 @@ COOLDOWN_STEPS_S = (60, 300, 900)
 MODES = ("auto_bg", "auto_sync", "overflow", "manual")
 
 
+# "not passed" for optional state arguments (None means "no state row").
+_UNSET = object()
+
+# /clear: a system completion still in_progress this recently is a run that is
+# starting (its AgentExecution may not exist yet), not a stale row.
+CLEAR_STARTING_RUN_GRACE_S = 60
+# Only the newest boundary is a context cutoff; older ones only draw dividers.
+MAX_CLEAR_BOUNDARIES = 50
+
+
 def _parent_rows_only(stmt):
     """Exclude hidden sub-agent completions (trigger_source='sub_agent'),
     NULL-safe — the same rule the message builder applies, so the fold, the
@@ -540,26 +550,41 @@ class ContextCompactionService:
         return int(tokens) - int(est)
 
     @staticmethod
-    def latest_clear_boundary_id(state: Optional[ReportContextState]) -> Optional[str]:
-        """Completion id of the newest /clear boundary, or None."""
+    def _latest_clear_boundary(state: Optional[ReportContextState]) -> Optional[dict]:
         boundaries = (getattr(state, "clear_boundaries", None) or []) if state is not None else []
         for b in reversed(boundaries):
-            cid = b.get("completion_id") if isinstance(b, dict) else None
-            if cid:
-                return str(cid)
+            if isinstance(b, dict) and b.get("completion_id"):
+                return b
         return None
 
     @classmethod
-    async def clear_boundary_created_at(cls, db: AsyncSession, report_id: str, state=None) -> Optional[datetime]:
+    def latest_clear_boundary_id(cls, state: Optional[ReportContextState]) -> Optional[str]:
+        """Completion id of the newest /clear boundary, or None."""
+        boundary = cls._latest_clear_boundary(state)
+        return str(boundary["completion_id"]) if boundary else None
+
+    @classmethod
+    async def clear_boundary_created_at(cls, db: AsyncSession, report_id: str, state=_UNSET) -> Optional[datetime]:
         """created_at of the newest /clear boundary: nothing at or before it
-        reaches the agent — not even the protected opening exchange."""
-        if state is None:
+        reaches the agent — not even the protected opening exchange.
+
+        Read from the boundary entry itself, so the cutoff holds even if the
+        boundary completion row is gone. Entries written before the timestamp
+        was stored fall back to the row's created_at. Pass ``state`` (None
+        included) when the caller already loaded it."""
+        if state is _UNSET:
             state = await cls.get_state(db, report_id)
-        cid = cls.latest_clear_boundary_id(state)
-        if not cid:
+        boundary = cls._latest_clear_boundary(state)
+        if not boundary:
             return None
+        stored = boundary.get("completion_created_at")
+        if stored:
+            try:
+                return datetime.fromisoformat(str(stored))
+            except ValueError:
+                pass
         return (await db.execute(
-            select(Completion.created_at).where(Completion.id == cid)
+            select(Completion.created_at).where(Completion.id == str(boundary["completion_id"]))
         )).scalar_one_or_none()
 
     @staticmethod
@@ -584,7 +609,7 @@ class ContextCompactionService:
         cumulative totals plus whether a manual compact would find work."""
         state = await cls.get_state(db, report_id)
         rows = await cls._post_watermark_rows(db, report_id, state)
-        head_ids = set(await cls._head_completion_ids(db, report_id))
+        head_ids = set(await cls._head_completion_ids(db, report_id, state=state))
         user_rows = [
             r for r in rows
             if r.role == "user" and str(r.id) not in head_ids
@@ -596,7 +621,7 @@ class ContextCompactionService:
         }
 
     @classmethod
-    async def _opening_request(cls, db: AsyncSession, report_id: str) -> Optional[str]:
+    async def _opening_request(cls, db: AsyncSession, report_id: str, state=_UNSET) -> Optional[str]:
         """The report's first user ask, verbatim (truncated) — stored in the
         summary programmatically so recall never depends on the summarizer.
         After /clear, the first ask past the newest clear boundary."""
@@ -609,7 +634,7 @@ class ContextCompactionService:
             .order_by(Completion.created_at.asc())
             .limit(1)
         )
-        cleared_at = await cls.clear_boundary_created_at(db, report_id)
+        cleared_at = await cls.clear_boundary_created_at(db, report_id, state=state)
         if cleared_at is not None:
             query = query.filter(Completion.created_at > cleared_at)
         row = (await db.execute(query)).scalars().first()
@@ -621,7 +646,7 @@ class ContextCompactionService:
         return content[:300] + ("…" if len(content) > 300 else "")
 
     @classmethod
-    async def _head_completion_ids(cls, db: AsyncSession, report_id: str) -> list:
+    async def _head_completion_ids(cls, db: AsyncSession, report_id: str, state=_UNSET) -> list:
         """Ids of the report's protected opening exchange (never folded).
         After /clear, the opening exchange of the fresh context."""
         query = _parent_rows_only(
@@ -632,7 +657,7 @@ class ContextCompactionService:
             .order_by(Completion.created_at.asc())
             .limit(PROTECT_FIRST_N)
         )
-        cleared_at = await cls.clear_boundary_created_at(db, report_id)
+        cleared_at = await cls.clear_boundary_created_at(db, report_id, state=state)
         if cleared_at is not None:
             query = query.filter(Completion.created_at > cleared_at)
         rows = (await db.execute(query)).scalars().all()
@@ -692,7 +717,7 @@ class ContextCompactionService:
         where scope = turns to fold into the summary, kept = the protected
         recent tail, rows = the full post-watermark window."""
         rows = await self._post_watermark_rows(db, report_id, state)
-        head_ids = set(await self._head_completion_ids(db, report_id))
+        head_ids = set(await self._head_completion_ids(db, report_id, state=state))
 
         # Events never anchor the watermark or the protected tail: the tail/
         # boundary math runs over CONVERSATIONAL turns only. Durable events in
@@ -859,14 +884,44 @@ class ContextCompactionService:
                     .filter((Completion.message_type.is_(None)) | (Completion.message_type != "steering"))
                 ))).scalars().first() or latest
 
+                # A prompt sent while this request was in flight: its rows
+                # exist before its AgentExecution does, so the route's idle
+                # check can miss it. Clearing now would put the boundary on
+                # that turn and hide it from every later one.
+                if (
+                    anchor.role == "system" and anchor.status == "in_progress"
+                    and anchor.created_at is not None
+                    and datetime.utcnow() - anchor.created_at < timedelta(seconds=CLEAR_STARTING_RUN_GRACE_S)
+                ):
+                    return {"status": "busy", **self._state_payload(state)}
+
+                # Queued prompts are not part of the cleared context: they run
+                # after /clear. One queued before the boundary row was written
+                # keeps its created_at when dispatched, which would put it on
+                # the hidden side — move those just past the boundary, in order.
+                now = datetime.utcnow()
+                queued = (await db.execute(
+                    select(Completion)
+                    .filter(Completion.report_id == report_id)
+                    .filter(Completion.deleted_at.is_(None))
+                    .filter(Completion.status == "queued")
+                    .filter(Completion.created_at <= latest.created_at)
+                    .order_by(Completion.created_at.asc(), Completion.id.asc())
+                )).scalars().all()
+                restamp_from = max(now, latest.created_at + timedelta(microseconds=1))
+                for i, row in enumerate(queued):
+                    row.created_at = restamp_from + timedelta(microseconds=i)
+
                 state = state or await self.get_or_create_state(db, report_id)
                 boundaries = list(state.clear_boundaries or [])
                 boundaries.append({
                     "completion_id": str(latest.id),
+                    # The cutoff itself, so it does not depend on the row.
+                    "completion_created_at": latest.created_at.isoformat() if latest.created_at else None,
                     "anchor_completion_id": str(anchor.id),
-                    "cleared_at": datetime.utcnow().isoformat(),
+                    "cleared_at": now.isoformat(),
                 })
-                state.clear_boundaries = boundaries
+                state.clear_boundaries = boundaries[-MAX_CLEAR_BOUNDARIES:]
                 state.summary_json = {}
                 state.covers_until_completion_id = str(latest.id)
                 # The fresh context has compacted nothing yet.
@@ -879,6 +934,10 @@ class ContextCompactionService:
                 state.last_tokens_after = None
                 state.failure_count = 0
                 state.cooldown_until = None
+                # The token anchor measured the pre-clear prompt; the fresh
+                # context is calibrated again by its first run.
+                state.last_prompt_tokens = None
+                state.last_prompt_estimate = None
                 await db.commit()
             except Exception as e:
                 logger.error(f"Context clear failed for report {report_id}: {e}", exc_info=True)
@@ -958,7 +1017,7 @@ class ContextCompactionService:
         methods: list = []
         llm_failed = False
         summary = previous_summary
-        opening = await self._opening_request(db, report_id)
+        opening = await self._opening_request(db, report_id, state=state)
 
         for chunk in chunks:
             builder = MessageContextBuilder(db, organization, report)

@@ -218,3 +218,129 @@ async def test_instruction_matching_ignores_pre_clear_prompts(db):
     combined = await hub._instruction_query("what about discounts?")
     assert "Old topic" not in combined
     assert "New topic pricing ask 40" in combined and "discounts" in combined
+
+
+def _row(report, *, role, content, status="success", message_type="ai_completion"):
+    return Completion(
+        prompt={"content": content} if role != "system" else {},
+        completion={"content": content} if role == "system" else {},
+        status=status, model="test", role=role, message_type=message_type,
+        report_id=str(report.id),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("n_queued", [1, 3])
+async def test_a_prompt_queued_before_clear_is_part_of_the_fresh_context(db, n_queued):
+    """Queued prompts run AFTER /clear, so they belong to the fresh context —
+    even when the run wrote a later row (here a session event) after they were
+    queued, which makes that row the boundary."""
+    org, report, user = await _seed_report(db)
+    turns = await _add_turns(db, report, user, 4, content=OLD)
+    queued = [_row(report, role="user", content=f"New topic queued ask {i}", status="queued") for i in range(n_queued)]
+    event = _row(report, role=EVENT_ROLE, content="Old topic event: widget edited", message_type="widget_edited")
+    db.add_all([*queued, event])
+    await db.flush()
+    for i, q in enumerate(queued):
+        q.created_at = turns[-1].created_at + timedelta(seconds=10 + i)
+    event.created_at = turns[-1].created_at + timedelta(seconds=30)
+    await db.commit()
+
+    result = await _svc().clear(db, report)
+    assert result["status"] == "cleared"
+    assert result["clear_boundaries"][-1]["completion_id"] == str(event.id)
+
+    # The dispatcher starts each queued prompt in the order it was queued.
+    for q in queued:
+        await db.refresh(q)
+    assert [q.created_at for q in queued] == sorted(q.created_at for q in queued)
+    for q in queued:
+        q.status = "success"
+    # The turn being answered is not part of the rendered history, so a later
+    # ask stands in for it.
+    current = _row(report, role="user", content="New topic current ask")
+    db.add(current)
+    await db.flush()
+    current.created_at = queued[-1].created_at + timedelta(minutes=1)
+    await db.commit()
+
+    _, rendered, text = await _render(db, org, report)
+    _assert_no_old_topic(rendered, text)
+    for i in range(n_queued):
+        assert f"New topic queued ask {i}" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("age_s, expected", [(1, "busy"), (3600, "cleared")])
+async def test_clear_waits_for_a_run_that_is_just_starting(db, age_s, expected):
+    """A prompt sent while /clear is in flight has its rows before its agent
+    execution: clearing then would put the boundary on that very turn. A long
+    stale in_progress row (a crashed run) must not block /clear forever."""
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 4, content=OLD)
+    ask = _row(report, role="user", content="New topic ask sent during clear")
+    reply = _row(report, role="system", content="", status="in_progress")
+    db.add_all([ask, reply])
+    await db.flush()
+    started = datetime.utcnow() - timedelta(seconds=age_s)
+    ask.created_at, reply.created_at = started, started + timedelta(milliseconds=1)
+    await db.commit()
+
+    result = await _svc().clear(db, report)
+    assert result["status"] == expected
+    assert bool(result["clear_boundaries"]) == (expected == "cleared")
+
+
+@pytest.mark.asyncio
+async def test_clear_drops_the_pre_clear_token_anchor(db):
+    """The anchor calibrates the next run from the last prompt's real size;
+    after /clear that prompt no longer describes the context."""
+    from app.services.context_compaction_service import ContextCompactionService
+    org, report, user = await _seed_report(db)
+    await _add_turns(db, report, user, 6, content=OLD)
+    await ContextCompactionService.record_prompt_anchor(db, str(report.id), 90_000, 60_000)
+    assert ContextCompactionService.anchor_offset(await _state(db, report.id)) == 30_000
+
+    await _svc().clear(db, report)
+    assert ContextCompactionService.anchor_offset(await _state(db, report.id)) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["boundary_row_gone", "written_before_the_timestamp"])
+async def test_the_cutoff_survives_without_the_boundary_row_and_reads_older_entries(db, entry):
+    """The cutoff is stored on the boundary entry, so it holds when the
+    boundary completion can no longer be found; entries written before the
+    timestamp was stored still resolve through the row."""
+    from app.services.context_compaction_service import ContextCompactionService
+    org, report, user = await _seed_report(db)
+    turns = await _add_turns(db, report, user, 6, content=OLD)
+    await _svc().clear(db, report)
+
+    state = await _state(db, report.id)
+    boundary = dict(state.clear_boundaries[-1])
+    if entry == "boundary_row_gone":
+        boundary["completion_id"] = str(uuid.uuid4())
+    else:
+        boundary.pop("completion_created_at")
+    state.clear_boundaries = [boundary]
+    await db.commit()
+
+    cutoff = await ContextCompactionService.clear_boundary_created_at(db, str(report.id))
+    assert cutoff == turns[-1].created_at
+    await _add_turns(db, report, user, 50, start=60, content=NEW)
+    section, rendered, text = await _render(db, org, report)
+    assert section.dropped_count > 0
+    _assert_no_old_topic(rendered, text)
+
+
+@pytest.mark.asyncio
+async def test_clear_boundaries_are_capped_keeping_the_newest(db):
+    from app.services.context_compaction_service import MAX_CLEAR_BOUNDARIES
+    org, report, user = await _seed_report(db)
+    last = None
+    for i in range(MAX_CLEAR_BOUNDARIES + 3):
+        last = (await _add_turns(db, report, user, 2, start=10 * i, content=NEW))[-1]
+        result = await _svc().clear(db, report)
+        assert result["status"] == "cleared"
+    assert len(result["clear_boundaries"]) == MAX_CLEAR_BOUNDARIES
+    assert result["clear_boundaries"][-1]["completion_id"] == str(last.id)
