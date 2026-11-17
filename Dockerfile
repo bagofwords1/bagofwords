@@ -38,6 +38,8 @@ ENV PATH="/opt/venv/bin:$PATH"
 # (S4U) for on-prem SQL Server SSO; it builds against libkrb5-dev above.
 RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos
 
+RUN mkdir -p /opt/duckdb_extensions && python -c "import duckdb; c=duckdb.connect(); c.execute(\"SET extension_directory='/opt/duckdb_extensions'\"); c.execute('INSTALL postgres')"
+
 # pyspark is used only as a Spark Connect client (gRPC to a remote cluster), so
 # its ~250 bundled JVM jars (324 MB) never run — the image has no Java. They
 # carried most of the image's critical/high CVEs (netty, jackson, avro, ...).
@@ -199,6 +201,8 @@ RUN groupadd -r app \
 COPY --from=backend-builder /opt/python /opt/python
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+COPY --from=backend-builder --chown=app:app /opt/duckdb_extensions /opt/duckdb_extensions
+ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 # Administrator-installable remote readers; never auto-installed on target hosts.
 COPY ./tools/remote_server /app/tools/remote_server
