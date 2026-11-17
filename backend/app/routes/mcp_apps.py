@@ -235,7 +235,8 @@ async def mcp_app_rpc(
     # Built-in blocklist: refused even when the person confirms.
     # CPU-bound (sqlglot): run it off the event loop.
     from app.services.tool_blocklist import block_reason
-    blocked = await asyncio.to_thread(block_reason, tool_name=name, arguments=arguments)
+    blocked = await asyncio.to_thread(block_reason, tool_name=name, arguments=arguments,
+                                      input_schema=tool.input_schema)
     if blocked:
         await _audit(db, organization, user, request, "mcp_app.tool_call_blocked",
                      te, {"tool": name, "reason": "blocklist", "detail": blocked})

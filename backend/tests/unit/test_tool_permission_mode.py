@@ -295,8 +295,13 @@ _PARITY_SHARED = [
 def test_unreadable_shared_text_keeps_todays_result(text, today):
     assert _every_tokenizer_raises(text)
     assert sql_block_reason(text, sql_context="shared") == today
-    for tool in ("search_docs", "write_query", "read_query"):
+    for tool in ("search_docs", "query_knowledge_base"):
         assert block_reason(tool_name=tool, arguments={"query": text}) == today, tool
+    # Deliberate change (Nir: "Tool schema + names"): on a tool named for
+    # running SQL (write_query, read_query) this is SQL, and unreadable SQL with
+    # a gate word is refused. At 3875d2971 these two gave the shared result.
+    for tool in ("write_query", "read_query"):
+        assert block_reason(tool_name=tool, arguments={"query": text}) == UNREADABLE, tool
 
 
 def test_unreadable_shared_text_without_its_gate_words_passes():
@@ -491,6 +496,230 @@ def test_nested_deletes_are_checked_in_linear_time():
     assert check_large / check_small <= 2 * (base_large / base_small)
 
 
+# ── blocklist: EXEC rechecks, analysis caps and dynamic SQL ────────────────
+
+def _read_once(text):
+    """Seconds to read ``text`` once in each of the five dialects, as the
+    check itself does: tokenize, and parse up to the 200 KB parse limit. The
+    least work any check of the text does."""
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+
+    parse = len(text.encode()) <= 200 * 1024
+    start = time.perf_counter()
+    for d in FIVE_DIALECTS:
+        sqlglot.tokenize(text, read=d)
+        if parse:
+            try:
+                parse_guard_sql(text, d)
+            except Exception:
+                pass
+    return time.perf_counter() - start
+
+
+def _many_literals(k):
+    return "EXEC p " + ",".join("'drop%d'" % i for i in range(k))
+
+
+@pytest.mark.parametrize("text", [
+    pytest.param(_many_literals(20_000), id="many-literals"),  # 228,896 bytes
+    pytest.param("".join("EXEC p%d; " % i for i in range(8_000)), id="many-exec-statements"),
+])
+def test_many_exec_literals_cost_about_one_read_of_the_text(text):
+    # Accepted exception to tests/AGENTS.md rule 8: this reads the clock, but it
+    # compares two timings taken in one process with a lenient bound. Literals
+    # are rechecked in one batch, not one sqlglot read each (about 1.2 ms per
+    # literal: 18 s for the 229 KB row, 15 times one read, before the batching).
+    base = _read_once(text)
+    start = time.perf_counter()
+    assert block_reason(tool_name="search_docs", arguments={"query": text}) is None
+    assert time.perf_counter() - start <= 4 * base
+
+
+def test_many_distinct_exec_literals_are_checked_in_linear_time():
+    # Same accepted exception as above: a ratio of ratios in one process.
+    small, large = _many_literals(4_000), _many_literals(16_000)
+    base_small, base_large = _read_once(small), _read_once(large)
+
+    def check(t):
+        start = time.perf_counter()
+        assert sql_block_reason(t) is None
+        return time.perf_counter() - start
+
+    check_small, check_large = check(small), check(large)
+    assert check_large / check_small <= 2 * (base_large / base_small)
+
+
+@pytest.mark.parametrize("sql", [
+    # Each literal is its own statement in the batched recheck, and split
+    # strings are still joined.
+    "EXEC p 'x', 'DROP TABLE orders'", "EXEC('DR' + 'OP TABLE orders')",
+    "EXEC sp_executesql N'DELETE FROM t WHERE n = ''a''', N'TRUNCATE TABLE u'",
+    "EXEC p 'it''s'; EXEC('DROP TABLE orders')",
+    # A literal that opens a quote, name or comment is never joined to the
+    # next one, where it would hide it.
+    "EXEC p 'drop \"'; EXEC('DROP TABLE orders'); EXEC q '\" drop'",
+    "EXEC p 'drop /*'; EXEC('DROP TABLE orders'); EXEC q 'drop */'",
+    "EXEC p 'drop ['; EXEC('DROP TABLE orders'); EXEC q 'drop ]'",
+    "EXEC p 'drop $$'; EXEC('DROP TABLE orders'); EXEC q 'drop $$'",
+    # Dynamic SQL whose text sits in another statement.
+    "PREPARE s FROM 'DROP TABLE orders'; EXECUTE s;",
+    "DECLARE @q NVARCHAR(99) = 'DROP TABLE orders'; EXEC(@q)",
+    "DECLARE @q NVARCHAR(99); SET @q = 'TRUNCATE TABLE orders'; EXEC sp_executesql @q",
+    "DECLARE @a NVARCHAR(9) = 'DR'; DECLARE @b NVARCHAR(99) = 'OP TABLE orders'; EXEC(@a + @b)",
+    "SET @q = 'DELETE FROM orders'; PREPARE s FROM @q; EXECUTE s",
+    "PREPARE s AS DELETE FROM orders",
+    # Every tokenizer keeps the rest of an EXECUTE statement as one raw string;
+    # a T-SQL batch needs no separator, so the rest is read as SQL too.
+    "EXECUTE p DROP TABLE orders", "EXECUTE('SELECT 1') DROP TABLE orders",
+])
+def test_exec_literals_and_dynamic_sql_are_read(sql):
+    assert sql_block_reason(sql), sql
+
+
+@pytest.mark.parametrize("sql", [
+    "EXEC p 'hello'", "EXEC p0; EXEC p1; EXEC p2", "EXEC p 'deleted rows', 'x'",
+    "INSERT INTO log VALUES ('delete from orders'); EXEC p",
+    "DECLARE @n INT = 1; EXEC p @n", "PREPARE s FROM 'SELECT * FROM orders'; EXECUTE s",
+    "DECLARE @q NVARCHAR(99) = 'SELECT 1'; EXEC(@q)",
+    "EXEC('EXEC(''EXEC(''''SELECT 1'''')'')')",
+    # Procedure names that hold a gate word are read once, not refused as
+    # nested past the recheck depth.
+    "EXECUTE dbo.delete_old_rows", "EXEC dbo.delete_old_rows; EXEC dbo.drop_stale_rows",
+    "EXECUTE dbo.delete_old_rows; EXECUTE dbo.drop_stale_rows; EXECUTE dbo.truncate_log_rows",
+])
+def test_ordinary_exec_and_prepared_statements_pass(sql):
+    assert sql_block_reason(sql) is None, sql
+
+
+def test_more_quoted_exec_literals_than_the_recheck_bound_are_refused():
+    # Accepted false refusal (a cost bound, like D8): a literal with a quote is
+    # rechecked alone, at most 64 per level; past that the text is refused.
+    def text(k):
+        return "EXEC p " + ", ".join("'drop \"t%d\"'" % i for i in range(k))
+
+    assert sql_block_reason(text(60)) is None  # 60 literals and their concatenation
+    assert sql_block_reason(text(70)) == UNREADABLE
+
+
+def test_exec_nested_past_the_recheck_depth_is_refused():
+    # Three levels deep: the third body is past the recheck depth, so the
+    # check cannot read it and refuses instead of passing it.
+    assert block_reason(tool_name="run", arguments={"sql": "EXEC('EXEC(''EXEC(''''DROP TABLE orders'''')'')')"})
+
+
+def test_arguments_nested_past_the_walk_depth_are_refused():
+    deep = {"a": {"b": {"c": {"d": {"e": {"f": {"sql": "DROP TABLE orders"}}}}}}}
+    assert block_reason(tool_name="run_query", arguments=deep) == DROP
+    assert block_reason(tool_name="run_query", arguments={"sql": [[[[[["DROP TABLE orders"]]]]]]}) == DROP
+    # Past the walk's depth cap: refused as unreadable, never skipped.
+    value: object = "x"
+    for _ in range(80):
+        value = [value]
+    assert block_reason(tool_name="search_docs", arguments={"query": value}) == UNREADABLE
+    # A deep but ordinary search body still passes.
+    es = {"query": {"bool": {"must": [{"bool": {"should": [{"match": {"title": "delete account"}}]}}]}}}
+    assert block_reason(tool_name="search_docs", arguments=es) is None
+
+
+def _nest(command, shell, n):
+    import shlex
+
+    for _ in range(n):
+        command = f"{shell} -c {shlex.quote(command)}"
+    return command
+
+
+@pytest.mark.parametrize("n", [8, 9, 12])
+def test_shell_nested_past_the_read_depth_is_refused(n):
+    assert shell_block_reason(_nest("rm -rf /", "sh", n))
+    assert shell_block_reason(_nest("ls -la", "bash", n)) == "could not read the command safely"
+
+
+@pytest.mark.parametrize("n", [1, 2, 3])
+def test_ordinary_nested_shells_pass(n):
+    assert shell_block_reason(_nest("ls -la /tmp", "sh", n)) is None
+
+
+# ── blocklist: which arguments hold SQL ─────────────────────────────────────
+
+_SQL_TOOLS = ["postgres_query", "run_snowflake_query", "write_query", "read_query", "bigquery_query",
+              "duckdb_query", "start_query_execution"]
+
+
+@pytest.mark.parametrize("tool", _SQL_TOOLS)
+@pytest.mark.parametrize("text", ["TRUNCATE orders", "DELETE orders"])
+def test_a_tool_named_for_a_sql_engine_gets_the_full_sql_rules(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}), (tool, text)
+
+
+@pytest.mark.parametrize("tool,arguments", [
+    ("execute_sql", {"query_text": "DELETE FROM orders"}),
+    ("start_query_execution", {"QueryString": "DELETE FROM orders"}),
+    ("run_query", {"queries": ["SELECT 1", "DELETE FROM orders"]}),
+    # Spellings only the "sql" rules refuse (the shared rules pass them).
+    ("execute_sql", {"query_text": "DELETE orders"}),
+    ("start_query_execution", {"QueryString": "TRUNCATE orders"}),
+    ("run_query", {"queries": ["SELECT 1", "DELETE orders"]}),
+    ("postgres_query", {"sql_query": "SELECT 1", "statements": ["SELECT 1", "TRUNCATE orders"]}),
+    # Other text on a SQL tool gets the shared rules.
+    ("postgres_query", {"database": "x; DROP SCHEMA s"}),
+])
+def test_sql_keys_on_a_sql_tool_get_the_sql_rules(tool, arguments):
+    assert block_reason(tool_name=tool, arguments=arguments), (tool, arguments)
+
+
+@pytest.mark.parametrize("tool", ["search_docs", "query_knowledge_base", "search", "search_query",
+                                  "query_docs", "semantic_search"])
+@pytest.mark.parametrize("text", ["delete account", "truncate text", "delete branch"])
+def test_search_tools_stay_lenient_under_the_wider_name_rule(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}) is None, tool
+    assert block_reason(tool_name=tool, arguments={"queries": [text]}) is None, tool
+
+
+@pytest.mark.parametrize("description", [
+    "The SQL query to run", "SQL statement", "A T-SQL batch", "Statement to execute against the warehouse",
+])
+def test_a_parameter_described_as_sql_gets_the_sql_rules(description):
+    schema = {"type": "object", "properties": {"text": {"type": "string", "description": description}}}
+    assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM orders"}, input_schema=schema) == DELETE
+    nested = {"type": "object", "properties": {"opts": {"type": "object", "properties": {
+        "body": {"type": "array", "items": {"type": "string"}, "title": description}}}}}
+    assert block_reason(tool_name="lookup", arguments={"opts": {"body": ["SELECT 1", "TRUNCATE orders"]}},
+                        input_schema=nested) == TRUNCATE
+
+
+@pytest.mark.parametrize("schema", [
+    None, {}, {"type": "object"}, {"properties": "junk"},
+    {"type": "object", "properties": {"text": {"type": "string", "description": "Search text"}}},
+    {"type": "object", "properties": {"text": {"type": "string", "description": "Bank statement id"}}},
+])
+def test_a_parameter_not_described_as_sql_keeps_its_key_rule(schema):
+    assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM orders"}, input_schema=schema) is None
+
+
+# ── small-model judge ───────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("raw", [
+    '{"approve": "false", "confidence": 0.99}', '{"approve": "no", "confidence": 0.99}',
+    '{"approve": 0, "confidence": 0.99}', '{"approve": "true", "confidence": 0.99}',
+    '{"approve": 1, "confidence": 0.99}', '{"confidence": 0.99}',
+])
+def test_a_judge_answer_without_a_real_true_never_allows(raw):
+    from app.ai.classifiers.tool_call_judge import ToolCallVerdict
+
+    v = ToolCallVerdict.parse(raw)
+    assert v.approve is False
+    assert pm.verdict_from_small_model(v.approve, v.confidence, _settings()) == "ask"
+
+
+def test_a_judge_answer_with_true_approves():
+    from app.ai.classifiers.tool_call_judge import ToolCallVerdict
+
+    v = ToolCallVerdict.parse('```json\n{"approve": true, "confidence": 0.95, "reason": "read only"}\n```')
+    assert (v.approve, v.confidence) == (True, 0.95)
+    assert pm.verdict_from_small_model(v.approve, v.confidence, _settings()) == "allow"
+
+
 # ── mode resolution ─────────────────────────────────────────────────────────
 
 def _settings(**kw):
@@ -535,6 +764,17 @@ def test_decision_model_probability_maps_to_three_outcomes(p, expect):
 ])
 def test_small_model_acts_only_on_a_confident_answer(approve, conf, expect):
     assert pm.verdict_from_small_model(approve, conf, _settings()) == expect
+
+
+def test_an_unreadable_stored_setting_falls_back_to_the_defaults_and_is_logged(caplog):
+    class Broken:
+        def get_config(self, key):
+            raise ValueError("corrupt JSON")
+
+    with caplog.at_level("WARNING", logger="app.services.tool_permission_mode"):
+        s = pm.permission_settings(Broken())
+    assert (s.default_mode, s.allow_all_enabled) == ("ask", False)
+    assert any("corrupt JSON" in r.getMessage() for r in caplog.records)
 
 
 def test_settings_normalize_bad_values_to_safe_defaults():

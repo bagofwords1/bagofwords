@@ -91,13 +91,24 @@ def _shell_segments(command: str, depth: int = 0) -> list:
         out.append(" ".join(seg))
     except ValueError:
         out.extend(re.split(r"[;&|\n]+", command))
-    if depth < 3:
-        nested = re.findall(r"`([^`]*)`", command) + re.findall(r"\$\(([^()]*)\)", command)
-        for seg in list(out):
-            nested.extend(_nested_bodies(_tokens(seg)))
-        for body in nested:
-            out.extend(_shell_segments(body, depth + 1))
+    nested = re.findall(r"`([^`]*)`", command) + re.findall(r"\$\(([^()]*)\)", command)
+    for seg in list(out):
+        nested.extend(_nested_bodies(_tokens(seg)))
+    nested = [body for body in nested if body.strip()]
+    if nested and depth >= _MAX_SHELL_DEPTH:
+        raise _ShellTooDeep()  # a body this check would not read: refuse, never skip
+    for body in nested:
+        out.extend(_shell_segments(body, depth + 1))
     return [s.strip() for s in out if s and s.strip()]
+
+
+# Nested shell bodies are read this many levels deep; a deeper one is refused.
+_MAX_SHELL_DEPTH = 3
+REASON_SHELL_UNREADABLE = "could not read the command safely"
+
+
+class _ShellTooDeep(Exception):
+    pass
 
 
 _SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "su", "runuser"}
@@ -211,7 +222,10 @@ def shell_block_reason(command: str) -> Optional[str]:
     """Why a remote shell command is blocked, or None."""
     if not isinstance(command, str) or not command.strip():
         return None
-    segments = _shell_segments(command)
+    try:
+        segments = _shell_segments(command)
+    except _ShellTooDeep:
+        return REASON_SHELL_UNREADABLE
     client_anywhere = any(_db_client_sql(_tokens(seg))[1] for seg in segments)
     for seg in segments:
         tokens = _tokens(seg)
@@ -243,27 +257,72 @@ def shell_block_reason(command: str) -> Optional[str]:
 # ── SQL / tool names (any connection tool) ──────────────────────────────────
 
 # How much SQL rule an argument gets depends on how sure we are it is SQL:
-#   "sql"    — a key that certainly holds SQL (sql, sqlQuery, statement…), or a
-#              shared key on a tool whose name says it runs SQL;
-#   "shared" — keys a search tool uses too (query, q, command…): only
-#              spellings a search phrase doesn't produce, unless the text
-#              starts like a SQL script (then it is read as "sql", as before);
+#   "sql"    — a key that certainly holds SQL (sql, sqlQuery, statement…), a
+#              parameter the tool's own input schema describes as SQL, or, on
+#              a tool whose name says it runs SQL, a shared key or any key
+#              naming a query or statement (query_text, QueryString, queries);
+#   "shared" — keys a search tool uses too (query, q, command…), and any other
+#              text on a tool whose name says it runs SQL: only spellings a
+#              search phrase doesn't produce, unless the text starts like a
+#              SQL script (then it is read as "sql", as before);
 #   "other"  — anything else: only a text that is a single DROP statement
 #              ("Drop table orders_tmp after migration" in a title passes).
+# A list item gets its key's kind ("queries": ["SELECT 1", "DELETE …"]).
 _SQL_SHARED_KEYS = {"query", "q", "command", "script", "code"}
-# A tool whose name says it runs SQL: then a shared key holds SQL.
+# A tool whose name says it runs SQL. Search tools (search_docs, search_query,
+# query_knowledge_base) must not match: their "query" is a search phrase.
 _SQL_TOOL_NAME = re.compile(
-    r"sql|statement|stmt|database|^query$|(^|[_-])(run|execute|exec)[_-]?(query|queries)|(^|[_-])db([_-]|$)",
+    r"sql|statement|stmt|database|^query$|(^|[_-])(run|execute|exec)[_-]?(query|queries)|(^|[_-])db([_-]|$)"
+    r"|(^|[_-])(read|write|start)[_-]?(query|queries)([_-]|$)"
+    r"|(^|[_-])(postgres|postgresql|pg|mysql|mariadb|mssql|tsql|oracle|snowflake|bigquery|bq|duckdb|redshift"
+    r"|athena|clickhouse|trino|presto|databricks|sqlite|synapse|teradata|vertica|cockroach|spanner)"
+    r"[_-]?(\w*[_-])?(query|queries)",
     re.IGNORECASE)
+# On a SQL tool, a key naming a query or statement holds SQL.
+_SQL_TOOL_KEY = re.compile(r"quer(y|ies)|statement|stmt")
+# A parameter whose schema title or description says it holds SQL.
+_SQL_DESCRIPTION = re.compile(
+    r"\b(t-?)?sql\b|\bstatements?\b.*\b(run|execute)\b|\b(run|execute)\b.*\bstatements?\b",
+    re.IGNORECASE | re.DOTALL)
 
 
-def _key_kind(key: str, tool_name: str = "") -> str:
+def _key_kind(key: str, tool_name: str = "", sql_params: frozenset = frozenset()) -> str:
     k = re.sub(r"[_\-]", "", key.lower())
-    if "sql" in k or k in ("statement", "statements", "stmt", "stmts"):
+    if "sql" in k or k in ("statement", "statements", "stmt", "stmts") or key in sql_params:
         return "sql"
-    if k in _SQL_SHARED_KEYS:
-        return "sql" if _SQL_TOOL_NAME.search(tool_name or "") else "shared"
-    return "other"
+    if _SQL_TOOL_NAME.search(tool_name or ""):
+        return "sql" if k in _SQL_SHARED_KEYS or _SQL_TOOL_KEY.search(k) else "shared"
+    return "shared" if k in _SQL_SHARED_KEYS else "other"
+
+
+def _sql_params(schema: Any) -> frozenset:
+    """Names of the parameters an input schema describes as SQL, at any
+    nesting (object properties, array items, $defs, anyOf/oneOf/allOf)."""
+    names: set = set()
+    stack = [(schema, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if not isinstance(node, dict) or depth > 32:
+            continue  # a deeper schema part keeps its key rule
+        children: list = []
+        props = node.get("properties")
+        if isinstance(props, dict):
+            for name, sub in props.items():
+                if isinstance(sub, dict):
+                    text = f"{sub.get('title') or ''} {sub.get('description') or ''}"
+                    if _SQL_DESCRIPTION.search(text):
+                        names.add(str(name))
+                    children.append(sub)
+        for field in ("items", "additionalProperties"):
+            children.append(node.get(field))
+        for field in ("$defs", "definitions"):
+            if isinstance(node.get(field), dict):
+                children.extend(node[field].values())
+        for field in ("anyOf", "oneOf", "allOf"):
+            if isinstance(node.get(field), list):
+                children.extend(node[field])
+        stack.extend((child, depth + 1) for child in children if isinstance(child, dict))
+    return frozenset(names)
 
 
 _TOOL_NAME = re.compile(
@@ -290,8 +349,16 @@ _MAX_SCAN_BYTES = 1024 * 1024
 # A necessary condition only: no finding is possible without one of these
 # words, so a text without them passes before any tokenizing. Never decisive.
 _GATE_WORDS = ("drop", "truncate", "delete", "exec")
-# EXEC bodies are read as SQL again, at most this many levels deep.
+# EXEC bodies are read as SQL again, at most this many levels deep; a body
+# still holding SQL to run at that depth is refused as unreadable.
 _MAX_EXEC_DEPTH = 2
+# Literals with these can open a quote, name or comment that would run into
+# the next one, so they are not joined into the batched recheck; each is
+# rechecked alone, at most this many per level (more: refused as unreadable).
+_JOIN_UNSAFE = re.compile(r"['\"`\[$]|/\*")
+_MAX_SEPARATE_RECHECKS = 64
+# Argument values nested deeper than this are refused as unreadable.
+_MAX_ARGUMENT_DEPTH = 64
 
 
 # ── frozen copy of the regex SQL check (3875d2971) ──────────────────────────
@@ -474,26 +541,106 @@ def _segments(tokens: list) -> Iterable[tuple]:
     yield kws, toks
 
 
-def _exec_literals(kws: list, toks: list, literals: set) -> None:
-    """In a segment with EXEC/EXECUTE, each string literal and their
-    concatenation are SQL to run (``EXEC('DR' + 'OP TABLE x')``)."""
-    if not any(k in _EXEC_WORDS for k in kws):
-        return
-    parts = []
-    for i, t in enumerate(toks):
-        if t.token_type.name not in _LITERAL_TOKENS or t.token_type.name == "IDENTIFIER":
-            continue
-        if i > 0 and kws[i - 1] in _EXEC_WORDS and toks[i - 1].token_type.name != "VAR":
-            # A tokenizer that reads EXEC/EXECUTE as a command keeps the rest of
-            # the statement as one raw string ("('DROP TABLE x')"): read it as
-            # an EXEC statement, so its own literals are rechecked too (and the
-            # raw text is read only once).
-            literals.add("EXEC " + t.text)
-            continue
-        parts.append(t.text)
-    literals.update(parts)
-    if len(parts) > 1:
-        literals.add("".join(parts))
+# Token types after which a tokenizer keeps the rest of the statement as one
+# raw STRING: EXEC (tsql, postgres), EXECUTE (every dialect), PREPARE, ….
+_COMMAND_TYPES = frozenset({"COMMAND", "EXECUTE"})
+_RAW_LITERAL = re.compile(r"[Nn]?'((?:[^']|'')*)'")
+# A raw EXEC/EXECUTE/PREPARE body that runs SQL held in a variable:
+# EXEC(@q), EXEC sp_executesql @q, EXECUTE IMMEDIATE :v, PREPARE s FROM @q.
+_DYNAMIC_BODY = re.compile(r"^\s*(\(\s*)?[@:]|^\s*sp_executesql\s+[@:]|^\s*immediate\s+(?!['\"$])|\bfrom\s+[@:]",
+                           re.IGNORECASE)
+_PREPARE_AS = re.compile(r"^\s*\w+\s*(\([^)]*\)\s*)?as\s+(.+)$", re.IGNORECASE | re.DOTALL)
+
+
+def _add(items: dict, texts: list) -> None:
+    for t in texts:
+        items[t] = None
+    if len(texts) > 1:
+        items["".join(texts)] = None  # split strings: EXEC('DR' + 'OP TABLE x')
+
+
+def _literal_items(tokens: list, items: dict) -> None:
+    """Text in this SQL that would itself run as SQL, added to ``items`` in
+    order: the string literals of a statement with EXEC/EXECUTE (and their
+    concatenation), the literal of PREPARE … FROM '…' and the statement of
+    PREPARE … AS …. When SQL held in a variable is run (EXEC(@q), EXEC
+    sp_executesql @q, PREPARE s FROM @q), the text can come from any
+    statement, so every literal of the whole text is added too."""
+    every: list = []
+    dynamic = False
+    for kws, toks in _segments(tokens):
+        has_exec = any(k in _EXEC_WORDS for k in kws)
+        parts: list = []
+        for i, t in enumerate(toks):
+            kind = t.token_type.name
+            if kws[i] in _EXEC_WORDS and kind not in _COMMAND_TYPES:
+                # EXEC read as a word: EXEC(@q), EXEC sp_executesql @q.
+                after = [x.token_type.name for x in toks[i + 1:i + 4]]
+                nxt = kws[i + 1] if i + 1 < len(kws) else None
+                if after[:1] == ["PARAMETER"] or after[:2] == ["L_PAREN", "PARAMETER"] or (
+                        nxt == "SP_EXECUTESQL" and after[1:2] == ["PARAMETER"]):
+                    dynamic = True
+                continue
+            if kind not in _LITERAL_TOKENS or kind == "IDENTIFIER":
+                continue
+            if i > 0 and toks[i - 1].token_type.name in _COMMAND_TYPES:
+                # The raw rest of a command: its own literals are what it holds.
+                inner = [m.replace("''", "'") for m in _RAW_LITERAL.findall(t.text)]
+                every.extend(inner)
+                head = kws[i - 1]
+                if head in _EXEC_WORDS or head == "PREPARE":
+                    dynamic = dynamic or bool(_DYNAMIC_BODY.search(t.text))
+                    _add(items, inner)
+                    if head == "PREPARE":
+                        m = _PREPARE_AS.match(t.text)
+                        if m:
+                            items[m.group(2)] = None
+                    elif (re.search(r"[\"$]", t.text)
+                          or _passes_gate(_RAW_LITERAL.sub("''", t.text).lower(), "sql")):
+                        # More than literals: a double- or dollar-quoted body, or
+                        # SQL after the call (a T-SQL batch needs no separator).
+                        # Read as an EXEC statement by the tokenizers that read
+                        # EXEC as a word.
+                        items["EXEC " + t.text] = None
+                continue
+            every.append(t.text)
+            if has_exec:
+                parts.append(t.text)
+        _add(items, parts)
+    if dynamic:
+        _add(items, every)
+
+
+def _squash(text: str) -> str:
+    return re.sub(r"\s+", "", text).upper()
+
+
+def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset) -> set:
+    """Read each item as SQL, in at most one batch per level: the items
+    joined with ";\\n" (each starts its own statement), plus one read per item
+    that could run into the next one. An item already read at a shallower
+    level (``seen``, compared without spaces or case) is not read again: the
+    tokenizers that keep an EXEC body raw give back the same item. Past
+    _MAX_EXEC_DEPTH, any item still to read makes the text unreadable."""
+    seen = seen | {_squash(text)}
+    pending = [t for t in items if _passes_gate(t.lower(), "sql") and _squash(t) not in seen]
+    if not pending:
+        return set()
+    if depth >= _MAX_EXEC_DEPTH:
+        logger.info("blocklist: SQL to run nested past %d levels; refused", _MAX_EXEC_DEPTH)
+        return {REASON_UNREADABLE}
+    joined = [t for t in pending if not _JOIN_UNSAFE.search(t)]
+    alone = [t for t in pending if _JOIN_UNSAFE.search(t)]
+    if len(alone) > _MAX_SEPARATE_RECHECKS:
+        logger.info("blocklist: %d quoted SQL literals to recheck; refused", len(alone))
+        return {REASON_UNREADABLE}
+    seen = seen | {_squash(t) for t in pending}
+    found: set = set()
+    if joined:
+        found.update(_sql_findings(";\n".join(joined), "sql", depth + 1, seen))
+    for t in alone:
+        found.update(_sql_findings(t, "sql", depth + 1, seen))
+    return found
 
 
 def _is_word(kw: Optional[str]) -> bool:
@@ -514,7 +661,7 @@ def _delete_exempt(kws: list, i: int) -> bool:
     return prev == "THEN" and nxt in _MERGE_DELETE_BEFORE  # MERGE … THEN DELETE WHEN …
 
 
-def _scan_sql_tokens(tokens: list, found: set, literals: Optional[set]) -> None:
+def _scan_sql_tokens(tokens: list, found: set) -> None:
     """The token check at level "sql", one linear pass per segment."""
     for kws, toks in _segments(tokens):
         n = len(kws)
@@ -555,8 +702,6 @@ def _scan_sql_tokens(tokens: list, found: set, literals: Optional[set]) -> None:
                 open_deletes.add(depth)
         if open_deletes:
             found.add(REASON_DELETE)
-        if literals is not None:
-            _exec_literals(kws, toks, literals)
 
 
 def _name_end(kws: list, toks: list, j: int) -> Optional[int]:
@@ -576,13 +721,11 @@ def _name_end(kws: list, toks: list, j: int) -> Optional[int]:
     return j
 
 
-def _scan_shared_tokens(tokens: list, found: set, literals: Optional[set]) -> None:
+def _scan_shared_tokens(tokens: list, found: set) -> None:
     """The anchored shapes of a "shared" text, at a segment start only (a
     token port of the old shared regexes)."""
     for kws, toks in _segments(tokens):
         n = len(kws)
-        if literals is not None:
-            _exec_literals(kws, toks, literals)
         if n < 2:
             continue
         if kws[0] == "DROP" and kws[1] in _DROP_KINDS:
@@ -622,7 +765,7 @@ def _drop_of_a_table(node) -> bool:
     return str(node.args.get("kind") or "").upper() in _DROP_KINDS
 
 
-def _scan_tree(text: str, level: str, token_lists: dict, found: set, literals: Optional[set]) -> None:
+def _scan_tree(text: str, level: str, token_lists: dict, found: set) -> None:
     """The parse-tree check. A dialect whose parser raises adds nothing."""
     for d in _DIALECTS:
         tokens = token_lists.get(d)
@@ -636,22 +779,17 @@ def _scan_tree(text: str, level: str, token_lists: dict, found: set, literals: O
         for statement in statements:
             if statement is None:
                 continue
-            for node in statement.find_all(exp.Drop, exp.TruncateTable, exp.Delete, exp.Command):
+            # EXEC bodies come from the tokens (_literal_items): the tree's
+            # Command node holds the same raw text.
+            for node in statement.find_all(exp.Drop, exp.TruncateTable, exp.Delete):
                 if isinstance(node, exp.Drop):
                     if _drop_of_a_table(node):
                         found.add(REASON_DROP)
                 elif isinstance(node, exp.TruncateTable):
                     if words is None or "TABLE" in words:
                         found.add(REASON_TRUNCATE)
-                elif isinstance(node, exp.Delete):
-                    if not node.args.get("where") and (words is None or "FROM" in words):
-                        found.add(REASON_DELETE)
-                elif literals is not None and str(node.this).upper() in _EXEC_WORDS:
-                    # EXEC <body>: the body is read again as an EXEC statement,
-                    # so its literals are rechecked as SQL to run.
-                    body = node.expression.name if isinstance(node.expression, exp.Expression) else ""
-                    if body.strip():
-                        literals.add("EXEC " + body)
+                elif not node.args.get("where") and (words is None or "FROM" in words):
+                    found.add(REASON_DELETE)
 
 
 def _other_findings(text: str) -> list:
@@ -678,9 +816,10 @@ def _other_findings(text: str) -> list:
     return []
 
 
-def _sql_findings(text: str, level: str, depth: int = 0) -> list[str]:
+def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = frozenset()) -> list[str]:
     """The reasons ``text`` is refused at ``level`` ("sql", "shared" or
-    "other"); empty means it passes."""
+    "other"); empty means it passes. ``depth`` and ``seen`` belong to the
+    recheck of SQL held in literals (_recheck_literals)."""
     if level == "shared" and _promoted(text):
         level = "sql"
     if not _passes_gate(text.lower(), level):
@@ -700,7 +839,6 @@ def _sql_findings(text: str, level: str, depth: int = 0) -> list[str]:
         logger.info("blocklist: no SQL tokenizer reads a %d-byte text with a gate word; refused", size)
         return [REASON_UNREADABLE]
     found: set = set()
-    literals: Optional[set] = set() if depth < _MAX_EXEC_DEPTH else None
     readable = [tokens for tokens in token_lists.values() if tokens is not None]
     if level == "sql":
         if "/*!" in text:
@@ -708,14 +846,16 @@ def _sql_findings(text: str, level: str, depth: int = 0) -> list[str]:
             copy = text.replace("/*!", "   ")
             readable += [t for t in (_tokenize(copy, d) for d in _DIALECTS) if t is not None]
         for tokens in readable:
-            _scan_sql_tokens(tokens, found, literals)
+            _scan_sql_tokens(tokens, found)
     else:
         for tokens in readable:
-            _scan_shared_tokens(tokens, found, literals)
+            _scan_shared_tokens(tokens, found)
     if size <= _MAX_PARSE_BYTES:
-        _scan_tree(text, level, token_lists, found, literals)
-    for literal in literals or ():
-        found.update(_sql_findings(literal, "sql", depth + 1))
+        _scan_tree(text, level, token_lists, found)
+    items: dict = {}  # SQL to run held in literals, in order
+    for tokens in readable:
+        _literal_items(tokens, items)
+    found.update(_recheck_literals(text, items, depth, seen))
     return [reason for reason in _REASON_ORDER if reason in found]
 
 
@@ -731,11 +871,17 @@ def sql_block_reason(text: str, *, sql_context: Any = True) -> Optional[str]:
     return findings[0] if findings else None
 
 
+_TOO_DEEP = object()  # a value nested past _MAX_ARGUMENT_DEPTH
+
+
 def _strings(value: Any, key: str = "", depth: int = 0) -> Iterable[tuple]:
-    if depth > 6:
-        return
+    """(key, text) for every string in the arguments; a list item gets its
+    key. A non-empty value past _MAX_ARGUMENT_DEPTH yields _TOO_DEEP."""
     if isinstance(value, str):
         yield key, value
+    elif depth >= _MAX_ARGUMENT_DEPTH:
+        if isinstance(value, (dict, list, tuple)) and value:
+            yield key, _TOO_DEEP
     elif isinstance(value, dict):
         for k, v in value.items():
             yield from _strings(v, str(k), depth + 1)
@@ -749,8 +895,11 @@ def _bare_tool_name(tool_name: str) -> str:
     return re.split(r"[./:]|__", tool_name.strip())[-1]
 
 
-def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False) -> Optional[str]:
-    """Why this connection-tool call is on the built-in blocklist, or None."""
+def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False,
+                 input_schema: Any = None) -> Optional[str]:
+    """Why this connection-tool call is on the built-in blocklist, or None.
+    ``input_schema`` is the tool's own JSON schema, when known: a parameter it
+    describes as SQL gets the full SQL rules."""
     if isinstance(tool_name, str) and _TOOL_NAME.search(_bare_tool_name(tool_name)):
         return "the tool's name marks it as a mass-delete action"
     args = arguments if isinstance(arguments, dict) else {}
@@ -759,8 +908,12 @@ def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False) 
         if reason:
             return reason
     bare = _bare_tool_name(tool_name) if isinstance(tool_name, str) else ""
+    sql_params = _sql_params(input_schema)
     for key, text in _strings(args):
-        reason = sql_block_reason(text, sql_context=_key_kind(key, bare))
+        if text is _TOO_DEEP:
+            logger.info("blocklist: arguments nested past %d levels; refused", _MAX_ARGUMENT_DEPTH)
+            return REASON_UNREADABLE
+        reason = sql_block_reason(text, sql_context=_key_kind(key, bare, sql_params))
         if reason:
             return reason
     return None

@@ -23,8 +23,11 @@ Org config lives in ``OrganizationSettings.config['tool_permission_mode']``;
 an agent may cap the mode with ``DataSource.max_permission_mode``.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional
+
+logger = logging.getLogger(__name__)
 
 MODE_ASK = "ask"
 MODE_AUTO = "auto"
@@ -110,7 +113,9 @@ def _raw_value(org_settings: Any) -> dict:
         raw = getattr(cfg, "value", cfg)
         if isinstance(raw, dict) and "value" in raw and isinstance(raw.get("value"), dict):
             raw = raw["value"]
-    except Exception:
+    except Exception as e:
+        # Fails safe (the defaults: Ask, Allow all off), but say why.
+        logger.warning("tool permission mode: stored setting unreadable, using the defaults: %r", e)
         raw = None
     return raw if isinstance(raw, dict) else {}
 

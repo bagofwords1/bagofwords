@@ -314,7 +314,8 @@ class ConnectionToolGateway:
         # CPU-bound (sqlglot): run it off the event loop.
         from app.services.tool_blocklist import block_reason
         blocked = await asyncio.to_thread(
-            block_reason, tool_name=tool_name, arguments=arguments or {}, remote_shell=remote_shell)
+            block_reason, tool_name=tool_name, arguments=arguments or {}, remote_shell=remote_shell,
+            input_schema=tool.input_schema)
         if blocked:
             return GatewayResult(
                 success=False,

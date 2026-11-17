@@ -368,6 +368,54 @@ def test_member_cannot_change_the_agent_cap(env, test_client, create_user, login
     assert test_client.get(url, headers=env.headers).json()["max_permission_mode"] == "ask"
 
 
+@pytest.mark.parametrize("agents_from", ["report", "run"])
+def test_a_cap_on_any_agent_in_the_run_limits_every_tool(env, test_client, create_data_source, content_url,
+                                                          agents_from):
+    # A second agent with its own connection caps the mode at Ask. The tool
+    # belongs to the first agent, which has no cap: the run's strictest cap
+    # still applies to it.
+    capped = create_data_source(
+        name="Capped agent", type="mcp",
+        config={"server_url": content_url.replace("127.0.0.1", "localhost"), "transport": "streamable_http"},
+        credentials={}, user_token=env.token, org_id=env.org_id)
+    assert env.conn_id not in {c["id"] for c in capped["connections"]}
+    r = test_client.put(f"/api/reports/{env.report_id}", headers=env.headers,
+                        json={"data_sources": [env.ds_id, capped["id"]]})
+    assert r.status_code == 200, r.text
+    if agents_from == "run":
+        _ScriptedAgent.extra = {"run_agent_ids": [env.ds_id, capped["id"]]}
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+    out = env.call("delete_branch", branch="feature-x")
+    assert out.ran and not out.prompted  # control: no cap yet
+
+    r = test_client.put(f"/api/data_sources/{capped['id']}", headers=env.headers, json={"max_permission_mode": "ask"})
+    assert r.status_code == 200, r.text
+    out = env.call("delete_branch", branch="feature-x")
+    assert out.prompted and not out.ran
+
+
+def test_a_parameter_its_schema_calls_sql_gets_the_sql_rules(env, alembic_config):
+    from app.models.connection_tool import ConnectionTool
+
+    # list_issues is read-only and on 'allow'; to the key rule its 'repo' text is not SQL.
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+    assert env.call("list_issues", repo="DELETE FROM orders").ran  # control
+
+    # The server describes the parameter as SQL (as a refreshed catalog would store it).
+    table = ConnectionTool.__table__
+    engine = _sync_engine(alembic_config)
+    with engine.begin() as conn:
+        conn.execute(table.update().where(table.c.id == env.tools()["list_issues"]["id"]).values(input_schema={
+            "type": "object", "required": ["repo"],
+            "properties": {"repo": {"type": "string", "description": "The SQL query to run"}},
+        }))
+    engine.dispose()
+    out = env.call("list_issues", repo="DELETE FROM orders")
+    assert not out.ran and not out.prompted and out.blocked_by == "blocklist"
+
+
 # ── Runs nobody is watching ─────────────────────────────────────────────────
 
 # A run no person started (eval/scheduled/webhook/machine turn).

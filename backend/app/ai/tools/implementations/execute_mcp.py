@@ -1252,9 +1252,15 @@ Do not use when:
             user is not None and report is not None
             and str(getattr(report, "user_id", "") or "") == str(user.id)
         )
+        # The cap is the strictest across every agent in the run, not only the
+        # agents that own this connection.
+        run_agents = (
+            [str(i) for i in run_agent_ids] if run_agent_ids is not None
+            else [str(ds.id) for ds in (getattr(report, "data_sources", None) or [])]
+        )
         mode = pm.effective_mode(
             await self._current_report_mode(db, report), pm_settings,
-            agent_caps=await self._agent_mode_caps(db, ds_ids),
+            agent_caps=await self._agent_mode_caps(db, run_agents),
             allow_all_permitted=watched and run_user_is_owner,
         )
         audit_base = {
@@ -1270,7 +1276,8 @@ Do not use when:
         from app.services.tool_blocklist import block_reason
         await self._release_db(db)
         blocked = await asyncio.to_thread(
-            block_reason, tool_name=data.tool_name, arguments=data.arguments, remote_shell=remote_shell)
+            block_reason, tool_name=data.tool_name, arguments=data.arguments, remote_shell=remote_shell,
+            input_schema=getattr(tool_record, "input_schema", None))
         if blocked:
             await log_tool_audit(
                 runtime_ctx, action="tool.auto_policy_decision", resource_type="report",

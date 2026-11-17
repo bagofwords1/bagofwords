@@ -36,8 +36,12 @@ class ToolCallVerdict(BaseModel):
             cleaned = cleaned[start:end + 1]
         try:
             data = json.loads(cleaned)
+            approve = data.get("approve")
+            if approve is not True and approve is not False:
+                # "false", "no", 0, 1 or a missing key: never read as approval.
+                raise ValueError(f"approve is not a JSON boolean: {approve!r}")
             return cls(
-                approve=bool(data.get("approve", False)),
+                approve=approve,
                 confidence=float(data.get("confidence", 0.0) or 0.0),
                 reason=str(data.get("reason", "") or ""),
             )
