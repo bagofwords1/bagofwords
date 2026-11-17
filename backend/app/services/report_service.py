@@ -844,6 +844,7 @@ class ReportService:
             # Report-level LLM override (null = user/org default resolves at run time)
             model_id=getattr(report, "model_id", None),
             reasoning_effort=getattr(report, "reasoning_effort", None),
+            permission_mode=getattr(report, "permission_mode", None),
             follow_ups=getattr(report, "follow_ups", None),
             suggest_instructions=getattr(report, "suggest_instructions", None),
             tools=getattr(report, "tools", None),
@@ -1060,6 +1061,8 @@ class ReportService:
         del report_data.model_id
         requested_reasoning_effort = report_data.reasoning_effort
         del report_data.reasoning_effort
+        requested_permission_mode = report_data.permission_mode
+        del report_data.permission_mode
 
         # Create the report object
         report = Report(**report_data.model_dump(exclude={"agent_folder_ids", "agent_folder_id"}))
@@ -1104,6 +1107,9 @@ class ReportService:
             )
             report.model_id = requested_model_id
         report.reasoning_effort = requested_reasoning_effort
+        if requested_permission_mode:
+            await self._assert_permission_mode_allowed(db, organization, requested_permission_mode)
+            report.permission_mode = requested_permission_mode
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -1206,6 +1212,18 @@ class ReportService:
 
         return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
 
+    @staticmethod
+    async def _assert_permission_mode_allowed(db: AsyncSession, organization: Organization, mode: str) -> None:
+        """Allow all can only be picked while the org switch is on. The run
+        checks again (the switch may be turned off later)."""
+        from app.services.tool_permission_mode import MODE_ALLOW_ALL, permission_settings
+        if mode != MODE_ALLOW_ALL:
+            return
+        from app.services.organization_settings_service import OrganizationSettingsService
+        settings = await OrganizationSettingsService().get_settings(db, organization, None)
+        if not permission_settings(settings).allow_all_enabled:
+            raise HTTPException(status_code=400, detail="'Allow all' is turned off for this organization.")
+
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
@@ -1297,6 +1315,11 @@ class ReportService:
         # "" = clear back to Default.
         if getattr(report_data, 'reasoning_effort', None) is not None:
             report.reasoning_effort = report_data.reasoning_effort or None
+        # Permission mode: None = omitted (unchanged), "" = back to the org default.
+        if getattr(report_data, 'permission_mode', None) is not None:
+            if report_data.permission_mode:
+                await self._assert_permission_mode_allowed(db, organization, report_data.permission_mode)
+            report.permission_mode = report_data.permission_mode or None
 
         # Per-conversation API opt-outs: omitted = unchanged, null = back to
         # the org setting. tools merges by key; a null value clears that key.

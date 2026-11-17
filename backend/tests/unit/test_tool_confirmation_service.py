@@ -53,7 +53,7 @@ async def test_poll_decision_reads_resolved_row_after_its_session_closed():
         )
 
     assert await svc.poll_decision(cid) == {
-        "approved": True, "remember": True, "resolved_by_user_id": resolver,
+        "approved": True, "remember": True, "scope": "always", "resolved_by_user_id": resolver,
     }
 
 
@@ -67,7 +67,7 @@ async def test_poll_decision_denied_and_expired():
             db, confirmation_id=denied, approved=False, remember=False, user_id=None
         )
     assert await svc.poll_decision(denied) == {
-        "approved": False, "remember": False, "resolved_by_user_id": None,
+        "approved": False, "remember": False, "scope": "once", "resolved_by_user_id": None,
     }
 
     expired = await _create_pending(svc)

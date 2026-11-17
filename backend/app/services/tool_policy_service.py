@@ -201,12 +201,29 @@ class ToolPolicyService:
         )
 
     @staticmethod
+    def is_machine_run(runtime_ctx: dict) -> bool:
+        """A run no person started: scheduled, webhook, machine turn
+        (sub-agent, check-in, wait wake) or eval. Narrower than "not
+        interactive": a Slack or artifact-chat run has a person on the other
+        end even though they can't answer an approval card."""
+        if runtime_ctx.get("is_eval_run"):
+            return True
+        head = runtime_ctx.get("head_completion")
+        return bool(head is not None and (
+            getattr(head, "scheduled_prompt_id", None)
+            or getattr(head, "webhook_id", None)
+            or getattr(head, "trigger_source", None)
+        ))
+
+    @staticmethod
     def is_interactive_run(runtime_ctx: dict) -> bool:
         """True when a human can answer an 'ask' prompt for this run.
 
         Interactive = a web-UI run kicked off by a real user: not an eval, not
-        a Slack/Teams/email platform run, not a scheduled prompt. Anything
-        headless must fail closed (ask behaves like deny).
+        a Slack/Teams/email platform run, not a scheduled prompt, webhook or
+        machine turn (sub-agent, check-in, wait wake). Anything headless must
+        fail closed: a prompt there follows the org's unattended setting
+        (refuse by default). Mirrors ``AgentV2._is_watched_run``.
         """
         if runtime_ctx.get("is_eval_run"):
             return False
@@ -216,6 +233,10 @@ class ToolPolicyService:
         if user is None:
             return False
         head = runtime_ctx.get("head_completion")
-        if head is not None and getattr(head, "scheduled_prompt_id", None):
+        if head is not None and (
+            getattr(head, "scheduled_prompt_id", None)
+            or getattr(head, "webhook_id", None)
+            or getattr(head, "trigger_source", None)
+        ):
             return False
         return True

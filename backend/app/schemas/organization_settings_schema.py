@@ -432,6 +432,10 @@ class OrganizationSettingsConfig(BaseModel):
     # candidates (falls back to small_model when unconfident or unavailable);
     # the planner can still escalate. Validated in OrganizationSettingsService.
     model_routing_decision: FeatureConfig = FeatureConfig(value={"method": "small_model", "decision_model_id": None, "min_confidence": 0.7}, name="Auto router method", description="Enterprise. How the Auto model router picks the model a request starts on: the small model (escalating if needed), or a decision model that picks upfront.", is_lab=True, editable=True)
+    # Run-level permission mode for connection tools and remote shell (the
+    # prompt box's Auto / Ask / Allow all chip). Validated and normalized in
+    # OrganizationSettingsService; read via app.services.tool_permission_mode.
+    tool_permission_mode: FeatureConfig = FeatureConfig(value={"default_mode": "ask", "allow_all_enabled": False, "unattended": "refuse", "judge_decision_model_id": None, "allow_threshold": 0.85, "refuse_threshold": 0.3}, name="Tool permission mode", description="How the agent decides whether to run connection tools and remote shell commands: Ask (the per-tool settings), Auto (a model decides, asking when unsure) or Allow all (no prompts; needs the switch below). Also sets what happens to a prompt in runs nobody is watching.", is_lab=False, editable=True)
     llm_fallback: FeatureConfig = FeatureConfig(value=False, name="LLM fallback", description="Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
     # Ordered LLMModel db ids tried top-to-bottom on failure. Managed via
     # POST /llm/fallback_order (EE-gated); stored as a bare list, not a

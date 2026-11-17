@@ -375,3 +375,74 @@ def test_shell_approval_persists_scoped_rules_without_sharing_between_users(
     assert len(current) == 1 and current[0]["pattern"] == "docker ps*"
     assert bool(other) == (scope == "user")
     assert test_client.get(f"{tools_url}/{shell['id']}/my_shell_rules", headers=member_headers).json() == []
+
+
+@pytest.mark.parametrize("shell_policy,mode,unattended,command,runs,prompts", [
+    # Strict = a person approves every command: no mode, read-only rule or
+    # unattended setting skips that.
+    ("strict", "allow_all", "refuse", "printf test", False, True),
+    ("strict", "auto", "refuse", "ls", False, True),
+    ("strict", "ask", "allow", "ls", False, False),          # machine run → refused
+    # Normal shell policy: the mode applies.
+    ("policy", "allow_all", "refuse", "printf test", True, False),
+    ("policy", "auto", "refuse", "ls -la /tmp", True, False),  # read-only rule
+    ("policy", "ask", "allow", "printf test", True, False),    # machine run + allow
+    # The built-in blocklist beats even a shell set to allow everything.
+    ("allow", "allow_all", "allow", "rm -rf /", False, False),
+])
+def test_permission_mode_on_remote_shell(
+    shell_policy, mode, unattended, command, runs, prompts, ssh_driver,
+    create_user, login_user, whoami, create_connection, create_domain_from_connection,
+    create_report, test_client, monkeypatch,
+):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from app.ai.tools.implementations.execute_mcp import ExecuteMCPTool
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+    from app.services.organization_settings_service import OrganizationSettingsService
+
+    monkeypatch.setattr(ExecuteMCPTool, "_ASK_TIMEOUT_S", 0.0)  # nobody clicks
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    headers = {"Authorization": "Bearer " + token, "X-Organization-Id": org_id}
+    conn = create_connection(
+        name="Ops box", type="remote_ssh",
+        config={"host": "127.0.0.1", "host_public_key": "ssh-ed25519 YWJj", "auth_type": "password",
+                "allowed_paths": ["/logs"], "enable_shell": True, "shell_policy": shell_policy},
+        credentials={"username": "operator", "password": "fixture-secret"},
+        user_token=token, org_id=org_id,
+    )
+    agent = create_domain_from_connection(name="Ops", connection_id=conn["id"], user_token=token, org_id=org_id)
+    r = test_client.put("/api/organization/settings", headers=headers, json={"config": {
+        "tool_permission_mode": {"value": {"allow_all_enabled": True, "unattended": unattended}}}})
+    assert r.status_code == 200, r.text
+    report_id = create_report(title="Ops", user_token=token, org_id=org_id, data_sources=[agent["id"]])["id"]
+    assert test_client.put(f"/api/reports/{report_id}", headers=headers,
+                           json={"permission_mode": mode}).status_code == 200
+
+    async def exercise():
+        async with async_session_maker() as db:
+            actor = (await db.execute(select(User).where(User.id == info["id"]))).scalar_one()
+            org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one()
+            report = await db.get(Report, report_id)
+            settings = await OrganizationSettingsService().get_settings(db, org, actor)
+            ctx = {"db": db, "user": actor, "organization": org, "report": report, "settings": settings,
+                   "run_agent_ids": [agent["id"]]}
+            if unattended == "allow":
+                ctx["is_eval_run"] = True  # a run no person started
+            return [e async for e in ExecuteMCPTool().run_stream(
+                {"connection_id": conn["id"], "tool_name": "execute_shell",
+                 "arguments": {"command": command, "working_directory": "/tmp"}}, ctx)]
+
+    events = asyncio.run(exercise())
+    final = [e for e in events if e.type == "tool.end"][-1]
+    assert bool(final.payload["output"].get("success")) is runs, final.payload
+    assert ssh_driver.exists() is runs
+    assert any(e.type == "tool.confirmation" for e in events) is prompts

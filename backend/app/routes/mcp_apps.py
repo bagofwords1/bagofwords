@@ -231,6 +231,13 @@ async def mcp_app_rpc(
         await _audit(db, organization, user, request, "mcp_app.tool_call_blocked",
                      te, {"tool": name, "reason": "policy_deny"})
         return {"error": {"code": -32001, "message": f"Tool '{name}' is blocked by policy"}}
+    # Built-in blocklist: refused even when the person confirms.
+    from app.services.tool_blocklist import block_reason
+    blocked = block_reason(tool_name=name, arguments=arguments)
+    if blocked:
+        await _audit(db, organization, user, request, "mcp_app.tool_call_blocked",
+                     te, {"tool": name, "reason": "blocklist", "detail": blocked})
+        return {"error": {"code": -32001, "message": f"Tool '{name}' was refused by the built-in safety blocklist ({blocked})"}}
     from app.data_sources.clients.mcp_client import is_read_only_tool
     read_only = is_read_only_tool(tool.metadata_json)
     # An app call is a person's click, but the click is on someone else's UI:
