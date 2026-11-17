@@ -1,4 +1,117 @@
 {
+  "world": {
+    "tree": "Arborescence",
+    "usage": "Utilisation",
+    "myReports": "Mes rapports",
+    "usedTogether": "Rapports de l’organisation avec utilisation conjointe : {count}",
+    "title": "World",
+    "explorer": "Explorer",
+    "heading": "Your world, connected.",
+    "eyebrow": "THE BIG PICTURE",
+    "subtitle": "Explore the knowledge, sources and work that connect your organization.",
+    "personalScope": "Your accessible world",
+    "loading": "Discovering connections…",
+    "discovering": "Bringing your world into view…",
+    "items": "items in view",
+    "connections": "relationships",
+    "details": "Explore your world",
+    "search": "Search loaded items…",
+    "layers": "Layers",
+    "browse": "Browse",
+    "entityTypes": "Entity types",
+    "showAll": "Show all",
+    "hideAll": "Hide all",
+    "memory": "Memory overlay",
+    "memoryHint": "Add your personal memories to the map. Only you can see them.",
+    "memoryCount": "{count} active memories",
+    "privateOverlay": "Your personal context",
+    "onlyYou": "Private · only visible to you",
+    "open": "Open item",
+    "expand": "Explore inside",
+    "related": "Connected items",
+    "noLinks": "No recorded connections in this view yet.",
+    "showMore": "Show more",
+    "loadMore": "Load more items",
+    "partialError": "Some parts of your world could not load.",
+    "retry": "Retry",
+    "refresh": "Refresh world",
+    "showLinks": "Show relationships",
+    "scopeHint": "Counts reflect loaded items you can access. Explore a report to reveal its queries, steps and activity.",
+    "browseHint": "Select an item to see its connections.",
+    "canvasHint": "Scroll to zoom · drag to explore",
+    "mapLabel": "Interactive organization map. Use arrow keys to pan, + and − to zoom, 0 to fit. Browse provides a keyboard-accessible item list.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fit": "Fit world to view",
+    "pause": "Pause motion",
+    "resume": "Resume motion",
+    "close": "Close details",
+    "noMatches": "Nothing in this view",
+    "resetHint": "Try another search or show more entity types.",
+    "reset": "Reset filters",
+    "empty": "Your world starts here",
+    "emptyHint": "Connect an agent or add knowledge to see your world take shape.",
+    "types": {
+      "task": "Tâches planifiées",
+      "agent": "Agents",
+      "connection": "Connections",
+      "instruction": "Instructions & skills",
+      "table": "Tables",
+      "file": "Files",
+      "tool": "MCP & API tools",
+      "list": "Lists",
+      "project": "Projects",
+      "report": "Reports",
+      "artifact": "Artifacts",
+      "query": "Queries",
+      "step": "Steps",
+      "completion": "Messages",
+      "execution": "Executions",
+      "memory": "Memories",
+      "folder": "Dossiers",
+      "eval": "Évaluations"
+    },
+    "relations": {
+      "connected_to": "Connected through an agent",
+      "has_instruction": "Instruction assigned to this agent",
+      "includes": "Included in this resource",
+      "provides": "Provided by this connection",
+      "uses_agent": "Agent attached to this report",
+      "contains": "Contained in this report",
+      "has_step": "Step belonging to this query",
+      "has_execution": "Execution recorded for this report",
+      "executed_by": "Execution of this message",
+      "references": "Explicit instruction reference",
+      "remembers": "Explicit agent tag in your memory",
+      "produced": "Produced in this report",
+      "uses_table": "Recorded use of this table",
+      "uses_folder": "Sélectionne le dossier"
+    },
+    "fields": {
+      "source_type": "Source",
+      "columns": "Columns",
+      "status": "Status",
+      "load_mode": "Loading",
+      "policy": "Policy",
+      "mode": "Format",
+      "handle": "Reference"
+    },
+    "loadAll": "Load all items",
+    "stopLoading": "Stop loading",
+    "setting": "Afficher Monde dans Agents"
+  },
+  "filePicker": {
+    "searchPlaceholder": "Rechercher des fichiers…",
+    "uploadFile": "Importer un fichier",
+    "uploadTitle": "Importer des fichiers",
+    "clickOrDrag": "Cliquez ou glissez des fichiers à importer",
+    "dropHere": "Déposez les fichiers ici",
+    "files": "Fichiers",
+    "noFilesYet": "Aucun fichier pour l'instant",
+    "connect": "Connecter",
+    "searching": "Recherche…",
+    "noResults": "Aucun résultat"
+  },
   "agentLanding": {
     "actions": "Actions de l’agent",
     "countTasks": "{n} tâche | {n} tâches",
@@ -611,6 +724,9 @@
     "whatCanIHelpWith": "Comment puis-je vous aider ?"
   },
   "prompt": {
+    "searchAgentFolders": "Rechercher des agents et des dossiers…",
+    "expandDirectory": "Développer {name}",
+    "collapseDirectory": "Réduire {name}",
     "placeholderDefault": "Demandez des données, un tableau de bord ou une analyse approfondie",
     "thinking": "Réflexion",
     "working": "En cours",
@@ -730,7 +846,8 @@
         "cancel": "Annuler",
         "dismiss": "Fermer"
       }
-    }
+    },
+    "recent": "Récents"
   },
   "reports": {
     "title": "Rapports",
@@ -1257,7 +1374,11 @@
       "duration": "Durée : {ms} ms",
       "edit": "Modifier",
       "generationStopped": "Génération arrêtée",
-      "code": "Code"
+      "code": "Code",
+      "waitingForSlot": "En attente d'une place sur {connection} · {running}/{limit} en cours",
+      "waitingForSlotAhead": "En attente d'une place sur {connection} · {running}/{limit} en cours · {ahead} avant",
+      "waitingForSlotShort": "En attente d'une place sur {connection}",
+      "theConnection": "la connexion"
     },
     "createData": {
       "bowSource": "BOW",
@@ -1328,7 +1449,9 @@
       "failedDashboard": "Échec de la création du tableau de bord",
       "copied": "Copié",
       "copiedDesc": "ID de l'artefact copié dans le presse-papiers",
-      "copyFailed": "Échec de la copie"
+      "copyFailed": "Échec de la copie",
+      "notRenderChecked": "Rendu non vérifié",
+      "notRenderCheckedDesc": "Enregistré sans vérification du rendu : le serveur n'a pas pu démarrer son navigateur. Ouvrez-le pour vérifier qu'il s'affiche."
     },
     "createDashboard": {
       "creating": "Création du tableau de bord",
@@ -1365,7 +1488,9 @@
       "copyIdTooltip": "Cliquez pour copier l'ID",
       "copied": "Copié",
       "copiedDesc": "ID de l'artefact copié dans le presse-papiers",
-      "copyFailed": "Échec de la copie"
+      "copyFailed": "Échec de la copie",
+      "notRenderChecked": "Rendu non vérifié",
+      "notRenderCheckedDesc": "Enregistré sans vérification du rendu : le serveur n'a pas pu démarrer son navigateur. Ouvrez-le pour vérifier qu'il s'affiche."
     },
     "createWidget": {
       "creatingDataModel": "Création du modèle de données",
@@ -2156,13 +2281,14 @@
     "fullAdminAccessTab": "L'accès administrateur complet inclut tous les agents, connexions et modèles.",
     "includedWith": "Inclus avec {name}",
     "searchResources": "Rechercher…",
-    "addAccess": "Ajouter un agent, une connexion ou un modèle",
-    "accessEmpty": "Aucun agent, connexion ou modèle pour l'instant. Les agents publics sont toujours disponibles.",
+    "addAccess": "Choisir une ressource",
+    "accessEmpty": "Choisir une ressource",
     "publicAgents": "{n} agents publics sont accessibles à tous.",
     "types": {
       "data_source": "Agent",
       "connection": "Connexion",
-      "llm_model": "Modèle"
+      "llm_model": "Modèle",
+      "folder": "Dossier"
     },
     "levels": {
       "use": "Peut utiliser",
@@ -2180,7 +2306,9 @@
       "connectionsMany": "{n} connexions",
       "modelsOne": "1 modèle",
       "modelsMany": "{n} modèles",
-      "everything": "Toutes les permissions"
+      "everything": "Toutes les permissions",
+      "foldersOne": "1 Dossier",
+      "foldersMany": "{n} dossiers"
     },
     "resourcePermissions": {
       "data_source": {
@@ -3251,7 +3379,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Requêtes simultanées par connexion",
-          "description": "Combien de requêtes de l'agent peuvent s'exécuter en même temps sur une même connexion, par réplique. Ce qui dépasse attend une place au lieu d'échouer. À abaisser pour les sources on-premise fragiles (Oracle, SQL Server) qui ne supportent pas les analyses parallèles. La configuration d'une connexion peut le remplacer par sa propre valeur 'max_concurrent_queries'."
+          "description": "Combien de requêtes de l'agent peuvent s'exécuter en même temps sur une même connexion, tous workers et répliques confondus. Ce qui dépasse attend une place au lieu d'échouer. À abaisser pour les sources on-premise fragiles (Oracle, SQL Server) qui ne supportent pas les analyses parallèles. La configuration d'une connexion peut le remplacer par sa propre valeur 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K des schémas",
@@ -3686,7 +3814,20 @@
       "testTitle": "Testez vos règles",
       "title": "Protection des données personnelles"
     },
-    "piiTab": "Données personnelles"
+    "piiTab": "Données personnelles",
+    "frameAncestors": {
+      "title": "Sites pouvant afficher BOW",
+      "description": "Vos propres applications autorisées à afficher BOW dans un cadre, comme un portail interne. Cette liste s'applique à toutes les organisations de cette instance.",
+      "placeholder": "https://portal.example.com",
+      "add": "Ajouter",
+      "removeSite": "Retirer {site}",
+      "empty": "Aucun site ajouté. BOW ne peut apparaître que dans ses propres pages et dans Microsoft Office.",
+      "ssoNote": "La connexion dans le cadre fonctionne avec e-mail et mot de passe. L'authentification unique (SSO) ne fonctionne pas dans un cadre.",
+      "readOnly": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut modifier cette liste.",
+      "duplicate": "Ce site est déjà dans la liste.",
+      "invalidFormat": "Saisissez une adresse commençant par https://, sans chemin. Par exemple : https://portal.example.com",
+      "publicNote": "Ces adresses sont visibles par tous : les navigateurs les reçoivent avec chaque page."
+    }
   },
   "data": {
     "keepSavedSecret": "Laisser vide pour conserver le secret enregistré",
@@ -4200,6 +4341,7 @@
       "search_file": "Rechercher dans les fichiers",
       "system_status": "Consulter l’état du système"
     },
+    "networkDirIndexDescription": "Le mode en direct lit les fichiers à la demande. La liste des fichiers conserve les noms, les tailles et les dates. Les modes Mots-clés et Texte intégral conservent aussi les données PCAP et QVD décodées pour les requêtes SQL. Le mode Texte intégral indexe le contenu des documents pour la recherche. L’actualisation traite les fichiers modifiés.",
     "sshSetup": {
       "title": "Vérifier l’identité du serveur",
       "hint": "Comparez l’empreinte avec celle fournie par l’administrateur ou des données SSH fiables. Récupérer une clé ne la vérifie pas.",
@@ -4467,7 +4609,12 @@
     "access_request.too_soon": "Votre demande précédente a été refusée. Vous pourrez redemander plus tard.",
     "access_request.no_approvers": "Personne ne peut approuver les demandes pour ce tableau de bord pour le moment.",
     "access_request.not_found": "Cette demande n'existe plus.",
-    "access_request.already_decided": "Cette demande a déjà été traitée."
+    "access_request.already_decided": "Cette demande a déjà été traitée.",
+    "frame_ancestors.invalid": "Ces adresses de site ne sont pas valides : {origins}. Utilisez une adresse https sans chemin, par exemple https://portal.example.com.",
+    "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites.",
+    "connection.query_not_found": "Requête introuvable sur cette connexion.",
+    "connection.query_finished": "Cette requête est déjà terminée ({status}).",
+    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps."
   },
   "email": {
     "dashboardShare": {
@@ -6958,6 +7105,9 @@
     "unsaved": "Modifications non enregistrées",
     "tabGeneral": "Général",
     "nameTitle": "Nom",
+    "descriptionTitle": "Description",
+    "descriptionPlaceholder": "Ce que montre ce tableau de bord et à qui il s'adresse",
+    "descriptionHelp": "Facultatif. Affiché aux lecteurs au survol, à côté du nom.",
     "linkTitle": "Lien",
     "refreshTitle": "Actualiser les données",
     "linkPreview": "Lien :",
@@ -7170,5 +7320,122 @@
     "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
     "added": "Membres ajoutés",
     "addFailed": "Échec de l’ajout des membres"
+  },
+  "productUpdates": {
+    "checkbox": "M'envoyer les nouveautés du produit",
+    "checkboxWithEmail": "Envoyer les nouveautés du produit à {email}",
+    "settingsTitle": "Nouveautés du produit",
+    "toggleLabel": "Recevoir les nouveautés du produit par e-mail",
+    "sentTo": "Envoyé à {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Voir le dossier",
+    "attach": "Associer un élément",
+    "addCase": "Ajouter un cas",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Peut interroger",
+    "manager": "Peut gérer",
+    "hints": "Le droit de requête couvre les agents du dossier. La gestion permet aussi de modifier et de partager.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Racine de l’organisation",
+    "inherit": "Hériter des accès du dossier parent",
+    "direct": "Accès direct de {name}",
+    "stopConfirm": "Désactiver l’héritage ? Les droits hérités de {names} ne s’appliqueront plus."
+  },
+  "connectionQueries": {
+    "tabSettings": "Paramètres",
+    "tabQueries": "Requêtes",
+    "runningNow": "en cours",
+    "queuedCount": "{n} en attente d'une place",
+    "limitFromConnection": "Limite définie sur cette connexion",
+    "limitFromOrg": "Limite par défaut de l'organisation",
+    "limitDefault": "Limite par défaut du système",
+    "live": "En direct",
+    "liveHint": "Mise à jour toutes les 2 secondes",
+    "refresh": "Actualiser",
+    "loadFailed": "Impossible de charger les requêtes",
+    "unavailableTitle": "Impossible de charger les requêtes de cette connexion",
+    "unavailableOutdated": "Ce serveur n'a pas encore la vue Requêtes. Il exécute probablement une version de Bag of Words plus ancienne que cette page ; mettez le serveur à jour et réessayez.",
+    "runningTitle": "En cours",
+    "noneRunning": "Aucune requête n'est en cours sur cette connexion.",
+    "waitingFor": "en attente depuis {time}",
+    "runningFor": "en cours depuis {time}",
+    "stopping": "Arrêt…",
+    "killConfirm": "Arrêter cette requête ?",
+    "kill": "Arrêter",
+    "killFailed": "Impossible d'arrêter la requête",
+    "notKillable": "Impossible d'arrêter ici",
+    "notKillableHint": "Le client de cette connexion applique sa propre limite de temps : BOW ne peut pas l'interrompre. La requête se terminera d'elle-même.",
+    "historyTitle": "Historique",
+    "filterAll": "Tous les statuts",
+    "searchPlaceholder": "Rechercher dans le texte",
+    "noMatches": "Aucune requête ne correspond à ces filtres.",
+    "noHistory": "Aucune requête n'a encore été exécutée sur cette connexion.",
+    "colStatus": "Statut",
+    "colQuery": "Requête",
+    "colWho": "Qui",
+    "colDuration": "Durée",
+    "colWait": "Attente",
+    "colRows": "Lignes",
+    "colWhen": "Quand",
+    "loadMore": "Charger plus",
+    "retentionNote": "L'historique est conservé 90 jours. Seuls les gestionnaires de la connexion peuvent voir et arrêter les requêtes ici.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Système",
+    "agent": "Agent",
+    "attempt": "Tentative",
+    "attemptValue": "tentative de code {code} · tentative d'outil {tool} · requête n° {seq}",
+    "started": "Début",
+    "ended": "Fin",
+    "killedBy": "Arrêtée par",
+    "sourceCancel": "Annulation à la source",
+    "copied": "Copié",
+    "copy": "Copier",
+    "truncated": "Le texte de la requête a été tronqué à l'enregistrement.",
+    "openReport": "Ouvrir le rapport",
+    "openReportNamed": "Ouvrir le rapport : {title}",
+    "status": {
+      "queued": "En attente",
+      "running": "En cours",
+      "success": "Réussie",
+      "error": "Échouée",
+      "timeout": "Délai dépassé",
+      "busy": "Occupée",
+      "cancelled": "Annulée",
+      "stale": "Abandonnée"
+    },
+    "source": {
+      "label": "Origine",
+      "chat": "Chat",
+      "eval": "Évaluation",
+      "query": "Requête",
+      "entity": "Entité",
+      "dashboard": "Tableau de bord",
+      "viewer": "Actualisation lecteur",
+      "scheduled": "Planifiée",
+      "system": "Système"
+    },
+    "reason": {
+      "killed": "Annulée par un gestionnaire de la connexion.",
+      "killed_waiting": "Annulée par un gestionnaire de la connexion pendant l'attente d'une place.",
+      "run_stopped": "Arrêtée parce que l'exécution qui l'a envoyée a été arrêtée.",
+      "stale": "Le processus qui exécutait cette requête ne répond plus ; sa place a été libérée.",
+      "busy": "Aucune place libérée à temps : la connexion était à sa limite de requêtes simultanées."
+    }
   }
 }

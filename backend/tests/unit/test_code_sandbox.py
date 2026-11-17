@@ -382,14 +382,18 @@ def generate_df(ds_clients, excel_files):
 def test_abort_before_the_query_thread_registers_still_cancels_the_query(monkeypatch):
     # The runner's abort thread and the wrapper's query thread race at job
     # cancellation. If the abort lands before the query thread is running,
-    # it must be remembered and honoured once the thread starts, not lost.
+    # it must be remembered and honoured, not lost: the statement is never
+    # handed to the source at all (nothing to cancel there).
     from app.data_sources import query_cancellation
+    from app.data_sources.query_executions import QueryRunStoppedError
 
     released = threading.Event()
     cancelled = threading.Event()
+    called = threading.Event()
 
     class Client:
         def execute_query(self, query):
+            called.set()
             released.wait(timeout=10)
             return pd.DataFrame({"ok": [1]})
 
@@ -405,8 +409,9 @@ def test_abort_before_the_query_thread_registers_still_cancels_the_query(monkeyp
     wrapper = QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30)
     wrapper.cancel_active_query()  # abort arrives first: nothing is running yet
     assert not cancelled.is_set()
-    df = wrapper.execute_query("SELECT 1")  # the query path picks the abort up itself
-    assert cancelled.is_set() and df["ok"].tolist() == [1]
+    with pytest.raises(QueryRunStoppedError):
+        wrapper.execute_query("SELECT 1")  # the query path picks the abort up itself
+    assert not called.is_set()
 
     # And the ordinary order still works: a running query is cancelled directly.
     released.clear()

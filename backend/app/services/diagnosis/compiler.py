@@ -25,7 +25,8 @@ from sqlalchemy.sql import ColumnElement
 from app.models.agent_execution import AgentExecution as AE
 from app.models.data_source import DataSource
 from app.models.report import Report
-from app.models.report_data_source_association import report_data_source_association as assoc
+from app.services.folder_monitoring import execution_links
+assoc = execution_links()
 from app.models.table_usage_event import TableUsageEvent as TUE
 from app.models.tool_execution import ToolExecution as TE
 from app.models.user import User
@@ -276,14 +277,14 @@ def _run_term(node: dict, ctx: CompileContext):
         return parts[0] if len(parts) == 1 else or_(*parts)
 
     if field == "agent":
-        sub = select(assoc.c.report_id).join(DataSource, DataSource.id == assoc.c.data_source_id)
+        sub = select(assoc.c.execution_id).join(DataSource, DataSource.id == assoc.c.data_source_id)
         if op == "has":
-            return AE.report_id.in_(select(assoc.c.report_id))
+            return AE.id.in_(select(assoc.c.execution_id))
         if op == "wild":
             sub = sub.where(_wild(DataSource.name, values[0]["s"]))
         else:
             sub = sub.where(or_(*[_ci_eq(DataSource.name, v["s"]) for v in values]))
-        return AE.report_id.in_(sub)
+        return AE.id.in_(sub)
 
     if field == "platform":
         if op == "has":

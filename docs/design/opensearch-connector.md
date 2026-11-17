@@ -245,6 +245,7 @@ passed:
 
 ### 3. The app next to it
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip `boot_stack.sh` and `seed_org.py`; the stack is already running with the admin, org, LLM and demo data source provisioned (`bow-stack status`; pick up a new client or dependency with `bow-stack restart backend`). See the root `AGENTS.md`, "DevBox".
 `tools/agent/boot_stack.sh` (+ `seed_org.py`) boots backend :8000 / frontend
 :3000 in the sandbox — the standard loop used by existing feedback-loop docs.
 The backend connects to `localhost:9200` directly (`no_proxy` covers

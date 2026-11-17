@@ -69,6 +69,16 @@
                                 <p v-if="!rename" class="text-2xs text-ink-muted mt-1">{{ capabilities?.includes('transfer') ? tm('dashboardSettings.renameInConversation', artifactMode) : $t('dashboardSettings.ownerOnly') }}</p>
                             </div>
 
+                            <!-- A short blurb shown to readers on hover, beside the full
+                                 name. Optional; saved on the same Save as the link name. -->
+                            <div data-testid="settings-description">
+                                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5" for="dashboard-settings-description">{{ $t('dashboardSettings.descriptionTitle') }}</label>
+                                <textarea v-text-dir id="dashboard-settings-description" v-model="descriptionDraft" rows="3" maxlength="2000" :disabled="!canSettings"
+                                    :placeholder="tm('dashboardSettings.descriptionPlaceholder', artifactMode)"
+                                    class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60 resize-y" />
+                                <p class="text-2xs text-ink-muted mt-1">{{ $t('dashboardSettings.descriptionHelp') }}</p>
+                            </div>
+
                             <div data-testid="settings-link">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.linkTitle') }}</div>
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">{{ tm('dashboardSettings.linkDesc', artifactMode) }}</p>
@@ -283,6 +293,8 @@
                                             </span>
                                         </label>
                                         <div v-if="agentsMode === 'limited'" class="ms-6 space-y-1" data-testid="agents-choices">
+                                            <AgentFolderFilter :agents="agentChoices" :selected="chatAgentIds" :disabled="!canSettings"
+                                                @select="ids => chatAgentIds = [...new Set([...chatAgentIds, ...ids])]" />
                                             <label v-for="agent in agentChoices" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
                                                 <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="!canSettings" />
                                                 <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
@@ -618,6 +630,9 @@ async function onTransferred() {
 const nameDraft = ref('')
 const nameChanged = computed(() => !!props.rename && !!nameDraft.value.trim() && nameDraft.value.trim() !== (props.title || ''))
 
+// ---- Description (saved with the rest, via the settings endpoint) ----
+const descriptionDraft = ref('')
+
 // ---- Link name ----
 const slugDraft = ref('')
 // The saved link name: what an embed snippet names the artifact by.
@@ -653,10 +668,7 @@ const saved = ref<Record<string, any>>({})
 function chatIdsPayload(): string[] | null {
     if (bubbleDataOnly.value) return []
     if (agentsMode.value === 'auto') return ['*']
-    const all = agentChoices.value.map(a => a.id)
-    const picked = chatAgentIds.value.filter(id => all.includes(id))
-    // Nothing picked is not a limit: back to Auto (["*"] resets it server-side).
-    return picked.length ? picked : ['*']
+    return [...chatAgentIds.value]
 }
 
 function current(): Record<string, any> {
@@ -673,6 +685,7 @@ function current(): Record<string, any> {
         chat_model_id: chatModelId.value === INHERIT_MODEL ? '' : chatModelId.value,
         shared_run_identity: runAsCreator.value ? 'creator' : 'viewer',
         slug: slugDraft.value.trim(),
+        description: descriptionDraft.value.trim(),
     }
 }
 const changes = computed(() => {
@@ -724,7 +737,8 @@ async function load() {
             orgAgents.value = (((data.value as any[]) || [])).map((a: any) => ({ id: String(a.id), name: a.name }))
         }).catch(() => {})
         chatModelId.value = st.chat_model_id || INHERIT_MODEL
-        chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
+        // Image-generation models can't chat; the server also rejects them.
+        chatModels.value = ((modelsRes.data.value as any[]) || []).filter((m: any) => !m?.supports_image_generation).map((m: any) => ({
             id: m.id, name: m.name || m.model_id, provider: m.provider?.name, isDefault: !!m.is_default,
         }))
         runAsCreator.value = st.shared_run_identity === 'creator'
@@ -732,6 +746,7 @@ async function load() {
         hasUserScoped.value = !!report.has_user_scoped
         slugDraft.value = st.slug || ''
         savedSlug.value = st.slug || null
+        descriptionDraft.value = st.description || ''
         nameDraft.value = props.title || ''
         saved.value = current()
     } catch (e) {

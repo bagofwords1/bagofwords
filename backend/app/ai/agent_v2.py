@@ -14,6 +14,7 @@ from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
 from sqlalchemy.orm.attributes import set_committed_value
+from app.models.report import report_folder_ids
 from app.services.conversation_surface import is_app_conversation, is_dashboard_chat
 
 from app.data_sources.clients.base import Capability
@@ -120,6 +121,53 @@ def list_save_failure_final_answer(list_name, errors) -> str:
     )
 
 
+# Consecutive failed dashboard builds (create_artifact / edit_artifact) in one
+# turn before the agent is told to change approach, and before the turn is
+# ended. Each attempt is a full code generation plus a render; a run seen live
+# made 15 in a row on one mistake (about 900k tokens) and was still going.
+ARTIFACT_BUILD_WARN_AT = 2
+ARTIFACT_BUILD_STOP_AT = 4
+ARTIFACT_BUILD_TOOLS = frozenset({"create_artifact", "edit_artifact"})
+
+
+def artifact_build_failure_action(streak: dict, failed: bool) -> Optional[str]:
+    """Streak of failed dashboard builds in this run.
+
+    Returns 'warn' on the ARTIFACT_BUILD_WARN_AT-th consecutive failure, 'stop'
+    from ARTIFACT_BUILD_STOP_AT on, else None. Any successful build resets it.
+    create_artifact and edit_artifact share the streak: switching tool is not a
+    new approach."""
+    if not failed:
+        streak["n"] = 0
+        return None
+    n = streak.get("n", 0) + 1
+    streak["n"] = n
+    if n >= ARTIFACT_BUILD_STOP_AT:
+        return "stop"
+    if n == ARTIFACT_BUILD_WARN_AT:
+        return "warn"
+    return None
+
+
+def artifact_build_failure_note(times: int) -> str:
+    return (
+        f"NOTE: building this dashboard has now failed {times} times in a row. Do not resubmit the "
+        "same code with small variations. Read the error and its remediation above and change exactly "
+        f"that; if you cannot, write a much simpler page. After {ARTIFACT_BUILD_STOP_AT} consecutive "
+        "failures the turn ends."
+    )
+
+
+def artifact_build_failure_final_answer(last_error) -> str:
+    detail = str(last_error or "").strip().replace("\n", " ")[:300]
+    return (
+        f"I could not build the dashboard: it failed {ARTIFACT_BUILD_STOP_AT} times in a row, so I stopped "
+        "retrying. Nothing was saved."
+        + (f" Last error: {detail}" if detail else "")
+        + " You can ask me to try again, or to build a simpler version."
+    )
+
+
 def _issued_args(arguments) -> dict:
     """A tool call's arguments as the model issued them, minus server-side
     annotations (``_progress`` and friends are added after the call)."""
@@ -196,7 +244,9 @@ def capabilities_for_agents(agents) -> set:
                 logger.warning("capabilities: no client class for connection type %r",
                                getattr(conn, "type", None), exc_info=True)
                 continue
-            for cap in getattr(cls, "capabilities", set()) or set():
+            config_caps = getattr(cls, "capabilities_for_config", None)
+            declared = config_caps(getattr(conn, "config", None)) if config_caps else getattr(cls, "capabilities", set())
+            for cap in declared or set():
                 caps.add(getattr(cap, "value", str(cap)))
     return caps
 
@@ -505,6 +555,7 @@ from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
 from app.data_sources.query_tag import set_query_tag_scope, reset_query_tag_scope
+from app.data_sources import query_executions as _query_executions
 from app.ai.agents.planner.run_efficiency import RunEfficiency, enabled as run_efficiency_enabled
 from app.ai.llm.header_injection import (
     QuestionAgents,
@@ -1275,6 +1326,12 @@ class AgentV2:
             except Exception:
                 logger.warning("Failed to load project files", exc_info=True)
                 self._project_files_cache = []
+        if getattr(self.report, "agent_folder_id", None):
+            from app.ai.context.agent_files import merge_files
+            from app.services.folder_knowledge import report_folder_files
+            folder_files = await report_folder_files(self.db, self.organization, getattr(self.head_completion, "user", None), self.report)
+            self._has_folder_files = bool(folder_files)
+            return merge_files(self._project_files_cache, folder_files)
         return self._project_files_cache
 
     async def _resolve_user_profile(self) -> tuple[Optional[str], Optional[str], Optional[str], Optional[dict]]:
@@ -1657,14 +1714,19 @@ class AgentV2:
                 [str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or [])]
                 if self.report else []
             )
-            focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
+            if getattr(self.report, "agent_folder_id", None):
+                if len(roster_ids) == 1:
+                    explicit = list(roster_ids)
+                focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids), threshold=1)
+            else:
+                focus_ids, mode = decide_focus_mode(roster_ids, explicit, len(roster_ids))
             if mode == "all":
                 return full_scope
             loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
             return sorted(((set(focus_ids) | loaded) & roster_ids) | connector_ids)
         except Exception:
             logger.exception("instruction scope resolve failed; using full attached scope")
-            return [str(d.id) for d in (self.data_sources or [])] or None
+            return [str(d.id) for d in (self.data_sources or [])] or ([] if getattr(self.report, "agent_folder_id", None) else None)
 
     def _connector_ids(self) -> set:
         """Ids of the run's connectors (each person's own accounts/tools — see
@@ -1755,6 +1817,9 @@ class AgentV2:
                 _rtk = 10
             _rtk = max(1, min(100, _rtk))
             _loaded = {str(x) for x in (getattr(self, "loaded_agent_ids", ()) or ())}
+            folder_scope = getattr(self.report, "agent_folder_id", None)
+            if folder_scope and len(_roster_sources) == 1:
+                report_focus = [str(_roster_sources[0].id)]
             focus_ids, roster_xml, _mode = await build_focus_and_roster(
                 self.db,
                 self.organization,
@@ -1764,7 +1829,20 @@ class AgentV2:
                 report_focus,
                 top_k=_rtk,
                 loaded_ids=list(_loaded),
+                **({"threshold": 1} if folder_scope else {}),
             )
+            if folder_scope and roster_xml:
+                from app.ai.context.agent_roster import FOLDER_ROUTING_GUIDANCE
+                roster_xml += "\n<folder_routing>" + FOLDER_ROUTING_GUIDANCE + "</folder_routing>"
+            # Cached schemas can be shared across users. Add visible paths on
+            # private copies only, after resolving this reader's permissions.
+            from app.services.folder_service import visible_agent_paths
+            paths = await visible_agent_paths(self.db, self.organization, user, _roster_sources)
+            if paths:
+                schemas_ctx = schemas_ctx.model_copy(update={"data_sources": [
+                    section.model_copy(update={"info": section.info.model_copy(update={"folder_path": paths[str(section.info.id)]})})
+                    if str(section.info.id) in paths else section for section in schemas_ctx.data_sources
+                ]})
             if _mode == "all":
                 # Few agents attached (manual selection or small Auto scope):
                 # full schema as always. A manual selection is a hard scope —
@@ -4296,10 +4374,105 @@ class AgentV2:
                 "[routing] active: %d candidate(s), starting model=%s",
                 len(candidates), getattr(self.model, "name", None),
             )
+            # Upfront pick with a decision model (org setting
+            # model_routing_decision.method == "decision"). Only when the run
+            # actually started small under the router; never raises.
+            if (getattr(self, "_routing_meta", None) or {}).get("routed"):
+                try:
+                    await self._apply_upfront_routing_decision(candidates)
+                except Exception:
+                    logger.warning("[routing] upfront decision failed; keeping small model", exc_info=True)
+                # The "(currently active)" marker in the tool schema follows the
+                # model the run now starts on.
+                schema = build_route_model_schema(candidates, current_model_id=str(getattr(self.model, "id", "")))
+                for t in catalog:
+                    if t.name == "route_model":
+                        t.schema = schema
         else:
             # Routing inactive — never advertise the tool.
             if has_tool:
                 self.planner.tool_catalog = [t for t in catalog if t.name != "route_model"]
+
+    async def _apply_upfront_routing_decision(self, candidates) -> None:
+        """Ask the org's decision model which candidate this run should start
+        on; switch to it when the pick is confident and not the small model.
+
+        The switch reuses the escalation path (same propagation to tools, same
+        completion-model stamping), so the planner can still escalate further
+        with route_model. A non-small pick is disclosed in the chat as a
+        ``route_model`` step with ``cause="decision"`` and its probabilities.
+        """
+        from app.ai.model_router import decide_starting_model, routing_decision_settings
+        if routing_decision_settings(self.organization_settings)["method"] != "decision":
+            return
+        prompt_text = ""
+        if self.head_completion is not None and getattr(self.head_completion, "prompt", None):
+            prompt_text = (self.head_completion.prompt or {}).get("content", "") or ""
+        outcome = await decide_starting_model(
+            self.db, self.organization, self.organization_settings,
+            candidates=candidates, small_model=self.model, prompt_text=prompt_text,
+            usage_context=self.usage_limit_context,
+        )
+        if outcome.model is None:
+            logger.info("[routing] upfront decision kept small model (%s)", outcome.reason)
+            return
+        prev_name = getattr(self.model, "name", None)
+        target = outcome.model
+        self._apply_routed_model(target)
+        logger.info(
+            "[routing] decision model picked %s over %s (confidence=%.2f)",
+            target.name, prev_name, outcome.confidence,
+        )
+        decision_name = getattr(outcome.decision_model, "name", None)
+        try:
+            te = await self.project_manager.start_tool_execution(
+                self.db,
+                agent_execution=self.current_execution,
+                plan_decision_id=None,
+                tool_name="route_model",
+                tool_action="decision",
+                arguments_json={"cause": "decision"},
+                persist_before_dispatch=False,
+            )
+            te = await self.project_manager.finish_tool_execution(
+                self.db,
+                tool_execution=te,
+                status="success",
+                success=True,
+                result_summary=f"Routed to {target.name} ({round(outcome.confidence * 100)}% match)",
+                result_json={
+                    "routed": True,
+                    "cause": "decision",
+                    "model": target.model_id,
+                    "model_name": target.name,
+                    "provider_type": getattr(getattr(target, "provider", None), "provider_type", None),
+                    "from_model": prev_name,
+                    "confidence": outcome.confidence,
+                    "probabilities": outcome.probabilities[:5],
+                    "decision_model": decision_name,
+                    "latency_ms": outcome.latency_ms,
+                },
+            )
+            block = await self.project_manager.insert_standalone_tool_block(
+                self.db,
+                completion=self.system_completion,
+                agent_execution=self.current_execution,
+                tool_execution=te,
+                loop_index=0,
+                title="Model routing",
+                icon="🔀",
+            )
+            block_schema = await serialize_block_v2(self.db, block)
+            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+            await self._emit_sse_event(SSEEvent(
+                event="block.upsert",
+                completion_id=str(self.system_completion_id),
+                agent_execution_id=str(self.current_execution.id),
+                seq=seq,
+                data={"block": block_schema.model_dump()},
+            ))
+        except Exception as exc:
+            logger.warning(f"[routing] decision block persist failed: {exc!r}")
 
     async def _setup_delegate_models(self) -> None:
         """Give the delegate tool this user's models as its `model` choices.
@@ -4796,6 +4969,24 @@ class AgentV2:
             self._artifact_check_run = run
         return run
 
+    def _is_watched_run(self) -> bool:
+        """A person started this turn and is waiting for it.
+
+        Machine turns are marked on the head completion: ``trigger_source``
+        (sub-agents, check-ins, waits, eval runs), ``webhook_id`` and
+        ``scheduled_prompt_id``. Eval runs are batch work too.
+        """
+        if getattr(self, "is_eval_run", False):
+            return False
+        head = getattr(self, "head_completion", None)
+        if head is None:
+            return True
+        return not (
+            getattr(head, "trigger_source", None)
+            or getattr(head, "webhook_id", None)
+            or getattr(head, "scheduled_prompt_id", None)
+        )
+
     async def _release_db_between_steps(self) -> None:
         """Commit the agent's main session so its pooled DB connection is returned
         to the pool during the upcoming long awaits (planner LLM call, tool /
@@ -5284,6 +5475,10 @@ class AgentV2:
             source="agent_eval" if getattr(self, "is_eval_run", False) else "agent",
             completion_id=str(self.system_completion_id) if self.system_completion_id else None,
         )
+        # Whether someone is watching this run: a full connection fails a
+        # watched query fast (BOW_QUERY_SLOT_WAIT_SECONDS) but lets a scheduled,
+        # webhook, check-in or sub-agent run queue for its whole query timeout.
+        _slot_attribution_token = _query_executions.set_attribution(interactive=self._is_watched_run())
         # Stamp the caller's identity for LLM header injection: providers with
         # header_injection rules (additional_config) resolve user.email /
         # membership.attr:* against this when their clients are constructed, so
@@ -5343,6 +5538,10 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
+            if getattr(self.report, "agent_folder_id", None):
+                self.current_execution.starting_folder_ids = report_folder_ids(self.report)
+                self.current_execution.starting_folder_id = self.report.agent_folder_id
+                await self.db.commit()
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_agent:
@@ -5665,6 +5864,8 @@ class AgentV2:
                                   "group_id": f"verification:{self.current_execution.id}"}
             total_artifact_calls = 0
             max_total_artifact_calls = 4
+            # Consecutive failed builds this turn (see ARTIFACT_BUILD_STOP_AT).
+            artifact_build_failures: Dict[str, int] = {"n": 0}
             artifact_refusals = {"n": 0}
             # Last artifact version this turn actually saved, so a budget
             # refusal can report the real state rather than a bare failure.
@@ -5905,6 +6106,7 @@ class AgentV2:
                                     current_user=getattr(self.head_completion, "user", None) if self.head_completion else None,
                                     organization_settings=self.organization_settings,
                                     data_source_ids=_instr_scope,
+                                    folder_id=report_folder_ids(self.report),
                                     mode=self._instruction_mode,
                                     channel=getattr(self.context_hub, "instruction_channel", None),
                                     application_id=getattr(self.context_hub, "application_id", None),
@@ -7857,6 +8059,21 @@ class AgentV2:
                                                 _lerr.get("errors") if isinstance(_lerr, dict) else None,
                                             ),
                                         })
+                                if _tn in ARTIFACT_BUILD_TOOLS and isinstance(_obs, dict):
+                                    _aba = artifact_build_failure_action(
+                                        artifact_build_failures, _observation_failed(_obs),
+                                    )
+                                    if _aba == "warn":
+                                        _obs["repeat_warning"] = artifact_build_failure_note(ARTIFACT_BUILD_WARN_AT)
+                                    elif _aba == "stop":
+                                        _aerr = _obs.get("error")
+                                        analysis_done = True
+                                        _obs.update({
+                                            "analysis_complete": True,
+                                            "final_answer": artifact_build_failure_final_answer(
+                                                _aerr.get("message") if isinstance(_aerr, dict) else _aerr,
+                                            ),
+                                        })
                                 if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                     successful_tool_actions.append(action_signature)
@@ -8018,6 +8235,10 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
+                            if getattr(self.report, "agent_folder_id", None):
+                                from app.services.folder_monitoring import record_used_agents
+                                await record_used_agents(self.db, self.current_execution.id, self.data_sources,
+                                                         outcomes, self.used_agent_ids)
                             self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
@@ -8562,6 +8783,7 @@ class AgentV2:
             # Drop the ambient LLM usage attribution set at run start.
             reset_usage_attribution(_attribution_token)
             reset_query_tag_scope(_query_tag_token)
+            _query_executions.reset_attribution(_slot_attribution_token)
             if _identity_token is not None:
                 reset_llm_identity(_identity_token)
             # Single-writer mode: drop the self._writes alias. self.db's
@@ -9387,6 +9609,7 @@ class AgentV2:
             bool(getattr(self.report, "files", None))
             or bool(getattr(self, "agent_files", None))
             or bool(getattr(self, "_project_files_cache", None))
+            or bool(getattr(self, "_has_folder_files", False))
         )
 
     def _run_pool_key(self) -> tuple:

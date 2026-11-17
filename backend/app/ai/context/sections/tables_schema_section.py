@@ -160,6 +160,12 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # TeradataClient: the primary index is Teradata's distribution key and the
     # cheapest join path; `kind` says view vs table. Neither is in the name.
     "teradata": ("kind", "primary_index", "primary_index_unique"),
+    # QlikSenseOnPremClient: `Master Items` and `Sheets/<title>` entries are not
+    # physical tables. `objectType` says which kind of entry the agent is
+    # reading (data tables carry none), and a sheet's description is the
+    # author's own statement of what the sheet answers — `Table.description`
+    # is not persisted with the catalog, so this is the only place it renders.
+    "qlik_sense_onprem": ("objectType", "sheetDescription"),
 }
 
 
@@ -933,6 +939,8 @@ class TablesSchemaContext(ContextSection):
 
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
+            if self.info.folder_path:
+                ds_attrs["folder_path"] = self.info.folder_path
             # Only include type if single connection (for backward compatibility)
             if not has_multi_connection and not self.file_scopes and self.info.type:
                 ds_attrs["type"] = self.info.type
@@ -1405,6 +1413,8 @@ class TablesSchemaContext(ContextSection):
                 "name": ds.info.name,
                 "id": ds.info.id,
             }
+            if item_tag != "connector" and ds.info.folder_path:
+                attrs["folder_path"] = ds.info.folder_path
             if item_tag != "connector":
                 attrs["total_tables"] = str(len(getattr(ds, 'tables', []) or []))
             # Only include type for single-connection (backward compatibility)

@@ -124,3 +124,39 @@ async def test_retry_history_does_not_turn_success_into_failure(recovers):
     else:
         assert result['df'] is None
         assert result['errors']
+
+
+@pytest.mark.asyncio
+async def test_a_query_waiting_for_a_connection_slot_is_reported_then_cleared(monkeypatch):
+    # A query queued behind the connection's concurrency limit must say so
+    # (and keep saying so on heartbeats), not look like a stuck "executing".
+    monkeypatch.setattr(code_execution, "_EXECUTION_HEARTBEAT_INTERVAL_S", 0.05, raising=False)
+    executor = StreamingCodeExecutor()
+
+    async def codegen(**kwargs):
+        return _CODE
+
+    async def queued_execute(**kwargs):
+        sink = kwargs["query_attribution"]["progress_sink"]
+        assert kwargs["query_attribution"]["code_attempt"] == 1
+        sink({"connection_name": "warehouse", "running": 3, "limit": 3, "queued_ahead": 1})
+        await asyncio.sleep(0.8)
+        sink(None)
+        await asyncio.sleep(0.6)
+        return pd.DataFrame({"value": [1]}), "", []
+
+    monkeypatch.setattr(executor, "execute_code_async", queued_execute)
+    events = [e async for e in executor.generate_and_execute_stream_v2(
+        request=_request(), ds_clients={}, excel_files=[], code_generator_fn=codegen,
+    )]
+    stages = [e["payload"].get("stage") for e in events if e["type"] == "progress"]
+    waiting = [e["payload"] for e in events if e["type"] == "progress"
+               and e["payload"].get("stage") == "waiting_for_slot"]
+
+    assert waiting and waiting[0]["running"] == 3 and waiting[0]["limit"] == 3
+    assert waiting[0]["connection_name"] == "warehouse"
+    first_wait = stages.index("waiting_for_slot")
+    # Every heartbeat while waiting repeats the wait, never "executing".
+    resumed = stages.index("data_query_execution", first_wait)
+    assert all(s == "waiting_for_slot" for s in stages[first_wait:resumed])
+    assert events[-1]["type"] == "done" and not events[-1]["payload"]["df"].empty

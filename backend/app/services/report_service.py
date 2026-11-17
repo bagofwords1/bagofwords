@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload, lazyload, noload
+from app.models.report import report_folder_ids
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.project_schema import ProjectMiniSchema
@@ -772,6 +773,7 @@ class ReportService:
             select(Report)
             .options(
                 lazyload("*"),
+                selectinload(Report.additional_folders),
                 # UserSchema serializes external_user_mappings — load it, the
                 # top-level wildcard turned User's own eager defaults off too.
                 selectinload(Report.user).selectinload(User.external_user_mappings),
@@ -819,6 +821,8 @@ class ReportService:
         app_version = await self._detect_app_version(db, report.id)
 
         report_schema = ReportSchema(
+            agent_folder_id=report.agent_folder_id,
+            agent_folder_ids=report_folder_ids(report),
             id=report.id,
             title=report.title,
             status=report.status,
@@ -966,7 +970,7 @@ class ReportService:
         db: AsyncSession,
         current_user: User,
         organization: Organization,
-        training_ds_ids: list[str],
+        training_ds_ids: list[str], folder_id: str | list[str] | None = None,
     ) -> None:
         """Gate for putting a report into training mode.
 
@@ -1012,7 +1016,12 @@ class ReportService:
                 for ds in training_ds_ids
             )
         )
-        if not can_train and not training_ds_ids:
+        if folder_id:
+            folders = [folder_id] if isinstance(folder_id, str) else folder_id
+            can_train = all(resolved.has_resource_permission("folder", fid, "manage_instructions") for fid in folders) and (
+                not training_ds_ids or can_train
+            )
+        if not can_train and not training_ds_ids and not folder_id:
             # Agent managers can train against BOW history without attaching
             # a business source. The source applies their manage scope.
             from app.core.console_access import resolve_console_scope
@@ -1028,6 +1037,11 @@ class ReportService:
             )
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
+        folders = list(dict.fromkeys(report_data.agent_folder_ids if report_data.agent_folder_ids is not None
+                                    else ([report_data.agent_folder_id] if report_data.agent_folder_id else [])))
+        from app.services.folder_service import require_report_folder
+        for fid in folders:
+            await require_report_folder(db, organization, current_user, fid, report_data.mode)
         file_uuids = report_data.files or []
         del report_data.files
         data_source_ids = report_data.data_sources or []
@@ -1048,7 +1062,8 @@ class ReportService:
         del report_data.reasoning_effort
 
         # Create the report object
-        report = Report(**report_data.dict())
+        report = Report(**report_data.model_dump(exclude={"agent_folder_ids", "agent_folder_id"}))
+        report.set_scope_folders(folders)
         # Creating inside a project requires view access on it (member-level).
         # Project defaults (agents/files) are copied onto the new report here —
         # they then flow through the exact same access filters as explicitly
@@ -1063,7 +1078,7 @@ class ReportService:
             # Project default agents apply only when the creator didn't pick
             # agents explicitly — an explicit selection overrides the defaults
             # instead of being union-ed with them.
-            if not data_source_ids:
+            if not data_source_ids and report.agent_folder_id is None:
                 data_source_ids = await project_service.get_default_data_source_ids(db, project.id)
             # Project FILES are not copied: they are inherited live at
             # context-build time (FilesContextBuilder / file tools), so
@@ -1075,7 +1090,7 @@ class ReportService:
         # request leaves no half-created chat report behind.
         if requested_mode == 'training':
             await self._assert_can_enter_training_mode(
-                db, current_user, organization, [str(x) for x in data_source_ids]
+                db, current_user, organization, [str(x) for x in data_source_ids], folders
             )
         report.mode = requested_mode
         # Same gate as ReportUpdate.model_id: the creator must actually be able
@@ -1230,16 +1245,23 @@ class ReportService:
             report.theme_name = report_data.theme_name
         if hasattr(report_data, 'theme_overrides') and report_data.theme_overrides is not None:
             report.theme_overrides = report_data.theme_overrides
-        # Persist mode update if present in payload
-        if hasattr(report_data, 'mode') and report_data.mode is not None:
-            if report_data.mode == 'training':
-                if report_data.data_sources is not None:
-                    training_ds_ids = [str(x) for x in report_data.data_sources]
-                else:
-                    training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
-                await self._assert_can_enter_training_mode(
-                    db, current_user, organization, training_ds_ids
-                )
+        scope_changed = bool({"agent_folder_ids", "agent_folder_id", "data_sources"} & report_data.model_fields_set)
+        if report_data.agent_folder_ids is not None:
+            folders = list(dict.fromkeys(report_data.agent_folder_ids))
+        elif "agent_folder_id" in report_data.model_fields_set:
+            folders = [report_data.agent_folder_id] if report_data.agent_folder_id else []
+        elif report_data.data_sources is not None:
+            folders = []
+        else:
+            folders = report_folder_ids(report)
+        if scope_changed:
+            from app.services.folder_service import require_report_folder
+            for fid in folders:
+                await require_report_folder(db, organization, current_user, fid, report_data.mode or report.mode)
+        if (scope_changed or report_data.mode is not None) and (report_data.mode or report.mode) == "training":
+            ids = report_data.data_sources if scope_changed else [ds.id for ds in report.data_sources]
+            await self._assert_can_enter_training_mode(db, current_user, organization, ids or [], folders)
+        if report_data.mode is not None:
             report.mode = report_data.mode
         # Persist report-level LLM override if present in payload.
         #   None          -> field omitted, leave the current value untouched
@@ -1304,6 +1326,11 @@ class ReportService:
             from app.services.artifact_service import follow_conversation_project
             await follow_conversation_project(db, [str(report.id)], report.project_id)
 
+        if scope_changed:
+            report.set_scope_folders(folders)
+            report.focused_data_source_ids = None
+            if report_data.data_sources is None:
+                report_data.data_sources = []
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             # Snapshot the user-VISIBLE scope before the change — never name a
@@ -1868,7 +1895,26 @@ class ReportService:
         connection_errors: list = []
         # Auto (an unattached report) resolves like the interactive path — the
         # credential user's accessible agents — instead of to an empty set.
-        run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        attached = list(getattr(report, "data_sources", None) or [])
+        try:
+            run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        except HTTPException as e:
+            # None of the report's agents is usable by this identity. That is
+            # a per-source outcome for the viewer gate, not a failed run.
+            if e.status_code != 409 or not attached:
+                raise
+            run_agents = []
+        # A pinned agent this identity can't use (no access, deleted or
+        # disabled) is left out of the run. Name it, so the gate can offer
+        # "ask an admin" instead of showing a silently broken dashboard.
+        running = {str(ds.id) for ds in run_agents}
+        for data_source in attached:
+            if str(data_source.id) not in running:
+                from app.services.access_errors import NO_ACCESS_CODE
+                data_source_errors.append({
+                    "data_source": data_source.name, "data_source_id": str(data_source.id),
+                    "code": NO_ACCESS_CODE, "error": "You do not have access to this data source",
+                })
         for data_source in run_agents:
             try:
                 # Rows filter for the viewer whose result this is, also when
@@ -2472,6 +2518,7 @@ class ReportService:
             select(Report)
             .options(
                 lazyload("*"),
+                selectinload(Report.additional_folders),
                 # UserSchema serializes external_user_mappings — load it, the
                 # top-level wildcard turned User's own eager defaults off too.
                 selectinload(Report.user).selectinload(User.external_user_mappings),

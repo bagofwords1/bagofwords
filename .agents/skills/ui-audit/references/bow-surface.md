@@ -81,6 +81,8 @@ never nudged. This is the single most common cause of a bogus "page redirects to
 finding. `sweep.mjs --login` dismisses it and warns if the dismissal did not take; if you
 build a session another way, click "Skip onboarding" and wait for the URL to change
 (`frontend/tests/fixtures/auth.ts` and `tools/agent/login_and_capture.mjs` both show it).
+In a DevBox (`BOW_SANDBOX_DEVBOX=1`) provisioning already marks onboarding completed, so a
+redirect to `/onboarding` there is worth a look rather than a fixture problem.
 
 **`permissions.global.ts`** — enforces `meta.permissions` and `meta.resourcePermissionAny`.
 Note it **deliberately does not block when permissions have not loaded yet**. A page can
@@ -128,7 +130,9 @@ For an audit, prefer the agent stack (`boot_stack.sh` + `seed_org.py`) and `swee
 --login` — it is the same setup the `qa` and `ui-evidence` skills use, and `seed_org.py`
 gives you a member account for permission checks that the Playwright `setup` project does
 not. `tests/config/admin.json` works as a session source if that suite has already run.
-Either way, do not write a third login flow.
+Either way, do not write a third login flow. In a DevBox (`BOW_SANDBOX_DEVBOX=1`) the agent
+stack is the `bow-stack`-managed one that is already running and seeded: skip
+`boot_stack.sh` and `seed_org.py`, `source tools/agent/devbox_env.sh`, then `sweep.mjs --login`.
 
 Coverage is thin and partly hollow — e.g. `tests/home/home-menu.spec.ts` navigates and
 asserts nothing. Treat the presence of a spec as weak evidence that an area works. Two

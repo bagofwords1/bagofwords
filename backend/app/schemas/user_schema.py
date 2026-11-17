@@ -16,11 +16,21 @@ class UserCreate(schemas.BaseUserCreate):
     # Optional invite token from the sign-up link. Used only to validate the
     # invite at registration; never persisted on the User row.
     invite_token: Optional[str] = None
+    # The first user's "Send me product updates" checkbox. None when the
+    # sign-up page did not show it. Never persisted on the User row.
+    product_updates: Optional[bool] = None
     #password: str = Field(..., min_length=6)
 
     def create_update_dict(self):
         d = super().create_update_dict()
         d.pop("invite_token", None)
+        d.pop("product_updates", None)
+        return d
+
+    def create_update_dict_superuser(self):
+        d = super().create_update_dict_superuser()
+        d.pop("invite_token", None)
+        d.pop("product_updates", None)
         return d
 
 class UserUpdate(schemas.BaseUserUpdate):

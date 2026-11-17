@@ -26,6 +26,7 @@ class ScheduledPromptCreate(BaseModel):
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
     # Agents this task's runs use. None/omitted = the host report's agents.
     data_source_ids: Optional[List[str]] = None
+    agent_folder_ids: Optional[List[str]] = None
 
     @field_validator("prompt", mode="after")
     @classmethod
@@ -50,6 +51,7 @@ class ScheduledPromptUpdate(BaseModel):
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
     # None = unchanged; [] = back to the host report's agents.
     data_source_ids: Optional[List[str]] = None
+    agent_folder_ids: Optional[List[str]] = None
 
     @field_validator("prompt", mode="after")
     @classmethod
@@ -80,6 +82,7 @@ class ScheduledPromptSchema(BaseModel):
     notification_subscribers: Optional[list] = None
     # The task's own agents; None = it runs on the host report's agents.
     data_source_ids: Optional[List[str]] = None
+    agent_folder_ids: Optional[List[str]] = None
     created_at: datetime
     updated_at: datetime
 

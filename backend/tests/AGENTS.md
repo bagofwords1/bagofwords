@@ -22,6 +22,12 @@ that.
   `--db=external` (pre-set `TEST_DATABASE_URL`, for sandboxes without Docker).
   CI runs **both** sqlite and postgres — your test must pass on both; never
   rely on sqlite quirks (case-insensitive LIKE, loose typing, insertion order).
+  **DevBox (`BOW_SANDBOX_DEVBOX=1`):** `TEST_DATABASE_URL` is pre-set to the
+  running app's own database there, and both `--db=postgres` and `--db=external`
+  use a pre-set value — so they would reset the DevBox's data. Point
+  `TEST_DATABASE_URL` at a throwaway database first (e.g. a separate
+  `devbox_postgres_deploy` instance; a DevBox has no Docker for testcontainers).
+  `--db=sqlite` ignores it and is safe.
 - The autouse `run_migrations` fixture gives every e2e/ai test a fresh,
   fully migrated database: the alembic chain runs **once per session** into a
   template (a SQLite file / a `<db>_template` Postgres database) and each test

@@ -10,6 +10,7 @@ from typing import Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.report import report_folder_ids
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.models.organization import Organization
 from app.models.user import User
@@ -46,15 +47,10 @@ def instruction_builder(
         db,
         organization,
         current_user=user,
+        folder_id=report_folder_ids(report),
         organization_settings=organization_settings,
         data_source_ids=[str(ds.id) for ds in data_sources],
         mode=getattr(report, "mode", None),
         channel=MCP_INSTRUCTION_CHANNEL,
     )
 
-
-def in_scope(instruction_agent_ids, report_agent_ids) -> bool:
-    """Global instructions (no agents) apply everywhere; the rest only where
-    one of their agents is in the report."""
-    agents = {str(a) for a in instruction_agent_ids or []}
-    return not agents or bool(agents & {str(a) for a in report_agent_ids})

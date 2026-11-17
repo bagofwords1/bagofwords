@@ -226,6 +226,7 @@ class OrganizationSettingsConfig(BaseModel):
     class GeneralConfig(BaseModel):
         ai_analyst_name: str = "AI Analyst"
         bow_credit: bool = True
+        show_world: bool = False
         # Icon storage fields (disk/object storage)
         icon_key: Optional[str] = None
         icon_url: Optional[str] = None
@@ -361,7 +362,7 @@ class OrganizationSettingsConfig(BaseModel):
     agent_loop_retries: FeatureConfig = FeatureConfig(value=2, name="Agent loop retries", description="How many times the agent may recover from an unexpected error during a run and retry from its latest context, instead of failing the whole run. When retries are exhausted and LLM fallback is enabled, the run switches to the next model in the fallback order before giving up. Clamped to 0-10.", is_lab=False, editable=True)
     limit_code_retries: FeatureConfig = FeatureConfig(value=2, name="Limit code retries", description="How many attempts the LLM gets to generate working code for a data request (initial attempt plus retries on failure). Clamped to 1-10.", is_lab=False, editable=True)
     query_timeout_seconds: FeatureConfig = FeatureConfig(value=180, name="Query timeout (seconds)", description="Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value.", is_lab=False, editable=True)
-    max_concurrent_queries_per_connection: FeatureConfig = FeatureConfig(value=4, name="Concurrent queries per connection", description="How many agent queries may run against one connection at the same time, per replica. A burst above this waits for a slot rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value.", is_lab=False, editable=True)
+    max_concurrent_queries_per_connection: FeatureConfig = FeatureConfig(value=12, name="Concurrent queries per connection", description="How many queries BOW may run against one connection at the same time, across all workers and replicas. A burst above this waits its turn rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value.", is_lab=False, editable=True)
     top_k_schema: FeatureConfig = FeatureConfig(value=10, name="Top K schema", description="The number of schema to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     top_k_metadata_resources: FeatureConfig = FeatureConfig(value=10, name="Top K metadata resources", description="The number of metadata resources to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     agent_roster_top_k: FeatureConfig = FeatureConfig(value=10, name="Agent roster top K", description="When a report has many agents, how many appear as full roster lines in the AI context (ranked by the asker's recent usage; the rest are listed by name only in a more_agents tail). Clamped to 1-100.", is_lab=False, editable=True)
@@ -425,6 +426,12 @@ class OrganizationSettingsConfig(BaseModel):
     file_retention_days: FeatureConfig = FeatureConfig(value=0, name="File retention (days)", description="Delete files older than this many days, every night. Files used by a dashboard, files in an agent or project library, and uploads that feed a scheduled report are kept. 0 keeps files forever.", is_lab=False, editable=True)
     enable_excel_addin: FeatureConfig = FeatureConfig(value=True, name="Excel Add-in", description="Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance", is_lab=False, editable=True)
     model_routing: FeatureConfig = FeatureConfig(value=False, name="Auto model router", description="Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
+    # How the Auto router picks a run's starting model. "small_model" (default,
+    # today's behavior): start small, the planner may escalate. "decision": a
+    # decision model picks the starting model upfront from the routing
+    # candidates (falls back to small_model when unconfident or unavailable);
+    # the planner can still escalate. Validated in OrganizationSettingsService.
+    model_routing_decision: FeatureConfig = FeatureConfig(value={"method": "small_model", "decision_model_id": None, "min_confidence": 0.7}, name="Auto router method", description="Enterprise. How the Auto model router picks the model a request starts on: the small model (escalating if needed), or a decision model that picks upfront.", is_lab=True, editable=True)
     llm_fallback: FeatureConfig = FeatureConfig(value=False, name="LLM fallback", description="Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable.", is_lab=True, editable=True)
     # Ordered LLMModel db ids tried top-to-bottom on failure. Managed via
     # POST /llm/fallback_order (EE-gated); stored as a bare list, not a

@@ -71,9 +71,9 @@ jobs:
             - '**/{Dockerfile*,*.lock,*-lock.*}'
 
   # `if` is evaluated before the matrix expands, so when this job is skipped
-  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite)`,
-  # `e2e-tests (postgres-dashboards)` and `e2e-tests (postgres-rest)` then never
-  # appear, and a PR that required any of them
+  # GitHub reports one check named `e2e-tests`. `e2e-tests (sqlite-dashboards)`,
+  # `e2e-tests (sqlite-rest)`, `e2e-tests (postgres-dashboards)` and
+  # `e2e-tests (postgres-rest)` then never appear, and a PR that required any of them
   # would wait forever. Require `e2e-tests-result` instead.
   e2e-tests:
     needs: changes
@@ -89,16 +89,21 @@ jobs:
     name: e2e-tests (${{ matrix.name }})
     strategy:
       fail-fast: false
-      # Postgres runs in two halves on separate runners: tests/e2e/dashboards and
-      # everything else take about the same worker time (113 and 117 minutes on
-      # #1650's CI), so each finishes in about half the wall time. SQLite stays
-      # in one job, which already finishes well inside the Postgres halves.
+      # Each database runs in two halves on separate runners: tests/e2e/dashboards
+      # and everything else take about the same worker time (Postgres: 113 and
+      # 117 minutes on #1650's CI; SQLite: 95 and 100 on a Nov 16 fork run), so
+      # each finishes in about half the wall time. The AI tests (-m ai, not
+      # path-scoped) run once per database, on the dashboards half.
       matrix:
         include:
-          - name: sqlite
+          - name: sqlite-dashboards
             db: sqlite
-            paths: tests/e2e tests/unit/test_fast_artifact_lifecycle.py
+            paths: tests/e2e/dashboards
             ai: true
+          - name: sqlite-rest
+            db: sqlite
+            paths: tests/e2e --ignore=tests/e2e/dashboards tests/unit/test_fast_artifact_lifecycle.py
+            ai: false
           - name: postgres-dashboards
             db: postgres
             paths: tests/e2e/dashboards
@@ -112,6 +117,29 @@ jobs:
     - uses: actions/checkout@v7
 
     - uses: ./.github/actions/setup-backend
+
+    # The artifact render check (create_artifact/edit_artifact) renders pages
+    # with these libraries (frontend-unit-tests downloads them too); without them it reports
+    # "render check unavailable" and test_artifact_render_unchecked fails.
+    - name: Download vendored artifact libraries
+      run: bash scripts/download-vendor-libs.sh frontend/public/libs
+
+    # The packet-capture tests live outside tests/e2e/dashboards.
+    - name: Install offline packet decoder
+      if: ${{ !endsWith(matrix.name, '-dashboards') }}
+      run: sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tshark
+
+    - name: Verify sandboxed packet decoding on Linux
+      if: matrix.name == 'sqlite-rest'
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        packet_dir=$(mktemp -d)
+        .venv/bin/python -c 'from tests.fixtures.packet_captures import ARP,write_capture; from pathlib import Path; import sys; write_capture(Path(sys.argv[1]), [ARP])' "$packet_dir/test.pcap"
+        env -i HOME="$packet_dir" TZ=UTC LC_ALL=C .venv/bin/python -I -S app/data_sources/clients/_tshark_worker.py "$(command -v tshark)" < "$packet_dir/test.pcap" > "$packet_dir/decode.xml"
+        uv run pytest -q --db=sqlite tests/unit/test_network_dir_packet_index.py -k every_decoded_field
 
     - name: Check for AI file changes
       id: changes
@@ -288,6 +316,40 @@ jobs:
       run: |
         uv run pytest tests/unit -n 4 --db=sqlite --disable-warnings --timeout=600 --timeout-method=thread
 
+  # The frontend unit tests (frontend/tests/unit/*.mjs): artifact runtime
+  # components (charts, tables, kit controls), locales, embed SDK and more.
+  # Each file is a standalone node script; several drive headless Chromium
+  # against the artifact iframe, which loads the vendored libs below.
+  frontend-unit-tests:
+    # Same pin as playwright-tests (Playwright 1.56.0 and ubuntu-26.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+    - uses: actions/checkout@v7
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'yarn'
+        cache-dependency-path: frontend/yarn.lock
+
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: yarn install --frozen-lockfile
+
+    - name: Download vendored artifact libraries
+      run: bash scripts/download-vendor-libs.sh frontend/public/libs
+
+    - name: Install Playwright browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps chromium
+
+    - name: Run frontend unit tests
+      working-directory: ./frontend
+      run: node --test --test-concurrency=4 tests/unit/*.mjs
+
   playwright-tests:
     # Pinned: Playwright 1.56.0 can't install chromium on ubuntu-26.04, which
     # ubuntu-latest is moving to. Unpin after upgrading Playwright.
@@ -313,10 +375,6 @@ jobs:
     - name: Install Playwright browsers
       working-directory: ./frontend
       run: npx playwright install --with-deps chromium
-
-    - name: Embed SDK tests
-      working-directory: ./frontend
-      run: node --test tests/unit/embedSdk.mjs tests/unit/embedSdkBrowser.mjs
 
     - name: Start backend server
       working-directory: ./backend
@@ -483,7 +541,7 @@ jobs:
 
   dispatch-build:
     if: github.ref == 'refs/heads/main'
-    needs: [e2e-tests, playwright-tests, integration-data-sources, integration-llms]
+    needs: [e2e-tests, playwright-tests, frontend-unit-tests, integration-data-sources, integration-llms]
     runs-on: ubuntu-latest
     steps:
     - name: Trigger Docker build workflow

@@ -112,6 +112,7 @@ async def delete_provider(
 @router.get("/llm/models", response_model=List[LLMModelSchemaWithProvider])
 async def get_models(
     is_enabled: bool = None,
+    kind: str = "chat",
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -124,7 +125,9 @@ async def get_models(
     ``manage_llm``, the permission that gates the rest of the LLM admin API.
     """
     from app.core.permission_resolver import resolve_permissions
-    models = await llm_service.get_models(db, organization, current_user, is_enabled)
+    if kind not in ("chat", "decision", "all"):
+        raise HTTPException(status_code=400, detail="kind must be 'chat', 'decision' or 'all'")
+    models = await llm_service.get_models(db, organization, current_user, is_enabled, kind=kind)
     out = [LLMModelSchemaWithProvider.model_validate(m) for m in models]
     resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
     if not resolved.has_org_permission("manage_llm"):
@@ -361,6 +364,48 @@ async def set_model_routing_hint(
     """Set/clear a model's Auto-router guidance (stored on config.routing_hint).
     A non-empty hint makes the model a routing target; empty clears it."""
     return await llm_service.set_routing_hint(db, organization, current_user, model_id, body.hint)
+
+
+# ── Decision models ──────────────────────────────────────────────────────
+
+class DecisionSettingsUpdate(BaseModel):
+    """Only the keys sent change; null resets a key to the catalog default.
+    Validated in app.ai.llm.decisions.validate_settings."""
+    decision_format: Optional[str] = None
+    decision_path: Optional[str] = None
+    api_model_id: Optional[str] = None
+    max_questions: Optional[int] = None
+    question_types: Optional[List[str]] = None
+    timeout_ms: Optional[int] = None
+    keep_alive: Optional[str] = None
+    prompt_caching: Optional[bool] = None
+
+
+@router.put("/llm/models/{model_id}/decision", response_model=LLMModelSchema)
+@requires_permission('manage_llm')
+async def set_model_decision_settings(
+    model_id: str,
+    body: DecisionSettingsUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a decision model's wire settings (format, path, wire model id,
+    question limits, timeout, keep_alive, prompt caching)."""
+    update = body.model_dump(exclude_unset=True)
+    return await llm_service.update_decision_settings(db, organization, current_user, model_id, update)
+
+
+@router.post("/llm/models/{model_id}/test_decision")
+@requires_permission('manage_llm')
+async def test_model_decision(
+    model_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Ask the decision model one yes/no question; returns its probability and latency."""
+    return await llm_service.test_decision(db, organization, current_user, model_id)
 
 
 # ── LLM fallback order (Enterprise) ──────────────────────────────────────

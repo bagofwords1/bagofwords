@@ -12,7 +12,7 @@ class SetReportAgentsInput(BaseModel):
             "will be in context from the next step on; other attached agents stay in "
             "the thin roster. Pass an empty list to clear the focus (revert to the "
             "automatic selection). Get ids from search_agents or the <available_agents> "
-            "roster."
+            "roster. In a selected folder, an exact unique agent name also resolves to its ID."
         ),
     )
     reason: Optional[str] = Field(

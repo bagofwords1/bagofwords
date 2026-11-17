@@ -222,6 +222,8 @@ class GetContextTool(MCPTool):
             tools_by_ds = {}
 
         # Convert schemas to output format
+        from app.services.folder_service import visible_agent_paths
+        paths = await visible_agent_paths(db, organization, user, data_sources)
         data_sources_output: List[DataSourceInfo] = []
         for ds in schemas.data_sources:
             tables: List[TableInfo] = []
@@ -240,6 +242,7 @@ class GetContextTool(MCPTool):
             data_sources_output.append(DataSourceInfo(
                 id=str(ds.info.id),
                 name=ds.info.name,
+                folder_path=paths.get(str(ds.info.id)),
                 type=ds.info.type,
                 tables=tables,
                 tools=tools_by_ds.get(str(ds.info.id), []),
@@ -338,8 +341,17 @@ class GetContextTool(MCPTool):
         except Exception:
             logger.exception("get_context: listing instructions failed")
 
+        scope = None
+        try:
+            from app.ai.tools.mcp.create_report import report_scope
+            scope = await report_scope(db, organization, user, report)
+            scope["effective_agent_ids"] = [str(d.id) for d in data_sources]
+        except Exception:
+            logger.exception("get_context: describing the report scope failed")
+
         output = GetContextOutput(
             report_id=str(report.id),
+            scope=scope,
             data_sources=data_sources_output,
             resources=resources_output,
             entities=entities_output,

@@ -284,7 +284,7 @@ const SECTIONS: { id: string, keys: string[] }[] = [
 // Org settings that have a dedicated control elsewhere (LLM page: router and
 // fallback, with their license gate; Integrations: MCP endpoint and Excel
 // add-in). Not repeated here so there is one place to change each.
-const MANAGED_ELSEWHERE = new Set(['model_routing', 'llm_fallback', 'mcp_enabled', 'enable_excel_addin'])
+const MANAGED_ELSEWHERE = new Set(['model_routing', 'model_routing_decision', 'llm_fallback', 'mcp_enabled', 'enable_excel_addin'])
 
 // Settings with no UI for now. enable_file_upload is not enforced yet (the
 // upload routes and the attach button ignore it), so a switch here would

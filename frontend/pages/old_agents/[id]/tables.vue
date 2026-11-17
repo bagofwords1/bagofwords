@@ -92,7 +92,7 @@ onMounted(async () => {
 // grid never shows file rows. Gated on registryLoaded so shapes are known.
 const tableConnections = computed(() => (connections.value as any[]).filter((c: any) => {
   const shape = registryByType.value[c.type]?.data_shape
-  return shape === 'tables' || shape === 'objects' || (registryLoaded.value && !shape)
+  return c.has_file_tables || shape === 'tables' || shape === 'objects' || (registryLoaded.value && !shape)
 }))
 const tableConnectionIds = computed(() => tableConnections.value.map((c: any) => String(c.id)).join(','))
 

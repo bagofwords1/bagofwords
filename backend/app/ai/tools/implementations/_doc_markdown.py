@@ -58,6 +58,25 @@ def _in_spans(pos: int, spans: List[Tuple[int, int]]) -> bool:
     return any(start <= pos < end for start, end in spans)
 
 
+def rewrite_viz_placeholders(markdown: str, corrections: Dict[str, str]) -> str:
+    """Replace the id inside ``{{viz:<id>}}`` placeholders per ``corrections``
+    (id as ``extract_viz_placeholders`` returns it -> id to write instead).
+
+    Quoted examples inside fenced code blocks are left as written.
+    """
+    if not markdown or not corrections:
+        return markdown
+    spans = _fence_spans(markdown)
+
+    def _swap(m: "re.Match") -> str:
+        target = corrections.get(m.group(1).lower())
+        if not target or _in_spans(m.start(), spans):
+            return m.group(0)
+        return "{{viz:" + target + "}}"
+
+    return _VIZ_PLACEHOLDER_RE.sub(_swap, markdown)
+
+
 def extract_viz_placeholders(markdown: str) -> List[str]:
     """Extract viz UUIDs from ``{{viz:<uuid>}}`` placeholders, in document order.
 

@@ -4,6 +4,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
+from app.models.folder import Folder
 from app.models.base import BaseSchema
 from app.models.organization import Organization
 from app.models.domain_connection import domain_connection
@@ -16,6 +17,9 @@ class DataSource(BaseSchema):
     __table_args__ = (
         UniqueConstraint('organization_id', 'name', name='uq_data_sources_org_name'),
     )
+
+    folder_id = Column(String(36), ForeignKey(Folder.id), index=True)
+    inherits_folder_access = Column(Boolean, nullable=False, default=True, server_default="1")
 
     name = Column(String, nullable=False)
     # Connection-related fields have been moved to the Connection model

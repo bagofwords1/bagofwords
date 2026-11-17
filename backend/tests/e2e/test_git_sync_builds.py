@@ -1142,3 +1142,38 @@ def test_sync_then_deploy_flow(
             user_token=user_token,
             org_id=org_id,
         )
+
+
+@pytest.mark.e2e
+def test_failed_file_rolls_back_earlier_imports(
+    create_user, login_user, whoami, create_data_source, create_git_repository, index_git_repository,
+    get_instructions_by_source_type, get_main_build, monkeypatch,
+):
+    from app.services.instruction_sync_service import InstructionSyncService
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    auth = {"org_id": whoami(token)["organizations"][0]["id"], "user_token": token}
+    agent = create_data_source(name="Import rollback", type="sqlite",
+                               config={"database": str(TEST_DB_PATH)}, credentials={}, **auth)
+    original = InstructionSyncService.sync_file_to_instruction
+    imported = []
+
+    async def fail_after_first(self, *args, **kwargs):
+        if imported:
+            imported.append("failed")
+            raise ValueError("Second file rejected")
+        result = await original(self, *args, **kwargs)
+        if result:
+            imported.append(result.id)
+        return result
+
+    monkeypatch.setattr(InstructionSyncService, "sync_file_to_instruction", fail_after_first)
+    repo = create_git_repository(data_source_id=agent["id"], payload={
+        "provider": "github", "repo_url": TEST_GIT_REPO_URL, "branch": "main",
+        "is_active": True, "auto_publish": True,
+    }, **auth)
+    index_git_repository(data_source_id=agent["id"], repository_id=repo["id"], **auth)
+    assert imported[-1:] == ["failed"]
+    assert not get_instructions_by_source_type("git", **auth)
+    assert get_main_build(**auth) is None

@@ -11,7 +11,7 @@ from app.models.step import Step
 from app.models.user import User
 from app.models.report import Report
 from app.models.data_source import DataSource
-from app.models.report_data_source_association import report_data_source_association as assoc
+from app.services.folder_monitoring import execution_links, readable_reports
 from app.schemas.bow_source_schema import BowQuery, MAX_ROWS, MAX_GROUPS
 from app.services.diagnosis.compiler import compile_query, tool_match_conditions, stale_clause
 from app.services.diagnosis.service import diagnosis_service, RunQueryParams, _utc_naive
@@ -110,6 +110,8 @@ class BowSourceService:
         if not timedelta(0) < end - start <= timedelta(days=366):
             raise ValueError("Time range must be positive and at most 366 days")
         p = RunQueryParams(q=q.query, start=start, end=end, tz_offset_minutes=q.tz_offset_minutes)
+        p.folder_report_ids = await readable_reports(db, organization, user, scope.data_source_ids)
+        assoc = execution_links()
         parsed = diagnosis_service._parse(q.query)
         ctx = diagnosis_service._ctx(p)
         base = diagnosis_service._base_where(str(organization.id), scope.data_source_ids, p, parsed.ast)
@@ -177,9 +179,9 @@ class BowSourceService:
             outputs[metric.name] = expr
             columns.append(expr.label(metric.name))
         # Include report identity internally to materialize list-valued agent columns.
-        internal_report = bool(list_fields.intersection(requested)) and "report_id" not in requested
-        if internal_report:
-            columns.append(AE.report_id.label("_report_id"))
+        internal_run = bool(list_fields.intersection(requested)) and "run_id" not in requested
+        if internal_run:
+            columns.append(AE.id.label("_run_id"))
         with_code = "code" in requested
         if with_code:
             # Identity of the step and its conversation, to withhold code per reader.
@@ -191,7 +193,7 @@ class BowSourceService:
             stmt = stmt.outerjoin(Step, Step.id == TE.created_step_id)
         expanded = any(k in ("agent_id", "agent_name") for k in requested) or any(m.field in ("agent_id", "agent_name") for m in q.metrics)
         if expanded:
-            stmt = stmt.outerjoin(assoc, assoc.c.report_id == AE.report_id).outerjoin(DataSource, DataSource.id == assoc.c.data_source_id)
+            stmt = stmt.outerjoin(assoc, assoc.c.execution_id == AE.id).outerjoin(DataSource, DataSource.id == assoc.c.data_source_id)
         if q.metrics:
             stmt = stmt.group_by(*[fields[k] for k in q.group_by]) if q.group_by else stmt
         for sort in q.sort:
@@ -211,14 +213,14 @@ class BowSourceService:
         if q.limit:
             records = records[:q.limit]
         if list_fields.intersection(requested):
-            report_ids = {r.get("report_id", r.get("_report_id")) for r in records}
+            run_ids = {r.get("run_id", r.get("_run_id")) for r in records}
             agents = {}
-            for rid, aid, name in (await db.execute(select(assoc.c.report_id, DataSource.id, DataSource.name)
+            for rid, aid, name in (await db.execute(select(assoc.c.execution_id, DataSource.id, DataSource.name)
                 .join(DataSource, DataSource.id == assoc.c.data_source_id)
-                .where(assoc.c.report_id.in_(report_ids)).order_by(DataSource.name, DataSource.id))):
+                .where(assoc.c.execution_id.in_(run_ids)).order_by(DataSource.name, DataSource.id))):
                 agents.setdefault(rid, []).append((str(aid), name))
             for row in records:
-                values = agents.get(row.get("report_id", row.pop("_report_id", None)), [])
+                values = agents.get(row.get("run_id", row.pop("_run_id", None)), [])
                 if "agent_ids" in requested:
                     row["agent_ids"] = [v[0] for v in values]
                 if "agent_names" in requested:

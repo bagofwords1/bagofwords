@@ -84,6 +84,7 @@ class ToolInfo(BaseModel):
 
 class DataSourceInfo(BaseModel):
     """Summary of a data source with its tables."""
+    folder_path: Optional[str] = None
     id: str
     name: str
     type: Optional[str] = None
@@ -139,6 +140,14 @@ class ContextInstructionInfo(BaseModel):
 class GetContextOutput(BaseModel):
     """Output for get_context MCP tool."""
     report_id: str
+    scope: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "How the report was scoped: mode ('agents', 'folders' or 'folders_and_agents'), the "
+            "selected folders with their paths, and pinned_agent_ids picked by hand. data_sources "
+            "lists the agents this scope resolves to for you right now."
+        ),
+    )
     data_sources: List[DataSourceInfo]
     resources: List[ResourceInfo]
     entities: List[EntityInfo] = Field(default_factory=list, description="Published saved queries available on these agents.")
@@ -293,10 +302,18 @@ class MCPCreateDataOutput(BaseModel):
 
 class MCPListInstructionsInput(BaseModel):
     """Input for list_instructions MCP tool."""
-    status: Optional[str] = Field(default=None, description="Filter by status: draft, published, archived")
+    status: Optional[str] = Field(default=None, description="Filter by status: active (published), inactive (draft) or archived")
     category: Optional[str] = Field(default=None, description="Filter by category: code_gen, data_modeling, general, dashboard, visualization")
     search: Optional[str] = Field(default=None, description="Search text in instruction title and content")
+    folder_id: Optional[str] = Field(default=None, description="Only instructions attached to this folder (ids from browse_agents)")
+    data_source_id: Optional[str] = Field(default=None, description="Only instructions attached to this agent")
+    scope: Optional[Literal["global", "targeted"]] = Field(default=None, description="Only global or only targeted instructions")
     limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results to return")
+
+
+class MCPInstructionAgentRef(BaseModel):
+    id: str
+    name: Optional[str] = None
 
 
 class MCPInstructionItem(BaseModel):
@@ -313,6 +330,17 @@ class MCPInstructionItem(BaseModel):
     status: str
     load_mode: str
     source_type: str
+    scope: Optional[Literal["global", "targeted"]] = Field(
+        default=None,
+        description="'global' = applies in every report; 'targeted' = only where one of its folders or agents is in scope",
+    )
+    folders: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Folders it is attached to (id, name, path) that you can see",
+    )
+    hidden_target_count: int = Field(
+        default=0, description="Folders/agents it is also attached to that you can't see",
+    )
+    agents: List[MCPInstructionAgentRef] = Field(default_factory=list, description="Agents it is attached to that you can see")
 
 
 class MCPListInstructionsOutput(BaseModel):
@@ -325,15 +353,33 @@ class MCPListInstructionsOutput(BaseModel):
 
 class MCPCreateInstructionInput(BaseModel):
     """Input for create_instruction MCP tool."""
+    folder_id: Optional[str] = Field(
+        None, description="Attach to this one folder and make it the rule's owning folder (kept for older clients; prefer folder_ids).",
+    )
+    folder_ids: Optional[List[str]] = Field(
+        default=None, description="Folders to attach the rule to (ids from browse_agents). Combine freely with data_source_ids.",
+    )
+    scope: Optional[Literal["global", "targeted"]] = Field(
+        default=None,
+        description=(
+            "Set 'global' — with no folders or agents — for a rule that applies in every report "
+            "(needs org-level instruction admin). Otherwise give at least one folder or agent."
+        ),
+    )
     text: str = Field(..., description="The instruction content that guides AI behavior")
     title: Optional[str] = Field(default=None, description="Optional title for the instruction")
     category: str = Field(default="general", description="Category: code_gen, data_modeling, general, dashboard, visualization")
     load_mode: str = Field(default="always", description="When to include in AI context: always, intelligent, disabled")
-    data_source_ids: Optional[List[str]] = Field(default=None, description="Specific data source IDs this applies to. Empty/null means all data sources.")
+    data_source_ids: Optional[List[str]] = Field(default=None, description="Agents (data source ids) to attach the rule to.")
 
 
 class MCPCreateInstructionOutput(BaseModel):
     """Output for create_instruction MCP tool."""
+    folder_id: Optional[str] = None
+    scope: Optional[str] = Field(default=None, description="global or targeted")
+    folder_ids: Optional[List[str]] = None
+    data_source_ids: Optional[List[str]] = None
+    rejected_reason: Optional[str] = Field(default=None, description="no_target, invalid_input, permission_denied")
     success: bool
     instruction_id: Optional[str] = None
     build_status: Optional[str] = Field(default=None, description="Build status: approved (live) or pending_approval (needs admin review)")
@@ -380,7 +426,7 @@ class MCPReadInstructionInput(BaseModel):
         default=None,
         description=(
             "The report you're working in (from create_report). When set, only instructions in "
-            "that report's scope (global, or on its agents) can be read, and the read is recorded "
+            "that report's scope (global, or on its folders or agents) can be read, and the read is recorded "
             "for the report so its data tools apply what you read."
         ),
     )
@@ -422,11 +468,6 @@ class MCPReadInstructionInput(BaseModel):
     max_matches: int = Field(default=50, ge=1, le=200, description="GREP READ: cap on returned matches")
 
 
-class MCPInstructionAgentRef(BaseModel):
-    id: str
-    name: Optional[str] = None
-
-
 class MCPInstructionDetail(BaseModel):
     id: str
     title: Optional[str] = None
@@ -436,8 +477,20 @@ class MCPInstructionDetail(BaseModel):
     load_mode: Optional[str] = None
     kind: Optional[str] = None
     state: Optional[str] = Field(default=None, description="active or inactive — what edit_instruction's status takes")
+    scope: Optional[Literal["global", "targeted"]] = Field(
+        default=None,
+        description="'global' = applies in every report; 'targeted' = only where one of its folders or agents is in scope",
+    )
+    folders: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Folders it is attached to (id, name, path) that you can see",
+    )
     agents: List[MCPInstructionAgentRef] = Field(
-        default_factory=list, description="Agents this applies to. Empty means global (every agent).",
+        default_factory=list,
+        description="Agents it is attached to that you can see. An empty list does NOT mean global — read `scope`.",
+    )
+    hidden_target_count: int = Field(default=0, description="Folders/agents it is also attached to that you can't see")
+    applies_nowhere: Optional[bool] = Field(
+        default=None, description="True for a targeted rule left with no folder or agent: it applies in no report",
     )
     pending_review: bool = Field(default=False, description="True while a change waits for admin review")
     can_edit: bool = Field(default=False, description="Whether the caller may edit or delete it")
@@ -530,7 +583,24 @@ class MCPEditInstructionInput(BaseModel):
     )
     data_source_ids: Optional[List[str]] = Field(
         default=None,
-        description="New agent scope (replaces it). [] makes it global, which needs org-level instruction admin.",
+        description="Replace the rule's agents with these. Its folders are kept unless you change them too.",
+    )
+    add_data_source_ids: Optional[List[str]] = Field(default=None, description="Attach the rule to these agents too")
+    remove_data_source_ids: Optional[List[str]] = Field(default=None, description="Detach the rule from these agents")
+    folder_ids: Optional[List[str]] = Field(
+        default=None, description="Replace the rule's folders with these. Its agents are kept unless you change them too.",
+    )
+    add_folder_ids: Optional[List[str]] = Field(default=None, description="Attach the rule to these folders too")
+    remove_folder_ids: Optional[List[str]] = Field(
+        default=None, description="Detach the rule from these folders; it keeps applying everywhere else it is attached",
+    )
+    scope: Optional[Literal["global", "targeted"]] = Field(
+        default=None,
+        description=(
+            "Set 'global' to make the rule apply in every report: it is detached from all folders "
+            "and agents. Needs org-level instruction admin. Detaching the last folder/agent never "
+            "makes a rule global by itself — it is refused instead."
+        ),
     )
 
 
@@ -547,7 +617,7 @@ class MCPEditInstructionOutput(BaseModel):
     rejected_reason: Optional[str] = Field(
         default=None,
         description="anchor_required, anchor_not_found, ambiguous_anchor, result_too_short, invalid_*, "
-                    "no_change, status_change_not_allowed, not_found, permission_denied",
+                    "no_change, status_change_not_allowed, not_found, permission_denied, would_remove_last_target",
     )
     current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
     error_message: Optional[str] = None

@@ -13,6 +13,8 @@
 //
 // In cloud sandboxes browsers live at /opt/pw-browsers:
 //   export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+// In a DevBox (BOW_SANDBOX_DEVBOX=1) they are in Playwright's default location:
+// set nothing, and never run `playwright install`.
 // Resolved out of frontend/node_modules explicitly. A bare `import` of
 // `@playwright/test` is resolved relative to *this* file, not the working
 // directory, so ESM walked up to the repo root — which has no node_modules —

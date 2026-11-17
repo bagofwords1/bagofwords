@@ -1,8 +1,8 @@
-
 from __future__ import annotations
-from pydantic import BaseModel, Field, validator, model_validator
+from pydantic import BaseModel, Field, validator, model_validator, field_validator
 from typing import Optional, Dict, Any, List
 import json
+from app.schemas.base import OptionalUTCDatetime
 
 # Base Provider Classes
 class LLMProviderBase(BaseModel):
@@ -48,6 +48,7 @@ class LLMProviderCreate(LLMProviderBase):
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
             'vertex': VertexCredentials,
+            'typesafe': TypeSafeCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -76,6 +77,7 @@ class LLMProviderTestConnection(LLMProviderBase):
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
             'vertex': VertexCredentials,
+            'typesafe': TypeSafeCredentials,
         }
 
         schema = credential_schemas.get(values['provider_type'])
@@ -216,6 +218,11 @@ class CustomCredentials(ProviderHeadersMixin):
     # a tool-call parser). Persisted to additional_config, not encrypted.
     use_responses_api: Optional[bool] = None
 
+class TypeSafeCredentials(ProviderHeadersMixin):
+    """TypeSafe (Jev): a decision-only provider. The endpoint is fixed
+    (https://api.typesafe.ai/v1, System One) — only the API key is needed."""
+    api_key: str
+
 class CustomConfig(BaseModel):
     max_tokens: Optional[int] = 4096
     temperature: Optional[float] = 0.7
@@ -295,6 +302,16 @@ class LLMModelBase(BaseModel):
     input_cost_per_million_tokens_usd: Optional[float] = None
     output_cost_per_million_tokens_usd: Optional[float] = None
     config: Optional[Dict[str, Any]] = None
+    # "chat" (default) or "decision" — see app.ai.llm.decisions.
+    model_kind: str = "chat"
+
+    @field_validator("model_kind", mode="before")
+    @classmethod
+    def _model_kind(cls, v):
+        v = v or "chat"
+        if v not in ("chat", "decision"):
+            raise ValueError("model_kind must be 'chat' or 'decision'")
+        return v
 
 class LLMModelSchema(LLMModelBase):
     id: Optional[str] = None  # Optional for new models
@@ -312,14 +329,34 @@ class LLMModelSchema(LLMModelBase):
     is_inherited_default: bool = False
     inherited_default_source: Optional[str] = None  # "group" | "org" | "fallback"
     inherited_default_group_name: Optional[str] = None
+    # When the CALLER last chatted on this model (their own picks; Auto-routed
+    # turns don't count), so pickers can lead with the models they actually
+    # use. None = never. Computed per-request in LLMService.get_models.
+    last_used_at: OptionalUTCDatetime = None
     # Reasoning capability for the model picker and admin card: whether effort
     # applies, what each level (low/medium/high/max) runs as on this model, the
     # admin's mode / default / raw per-level fields. Derived from model_id +
     # config, never stored.
     reasoning: Optional[Dict[str, Any]] = None
 
+    # Effective decision settings (catalog defaults + admin overrides) for
+    # decision models; None for chat models. Derived, never stored.
+    decision: Optional[Dict[str, Any]] = None
+
     @model_validator(mode="after")
     def _derive_reasoning(self):
+        if self.model_kind == "decision":
+            # Reasoning effort does not apply to decision models.
+            self.reasoning = None
+            if self.decision is None:
+                from types import SimpleNamespace
+                from app.ai.llm.decisions import decision_settings
+                provider = getattr(self, "provider", None)
+                self.decision = decision_settings(SimpleNamespace(
+                    model_id=self.model_id, config=self.config, supports_vision=self.supports_vision,
+                    provider=SimpleNamespace(provider_type=getattr(provider, "provider_type", None)),
+                ))
+            return self
         if self.reasoning is None and self.model_id:
             from app.ai.llm.reasoning import reasoning_info
             self.reasoning = reasoning_info(self.model_id, self.config)

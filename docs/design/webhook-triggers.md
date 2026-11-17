@@ -601,6 +601,8 @@ Repo → **Settings → Webhooks → Add webhook**:
 
 ## Testing (sandbox-feedback-loop)
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): the stack is `bow-stack`'s, not `python main.py` + `yarn dev`; the database is `$BOW_DATABASE_URL` (not `backend/db/app.db`); get the JWT by logging in as the DevBox admin (`source tools/agent/devbox_env.sh`) instead of registering one. See the root `AGENTS.md`, "DevBox".
+
 We dogfood the local dev loop documented in
 `docs/design/sandbox-feedback-loop.md`: `python main.py` + `yarn dev`, SQLite at
 `backend/db/app.db`, JWT + org id in `backend/sandbox_state.json`, curl to drive

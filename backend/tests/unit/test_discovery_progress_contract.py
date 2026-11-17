@@ -192,7 +192,10 @@ def test_large_sql_discovery_preserves_metadata_and_driver_cost(kind, count, mon
         engine.connect.return_value = connection
         inspector = MagicMock()
         inspector.get_multi_foreign_keys.return_value = {}
-        with ephemeral(), patch('sqlalchemy.create_engine', return_value=engine), patch('sqlalchemy.inspect', return_value=inspector):
+        # The mock engine stands in for the driver, so it also absorbs the
+        # session-setup hook SQLAlchemy would attach to a real one.
+        with ephemeral(), patch('sqlalchemy.create_engine', return_value=engine), \
+                patch('sqlalchemy.event.listen'), patch('sqlalchemy.inspect', return_value=inspector):
             tables = client.get_schemas(progress_callback=callback)
         return [table.model_dump() for table in tables], queries
 

@@ -215,6 +215,21 @@ async def update_data_source(
 ):
     return await data_source_service.update_data_source(db, data_source_id, organization, data_source, current_user)
 
+async def _schema_reader_permissions(db, organization, user, data_source_id):
+    from sqlalchemy import select
+
+    rights = await resolve_permissions(db, str(user.id), str(organization.id))
+    agent = (await db.execute(select(
+        DataSource.id, DataSource.publish_status, DataSource.reliability_status,
+    ).where(
+        DataSource.id == data_source_id, DataSource.organization_id == organization.id,
+        DataSource.deleted_at.is_(None),
+    ))).one_or_none()
+    if agent is None or not data_source_service.lifecycle_visible(agent, rights):
+        raise HTTPException(404, "Data source not found")
+    return rights
+
+
 @router.get("/data_sources/{data_source_id}/schema", response_model=list)
 @requires_resource_permission('data_source', 'view')
 async def get_data_source_schema(
@@ -224,6 +239,7 @@ async def get_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    await _schema_reader_permissions(db, organization, current_user, data_source_id)
     result = await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
     await audit_service.log(
         db=db, organization_id=str(organization.id), action="data_source.schema_viewed", user_id=str(current_user.id),
@@ -256,7 +272,7 @@ async def get_data_source_full_schema(
     # deselected: to a reader the agent is its active tables, and the rest is the
     # manager's private working set. Readers therefore get the selected tables
     # only, and cannot widen that with `selected_state=unselected`.
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    resolved = await _schema_reader_permissions(db, organization, current_user, data_source_id)
     restrict_to_active = not resolved.has_resource_permission(
         "data_source", str(data_source_id), "manage"
     )
@@ -439,6 +455,7 @@ async def refresh_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    await _schema_reader_permissions(db, organization, current_user, data_source_id)
     return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataIndexingJobSchema)
@@ -583,6 +600,17 @@ async def get_domain_connections(
     from app.schemas.data_source_registry import get_entry
     _status_svc = UserDataSourceCredentialsService()
 
+    network_ids = [str(conn.id) for conn in connections if conn.type == "network_dir"]
+    indexed_dirs = set()
+    if network_ids:
+        from sqlalchemy import select
+        from app.models.connection_table import ConnectionTable
+        indexed_dirs = set((await db.scalars(select(ConnectionTable.connection_id).where(
+            ConnectionTable.connection_id.in_(network_ids),
+            ConnectionTable.name == "indexed_files",
+            ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_(True),
+        ))).all())
+
     def _catalog_shape(conn):
         try:
             entry = get_entry(conn.type)
@@ -608,6 +636,7 @@ async def get_domain_connections(
             "name": conn.name,
             "type": conn.type,
             **_catalog_shape(conn),
+            "has_file_tables": str(conn.id) in indexed_dirs,
             "is_active": conn.is_active,
             "config": _safe_config(conn),
             "auth_policy": conn.auth_policy,
@@ -709,6 +738,67 @@ async def list_connection_files(
         "preview_supported": hasattr(client, "read_raw_bytes"),
         "catalog_nouns": nouns,
         "live": live,
+    }
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/files/search")
+@requires_resource_permission('data_source', 'view')
+async def search_connection_files(
+    data_source_id: str,
+    connection_id: str,
+    q: str,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Type-to-search a file connection's files — the live-provider search that
+    backs the prompt-box file picker's Drive/OneDrive sections.
+
+    Mirrors `list_connection_files` (same access gate, same construct_client,
+    same structured "connect required" state), but runs the provider's own
+    name+content search (`search_files`) instead of a full scope walk, so the
+    picker can match a filename as the user types. Only sources that declare
+    SEARCH_FILES back this; others return an empty result rather than erroring,
+    so the picker can offer a plain browse fallback.
+    """
+    from app.services.connection_service import ConnectionService
+    from app.data_sources.clients.base import Capability
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    query = (q or "").strip()
+    if not query:
+        return {"connection_id": str(connection_id), "files": [], "total": 0,
+                "limit": limit, "query": query}
+    effective_limit = max(1, min(limit, 100))
+    try:
+        client = await ConnectionService().construct_client(db, conn, current_user)
+        if Capability.SEARCH_FILES not in getattr(client, "capabilities", set()):
+            return {"connection_id": str(connection_id), "files": [], "total": 0,
+                    "limit": effective_limit, "query": query, "search_supported": False}
+        results = await client.asearch_files(query)
+    except HTTPException as he:
+        # Per-user OAuth sources raise 403 when the caller hasn't linked their
+        # account — surface the same structured "connect required" state the
+        # browse endpoint uses so the picker prompts sign-in, not an error.
+        detail = str(getattr(he, "detail", "") or "")
+        if he.status_code == 403 and "connect" in detail.lower():
+            return {"connection_id": str(connection_id), "connect_required": True,
+                    "reason": detail, "files": [], "total": 0,
+                    "limit": effective_limit, "query": query}
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to search files: {redact_error(e)}")
+    files = [f for f in (results or []) if not f.get("is_folder")]
+    page = files[:effective_limit]
+    return {
+        "connection_id": str(connection_id),
+        "files": [{"id": f.get("id"), "name": f.get("name"), "path": f.get("path"),
+                   "size": f.get("size"), "modified_at": f.get("modified_at"),
+                   "mime_type": f.get("mime_type"), "web_url": f.get("web_url")} for f in page],
+        "total": len(files),
+        "limit": effective_limit,
+        "has_more": len(files) > effective_limit,
+        "query": query,
     }
 
 

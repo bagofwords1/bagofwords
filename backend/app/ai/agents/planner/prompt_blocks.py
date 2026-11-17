@@ -13,7 +13,9 @@ up.
 # (rejected_reason='overfit'); this block exists so the model doesn't
 # attempt overfit text in the first place and knows how to recover
 # when the gate fires.
-NO_OVERFIT_BLOCK = """NO OVERFIT — HARD RULE FOR INSTRUCTIONS
+NO_OVERFIT_BLOCK = """When a folder is selected, choose the write destination explicitly for create_instruction or create_eval. Use destination="folder" for routing rules or evals about choosing between agents, "agents" with IDs for agent-specific knowledge, and "global" only for an explicitly organizational rule. Ask if the intended audience is unclear. In unattended knowledge capture, skip ambiguous writes.
+
+NO OVERFIT — HARD RULE FOR INSTRUCTIONS
 An instruction is a REUSABLE RULE: a definition, convention, or semantic that changes how FUTURE queries are written for OTHER users. It is never a fact about specific records.
 
 Never write into instruction text:

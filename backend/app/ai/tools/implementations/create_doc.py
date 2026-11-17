@@ -93,6 +93,36 @@ async def validate_doc_visualizations(
     return valid, problems
 
 
+async def resolve_doc_visualizations(
+    db: Any,
+    report_id: Optional[str],
+    markdown: str,
+) -> Tuple[str, List[str], List[str], Dict[str, Any]]:
+    """Validate a document's ``{{viz:<id>}}`` embeds, repairing miscopied ids.
+
+    An id that nearly spells exactly one visualization of this report is
+    rewritten in the markdown, so the saved document embeds the chart that
+    was meant. Returns (markdown, valid_ids, problems, error_extra);
+    ``error_extra`` carries the report's usable visualizations for the retry
+    when there are problems.
+    """
+    from app.ai.tools.implementations._doc_markdown import rewrite_viz_placeholders
+    from app.ai.tools.implementations._viz_ids import ensure_available, resolve_visualization_ids
+
+    viz_ids = extract_viz_placeholders(markdown)
+    resolution = await resolve_visualization_ids(db, report_id, viz_ids)
+    if resolution.corrections:
+        markdown = rewrite_viz_placeholders(markdown, resolution.corrections)
+    valid, problems = await validate_doc_visualizations(db, report_id, resolution.ids)
+    extra: Dict[str, Any] = {}
+    if problems:
+        extra = {
+            "available_visualizations": await ensure_available(db, report_id, resolution),
+            "remediation": resolution.remediation(),
+        }
+    return markdown, valid, problems, extra
+
+
 def doc_observation_snapshot(markdown: str) -> str:
     if len(markdown) <= _OBSERVATION_MARKDOWN_LIMIT:
         return markdown
@@ -177,14 +207,16 @@ class CreateDocTool(Tool):
         report_id = str(report.id) if report else None
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "validating_visualizations"})
-        viz_ids = extract_viz_placeholders(markdown)
-        valid_viz_ids, problems = await validate_doc_visualizations(db, report_id, viz_ids)
+        markdown, valid_viz_ids, problems, viz_error_extra = await resolve_doc_visualizations(
+            db, report_id, markdown,
+        )
         if problems:
             yield self._fail(
                 "Invalid visualization placeholders: " + "; ".join(problems) + ". "
                 "Fix or remove these {{viz:...}} placeholders (use viz_ids from successful "
                 "create_data results) and retry.",
                 error_type="invalid_visualizations",
+                extra=viz_error_extra,
             )
             return
 
@@ -247,14 +279,15 @@ class CreateDocTool(Tool):
         }
         yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
 
-    def _fail(self, message: str, error_type: str = "validation_error") -> ToolEndEvent:
+    def _fail(self, message: str, error_type: str = "validation_error",
+              extra: Optional[Dict[str, Any]] = None) -> ToolEndEvent:
         return ToolEndEvent(
             type="tool.end",
             payload={
                 "output": {"success": False, "error": message},
                 "observation": {
                     "summary": f"Failed to create document: {message}",
-                    "error": {"type": error_type, "message": message},
+                    "error": {"type": error_type, "message": message, **(extra or {})},
                 },
             },
         )

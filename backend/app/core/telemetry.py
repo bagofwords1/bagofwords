@@ -66,9 +66,13 @@ def _do_capture(
 
 
 def _do_identify(distinct_id: str, properties: dict) -> None:
-    """Blocking PostHog identify - runs in thread pool."""
+    """Blocking PostHog person-property update - runs in thread pool.
+
+    posthog-python 6 removed ``identify``; ``set`` is its replacement (it
+    sends a ``$set`` event that updates the person's properties).
+    """
     try:
-        _posthog.identify(distinct_id=distinct_id, properties=properties)
+        _posthog.set(distinct_id=distinct_id, properties=properties)
     except Exception:
         logger.exception("telemetry._do_identify failed")
 
@@ -94,7 +98,12 @@ def _default_event_properties() -> dict:
         pass
     try:
         from app.ee.license import get_license_info
-        props["license_tier"] = get_license_info().tier
+        info = get_license_info()
+        props["license_tier"] = info.tier
+        # Licensed instances carry their license id (the key's ``sub``) so
+        # usage maps to the customer that holds it. Never the org name.
+        if info.license_id:
+            props["license_id"] = info.license_id
     except Exception:
         pass
     return props

@@ -225,6 +225,7 @@ async def create_agents(
     agents: List[DemoAgentSuggestion],
     *,
     report=None,
+    folder_id: str | None = None,
 ) -> InstallResult:
     from app.schemas.data_source_schema import DataSourceCreate
     from app.services.data_source_service import DataSourceService
@@ -245,6 +246,7 @@ async def create_agents(
             created = await service.create_data_source(db, organization, user, DataSourceCreate(
                 name=name,
                 connection_ids=[str(connection.id)],
+                folder_id=folder_id,
                 is_public=False,
                 use_llm_sync=False,
             ))
@@ -287,7 +289,7 @@ async def create_agents(
 
         n_instr = await _create_instructions(db, organization, user, ds, agent.instructions)
 
-        if report is not None:
+        if report is not None and not getattr(report, "agent_folder_id", None):
             try:
                 if str(ds.id) not in {str(d.id) for d in (report.data_sources or [])}:
                     report.data_sources.append(ds)

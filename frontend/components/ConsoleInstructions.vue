@@ -284,7 +284,7 @@ const canUpdateInstructions = computed(() => useCan('manage_instructions'))
 const canViewBuilds = computed(() => useCan('view_builds'))
 // Approve/reject is allowed for users with manage_instructions on at least
 // one data source (backend list/approve/reject already enforce per-DS access).
-const canApproveSuggestions = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canApproveSuggestions = computed(() => useCanAny('manage_instructions', 'data_source') || useCanAny('manage', 'folder'))
 const canModifySettings = computed(() => useCan('modify_settings'))
 const addButtonLabel = computed(() => canCreate.value ? t('consoleInstructions.addInstruction') : t('consoleInstructions.suggest'))
 

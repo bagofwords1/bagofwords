@@ -244,6 +244,7 @@ Arguments:
         success = False
         execution_error = None
         result_df = None
+        query_stopped = False
         execution_start = time.monotonic()
 
         async for e in streamer.generate_and_execute_stream_v2(
@@ -272,6 +273,7 @@ Arguments:
             elif e["type"] == "done":
                 success = True
                 result_df = e["payload"].get("df")
+                query_stopped = bool(e["payload"].get("stopped"))
                 generated_code = e["payload"].get("code") or ""
                 if e["payload"].get("errors"):
                     success = False
@@ -281,6 +283,22 @@ Arguments:
                     output_log = full_log
 
         execution_duration_ms = int((time.monotonic() - execution_start) * 1000)
+
+        if query_stopped:
+            # User pressed Stop; the in-flight query was cancelled — no CSV.
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error_message": "Stopped by user",
+                        "code": generated_code,
+                        "execution_log": output_log[:3000],
+                    },
+                    "observation": {"summary": "write_csv stopped by user", "code": generated_code, "stopped": True},
+                },
+            )
+            return
 
         if not success:
             yield ToolEndEvent(

@@ -1,4 +1,117 @@
 {
+  "world": {
+    "tree": "Árvore",
+    "usage": "Uso",
+    "myReports": "Meus relatórios",
+    "usedTogether": "Relatórios da organização com uso conjunto: {count}",
+    "title": "World",
+    "explorer": "Explorer",
+    "heading": "Your world, connected.",
+    "eyebrow": "THE BIG PICTURE",
+    "subtitle": "Explore the knowledge, sources and work that connect your organization.",
+    "personalScope": "Your accessible world",
+    "loading": "Discovering connections…",
+    "discovering": "Bringing your world into view…",
+    "items": "items in view",
+    "connections": "relationships",
+    "details": "Explore your world",
+    "search": "Search loaded items…",
+    "layers": "Layers",
+    "browse": "Browse",
+    "entityTypes": "Entity types",
+    "showAll": "Show all",
+    "hideAll": "Hide all",
+    "memory": "Memory overlay",
+    "memoryHint": "Add your personal memories to the map. Only you can see them.",
+    "memoryCount": "{count} active memories",
+    "privateOverlay": "Your personal context",
+    "onlyYou": "Private · only visible to you",
+    "open": "Open item",
+    "expand": "Explore inside",
+    "related": "Connected items",
+    "noLinks": "No recorded connections in this view yet.",
+    "showMore": "Show more",
+    "loadMore": "Load more items",
+    "partialError": "Some parts of your world could not load.",
+    "retry": "Retry",
+    "refresh": "Refresh world",
+    "showLinks": "Show relationships",
+    "scopeHint": "Counts reflect loaded items you can access. Explore a report to reveal its queries, steps and activity.",
+    "browseHint": "Select an item to see its connections.",
+    "canvasHint": "Scroll to zoom · drag to explore",
+    "mapLabel": "Interactive organization map. Use arrow keys to pan, + and − to zoom, 0 to fit. Browse provides a keyboard-accessible item list.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fit": "Fit world to view",
+    "pause": "Pause motion",
+    "resume": "Resume motion",
+    "close": "Close details",
+    "noMatches": "Nothing in this view",
+    "resetHint": "Try another search or show more entity types.",
+    "reset": "Reset filters",
+    "empty": "Your world starts here",
+    "emptyHint": "Connect an agent or add knowledge to see your world take shape.",
+    "types": {
+      "task": "Tarefas agendadas",
+      "agent": "Agents",
+      "connection": "Connections",
+      "instruction": "Instructions & skills",
+      "table": "Tables",
+      "file": "Files",
+      "tool": "MCP & API tools",
+      "list": "Lists",
+      "project": "Projects",
+      "report": "Reports",
+      "artifact": "Artifacts",
+      "query": "Queries",
+      "step": "Steps",
+      "completion": "Messages",
+      "execution": "Executions",
+      "memory": "Memories",
+      "folder": "Pastas",
+      "eval": "Avaliações"
+    },
+    "relations": {
+      "connected_to": "Connected through an agent",
+      "has_instruction": "Instruction assigned to this agent",
+      "includes": "Included in this resource",
+      "provides": "Provided by this connection",
+      "uses_agent": "Agent attached to this report",
+      "contains": "Contained in this report",
+      "has_step": "Step belonging to this query",
+      "has_execution": "Execution recorded for this report",
+      "executed_by": "Execution of this message",
+      "references": "Explicit instruction reference",
+      "remembers": "Explicit agent tag in your memory",
+      "produced": "Produced in this report",
+      "uses_table": "Recorded use of this table",
+      "uses_folder": "Seleciona pasta"
+    },
+    "fields": {
+      "source_type": "Source",
+      "columns": "Columns",
+      "status": "Status",
+      "load_mode": "Loading",
+      "policy": "Policy",
+      "mode": "Format",
+      "handle": "Reference"
+    },
+    "loadAll": "Load all items",
+    "stopLoading": "Stop loading",
+    "setting": "Mostrar Mundo em Agentes"
+  },
+  "filePicker": {
+    "searchPlaceholder": "Pesquisar arquivos…",
+    "uploadFile": "Enviar arquivo",
+    "uploadTitle": "Enviar arquivos",
+    "clickOrDrag": "Clique ou arraste arquivos para enviar",
+    "dropHere": "Solte os arquivos aqui",
+    "files": "Arquivos",
+    "noFilesYet": "Ainda não há arquivos",
+    "connect": "Conectar",
+    "searching": "Pesquisando…",
+    "noResults": "Nenhum resultado"
+  },
   "agentLanding": {
     "actions": "Ações do agente",
     "countTasks": "{n} tarefa | {n} tarefas",
@@ -611,6 +724,9 @@
     "whatCanIHelpWith": "Em que posso ajudar?"
   },
   "prompt": {
+    "searchAgentFolders": "Pesquisar agentes e pastas…",
+    "expandDirectory": "Expandir {name}",
+    "collapseDirectory": "Recolher {name}",
     "placeholderDefault": "Peça dados, um painel ou uma análise aprofundada",
     "thinking": "Pensando",
     "working": "Trabalhando",
@@ -730,7 +846,8 @@
         "cancel": "Cancelar",
         "dismiss": "Dispensar"
       }
-    }
+    },
+    "recent": "Recentes"
   },
   "reports": {
     "title": "Relatórios",
@@ -1257,7 +1374,11 @@
       "duration": "Duração: {ms} ms",
       "edit": "Editar",
       "generationStopped": "Geração interrompida",
-      "code": "Código"
+      "code": "Código",
+      "waitingForSlot": "Aguardando vez em {connection} · {running}/{limit} em execução",
+      "waitingForSlotAhead": "Aguardando vaga em {connection} · {running}/{limit} em execução · {ahead} à frente",
+      "waitingForSlotShort": "Aguardando vez em {connection}",
+      "theConnection": "a conexão"
     },
     "createData": {
       "bowSource": "BOW",
@@ -1328,7 +1449,9 @@
       "failedDashboard": "Falha ao criar painel",
       "copied": "Copiado",
       "copiedDesc": "ID do artefato copiado para a área de transferência",
-      "copyFailed": "Falha ao copiar"
+      "copyFailed": "Falha ao copiar",
+      "notRenderChecked": "Renderização não verificada",
+      "notRenderCheckedDesc": "Guardado sem verificação de renderização: o servidor não conseguiu iniciar o navegador. Abra para confirmar que é apresentado."
     },
     "createDashboard": {
       "creating": "Criando painel",
@@ -1365,7 +1488,9 @@
       "copyIdTooltip": "Clique para copiar ID",
       "copied": "Copiado",
       "copiedDesc": "ID do artefato copiado para a área de transferência",
-      "copyFailed": "Falha ao copiar"
+      "copyFailed": "Falha ao copiar",
+      "notRenderChecked": "Renderização não verificada",
+      "notRenderCheckedDesc": "Guardado sem verificação de renderização: o servidor não conseguiu iniciar o navegador. Abra para confirmar que é apresentado."
     },
     "createWidget": {
       "creatingDataModel": "Criando modelo de dados",
@@ -2156,13 +2281,14 @@
     "fullAdminAccessTab": "O acesso total de administrador inclui todos os agentes, conexões e modelos.",
     "includedWith": "Incluído com {name}",
     "searchResources": "Pesquisar…",
-    "addAccess": "Adicionar agente, conexão ou modelo",
-    "accessEmpty": "Ainda não há agentes, conexões ou modelos. Agentes públicos estão sempre disponíveis.",
+    "addAccess": "Selecionar recurso",
+    "accessEmpty": "Selecionar recurso",
     "publicAgents": "{n} agentes públicos estão disponíveis para todos.",
     "types": {
       "data_source": "Agente",
       "connection": "Conexão",
-      "llm_model": "Modelo"
+      "llm_model": "Modelo",
+      "folder": "Pasta"
     },
     "levels": {
       "use": "Pode usar",
@@ -2180,7 +2306,9 @@
       "connectionsMany": "{n} conexões",
       "modelsOne": "1 modelo",
       "modelsMany": "{n} modelos",
-      "everything": "Todas as permissões"
+      "everything": "Todas as permissões",
+      "foldersOne": "1 Pasta",
+      "foldersMany": "{n} pastas"
     },
     "resourcePermissions": {
       "data_source": {
@@ -3251,7 +3379,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Consultas simultâneas por conexão",
-          "description": "Quantas consultas do agente podem ser executadas ao mesmo tempo contra uma mesma conexão, por réplica. O que exceder aguarda uma vaga em vez de falhar. Reduza para fontes on-premise sensíveis (Oracle, SQL Server) que não suportam varreduras paralelas. A configuração de uma conexão pode substituí-lo com seu próprio valor de 'max_concurrent_queries'."
+          "description": "Quantas consultas do agente podem ser executadas ao mesmo tempo contra uma mesma conexão, somando todos os workers e réplicas. O que exceder aguarda uma vaga em vez de falhar. Reduza para fontes on-premise sensíveis (Oracle, SQL Server) que não suportam varreduras paralelas. A configuração de uma conexão pode substituí-lo com seu próprio valor de 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K de esquemas",
@@ -3686,7 +3814,20 @@
       "testTitle": "Teste suas regras",
       "title": "Proteção de dados pessoais"
     },
-    "piiTab": "Dados pessoais"
+    "piiTab": "Dados pessoais",
+    "frameAncestors": {
+      "title": "Sites que podem exibir o BOW",
+      "description": "Seus próprios aplicativos que podem exibir o BOW dentro de um quadro, como um portal interno. Esta lista vale para todas as organizações desta instância.",
+      "placeholder": "https://portal.example.com",
+      "add": "Adicionar",
+      "removeSite": "Remover {site}",
+      "empty": "Nenhum site adicionado. O BOW só pode aparecer em suas próprias páginas e no Microsoft Office.",
+      "ssoNote": "O login dentro do quadro funciona com e-mail e senha. O login único (SSO) não funciona dentro de um quadro.",
+      "readOnly": "Em uma instância com várias organizações, só um administrador da instância pode alterar esta lista.",
+      "duplicate": "Este site já está na lista.",
+      "invalidFormat": "Digite um endereço que comece com https://, sem caminho. Por exemplo: https://portal.example.com",
+      "publicNote": "Qualquer pessoa pode ver estes endereços: os navegadores os recebem com cada página."
+    }
   },
   "data": {
     "keepSavedSecret": "Deixe em branco para manter o segredo salvo",
@@ -4200,6 +4341,7 @@
       "search_file": "Pesquisar em arquivos",
       "system_status": "Verificar o estado do sistema"
     },
+    "networkDirIndexDescription": "O modo ao vivo lê os arquivos sob demanda. A lista de arquivos armazena nomes, tamanhos e datas. Os modos de palavras-chave e texto completo também armazenam dados PCAP e QVD decodificados para consultas SQL. O modo de texto completo indexa o conteúdo dos documentos para pesquisa. A atualização processa os arquivos alterados.",
     "sshSetup": {
       "title": "Verificar identidade do servidor",
       "hint": "Compare a impressão digital com a fornecida pelo administrador ou registros SSH confiáveis. Buscar uma chave não a verifica.",
@@ -4467,7 +4609,12 @@
     "access_request.too_soon": "Sua solicitação anterior foi recusada. Você pode pedir novamente mais tarde.",
     "access_request.no_approvers": "No momento, ninguém pode aprovar solicitações para este painel.",
     "access_request.not_found": "Esta solicitação não existe mais.",
-    "access_request.already_decided": "Esta solicitação já foi respondida."
+    "access_request.already_decided": "Esta solicitação já foi respondida.",
+    "frame_ancestors.invalid": "Estes endereços de site não são válidos: {origins}. Use um endereço https sem caminho, por exemplo https://portal.example.com.",
+    "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites.",
+    "connection.query_not_found": "Consulta não encontrada nesta conexão.",
+    "connection.query_finished": "Esta consulta já terminou ({status}).",
+    "connection.query_not_killable": "Esta consulta não pode ser parada pelo BOW: o cliente dela impõe o próprio limite de tempo."
   },
   "email": {
     "dashboardShare": {
@@ -6958,6 +7105,9 @@
     "unsaved": "Alterações não salvas",
     "tabGeneral": "Geral",
     "nameTitle": "Nome",
+    "descriptionTitle": "Descrição",
+    "descriptionPlaceholder": "O que este painel mostra e para quem é",
+    "descriptionHelp": "Opcional. Mostrado aos leitores ao passar o cursor, ao lado do nome.",
     "linkTitle": "Link",
     "refreshTitle": "Atualizar dados",
     "linkPreview": "Link:",
@@ -7170,5 +7320,122 @@
     "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
     "added": "Membros adicionados",
     "addFailed": "Não foi possível adicionar membros"
+  },
+  "productUpdates": {
+    "checkbox": "Enviar novidades do produto para mim",
+    "checkboxWithEmail": "Enviar novidades do produto para {email}",
+    "settingsTitle": "Novidades do produto",
+    "toggleLabel": "Receber novidades do produto por e-mail",
+    "sentTo": "Enviado para {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Ver pasta",
+    "attach": "Vincular existente",
+    "addCase": "Adicionar caso",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Pode consultar",
+    "manager": "Pode gerir",
+    "hints": "A consulta inclui os agentes da pasta. A gestão também permite editar e compartilhar.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Raiz da organização",
+    "inherit": "Herdar acesso da pasta superior",
+    "direct": "Acesso direto de {name}",
+    "stopConfirm": "Desativar herança? As permissões herdadas de {names} deixarão de ser aplicadas."
+  },
+  "connectionQueries": {
+    "tabSettings": "Configurações",
+    "tabQueries": "Consultas",
+    "runningNow": "em execução",
+    "queuedCount": "{n} aguardando vez",
+    "limitFromConnection": "Limite definido nesta conexão",
+    "limitFromOrg": "Limite padrão da organização",
+    "limitDefault": "Limite padrão do sistema",
+    "live": "Ao vivo",
+    "liveHint": "Atualiza a cada 2 segundos",
+    "refresh": "Atualizar",
+    "loadFailed": "Não foi possível carregar as consultas",
+    "unavailableTitle": "Não foi possível carregar as consultas desta conexão",
+    "unavailableOutdated": "Este servidor ainda não tem a visualização de Consultas. Provavelmente executa uma versão do Bag of Words mais antiga que esta página; atualize o servidor e tente novamente.",
+    "runningTitle": "Em execução",
+    "noneRunning": "Nenhuma consulta está em execução nesta conexão.",
+    "waitingFor": "aguardando há {time}",
+    "runningFor": "executando há {time}",
+    "stopping": "Parando…",
+    "killConfirm": "Parar esta consulta?",
+    "kill": "Parar",
+    "killFailed": "Não foi possível parar a consulta",
+    "notKillable": "Não é possível parar aqui",
+    "notKillableHint": "O cliente desta conexão impõe o próprio limite de tempo, então o BOW não pode interrompê-lo. A consulta termina sozinha.",
+    "historyTitle": "Histórico",
+    "filterAll": "Todos os status",
+    "searchPlaceholder": "Pesquisar no texto da consulta",
+    "noMatches": "Nenhuma consulta corresponde a estes filtros.",
+    "noHistory": "Nenhuma consulta foi executada nesta conexão ainda.",
+    "colStatus": "Status",
+    "colQuery": "Consulta",
+    "colWho": "Quem",
+    "colDuration": "Duração",
+    "colWait": "Espera",
+    "colRows": "Linhas",
+    "colWhen": "Quando",
+    "loadMore": "Carregar mais",
+    "retentionNote": "O histórico é mantido por 90 dias. Só os gestores da conexão podem ver e parar consultas aqui.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Sistema",
+    "agent": "Agente",
+    "attempt": "Tentativa",
+    "attemptValue": "tentativa de código {code} · tentativa da ferramenta {tool} · consulta nº {seq}",
+    "started": "Início",
+    "ended": "Fim",
+    "killedBy": "Parada por",
+    "sourceCancel": "Cancelamento na origem",
+    "copied": "Copiado",
+    "copy": "Copiar",
+    "truncated": "O texto da consulta foi truncado ao salvar.",
+    "openReport": "Abrir relatório",
+    "openReportNamed": "Abrir relatório: {title}",
+    "status": {
+      "queued": "Aguardando",
+      "running": "Em execução",
+      "success": "Concluída",
+      "error": "Falhou",
+      "timeout": "Tempo esgotado",
+      "busy": "Ocupada",
+      "cancelled": "Cancelada",
+      "stale": "Abandonada"
+    },
+    "source": {
+      "label": "Origem",
+      "chat": "Chat",
+      "eval": "Avaliação",
+      "query": "Consulta",
+      "entity": "Entidade",
+      "dashboard": "Painel",
+      "viewer": "Atualização do leitor",
+      "scheduled": "Agendada",
+      "system": "Sistema"
+    },
+    "reason": {
+      "killed": "Cancelada por um gestor da conexão.",
+      "killed_waiting": "Cancelada por um gestor da conexão enquanto aguardava vez.",
+      "run_stopped": "Parada porque a execução que a enviou foi parada.",
+      "stale": "O processo que executava esta consulta parou de responder; sua vaga foi liberada.",
+      "busy": "Nenhuma vaga abriu a tempo: a conexão estava no limite de consultas simultâneas."
+    }
   }
 }

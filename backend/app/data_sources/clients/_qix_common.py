@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 from numbers import Real
 import ssl
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -527,3 +528,287 @@ async def fetch_hypercube_pages(
             break
         top += len(matrix)
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Sheet objects (visualizations) — what a chart computes, in one line
+# ---------------------------------------------------------------------------
+#
+# A sheet object stores its definition as generic-object properties: a chart
+# carries a `qHyperCubeDef` (dimensions × measures), a listbox a
+# `qListObjectDef`, a map one hypercube per layer. A measure is either written
+# inline (`qDef.qDef`) or points at a master measure (`qLibraryId`). The parser
+# below reads those shapes from `GetFullPropertyTree` / `GetProperties` output
+# without assuming a visualization type, so an extension or a chart type added
+# in a later Qlik release still yields its dimensions and measures.
+
+# Property keys that hold alternatives (the "exploration" dims/measures a user
+# can swap in) rather than what the object shows by default.
+_ALTERNATIVES_KEY = "qLayoutExclude"
+_MAX_PROPERTY_DEPTH = 8
+
+# `$(vName)` and `$(=expr)`-style dollar expansions; only named ones are kept.
+_VARIABLE_REF_RE = re.compile(r"\$\(\s*=?\s*([A-Za-z_][\w.]*)\s*\)")
+
+
+def text_or_expression(value: Any) -> str:
+    """A title/label as written: plain text, or the expression behind it.
+
+    Titles and labels are either a string or a string expression
+    (``{"qStringExpression": {"qExpr": "='Sales ' & Year"}}``); a calculation
+    condition is a value expression (``{"qv": "..."}``).
+    """
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("qStringExpression", "qValueExpression"):
+            inner = value.get(key)
+            if isinstance(inner, dict) and isinstance(inner.get("qExpr"), str):
+                return inner["qExpr"].strip()
+        for key in ("qv", "qExpr"):
+            if isinstance(value.get(key), str):
+                return value[key].strip()
+    return ""
+
+
+def _normalize_expression(expr: str) -> str:
+    text = (expr or "").strip()
+    if text.startswith("="):
+        text = text[1:]
+    return " ".join(text.split())
+
+
+def variables_in_expression(expr: str) -> List[str]:
+    """Names of the variables an expression expands, e.g. ``$(vCurrentYear)``."""
+    seen: List[str] = []
+    for name in _VARIABLE_REF_RE.findall(expr or ""):
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _find_defs(node: Any, key: str, out: List[Dict[str, Any]], depth: int = 0) -> None:
+    """Collect every ``key`` dict under ``node``, skipping alternatives."""
+    if depth > _MAX_PROPERTY_DEPTH:
+        return
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == _ALTERNATIVES_KEY:
+                continue
+            if k == key and isinstance(v, dict):
+                out.append(v)
+            else:
+                _find_defs(v, key, out, depth + 1)
+    elif isinstance(node, list):
+        for item in node:
+            _find_defs(item, key, out, depth + 1)
+
+
+class MasterItemIndex:
+    """Master measures/dimensions by id, and master measures by expression.
+
+    Sheet objects reference master items by id (`qLibraryId`); resolving the id
+    to the item's name lets the agent connect a chart to the governed
+    definition. The expression index folds a chart's inline copy of a master
+    measure into a reference instead of repeating the expression.
+    """
+
+    def __init__(
+        self,
+        measures: Optional[Dict[str, Dict[str, str]]] = None,
+        dimensions: Optional[Dict[str, str]] = None,
+    ):
+        self.measures = measures or {}
+        self.dimensions = dimensions or {}
+        self._by_expression: Dict[str, str] = {}
+        for item in self.measures.values():
+            norm = _normalize_expression(item.get("expression") or "")
+            if norm and item.get("name"):
+                self._by_expression.setdefault(norm, item["name"])
+
+    def measure_for_expression(self, expr: str) -> Optional[str]:
+        return self._by_expression.get(_normalize_expression(expr))
+
+
+def _summarize_dimension(dim: Dict[str, Any], index: MasterItemIndex) -> Dict[str, Any]:
+    qdef = dim.get("qDef") or {}
+    fields = [f for f in (qdef.get("qFieldDefs") or []) if isinstance(f, str)]
+    labels = [lbl for lbl in (qdef.get("qFieldLabels") or []) if isinstance(lbl, str)]
+    label = (labels[0].strip() if labels and labels[0] else "") or text_or_expression(qdef.get("qLabelExpression"))
+    out: Dict[str, Any] = {}
+    lib = dim.get("qLibraryId")
+    if lib:
+        out["master"] = index.dimensions.get(lib) or lib
+    if fields:
+        out["field"] = fields[0]
+    if label:
+        out["label"] = label
+    return out
+
+
+def _summarize_measure(meas: Dict[str, Any], index: MasterItemIndex) -> Dict[str, Any]:
+    qdef = meas.get("qDef") or {}
+    expr = qdef.get("qDef") if isinstance(qdef.get("qDef"), str) else ""
+    label = (qdef.get("qLabel") or "").strip() if isinstance(qdef.get("qLabel"), str) else ""
+    label = label or text_or_expression(qdef.get("qLabelExpression"))
+    out: Dict[str, Any] = {}
+    lib = meas.get("qLibraryId")
+    if lib:
+        master = index.measures.get(lib) or {}
+        out["master"] = master.get("name") or lib
+        if master.get("expression"):
+            out["expression"] = master["expression"]
+    elif expr:
+        out["expression"] = expr.strip()
+        same_as = index.measure_for_expression(expr)
+        if same_as:
+            out["master"] = same_as
+    if label:
+        out["label"] = label
+    return out
+
+
+def summarize_object_properties(props: Dict[str, Any], index: Optional[MasterItemIndex] = None) -> Dict[str, Any]:
+    """Reduce one generic object's properties to what it computes.
+
+    Returns ``{id, type, title, dimensions, measures, alternativeDimensions,
+    alternativeMeasures, listFields, calcCondition, state, extendsId,
+    variables}`` with empty entries dropped. Works on any visualization type,
+    including extensions, because it looks for hypercube/list-object
+    definitions anywhere in the properties rather than at a fixed path.
+    """
+    index = index or MasterItemIndex()
+    info = props.get("qInfo") or {}
+    out: Dict[str, Any] = {
+        "id": info.get("qId") or "",
+        "type": props.get("visualization") or info.get("qType") or "object",
+        "title": text_or_expression(props.get("title")),
+    }
+    subtitle = text_or_expression(props.get("subtitle"))
+    if subtitle:
+        out["subtitle"] = subtitle
+    if props.get("qExtendsId"):
+        out["extendsId"] = props["qExtendsId"]
+
+    cubes: List[Dict[str, Any]] = []
+    _find_defs(props, "qHyperCubeDef", cubes)
+    dims: List[Dict[str, Any]] = []
+    meas: List[Dict[str, Any]] = []
+    conditions: List[str] = []
+    for cube in cubes:
+        dims.extend(_summarize_dimension(d, index) for d in (cube.get("qDimensions") or []) if isinstance(d, dict))
+        meas.extend(_summarize_measure(m, index) for m in (cube.get("qMeasures") or []) if isinstance(m, dict))
+        cond = text_or_expression((cube.get("qCalcCondition") or {}).get("qCond")) or text_or_expression(cube.get("qCalcCond"))
+        if cond and cond not in conditions:
+            conditions.append(cond)
+        if cube.get("qStateName") and not out.get("state"):
+            out["state"] = cube["qStateName"]
+    out["dimensions"] = [d for d in dims if d]
+    out["measures"] = [m for m in meas if m]
+
+    alternatives = props.get(_ALTERNATIVES_KEY) or {}
+    alt_cubes: List[Dict[str, Any]] = []
+    if isinstance(alternatives, dict):
+        _find_defs({"_": alternatives}, "qHyperCubeDef", alt_cubes)
+    alt_dims: List[Dict[str, Any]] = []
+    alt_meas: List[Dict[str, Any]] = []
+    for cube in alt_cubes:
+        alt_dims.extend(_summarize_dimension(d, index) for d in (cube.get("qDimensions") or []) if isinstance(d, dict))
+        alt_meas.extend(_summarize_measure(m, index) for m in (cube.get("qMeasures") or []) if isinstance(m, dict))
+    out["alternativeDimensions"] = [d for d in alt_dims if d]
+    out["alternativeMeasures"] = [m for m in alt_meas if m]
+
+    lists: List[Dict[str, Any]] = []
+    _find_defs(props, "qListObjectDef", lists)
+    list_fields: List[str] = []
+    for lst in lists:
+        lib = lst.get("qLibraryId")
+        fields = (lst.get("qDef") or {}).get("qFieldDefs") or []
+        name = (index.dimensions.get(lib) or lib) if lib else (fields[0] if fields else "")
+        if name and name not in list_fields:
+            list_fields.append(name)
+    out["listFields"] = list_fields
+
+    if conditions:
+        out["calcCondition"] = conditions[0]
+    if props.get("qStateName") and not out.get("state"):
+        out["state"] = props["qStateName"]
+
+    variables: List[str] = []
+    for item in out["measures"] + out["alternativeMeasures"]:
+        for name in variables_in_expression(item.get("expression") or ""):
+            if name not in variables:
+                variables.append(name)
+    for item in out["dimensions"]:
+        for name in variables_in_expression(item.get("field") or ""):
+            if name not in variables:
+                variables.append(name)
+    for name in variables_in_expression(out.get("calcCondition") or ""):
+        if name not in variables:
+            variables.append(name)
+    out["variables"] = variables
+    return {k: v for k, v in out.items() if v not in (None, "", [], {})}
+
+
+def _format_dimension(d: Dict[str, Any]) -> str:
+    if d.get("master"):
+        name = d["master"]
+        label = d.get("label") or ""
+        if label and label != name:
+            return f"{label} = master dimension '{name}'"
+        return f"master dimension '{name}'"
+    field = d.get("field") or ""
+    label = d.get("label") or ""
+    return f"{label} = {field}" if label and label != field else field
+
+
+def _format_measure(m: Dict[str, Any]) -> str:
+    label = m.get("label") or ""
+    if m.get("master"):
+        name = m["master"]
+        return f"{label} = master measure '{name}'" if label and label != name else f"master measure '{name}'"
+    expr = m.get("expression") or ""
+    return f"{label} = {expr}" if label else expr
+
+
+def describe_object(summary: Dict[str, Any], max_chars: int = 600) -> str:
+    """One line a model can act on: id, type, what it groups by and computes."""
+    parts = [f"{summary.get('type') or 'object'} id={summary.get('id') or '?'}"]
+    if summary.get("dimensions"):
+        parts.append("dimensions: " + ", ".join(_format_dimension(d) for d in summary["dimensions"]))
+    if summary.get("measures"):
+        parts.append("measures: " + "; ".join(_format_measure(m) for m in summary["measures"]))
+    if summary.get("listFields"):
+        parts.append("filter fields: " + ", ".join(summary["listFields"]))
+    if summary.get("alternativeDimensions"):
+        parts.append("alternative dimensions: " + ", ".join(_format_dimension(d) for d in summary["alternativeDimensions"]))
+    if summary.get("alternativeMeasures"):
+        parts.append("alternative measures: " + "; ".join(_format_measure(m) for m in summary["alternativeMeasures"]))
+    if summary.get("calcCondition"):
+        parts.append(f"calculated only when: {summary['calcCondition']}")
+    if summary.get("state"):
+        parts.append(f"alternate state: {summary['state']}")
+    if summary.get("extendsId"):
+        parts.append(f"linked to master visualization {summary['extendsId']}")
+    text = "; ".join(parts)
+    return text if len(text) <= max_chars else text[: max_chars - 1] + "…"
+
+
+def flatten_property_tree(entry: Dict[str, Any], depth: int = 0) -> List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]]:
+    """``GetFullPropertyTree`` → [(properties, parent properties)], depth first.
+
+    The root (the sheet itself) is returned with parent ``None``; a container's
+    tabs and a filter pane's listboxes come back with that object as parent.
+    """
+    out: List[Tuple[Dict[str, Any], Optional[Dict[str, Any]]]] = []
+
+    def walk(node: Dict[str, Any], parent: Optional[Dict[str, Any]], level: int) -> None:
+        if level > _MAX_PROPERTY_DEPTH or not isinstance(node, dict):
+            return
+        props = node.get("qProperty") or {}
+        out.append((props, parent))
+        for child in node.get("qChildren") or []:
+            walk(child, props, level + 1)
+
+    walk(entry or {}, None, depth)
+    return out

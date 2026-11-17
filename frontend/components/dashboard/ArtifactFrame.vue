@@ -66,26 +66,30 @@
             data-testid="frame-version-picker"
             @update:model-value="onPick"
             :popper="{ placement: 'bottom-start' }"
-            :ui-menu="{ width: 'w-80', container: 'z-50 group' }"
+            :ui-menu="{ width: 'w-80', container: 'z-50 group', option: { disabled: 'cursor-default opacity-100' } }"
             :ui="{ option: { base: 'py-1.5' } }"
           >
             <template #label>
               <span class="flex items-center gap-1.5 min-w-0 text-xs">
                 <Icon :name="modeIcon(selectedArtifactItem?.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-                <span v-text-dir class="truncate">{{ selectedDashboardTitle }}</span>
+                <TruncatedLabel :text="selectedDashboardTitle" :description="selectedArtifactItem?.description" data-testid="frame-dashboard-title" />
                 <span class="text-ink-muted shrink-0">·</span>
                 <Icon v-if="viewing" name="heroicons:eye" class="w-3.5 h-3.5 shrink-0 text-blue-500" />
                 <span class="font-medium tabular-nums shrink-0">v{{ viewing ? viewing.version : selectedArtifactItem?.version }}</span>
               </span>
             </template>
             <template #option="{ option }">
-              <!-- A dashboard's heading (only with several dashboards) -->
+              <!-- A dashboard's heading (only with several dashboards). It is a
+                   disabled option, but muted by its colours, not by the menu's
+                   disabled opacity (ui-menu above): that opacity would also fade
+                   the full-name tooltip inside it, letting the rows below show
+                   through. -->
               <div v-if="option.header" class="w-full min-w-0 pt-1" data-testid="frame-dashboard-heading">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-900 dark:text-white min-w-0">
+                <div class="flex items-center gap-1.5 text-xs font-medium text-ink-muted min-w-0">
                   <Icon :name="modeIcon(option.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-                  <span v-text-dir class="truncate">{{ option.title }}</span>
+                  <TruncatedLabel :text="option.title" :description="option.description" />
                 </div>
-                <div class="text-2xs text-ink-muted ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
+                <div class="text-2xs text-ink-subtle ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
               </div>
               <div v-else-if="option.allVersions" class="flex items-center gap-1.5 w-full text-xs text-blue-600 dark:text-blue-400" data-testid="frame-version-all">
                 <Icon name="heroicons:clock" class="w-3.5 h-3.5" />{{ $t('dashboardCollab.versions.allVersions') }}
@@ -658,6 +662,7 @@ import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
 import PresenceAvatars from './collab/PresenceAvatars.vue';
 import Spinner from '../Spinner.vue';
+import TruncatedLabel from '../TruncatedLabel.vue';
 import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
@@ -702,6 +707,7 @@ interface ArtifactItem {
   mode: string;
   status?: string;
   name?: string | null;       // a name someone gave the version (collab01)
+  description?: string | null; // not sent yet; shown on hover under the title once it is
 }
 
 // Download the iframe libraries now, in parallel with the artifact/data
@@ -1608,7 +1614,7 @@ const dashboardGroups = computed(() => {
   return [...groups.entries()].map(([key, rows]) => {
     const versions = [...rows].sort((x, y) => y.version - x.version);
     const first = [...rows].sort((x, y) => new Date(x.created_at).getTime() - new Date(y.created_at).getTime())[0];
-    return { key, title: versions[0]?.title || 'Untitled', mode: versions[0]?.mode, created_at: first?.created_at, versions };
+    return { key, title: versions[0]?.title || 'Untitled', description: versions[0]?.description, mode: versions[0]?.mode, created_at: first?.created_at, versions };
   }).sort((x, y) => new Date(y.versions[0]?.created_at || 0).getTime() - new Date(x.versions[0]?.created_at || 0).getTime());
 });
 const selectedDashboardKey = computed(() => (selectedArtifactItem.value ? dashboardKeyOf(selectedArtifactItem.value) : undefined));
@@ -1636,7 +1642,7 @@ const pickerOptions = computed(() => {
   for (const g of dashboardGroups.value) {
     if (several) {
       out.push({ value: `heading:${g.key}`, label: g.title, header: true, disabled: true,
-                 title: g.title, mode: g.mode, created_at: g.created_at });
+                 title: g.title, description: g.description, mode: g.mode, created_at: g.created_at });
     }
     const isSelected = g.key === selectedDashboardKey.value;
     const rows: any[] = g.versions.map(a => ({

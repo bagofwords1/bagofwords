@@ -761,6 +761,7 @@ def _card(artifact: Artifact, extras: dict, editor: bool, report_id: str | None)
     for_editors = role in EDITOR_ROLES
     return {
         "id": aid, "slug": artifact.slug, "title": _card_title(artifact, extras),
+        "description": artifact.description,
         "mode": artifact.mode,
         "published": published, "is_owner": mine, "report_id": report_id, "role": role,
         "owner": {"id": str(owner.id), "name": owner.name or owner.email} if owner else None,

@@ -1,4 +1,117 @@
 {
+  "world": {
+    "tree": "Albero",
+    "usage": "Utilizzo",
+    "myReports": "I miei report",
+    "usedTogether": "Report dell’organizzazione con utilizzo congiunto: {count}",
+    "title": "World",
+    "explorer": "Explorer",
+    "heading": "Your world, connected.",
+    "eyebrow": "THE BIG PICTURE",
+    "subtitle": "Explore the knowledge, sources and work that connect your organization.",
+    "personalScope": "Your accessible world",
+    "loading": "Discovering connections…",
+    "discovering": "Bringing your world into view…",
+    "items": "items in view",
+    "connections": "relationships",
+    "details": "Explore your world",
+    "search": "Search loaded items…",
+    "layers": "Layers",
+    "browse": "Browse",
+    "entityTypes": "Entity types",
+    "showAll": "Show all",
+    "hideAll": "Hide all",
+    "memory": "Memory overlay",
+    "memoryHint": "Add your personal memories to the map. Only you can see them.",
+    "memoryCount": "{count} active memories",
+    "privateOverlay": "Your personal context",
+    "onlyYou": "Private · only visible to you",
+    "open": "Open item",
+    "expand": "Explore inside",
+    "related": "Connected items",
+    "noLinks": "No recorded connections in this view yet.",
+    "showMore": "Show more",
+    "loadMore": "Load more items",
+    "partialError": "Some parts of your world could not load.",
+    "retry": "Retry",
+    "refresh": "Refresh world",
+    "showLinks": "Show relationships",
+    "scopeHint": "Counts reflect loaded items you can access. Explore a report to reveal its queries, steps and activity.",
+    "browseHint": "Select an item to see its connections.",
+    "canvasHint": "Scroll to zoom · drag to explore",
+    "mapLabel": "Interactive organization map. Use arrow keys to pan, + and − to zoom, 0 to fit. Browse provides a keyboard-accessible item list.",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "fit": "Fit world to view",
+    "pause": "Pause motion",
+    "resume": "Resume motion",
+    "close": "Close details",
+    "noMatches": "Nothing in this view",
+    "resetHint": "Try another search or show more entity types.",
+    "reset": "Reset filters",
+    "empty": "Your world starts here",
+    "emptyHint": "Connect an agent or add knowledge to see your world take shape.",
+    "types": {
+      "task": "Attività pianificate",
+      "agent": "Agents",
+      "connection": "Connections",
+      "instruction": "Instructions & skills",
+      "table": "Tables",
+      "file": "Files",
+      "tool": "MCP & API tools",
+      "list": "Lists",
+      "project": "Projects",
+      "report": "Reports",
+      "artifact": "Artifacts",
+      "query": "Queries",
+      "step": "Steps",
+      "completion": "Messages",
+      "execution": "Executions",
+      "memory": "Memories",
+      "folder": "Cartelle",
+      "eval": "Valutazioni"
+    },
+    "relations": {
+      "connected_to": "Connected through an agent",
+      "has_instruction": "Instruction assigned to this agent",
+      "includes": "Included in this resource",
+      "provides": "Provided by this connection",
+      "uses_agent": "Agent attached to this report",
+      "contains": "Contained in this report",
+      "has_step": "Step belonging to this query",
+      "has_execution": "Execution recorded for this report",
+      "executed_by": "Execution of this message",
+      "references": "Explicit instruction reference",
+      "remembers": "Explicit agent tag in your memory",
+      "produced": "Produced in this report",
+      "uses_table": "Recorded use of this table",
+      "uses_folder": "Seleziona cartella"
+    },
+    "fields": {
+      "source_type": "Source",
+      "columns": "Columns",
+      "status": "Status",
+      "load_mode": "Loading",
+      "policy": "Policy",
+      "mode": "Format",
+      "handle": "Reference"
+    },
+    "loadAll": "Load all items",
+    "stopLoading": "Stop loading",
+    "setting": "Mostra Mondo in Agenti"
+  },
+  "filePicker": {
+    "searchPlaceholder": "Cerca file…",
+    "uploadFile": "Carica file",
+    "uploadTitle": "Carica file",
+    "clickOrDrag": "Clicca o trascina i file da caricare",
+    "dropHere": "Rilascia i file qui",
+    "files": "File",
+    "noFilesYet": "Nessun file ancora",
+    "connect": "Connetti",
+    "searching": "Ricerca…",
+    "noResults": "Nessun risultato"
+  },
   "agentLanding": {
     "actions": "Azioni agente",
     "countTasks": "{n} attività | {n} attività",
@@ -611,6 +724,9 @@
     "whatCanIHelpWith": "Come posso aiutarti?"
   },
   "prompt": {
+    "searchAgentFolders": "Cerca agenti e cartelle…",
+    "expandDirectory": "Espandi {name}",
+    "collapseDirectory": "Comprimi {name}",
     "placeholderDefault": "Chiedi dati, una dashboard o un'analisi approfondita",
     "thinking": "Sto pensando",
     "working": "Sto lavorando",
@@ -730,7 +846,8 @@
         "cancel": "Annulla",
         "dismiss": "Chiudi"
       }
-    }
+    },
+    "recent": "Recenti"
   },
   "reports": {
     "title": "Report",
@@ -1257,7 +1374,11 @@
       "duration": "Durata: {ms} ms",
       "edit": "Modifica",
       "generationStopped": "Generazione interrotta",
-      "code": "Codice"
+      "code": "Codice",
+      "waitingForSlot": "In attesa del turno su {connection} · {running}/{limit} in esecuzione",
+      "waitingForSlotAhead": "In attesa di un posto su {connection} · {running}/{limit} in esecuzione · {ahead} prima",
+      "waitingForSlotShort": "In attesa del turno su {connection}",
+      "theConnection": "la connessione"
     },
     "createData": {
       "bowSource": "BOW",
@@ -1328,7 +1449,9 @@
       "failedDashboard": "Impossibile creare la dashboard",
       "copied": "Copiato",
       "copiedDesc": "ID dell'artefatto copiato negli appunti",
-      "copyFailed": "Impossibile copiare"
+      "copyFailed": "Impossibile copiare",
+      "notRenderChecked": "Rendering non verificato",
+      "notRenderCheckedDesc": "Salvato senza verifica del rendering: il server non è riuscito ad avviare il browser. Aprilo per verificare che venga visualizzato."
     },
     "createDashboard": {
       "creating": "Creazione della dashboard",
@@ -1365,7 +1488,9 @@
       "copyIdTooltip": "Clicca per copiare l'ID",
       "copied": "Copiato",
       "copiedDesc": "ID dell'artefatto copiato negli appunti",
-      "copyFailed": "Impossibile copiare"
+      "copyFailed": "Impossibile copiare",
+      "notRenderChecked": "Rendering non verificato",
+      "notRenderCheckedDesc": "Salvato senza verifica del rendering: il server non è riuscito ad avviare il browser. Aprilo per verificare che venga visualizzato."
     },
     "createWidget": {
       "creatingDataModel": "Creazione del modello di dati",
@@ -2156,13 +2281,14 @@
     "fullAdminAccessTab": "L'accesso amministrativo completo include tutti gli agenti, le connessioni e i modelli.",
     "includedWith": "Incluso con {name}",
     "searchResources": "Cerca…",
-    "addAccess": "Aggiungi agente, connessione o modello",
-    "accessEmpty": "Ancora nessun agente, connessione o modello. Gli agenti pubblici sono sempre disponibili.",
+    "addAccess": "Seleziona una risorsa",
+    "accessEmpty": "Seleziona una risorsa",
     "publicAgents": "{n} agenti pubblici sono disponibili per tutti.",
     "types": {
       "data_source": "Agente",
       "connection": "Connessione",
-      "llm_model": "Modello"
+      "llm_model": "Modello",
+      "folder": "Cartella"
     },
     "levels": {
       "use": "Può usare",
@@ -2180,7 +2306,9 @@
       "connectionsMany": "{n} connessioni",
       "modelsOne": "1 modello",
       "modelsMany": "{n} modelli",
-      "everything": "Tutti i permessi"
+      "everything": "Tutti i permessi",
+      "foldersOne": "1 Cartella",
+      "foldersMany": "{n} cartelle"
     },
     "resourcePermissions": {
       "data_source": {
@@ -3251,7 +3379,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Query contemporanee per connessione",
-          "description": "Quante query dell'agente possono essere eseguite contemporaneamente su una stessa connessione, per replica. Ciò che eccede attende un posto libero invece di fallire. Conviene abbassarlo per sorgenti on-premise delicate (Oracle, SQL Server) che non reggono scansioni parallele. La configurazione di una connessione può sovrascriverlo con il proprio valore 'max_concurrent_queries'."
+          "description": "Quante query dell'agente possono essere eseguite contemporaneamente su una stessa connessione, sommando tutti i worker e le repliche. Ciò che eccede attende un posto libero invece di fallire. Conviene abbassarlo per sorgenti on-premise delicate (Oracle, SQL Server) che non reggono scansioni parallele. La configurazione di una connessione può sovrascriverlo con il proprio valore 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K degli schemi",
@@ -3686,7 +3814,20 @@
       "testTitle": "Prova le tue regole",
       "title": "Protezione dei dati personali"
     },
-    "piiTab": "Dati personali"
+    "piiTab": "Dati personali",
+    "frameAncestors": {
+      "title": "Siti che possono mostrare BOW",
+      "description": "Le vostre applicazioni autorizzate a mostrare BOW in un frame, come un portale interno. L'elenco vale per tutte le organizzazioni di questa istanza.",
+      "placeholder": "https://portal.example.com",
+      "add": "Aggiungi",
+      "removeSite": "Rimuovi {site}",
+      "empty": "Nessun sito aggiunto. BOW può apparire solo nelle sue pagine e in Microsoft Office.",
+      "ssoNote": "L'accesso all'interno del frame funziona con email e password. Il Single Sign-On (SSO) non funziona in un frame.",
+      "readOnly": "In un'istanza con più organizzazioni, solo un amministratore dell'istanza può modificare questo elenco.",
+      "duplicate": "Questo sito è già nell'elenco.",
+      "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com",
+      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina."
+    }
   },
   "data": {
     "keepSavedSecret": "Lascia vuoto per mantenere il segreto salvato",
@@ -4200,6 +4341,7 @@
       "search_file": "Cerca nei file",
       "system_status": "Controlla lo stato del sistema"
     },
+    "networkDirIndexDescription": "La modalità in tempo reale legge i file su richiesta. L’elenco dei file conserva nomi, dimensioni e date. Le modalità Parole chiave e Testo completo salvano anche i dati PCAP e QVD decodificati per le query SQL. Il testo completo indicizza i documenti per la ricerca. L’aggiornamento elabora i file modificati.",
     "sshSetup": {
       "title": "Verifica identità del server",
       "hint": "Confronta l’impronta con quella fornita dall’amministratore o da registri SSH attendibili. Recuperare una chiave non la verifica.",
@@ -4467,7 +4609,12 @@
     "access_request.too_soon": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
     "access_request.no_approvers": "Al momento nessuno può approvare le richieste per questa dashboard.",
     "access_request.not_found": "Questa richiesta non esiste più.",
-    "access_request.already_decided": "Questa richiesta è già stata gestita."
+    "access_request.already_decided": "Questa richiesta è già stata gestita.",
+    "frame_ancestors.invalid": "Questi indirizzi di sito non sono validi: {origins}. Usa un indirizzo https senza percorso, ad esempio https://portal.example.com.",
+    "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
+    "connection.query_not_found": "Query non trovata su questa connessione.",
+    "connection.query_finished": "Questa query è già terminata ({status}).",
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo."
   },
   "email": {
     "dashboardShare": {
@@ -6958,6 +7105,9 @@
     "unsaved": "Modifiche non salvate",
     "tabGeneral": "Generale",
     "nameTitle": "Nome",
+    "descriptionTitle": "Descrizione",
+    "descriptionPlaceholder": "Cosa mostra questa dashboard e a chi è rivolta",
+    "descriptionHelp": "Facoltativo. Mostrato ai lettori al passaggio del mouse, accanto al nome.",
     "linkTitle": "Link",
     "refreshTitle": "Aggiorna i dati",
     "linkPreview": "Link:",
@@ -7170,5 +7320,122 @@
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
     "addFailed": "Impossibile aggiungere i membri"
+  },
+  "productUpdates": {
+    "checkbox": "Inviami gli aggiornamenti del prodotto",
+    "checkboxWithEmail": "Invia gli aggiornamenti del prodotto a {email}",
+    "settingsTitle": "Aggiornamenti del prodotto",
+    "toggleLabel": "Ricevi gli aggiornamenti del prodotto via email",
+    "sentTo": "Inviati a {email}"
+  },
+  "sharedFolders": {
+    "viewFolder": "Apri cartella",
+    "attach": "Collega esistente",
+    "addCase": "Aggiungi caso",
+    "sameAccess": "Access stays the same.",
+    "edit": "Folder settings",
+    "move": "Move",
+    "preview": "Preview move",
+    "rename": "Rename",
+    "delete": "Delete folder",
+    "via": "Via {name}",
+    "title": "Folders",
+    "back": "Back",
+    "create": "New folder",
+    "share": "Share",
+    "name": "Folder name",
+    "noDirect": "No direct role",
+    "viewer": "Può interrogare",
+    "manager": "Può gestire",
+    "hints": "La consultazione include gli agenti della cartella. La gestione consente anche modifiche e condivisione.",
+    "limit": "Limited access",
+    "stops": "Parent roles stop here.",
+    "root": "Radice organizzazione",
+    "inherit": "Eredita accesso dalla cartella superiore",
+    "direct": "Accesso diretto per {name}",
+    "stopConfirm": "Disattivare l’ereditarietà? I permessi ereditati da {names} non saranno più applicati."
+  },
+  "connectionQueries": {
+    "tabSettings": "Impostazioni",
+    "tabQueries": "Query",
+    "runningNow": "in esecuzione",
+    "queuedCount": "{n} in attesa del turno",
+    "limitFromConnection": "Limite impostato su questa connessione",
+    "limitFromOrg": "Limite predefinito dell'organizzazione",
+    "limitDefault": "Limite predefinito del sistema",
+    "live": "Live",
+    "liveHint": "Si aggiorna ogni 2 secondi",
+    "refresh": "Aggiorna",
+    "loadFailed": "Impossibile caricare le query",
+    "unavailableTitle": "Impossibile caricare le query di questa connessione",
+    "unavailableOutdated": "Questo server non ha ancora la vista Query. Probabilmente esegue una versione di Bag of Words più vecchia di questa pagina; aggiorna il server e riprova.",
+    "runningTitle": "In esecuzione",
+    "noneRunning": "Nessuna query in esecuzione su questa connessione.",
+    "waitingFor": "in attesa da {time}",
+    "runningFor": "in esecuzione da {time}",
+    "stopping": "Arresto…",
+    "killConfirm": "Fermare questa query?",
+    "kill": "Ferma",
+    "killFailed": "Impossibile fermare la query",
+    "notKillable": "Non si può fermare qui",
+    "notKillableHint": "Il client di questa connessione applica un proprio limite di tempo, quindi BOW non può interromperlo. La query terminerà da sola.",
+    "historyTitle": "Cronologia",
+    "filterAll": "Tutti gli stati",
+    "searchPlaceholder": "Cerca nel testo della query",
+    "noMatches": "Nessuna query corrisponde ai filtri.",
+    "noHistory": "Su questa connessione non è ancora stata eseguita nessuna query.",
+    "colStatus": "Stato",
+    "colQuery": "Query",
+    "colWho": "Chi",
+    "colDuration": "Durata",
+    "colWait": "Attesa",
+    "colRows": "Righe",
+    "colWhen": "Quando",
+    "loadMore": "Carica altro",
+    "retentionNote": "La cronologia è conservata per 90 giorni. Solo i gestori della connessione possono vedere e fermare le query qui.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Sistema",
+    "agent": "Agente",
+    "attempt": "Tentativo",
+    "attemptValue": "tentativo di codice {code} · tentativo dello strumento {tool} · query n. {seq}",
+    "started": "Inizio",
+    "ended": "Fine",
+    "killedBy": "Fermata da",
+    "sourceCancel": "Annullamento alla sorgente",
+    "copied": "Copiato",
+    "copy": "Copia",
+    "truncated": "Il testo della query è stato troncato in archiviazione.",
+    "openReport": "Apri report",
+    "openReportNamed": "Apri report: {title}",
+    "status": {
+      "queued": "In attesa",
+      "running": "In esecuzione",
+      "success": "Riuscita",
+      "error": "Non riuscita",
+      "timeout": "Timeout",
+      "busy": "Occupata",
+      "cancelled": "Annullata",
+      "stale": "Abbandonata"
+    },
+    "source": {
+      "label": "Origine",
+      "chat": "Chat",
+      "eval": "Valutazione",
+      "query": "Query",
+      "entity": "Entità",
+      "dashboard": "Dashboard",
+      "viewer": "Aggiornamento lettore",
+      "scheduled": "Pianificata",
+      "system": "Sistema"
+    },
+    "reason": {
+      "killed": "Annullata da un gestore della connessione.",
+      "killed_waiting": "Annullata da un gestore della connessione mentre attendeva il turno.",
+      "run_stopped": "Fermata perché l'esecuzione che l'ha inviata è stata fermata.",
+      "stale": "Il processo che eseguiva questa query non risponde più; il suo posto è stato liberato.",
+      "busy": "Nessun posto si è liberato in tempo: la connessione era al limite di query simultanee."
+    }
   }
 }

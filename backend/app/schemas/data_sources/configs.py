@@ -1496,6 +1496,29 @@ class MssqlConfig(SQLConfig):
         description="Extra ODBC keywords sent as-is, e.g. ApplicationIntent=ReadOnly. Security keys (Encrypt, credentials, driver) cannot be overridden.",
         json_schema_extra={"ui:type": "keyvalue"}
     )
+    # Reader-safety settings, applied to every session BOW opens (see
+    # MSSQLClient.session_setup_sql). They make BOW give way to the
+    # database's own writers instead of deadlocking with or blocking them.
+    deadlock_priority_low: bool = Field(
+        True,
+        title="Yield in Deadlocks",
+        description="Run BOW queries with DEADLOCK_PRIORITY LOW, so in a deadlock SQL Server stops the BOW query instead of your application's transaction.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    lock_timeout_seconds: int = Field(
+        15,
+        ge=0,
+        le=3600,
+        title="Lock Timeout (seconds)",
+        description="How long a BOW query waits for a lock held by another session before it fails. Keep it shorter than the query timeout. 0 means wait with no limit.",
+        json_schema_extra={"ui:type": "number"}
+    )
+    isolation_level: Literal["default", "snapshot", "read_uncommitted"] = Field(
+        "default",
+        title="Isolation Level",
+        description="default: READ COMMITTED, the server default (lock-free if the database has READ_COMMITTED_SNAPSHOT on). snapshot: reads take no locks; the database needs ALLOW_SNAPSHOT_ISOLATION ON, and long reads (such as large extractions) grow the tempdb version store while they run. read_uncommitted: reads take no locks but can return uncommitted (dirty) data.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["default", "snapshot", "read_uncommitted"]}
+    )
 
 
 class SybaseConfig(SQLConfig):
@@ -3692,17 +3715,12 @@ class NetworkDirConfig(BaseModel):
         "fulltext",
         title="Indexing",
         description=(
-            "How much to store about the files — and so how well the agent "
-            "can search them. Live: nothing stored; search is by file name "
-            "plus a slow scan of the source. File list: names, sizes and "
-            "dates. Keywords: also up to 50 keywords per file, from the start "
-            "of its text. Full text: also a search index of every word in "
-            "every file (PDF, Office, CSV, text, email), so the agent finds "
-            "exact words, IDs and phrases anywhere, with the page or sheet. "
-            "The index holds the words, not the files, and is removed with "
-            "the connection. Only changed files are re-read."
+            "Live mode reads files on demand. File list stores names, sizes, and dates. "
+            "Keywords and Full text also store decoded PCAP and QVD data for SQL queries. "
+            "Full text indexes document contents for search. Refresh processes changed files."
         ),
         json_schema_extra={
+            "ui:descriptionKey": "data.networkDirIndexDescription",
             "ui:type": "select",
             "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
@@ -4055,7 +4073,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
 class QlikSenseOnPremConfig(BaseModel):
     """Connection form for QSEoW — deliberately small, like the Power BI and
     BigQuery forms. Crawl-behavior knobs (impersonate_app_owner,
-    include_master_items, include_lineage, max_apps,
+    include_master_items, include_lineage, include_sheet_objects, max_apps,
     timeout_sec) stay client constructor defaults rather than form fields:
     they tune discovery internals, not connection identity."""
 

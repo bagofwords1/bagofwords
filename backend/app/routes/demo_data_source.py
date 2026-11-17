@@ -7,6 +7,7 @@ Endpoints for listing and installing demo data sources.
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
+from pydantic import BaseModel
 
 from app.ee.audit.service import audit_service
 from app.dependencies import get_async_db
@@ -38,7 +39,11 @@ async def list_demo_data_sources(
     Returns a list of demo databases that can be installed,
     along with their installation status for the current organization.
     """
-    return await demo_service.list_demo_data_sources(db, organization)
+    return await demo_service.list_demo_data_sources(db, organization, current_user)
+
+
+class InstallDestination(BaseModel):
+    folder_id: str | None = None
 
 
 @router.post(
@@ -49,6 +54,7 @@ async def list_demo_data_sources(
 async def install_demo_data_source(
     demo_id: str,
     request: Request,
+    body: InstallDestination | None = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -64,6 +70,7 @@ async def install_demo_data_source(
         organization=organization,
         current_user=current_user,
         demo_id=demo_id,
+        folder_id=body.folder_id if body else None,
     )
     try:
         await audit_service.log(

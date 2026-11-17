@@ -12,7 +12,7 @@ definePageMeta({
   // agent authority server-side. Guarding on the org perm alone bounced an
   // agent manager off the run page right after they launched a run — the run
   // never executed, since this page is what drives it.
-  anyOf: ['manage_evals', { permission: 'manage_evals', resourceType: 'data_source' }]
+  anyOf: ['manage_evals', { permission: 'manage_evals', resourceType: 'data_source' }, { permission: 'manage_evals', resourceType: 'folder' }]
 })
 
 import EvalRunDetail from '~/components/EvalRunDetail.vue'

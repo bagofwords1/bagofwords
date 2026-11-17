@@ -83,7 +83,7 @@
                 </div>
 
                 <ul class="max-w-chat mx-auto space-y-4">
-                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-chat">
+                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-chat" :dir="m.role === 'user' ? undefined : messageDirs.get(String(m.id))">
                         <!-- Scheduled prompt indicator -->
                         <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
                             <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
@@ -138,7 +138,7 @@
                                                 />
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
@@ -172,7 +172,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.content || block.plan_decision?.assistant || ''"
                                                     :final="true"
@@ -216,7 +216,7 @@
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" dir="auto" :data-dir-hint="replyDirHints.get(String(m.id))">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
                                                     :final="true"
@@ -268,6 +268,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
@@ -352,7 +353,7 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
-import { dominantTextDir, type TextDir } from '~/utils/textDirection'
+import { decideMessageDir, dominantTextDir, localeTextDir, type TextDir } from '~/utils/textDirection'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
@@ -428,11 +429,12 @@ const visibleCompletions = computed<any[]>(() =>
 
 // Prompt bubbles take the direction of their own words (a nested
 // `dir="auto"` pair resolves LTR — see docs/design/i18n.md "Content
-// direction"); each reply carries its question's direction as the hint
-// useMarkdownAutoDir uses while the answer is still short.
+// direction"); each reply's question direction is the prior its message
+// direction starts from (messageDirs below).
 function promptDir(text?: string | null): TextDir | 'auto' {
     return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
 }
+const { locale: uiLocale } = useI18n({ useScope: 'global' })
 const replyDirHints = computed(() => {
     const hints = new Map<string, TextDir>()
     let last: TextDir | null = null
@@ -445,6 +447,28 @@ const replyDirHints = computed(() => {
         }
     }
     return hints
+})
+
+// One direction per reply (decideMessageDir): its saved response language,
+// else its question's direction, unless its prose is plainly the other
+// script. The reply's row, markdown blocks, tables, lists and tool cards all
+// take it, so a reply split by tool calls never ends up half LTR.
+const messageDirs = computed(() => {
+    const dirs = new Map<string, TextDir>()
+    const fallback = localeTextDir(String(uiLocale.value || 'en'))
+    for (const m of visibleCompletions.value) {
+        if (m.role === 'user') continue
+        const saved = (m.prompt as any)?.response_locale
+        dirs.set(String(m.id), decideMessageDir({
+            texts: (m.completion_blocks || [])
+                .filter((b: any) => b && b.phase !== 'knowledge_harness' && b.status !== 'error')
+                .map((b: any) => b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || ''),
+            saved: saved ? localeTextDir(saved) : null,
+            question: replyDirHints.value.get(String(m.id)) ?? null,
+            fallback,
+        }))
+    }
+    return dirs
 })
 
 // ---------------------------------------------------------------------------

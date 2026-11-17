@@ -113,7 +113,21 @@ def downgrade_test_db_to_base() -> None:
 # code at head reads their tables and columns, so a corpus stopped before the
 # data migration gets them too: their upgrade() runs on its own, unstamped,
 # and is idempotent, so a later `upgrade head` finds it done.
-SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01", "pubkeep01", "auditcontract01", "conndownalert01", "connalertmode01", "connalertstate01", "dashlist01", "dashlist02", "schedagents01", "roleovr01", "ctxcomp02", "dskind01", "cqruns01", "shwinfo01", "artpopup01", "dashacc01")
+SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01", "pubkeep01", "auditcontract01", "conndownalert01", "connalertmode01", "connalertstate01", "dashlist01", "dashlist02", "schedagents01", "roleovr01", "ctxcomp02", "dskind01", "cqruns01", "shwinfo01", "artpopup01", "dashacc01", "folder01", "folder02", "folder03", "folder04", "folder05", "folder06", "folder07", "folder08", "folder10", "folder11", "folder12", "decmodel01", "dashdesc01", "queryexec01", "queryexec02", "queryexec03")
+
+
+# Later revisions that add columns to the tables connapps01 creates. A test
+# that round-trips connapps01 on its own, on a head database, gets those tables
+# back at connapps01's shape; it replays these afterwards (their upgrade() is
+# idempotent) so head code finds the columns it reads.
+AFTER_CONNECTED_APPLICATIONS = ("folder10",)
+
+
+def replay_after_connected_applications() -> None:
+    """Call inside an ``Operations.context`` that just ran connapps01's upgrade()."""
+    script = script_directory()
+    for revision in AFTER_CONNECTED_APPLICATIONS:
+        script.get_revision(revision).module.upgrade()
 
 
 def restore_unstamped_application_schema(url: str) -> None:

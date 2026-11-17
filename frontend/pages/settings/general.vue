@@ -22,6 +22,9 @@
                         </div>
                     </div>
                 </SettingsRow>
+                <SettingsRow :label="$t('world.setting')">
+                    <UToggle v-model="form.show_world" :aria-label="$t('world.setting')" />
+                </SettingsRow>
             </SettingsSection>
 
             <SettingsSection :title="$t('settings.generalSections.assistant')" :description="$t('settings.generalSections.assistantHint')">
@@ -45,6 +48,25 @@
                 </SettingsRow>
             </SettingsSection>
 
+            <SettingsSection v-if="frameAncestors.loaded" :title="$t('settings.frameAncestors.title')" :description="$t('settings.frameAncestors.description')">
+                <FrameAncestorsEditor
+                    ref="frameAncestorsEditor"
+                    v-model="form.frame_ancestors"
+                    :can-edit="frameAncestors.can_edit"
+                />
+            </SettingsSection>
+
+            <SettingsSection v-if="productUpdates.available" :title="$t('productUpdates.settingsTitle')">
+                <SettingsRow
+                    :label="$t('productUpdates.toggleLabel')"
+                    :description="form.product_updates
+                        ? $t('productUpdates.sentTo', { email: productUpdates.email || productUpdates.current_user_email })
+                        : undefined"
+                >
+                    <UToggle v-model="form.product_updates" data-testid="product-updates-toggle" />
+                </SettingsRow>
+            </SettingsSection>
+
             <SettingsFooter>
                 <UButton color="blue" :loading="saving" @click="saveAll">{{ $t('common.saveChanges') }}</UButton>
             </SettingsFooter>
@@ -59,11 +81,14 @@ import SettingsSection from '~/components/settings/SettingsSection.vue'
 import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsFooter from '~/components/settings/SettingsFooter.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
+import FrameAncestorsEditor from '~/components/settings/FrameAncestorsEditor.vue'
 
 const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 interface GeneralConfig {
     ai_analyst_name: string
+    show_world?: boolean
     bow_credit: boolean
     icon_url?: string | null
     icon_key?: string | null
@@ -100,13 +125,33 @@ definePageMeta({ titleKey: 'settings.general', auth: true, permissions: ['manage
 const loading = ref(true)
 const error = ref('')
 const general = ref<GeneralConfig>({ ai_analyst_name: 'AI Analyst', bow_credit: true })
-const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string } & GeneralConfig>({
+const form = ref<{ organization_name?: string; locale: string; timezone: string; week_start: string; product_updates: boolean; frame_ancestors: string[] } & GeneralConfig>({
     ai_analyst_name: 'AI Analyst',
     bow_credit: true,
     locale: '',
     timezone: '',
     week_start: '',
+    product_updates: false,
+    frame_ancestors: [],
 })
+// Sites allowed to show BOW in an iframe. Instance-wide like the license:
+// read-only for an org admin on a multi-organization instance.
+interface FrameAncestorsStatus {
+    origins: string[]
+    can_edit: boolean
+}
+const frameAncestors = ref<FrameAncestorsStatus & { loaded: boolean }>({ origins: [], can_edit: false, loaded: false })
+const frameAncestorsEditor = ref<{ commitDraft: () => boolean } | null>(null)
+// Instance-wide opt-in to release notes and product updates. Hidden when the
+// instance can't send it (telemetry off, cloud) or the caller can't change it.
+interface ProductUpdatesStatus {
+    available: boolean
+    decided: boolean
+    opted_in: boolean
+    email: string | null
+    current_user_email: string | null
+}
+const productUpdates = ref<ProductUpdatesStatus>({ available: false, decided: false, opted_in: false, email: null, current_user_email: null })
 // Empty string represents "no org override" (system default). Tracking the
 // initial value lets saveAll skip the PUT when the user hasn't touched it.
 const initialLocale = ref<string>('')
@@ -161,13 +206,21 @@ const fetchSettings = async () => {
     loading.value = true
     error.value = ''
     try {
-        const [settingsResp, localeResp, tzResp, tzListResp, weekResp] = await Promise.all([
+        const [settingsResp, localeResp, tzResp, tzListResp, weekResp, updatesResp] = await Promise.all([
             useMyFetch('/api/organization/settings'),
             useMyFetch('/api/organization/locale'),
             useMyFetch('/api/organization/timezone'),
             useMyFetch('/api/organization/timezones'),
             useMyFetch('/api/organization/week_start'),
+            useMyFetch('/api/product-updates'),
         ])
+        if (updatesResp.status.value === 'success' && updatesResp.data.value) {
+            productUpdates.value = updatesResp.data.value as ProductUpdatesStatus
+        }
+        const framingResp = await useMyFetch('/api/settings/frame-ancestors')
+        if (framingResp.status.value === 'success' && framingResp.data.value) {
+            frameAncestors.value = { ...(framingResp.data.value as FrameAncestorsStatus), loaded: true }
+        }
         if (settingsResp.status.value !== 'success') throw new Error(settingsResp.error?.value?.data?.message || t('settings.failedToFetch'))
         const cfg = (settingsResp.data.value as SettingsResponse)?.config
         general.value = cfg?.general || { ai_analyst_name: 'AI Analyst', bow_credit: true }
@@ -190,7 +243,7 @@ const fetchSettings = async () => {
 
         // Fetch current organization name from session if available
         const { organization } = useOrganization()
-        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, ...general.value }
+        form.value = { organization_name: organization.value?.name, locale: orgLocale, timezone: orgTimezone, week_start: orgWeekStart, product_updates: productUpdates.value.opted_in, frame_ancestors: [...frameAncestors.value.origins], ...general.value }
     } catch (e: any) {
         error.value = e.message || t('settings.failedToLoad')
         toast.add({ title: t('common.error'), description: error.value, color: 'red' })
@@ -200,8 +253,22 @@ const fetchSettings = async () => {
 }
 
 const saveAll = async () => {
+    // An address typed but not added counts; an invalid one stops the save.
+    if (frameAncestors.value.can_edit && frameAncestorsEditor.value && !frameAncestorsEditor.value.commitDraft()) return
     saving.value = true
     try {
+        // 0) Allowed framing sites first: an invalid address is the likeliest
+        // refusal, and it stops the save before anything else changes. If a
+        // later step fails, the sites saved here stay saved.
+        const framingChanged = frameAncestors.value.can_edit
+            && JSON.stringify(form.value.frame_ancestors) !== JSON.stringify(frameAncestors.value.origins)
+        if (framingChanged) {
+            const framingResp = await useMyFetch('/api/settings/frame-ancestors', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origins: form.value.frame_ancestors }) })
+            if (framingResp.status.value !== 'success') throw new Error(getErrorMessage(framingResp.error.value, t('settings.failedToUpdate')))
+            frameAncestors.value = { ...(framingResp.data.value as FrameAncestorsStatus), loaded: true }
+            form.value.frame_ancestors = [...frameAncestors.value.origins]
+        }
+
         // 1) If a new icon is selected or removal queued, handle icon first
         if (pendingIconFile.value) {
             const formData = new FormData()
@@ -224,7 +291,7 @@ const saveAll = async () => {
         }
 
         // 3) Save textual and toggle settings
-        const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
+        const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, show_world: !!form.value.show_world, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
         const response = await useMyFetch('/api/organization/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToUpdate'))
 
@@ -263,6 +330,13 @@ const saveAll = async () => {
             if (weekResp.status.value !== 'success') throw new Error(weekResp.error?.value?.data?.detail || t('settings.weekStart.saveError'))
             effectiveWeekStart.value = (weekResp.data?.value as any)?.effective_week_start ?? effectiveWeekStart.value
             initialWeekStart.value = form.value.week_start
+        }
+
+        // 7) Save the product-updates opt-in (instance-wide) only when changed.
+        if (productUpdates.value.available && form.value.product_updates !== productUpdates.value.opted_in) {
+            const updResp = await useMyFetch('/api/product-updates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ opted_in: form.value.product_updates, source: 'settings' }) })
+            if (updResp.status.value !== 'success') throw new Error(updResp.error?.value?.data?.detail || t('settings.failedToUpdate'))
+            productUpdates.value = updResp.data.value as ProductUpdatesStatus
         }
 
         toast.add({ title: t('settings.saved'), color: 'green' })

@@ -147,8 +147,14 @@ def test_routines_are_not_read_unless_the_connection_opts_in(
 
 
 @pytest.mark.e2e
-def test_failing_routine_read_keeps_the_tables(test_client, refresh_schema, agent, catalog):
+def test_failing_routine_read_keeps_the_tables(
+    test_client, refresh_schema, create_user, login_user, whoami, create_data_source, catalog,
+):
+    # Fail before the agent exists: creating it starts a background index,
+    # which would otherwise race this flag and could index the routines first
+    # (which a later failing read rightly keeps).
     catalog["fail"] = True
+    agent = _make_agent(create_user, login_user, whoami, create_data_source, index_routines=True)
     _reindex(test_client, refresh_schema, agent)
     rows = _schema(test_client, agent)
     assert {"sales.orders", "sales.customers"} <= set(rows)

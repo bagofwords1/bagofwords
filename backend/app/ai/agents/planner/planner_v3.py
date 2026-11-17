@@ -22,6 +22,8 @@ import re
 import time
 from typing import AsyncIterator, Callable, List, Optional
 
+from app.ai.llm.toolcall_args import repair_mangled_arguments
+
 logger = logging.getLogger(__name__)
 
 # Matches the (possibly unterminated) value of the "title" argument inside a
@@ -185,6 +187,28 @@ class PlannerV3:
             t.name: (t.category or ("research" if t.research_accessible else "action"))
             for t in (tool_catalog or [])
         }
+
+    def _repair_arguments(self, tool_name: str, arguments: dict) -> dict:
+        """Arguments as the model meant them when a tool-call parser split them.
+
+        Some models (Gemma 4 via vLLM's ``gemma4`` parser) occasionally quote a
+        string without their delimiter, and the parser returns valid JSON with
+        members glued together or quotes kept in a value. Repaired here, where
+        each call becomes an Action, so the tool, the persisted ToolExecution and
+        the replayed transcript all carry the same arguments.
+        """
+        schema = next((t.schema for t in (self.tool_catalog or []) if t.name == tool_name), None)
+        try:
+            repaired, fields = repair_mangled_arguments(arguments, schema)
+        except Exception:
+            logger.debug("tool-call argument repair failed for %r", tool_name, exc_info=True)
+            return arguments
+        if fields:
+            logger.warning(
+                "tool-call arguments for %r repaired (a string was quoted without the "
+                "model's delimiter): %s", tool_name, ", ".join(fields),
+            )
+        return repaired
 
     async def execute(
         self,
@@ -395,7 +419,7 @@ class PlannerV3:
                     finished = Action(
                         type="tool_call",
                         name=evt.name,
-                        arguments=evt.input or {},
+                        arguments=self._repair_arguments(evt.name, evt.input or {}),
                         # Keep the provider's id and any opaque signature —
                         # a transcript has to replay exactly what was issued.
                         id=evt.id or None,

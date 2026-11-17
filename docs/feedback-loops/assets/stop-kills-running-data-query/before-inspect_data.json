@@ -1,0 +1,55 @@
+{
+ "label": "before-inspect_data",
+ "active_pg_sleep_before_stop": 1,
+ "query_gone_after_s": 118,
+ "watched_s": 121,
+ "completion_status": "stopped",
+ "tool_executions": [
+  {
+   "tool": "inspect_data",
+   "status": "success",
+   "success": true,
+   "summary": "Inspection finished for: Profile the orders table"
+  }
+ ],
+ "timeline": [
+  {
+   "t_after_stop_s": 0,
+   "active_pg_sleep": 1
+  },
+  {
+   "t_after_stop_s": 1,
+   "active_pg_sleep": 1
+  },
+  {
+   "t_after_stop_s": 2,
+   "active_pg_sleep": 1
+  },
+  {
+   "t_after_stop_s": 3,
+   "active_pg_sleep": 1
+  },
+  {
+   "t_after_stop_s": 4,
+   "active_pg_sleep": 1
+  },
+  {
+   "t_after_stop_s": 5,
+   "active_pg_sleep": 1
+  },
+  "\u2026",
+  {
+   "t_after_stop_s": 119,
+   "active_pg_sleep": 0
+  },
+  {
+   "t_after_stop_s": 120,
+   "active_pg_sleep": 0
+  },
+  {
+   "t_after_stop_s": 121,
+   "active_pg_sleep": 0
+  }
+ ],
+ "step_statuses": []
+}

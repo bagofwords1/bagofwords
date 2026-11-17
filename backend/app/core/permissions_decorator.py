@@ -55,7 +55,7 @@ def _is_view_only_permission(permission) -> bool:
     return bool(perms) and all(str(p).startswith("view_") for p in perms)
 
 
-def requires_permission(permission, model=None, owner_only=False, allow_public=False, resource_scoped=False):
+def requires_permission(permission, model=None, owner_only=False, allow_public=False, resource_scoped=False, folder_scoped=False):
     """
     Enhanced decorator that checks:
     1. User has sufficient role-based permission
@@ -270,6 +270,8 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 # at least one resource before deferring the specific-resource
                 # check to the route body. This blocks users who have zero
                 # grants from creating resources with empty data_source_ids.
+                if folder_scoped and resolved.has_any_resource_permission(permission, "folder"):
+                    return await func(*args, **kwargs)
                 if resource_scoped:
                     # ANY-of, matching the org check above. A route may name an
                     # org-level permission and its per-resource counterpart
@@ -284,7 +286,8 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                     # manage_instructions) so an agent manager passes this
                     # pre-filter; the specific resource_id is still enforced in
                     # the route body via check_resource_permissions.
-                    if any(resolved.has_any_resource_permission(p) for p in perms_to_check):
+                    if any(resolved.has_any_resource_permission(p, "data_source" if p in ("manage_instructions", "manage_evals") else None)
+                           for p in perms_to_check):
                         return await func(*args, **kwargs)
                 await _audit_access_denied(db, user, organization, permission, func.__name__, "missing_permission",
                                            getattr(model, "__tablename__", None) if model else None, object_id)

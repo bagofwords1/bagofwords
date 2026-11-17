@@ -41,6 +41,7 @@ def mint_file_token(
     report_id: Optional[str] = None,
     release_id: Optional[str] = None,
     via_public_link: bool = False,
+    viewer_id: Optional[str] = None,
 ) -> str:
     """Mint a signed capability token for a single file id.
 
@@ -56,6 +57,8 @@ def mint_file_token(
         "exp": now + int(ttl_seconds),
         "scope": "file-embed",
     }
+    if viewer_id:
+        payload["uid"] = str(viewer_id)
     if report_id:
         payload["rid"] = str(report_id)
     if release_id:

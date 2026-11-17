@@ -124,9 +124,9 @@
 
                 <!-- Agent list -->
                 <div class="max-h-52 overflow-y-auto">
-                  <button
-                    v-for="a in listAgents"
-                    :key="a.id"
+                  <AgentFolderChoices :agents="listAgents" :selected="activeSelection" @select="ids => selectAgents(ids)">
+                    <template #agent="{agent: a, parentPath}">
+                      <button
                     @click="toggleAgent(a.id)"
                     :class="[
                       'w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-start transition-colors',
@@ -141,7 +141,7 @@
                       class="h-4 w-4 flex-shrink-0"
                     />
                     <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-ink-muted flex-shrink-0" />
-                    <span :class="['text-xs font-medium truncate flex-1', isSelected(a.id) ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ a.name }}</span>
+                    <span :class="['text-xs font-medium truncate flex-1', isSelected(a.id) ? 'text-indigo-700' : 'text-gray-700 dark:text-gray-300']">{{ a.name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span>
                     <!-- Connect chip for user_required agents not yet authenticated.
                          Nested as a span (the row is a <button>) to keep markup valid. -->
                     <span
@@ -163,6 +163,8 @@
                     </span>
                     <UIcon v-else-if="isSelected(a.id)" name="heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                   </button>
+                    </template>
+                  </AgentFolderChoices>
                 </div>
 
                 <div class="my-1 border-t border-gray-100 dark:border-gray-800" />
