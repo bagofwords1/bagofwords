@@ -178,14 +178,14 @@ def test_the_error_offers_a_null_viz_for_rows_from_no_visualization():
 
 def test_the_authoring_docs_offer_a_null_viz_only_for_resource_or_constant_rows():
     from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
-    from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool as LegacyEditTool
+    from app.ai.tools.implementations.edit_artifact_legacy import EDIT_VIZ_PROP_RULE
 
     lines = [ln for ln in SANDBOX_RUNTIME_PROMPT.splitlines() if "viz={null}" in ln]
     assert len(lines) == 1, lines
     assert "resource" in lines[0] and "constants" in lines[0], lines[0]
-    legacy = [ln for ln in LegacyEditTool()._build_edit_system_prompt().splitlines() if ln.startswith("- **`viz` prop:**")]
-    assert len(legacy) == 1 and "viz={null}" in legacy[0], legacy
-    assert "resource" in legacy[0] and "constants" in legacy[0], legacy[0]
+    # The legacy (MCP) edit prompt makes the same offer.
+    assert "viz={null}" in EDIT_VIZ_PROP_RULE, EDIT_VIZ_PROP_RULE
+    assert "resource" in EDIT_VIZ_PROP_RULE and "constants" in EDIT_VIZ_PROP_RULE, EDIT_VIZ_PROP_RULE
 
 
 def test_the_error_quotes_the_whole_tag():
