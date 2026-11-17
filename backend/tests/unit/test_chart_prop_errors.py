@@ -217,6 +217,47 @@ def test_tags_named_in_strings_comments_and_regexes_are_not_charts():
     assert chart_prop_errors(code, DATA) == []
 
 
+def test_a_comment_inside_an_attribute_does_not_hide_the_attributes_after_it():
+    # An apostrophe in a comment is not a string quote.
+    for handler in (
+        "onClick={p => { /* don't navigate */ select(p.label); }}",
+        "onClick={p => {\n  // don't navigate\n  select(p.label);\n}}",
+        "onClick={p => { /* \"quoted\" */ select(p.label); }}",
+    ):
+        assert chart_prop_errors(page(f'<RankChart {handler} viz={{sales}} label="rep" value="revenue" />'), DATA) == [], handler
+        errs = chart_prop_errors(page(f'<RankChart {handler} viz={{sales}} label="rep" value="sales" />'), DATA)
+        assert len(errs) == 1 and 'value="sales"' in errs[0], (handler, errs)
+        assert chart_prop_errors(page(f'<TrendChart {handler} {{...common}} x="month" y="revenue" />'), DATA) == [], handler
+    # A regex with slashes in it is not a comment either.
+    url = "onClick={p => open(p.url.replace(/^https?:\\/\\//, ''))}"
+    assert chart_prop_errors(page(f'<RankChart {url} viz={{sales}} label="rep" value="revenue" />'), DATA) == []
+    # Nor is the closing tag of an element written in an attribute.
+    assert chart_prop_errors(page('<RankChart format={v => <b>{v}</b>} viz={sales} label="rep" value="revenue" />'), DATA) == []
+
+
+def test_a_comment_between_attributes_is_skipped():
+    for chart in (
+        "<TrendChart viz={sales} /* it's monthly */ x=\"day\" y=\"revenue\" />",
+        "<TrendChart viz={sales}\n  // it's monthly\n  x=\"day\" y=\"revenue\" />",
+    ):
+        errs = chart_prop_errors(page(chart), DATA)
+        assert len(errs) == 1 and 'x="day"' in errs[0], (chart, errs)
+    assert chart_prop_errors(page("<RankChart /* who's first */ viz={sales} label=\"rep\" value=\"revenue\" />"), DATA) == []
+
+
+def test_a_chart_right_after_a_comment_is_still_checked():
+    def lines(*body):
+        return f'const sales = vizById("{VID}");\nfunction App() {{\n  return (\n' + "\n".join(body) + "\n  );\n}"
+
+    for comment in ("// show the trend", "/* show the trend */", "// it's the trend", "/* one */ // two"):
+        errs = chart_prop_errors(lines(f"    {comment}", '    <TrendChart viz={sales} x="day" y="revenue" />'), DATA)
+        assert len(errs) == 1 and 'x="day"' in errs[0], (comment, errs)
+        errs = chart_prop_errors(lines(f"    {comment}", '    <RankChart rows={byRep} label="rep" value="total" />'), DATA)
+        assert len(errs) == 1 and errs[0].startswith("[chart] <RankChart> has no viz prop"), (comment, errs)
+    # A comment does not turn a comparison into a tag.
+    assert chart_prop_errors(lines("    total /* all */ <TrendChart.length"), DATA) == []
+
+
 def test_a_page_in_its_script_tag_is_checked_like_bare_code():
     wrapped = '<script type="text/babel">\n' + page("<p>It's here</p><TrendChart rows={r} x=\"m\" y=\"v\" />") + "\n</script>"
     assert len(chart_prop_errors(wrapped, DATA)) == 1
@@ -227,7 +268,7 @@ def test_a_page_in_its_script_tag_is_checked_like_bare_code():
 def test_the_authoring_docs_ask_for_the_viz_the_page_check_requires():
     """The prompts must not teach a chart the page check then rejects."""
     from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
-    from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool as LegacyEditTool
+    from app.ai.tools.implementations.edit_artifact_legacy import EDIT_NEW_CHARTS_RULE, EDIT_VIZ_PROP_RULE
 
     lines = SANDBOX_RUNTIME_PROMPT.splitlines()
     provenance = next(ln for ln in lines if "Pass viz={vizById(" in ln)
@@ -238,11 +279,9 @@ def test_the_authoring_docs_ask_for_the_viz_the_page_check_requires():
     # Every sentence about a chart in a card, or about filtered rows, keeps the viz.
     for line in (ln for ln in lines[first:last] if "SectionCard" in ln or "rows={filterRows(" in ln):
         assert "viz" in line, line
-    legacy = LegacyEditTool()._build_edit_system_prompt()
-    rules = [ln for ln in legacy.splitlines() if ln.startswith(("- For NEW charts", "- **`viz` prop:**"))]
-    assert len(rules) == 2, rules
-    for line in rules:
-        assert "TrendChart" in line and "RankChart" in line and "SectionCard" in line, line
+    # The legacy (MCP) edit prompt states the same rule.
+    for rule in (EDIT_VIZ_PROP_RULE, EDIT_NEW_CHARTS_RULE):
+        assert "TrendChart" in rule and "RankChart" in rule and "SectionCard" in rule and "viz=" in rule, rule
 
 
 def test_the_edit_gate_runs_every_page_check_the_create_gate_runs():

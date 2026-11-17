@@ -29,6 +29,10 @@ FID = "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
     # Text inside another attribute's value is not the id.
     f"<BowFile alt='id=\"photo\"' id=\"{FID}\" />",
     f'<BowFile title="file id=5" id="{FID}" />',
+    # An apostrophe in a comment is not a string quote.
+    f"<BowFile onLoad={{() => {{ /* don't wait */ setReady(true); }}}} id=\"{FID}\" />",
+    f"<BowFile onLoad={{() => {{\n  // don't wait\n  setReady(true);\n}}}} id=\"{FID}\" />",
+    f"<BowFile /* it's the logo */ id=\"{FID}\" />",
 ])
 def test_a_literal_id_is_found_in_every_tag_shape(tag):
     assert bow_file_literal_ids(f"function App() {{ return <div>{tag}</div> }}") == {FID}

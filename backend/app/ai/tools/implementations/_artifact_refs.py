@@ -606,6 +606,9 @@ def _jsx_tag_body(src: str, start: int) -> str:
                 continue
             if ch == quote:
                 quote = None
+        elif (j := _skip_comment_or_regex(src, i, depth)) != i:
+            i = j
+            continue
         elif ch in "\"'`":
             quote = ch
         elif ch == "{":
@@ -634,6 +637,9 @@ def _jsx_prop(body: str, name: str):
                 continue
             if ch == quote:
                 quote = None
+        elif (j := _skip_comment_or_regex(body, i, depth)) != i:
+            i = j
+            continue
         elif ch in "\"'`":
             quote = ch
         elif ch == "{":
@@ -754,10 +760,20 @@ _EXPR_START_WORDS = frozenset((
 ))
 
 
-def _expression_may_start(src: str, i: int) -> bool:
+def _expression_may_start(src: str, i: int, comments: Optional[Dict[int, int]] = None) -> bool:
+    """Whether an expression may start at ``src[i]``, judged by the token before it.
+
+    ``comments`` maps the end offset of each comment before ``i`` to its start,
+    so a comment between that token and ``i`` is passed over.
+    """
     k = i - 1
-    while k >= 0 and src[k].isspace():
-        k -= 1
+    while k >= 0:
+        if src[k].isspace():
+            k -= 1
+        elif comments and k + 1 in comments:
+            k = comments[k + 1] - 1
+        else:
+            break
     if k < 0:
         return True
     if src[k] in _EXPR_START_CHARS:
@@ -790,6 +806,30 @@ def _skip_regex(src: str, i: int, end: int) -> int:
     return i + 1
 
 
+def _comment_end(src: str, i: int, end: int) -> int:
+    """End of the ``//`` or ``/* */`` comment starting at ``src[i]``; ``i`` if none starts there."""
+    if src.startswith("//", i, end):
+        nl = src.find("\n", i, end)
+        return end if nl < 0 else nl
+    if src.startswith("/*", i, end):
+        close = src.find("*/", i + 2, end)
+        return end if close < 0 else close + 2
+    return i
+
+
+def _skip_comment_or_regex(src: str, i: int, depth: int) -> int:
+    """End of the comment at ``src[i]``, or of the regex literal there inside a ``{…}``
+    expression (``depth > 0``); ``i`` if neither starts there.
+
+    For the JSX tag walkers: a quote in a comment or a regex is not a string.
+    A ``</`` closes a JSX element written in the expression, not a regex.
+    """
+    j = _comment_end(src, i, len(src))
+    if j == i and depth > 0 and src[i] == "/" and src[i - 1] != "<" and _expression_may_start(src, i):
+        j = _skip_regex(src, i, len(src))
+    return j
+
+
 def _jsx_element_starts(src: str) -> set:
     """Offsets of the ``<`` of every JSX element the page's code opens.
 
@@ -805,17 +845,16 @@ def _jsx_element_starts(src: str) -> set:
         close = src.rfind("</script>")
         end = close if close >= start else end
     starts: set = set()
+    comments: Dict[int, int] = {}  # end -> start of each comment in code, for the look-behind
     stack = ["code"]  # code | template | tag (inside <Name …>) | text (an element's children)
     i = start
     while i < end:
         mode, ch = stack[-1], src[i]
         if mode == "code":
-            if src.startswith("//", i):
-                nl = src.find("\n", i, end)
-                i = end if nl < 0 else nl
-            elif src.startswith("/*", i):
-                close = src.find("*/", i + 2, end)
-                i = end if close < 0 else close + 2
+            if src.startswith(("//", "/*"), i):
+                j = _comment_end(src, i, end)
+                comments[j] = i
+                i = j
             elif ch in "'\"":
                 j = i + 1
                 while j < end and src[j] != ch and src[j] != "\n":
@@ -824,7 +863,7 @@ def _jsx_element_starts(src: str) -> set:
             elif ch == "`":
                 stack.append("template")
                 i += 1
-            elif ch == "/" and _expression_may_start(src, i):
+            elif ch == "/" and _expression_may_start(src, i, comments):
                 i = _skip_regex(src, i, end)
             elif ch == "{":
                 stack.append("code")
@@ -833,7 +872,7 @@ def _jsx_element_starts(src: str) -> set:
                 if len(stack) > 1:
                     stack.pop()
                 i += 1
-            elif ch == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">") and _expression_may_start(src, i):
+            elif ch == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">") and _expression_may_start(src, i, comments):
                 starts.add(i)
                 stack.append("tag")
                 i += 1
@@ -854,6 +893,8 @@ def _jsx_element_starts(src: str) -> set:
             if ch in "'\"":  # JSX attribute strings have no escapes
                 close = src.find(ch, i + 1, end)
                 i = end if close < 0 else close + 1
+            elif src.startswith(("//", "/*"), i):
+                i = _comment_end(src, i, end)
             elif ch == "{":
                 stack.append("code")
                 i += 1
@@ -893,6 +934,9 @@ def _has_spread_attr(body: str) -> bool:
                 continue
             if ch == quote:
                 quote = None
+        elif (j := _skip_comment_or_regex(body, i, depth)) != i:
+            i = j
+            continue
         elif ch in "\"'`":
             quote = ch
         elif ch == "{":
