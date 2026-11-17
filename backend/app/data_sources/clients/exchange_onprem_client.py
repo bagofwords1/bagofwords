@@ -12,6 +12,7 @@ Nothing is indexed or copied; mail is always read live.
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlsplit
@@ -54,6 +55,9 @@ _ALIASES = {
 }
 # A mailbox-wide search leaves these out, as a mail client's search does.
 _NOT_SEARCHED = ("deleteditems", "junkemail")
+# A mailbox-wide listing answers "what came in": it also leaves out what the
+# owner wrote. Name any of these folders to list it.
+_NOT_LISTED = ("deleteditems", "junkemail", "sentitems", "drafts")
 
 
 def parse_shared_mailboxes(value: Any) -> List[str]:
@@ -326,20 +330,16 @@ class ExchangeOnpremClient(DataSourceClient):
         max_results: Optional[int] = None,
         cursor: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Messages of one folder, newest first, filtered by the server.
+        """Messages newest first, filtered by the server.
 
-        Returns ``{items, next_cursor, folder}``. With no ``folder`` this is the
-        Inbox of the connection's default mailbox; a shared mailbox address
-        means that mailbox's Inbox. ``next_cursor`` is None only when every
-        matching message has been returned.
+        Returns ``{items, next_cursor, folder, note}``. With a ``folder`` the
+        listing is that folder. With no folder — or a shared mailbox address —
+        it is the whole mailbox: every folder mail arrives in, so a message a
+        rule filed into a subfolder is not missed. Sent, draft, deleted and
+        junk mail is left out of a whole-mailbox listing; name those folders
+        to list them. ``next_cursor`` is None only when every matching message
+        has been returned.
         """
-        row = self.resolve_mail_folder(folder) if folder else self._inbox()
-        if row.get("whole_mailbox"):
-            row = self._inbox(row["mailbox"])
-        state = decode_cursor(cursor)
-        if state and state.get("f") != row["id"]:
-            raise ValueError("Invalid cursor — pass back the next_cursor value exactly as returned, with the same folder.")
-        offset = max(0, int(state.get("o") or 0))
         limit = clamp_mail_results(max_results)
         after, before = parse_mail_datetime(received_after), parse_mail_datetime(received_before)
         filters = {
@@ -347,6 +347,15 @@ class ExchangeOnpremClient(DataSourceClient):
             "received_after": _ews_time(after),
             "received_before": _ews_time(before),
         }
+        row = self.resolve_mail_folder(folder) if folder else None
+        if row is None or row.get("whole_mailbox"):
+            label = row["mailbox"] if row else self._label(self._mailboxes[0])
+            return self._list_mailbox(label, row, limit, filters, cursor)
+
+        state = decode_cursor(cursor)
+        if state and state.get("f") != row["id"]:
+            raise ValueError("Invalid cursor — pass back the next_cursor value exactly as returned, with the same folder.")
+        offset = max(0, int(state.get("o") or 0))
         paths = self._folder_paths()
         items: List[dict] = []
         next_cursor = None
@@ -363,7 +372,86 @@ class ExchangeOnpremClient(DataSourceClient):
                 break
         else:
             next_cursor = encode_cursor({"f": row["id"], "o": offset})
-        return {"items": items, "next_cursor": next_cursor, "folder": row}
+        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": None}
+
+    def _list_mailbox(self, label: str, scope: Optional[dict], limit: int, filters: dict,
+                      cursor: Optional[str]) -> Dict[str, Any]:
+        """One newest-first page across the incoming folders of a mailbox.
+
+        Folders cannot be paged together by offset, so the page boundary is a
+        point in time: the cursor is the received time of the last message
+        returned (plus the ids already returned at that exact second), and the
+        next call asks every folder for what is at or before it. Each call is
+        one request per batch of folders, with no per-folder state to carry.
+        """
+        folders = [f for f in self.list_mail_folders() if f["mailbox"] == label]
+        skipped = [f["path"] for f in folders if f["well_known"] in _NOT_LISTED]
+        targets = [
+            f for f in folders
+            if f["total_count"] != 0
+            and not (filters["unread_only"] and f["unread_count"] == 0)
+            and f["path"] not in skipped
+            and not any(f["path"].startswith(prefix + "/") for prefix in skipped)
+        ]
+        note = "Covers every folder of the mailbox except Sent, Drafts, Deleted and Junk; name one of those to list it."
+        others = sorted({f["mailbox"] for f in self.list_mail_folders() if f["mailbox"] and f["mailbox"] != label})
+        if scope is None and others:
+            note += " Other mailboxes on this connection (pass the address as the folder): " + ", ".join(others) + "."
+        per_request = _SEARCH_BATCH if self._batch_search else 1
+        if len(targets) > _MAX_REQUESTS * per_request:
+            # Too many folders to read together in one call: stay correct on a
+            # smaller scope and say so, rather than return a partial mix.
+            targets = [self._inbox(label)]
+            note = ("This mailbox has too many folders to list together, so only its Inbox is covered. "
+                    "Name a folder to list another one.")
+
+        state = decode_cursor(cursor)
+        if state and (state.get("m") != label or not state.get("t")):
+            raise ValueError("Invalid cursor — pass back the next_cursor value exactly as returned, with the same folder.")
+        watermark = state.get("t")
+        already = set(state.get("s") or [])
+        paths = self._folder_paths()
+        rows: List[dict] = []
+        # A folder that had more than one page to give only vouches for the
+        # messages down to its oldest returned one. Nothing older than the
+        # newest such point may be emitted yet, or that folder's next message
+        # would be skipped.
+        horizon = ""
+        position = 0
+        while position < len(targets):
+            size = _SEARCH_BATCH if self._batch_search else 1
+            batch = targets[position:position + size]
+            pages = self._find([t["id"] for t in batch], offset=0, page_size=limit + len(already),
+                               received_up_to=watermark, **filters)
+            if len(batch) > 1 and any(p["error"] and p["error"] not in ACCESS_CODES for p in pages):
+                self._batch_search = False  # this server reads one folder per request
+                continue
+            for page in pages:
+                if page["error"]:
+                    if page["error"] in ACCESS_CODES:
+                        continue  # folder vanished or is not visible to this identity
+                    raise ews.error_for(page["error"])
+                rows.extend(page["items"])
+                if not page["last"] and page["items"]:
+                    horizon = max(horizon, min(r.get("received") or "" for r in page["items"]))
+            position += len(batch)
+        rows = [r for r in rows if _short_id(r.get("id")) not in already]
+        rows.sort(key=lambda r: r.get("received") or "", reverse=True)
+        ready = [r for r in rows if (r.get("received") or "") >= horizon]
+        page_rows = ready[:limit]
+        next_cursor = None
+        if (len(rows) > len(page_rows) or horizon) and page_rows and page_rows[-1].get("received"):
+            last = page_rows[-1]["received"]
+            same_second = {_short_id(r["id"]) for r in page_rows if r.get("received") == last}
+            if last == watermark:
+                same_second |= already
+            next_cursor = encode_cursor({"m": label, "t": last, "s": sorted(same_second)})
+        return {
+            "items": [self._item(raw, paths) for raw in page_rows],
+            "next_cursor": next_cursor,
+            "folder": scope,
+            "note": note,
+        }
 
     def search_messages(
         self,
@@ -494,7 +582,7 @@ class ExchangeOnpremClient(DataSourceClient):
     def _search_result(items: List[dict], next_cursor: Optional[str], row: Optional[dict]) -> Dict[str, Any]:
         # A wide search gathers folder by folder; present what was gathered newest first.
         items.sort(key=lambda item: item.get("modified_at") or "", reverse=True)
-        return {"items": items, "next_cursor": next_cursor, "folder": row}
+        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": None}
 
     # ---------------------------------------------------------------- reads
 
@@ -537,8 +625,9 @@ class ExchangeOnpremClient(DataSourceClient):
             return {"success": False, "message": str(exc)}
         inboxes = [row for row in folders if row["well_known"] == "inbox"]
         parts = []
+        default_name = self._mailboxes[0] or "Inbox"
         for row in inboxes:
-            where = row["mailbox"] or "Inbox"
+            where = row["mailbox"] or default_name
             count = row.get("total_count")
             parts.append(f"{where}: {count} message(s)" if count is not None else where)
         message = "Connected to Exchange. " + "; ".join(parts) + "."
@@ -568,6 +657,11 @@ class ExchangeOnpremClient(DataSourceClient):
         if query:
             return self.search_files(query)
         return self.list_files()
+
+
+def _short_id(value: Optional[str]) -> str:
+    """A compact stand-in for a message id inside a paging cursor."""
+    return hashlib.sha256(str(value or "").encode()).hexdigest()[:10]
 
 
 def _ews_time(moment) -> Optional[str]:

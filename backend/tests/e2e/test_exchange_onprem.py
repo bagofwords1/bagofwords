@@ -88,7 +88,10 @@ def test_mailbox_is_browsed_live_as_messages(exchange, test_client, create_user,
     listing = test_client.get(f"/api/data_sources/{ds['id']}/connections/{connections[0]['id']}/files", headers=headers)
     assert listing.status_code == 200, listing.text
     body = listing.json()
-    assert {f["name"] for f in body["files"]} == {m.subject for m in exchange.own.by_role("inbox").messages}
+    listed = {f["name"] for f in body["files"]}
+    assert {m.subject for m in exchange.own.by_role("inbox").messages} <= listed
+    assert "Apollo launch checklist" in listed, "mail filed into a subfolder is part of the mailbox"
+    assert not listed & {m.subject for m in exchange.own.by_role("deleteditems").messages}
     # Worded as mail and marked live: nothing was indexed or stored.
     assert body.get("live") is True and (body.get("catalog_nouns") or [None, None])[1] == "messages"
     assert "system-secret" not in listing.text
@@ -162,9 +165,14 @@ async def test_agent_mail_tools_work_over_the_connection(exchange, monkeypatch):
     assert f"{SUPPORT}/Inbox/Escalations" in folders["observation"]["details"]
 
     listed = await run(ListEmailsTool(), unread_only=True)
-    assert listed["output"]["success"] and "in Inbox" in listed["observation"]["summary"]
-    assert [f["name"] for f in listed["output"]["files"]] == ["Quarterly revenue report"]
-    assert "Complete" in listed["observation"]["summary"]
+    assert listed["output"]["success"] and "Complete" in listed["observation"]["summary"]
+    assert [f["name"] for f in listed["output"]["files"]] == ["Quarterly revenue report", "Apollo launch checklist"]
+    # The observation says what was covered and that another mailbox exists.
+    assert "every folder" in listed["observation"]["summary"] and SUPPORT in listed["observation"]["summary"]
+
+    inbox = await run(ListEmailsTool(), unread_only=True, folder_id="Inbox")
+    assert "in Inbox" in inbox["observation"]["summary"]
+    assert [f["name"] for f in inbox["output"]["files"]] == ["Quarterly revenue report"]
 
     found = await run(SearchEmailsTool(), query="revenue", max_results=1)
     assert found["output"]["truncated"] and found["output"]["next_cursor"] in found["observation"]["summary"]

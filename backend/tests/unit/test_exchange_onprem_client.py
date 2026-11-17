@@ -230,7 +230,7 @@ def test_folder_level_sharing_exposes_the_inbox_subtree(exchange):
     c = client()
     paths = [f["path"] for f in c.list_mail_folders() if f["path"].startswith(SUPPORT)]
     assert paths == [f"{SUPPORT}/Inbox", f"{SUPPORT}/Inbox/Escalations"]
-    assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in"]
+    assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in", "Outage in billing"]
 
 
 def test_large_folder_trees_are_walked_page_by_page(exchange):
@@ -288,10 +288,89 @@ def test_unknown_or_ambiguous_folder_names_list_the_real_ones(exchange):
 
 # ----------------------------------------------------------------------- listing
 
-def test_listing_defaults_to_the_inbox_newest_first(exchange):
+def test_listing_with_no_folder_covers_the_whole_mailbox_newest_first(exchange):
+    """Rules file incoming mail into subfolders; "what came in" must include it."""
     result = client().list_messages()
+    assert subjects(result) == [
+        "Quarterly revenue report",   # Inbox, 1h
+        "Apollo launch checklist",    # Inbox/Projects/Apollo, 3h
+        "Lunch on Thursday?",         # Inbox, 5h
+        "Vendor contract renewal",    # Inbox, 30h
+        "Revenue forecast 2025",      # Archive 2025, 400h
+    ]
+    assert result["next_cursor"] is None and result["folder"] is None
+    # Shared mailboxes are not mixed in, but the agent is told they exist.
+    assert SUPPORT in result["note"] and SALES in result["note"]
+
+
+def test_whole_mailbox_listing_leaves_out_what_did_not_arrive(exchange):
+    exchange.own.add("Sent Items", msg("Re: revenue", 0.5))
+    exchange.own.add("Drafts", msg("Unsent draft", 0.4))
+    listed = subjects(client().list_messages())
+    for left_out in ("Re: revenue", "Unsent draft", "Revenue spam offer", "You won revenue"):
+        assert left_out not in listed
+    assert subjects(client().list_messages(folder="sent")) == ["Re: revenue"]
+    assert subjects(client().list_messages(folder="Inbox")) == [
+        "Quarterly revenue report", "Lunch on Thursday?", "Vendor contract renewal",
+    ]
+
+
+def test_unread_mail_in_a_subfolder_is_not_missed(exchange):
+    assert subjects(client().list_messages(unread_only=True)) == [
+        "Quarterly revenue report", "Apollo launch checklist",
+    ]
+
+
+@pytest.mark.parametrize("limit", [1, 4, 25, 200])
+@pytest.mark.parametrize("server_page_cap", [1000, 3])
+@pytest.mark.parametrize("multi_folder", [True, False])
+def test_whole_mailbox_listing_pages_newest_first_exactly_once(exchange, limit, server_page_cap, multi_folder):
+    """Messages are spread unevenly over many folders, several share a
+    timestamp, and the server may cap its pages or refuse several folders per
+    request: the concatenated pages are still every message, newest first."""
+    exchange.max_page = server_page_cap
+    exchange.reject_multi_folder_search = not multi_folder
+    exchange.own.by_role("inbox").messages.clear()
+    for folder in list(exchange.own.folders.values()):
+        folder.messages.clear()
+    expected = []
+    for i in range(12):
+        exchange.own.add_folder(f"Team {i:02d}")
+        for j in range((i * 7) % 9):
+            # i + j collides across folders, so ties cross folder boundaries.
+            expected.append(exchange.own.add(f"Team {i:02d}", msg(f"mail {i}-{j}", float(i + j))))
+    if limit == 1 and server_page_cap == 3:
+        expected = expected[:20]  # keep the slowest combination small
+        for folder in exchange.own.folders.values():
+            folder.messages[:] = [m for m in folder.messages if m in expected]
+    items, _ = page_all(client(shared_mailboxes="").list_messages, max_results=limit)
+    ids = [i["id"] for i in items]
+    assert sorted(ids) == sorted(m.id for m in expected) and len(ids) == len(set(ids))
+    times = [i["modified_at"] for i in items]
+    assert times == sorted(times, reverse=True)
+
+
+def test_whole_mailbox_cursor_belongs_to_its_mailbox(exchange):
+    cursor = client().list_messages(max_results=1)["next_cursor"]
+    assert cursor
+    with pytest.raises(ValueError):
+        client().list_messages(folder=SUPPORT, cursor=cursor)
+    with pytest.raises(ValueError):
+        client().list_messages(folder="Inbox", cursor=cursor)
+
+
+def test_a_mailbox_with_too_many_folders_degrades_to_its_inbox_and_says_so(exchange):
+    exchange.reject_multi_folder_search = True   # one folder per request
+    for i in range(40):
+        exchange.own.add_folder(f"Team {i:02d}")
+        exchange.own.add(f"Team {i:02d}", msg(f"team mail {i}", 50 + i))
+    c = client(shared_mailboxes="")
+    c.search_messages("revenue")                 # the client learns the server's limit
+    before = exchange.state["posts"]
+    result = c.list_messages()
     assert subjects(result) == ["Quarterly revenue report", "Lunch on Thursday?", "Vendor contract renewal"]
-    assert result["next_cursor"] is None and result["folder"]["path"] == "Inbox"
+    assert "only its Inbox" in result["note"]
+    assert exchange.state["posts"] - before <= 2
 
 
 def test_listing_rows_carry_what_the_agent_triages_on(exchange):
@@ -304,17 +383,17 @@ def test_listing_rows_carry_what_the_agent_triages_on(exchange):
 
 def test_listing_filters_are_applied_by_the_server(exchange):
     c = client()
-    assert subjects(c.list_messages(unread_only=True)) == ["Quarterly revenue report"]
+    assert subjects(c.list_messages(folder="Inbox", unread_only=True)) == ["Quarterly revenue report"]
     window = c.list_messages(received_after=stamp(10), received_before=stamp(2))
-    assert subjects(window) == ["Lunch on Thursday?"]
-    both = c.list_messages(unread_only=True, received_after=stamp(10))
+    assert subjects(window) == ["Apollo launch checklist", "Lunch on Thursday?"]
+    both = c.list_messages(unread_only=True, received_after=stamp(2))
     assert subjects(both) == ["Quarterly revenue report"]
     assert subjects(c.list_messages(received_after=stamp(0))) == []
 
 
 def test_received_bounds_accept_plain_dates(exchange):
     assert subjects(client().list_messages(received_after="2026-10-05")) == [
-        "Quarterly revenue report", "Lunch on Thursday?",
+        "Quarterly revenue report", "Apollo launch checklist", "Lunch on Thursday?",
     ]
     with pytest.raises(ValueError):
         client().list_messages(received_after="yesterday")
@@ -353,7 +432,7 @@ def test_a_cursor_only_continues_the_listing_it_came_from(exchange):
 
 def test_a_shared_mailbox_is_listed_by_its_address(exchange):
     c = client()
-    assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in"]
+    assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in", "Outage in billing"]
     assert subjects(c.list_messages(folder=f"{SUPPORT}/Inbox/Escalations")) == ["Outage in billing"]
     assert c.list_messages(folder=SUPPORT)["items"][0]["folder"] == f"{SUPPORT}/Inbox"
 
@@ -364,8 +443,8 @@ def test_service_account_can_leave_its_own_mailbox_out(exchange):
     # The first shared mailbox becomes the default and needs no prefix.
     assert "Inbox/Escalations" in paths and f"{SALES}/Inbox" in paths
     assert not any(p.startswith("Archive 2025") for p in paths)
-    assert subjects(c.list_messages()) == ["Customer cannot log in"]
-    assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in"]
+    assert subjects(c.list_messages()) == ["Customer cannot log in", "Outage in billing"]
+    assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in", "Outage in billing"]
 
 
 # ------------------------------------------------------------------------ search

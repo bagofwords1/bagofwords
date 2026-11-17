@@ -418,7 +418,9 @@ def _matches_restriction(message: Message, restriction: Optional[ET.Element]) ->
             return False
         if operator == "IsLessThan" and not actual < value:
             return False
-        if operator not in ("IsEqualTo", "IsGreaterThanOrEqualTo", "IsLessThan"):
+        if operator == "IsLessThanOrEqualTo" and not actual <= value:
+            return False
+        if operator not in ("IsEqualTo", "IsGreaterThanOrEqualTo", "IsLessThan", "IsLessThanOrEqualTo"):
             raise AssertionError(f"unexpected restriction {operator}")
     return True
 

@@ -375,6 +375,7 @@ def find_items(
     unread_only: bool = False,
     received_after: Optional[str] = None,
     received_before: Optional[str] = None,
+    received_up_to: Optional[str] = None,
     query: Optional[str] = None,
     rich: bool = True,
 ) -> ET.Element:
@@ -397,6 +398,8 @@ def find_items(
             conditions.append(("IsGreaterThanOrEqualTo", "item:DateTimeReceived", received_after))
         if received_before:
             conditions.append(("IsLessThan", "item:DateTimeReceived", received_before))
+        if received_up_to:
+            conditions.append(("IsLessThanOrEqualTo", "item:DateTimeReceived", received_up_to))
         if conditions:
             restriction = ET.SubElement(op, _m("Restriction"))
             holder = ET.SubElement(restriction, _t("And")) if len(conditions) > 1 else restriction

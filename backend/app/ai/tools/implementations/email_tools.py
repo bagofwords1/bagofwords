@@ -179,6 +179,9 @@ class _MailboxTool(Tool):
             )
         else:
             summary += ". Complete: these are all the matching messages."
+        if result.get("note"):
+            # What the listing covered, when that is not a single folder.
+            summary += f" {result['note']}"
         observation: Dict[str, Any] = {"summary": summary, "success": True}
         if entries:
             observation["details"] = "\n".join(_email_row(e) for e in entries)
