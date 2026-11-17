@@ -802,6 +802,31 @@ class TablesSchemaContext(ContextSection):
                 if fs.connection_id:
                     attrs["id"] = fs.connection_id
                 return xml_tag("connection", "\n".join(inner), attrs)
+            if fs.type == "exchange_onprem":
+                inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
+                # Same mail vocabulary as the cloud mailboxes, but the identity
+                # is the connection's Windows account and the connection may
+                # span several mailboxes.
+                inner.append(xml_tag(
+                    "auth",
+                    "read live with this connection's Windows account — the user's own "
+                    "sign-in when the connection asks each user to sign in. May cover "
+                    "shared team mailboxes as well as a personal one. Nothing is indexed, "
+                    "so an empty count here does NOT mean no mail."
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "list_emails with list_folders=true to see the mailboxes and folders · "
+                    "search_email to find messages (keywords, from:, subject:) — with no "
+                    "folder it searches every mailbox on the connection · list_emails to "
+                    "browse a folder or time window (no folder = the default Inbox) · "
+                    "read_email to open one. A shared mailbox's folders are prefixed with "
+                    "its address. Cite the message's Link: URL when one is shown."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "mailbox"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
             if fs.type in ("outlook_mail", "gmail_mail"):
                 inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
                 # Mail vocabulary: a mailbox backs only search_email /

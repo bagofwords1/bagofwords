@@ -1405,8 +1405,8 @@ const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
 // Live per-user sources: no path scope to show — they read with the user's own access.
-const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'teams_messages'])
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'kms_lighthouse', 'teams_messages'])
+const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'exchange_onprem', 'kms_lighthouse', 'teams_messages'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 

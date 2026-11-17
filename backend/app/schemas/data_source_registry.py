@@ -63,6 +63,9 @@ from app.schemas.data_sources.configs import (
     KmsLighthouseUserPassCredentials,
     KmsLighthouseTokenCredentials,
     SharePointOnpremKerberosCredentials,
+    ExchangeOnpremConfig,
+    ExchangeOnpremNtlmCredentials,
+    ExchangeOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
@@ -2493,6 +2496,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
+    ),
+    "exchange_onprem": DataSourceRegistryEntry(
+        type="exchange_onprem",
+        category="services",
+        title="Exchange Server (on-prem)",
+        description="Read and search mail on your own Exchange server, including shared team mailboxes, using NTLM or Kerberos. No cloud tenant or app registration required.",
+        config_schema=ExchangeOnpremConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=ExchangeOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=ExchangeOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        # Mail vocabulary: the client declares the mail capabilities, so the
+        # agent gets list_emails / search_email / read_email. Messages reuse
+        # the file-payload transport internally, like the other mail sources.
+        client_path="app.data_sources.clients.exchange_onprem_client.ExchangeOnpremClient",
+        is_document_based=True,
+        data_shape="files",
+        # Nothing is indexed or copied: every list, search and read is live,
+        # with the connection's Windows identity.
+        catalog_ownership="none",
+        catalog_nouns=("message", "messages"),
+        requires_license="enterprise",
+        version="beta",
     ),
     "teams_messages": DataSourceRegistryEntry(
         type="teams_messages",

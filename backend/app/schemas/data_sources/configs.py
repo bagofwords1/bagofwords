@@ -3110,6 +3110,66 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         return self
 
 
+# Exchange Server (on-premises) mail — read-only, over Exchange Web Services.
+class ExchangeOnpremConfig(BaseModel):
+    ews_url: str = Field(
+        ...,
+        title="Exchange server URL",
+        description=(
+            "Address of your Exchange server, e.g. https://mail.example.com. "
+            "The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.exchangeOnprem.urlTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.urlDescription"},
+    )
+    shared_mailboxes: Optional[str] = Field(
+        None,
+        title="Shared mailboxes",
+        description=(
+            "Optional. Addresses of shared or team mailboxes to include, separated by commas, "
+            "e.g. support@example.com, sales@example.com. Exchange decides who may open each one: "
+            "people only see the mailboxes their account already has access to."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.exchangeOnprem.sharedTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.sharedDescription"},
+    )
+    include_own_mailbox: bool = Field(
+        True,
+        title="Include the account's own mailbox",
+        description=(
+            "Turn off when signing in with a service account whose own mailbox is not relevant. "
+            "The first shared mailbox then becomes the default."
+        ),
+        json_schema_extra={"ui:type": "boolean", "ui:titleKey": "data.exchangeOnprem.ownTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.ownDescription"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
+
+    @model_validator(mode="after")
+    def check_mailboxes(self):
+        from app.data_sources.clients.exchange_onprem_client import normalize_ews_url, parse_shared_mailboxes
+        normalize_ews_url(self.ews_url, self.allow_http)
+        if not parse_shared_mailboxes(self.shared_mailboxes) and not self.include_own_mailbox:
+            raise ValueError("List at least one shared mailbox, or include the account's own mailbox.")
+        return self
+
+
+class ExchangeOnpremNtlmCredentials(BaseModel):
+    username: str = Field(..., min_length=1, title="Domain username", description="DOMAIN\\username or user@domain. Mail is read with this account's own permissions.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class ExchangeOnpremKerberosCredentials(BaseModel):
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: Optional[str] = Field(None, title="Service principal", description="Optional service-account UPN. Administrators must mount krb5.conf and the client keytab (KRB5_CLIENT_KTNAME), or provide a ticket cache. This authenticates as the service account, not as the signed-in BOW user.", json_schema_extra={"ui:type": "string"})
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
+
+
 # OpenText Documentum (Documentum REST Services, read-only file connector).
 class DocumentumConfig(BaseModel):
     rest_url: str = Field(

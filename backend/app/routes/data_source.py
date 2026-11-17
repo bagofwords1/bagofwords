@@ -691,9 +691,10 @@ async def list_connection_files(
         from app.schemas.data_source_registry import get_entry
         _entry = get_entry(conn.type)
         nouns = list(_entry.catalog_nouns) if _entry.catalog_nouns else None
-        live = _entry.catalog_ownership == "per_user" and _entry.type in {
-            "outlook_mail", "gmail_mail", "teams_messages",
-        }
+        live = (
+            _entry.catalog_ownership == "per_user"
+            and _entry.type in {"outlook_mail", "gmail_mail", "teams_messages"}
+        ) or _entry.type == "exchange_onprem"
     except Exception:
         nouns, live = None, False
     try:

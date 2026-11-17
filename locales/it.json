@@ -4301,6 +4301,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL del server Exchange",
+      "urlDescription": "Indirizzo del server Exchange, ad es. https://mail.example.com. Il percorso di Exchange Web Services (/EWS/Exchange.asmx) viene aggiunto se lo ometti.",
+      "sharedTitle": "Cassette postali condivise",
+      "sharedDescription": "Facoltativo. Indirizzi delle cassette postali condivise o di team da includere, separati da virgole, ad es. support@example.com, sales@example.com. Exchange decide chi può aprire ciascuna: ogni persona vede solo le cassette a cui il proprio account ha già accesso.",
+      "ownTitle": "Includi la cassetta postale dell'account",
+      "ownDescription": "Disattiva questa opzione se accedi con un account di servizio la cui cassetta postale non è rilevante. La prima cassetta condivisa diventa quella predefinita."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",

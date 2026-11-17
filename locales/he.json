@@ -4864,6 +4864,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "שם ספריית המסמכים, או * לכל הספריות הגלויות. שדה ריק בוחר בספריית ברירת המחדל רק במצב REST מודרני."
     },
+    "exchangeOnprem": {
+      "urlTitle": "כתובת שרת Exchange",
+      "urlDescription": "כתובת שרת ה-Exchange שלך, לדוגמה https://mail.example.com. הנתיב של Exchange Web Services ‏(/EWS/Exchange.asmx) מתווסף אם משמיטים אותו.",
+      "sharedTitle": "תיבות דואר משותפות",
+      "sharedDescription": "אופציונלי. כתובות של תיבות דואר משותפות או צוותיות שייכללו, מופרדות בפסיקים, לדוגמה support@example.com, sales@example.com. ‏Exchange קובע מי רשאי לפתוח כל תיבה: כל אחד רואה רק את התיבות שלחשבון שלו כבר יש גישה אליהן.",
+      "ownTitle": "לכלול את תיבת הדואר של החשבון עצמו",
+      "ownDescription": "יש לכבות בעת התחברות עם חשבון שירות שתיבת הדואר שלו אינה רלוונטית. התיבה המשותפת הראשונה תהפוך לברירת המחדל."
+    },
     "athena": {
       "databaseDescription": "שם מסד נתונים אחד של Glue, או רשימה מופרדת בפסיקים של שמות, תבניות glob והחרגות עם !, כדי לאנדקס כמה מסדי נתונים, למשל *_db, !billing_db, analytics_history. כשיש כמה, שמות הטבלאות הם מסד_נתונים.טבלה.",
       "tableExcludeTitle": "תבנית להחרגת טבלאות",
