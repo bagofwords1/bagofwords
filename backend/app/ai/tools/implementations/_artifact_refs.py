@@ -597,7 +597,7 @@ def _jsx_tag_body(src: str, start: int) -> str:
 
     Walks braces and quotes so an ``onClick={p => …}`` arrow does not end the tag.
     """
-    depth, quote, i = 0, None, start + 1
+    depth, quote, i, comments = 0, None, start + 1, {}
     while i < len(src):
         ch = src[i]
         if quote:
@@ -606,7 +606,7 @@ def _jsx_tag_body(src: str, start: int) -> str:
                 continue
             if ch == quote:
                 quote = None
-        elif (j := _skip_comment_or_regex(src, i, depth)) != i:
+        elif (j := _skip_nested(src, i, depth, comments)) != i:
             i = j
             continue
         elif ch in "\"'`":
@@ -628,7 +628,7 @@ def _jsx_prop(body: str, name: str):
     value or {expression} (``alt='id="x"'``) is skipped.
     """
     attr = re.compile(r"\s" + re.escape(name) + r"\s*=\s*")
-    depth, quote, i, m = 0, None, 0, None
+    depth, quote, i, m, comments = 0, None, 0, None, {}
     while i < len(body):
         ch = body[i]
         if quote:
@@ -637,7 +637,7 @@ def _jsx_prop(body: str, name: str):
                 continue
             if ch == quote:
                 quote = None
-        elif (j := _skip_comment_or_regex(body, i, depth)) != i:
+        elif (j := _skip_nested(body, i, depth, comments)) != i:
             i = j
             continue
         elif ch in "\"'`":
@@ -817,38 +817,48 @@ def _comment_end(src: str, i: int, end: int) -> int:
     return i
 
 
-def _skip_comment_or_regex(src: str, i: int, depth: int) -> int:
-    """End of the comment at ``src[i]``, or of the regex literal there inside a ``{…}``
-    expression (``depth > 0``); ``i`` if neither starts there.
+def _skip_nested(src: str, i: int, depth: int, comments: Dict[int, int]) -> int:
+    """End of what starts at ``src[i]`` and is not the tag's own syntax; ``i`` if nothing does.
 
-    For the JSX tag walkers: a quote in a comment or a regex is not a string.
-    A ``</`` closes a JSX element written in the expression, not a regex.
+    For the JSX tag walkers: a comment, and inside a ``{…}`` expression
+    (``depth > 0``) a regex literal or a JSX element (``format={v => <b>…</b>}``).
+    A quote in any of them is not a string, and a ``//`` or ``/*`` in an
+    element's text is not a comment. ``comments`` collects the comments passed,
+    for the look-behind.
     """
-    j = _comment_end(src, i, len(src))
-    if j == i and depth > 0 and src[i] == "/" and src[i - 1] != "<" and _expression_may_start(src, i):
-        j = _skip_regex(src, i, len(src))
-    return j
+    end = len(src)
+    j = _comment_end(src, i, end)
+    if j != i:
+        comments[j] = i
+        return j
+    if depth > 0 and src[i] == "/" and src[i - 1] != "<" and _expression_may_start(src, i, comments):
+        return _skip_regex(src, i, end)
+    if depth > 0 and _jsx_opens(src, i, end, comments):
+        close = _jsx_element_end(src, i)
+        if close is not None:
+            return close
+    return i
 
 
-def _jsx_element_starts(src: str) -> set:
-    """Offsets of the ``<`` of every JSX element the page's code opens.
+def _jsx_opens(src: str, i: int, end: int, comments: Dict[int, int]) -> bool:
+    """Whether the ``<`` at ``src[i]`` in code opens a JSX element (or a ``<>`` fragment)."""
+    return (
+        src[i] == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">")
+        and _expression_may_start(src, i, comments)
+    )
 
-    A small JS/JSX scanner. String, template and regex literals and comments
-    are skipped, so a tag named inside one is not an element; in JSX text
-    quotes are plain characters (``<p>Don't</p>``). The stored
-    ``<script type="text/babel">`` wrapper is not part of the code.
+
+def _jsx_scan(src: str, i: int, end: int, stack: List[str], starts: set, comments: Dict[int, int]) -> int:
+    """A small JS/JSX scanner: runs from ``src[i]`` in the state on top of ``stack``
+    until ``end`` or until the stack empties, and returns where it stopped.
+
+    String, template and regex literals and comments are skipped, so a tag named
+    inside one is not an element; in JSX text quotes, ``//`` and ``/*`` are plain
+    characters (``<p>Don't</p>``). The ``<`` of every element opened is added to
+    ``starts``, the end -> start of every comment in code to ``comments``.
     """
-    start, end = 0, len(src)
-    wrapper = _SCRIPT_OPEN_RE.match(src)
-    if wrapper:
-        start = wrapper.end()
-        close = src.rfind("</script>")
-        end = close if close >= start else end
-    starts: set = set()
-    comments: Dict[int, int] = {}  # end -> start of each comment in code, for the look-behind
-    stack = ["code"]  # code | template | tag (inside <Name …>) | text (an element's children)
-    i = start
-    while i < end:
+    # Modes: code | template | tag (inside <Name …>) | text (an element's children).
+    while i < end and stack:
         mode, ch = stack[-1], src[i]
         if mode == "code":
             if src.startswith(("//", "/*"), i):
@@ -872,7 +882,7 @@ def _jsx_element_starts(src: str) -> set:
                 if len(stack) > 1:
                     stack.pop()
                 i += 1
-            elif ch == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">") and _expression_may_start(src, i, comments):
+            elif _jsx_opens(src, i, end, comments):
                 starts.add(i)
                 stack.append("tag")
                 i += 1
@@ -920,12 +930,38 @@ def _jsx_element_starts(src: str) -> set:
                 i += 1
             else:
                 i += 1
+    return i
+
+
+def _jsx_element_starts(src: str) -> set:
+    """Offsets of the ``<`` of every JSX element the page's code opens.
+
+    The stored ``<script type="text/babel">`` wrapper is not part of the code.
+    """
+    start, end = 0, len(src)
+    wrapper = _SCRIPT_OPEN_RE.match(src)
+    if wrapper:
+        start = wrapper.end()
+        close = src.rfind("</script>")
+        end = close if close >= start else end
+    starts: set = set()
+    # The bottom "code" state is never popped, so this runs to the end.
+    _jsx_scan(src, start, end, ["code"], starts, {})
     return starts
+
+
+def _jsx_element_end(src: str, i: int) -> Optional[int]:
+    """Offset just past the JSX element (or fragment) whose ``<`` is at ``src[i]``:
+    after its ``/>``, or after its matching close tag, nested elements included.
+    None if it never closes."""
+    stack = ["tag"]
+    j = _jsx_scan(src, i + 1, len(src), stack, set(), {})
+    return None if stack else j
 
 
 def _has_spread_attr(body: str) -> bool:
     """Whether a JSX tag body has a top-level ``{...props}`` attribute."""
-    depth, quote, i = 0, None, 0
+    depth, quote, i, comments = 0, None, 0, {}
     while i < len(body):
         ch = body[i]
         if quote:
@@ -934,7 +970,7 @@ def _has_spread_attr(body: str) -> bool:
                 continue
             if ch == quote:
                 quote = None
-        elif (j := _skip_comment_or_regex(body, i, depth)) != i:
+        elif (j := _skip_nested(body, i, depth, comments)) != i:
             i = j
             continue
         elif ch in "\"'`":
@@ -949,14 +985,16 @@ def _has_spread_attr(body: str) -> bool:
     return False
 
 
-def _charts_without_viz(src: str) -> List[Tuple[str, str]]:
-    """(component, whole tag with whitespace collapsed) of each chart with no ``viz`` prop.
+def _charts_without_viz(src: str) -> List[Tuple[str, str, str]]:
+    """(component, whole tag with whitespace collapsed, tag body as written) of each
+    chart with no ``viz`` prop. Collapsing joins a ``//`` comment's line to the next,
+    so props are read from the body as written.
 
     Tags inside a comment or a string, and tags with a ``{...spread}`` that may
     carry the viz, are left out.
     """
     elements = _jsx_element_starts(src)
-    found: List[Tuple[str, str]] = []
+    found: List[Tuple[str, str, str]] = []
     for m in _CHART_TAG_RE.finditer(src):
         start = m.start()
         if start not in elements:
@@ -965,7 +1003,7 @@ def _charts_without_viz(src: str) -> List[Tuple[str, str]]:
         if _jsx_prop(body, "viz") is not None or _has_spread_attr(body):
             continue
         tag = body + ">" if src[start + len(body):start + len(body) + 1] == ">" else body
-        found.append((m.group(1), " ".join(tag.split())))
+        found.append((m.group(1), " ".join(tag.split()), body))
     return found
 
 
@@ -1007,13 +1045,13 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code
     errors: List[str] = []
     # A page with no visualizations (static, resource-backed) has no viz to
     # pass: its charts draw from their own rows.
-    existing = Counter(tag for _, tag in _charts_without_viz(previous_code or "")) if vizs else Counter()
-    for comp, tag in _charts_without_viz(src) if vizs else []:
+    existing = Counter(tag for _, tag, _ in _charts_without_viz(previous_code or "")) if vizs else Counter()
+    for comp, tag, body in _charts_without_viz(src) if vizs else []:
         if existing[tag] > 0:
             existing[tag] -= 1
             continue
         shown = tag if len(tag) <= 120 else tag[:119] + "…"
-        drawn = "" if _jsx_prop(tag, "rows") is not None else " and draws an error box instead of a chart"
+        drawn = "" if _jsx_prop(body, "rows") is not None else " and draws an error box instead of a chart"
         errors.append(
             f"[chart] <{comp}> has no viz prop ({shown}): it has no ⓘ of its own{drawn}. "
             f"Pass viz={{vizById(\"<uuid>\")}} for the visualization its rows come from, inside a SectionCard too "

@@ -33,6 +33,11 @@ FID = "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
     f"<BowFile onLoad={{() => {{ /* don't wait */ setReady(true); }}}} id=\"{FID}\" />",
     f"<BowFile onLoad={{() => {{\n  // don't wait\n  setReady(true);\n}}}} id=\"{FID}\" />",
     f"<BowFile /* it's the logo */ id=\"{FID}\" />",
+    # JSX text in an attribute is not code: //, /* and quotes in it start nothing.
+    f'<BowFile alt={{<i>http://x</i>}} id="{FID}" />',
+    f'<BowFile alt={{<i>see /* the */ logo</i>}} id="{FID}" />',
+    f"<BowFile alt={{<b>Don't {{name}}</b>}} id=\"{FID}\" />",
+    f"<BowFile alt={{<>it's <i>ours</i></>}} id=\"{FID}\" />",
 ])
 def test_a_literal_id_is_found_in_every_tag_shape(tag):
     assert bow_file_literal_ids(f"function App() {{ return <div>{tag}</div> }}") == {FID}
@@ -66,6 +71,12 @@ def test_an_unattached_reference_is_an_error_and_an_attached_one_is_not():
     errors = file_reference_errors(code, {"files": []})
     assert len(errors) == 1 and FID in errors[0]
     assert file_reference_errors(code, {}) == errors
+
+
+def test_an_unattached_reference_after_jsx_in_an_attribute_is_an_error():
+    code = f'function App() {{ return <BowFile alt={{<i>see http://x</i>}} id="{FID}" /> }}'
+    errors = file_reference_errors(code, {"files": []})
+    assert len(errors) == 1 and FID in errors[0]
 
 
 def test_references_already_broken_can_be_left_alone():
