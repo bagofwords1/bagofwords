@@ -1,4 +1,4 @@
-// UI evidence for BOW-144: Rerun on a user's prompt in the report chat.
+// UI evidence for the report-chat Rerun action on a user prompt.
 //
 //   source tools/agent/devbox_env.sh   # BOW_EMAIL / BOW_PASSWORD
 //   node tools/agent/verify_prompt_rerun.mjs seed            -> prints a report id
