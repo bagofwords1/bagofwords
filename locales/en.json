@@ -7890,6 +7890,23 @@
     "modelDesc": "Each viewer's default follows their group and the organization (and Auto routing when it is on). A model a viewer can't use falls back to their default.",
     "bubbleUsesAgents": "The agents above"
   },
+  "dashboardDelete": {
+    "action": "Delete",
+    "title": "Delete this dashboard?",
+    "titleDoc": "Delete this document?",
+    "titleSlides": "Delete this presentation?",
+    "body": "{title} and all of its versions will be deleted. The conversations it was made in are kept.",
+    "publishedWarning": "It is published: its link will stop working for everyone who has it.",
+    "sharedWarning": "It is shared: everyone it is shared with loses access.",
+    "scheduleWarning": "Its scheduled refresh stops, and subscribers get no more emails.",
+    "confirm": "Delete",
+    "deleted": "{title} was deleted",
+    "failed": "Could not delete it",
+    "settingsTitle": "Delete this dashboard",
+    "settingsTitleDoc": "Delete this document",
+    "settingsTitleSlides": "Delete this presentation",
+    "settingsDesc": "Removes it and all of its versions for everyone. You will be asked to confirm."
+  },
   "dashboardStart": {
     "title": "No dashboard here yet",
     "subtitle": "Create one in this conversation, or keep working on one you can edit.",
