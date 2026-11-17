@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.625 (November 17, 2026)
+- Added Rerun on a chat message: sends the same prompt again with its mentions, attached images, mode and model (#1771)
+- Added `/clear` in the report prompt box: starts a fresh agent context while earlier turns stay visible (#1767)
+- Added `missing_folder_rules` to the MCP `create_report` and `get_context` responses, and `applies_in` to `create_instruction` and `edit_instruction` (#1762)
+- Fixed the Approve/Deny card disappearing after a page reload or in a second tab (#1766)
+- Fixed an agent losing all its MCP tools when one of its connections fails, and agents created mid-run not getting theirs (#1763)
+
 ## Version 0.0.624 (November 16, 2026)
 - Added the full dashboard name on hover when it is cut off, in the dashboards grid and list, the dashboard header and the "open a dashboard" list (#1730)
 - Fixed dashboards rendering blank or failing to save when the model names its root component something other than `App`, wraps its export, or imports `createRoot` (#1735)

@@ -10,7 +10,7 @@ approval card vanished. Store the execution id and match on it.
 Nullable: rows written before this revision keep the name-based fallback.
 
 Revision ID: toolconfte01
-Revises: queryexec03
+Revises: ctxclear01
 Create Date: 2026-11-17
 """
 from alembic import op
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision = "toolconfte01"
-down_revision = "queryexec03"
+down_revision = "ctxclear01"
 branch_labels = None
 depends_on = None
 
