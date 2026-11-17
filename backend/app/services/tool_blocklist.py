@@ -19,7 +19,7 @@ it with ``asyncio.to_thread``.
 import logging
 import re
 import shlex
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 
 import sqlglot
 from sqlglot import exp
@@ -271,26 +271,35 @@ def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
 #              SQL script (then it is read as "sql", as before);
 #   "other"  — anything else: only a text that is a single DROP statement
 #              ("Drop table orders_tmp after migration" in a title passes).
-# A list item gets its key's kind ("queries": ["SELECT 1", "DELETE …"]).
+# A list item gets its key's kind ("queries": ["SELECT 1", "DELETE …"]); a
+# value nested in an object gets the stronger of its own key's kind and the
+# enclosing one ("sql": {"q1": "DELETE …"} is "sql").
 _SQL_SHARED_KEYS = {"query", "q", "command", "script", "code"}
 # A tool whose name says it runs SQL: an engine name before query or queries,
 # with or without words between (postgres_query, postgres_raw_query,
 # bigquery_run_readonly_query), run/execute + query, read/write/start + query.
+# Read on the name as written and on its camelCase split (PostgresRawQuery
+# is read as Postgres_Raw_Query).
 _SQL_TOOL_NAME = re.compile(
     r"sql|statement|stmt|database|^query$|(^|[_-])(run|execute|exec)[_-]?(query|queries)|(^|[_-])db([_-]|$)"
-    r"|(^|[_-])(read|write|start)[_-]?(query|queries)([_-]|$)"
-    r"|(^|[_-])(postgres|postgresql|pg|mysql|mariadb|mssql|tsql|oracle|snowflake|bigquery|bq|duckdb|redshift"
+    r"|(^|[_-])(read|write|start)[_-]?(query|queries)([_-]|$)",
+    re.IGNORECASE)
+_SQL_ENGINE_QUERY_NAME = re.compile(
+    r"(^|[_-])(postgres|postgresql|pg|mysql|mariadb|mssql|tsql|oracle|snowflake|bigquery|bq|duckdb|redshift"
     r"|athena|clickhouse|trino|presto|databricks|sqlite|synapse|teradata|vertica|cockroach|spanner)"
     r"[_-]?(\w*[_-])?(query|queries)([_-]|$)",
     re.IGNORECASE)
-# Search, natural-language, AI and history tools are never SQL tools,
-# whatever engine they name (snowflake_cortex_search_query, pg_query_history,
-# databricks_ai_query): their "query" is a question, a prompt or a filter.
-# Compared by whole name part.
+# Search, natural-language and history tools are never SQL tools, whatever
+# engine they name (snowflake_cortex_search_query, pg_query_history): their
+# "query" is a question or a filter. Compared by whole name part.
 _NOT_SQL_TOOL_WORDS = frozenset({
     "search", "semantic", "vector", "natural", "genie", "analyst", "ask", "history", "log", "logs", "list",
-    "named", "saved", "complete", "ai", "cortex", "prompt",
+    "named", "saved",
 })
+# AI words demote only a name that is a SQL tool by engine + query alone
+# (databricks_ai_query, snowflake_cortex_complete_query); a name that says SQL
+# otherwise (mssql_ai_query, execute_sql_prompt, run_query_complete) stays one.
+_AI_TOOL_WORDS = frozenset({"complete", "ai", "cortex", "prompt"})
 # On a SQL tool, a key naming a query or statement holds SQL.
 _SQL_TOOL_KEY = re.compile(r"quer(y|ies)|statement|stmt")
 # A parameter whose schema title or description says it holds SQL: it names
@@ -319,10 +328,15 @@ _EVERY_PARAM = _EveryParam()
 
 
 def _is_sql_tool(tool_name: str) -> bool:
-    if not tool_name or not _SQL_TOOL_NAME.search(tool_name):
+    if not tool_name:
         return False
-    parts = re.split(r"[^a-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", tool_name).lower())
-    return not _NOT_SQL_TOOL_WORDS.intersection(parts)
+    split = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", tool_name))
+    names = (tool_name, split)
+    says_sql = any(_SQL_TOOL_NAME.search(n) for n in names)
+    if not says_sql and not any(_SQL_ENGINE_QUERY_NAME.search(n) for n in names):
+        return False
+    parts = set(re.split(r"[^a-z0-9]+", split.lower()))
+    return not (_NOT_SQL_TOOL_WORDS.intersection(parts) or (not says_sql and _AI_TOOL_WORDS.intersection(parts)))
 
 
 def _described_as_sql(text: str) -> bool:
@@ -460,8 +474,9 @@ _MAX_EXEC_DEPTH = 2
 # SQL held in literals (an EXEC body, a concatenation of an EXEC's literals,
 # a procedure argument) is rechecked one item at a time, each read alone so
 # nothing in one can affect another. At most this many rechecks per call
-# (block_reason, sql_block_reason or shell_block_reason), across every level
-# and argument; a call that needs more is refused as unreadable.
+# (block_reason, sql_block_reason or shell_block_reason), and at most
+# _MAX_SCAN_BYTES of text read in them, across every level and argument; a
+# call that needs more is refused as unreadable.
 _MAX_RECHECKS = 64
 # Argument values nested deeper than this are refused as unreadable.
 _MAX_ARGUMENT_DEPTH = 64
@@ -669,7 +684,8 @@ def _add(items: dict, texts: list) -> None:
 # Statement words some tokenizers read as a plain name (VAR): a segment
 # starting with one is never a procedure call.
 _NOT_A_PROCEDURE = frozenset({
-    "IF", "WHILE", "DECLARE", "PRINT", "THROW", "RAISERROR", "WAITFOR", "RETURN", "GOTO", "BREAK", "CONTINUE",
+    "IF", "WHILE", "DECLARE", "PRINT", "THROW", "RAISERROR", "RAISE", "WAITFOR", "RETURN", "GOTO", "BREAK",
+    "CONTINUE",
     "SETUSER", "BULK", "NOTIFY", "DBCC",
 })
 # Tokens an argument list of a procedure call can start with.
@@ -685,20 +701,27 @@ def _proc_call_at_start(toks: list) -> Optional[int]:
     ``dbo.run N'…'``, ``[dbo].[run] NULL, N'…'``), or None. T-SQL runs the
     first statement of a batch without EXEC, so such a segment runs its
     literals like EXEC does. The name is a plain, qualified or bracketed name
-    (never a keyword token or a statement word in _NOT_A_PROCEDURE) followed
-    by an argument, not by "(", "=", ":" or more name."""
-    def name_part(k: int) -> bool:
-        return k < len(toks) and toks[k].token_type.name in ("VAR", "IDENTIFIER")
+    (never a keyword token or a statement word in _NOT_A_PROCEDURE), each
+    part optionally a temporary procedure's (#run, ##run: the tokenizers give
+    one or two HASH tokens right before the name), followed by an argument,
+    not by "(", "=", ":" or more name."""
+    def name_part(k: int) -> Optional[int]:
+        """Index of the name token of a part starting at k, or None."""
+        for _ in range(2):
+            if (k + 1 < len(toks) and toks[k].token_type.name == "HASH"
+                    and toks[k].end + 1 == toks[k + 1].start):
+                k += 1
+        return k if k < len(toks) and toks[k].token_type.name in ("VAR", "IDENTIFIER") else None
 
-    if not name_part(0):
+    i = name_part(0)
+    if i is None:
         return None
-    i = 0
     while i + 1 < len(toks) and toks[i + 1].token_type.name == "DOT":
         i += 1
         while i + 1 < len(toks) and toks[i + 1].token_type.name == "DOT":
             i += 1
-        i += 1
-        if not name_part(i):
+        i = name_part(i + 1)
+        if i is None:
             return None
     if i == 0 and toks[0].token_type.name == "VAR" and toks[0].text.upper() in _NOT_A_PROCEDURE:
         return None
@@ -707,17 +730,21 @@ def _proc_call_at_start(toks: list) -> Optional[int]:
     return i
 
 
-def _literal_items(tokens: list, items: dict) -> None:
+def _literal_items(tokens: list, items: dict, level: str) -> None:
     """Text in this SQL that would itself run as SQL, added to ``items`` in
-    order: the string literals of a statement with EXEC/EXECUTE or one that
-    is a procedure call without EXEC (and their concatenation), the literal of
-    PREPARE … FROM '…' and the statement of PREPARE … AS …. When SQL held in a variable is run (EXEC(@q), EXEC
-    sp_executesql @q, PREPARE s FROM @q), the text can come from any
-    statement, so every literal of the whole text is added too."""
+    order: the string literals of a statement with EXEC/EXECUTE (and their
+    concatenation), the literal of PREPARE … FROM '…' and the statement of
+    PREPARE … AS …. At level "sql" only (SQL arguments; a search phrase like
+    "find 'DELETE FROM x' in the logs" reads the same way), also the literals
+    of a procedure call: one without EXEC, and CALL p('…'). When SQL held in a
+    variable is run (EXEC(@q), EXEC sp_executesql @q, PREPARE s FROM @q), the
+    text can come from any statement, so every literal of the whole text is
+    added too."""
     every: list = []
     dynamic = False
+    procedures = level == "sql"
     for kws, toks in _segments(tokens):
-        proc = _proc_call_at_start(toks)
+        proc = _proc_call_at_start(toks) if procedures else None
         has_exec = proc is not None or any(k in _EXEC_WORDS for k in kws)
         if (proc is not None and toks[proc].text.upper() in _EXEC_PROCS
                 and toks[proc + 1:proc + 2] and toks[proc + 1].token_type.name == "PARAMETER"):
@@ -754,6 +781,8 @@ def _literal_items(tokens: list, items: dict) -> None:
                         # Read as an EXEC statement by the tokenizers that read
                         # EXEC as a word.
                         items["EXEC " + t.text] = None
+                elif head == "CALL" and procedures:
+                    _add(items, inner)  # CALL p('…'): the procedure may run them
                 continue
             every.append(t.text)
             if has_exec:
@@ -763,11 +792,19 @@ def _literal_items(tokens: list, items: dict) -> None:
         _add(items, every)
 
 
+def _utf8_len(text: str) -> int:
+    """UTF-8 size of a text; a lone surrogate (invalid in UTF-8, but a Python
+    str can hold one) counts as its three bytes instead of raising."""
+    return len(text.encode("utf-8", "surrogatepass"))
+
+
 class _Budget:
-    """Rechecks left for one call (_MAX_RECHECKS)."""
+    """Rechecks left for one call: at most _MAX_RECHECKS items and
+    _MAX_SCAN_BYTES of their text, across every level and argument."""
 
     def __init__(self) -> None:
         self.left = _MAX_RECHECKS
+        self.bytes_left = _MAX_SCAN_BYTES
 
 
 def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset, budget: _Budget) -> set:
@@ -778,7 +815,8 @@ def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset, budge
     unchanged. Only the exact text is skipped: a near copy (other case or
     spacing) can hold different SQL one level deeper. Past _MAX_EXEC_DEPTH,
     any item still to read makes the text unreadable, and so does a call
-    that needs more than _MAX_RECHECKS reads."""
+    that needs more than _MAX_RECHECKS reads or more than _MAX_SCAN_BYTES of
+    text read in them (each item is charged its size before it is read)."""
     seen = seen | {text}
     pending = [t for t in items if _passes_gate(t.lower(), "sql") and t not in seen]
     if not pending:
@@ -789,7 +827,13 @@ def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset, budge
     if len(pending) > budget.left:
         logger.info("blocklist: more than %d SQL literals to recheck in one call; refused", _MAX_RECHECKS)
         return {REASON_UNREADABLE}
+    size = sum(_utf8_len(t) for t in pending)
+    if size > budget.bytes_left:
+        logger.info("blocklist: more than %d bytes of SQL literals to recheck in one call; refused",
+                    _MAX_SCAN_BYTES)
+        return {REASON_UNREADABLE}
     budget.left -= len(pending)
+    budget.bytes_left -= size
     seen = seen | set(pending)
     found: set = set()
     for t in pending:
@@ -951,7 +995,7 @@ def _other_findings(text: str) -> list:
     schema. A text over _MAX_PARSE_BYTES, or one that no tokenizer reads, gets
     today's rule instead (the parity fallback). Level "other" has no scan cap:
     the fallback is a linear regex pass and runs without tokenizing, at any size."""
-    if len(text.encode("utf-8")) > _MAX_PARSE_BYTES:
+    if _utf8_len(text) > _MAX_PARSE_BYTES:
         reason = _parity_fallback(text, "other")
         return [reason] if reason else []
     parsed = False
@@ -982,7 +1026,7 @@ def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = froze
         return []
     if level == "other":
         return _other_findings(text)
-    size = len(text.encode("utf-8"))
+    size = _utf8_len(text)
     if size > _MAX_SCAN_BYTES:
         logger.info("blocklist: %s-level SQL text of %d bytes is over the scan cap; refused", level, size)
         return [REASON_UNREADABLE]
@@ -1010,7 +1054,7 @@ def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = froze
         _scan_tree(text, level, token_lists, found)
     items: dict = {}  # SQL to run held in literals, in order
     for tokens in readable:
-        _literal_items(tokens, items)
+        _literal_items(tokens, items, level)
     found.update(_recheck_literals(text, items, depth, seen, budget))
     return [reason for reason in _REASON_ORDER if reason in found]
 
@@ -1034,20 +1078,30 @@ def _sql_reason(text: str, sql_context: Any, budget: _Budget) -> Optional[str]:
 _TOO_DEEP = object()  # a value nested past _MAX_ARGUMENT_DEPTH
 
 
-def _strings(value: Any, key: str = "", depth: int = 0) -> Iterable[tuple]:
-    """(key, text) for every string in the arguments; a list item gets its
-    key. A non-empty value past _MAX_ARGUMENT_DEPTH yields _TOO_DEEP."""
+_KIND_RANK = {"other": 0, "shared": 1, "sql": 2}
+
+
+def _strings(value: Any, kind_of: Callable[[str], str], kind: str = "other",
+             depth: int = 0) -> Iterable[tuple]:
+    """(kind, text) for every string in the arguments. A value under a key
+    gets the stronger of that key's kind (``kind_of``) and the kind of the
+    value it sits in, so a string nested in a SQL argument is read as SQL
+    ({"sql": {"q1": "…"}}); a list item gets its list's kind. A non-empty
+    value past _MAX_ARGUMENT_DEPTH yields _TOO_DEEP."""
     if isinstance(value, str):
-        yield key, value
+        yield kind, value
     elif depth >= _MAX_ARGUMENT_DEPTH:
         if isinstance(value, (dict, list, tuple)) and value:
-            yield key, _TOO_DEEP
+            yield kind, _TOO_DEEP
     elif isinstance(value, dict):
         for k, v in value.items():
-            yield from _strings(v, str(k), depth + 1)
+            inner = kind_of(str(k))
+            if _KIND_RANK[kind] > _KIND_RANK[inner]:
+                inner = kind
+            yield from _strings(v, kind_of, inner, depth + 1)
     elif isinstance(value, (list, tuple)):
         for v in value:
-            yield from _strings(v, key, depth + 1)
+            yield from _strings(v, kind_of, kind, depth + 1)
 
 
 def _bare_tool_name(tool_name: str) -> str:
@@ -1070,11 +1124,11 @@ def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False,
             return reason
     bare = _bare_tool_name(tool_name) if isinstance(tool_name, str) else ""
     sql_params = _sql_params(input_schema)
-    for key, text in _strings(args):
+    for kind, text in _strings(args, lambda key: _key_kind(key, bare, sql_params)):
         if text is _TOO_DEEP:
             logger.info("blocklist: arguments nested past %d levels; refused", _MAX_ARGUMENT_DEPTH)
             return REASON_UNREADABLE
-        reason = _sql_reason(text, _key_kind(key, bare, sql_params), budget)
+        reason = _sql_reason(text, kind, budget)
         if reason:
             return reason
     return None

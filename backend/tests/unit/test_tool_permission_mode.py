@@ -452,11 +452,21 @@ def test_accepted_false_refusals_in_sql(sql):
     "update on the delete account flow",  # D10, new
     "with delete pending, then archive",  # D10, new
     "Delete from inbox",  # catalog, as today
-    "find 'DELETE FROM orders' in the logs",  # reads as a procedure call without EXEC, new
-    "customers who typed 'delete from orders'",  # the same: a word, then an argument, new
 ])
 def test_accepted_false_refusals_on_a_search_tool(text):
     assert block_reason(tool_name="search_docs", arguments={"query": text})
+
+
+@pytest.mark.parametrize("text", [
+    # A word, then a quoted text: a procedure call without EXEC in SQL, but the
+    # procedure-call rule reads SQL arguments only, so a search phrase passes.
+    "errors 'drop table' today", "user said 'TRUNCATE TABLE orders'", "logs containing 'DELETE FROM' last week",
+    "find 'DELETE FROM orders' in the logs", "customers who typed 'delete from orders'",
+    "call log 'DELETE FROM orders'", "#run 'DROP TABLE x' failed",
+])
+@pytest.mark.parametrize("tool", ["search_docs", "query_knowledge_base"])
+def test_quoted_sql_in_a_search_phrase_passes(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}) is None, (tool, text)
 
 
 def test_accepted_false_refusal_of_other_text_on_a_sql_tool():
@@ -559,6 +569,24 @@ def test_many_distinct_exec_literals_are_checked_in_linear_time():
 
     check_small, check_large = check(small), check(large)
     assert check_large / check_small <= 2 * (base_large / base_small)
+
+
+def test_literals_to_recheck_past_the_byte_allowance_are_refused_at_once():
+    # Same accepted exception as above (a timing ratio in one process). Five
+    # 197 KB literals to run, each holding a gate word (985,023 bytes in all):
+    # the rechecks of one call may read at most 1 MB, and these five plus their
+    # concatenation are about 2 MB, so the call is refused before any is read.
+    # Accepted false refusal (a cost bound, like D8).
+    text = "sp_x " + ", ".join(
+        "'" + "".join(f"select 1 as deleted{k}_{i}; " for i in range(12000))[:197_000] + "'" for k in range(5))
+    assert len(text.encode()) == 985_023
+    base = _read_once(text)
+    start = time.perf_counter()
+    assert block_reason(tool_name="mssql_query", arguments={"query": text}) == UNREADABLE
+    assert time.perf_counter() - start <= 2 * base
+    # Below the allowance the literals are read: one 197 KB literal passes.
+    one = "sp_x '" + "".join(f"select 1 as deleted_{i}; " for i in range(12000))[:197_000] + "'"
+    assert block_reason(tool_name="mssql_query", arguments={"query": one}) is None
 
 
 def _exec_statements(k, start=0):
@@ -733,6 +761,33 @@ def test_a_procedure_called_without_exec_has_its_literals_read(call):
     # T-SQL runs any procedure without EXEC as the first statement of a batch.
     for sql in (call, "SELECT 1\nGO\n" + call, "EXEC " + call):
         assert sql_block_reason(sql), sql
+    # In every SQL argument: a SQL key, a SQL tool's query, a described parameter.
+    schema = {"type": "object", "properties": {"text": {"type": "string", "description": "SQL to run"}}}
+    assert block_reason(tool_name="run", arguments={"sql": call}), call
+    assert block_reason(tool_name="mssql_query", arguments={"query": call}), call
+    assert block_reason(tool_name="lookup", arguments={"text": call}, input_schema=schema), call
+
+
+@pytest.mark.parametrize("sql,reason", [
+    # CALL runs a procedure: its literals are SQL it may run.
+    ("CALL run_sql('DROP TABLE x')", DROP), ("CALL dbo.run('DELETE FROM t')", DELETE),
+    ("CALL run_sql(N'TRUNCATE TABLE x')", TRUNCATE),
+    # T-SQL temporary procedures (#local, ##global), also schema-qualified.
+    ("#run N'DROP TABLE x'", DROP), ("##run N'DROP TABLE x'", DROP), ("dbo.#run N'DROP TABLE x'", DROP),
+    ("##run 'DELETE FROM t'", DELETE),
+])
+def test_call_and_temporary_procedures_have_their_literals_read(sql, reason):
+    assert sql_block_reason(sql) == reason, sql
+    assert block_reason(tool_name="run_sql", arguments={"sql": sql}) == reason, sql
+
+
+@pytest.mark.parametrize("sql", [
+    "CALL dbo.run('SELECT 1')", "CALL refresh_stats()", "##run N'SELECT 1'",
+    # A space after # is MySQL's comment, not a temporary procedure's name.
+    "# note 'drop table x'",
+])
+def test_harmless_call_and_temporary_procedures_pass(sql):
+    assert sql_block_reason(sql) is None, sql
 
 
 @pytest.mark.parametrize("sql", [
@@ -741,12 +796,14 @@ def test_a_procedure_called_without_exec_has_its_literals_read(call):
     "INSERT INTO log VALUES ('truncate table orders')", "COMMENT ON TABLE t IS 'drop table t when done'",
     "DECLARE @q NVARCHAR(99) = 'DELETE FROM orders'", "IF @x = 'DROP TABLE x' SELECT 1",
     "PRINT 'DROP TABLE x'", "THROW 50000, 'DELETE FROM orders failed', 1", "RAISERROR('DROP TABLE x', 16, 1)",
+    "RAISE NOTICE 'DELETE FROM orders skipped'", "RAISE EXCEPTION 'DROP TABLE x failed'",
     "UPDATE t SET note = 'DELETE FROM orders' WHERE id = 1",
     # A procedure call whose literals hold no destructive SQL passes.
     "sp_MSforeachtable 'SELECT COUNT(*) FROM ?'", "dbo.my_runner 'deleted rows'",
 ])
 def test_statements_starting_with_a_keyword_are_not_procedure_calls(sql):
     assert sql_block_reason(sql) is None, sql
+    assert block_reason(tool_name="run_sql", arguments={"sql": sql}) is None, sql
 
 
 def test_sp_executesql_with_harmless_sql_passes():
@@ -777,6 +834,43 @@ def test_arguments_nested_past_the_walk_depth_are_refused():
     # A deep but ordinary search body still passes.
     es = {"query": {"bool": {"must": [{"bool": {"should": [{"match": {"title": "delete account"}}]}}]}}}
     assert block_reason(tool_name="search_docs", arguments=es) is None
+
+
+@pytest.mark.parametrize("tool,arguments,schema", [
+    # A string inside an object keeps the stronger of its own key's kind and
+    # its enclosing parameter's kind.
+    ("submit", {"sql": {"q1": "DELETE FROM orders"}}, None),
+    ("submit", {"sql": {"batch": {"steps": ["SELECT 1", "TRUNCATE orders"]}}}, None),
+    ("lookup", {"req": {"body": "DELETE orders"}},
+     {"type": "object", "properties": {"req": {"type": "object", "description": "SQL to run"}}}),
+    ("run_query", {"queries": [{"text": "DELETE orders"}]}, None),
+    ("search_docs", {"filter": {"sql": "DELETE orders"}}, None),  # an inner SQL key, as before
+])
+def test_a_string_nested_in_a_sql_argument_gets_the_sql_rules(tool, arguments, schema):
+    assert block_reason(tool_name=tool, arguments=arguments, input_schema=schema), arguments
+
+
+def test_a_string_nested_in_a_search_argument_stays_lenient():
+    es = {"query": {"bool": {"must": [{"match": {"title": "delete account"}}, {"term": {"x": "truncate text"}}]}}}
+    assert block_reason(tool_name="search_docs", arguments=es) is None
+    assert block_reason(tool_name="send_message", arguments={"meta": {"note": "Delete from inbox"}}) is None
+
+
+def test_a_lone_surrogate_never_breaks_the_check():
+    # A lone surrogate (invalid UTF-8) is counted as three bytes and the text is
+    # read like any other: a refusal reason, never an exception. Without a
+    # gate word it passes, at every level.
+    assert block_reason(tool_name="run_sql", arguments={"sql": "DROP TABLE x \ud800"}) == DROP
+    assert block_reason(tool_name="search_docs", arguments={"query": "drop table x \ud800"}) == DROP
+    assert block_reason(tool_name="save_note", arguments={"title": "DROP TABLE x -- \ud800"}) == DROP
+    assert block_reason(tool_name="save_note", arguments={"title": "DROP TABLE \"x\ud800\""}) == DROP
+    # At "other" a trailing surrogate is junk after the DROP, like any other
+    # character there: the text is no lone DROP, so it passes.
+    for junk in ("\ud800", "é"):
+        assert block_reason(tool_name="save_note", arguments={"title": "DROP TABLE x " + junk}) is None
+    assert sql_block_reason("EXEC('DELETE FROM t \udfff')") == DELETE
+    for key in ("sql", "query", "title"):
+        assert block_reason(tool_name="run_sql", arguments={key: "select \ud800"}) is None, key
 
 
 def _nest(command, shell, n):
@@ -867,6 +961,28 @@ def test_a_tool_with_words_between_engine_and_query_gets_the_full_sql_rules(tool
                                   "databricks_complete_query"])
 def test_ai_tools_named_for_a_sql_engine_stay_lenient(tool):
     assert block_reason(tool_name=tool, arguments={"query": "delete account"}) is None, tool
+
+
+@pytest.mark.parametrize("tool", ["mssql_ai_query", "execute_sql_prompt", "run_query_complete",
+                                  "tsql_cortex_execute", "mysql_complete_query", "execute_query_ai"])
+def test_ai_words_never_demote_a_name_that_says_sql_otherwise(tool):
+    # The AI words (complete, ai, cortex, prompt) apply only to a name that is
+    # a SQL tool by engine + query alone.
+    assert block_reason(tool_name=tool, arguments={"query": "DELETE orders"}) == DELETE, tool
+
+
+@pytest.mark.parametrize("tool", ["PostgresRawQuery", "postgresRawQuery", "snowflakeReadonlyQuery",
+                                  "MssqlQuery", "runQuery", "executeSql", "PGQuery"])
+@pytest.mark.parametrize("text", ["TRUNCATE orders", "SET XACT_ABORT ON DELETE FROM orders"])
+def test_a_camel_case_sql_tool_name_gets_the_full_sql_rules(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}), (tool, text)
+
+
+@pytest.mark.parametrize("tool", ["snowflakeCortexSearchQuery", "searchDocs", "SearchDocs", "queryKnowledgeBase",
+                                  "databricksAiQuery", "pgQueryHistory", "snowflakeCortexCompleteQuery"])
+@pytest.mark.parametrize("text", ["delete account", "truncate text", "TRUNCATE orders"])
+def test_camel_case_search_tools_stay_lenient(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}) is None, (tool, text)
 
 
 @pytest.mark.parametrize("tool", _SQL_TOOLS + ["execute_sql", "run_query"])
