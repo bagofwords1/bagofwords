@@ -890,6 +890,15 @@
         "degraded": "resumen de respaldo (sin resumen del modelo)",
         "cancel": "Cancelar",
         "dismiss": "Descartar"
+      },
+      "clear": {
+        "description": "Empieza un contexto nuevo: los turnos anteriores siguen visibles, pero el agente deja de verlos",
+        "usage": "/clear",
+        "pending": "Se borrará el contexto cuando el agente termine esta ejecución",
+        "running": "Borrando el contexto…",
+        "done": "Contexto borrado · el agente empieza de cero con tu próximo mensaje",
+        "nothing": "Todavía no hay nada que borrar",
+        "failed": "No se pudo borrar el contexto"
       }
     }
   },
@@ -1366,6 +1375,9 @@
     "stepRef": "→ Paso: {id}",
     "viewAgentTrace": "Ver traza del agente",
     "followUp": "Preguntas de seguimiento",
+    "rerun": "Volver a ejecutar",
+    "rerunTooltip": "Ejecutar este mensaje de nuevo como un mensaje nuevo",
+    "rerunQueuedTooltip": "Añadir a la cola: se ejecuta de nuevo después de la respuesta actual",
     "steered": "Dirigido",
     "steeringApplied": "Dirección aplicada",
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
@@ -1404,7 +1416,9 @@
     "compactionSummaryHint": "El agente ve este resumen en lugar de los turnos sobre la línea.",
     "compactingContext": "Compactando contexto…",
     "compactionTurns": "{turns} turnos",
-    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens"
+    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Contexto borrado",
+    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea"
   },
   "tools": {
     "common": {
@@ -8141,7 +8155,12 @@
     "updateFailed": "No se pudieron actualizar los permisos",
     "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
     "added": "Miembros añadidos",
-    "addFailed": "No se pudieron añadir los miembros"
+    "addFailed": "No se pudieron añadir los miembros",
+    "inherited": "Acceso heredado",
+    "inheritedHint": "Estas personas y grupos acceden a este agente a través de una carpeta o conexión. Cambia su acceso en el origen.",
+    "viaFolder": "A través de la carpeta {name}",
+    "viaConnection": "A través de la conexión {name}",
+    "inheritedHidden": "Otras personas pueden tener acceso a través de una carpeta o conexión que no administras."
   },
   "productUpdates": {
     "checkbox": "Envíame novedades del producto",

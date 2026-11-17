@@ -7296,7 +7296,12 @@
     "updateFailed": "Não foi possível atualizar as permissões",
     "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
     "added": "Membros adicionados",
-    "addFailed": "Não foi possível adicionar membros"
+    "addFailed": "Não foi possível adicionar membros",
+    "inherited": "Acesso herdado",
+    "inheritedHint": "Estas pessoas e grupos chegam a este agente através de uma pasta ou conexão. Altere o acesso na origem.",
+    "viaFolder": "Via pasta {name}",
+    "viaConnection": "Via conexão {name}",
+    "inheritedHidden": "Outras pessoas podem ter acesso através de uma pasta ou conexão que você não gerencia."
   },
   "productUpdates": {
     "checkbox": "Enviar novidades do produto para mim",

@@ -165,7 +165,7 @@
             </button>
         </div>
 
-        <!-- /compact receipt: pending → running → result -->
+        <!-- /compact and /clear receipt: pending → running → result -->
         <div
             v-if="compactStatus.phase !== 'idle'"
             data-testid="compact-status"
@@ -179,10 +179,10 @@
             <Spinner v-if="compactStatus.phase === 'running'" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
             <UIcon v-else-if="compactStatus.phase === 'pending'" name="i-heroicons-clock" class="w-3.5 h-3.5 shrink-0" />
             <UIcon v-else-if="compactStatus.phase === 'error' || compactStatus.degraded" name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 text-amber-500" />
-            <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3.5 h-3.5 shrink-0" />
+            <UIcon v-else :name="compactStatus.command === 'clear' ? 'i-heroicons-scissors' : 'i-heroicons-archive-box-arrow-down'" class="w-3.5 h-3.5 shrink-0" />
             <span class="flex-1 min-w-0 truncate">
-                <template v-if="compactStatus.phase === 'pending'">{{ $t('prompt.slash.compact.pending') }}</template>
-                <template v-else-if="compactStatus.phase === 'running'">{{ $t('prompt.slash.compact.running') }}</template>
+                <template v-if="compactStatus.phase === 'pending'">{{ compactStatus.command === 'clear' ? $t('prompt.slash.clear.pending') : $t('prompt.slash.compact.pending') }}</template>
+                <template v-else-if="compactStatus.phase === 'running'">{{ compactStatus.command === 'clear' ? $t('prompt.slash.clear.running') : $t('prompt.slash.compact.running') }}</template>
                 <template v-else>{{ compactStatus.message }}<template v-if="compactStatus.degraded"> · {{ $t('prompt.slash.compact.degraded') }}</template></template>
             </span>
             <button
@@ -239,7 +239,7 @@
                     :class="i === slashIndex ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'"
                     @mousedown.prevent="applySlashCommand(cmd)"
                 >
-                    <UIcon name="i-heroicons-archive-box-arrow-down" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
+                    <UIcon :name="cmd.icon || 'i-heroicons-archive-box-arrow-down'" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
                     <span class="min-w-0">
                         <span class="font-mono text-gray-900 dark:text-white">/{{ cmd.name }}</span>
                         <span class="block text-gray-500 dark:text-gray-400">{{ $t(cmd.descriptionKey) }}</span>
@@ -805,7 +805,7 @@ const props = defineProps({
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
+const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','contextCleared','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -1404,13 +1404,16 @@ const compactionState = computed<CompactionState | null>(() => contextEstimate.v
 // status chip above the composer is the user-visible receipt: pending (the
 // agent is still running), running, then what it bought — or why not.
 type CompactPhase = 'idle' | 'pending' | 'running' | 'done' | 'nothing' | 'error'
-const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean }>({ phase: 'idle' })
-const pendingCompact = ref<CompactArgs | null>(null)
+type ContextCommand = 'compact' | 'clear'
+// A context command held while the agent runs (both are idle-only server-side).
+type PendingContextAction = { command: 'compact', args: CompactArgs } | { command: 'clear' }
+const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean, command?: ContextCommand }>({ phase: 'idle' })
+const pendingCompact = ref<PendingContextAction | null>(null)
 let compactStatusTimer: ReturnType<typeof setTimeout> | null = null
 
-function setCompactStatus(phase: CompactPhase, message?: string, degraded = false) {
+function setCompactStatus(phase: CompactPhase, message?: string, degraded = false, command: ContextCommand = 'compact') {
     if (compactStatusTimer) { clearTimeout(compactStatusTimer); compactStatusTimer = null }
-    compactStatus.value = { phase, message, degraded }
+    compactStatus.value = { phase, message, degraded, command }
     if (phase === 'done' || phase === 'nothing') {
         compactStatusTimer = setTimeout(() => {
             if (compactStatus.value.phase === phase) compactStatus.value = { phase: 'idle' }
@@ -1426,11 +1429,17 @@ function dismissCompactStatus() {
 }
 
 async function compactContext(args: CompactArgs = {}) {
-    if (!props.report_id || isCompacting.value) return
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // Another context command is mid-request: hold this one, it fires
+        // when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'compact', args }
+        return
+    }
     if (props.latestInProgressCompletion) {
         // The agent is mid-run: compacting now would race the run's own
         // context. Hold the command and fire it the moment the run ends.
-        pendingCompact.value = args
+        pendingCompact.value = { command: 'compact', args }
         setCompactStatus('pending')
         return
     }
@@ -1450,7 +1459,7 @@ async function compactContext(args: CompactArgs = {}) {
                 // started, or the run that just ended is still wrapping up
                 // server-side. Stay pending and retry — on the next idle
                 // transition, and on a backoff while the composer is idle.
-                pendingCompact.value = args
+                pendingCompact.value = { command: 'compact', args }
                 setCompactStatus('pending')
                 scheduleCompactRetry()
                 return
@@ -1490,24 +1499,79 @@ async function compactContext(args: CompactArgs = {}) {
     }
 }
 
-// Fire a deferred /compact once the run that blocked it is over.
+// ── /clear ──────────────────────────────────────────────────────────────
+// A fresh agent context: earlier turns stay in the transcript behind a
+// "Context cleared" divider, but the agent no longer sees them. No LLM call.
+// Idle-only like /compact, and deferred the same way while a run streams.
+async function clearContext() {
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // A /compact (or another /clear) is mid-request. Dropping the command
+        // here left the user believing the context was cleared: hold it, it
+        // fires when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'clear' }
+        return
+    }
+    if (props.latestInProgressCompletion) {
+        pendingCompact.value = { command: 'clear' }
+        setCompactStatus('pending', undefined, false, 'clear')
+        return
+    }
+    isCompacting.value = true
+    setCompactStatus('running', undefined, false, 'clear')
+    try {
+        const response = await useMyFetch(`/reports/${props.report_id}/context/clear`, { method: 'POST' })
+        const errorValue = (response as any)?.error?.value
+        if (errorValue) {
+            const status = errorValue?.statusCode || errorValue?.status || errorValue?.response?.status
+            if (status === 409) {
+                pendingCompact.value = { command: 'clear' }
+                setCompactStatus('pending', undefined, false, 'clear')
+                scheduleCompactRetry()
+                return
+            }
+            throw errorValue
+        }
+        compactRetryAttempt = 0
+        const result = (response as any)?.data?.value
+        if (result?.status === 'cleared') {
+            // The page draws the divider and drops the compaction divider.
+            emit('contextCleared', result)
+            setCompactStatus('done', t('prompt.slash.clear.done'), false, 'clear')
+        } else {
+            setCompactStatus('nothing', t('prompt.slash.clear.nothing'), false, 'clear')
+        }
+        await refreshContextEstimate(true)
+    } catch (err: any) {
+        console.error('Failed to clear context:', err)
+        const detail = err?.data?.detail || err?.message || ''
+        setCompactStatus('error', t('prompt.slash.clear.failed'), false, 'clear')
+        toast.add({ title: t('prompt.slash.clear.failed'), description: detail || undefined, color: 'red' })
+    } finally {
+        isCompacting.value = false
+    }
+}
+
+// Fire a deferred /compact or /clear once the run that blocked it is over.
 let compactRetryTimer: ReturnType<typeof setTimeout> | null = null
 let compactRetryAttempt = 0
 const COMPACT_RETRY_MAX = 8
 
 function firePendingCompact() {
     if (props.latestInProgressCompletion || !pendingCompact.value || isCompacting.value) return
-    const args = pendingCompact.value
+    const action = pendingCompact.value
     pendingCompact.value = null
-    compactContext(args)
+    if (action.command === 'clear') clearContext()
+    else compactContext(action.args)
 }
 
 function scheduleCompactRetry() {
     if (compactRetryTimer) clearTimeout(compactRetryTimer)
     if (compactRetryAttempt >= COMPACT_RETRY_MAX) {
         compactRetryAttempt = 0
+        const command = pendingCompact.value?.command || 'compact'
         pendingCompact.value = null
-        setCompactStatus('error', t('prompt.slash.compact.failed'))
+        setCompactStatus('error', t(command === 'clear' ? 'prompt.slash.clear.failed' : 'prompt.slash.compact.failed'), false, command)
         return
     }
     const delay = Math.min(1500 * Math.pow(1.6, compactRetryAttempt), 15000)
@@ -1523,10 +1587,21 @@ watch(() => props.latestInProgressCompletion, (running) => {
     compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, 800)
 })
 
+// A command held behind another context request runs as soon as that request
+// settles. Not when a retry is already scheduled (409 backoff) — that timer
+// owns the pending command.
+watch(isCompacting, (busy) => {
+    if (busy || !pendingCompact.value || compactRetryTimer) return
+    firePendingCompact()
+})
+
 function runSlashCommand(cmd: ParsedSlashCommand) {
     if (cmd.name === 'compact') {
         text.value = ''
         compactContext(parseCompactArgs(cmd.args))
+    } else if (cmd.name === 'clear') {
+        text.value = ''
+        clearContext()
     }
 }
 
@@ -2104,6 +2179,19 @@ defineExpose({
     chooseFolder: (id: string) => dataSourceSelectorRef.value?.chooseFolder(id),
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
+    // Rerun (a control outside the box) passes the send button's gates, minus
+    // the text check: nothing uploading, a usable model, a settled agent scope.
+    // Returns null when the prompt can't be sent now, else the model to send:
+    // the earlier turn's model while this user can still pick it, otherwise
+    // the box's current choice (an explicit model id has no server fallback).
+    prepareRerun: async (modelId?: string | null): Promise<{ model_id: string | null } | null> => {
+        if (isSubmitting.value || isHydratingDataSources.value || hasFilesUploading.value
+            || !selectedModel.value || !hasDataSourceOrFile.value) return null
+        if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return null
+        if (!modelId) return { model_id: null }
+        const known = models.value.some(m => String(m.id) === String(modelId))
+        return { model_id: known ? modelId : modelIdForPayload.value }
+    },
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
     submitPrompt: async (value: string) => {

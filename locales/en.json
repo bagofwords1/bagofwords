@@ -907,6 +907,15 @@
         "degraded": "fallback summary (no model summary)",
         "cancel": "Cancel",
         "dismiss": "Dismiss"
+      },
+      "clear": {
+        "description": "Start a fresh context — earlier turns stay visible, the agent stops seeing them",
+        "usage": "/clear",
+        "pending": "Will clear the context when the agent finishes this run",
+        "running": "Clearing context…",
+        "done": "Context cleared · the agent starts fresh from your next message",
+        "nothing": "Nothing to clear yet",
+        "failed": "Couldn't clear the context"
       }
     }
   },
@@ -1392,6 +1401,9 @@
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
     "followUp": "Follow up",
+    "rerun": "Rerun",
+    "rerunTooltip": "Run this prompt again as a new message",
+    "rerunQueuedTooltip": "Add to the queue: runs again after the current response",
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
@@ -1430,7 +1442,9 @@
     "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
     "compactingContext": "Compacting context…",
     "compactionTurns": "{turns} turns",
-    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Context cleared",
+    "contextClearedDividerHint": "The agent does not see anything above this line"
   },
   "tools": {
     "common": {
@@ -8170,7 +8184,12 @@
     "updateFailed": "Failed to update permissions",
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
-    "addFailed": "Failed to add members"
+    "addFailed": "Failed to add members",
+    "inherited": "Inherited access",
+    "inheritedHint": "These people and groups reach this agent through a folder or connection. Change their access at the source.",
+    "viaFolder": "Via folder {name}",
+    "viaConnection": "Via connection {name}",
+    "inheritedHidden": "Others may have access through a folder or connection you don't manage."
   },
   "productUpdates": {
     "checkbox": "Send me product updates",

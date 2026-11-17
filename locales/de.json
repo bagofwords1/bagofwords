@@ -7296,7 +7296,12 @@
     "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
     "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
     "added": "Mitglieder hinzugefügt",
-    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden",
+    "inherited": "Geerbter Zugriff",
+    "inheritedHint": "Diese Personen und Gruppen erreichen den Agenten über einen Ordner oder eine Verbindung. Ändern Sie den Zugriff an der Quelle.",
+    "viaFolder": "Über Ordner {name}",
+    "viaConnection": "Über Verbindung {name}",
+    "inheritedHidden": "Andere haben möglicherweise Zugriff über einen Ordner oder eine Verbindung, die Sie nicht verwalten."
   },
   "productUpdates": {
     "checkbox": "Produkt-Updates an mich senden",

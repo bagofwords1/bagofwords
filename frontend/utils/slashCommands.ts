@@ -8,6 +8,11 @@ export interface SlashCommandDef {
     // i18n keys under prompt.slash.*
     descriptionKey: string
     usageKey: string
+    // false: the command is only the bare word ("/clear"). With anything
+    // after it the text is an ordinary prompt and goes to the agent.
+    takesArgs?: boolean
+    // Menu icon (Nuxt UI icon name).
+    icon?: string
 }
 
 export const SLASH_COMMANDS: SlashCommandDef[] = [
@@ -15,6 +20,15 @@ export const SLASH_COMMANDS: SlashCommandDef[] = [
         name: 'compact',
         descriptionKey: 'prompt.slash.compact.description',
         usageKey: 'prompt.slash.compact.usage',
+        takesArgs: true,
+        icon: 'i-heroicons-archive-box-arrow-down',
+    },
+    {
+        name: 'clear',
+        descriptionKey: 'prompt.slash.clear.description',
+        usageKey: 'prompt.slash.clear.usage',
+        takesArgs: false,
+        icon: 'i-heroicons-scissors',
     },
 ]
 
@@ -29,8 +43,11 @@ export function parseSlashCommand(text: string): ParsedSlashCommand | null {
     const m = COMMAND_RE.exec(text || '')
     if (!m) return null
     const name = m[1].toLowerCase()
-    if (!SLASH_COMMANDS.some(c => c.name === name)) return null
-    return { name, args: (m[2] || '').trim() }
+    const def = SLASH_COMMANDS.find(c => c.name === name)
+    if (!def) return null
+    const args = (m[2] || '').trim()
+    if (args && def.takesArgs === false) return null
+    return { name, args }
 }
 
 // Commands matching what the user is typing ("/", "/co", "/compact").
