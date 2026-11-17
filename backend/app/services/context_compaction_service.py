@@ -21,6 +21,9 @@ model's budget and calls in. This service decides WHAT to fold and HOW:
 Callers:
   - AgentV2 context governor (mode="auto_bg" | "auto_sync" | "overflow")
   - POST /api/reports/{report_id}/context/compact (mode="manual")
+  - POST /api/reports/{report_id}/context/clear (/clear: no LLM — empties the
+    summary and moves the watermark to the newest completion; the newest clear
+    boundary also hides the protected opening exchange)
 """
 import asyncio
 import json
@@ -537,6 +540,29 @@ class ContextCompactionService:
         return int(tokens) - int(est)
 
     @staticmethod
+    def latest_clear_boundary_id(state: Optional[ReportContextState]) -> Optional[str]:
+        """Completion id of the newest /clear boundary, or None."""
+        boundaries = (getattr(state, "clear_boundaries", None) or []) if state is not None else []
+        for b in reversed(boundaries):
+            cid = b.get("completion_id") if isinstance(b, dict) else None
+            if cid:
+                return str(cid)
+        return None
+
+    @classmethod
+    async def clear_boundary_created_at(cls, db: AsyncSession, report_id: str, state=None) -> Optional[datetime]:
+        """created_at of the newest /clear boundary: nothing at or before it
+        reaches the agent — not even the protected opening exchange."""
+        if state is None:
+            state = await cls.get_state(db, report_id)
+        cid = cls.latest_clear_boundary_id(state)
+        if not cid:
+            return None
+        return (await db.execute(
+            select(Completion.created_at).where(Completion.id == cid)
+        )).scalar_one_or_none()
+
+    @staticmethod
     async def _post_watermark_rows(db: AsyncSession, report_id: str, state) -> list:
         query = _parent_rows_only(
             select(Completion)
@@ -569,18 +595,24 @@ class ContextCompactionService:
             "can_compact": (len(user_rows) > MANUAL_KEEP_EXCHANGES) and not busy,
         }
 
-    @staticmethod
-    async def _opening_request(db: AsyncSession, report_id: str) -> Optional[str]:
+    @classmethod
+    async def _opening_request(cls, db: AsyncSession, report_id: str) -> Optional[str]:
         """The report's first user ask, verbatim (truncated) — stored in the
-        summary programmatically so recall never depends on the summarizer."""
-        row = (await db.execute(_parent_rows_only(
+        summary programmatically so recall never depends on the summarizer.
+        After /clear, the first ask past the newest clear boundary."""
+        query = _parent_rows_only(
             select(Completion)
             .filter(Completion.report_id == str(report_id))
             .filter(Completion.deleted_at.is_(None))
             .filter(Completion.role == 'user')
+            .filter(Completion.status != "queued")
             .order_by(Completion.created_at.asc())
             .limit(1)
-        ))).scalars().first()
+        )
+        cleared_at = await cls.clear_boundary_created_at(db, report_id)
+        if cleared_at is not None:
+            query = query.filter(Completion.created_at > cleared_at)
+        row = (await db.execute(query)).scalars().first()
         if row is None:
             return None
         content = _user_text(row)
@@ -588,17 +620,22 @@ class ContextCompactionService:
             return None
         return content[:300] + ("…" if len(content) > 300 else "")
 
-    @staticmethod
-    async def _head_completion_ids(db: AsyncSession, report_id: str) -> list:
-        """Ids of the report's protected opening exchange (never folded)."""
-        rows = (await db.execute(_parent_rows_only(
+    @classmethod
+    async def _head_completion_ids(cls, db: AsyncSession, report_id: str) -> list:
+        """Ids of the report's protected opening exchange (never folded).
+        After /clear, the opening exchange of the fresh context."""
+        query = _parent_rows_only(
             select(Completion.id)
             .filter(Completion.report_id == str(report_id))
             .filter(Completion.deleted_at.is_(None))
             .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
             .order_by(Completion.created_at.asc())
             .limit(PROTECT_FIRST_N)
-        ))).scalars().all()
+        )
+        cleared_at = await cls.clear_boundary_created_at(db, report_id)
+        if cleared_at is not None:
+            query = query.filter(Completion.created_at > cleared_at)
+        rows = (await db.execute(query)).scalars().all()
         return [str(r) for r in rows]
 
     @staticmethod
@@ -782,6 +819,82 @@ class ContextCompactionService:
                 int((time.monotonic() - started) * 1000),
             )
             return result
+
+    async def clear(self, db: AsyncSession, report: Report) -> dict:
+        """/clear: start a fresh agent context without deleting anything.
+
+        No LLM call. Empties the rolling summary, moves the watermark to the
+        newest completion and records a clear boundary there — which also
+        hides the protected opening exchange, so the first prompt cannot leak
+        back in. Earlier turns stay in the transcript; the UI renders a
+        "Context cleared" divider after each boundary. Never raises."""
+        report_id = str(report.id)
+        lock = self._lock_for(report_id)
+        if lock.locked():
+            return {"status": "already_running", **self._state_payload(await self.get_state(db, report_id))}
+        async with lock:
+            try:
+                base = (
+                    select(Completion)
+                    .filter(Completion.report_id == report_id)
+                    .filter(Completion.deleted_at.is_(None))
+                    .filter(Completion.message_type != COMPACTION_MESSAGE_TYPE)
+                    .filter(Completion.status != "queued")
+                    .order_by(Completion.created_at.desc(), Completion.id.desc())
+                    .limit(1)
+                )
+                # The hard cutoff: the newest row of any kind (events and
+                # sub-agent rows included), so nothing before /clear survives.
+                latest = (await db.execute(base)).scalars().first()
+                state = await self.get_state(db, report_id)
+                if latest is None or (
+                    state is not None
+                    and self.latest_clear_boundary_id(state) == str(latest.id)
+                ):
+                    return {"status": "nothing_to_clear", **self._state_payload(state)}
+                # The divider's anchor: the newest visible conversational row
+                # (events render nothing; steering bubbles nest in their parent).
+                anchor = (await db.execute(_parent_rows_only(
+                    base.filter(Completion.role.in_(("user", "system")))
+                    .filter((Completion.message_type.is_(None)) | (Completion.message_type != "steering"))
+                ))).scalars().first() or latest
+
+                state = state or await self.get_or_create_state(db, report_id)
+                boundaries = list(state.clear_boundaries or [])
+                boundaries.append({
+                    "completion_id": str(latest.id),
+                    "anchor_completion_id": str(anchor.id),
+                    "cleared_at": datetime.utcnow().isoformat(),
+                })
+                state.clear_boundaries = boundaries
+                state.summary_json = {}
+                state.covers_until_completion_id = str(latest.id)
+                # The fresh context has compacted nothing yet.
+                state.covered_turns = 0
+                state.tokens_compacted_total = 0
+                state.last_compaction_at = None
+                state.last_method = None
+                state.degraded = False
+                state.last_tokens_before = None
+                state.last_tokens_after = None
+                state.failure_count = 0
+                state.cooldown_until = None
+                await db.commit()
+            except Exception as e:
+                logger.error(f"Context clear failed for report {report_id}: {e}", exc_info=True)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                return {"status": "error", "message": str(e)}
+
+        try:
+            from app.services.completion_service import CompletionService
+            CompletionService._estimate_cache.clear()
+        except Exception:
+            pass
+        logger.info("[compaction] report=%s trigger=clear status=cleared", report_id)
+        return {"status": "cleared", **self._state_payload(state)}
 
     async def _summarize(self, llm, prompt: str, timeout_s: float) -> Optional[dict]:
         """One LLM call → parsed summary, or None on failure/unparseable."""
@@ -989,6 +1102,7 @@ class ContextCompactionService:
                 "degraded": False,
                 "last_tokens_before": None,
                 "last_tokens_after": None,
+                "clear_boundaries": [],
             }
         return {
             "tokens_compacted_total": int(state.tokens_compacted_total or 0),
@@ -1001,6 +1115,11 @@ class ContextCompactionService:
             "degraded": bool(getattr(state, "degraded", False) or False),
             "last_tokens_before": getattr(state, "last_tokens_before", None),
             "last_tokens_after": getattr(state, "last_tokens_after", None),
+            # /clear boundaries, oldest first: the UI renders a "Context
+            # cleared" divider after each anchor_completion_id.
+            "clear_boundaries": [
+                b for b in (getattr(state, "clear_boundaries", None) or []) if isinstance(b, dict)
+            ],
         }
 
 

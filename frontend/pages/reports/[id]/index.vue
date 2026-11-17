@@ -660,7 +660,7 @@
 						     context. State-derived — moves when the watermark advances,
 						     never interleaves with streaming content. -->
 						<div
-							v-if="compactionWatermarkId && m.id === compactionWatermarkId"
+							v-if="compactionWatermarkId && m.id === compactionWatermarkId && !clearCutoffIds.has(String(compactionWatermarkId))"
 							class="flex items-center gap-3 my-4"
 							data-testid="compaction-divider"
 						>
@@ -695,6 +695,22 @@
 								</template>
 							</UPopover>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+						</div>
+
+						<!-- /clear boundary: the agent sees nothing above this line.
+						     State-derived, one per clear, anchored on a visible turn. -->
+						<div
+							v-if="clearAnchorIds.has(String(m.id))"
+							class="flex items-center gap-3 my-4"
+							data-testid="context-cleared-divider"
+							:title="responseT('reportView.contextClearedDividerHint')"
+						>
+							<div class="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider">
+								<Icon name="heroicons:scissors" class="w-3 h-3" />
+								{{ responseT('reportView.contextClearedDivider') }}
+							</span>
+							<div class="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
 						</div>
 					</ResponseLanguageScope>
 					<li v-if="compactingNow" data-testid="compacting-indicator" class="flex items-center gap-2 my-3 text-xs text-ink-muted" role="status">
@@ -851,6 +867,7 @@
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
 					@contextCompacted="applyCompactionResult"
+					@contextCleared="applyClearResult"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
@@ -2020,6 +2037,23 @@ function applyCompactionResult(result: any) {
 		after: result.history_tokens_after ?? result.last_tokens_after ?? null,
 		degraded: !!result.degraded,
 	}
+	compactionSummary.value = null
+}
+
+// /clear boundaries (oldest first) from the completions payload and /clear
+// responses. `completion_id` is the hard context cutoff; the divider renders
+// after `anchor_completion_id`, the newest visible turn at that moment.
+const clearBoundaries = ref<Array<{ completion_id: string, anchor_completion_id?: string | null, cleared_at?: string | null }>>([])
+const clearAnchorIds = computed(() => new Set(clearBoundaries.value.map(b => String(b.anchor_completion_id || b.completion_id))))
+// A watermark sitting exactly on a clear boundary is the clear itself, not a
+// compaction: only the "Context cleared" divider renders there.
+const clearCutoffIds = computed(() => new Set(clearBoundaries.value.map(b => String(b.completion_id))))
+
+function applyClearResult(result: any) {
+	if (!result) return
+	if (Array.isArray(result.clear_boundaries)) clearBoundaries.value = result.clear_boundaries
+	if (result.covers_until_completion_id) compactionWatermarkId.value = result.covers_until_completion_id
+	compactionInfo.value = null
 	compactionSummary.value = null
 }
 
@@ -4910,6 +4944,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
 		if (response?.compaction?.covers_until_completion_id) applyCompactionResult(response.compaction)
+		clearBoundaries.value = Array.isArray(response?.compaction?.clear_boundaries) ? response.compaction.clear_boundaries : []
         await nextTick()
         followScrollToBottom()
 		if (!skipEstimate) {

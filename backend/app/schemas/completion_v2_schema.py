@@ -139,6 +139,10 @@ class CompactionStateSchema(BaseModel):
     degraded: bool = False
     last_tokens_before: Optional[int] = None
     last_tokens_after: Optional[int] = None
+    # /clear boundaries, oldest first: {completion_id (hard context cutoff),
+    # anchor_completion_id (the transcript divider renders after it),
+    # cleared_at}. Nothing at or before the newest one reaches the agent.
+    clear_boundaries: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class CompletionContextEstimateSchema(BaseModel):

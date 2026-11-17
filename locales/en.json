@@ -907,6 +907,15 @@
         "degraded": "fallback summary (no model summary)",
         "cancel": "Cancel",
         "dismiss": "Dismiss"
+      },
+      "clear": {
+        "description": "Start a fresh context — earlier turns stay visible, the agent stops seeing them",
+        "usage": "/clear",
+        "pending": "Will clear the context when the agent finishes this run",
+        "running": "Clearing context…",
+        "done": "Context cleared · the agent starts fresh from your next message",
+        "nothing": "Nothing to clear yet",
+        "failed": "Couldn't clear the context"
       }
     }
   },
@@ -1430,7 +1439,9 @@
     "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
     "compactingContext": "Compacting context…",
     "compactionTurns": "{turns} turns",
-    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Context cleared",
+    "contextClearedDividerHint": "The agent does not see anything above this line"
   },
   "tools": {
     "common": {
