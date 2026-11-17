@@ -85,7 +85,8 @@ cd frontend && yarn dev
 # org, users, model
 cd backend && uv run python ../tools/agent/seed_org.py --invite member@example.com \
     --db-path db/exchange_onprem_sandbox.db
-ANTHROPIC_API_KEY=... HAIKU_MODEL_ID=claude-haiku-5-5 uv run python ../tools/agent/setup_haiku_llm.py
+# then configure an LLM provider and a default model (Settings → Models, or one
+# of the tools/agent/setup_*_llm.py scripts with the key in the environment)
 ```
 
 `/tmp/ca-bundle.pem` is the endpoint's certificate followed by the environment's
@@ -97,7 +98,7 @@ endpoint's request log were recorded.
 |---|---|---|
 | Agents → Add connection → search "exchange" → fill the form → Connect | UI, `POST /api/data_sources/test_connection`, `POST /api/connections` | 200 / 200; endpoint log shows `svc-mail` signing in |
 | Same form in Hebrew | UI | Right-to-left, connector strings translated |
-| Admin asks the team-inbox agent which support mail is unread and most urgent | UI, `tool_executions`, endpoint log, LLM calls | `list_emails` succeeded; 4 unread found across Inbox and Inbox/Escalations; only `svc-mail` reached the endpoint; model `claude-haiku-5-5` |
+| Admin asks the team-inbox agent which support mail is unread and most urgent | UI, `tool_executions`, endpoint log, LLM calls | `list_emails` succeeded; 4 unread found across Inbox and Inbox/Escalations; only `svc-mail` reached the endpoint; the LLM calls used the configured default model |
 | Admin asks for a search across mailboxes | same | One search request covered every folder; each hit named with its mailbox address and attachments |
 | Member opens the agent selector | UI | The personal-mail agent is unavailable and offers **Connect** |
 | Member clicks Connect, enters own Windows credentials, saves | UI, `POST /api/connections/{id}/my-credentials` | 200 |
