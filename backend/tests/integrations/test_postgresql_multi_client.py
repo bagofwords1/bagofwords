@@ -13,8 +13,10 @@ import pytest
 
 from app.ai.code_execution.sql_guard import dialect_for_client
 from app.ai.code_execution.table_scope import TableScopeViolation
+from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_client import PostgresqlMultiClient
 from app.data_sources.clients.postgresql_multi_engine import invalidate_engines
+from app.data_sources.clients.progress import IndexingCancelled
 from tests.integrations.postgresql_multi_fixture import (
     LOCKED_TENANT,
     READABLE_TENANTS,
@@ -86,6 +88,26 @@ def test_unreadable_tenant_reported_in_index_stats(multi_tenant_server):
     assert all(d["reason"] for d in stats["unreadable_datasets"])
     assert all(LOCKED_TENANT not in t.metadata_json["tenants"] for t in tables)
     assert client.unindexed_table_prefixes() == []
+
+
+def test_index_fails_when_no_matching_tenant_is_readable(multi_tenant_server):
+    client = _client(multi_tenant_server, databases=LOCKED_TENANT)
+
+    with pytest.raises(RuntimeError) as raised:
+        client.get_schemas()
+
+    assert str(multi_tenant_server.port) not in str(raised.value)
+
+
+@pytest.mark.parametrize("error", [TypeError, IndexingCancelled])
+def test_non_connection_error_in_a_tenant_read_fails_the_index(multi_tenant_server, monkeypatch, error):
+    def broken(self, progress_callback=None):
+        raise error("boom")
+
+    monkeypatch.setattr(PostgresqlClient, "get_tables", broken)
+
+    with pytest.raises(error):
+        _client(multi_tenant_server).get_schemas()
 
 
 def test_discovery_failure_fails_the_index(multi_tenant_server):
@@ -205,6 +227,7 @@ def test_denied_function_is_refused_without_a_table_scope(multi_tenant_server, s
 @pytest.mark.parametrize(
     "sql",
     [
+        "SELECT * FROM query_table('__t0001.public.orders')",
         "SELECT * FROM __t0001.public.orders",
         "SELECT * FROM __t0001.orders",
         "SELECT * FROM public.no_such_table",

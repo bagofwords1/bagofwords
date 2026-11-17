@@ -2,17 +2,17 @@ import logging
 
 import pandas as pd
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
-from app.ai.code_execution.table_scope import TableScopeViolation, refuse_denied_functions, table_refs
+from app.ai.code_execution.table_scope import TableScopeViolation, refuse_unchecked_reads, table_refs
 from app.ai.prompt_formatters import Table, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.database_spec import parse_database_spec, select_databases, spec_matches
-from app.data_sources.clients.discovery import require_complete_discovery
+from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, unify_catalogs
 from app.data_sources.clients.postgresql_multi_engine import PgConn, get_engine, invalidate_engines
 from app.data_sources.clients.progress import (
-    IndexingCancelled,
     discovery_items,
     discovery_progress,
     format_name_list,
@@ -107,9 +107,7 @@ class PostgresqlMultiClient(DataSourceClient):
         client = self._tenant_client(database)
         try:
             tables = require_complete_discovery(client, client.get_tables())
-        except IndexingCancelled:
-            raise
-        except Exception as exc:
+        except (IncompleteDiscoveryError, SQLAlchemyError, RuntimeError) as exc:
             reason = self._unreadable_reason(client, str(exc))
             logger.warning("Could not read tenant database %s: %s", database, reason)
             self._unreadable.append({"name": database, "reason": reason})
@@ -127,6 +125,8 @@ class PostgresqlMultiClient(DataSourceClient):
                 tables = self._read_tenant(database, matcher)
                 if tables is not None:
                     per_tenant[database] = tables
+        if tenants and not per_tenant:
+            raise RuntimeError(f"None of the {len(tenants)} matching tenant databases could be read")
 
         catalog = unify_catalogs(per_tenant)
         self._type_conflicts = catalog.excluded
@@ -176,7 +176,7 @@ class PostgresqlMultiClient(DataSourceClient):
 
     def _check_table_refs(self, sql: str) -> None:
         refs = table_refs(sql, DIALECT)
-        refuse_denied_functions(sql, DIALECT)
+        refuse_unchecked_reads(sql, DIALECT)
         known = {tuple(name.lower().split(".", 1)) for name in self._views}
         outside = [
             ".".join(r) for r in refs

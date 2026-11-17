@@ -24,6 +24,20 @@ REFUSED = [
     "SELECT * FROM system.main.duckdb_settings",
     "SELECT * FROM public.not_indexed",
     "SELECT FROM FROM (",
+    "SELECT * FROM query_table('__t0001.public.orders')",
+    "SELECT * FROM query('SELECT * FROM __t0001.public.secret')",
+    "SELECT * FROM duckdb_databases()",
+    "SELECT * FROM duckdb_secrets()",
+    "SELECT * FROM 'orders.csv'",
+]
+
+ALLOWED = [
+    "SELECT tenant_db, count(*) FROM public.orders GROUP BY tenant_db",
+    "SELECT * FROM memory.public.users",
+    "WITH o AS (SELECT * FROM public.orders) SELECT * FROM o",
+    "SELECT * FROM public.orders, range(3)",
+    "SELECT * FROM public.orders, json_each('[1]')",
+    "SELECT 1",
 ]
 
 
@@ -46,6 +60,18 @@ def _client() -> PostgresqlMultiClient:
 def test_query_outside_the_unified_views_is_refused_without_a_scope(sql):
     with pytest.raises(TableScopeViolation):
         _client().execute_query(sql)
+
+
+@pytest.mark.parametrize("sql", ALLOWED)
+def test_query_over_the_unified_views_passes_the_guard(sql, monkeypatch):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    reached = []
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: reached.append(sql) or (_ for _ in ()).throw(LookupError))
+
+    with pytest.raises(LookupError):
+        _client().execute_query(sql)
+    assert reached == [sql]
 
 
 def test_client_is_checked_as_duckdb_with_exact_memory_catalog():
