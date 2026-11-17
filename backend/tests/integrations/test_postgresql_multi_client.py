@@ -90,6 +90,14 @@ def test_unreadable_tenant_reported_in_index_stats(multi_tenant_server):
     assert client.unindexed_table_prefixes() == []
 
 
+@pytest.mark.parametrize("spec", ["nothing_like_this_*", "!tenant_a"])
+def test_index_fails_when_no_database_matches(multi_tenant_server, spec):
+    with pytest.raises(RuntimeError) as raised:
+        _client(multi_tenant_server, databases=spec).get_schemas()
+
+    assert spec in str(raised.value)
+
+
 def test_index_fails_when_no_matching_tenant_is_readable(multi_tenant_server):
     client = _client(multi_tenant_server, databases=LOCKED_TENANT)
 

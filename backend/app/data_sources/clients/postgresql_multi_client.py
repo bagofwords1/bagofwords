@@ -78,6 +78,9 @@ class PostgresqlMultiClient(DataSourceClient):
     def _in_spec(self, database: str) -> bool:
         return spec_matches(database, self._includes, self._excludes, case_sensitive=True)
 
+    def _no_match_message(self) -> str:
+        return f"No database on the server matches '{self.databases}'."
+
     def _discover(self) -> list[str]:
         with self._tenant_client(self.discovery_database).connect() as conn:
             names = [row[0] for row in conn.execute(text(_DISCOVERY_SQL)).fetchall()]
@@ -121,11 +124,13 @@ class PostgresqlMultiClient(DataSourceClient):
         per_tenant: dict[str, list[Table]] = {}
         with ephemeral():
             tenants = self._discover()
+            if not tenants:
+                raise RuntimeError(self._no_match_message())
             for database in discovery_items(tenants, "databases", label=lambda d: d):
                 tables = self._read_tenant(database, matcher)
                 if tables is not None:
                     per_tenant[database] = tables
-        if tenants and not per_tenant:
+        if not per_tenant:
             raise RuntimeError(f"None of the {len(tenants)} matching tenant databases could be read")
 
         catalog = unify_catalogs(per_tenant)
@@ -205,7 +210,7 @@ class PostgresqlMultiClient(DataSourceClient):
                 if not tenants:
                     return {
                         "success": False,
-                        "message": f"No database on the server matches '{self.databases}'.",
+                        "message": self._no_match_message(),
                     }
                 unreadable = []
                 for database in tenants:
