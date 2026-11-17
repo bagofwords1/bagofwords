@@ -1501,13 +1501,15 @@ class AgentV2:
             logger.debug("memory trace stamp failed", exc_info=True)
 
     def _current_focus_key(self) -> tuple:
-        """Stable key of (persisted focus, run working set) for change
-        detection between planner iterations — set_report_agents mutates the
-        former, search_agents grows the latter."""
+        """Stable key of (persisted focus, run working set, report attachments)
+        for change detection between planner iterations — set_report_agents
+        mutates the first, search_agents grows the second, and create_agent
+        attaches a new agent to the report without touching either."""
         try:
             focus = tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
             loaded = tuple(sorted(getattr(self, "loaded_agent_ids", ()) or ()))
-            return (focus, loaded)
+            attached = tuple(sorted(str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or []))) if self.report else ()
+            return (focus, loaded, attached)
         except Exception:
             return ()
 
@@ -1553,7 +1555,12 @@ class AgentV2:
                 if str(ds.id) in known or not DataSourceService.is_execution_live(ds):
                     continue
                 try:
-                    built = await svc.construct_clients(self.db, ds, user)
+                    # Per connection, as at run start (prepare_run_agents).
+                    connection_errors: list = []
+                    built = await svc.construct_clients(self.db, ds, user, connection_errors=connection_errors)
+                    for ce in connection_errors:
+                        logger.warning("mid-run: connection %s on %s unavailable — %s",
+                                       ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"))
                     if built:
                         self.clients.update(built)
                         self.data_sources.append(ds)
@@ -6065,6 +6072,10 @@ class AgentV2:
                         _focus_key = self._current_focus_key()
                         if _focus_key != getattr(self, "_rendered_focus_key", _focus_key):
                             await self._ensure_clients_for_attached()
+                            # An agent that joined the working set brings its
+                            # MCP tools; the schema render below then lists
+                            # them under <mcp_tools> from the new catalog.
+                            await self._refresh_native_mcp_tools()
                             schemas_excerpt, agents_roster = await self._render_schemas_with_roster(schemas_ctx)
                             # Re-scope the standing <instructions> block too: it was
                             # built at run start for the initial agents, so a mid-run
@@ -9667,11 +9678,20 @@ class AgentV2:
         """
         from app.ai.tools.mcp_tool_registry import build_mcp_tool_catalog
 
+        # A rebuild (_refresh_native_mcp_tools) drops the previous build's
+        # native tools first, and reuses the gateway descriptors the first
+        # build took out of the catalog.
+        previous = set(getattr(self, "_native_mcp_names", None) or ())
         self._native_mcp_routing = {}
         self._native_mcp_names = set()
         self._deferred_mcp_tools = []
-        catalog_tools = list(self.planner.tool_catalog or [])
+        catalog_tools = [t for t in (self.planner.tool_catalog or []) if t.name not in previous]
         gateway = {t.name: t for t in catalog_tools if t.name in self._MCP_GATEWAY_TOOLS}
+        if getattr(self, "_mcp_gateway_tools", None) is None:
+            self._mcp_gateway_tools = dict(gateway)
+        else:
+            gateway = {**self._mcp_gateway_tools, **gateway}
+        self._mcp_agent_key = tuple(sorted(self._run_agent_ids()))
         self.planner.tool_catalog = [t for t in catalog_tools if t.name not in self._MCP_GATEWAY_TOOLS]
         try:
             mcp_on = getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", True)
@@ -9718,6 +9738,27 @@ class AgentV2:
         if catalog.native or catalog.deferred:
             logger.info("[agent] MCP tools: %d native, %d behind search_tools",
                         len(catalog.native), len(catalog.deferred))
+
+    async def _refresh_native_mcp_tools(self) -> None:
+        """Rebuild the MCP tools when the run's agents changed mid-run.
+
+        An agent attached to the report during the run (create_agent) joins
+        ``self.data_sources`` through ``_ensure_clients_for_attached``;
+        without a rebuild its MCP tools were never offered, though its schema
+        was. Only rebuilds when the working
+        set differs from the one the catalog was built for, so the tool list
+        (the first prompt-cache breakpoint) stays stable otherwise.
+        """
+        if getattr(self, "_mcp_agent_key", None) is None:
+            return  # never registered (no report / not reached yet)
+        if tuple(sorted(self._run_agent_ids())) == self._mcp_agent_key:
+            return
+        before = len(self._native_mcp_names or ()), len(self._deferred_mcp_tools or ())
+        await self._register_native_mcp_tools()
+        self._mlog(
+            f"mcp tools rebuilt for mid-run agents: native {before[0]}->{len(self._native_mcp_names)}, "
+            f"deferred {before[1]}->{len(self._deferred_mcp_tools)}"
+        )
 
     def _set_mcp_context(self, available, *, gateway: bool = False) -> None:
         """Point <mcp_tools> at what was registered; re-render on the next
@@ -9817,8 +9858,16 @@ class AgentV2:
         if allowed is not None:
             # Never advertise a browser tool the sub-agent dispatch check would refuse.
             candidates = [t for t in candidates if t.name in allowed]
-        self.planner.tool_catalog = await refresh_browser_tool_catalog(
-            self.planner.tool_catalog, candidates, ctx)
+        refreshed = await refresh_browser_tool_catalog(self.planner.tool_catalog, candidates, ctx)
+        # This runs as a background task alongside the loop head, and the
+        # policy check above awaits I/O. Apply only the browser decision to the
+        # catalog as it is NOW: assigning the list derived from the snapshot
+        # taken before the await overwrote changes made meanwhile (the MCP
+        # tools rebuilt for an agent attached mid-run).
+        browser = [t for t in refreshed if t.name.startswith("browser_")]
+        self.planner.tool_catalog = [
+            t for t in (self.planner.tool_catalog or []) if not t.name.startswith("browser_")
+        ] + browser
 
     # How many callable MCP names an unknown-tool refusal lists.
     _UNKNOWN_TOOL_SUGGESTIONS = 25

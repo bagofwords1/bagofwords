@@ -931,7 +931,7 @@ def test_query_preview_enforces_connection_query_quota(monkeypatch, create_user,
     query_id = _run(_create_query_context(org_id, user_id))
     client = _FakeQueryClient(conn_id)
 
-    async def fake_construct_clients(self, db, data_source, current_user=None):
+    async def fake_construct_clients(self, db, data_source, current_user=None, **kwargs):
         return {"main": client}
 
     monkeypatch.setattr(
