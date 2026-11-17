@@ -1437,6 +1437,7 @@ class DataSourceService:
             user_status=connections_list[0].user_status if connections_list else None,
             primary_instruction_id=data_source.primary_instruction_id,
             primary_instruction=primary_instruction_data,
+            max_permission_mode=data_source.max_permission_mode,
         )
 
         return schema

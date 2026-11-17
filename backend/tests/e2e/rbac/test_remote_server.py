@@ -377,24 +377,11 @@ def test_shell_approval_persists_scoped_rules_without_sharing_between_users(
     assert test_client.get(f"{tools_url}/{shell['id']}/my_shell_rules", headers=member_headers).json() == []
 
 
-@pytest.mark.parametrize("shell_policy,mode,unattended,command,runs,prompts", [
-    # Strict = a person approves every command: no mode, read-only rule or
-    # unattended setting skips that.
-    ("strict", "allow_all", "refuse", "printf test", False, True),
-    ("strict", "auto", "refuse", "ls", False, True),
-    ("strict", "ask", "allow", "ls", False, False),          # machine run → refused
-    # Normal shell policy: the mode applies.
-    ("policy", "allow_all", "refuse", "printf test", True, False),
-    ("policy", "auto", "refuse", "ls -la /tmp", True, False),  # read-only rule
-    ("policy", "ask", "allow", "printf test", True, False),    # machine run + allow
-    # The built-in blocklist beats even a shell set to allow everything.
-    ("allow", "allow_all", "allow", "rm -rf /", False, False),
-])
-def test_permission_mode_on_remote_shell(
-    shell_policy, mode, unattended, command, runs, prompts, ssh_driver,
-    create_user, login_user, whoami, create_connection, create_domain_from_connection,
-    create_report, test_client, monkeypatch,
-):
+@pytest.fixture
+def shell_box(ssh_driver, create_user, login_user, whoami, create_connection, create_domain_from_connection,
+              create_report, test_client, monkeypatch):
+    """A remote shell connection and a report on it; ``setup(...)`` makes them,
+    ``run(...)`` sends one call through the real execute_mcp tool."""
     import asyncio
 
     from sqlalchemy import select
@@ -407,42 +394,120 @@ def test_permission_mode_on_remote_shell(
     from app.services.organization_settings_service import OrganizationSettingsService
 
     monkeypatch.setattr(ExecuteMCPTool, "_ASK_TIMEOUT_S", 0.0)  # nobody clicks
-    user = create_user()
-    token = login_user(user["email"], user["password"])
-    info = whoami(token)
-    org_id = info["organizations"][0]["id"]
-    headers = {"Authorization": "Bearer " + token, "X-Organization-Id": org_id}
-    conn = create_connection(
-        name="Ops box", type="remote_ssh",
-        config={"host": "127.0.0.1", "host_public_key": "ssh-ed25519 YWJj", "auth_type": "password",
-                "allowed_paths": ["/logs"], "enable_shell": True, "shell_policy": shell_policy},
-        credentials={"username": "operator", "password": "fixture-secret"},
-        user_token=token, org_id=org_id,
-    )
-    agent = create_domain_from_connection(name="Ops", connection_id=conn["id"], user_token=token, org_id=org_id)
-    r = test_client.put("/api/organization/settings", headers=headers, json={"config": {
-        "tool_permission_mode": {"value": {"allow_all_enabled": True, "unattended": unattended}}}})
+    box = type("Box", (), {})()
+
+    def setup(shell_policy, *, shell_rules=(), unattended="refuse"):
+        user = create_user()
+        box.token = login_user(user["email"], user["password"])
+        box.info = whoami(box.token)
+        box.org_id = box.info["organizations"][0]["id"]
+        box.headers = {"Authorization": "Bearer " + box.token, "X-Organization-Id": box.org_id}
+        box.conn = create_connection(
+            name="Ops box", type="remote_ssh",
+            config={"host": "127.0.0.1", "host_public_key": "ssh-ed25519 YWJj", "auth_type": "password",
+                    "allowed_paths": ["/logs"], "enable_shell": True, "shell_policy": shell_policy,
+                    "shell_rules": list(shell_rules)},
+            credentials={"username": "operator", "password": "fixture-secret"},
+            user_token=box.token, org_id=box.org_id,
+        )
+        box.agent = create_domain_from_connection(name="Ops", connection_id=box.conn["id"], user_token=box.token,
+                                                  org_id=box.org_id)
+        r = test_client.put("/api/organization/settings", headers=box.headers, json={"config": {
+            "tool_permission_mode": {"value": {"allow_all_enabled": True, "unattended": unattended}}}})
+        assert r.status_code == 200, r.text
+        box.report_id = create_report(title="Ops", user_token=box.token, org_id=box.org_id,
+                                      data_sources=[box.agent["id"]])["id"]
+        tools_url = f"/api/data_sources/{box.agent['id']}/tools"
+        box.shell_url = tools_url + "/" + next(
+            t["id"] for t in test_client.get(tools_url, headers=box.headers).json() if t["name"] == "execute_shell")
+
+    def run(mode, command, *, machine_run=False, tool_name="execute_shell"):
+        if ssh_driver.exists():
+            ssh_driver.unlink()
+        assert test_client.put(f"/api/reports/{box.report_id}", headers=box.headers,
+                               json={"permission_mode": mode}).status_code == 200
+
+        async def exercise():
+            async with async_session_maker() as db:
+                actor = (await db.execute(select(User).where(User.id == box.info["id"]))).scalar_one()
+                org = (await db.execute(select(Organization).where(Organization.id == box.org_id))).scalar_one()
+                report = await db.get(Report, box.report_id)
+                settings = await OrganizationSettingsService().get_settings(db, org, actor)
+                ctx = {"db": db, "user": actor, "organization": org, "report": report, "settings": settings,
+                       "run_agent_ids": [box.agent["id"]]}
+                if machine_run:
+                    ctx["is_eval_run"] = True  # a run no person started
+                return [e async for e in ExecuteMCPTool().run_stream(
+                    {"connection_id": box.conn["id"], "tool_name": tool_name,
+                     "arguments": {"command": command, "working_directory": "/tmp"}}, ctx)]
+
+        events = asyncio.run(exercise())
+        final = [e for e in events if e.type == "tool.end"][-1]
+        return type("Outcome", (), {
+            "ran": bool(final.payload["output"].get("success")),
+            "executed": ssh_driver.exists(),
+            "prompted": any(e.type == "tool.confirmation" for e in events),
+            "output": final.payload["output"],
+        })()
+
+    box.setup, box.run = setup, run
+    return box
+
+
+# An admin rule that asks before any printf.
+_ASK_PRINTF = [{"action": "ask", "pattern": "printf*", "match": "glob"}]
+
+
+@pytest.mark.parametrize("shell_policy,shell_rules,mode,unattended,command,runs,prompts", [
+    # Strict = a person approves every command: no mode, read-only rule or
+    # unattended setting skips that.
+    ("strict", [], "allow_all", "refuse", "printf test", False, True),
+    ("strict", [], "auto", "refuse", "ls", False, True),
+    ("strict", [], "ask", "allow", "ls", False, False),          # machine run → refused
+    # Normal shell policy: the mode applies.
+    ("policy", [], "allow_all", "refuse", "printf test", True, False),
+    ("policy", [], "auto", "refuse", "ls -la /tmp", True, False),  # read-only rule
+    ("policy", [], "ask", "allow", "printf test", True, False),    # machine run + allow
+    # The built-in blocklist beats even a shell set to allow everything.
+    ("allow", [], "allow_all", "allow", "rm -rf /", False, False),
+    # An admin 'ask' rule is a mandatory ask: no mode or unattended setting skips it.
+    ("policy", _ASK_PRINTF, "allow_all", "refuse", "printf test", False, True),
+    ("policy", _ASK_PRINTF, "ask", "allow", "printf test", False, False),  # machine run + allow: still refused
+    ("policy", _ASK_PRINTF, "auto", "refuse", "printf test", False, True),
+    ("policy", _ASK_PRINTF, "allow_all", "refuse", "ls -la /tmp", True, False),  # rule doesn't match
+])
+def test_permission_mode_on_remote_shell(shell_box, shell_policy, shell_rules, mode, unattended, command, runs, prompts):
+    shell_box.setup(shell_policy, shell_rules=shell_rules, unattended=unattended)
+    out = shell_box.run(mode, command, machine_run=unattended == "allow")
+    assert out.ran is runs, out.output
+    assert out.executed is runs
+    assert out.prompted is prompts
+
+
+def test_the_users_own_allow_rule_beats_an_admin_ask_rule(shell_box, test_client):
+    shell_box.setup("policy", shell_rules=_ASK_PRINTF)
+    rule = {"pattern": "printf test", "action": "allow", "match": "exact", "working_directory": None}
+    r = test_client.put(shell_box.shell_url + "/my_shell_rules", headers=shell_box.headers, json=[rule])
     assert r.status_code == 200, r.text
-    report_id = create_report(title="Ops", user_token=token, org_id=org_id, data_sources=[agent["id"]])["id"]
-    assert test_client.put(f"/api/reports/{report_id}", headers=headers,
-                           json={"permission_mode": mode}).status_code == 200
+    for mode in ("allow_all", "ask"):
+        out = shell_box.run(mode, "printf test")
+        assert out.ran and out.executed and not out.prompted, mode
 
-    async def exercise():
-        async with async_session_maker() as db:
-            actor = (await db.execute(select(User).where(User.id == info["id"]))).scalar_one()
-            org = (await db.execute(select(Organization).where(Organization.id == org_id))).scalar_one()
-            report = await db.get(Report, report_id)
-            settings = await OrganizationSettingsService().get_settings(db, org, actor)
-            ctx = {"db": db, "user": actor, "organization": org, "report": report, "settings": settings,
-                   "run_agent_ids": [agent["id"]]}
-            if unattended == "allow":
-                ctx["is_eval_run"] = True  # a run no person started
-            return [e async for e in ExecuteMCPTool().run_stream(
-                {"connection_id": conn["id"], "tool_name": "execute_shell",
-                 "arguments": {"command": command, "working_directory": "/tmp"}}, ctx)]
 
-    events = asyncio.run(exercise())
-    final = [e for e in events if e.type == "tool.end"][-1]
-    assert bool(final.payload["output"].get("success")) is runs, final.payload
-    assert ssh_driver.exists() is runs
-    assert any(e.type == "tool.confirmation" for e in events) is prompts
+def test_the_users_personal_allow_beats_an_admin_ask_rule(shell_box, test_client):
+    # Today's precedence in resolve_shell_policy, pinned: a personal 'allow' on
+    # the shell tool resolves before the mandatory ask is considered.
+    shell_box.setup("policy", shell_rules=_ASK_PRINTF, unattended="refuse")
+    r = test_client.put(shell_box.shell_url + "/my_policy", headers=shell_box.headers, json={"policy": "allow"})
+    assert r.status_code == 200, r.text
+    out = shell_box.run("ask", "printf test")
+    assert out.ran and out.executed and not out.prompted
+    out = shell_box.run("ask", "printf test", machine_run=True)
+    assert out.ran and out.executed and not out.prompted
+
+
+def test_a_remote_operation_missing_from_the_catalog_is_refused(shell_box):
+    shell_box.setup("allow")
+    out = shell_box.run("allow_all", "ls", tool_name="no_such_op")
+    assert not out.ran and not out.executed
+    assert out.output["blocked_by_policy"] == "unknown_tool"

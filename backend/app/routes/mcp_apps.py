@@ -20,6 +20,7 @@ their credentials, under their tool policies.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -232,8 +233,9 @@ async def mcp_app_rpc(
                      te, {"tool": name, "reason": "policy_deny"})
         return {"error": {"code": -32001, "message": f"Tool '{name}' is blocked by policy"}}
     # Built-in blocklist: refused even when the person confirms.
+    # CPU-bound (sqlglot): run it off the event loop.
     from app.services.tool_blocklist import block_reason
-    blocked = block_reason(tool_name=name, arguments=arguments)
+    blocked = await asyncio.to_thread(block_reason, tool_name=name, arguments=arguments)
     if blocked:
         await _audit(db, organization, user, request, "mcp_app.tool_call_blocked",
                      te, {"tool": name, "reason": "blocklist", "detail": blocked})

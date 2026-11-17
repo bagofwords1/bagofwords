@@ -17,6 +17,7 @@ The gateway is transport-agnostic: callers (internal planner, MCP server tools)
 own feature-gating, tracking, and result materialization.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -310,8 +311,10 @@ class ConnectionToolGateway:
             if not await remote_run_access(db, conn, current_user, [data_source_id]):
                 return GatewayResult(success=False, content_type="text", error="Remote connection access denied", blocked_by_policy="deny")
         # Built-in blocklist first: no policy, not even 'allow', runs these.
+        # CPU-bound (sqlglot): run it off the event loop.
         from app.services.tool_blocklist import block_reason
-        blocked = block_reason(tool_name=tool_name, arguments=arguments or {}, remote_shell=remote_shell)
+        blocked = await asyncio.to_thread(
+            block_reason, tool_name=tool_name, arguments=arguments or {}, remote_shell=remote_shell)
         if blocked:
             return GatewayResult(
                 success=False,

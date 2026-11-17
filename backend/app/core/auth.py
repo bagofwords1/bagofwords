@@ -1319,8 +1319,10 @@ async def current_user(
         api_key_service = ApiKeyService()
         user = await api_key_service.get_user_by_api_key(db, api_key)
         if user is not None:
+            from app.core.request_origin import mark_api_key_request
+            mark_api_key_request()  # runs this request starts are unattended
             return user
-    
+
     # Try API key from Authorization header (for MCP clients that use Bearer format)
     if auth_header.startswith("Bearer bow_") and not auth_header.startswith("Bearer bow_oauth_"):
         from app.services.api_key_service import ApiKeyService
@@ -1328,6 +1330,8 @@ async def current_user(
         bearer_api_key = auth_header[7:]  # Remove "Bearer " prefix
         user = await api_key_service.get_user_by_api_key(db, bearer_api_key)
         if user is not None:
+            from app.core.request_origin import mark_api_key_request
+            mark_api_key_request()  # runs this request starts are unattended
             return user
     
     # No valid authentication

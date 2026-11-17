@@ -685,6 +685,27 @@ Do not use when:
         # Emit connection name so the UI can show it during streaming
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "connection_resolved", **connection_info})
 
+        # The tool must be in this connection's catalog. A name that isn't is
+        # refused here, before context forwarding (which may resolve credentials
+        # over the network), the policy checks and the call itself.
+        tool_result = await db.execute(
+            select(ConnectionTool).where(
+                ConnectionTool.connection_id == str(connection.id),
+                ConnectionTool.name == data.tool_name,
+            )
+        )
+        tool_record = tool_result.scalar_one_or_none()
+        if tool_record is None:
+            logger.info(f"execute_mcp: refused unlisted tool {data.tool_name!r} on connection {connection.id}")
+            ev = self._policy_end_event(
+                data.tool_name,
+                f"Tool '{data.tool_name}' is not in this connection's tool list. Refresh the tool list and try again.",
+                blocked_by="unknown_tool",
+            )
+            ev.payload["output"].update(connection_info)
+            yield ev
+            return
+
         # Resolve per-user context forwarding (identity/membership → headers +
         # custom_metadata). Locked metadata fields clobber the model's values;
         # ai fields fill only where the model left a gap. Done here — before the
@@ -719,40 +740,6 @@ Do not use when:
                 data.arguments = {}
             apply_metadata_injection(data.arguments, forward_ctx)
 
-        # Check tool is enabled
-        tool_result = await db.execute(
-            select(ConnectionTool).where(
-                ConnectionTool.connection_id == str(connection.id),
-                ConnectionTool.name == data.tool_name,
-            )
-        )
-        tool_record = tool_result.scalar_one_or_none()
-        if connection.type in ("remote_ssh", "remote_smb") and tool_record is None:
-            yield self._policy_end_event(data.tool_name, "Remote operation is not in the connection's discovered tool catalog.", blocked_by="deny")
-            return
-        if tool_record is None:
-            # A name missing from the catalog skips _enforce_policy below, but
-            # the built-in blocklist still applies to it.
-            from app.services.tool_blocklist import block_reason
-            blocked = block_reason(tool_name=data.tool_name, arguments=data.arguments)
-            if blocked:
-                await log_tool_audit(
-                    runtime_ctx, action="tool.auto_policy_decision", resource_type="report",
-                    resource_id=str(report.id) if report else None,
-                    details={"tool": "execute_mcp", "tool_name": data.tool_name,
-                             "connection_id": str(connection.id), "approved": False,
-                             "reason": blocked, "decided_by": "rule:blocklist",  # = tool_permission_mode.BY_BLOCKLIST
-                             "permission_mode": None},
-                )
-                ev = self._policy_end_event(
-                    data.tool_name,
-                    f"Tool '{data.tool_name}' was refused by the built-in safety blocklist ({blocked}).",
-                    blocked_by="blocklist",
-                    guidance="This action is never run automatically. Do not retry it.",
-                )
-                ev.payload["output"].update(connection_info)
-                yield ev
-                return
         # Capture the tool's declared input schema up front so that, on any
         # downstream failure, we can hand the agent the *correct* argument shape
         # in the observation. Without this the agent only learns what was wrong
@@ -1277,8 +1264,13 @@ Do not use when:
 
         # Built-in blocklist: checked before the per-tool setting, so neither a
         # mode nor a per-tool 'allow' can run a catastrophic call.
+        # The check is CPU-bound (sqlglot), so it runs off the event loop, and the
+        # session is committed first so no transaction or SQLite writer lock is
+        # held across it (as before the judge call below).
         from app.services.tool_blocklist import block_reason
-        blocked = block_reason(tool_name=data.tool_name, arguments=data.arguments, remote_shell=remote_shell)
+        await self._release_db(db)
+        blocked = await asyncio.to_thread(
+            block_reason, tool_name=data.tool_name, arguments=data.arguments, remote_shell=remote_shell)
         if blocked:
             await log_tool_audit(
                 runtime_ctx, action="tool.auto_policy_decision", resource_type="report",
@@ -1322,15 +1314,18 @@ Do not use when:
 
         # From here the per-tool setting is 'ask' or 'auto'; the mode decides
         # what happens: run, refuse, use the yes/no judge, or ask the user.
-        shell_strict = remote_shell and effective == TOOL_POLICY_ASK and self._shell_strict(connection)
-        if mode == pm.MODE_AUTO and not shell_strict:
+        # Mandatory ask: a strict shell, or an admin 'ask' rule that matches the
+        # command. No mode or unattended setting turns it into a run.
+        shell_mandatory = remote_shell and effective == TOOL_POLICY_ASK and (
+            self._shell_strict(connection) or self._shell_admin_ask(connection, data))
+        if mode == pm.MODE_AUTO and not shell_mandatory:
             yield ToolProgressEvent(type="tool.progress", payload={
                 "stage": "auto_policy_review", "tool_name": data.tool_name,
             })
         action, decided_by, mode_reason = await self._permission_mode_action(
             db, connection, tool_record, data, runtime_ctx, report,
             mode=mode, effective=effective, resolution=resolution, remote_shell=remote_shell,
-            shell_strict=shell_strict, watched=watched, settings=pm_settings, user=user,
+            shell_mandatory=shell_mandatory, watched=watched, settings=pm_settings, user=user,
         )
         if action in ("allow", "refuse"):
             approved = action == "allow"
@@ -1656,6 +1651,20 @@ Do not use when:
         return config_dict(connection.config).get("shell_policy") == "strict"
 
     @staticmethod
+    def _shell_admin_ask(connection, data) -> bool:
+        """An admin 'ask' shell rule matches this command (shell policy
+        'policy' or unset). "Some ask rule matches" is stricter than
+        resolve_shell_policy's last match on purpose: it only matters when the
+        resolved policy is already 'ask', and then it fails closed."""
+        from app.services.remote_shell_policy import config_dict, rule_matches
+        cfg = config_dict(connection.config)
+        if cfg.get("shell_policy", "policy") != "policy":
+            return False
+        args = data.arguments or {}
+        command, cwd = args.get("command", ""), args.get("working_directory")
+        return any(r.get("action") == "ask" and rule_matches(r, command, cwd) for r in cfg.get("shell_rules") or [])
+
+    @staticmethod
     async def _agent_mode_caps(db, ds_ids) -> list:
         """Each run agent's cap on the permission mode (strictest applies)."""
         if not ds_ids:
@@ -1680,14 +1689,13 @@ Do not use when:
         if not remote_shell and resolution.admin_policy == TOOL_POLICY_ASK:
             return False
         if remote_shell:
-            from app.services.remote_shell_policy import config_dict, rule_matches
+            from app.services.remote_shell_policy import config_dict
             cfg = config_dict(connection.config)
             if cfg.get("shell_policy") == "strict":
                 return False
-            command, cwd = args.get("command", ""), args.get("working_directory")
-            if any(r.get("action") == "ask" and rule_matches(r, command, cwd) for r in cfg.get("shell_rules") or []):
+            if ExecuteMCPTool._shell_admin_ask(connection, data):
                 return False
-            return pm.is_read_only_shell_command(command, windows=cfg.get("operating_system") == "windows")
+            return pm.is_read_only_shell_command(args.get("command", ""), windows=cfg.get("operating_system") == "windows")
         meta = getattr(tool_record, "metadata_json", None)
         hints = meta.get("annotations") if isinstance(meta, dict) else None
         if isinstance(meta, dict) and not isinstance(hints, dict):
@@ -1711,7 +1719,9 @@ Do not use when:
         org_settings = runtime_ctx.get("settings")
 
         model_id = settings.judge_decision_model_id
-        if not model_id:
+        if model_id == pm.JUDGE_SMALL_MODEL:
+            model_id = None  # the small default model only: no decision model
+        elif not model_id:
             try:
                 from app.ai.model_router import routing_decision_settings
                 routing = routing_decision_settings(org_settings)
@@ -1794,7 +1804,7 @@ Do not use when:
 
     async def _permission_mode_action(
         self, db, connection, tool_record, data, runtime_ctx, report, *,
-        mode, effective, resolution, remote_shell, shell_strict, watched, settings, user,
+        mode, effective, resolution, remote_shell, shell_mandatory, watched, settings, user,
     ):
         """What to do with a call whose per-tool setting is 'ask' or 'auto'.
 
@@ -1808,8 +1818,9 @@ Do not use when:
         from app.services.tool_policy_service import TOOL_POLICY_AUTO
 
         nobody = "it needs a person's approval and nobody is watching this run"
-        if shell_strict:
-            # Mandatory approval: no mode, rule or unattended setting applies.
+        if shell_mandatory:
+            # Mandatory approval (strict shell or an admin ask rule): no mode,
+            # read-only rule or unattended setting applies.
             # Unwatched, "prompt" reaches the refusal below the mode layer.
             return "prompt", (pm.BY_POLICY if watched else pm.BY_UNATTENDED), ("" if watched else nobody)
 

@@ -7,7 +7,13 @@ A report carries a permission mode the user picks in the prompt box:
   (the org's decision model, else the small default model) decides allow /
   ask the user / refuse. No model → behaves like ``ask``, never allow.
 - ``allow_all`` — tools left on ``ask`` / ``auto`` run without asking. Needs
-  the org switch, applies only to runs a person is watching.
+  the org switch, applies only to runs a person is watching. It may be the
+  org default while the switch is on; turning the switch off resets the
+  default to ``ask``.
+
+The Auto judge is the org's decision model (``judge_decision_model_id``), or
+with Automatic (None) the router's decision model if it uses one, or the
+small default model (``JUDGE_SMALL_MODEL``, also selectable on its own).
 
 The mode is a layer applied on top of ``ToolPolicyResolution.effective``,
 after the disabled check, the built-in blocklist (``tool_blocklist``) and any
@@ -52,6 +58,10 @@ BY_ALLOW_ALL = "mode:allow_all"
 BY_UNATTENDED = "unattended_setting"
 
 SETTING_KEY = "tool_permission_mode"
+# judge_decision_model_id: a decision model's id, None (Automatic: the
+# router's decision model if it uses one, else the small default model), or
+# this value (the small default model only).
+JUDGE_SMALL_MODEL = "small"
 # Below this, Auto would allow calls the judge thinks are more likely unsafe
 # than safe — that is Allow all without its switch.
 MIN_ALLOW_THRESHOLD = 0.5
@@ -110,9 +120,9 @@ def normalize_settings(raw: Any) -> dict:
     raw = raw if isinstance(raw, dict) else {}
     allow_all_enabled = raw.get("allow_all_enabled") is True
     mode = normalize_mode(raw.get("default_mode")) or DEFAULTS["default_mode"]
-    if mode == MODE_ALLOW_ALL:
-        # Allow all is a per-report choice that resets on each new report;
-        # it is never the default.
+    if mode == MODE_ALLOW_ALL and not allow_all_enabled:
+        # Allow all can be the default only while its switch is on; turning
+        # the switch off resets the stored default to Ask.
         mode = MODE_ASK
     unattended = raw.get("unattended") if raw.get("unattended") in UNATTENDED_OPTIONS else DEFAULTS["unattended"]
     allow_t = _clamp01(raw.get("allow_threshold", DEFAULTS["allow_threshold"]), DEFAULTS["allow_threshold"])
@@ -240,8 +250,10 @@ async def validate_settings_update(db, organization, stored: Any, incoming: Any)
         raise HTTPException(status_code=400, detail="unattended must be refuse, settings or allow.")
     if "allow_all_enabled" in incoming and not isinstance(incoming["allow_all_enabled"], bool):
         raise HTTPException(status_code=400, detail="allow_all_enabled must be true or false.")
-    if normalize_mode(incoming.get("default_mode")) == MODE_ALLOW_ALL:
-        raise HTTPException(status_code=400, detail="Allow all can't be the default mode; it is picked per report.")
+    # Turning the switch off with an Allow all default stored is fine: the
+    # merged value normalizes the default back to Ask.
+    if normalize_mode(incoming.get("default_mode")) == MODE_ALLOW_ALL and merged.get("allow_all_enabled") is not True:
+        raise HTTPException(status_code=400, detail="Allow all can be the default only while it is turned on.")
     for k in ("allow_threshold", "refuse_threshold"):
         if k in incoming:
             v = incoming[k]
@@ -254,7 +266,7 @@ async def validate_settings_update(db, organization, stored: Any, incoming: Any)
     # Only a newly chosen model is checked, so a model disabled later can't
     # stop an admin from changing anything else (the judge then falls back).
     model_id = incoming.get("judge_decision_model_id")
-    if model_id:
+    if model_id and model_id != JUDGE_SMALL_MODEL:
         from app.ai.model_router import _load_decision_model
         if await _load_decision_model(db, organization, model_id) is None:
             raise HTTPException(status_code=400, detail="Choose an enabled decision model for the Auto judge.")

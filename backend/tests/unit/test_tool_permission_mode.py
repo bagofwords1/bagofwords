@@ -1,8 +1,29 @@
 """Pure rules behind the run permission mode and the built-in blocklist."""
+import time
+
 import pytest
+import sqlglot
 
 from app.services import tool_permission_mode as pm
 from app.services.tool_blocklist import block_reason, shell_block_reason, sql_block_reason
+
+# The refusal reasons, spelled out so a changed string fails here.
+DROP = "drops a database, schema or table"
+TRUNCATE = "truncates a table"
+DELETE = "deletes every row of a table (no WHERE)"
+UNREADABLE = "could not read SQL safely"
+# sqlglot's default dialect plus the four the blocklist reads with.
+FIVE_DIALECTS = ("", "tsql", "postgres", "mysql", "snowflake")
+
+
+def _every_tokenizer_raises(text):
+    for d in FIVE_DIALECTS:
+        try:
+            sqlglot.tokenize(text, read=d)
+        except Exception:
+            continue
+        return False
+    return True
 
 
 # ── blocklist ───────────────────────────────────────────────────────────────
@@ -61,11 +82,19 @@ def test_destructive_sql_is_blocked(sql):
 
 
 @pytest.mark.parametrize("text", [
-    "SELECT * FROM orders", "DELETE FROM orders WHERE id = 3", "how do I drop table x?",
+    "SELECT * FROM orders", "DELETE FROM orders WHERE id = 3",
     "Explain TRUNCATE vs DELETE", "update t set a = 1 where id = 2", "",
 ])
 def test_ordinary_text_and_sql_are_not_blocked(text):
     assert sql_block_reason(text) is None
+
+
+def test_prose_about_drop_table_is_refused_in_sql_but_not_in_search_text():
+    # Accepted false refusal (D1): a SQL argument is read as SQL, so DROP TABLE
+    # anywhere in it is refused. The same text in a search or prose key passes.
+    assert sql_block_reason("how do I drop table x?") == DROP
+    assert sql_block_reason("how do I drop table x?", sql_context="shared") is None
+    assert sql_block_reason("how do I drop table x?", sql_context="other") is None
 
 
 @pytest.mark.parametrize("key,text", [
@@ -117,6 +146,349 @@ def test_block_reason_reads_nested_arguments_and_tool_names():
     # Shell patterns only apply to the remote shell tool.
     assert block_reason(tool_name="search", arguments={"command": "rm -rf /"}) is None
     assert block_reason(tool_name="execute_shell", arguments={"command": "rm -rf /"}, remote_shell=True)
+
+
+# ── blocklist: SQL read with the parser and the token scan ─────────────────
+
+@pytest.mark.parametrize("sql", [
+    # CTE deletes.
+    "WITH d AS (DELETE FROM t RETURNING *) SELECT * FROM d", "WITH x AS (SELECT 1) DELETE FROM t",
+    # Quoting and modifiers.
+    "DELETE FROM [dbo].[t] AS x", 'DELETE FROM "s"."t"', "DELETE FROM `db`.`t`", "DELETE LOW_PRIORITY FROM t",
+    "DELETE @tv", "DELETE FROM t OUTPUT deleted.*",
+    # EXEC bodies; the last one fails to parse, so only the token check sees it.
+    "EXEC ('DROP TABLE x')", "EXECUTE('TRUNCATE TABLE t')", "EXEC sp_executesql N'DELETE FROM t'",
+    "EXEC('EXEC(''DROP TABLE x'')')", "SELECT 1 EXEC('DROP TABLE x')",
+    # Batches.
+    "SELECT 1 DELETE FROM t", "select 1\ngo\ndelete from t", "SELECT 1\nGO\nTRUNCATE TABLE t",
+    "UPDATE t SET a = 1 WHERE id = 2 TRUNCATE TABLE x",
+    # Statement starters a regex start-list missed.
+    "SET NOCOUNT ON DROP TABLE x", "IF 1=1 DROP TABLE x", "(SELECT 1) DROP TABLE x",
+    # MySQL escaped quote.
+    "SELECT 'it\\'s'; DROP TABLE x",
+    # Procedural and trigger bodies start statements after THEN, AS, BEGIN, DO.
+    "DO $$ BEGIN IF true THEN DELETE FROM t; END IF; END $$", "BEGIN IF (TRUE) THEN DELETE FROM t; END IF; END",
+    "CREATE TRIGGER tr ON orders AFTER INSERT AS DELETE FROM orders", "CREATE PROCEDURE p AS DELETE FROM t\nGO\nEXEC p",
+    "DO $$ BEGIN TRUNCATE t; END $$", "DO $body$ BEGIN TRUNCATE t; END $body$",
+    "CREATE PROCEDURE p AS BEGIN TRUNCATE TABLE t END", "IF 1=1 BEGIN TRUNCATE t END",
+    "CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO DELETE FROM t", "WHILE 1=1 BEGIN DELETE TOP (10) FROM t END",
+    # Parentheses do not hide a missing WHERE.
+    "DELETE FROM t USING (SELECT id FROM u WHERE x = 1) s",
+    # Statements after SET … ON (T-SQL needs no separator there).
+    "SET NOCOUNT ON\nDELETE FROM t", "SET XACT_ABORT ON DELETE FROM t", "SET IDENTITY_INSERT t ON DELETE FROM t",
+    # BEFORE and AFTER can be T-SQL table names.
+    "SELECT * FROM after DELETE FROM t", "SELECT * FROM before DELETE FROM t",
+    # The trigger event is exempt, the body is not.
+    "CREATE TRIGGER tr ON t FOR DELETE AS DELETE FROM u",
+    # DROP with modifiers.
+    "DROP TEMPORARY TABLE t", "DROP DYNAMIC TABLE t", "DROP ICEBERG TABLE t", "DROP EXTERNAL TABLE t",
+    "DROP TRANSIENT TABLE t", "DROP FOREIGN TABLE t",
+    # MySQL executable comments run their body.
+    "/*!50001 DROP TABLE x */", "SELECT 1 /*! TRUNCATE TABLE t */", "SELECT 1; /*!40101 DELETE FROM t */",
+    # Dollar-quoted bodies without spaces.
+    "DO $$BEGIN TRUNCATE t; END$$", "DO $tag$BEGIN TRUNCATE t; END$tag$",
+    "CREATE FUNCTION f() RETURNS void AS $$DELETE FROM t$$ LANGUAGE sql",
+    # Beside the `-` and NOT follower exemptions: a comment is never a `-` token.
+    "DELETE--x\nFROM t", "DELETE -- note\nFROM t", "SELECT 1 DELETE--x\nFROM t",
+    "CREATE TRIGGER tr ON t AFTER DELETE NOT FOR REPLICATION AS DELETE FROM u",
+])
+def test_destructive_sql_spellings_are_refused(sql):
+    assert sql_block_reason(sql), sql
+
+
+@pytest.mark.parametrize("sql", [
+    # DDL that only looks destructive.
+    "ALTER TABLE t DROP COLUMN c", "ALTER TABLE t DROP CONSTRAINT fk",
+    "CREATE TABLE c (id int REFERENCES p(id) ON DELETE CASCADE)",
+    "CREATE TABLE c (id int REFERENCES p(id) ON DELETE SET NULL)",
+    # Comments and literals.
+    "SELECT * FROM logs -- drop table x", "SELECT 1 /* DROP TABLE x */", "SELECT 'it''s drop table'",
+    "SELECT 'it\\'s a drop table'", "INSERT INTO audit VALUES ('delete from orders')",
+    # Privileges, MERGE and triggers.
+    "GRANT SELECT, DELETE ON t TO r", "REVOKE DELETE ON t FROM r",
+    "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE",
+    "CREATE TRIGGER tr AFTER DELETE ON t FOR EACH ROW EXECUTE FUNCTION f()",
+    # Scoped deletes and functions.
+    "DELETE FROM t WHERE id IN (SELECT id FROM u)", "DELETE t FROM t JOIN u ON t.a = u.a WHERE u.x = 1",
+    "SELECT TRUNCATE(price, 2) FROM t", "SELECT CASE WHEN a THEN TRUNCATE(price, 2) ELSE 0 END FROM t",
+    # Parenthesized subqueries before WHERE.
+    "DELETE FROM t USING (SELECT id FROM u) s WHERE t.id = s.id",
+    "DELETE t FROM t JOIN (SELECT a FROM u) x ON t.a = x.a WHERE x.a > 1",
+    # MERGE clauses after THEN DELETE.
+    "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED AND s.x = 1 THEN DELETE "
+    "WHEN NOT MATCHED THEN INSERT (id) VALUES (s.id)",
+    "MERGE t USING s ON t.id = s.id WHEN MATCHED THEN DELETE OUTPUT deleted.*;",
+    "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN DELETE RETURNING t.*",
+    # Identifiers.
+    "SELECT a AS truncate, b FROM t", "SELECT x.delete FROM t x", 'SELECT "delete", [truncate] FROM t',
+    # No gate word, even when malformed.
+    "SELECT 'unterminated",
+    # Literals are never keywords.
+    "SELECT * FROM t WHERE op = 'DELETE' AND ts > x", "SELECT CASE WHEN a THEN 'truncate' ELSE 'keep' END FROM t",
+    "SELECT N'DELETE FROM t' AS s",
+    # FK actions, rules and trigger events.
+    "CREATE TABLE c (id int REFERENCES p(id) ON DELETE NO ACTION)",
+    "CREATE TABLE c (id int REFERENCES p(id) ON DELETE SET DEFAULT)",
+    "CREATE TABLE c (id int REFERENCES p(id) ON DELETE RESTRICT)",
+    "CREATE RULE r AS ON DELETE TO t DO INSTEAD NOTHING", "CREATE TRIGGER tr ON t FOR DELETE AS SELECT 1",
+    "CREATE TRIGGER tr ON t AFTER DELETE AS SELECT 1",
+    "CREATE TRIGGER tr AFTER UPDATE OF c OR DELETE ON t FOR EACH ROW EXECUTE FUNCTION f()",
+    "SET NOCOUNT ON;\nDELETE FROM t WHERE id = 1",
+    # T-SQL table hints.
+    "DELETE FROM t WITH (ROWLOCK) WHERE id = 1",
+    "DELETE TOP (1000) FROM t WITH (TABLOCK) WHERE created < '2020-01-01'",
+    # The DROP look-ahead stops at ON, punctuation and other kinds.
+    "ALTER TABLE t DROP COLUMN c, DROP COLUMN d", "DROP INDEX ix ON t", "DROP MATERIALIZED VIEW v",
+    "GRANT DROP ON TABLE t TO u",
+    # A MySQL executable comment without a destructive statement.
+    "SELECT 1 /*!40101 DELETE FROM t WHERE id = 1 */",
+    # File paths and trigger options after DELETE (`-` and NOT followers).
+    "source ./delete-old-rows.sql", "\\i delete-old-rows.sql",
+    "CREATE TRIGGER tr ON t AFTER DELETE NOT FOR REPLICATION AS SELECT 1",
+    "CREATE TRIGGER tr ON t FOR DELETE NOT FOR REPLICATION AS SELECT 1",
+    # Not a NOT test: the `,` before DELETE already exempts it.
+    "CREATE TRIGGER tr ON t AFTER INSERT, DELETE NOT FOR REPLICATION AS SELECT 1",
+])
+def test_ordinary_sql_spellings_are_not_refused(sql):
+    assert sql_block_reason(sql) is None, sql
+
+
+@pytest.mark.parametrize("text", [
+    "delete account", "delete user", "truncate text", "delete branch", "DELETE FROM orders WHERE id = 1",
+    "delete from my history the old items", "truncate table names longer than 20 chars",
+    "drop the table from the deck",
+])
+def test_search_phrases_pass_on_a_search_tool(text):
+    assert block_reason(tool_name="search_docs", arguments={"query": text}) is None
+
+
+@pytest.mark.parametrize("text", [
+    "SELECT 1; DROP TABLE x",
+    "Delete from inbox",  # known limit, accepted
+    "x; DROP SCHEMA s",
+    "DELETE FROM t USING u",  # only the parse tree sees it
+])
+def test_sql_in_a_search_tool_query_is_refused(text):
+    assert block_reason(tool_name="search_docs", arguments={"query": text})
+
+
+# Parity: shared-key texts that no SQL tokenizer can read keep today's result.
+# The recorded values are the results of the module at 3875d2971 (probe r5 §1).
+# Do not edit them to make this test pass: a change here is a behaviour change.
+_PARITY_SHARED = [
+    ("DROP TABLE x; /*", DROP), ("DROP TABLE x; /*/", DROP), ("DROP TABLE x; SELECT 'a", DROP),
+    ("DROP TABLE x; /* a */ /*", DROP), ("x; SELECT '/*'; DROP TABLE x; SELECT 'a", DROP),
+    ("x /* /* */ ; DROP TABLE y; SELECT 'a", DROP), ("x; EXEC('DROP TABLE y'); SELECT 'a", DROP),
+    ("x\ngo\nDROP TABLE y; /*", DROP), ("DROP TABLE x -- note\n; /*", DROP),
+    ("DELETE FROM orders; /*", DELETE), ('DELETE FROM "Order Items"; /*', DELETE),
+    ("DELETE FROM `my-project.ds.t`; /*", DELETE), ("DELETE FROM orders o; /*", DELETE),
+    ("x; EXEC('DELETE orders'); SELECT 'a", DELETE), ("Delete from inbox; it's urgent", DELETE),
+    ('TRUNCATE TABLE "Order Items"; SELECT \'a', TRUNCATE), ("x; EXEC('TRUNCATE orders'); SELECT 'a", TRUNCATE),
+    ("x; /* DROP TABLE y", None), ("why did revenue drop? what's the cause", None),
+    ("why did revenue drop? /* what's next", None), ("delete from my history the old item's", None),
+    ("truncate table names that aren't used", None), ("don't drop the table", None),
+    ("DELETE FROM orders WHERE id = 1; /*", None),
+]
+
+
+@pytest.mark.parametrize("text,today", _PARITY_SHARED)
+def test_unreadable_shared_text_keeps_todays_result(text, today):
+    assert _every_tokenizer_raises(text)
+    assert sql_block_reason(text, sql_context="shared") == today
+    for tool in ("search_docs", "write_query", "read_query"):
+        assert block_reason(tool_name=tool, arguments={"query": text}) == today, tool
+
+
+def test_unreadable_shared_text_without_its_gate_words_passes():
+    # EXEC with no drop/truncate/delete fails the shared gate, so it never reaches
+    # the parity fallback; today passes it too.
+    text = "x; EXEC('SELECT 1'); SELECT 'a"
+    assert _every_tokenizer_raises(text)
+    assert sql_block_reason(text, sql_context="shared") is None
+
+
+@pytest.mark.parametrize("text,today", [
+    ("DROP TABLE [it's], `a\"b`", DROP), ("DROP TABLE x; /*", None), ("DROP TABLE x; SELECT 'a", None),
+])
+def test_unreadable_other_text_keeps_todays_result(text, today):
+    # Recorded from the module at 3875d2971 (probe r5 §3 and probe c).
+    assert _every_tokenizer_raises(text)
+    assert sql_block_reason(text, sql_context="other") == today
+    assert block_reason(tool_name="save_note", arguments={"title": text}) == today
+
+
+def test_a_single_drop_over_the_parse_limit_keeps_todays_result_at_other():
+    # Readable, but over 200 KB, so the parser is skipped and today's rule decides.
+    text = "DROP TABLE " + ", ".join(f"t{i}" for i in range(30_000))
+    assert len(text.encode()) == 228_899
+    assert sql_block_reason(text, sql_context="other") == DROP
+    assert block_reason(tool_name="save_note", arguments={"title": text}) == DROP
+
+
+def test_an_unreadable_other_text_over_the_scan_cap_still_gets_todays_rule():
+    # Level `other` has no scan cap: the parity fallback runs without tokenizing.
+    big = "DROP TABLE [it's], " + ", ".join(f"t{i}" for i in range(150_000))
+    assert len(big.encode()) > 1024 * 1024
+    assert sql_block_reason(big, sql_context="other") == DROP
+    assert sql_block_reason(big + "; /*", sql_context="other") is None
+
+
+def test_many_dead_comment_openers_are_checked_in_linear_time():
+    text = "DROP TABLE x; " + "/* " * 300_000
+    assert len(text) == 900_014
+    assert block_reason(tool_name="search_docs", arguments={"query": text}) == DROP
+
+
+def test_promotion_follows_todays_sql_start_rule():
+    # re.IGNORECASE reads the dotted capital I as "i", so today's rule promotes
+    # this text (and refused it); every tokenizer raises, so it is unreadable SQL.
+    assert block_reason(tool_name="search_docs", arguments={"query": "İNSERT x; TRUNCATE orders; SELECT 'a"})
+
+
+@pytest.mark.parametrize("tool", ["write_query", "read_query", "run_snowflake_query"])
+@pytest.mark.parametrize("text", [
+    "INSERT INTO a VALUES (1); TRUNCATE b", "EXEC('TRUNCATE orders')", "SELECT 1; DELETE orders",
+    "SELECT 1 DROP TABLE x", "select 1\nGO\ndrop table x",
+])
+def test_shared_key_sql_on_a_sql_tool_the_name_rule_misses_is_refused(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text})
+
+
+def test_other_context_refuses_only_a_lone_drop():
+    assert sql_block_reason("Drop table orders_tmp after migration", sql_context="other") is None
+    assert sql_block_reason("drop table x; select 1", sql_context="other") is None
+    assert sql_block_reason("DROP TABLE x", sql_context="other") == DROP
+
+
+def test_size_limits():
+    big_select = "SELECT 1;" * 23_000
+    assert len(big_select) > 200 * 1024
+    assert sql_block_reason(big_select + " DROP TABLE x") == DROP  # parser skipped, tokens decide
+    assert sql_block_reason("SELECT a FROM t;" * 14_000) is None
+    # Accepted false refusal (D8): over the 1 MB scan cap with a gate word.
+    assert sql_block_reason("SELECT 1; " * 110_000 + "delete") == UNREADABLE
+
+
+def test_execute_bodies_are_read_when_the_parser_is_skipped():
+    # Every tokenizer reads EXECUTE as a command and its rest as one raw string;
+    # over 200 KB only the token check runs, and it must still read the body.
+    big_select = "SELECT 1;" * 23_000
+    assert sql_block_reason(big_select + " EXECUTE('TRUNCATE TABLE t')") == TRUNCATE
+    assert sql_block_reason(big_select + " EXECUTE sp_executesql N'DELETE FROM t'") == DELETE
+    assert sql_block_reason(big_select + " EXECUTE('SELECT 1')") is None
+
+
+def test_unreadable_sql_with_a_gate_word_is_refused():
+    assert sql_block_reason("DELETE FROM t WHERE a = 'unterminated") == UNREADABLE
+
+
+def test_a_parser_crash_leaves_the_token_check_to_decide():
+    # Deep nesting makes the parser raise RecursionError, not a sqlglot error.
+    assert sql_block_reason("(" * 5000 + "SELECT 1" + ")" * 5000 + "; DROP TABLE x") == DROP
+    assert sql_block_reason("SELECT 1 DROP TABLE x") == DROP
+
+
+@pytest.mark.parametrize("command,today", [
+    # Parity: the unreadable shell token gets today's result (probe r5 §2).
+    ("echo \"DROP TABLE x; SELECT 'a\" | psql", DROP), ('echo "DROP TABLE x; /*" | psql', DROP),
+    ('echo "DROP TABLE x; /*/" | psql', DROP), ('echo "DELETE FROM orders; /*" | psql', DELETE),
+    ("echo 'DELETE FROM \"Order Items\"; /*' | psql", DELETE),
+    ("echo 'DELETE FROM `my-project.ds.t`; /*' | bq query --nouse_legacy_sql", DELETE),
+    ("echo \"TRUNCATE TABLE orders; SELECT 'a\" | psql", TRUNCATE),
+    ("echo 'TRUNCATE TABLE \"Order Items\"; SELECT '\"'\"'a' | psql", TRUNCATE),
+    ('echo "x; /* DROP TABLE y" | psql', None),
+])
+def test_unreadable_sql_piped_into_a_db_client_keeps_todays_result(command, today):
+    assert shell_block_reason(command) == today
+
+
+@pytest.mark.parametrize("command", [
+    'psql -c "WITH d AS (DELETE FROM t RETURNING 1) SELECT 1"',
+    'echo "SELECT 1; TRUNCATE orders" | psql',  # promoted, as today
+])
+def test_more_sql_through_a_db_client_is_refused(command):
+    assert shell_block_reason(command)
+
+
+@pytest.mark.parametrize("command", [
+    'mysql -e "SELECT 1; GRANT SELECT, DELETE ON t TO r"', "psql -d db -f delete.sql",
+    'psql -c "select 1" > truncate.log', 'echo "it\'s done" | psql -c "select 1"',
+    'psql -c "select 1" && echo "delete step done"', "psql -d db -f ./delete-old-rows.sh",
+    './delete-old-rows.sh && psql -c "select 1"', 'mysql -e "source ./delete-old-rows.sql"',
+    'psql -c "\\i delete-old-rows.sql"',
+    # Known limits, as today: a heredoc body and unquoted words are separate
+    # shell tokens, so no single token holds the statement. Named in the PR.
+    "psql <<'SQL'\nDROP TABLE x;\nSQL", "echo DROP TABLE x | psql",
+])
+def test_ordinary_db_client_commands_pass(command):
+    assert shell_block_reason(command) is None
+
+
+# Accepted false refusals: each is refused on purpose, so a later change shows
+# up as a deliberate one. "Today" is the module at 3875d2971 (probe r5 §5).
+@pytest.mark.parametrize("sql", [
+    "how do I drop table x?",  # D1, new
+    "SELECT [drop table] FROM t",  # catalog: `[` is punctuation outside T-SQL, new
+    "CREATE TRIGGER tr ON t AFTER DELETE WITH APPEND AS SELECT 1",  # catalog: WITH is no follower, new
+    "SELECT [delete] FROM t",  # catalog: only tsql reads [delete] as a name, new
+    "drop the temp table",  # catalog: modifier look-ahead, new
+    "/*! drop table */",  # catalog: the /*! copy is read in every dialect, new
+    "SELECT a AS delete FROM t",  # catalog: AS DELETE FROM is also a procedure body, new
+    "SELECT 1 # drop table x",  # catalog: # is a comment only in MySQL, as today
+    "EXEC sp_log 'drop table happened'",  # catalog: EXEC literals are rechecked, as today
+])
+def test_accepted_false_refusals_in_sql(sql):
+    assert sql_block_reason(sql)
+
+
+@pytest.mark.parametrize("text", [
+    "update on the delete account flow",  # D10, new
+    "with delete pending, then archive",  # D10, new
+    "Delete from inbox",  # catalog, as today
+])
+def test_accepted_false_refusals_on_a_search_tool(text):
+    assert block_reason(tool_name="search_docs", arguments={"query": text})
+
+
+def test_promoted_unreadable_search_text_is_refused_as_unreadable():
+    # Accepted false refusal (D10, new): promoted to SQL, and no tokenizer reads it.
+    assert block_reason(tool_name="search_docs", arguments={"query": "Select John's tickets marked delete"}) == UNREADABLE
+
+
+@pytest.mark.parametrize("command", [
+    'psql -f x.sql && echo "Begin delete of old rows"',  # D10, new
+    'psql -c "select 1" && echo "Update done - delete step next"',  # D10, new
+])
+def test_accepted_false_refusals_beside_a_db_client(command):
+    assert shell_block_reason(command)
+
+
+def test_nested_deletes_are_checked_in_linear_time():
+    # Accepted exception to tests/AGENTS.md rule 8: this reads the clock, but it
+    # asserts only a ratio of ratios taken in one process with a lenient bound.
+    # The baseline is the same five-dialect tokenizing the check itself does.
+    def text(k):
+        return "DELETE FROM t USING (" * k + "SELECT 1" + ") s WHERE 1" * k
+
+    small, large = text(7000), text(28000)
+    assert (len(small.encode()), len(large.encode())) == (224_008, 896_008)
+
+    def baseline(t):
+        start = time.perf_counter()
+        for d in FIVE_DIALECTS:
+            sqlglot.tokenize(t, read=d)
+        return time.perf_counter() - start
+
+    def check(t):
+        start = time.perf_counter()
+        assert sql_block_reason(t, sql_context="sql") is None
+        return time.perf_counter() - start
+
+    base_small = baseline(small)
+    check_small = check(small)
+    base_large = baseline(large)
+    check_large = check(large)
+    assert check_large / check_small <= 2 * (base_large / base_small)
 
 
 # ── mode resolution ─────────────────────────────────────────────────────────
@@ -176,8 +548,9 @@ def test_settings_normalize_bad_values_to_safe_defaults():
     assert s["allow_threshold"] >= pm.MIN_ALLOW_THRESHOLD
     assert s["refuse_threshold"] <= s["allow_threshold"]
     enabled = pm.normalize_settings({"default_mode": "allow_all", "allow_all_enabled": True})
-    assert enabled["default_mode"] == "ask"  # never the org default
+    assert enabled["default_mode"] == "allow_all"  # the default while the switch is on
     assert "junk" not in s
+    assert pm.normalize_settings({"judge_decision_model_id": "small"})["judge_decision_model_id"] == "small"
 
 
 @pytest.mark.parametrize("command,windows,expect", [
@@ -203,8 +576,14 @@ def test_webhook_turn_counts_as_unattended():
     from app.services.tool_policy_service import ToolPolicyService
 
     user = SimpleNamespace(id="u")
+    blank = {"webhook_id": None, "trigger_source": None, "scheduled_prompt_id": None, "started_via": None}
     for marker in ("webhook_id", "trigger_source", "scheduled_prompt_id"):
-        head = SimpleNamespace(**{"webhook_id": None, "trigger_source": None, "scheduled_prompt_id": None, marker: "x"})
+        head = SimpleNamespace(**{**blank, marker: "x"})
         assert not ToolPolicyService.is_interactive_run({"user": user, "head_completion": head})
-    head = SimpleNamespace(webhook_id=None, trigger_source=None, scheduled_prompt_id=None)
+    # A run started with an API key: nobody is in the loop to answer.
+    head = SimpleNamespace(**{**blank, "started_via": "api_key"})
+    assert not ToolPolicyService.is_interactive_run({"user": user, "head_completion": head})
+    assert ToolPolicyService.is_machine_run({"user": user, "head_completion": head})
+    head = SimpleNamespace(**blank)
     assert ToolPolicyService.is_interactive_run({"user": user, "head_completion": head})
+    assert not ToolPolicyService.is_machine_run({"user": user, "head_completion": head})

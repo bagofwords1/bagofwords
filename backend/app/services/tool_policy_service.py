@@ -202,10 +202,11 @@ class ToolPolicyService:
 
     @staticmethod
     def is_machine_run(runtime_ctx: dict) -> bool:
-        """A run no person started: scheduled, webhook, machine turn
-        (sub-agent, check-in, wait wake) or eval. Narrower than "not
-        interactive": a Slack or artifact-chat run has a person on the other
-        end even though they can't answer an approval card."""
+        """A run no person is in the loop for: scheduled, webhook, machine
+        turn (sub-agent, check-in, wait wake), eval, or started with an API
+        key (an integration; nobody is there to answer an approval). Narrower
+        than "not interactive": a Slack or artifact-chat run has a person on
+        the other end even though they can't answer an approval card."""
         if runtime_ctx.get("is_eval_run"):
             return True
         head = runtime_ctx.get("head_completion")
@@ -213,6 +214,7 @@ class ToolPolicyService:
             getattr(head, "scheduled_prompt_id", None)
             or getattr(head, "webhook_id", None)
             or getattr(head, "trigger_source", None)
+            or getattr(head, "started_via", None) == "api_key"
         ))
 
     @staticmethod
@@ -221,9 +223,12 @@ class ToolPolicyService:
 
         Interactive = a web-UI run kicked off by a real user: not an eval, not
         a Slack/Teams/email platform run, not a scheduled prompt, webhook or
-        machine turn (sub-agent, check-in, wait wake). Anything headless must
-        fail closed: a prompt there follows the org's unattended setting
-        (refuse by default). Mirrors ``AgentV2._is_watched_run``.
+        machine turn (sub-agent, check-in, wait wake), and not a run started
+        with an API key (read from the head row, so a queued API prompt
+        dispatched later stays unattended). Anything headless must fail
+        closed: a prompt there follows the org's unattended setting (refuse by
+        default). Mirrors ``AgentV2._is_watched_run``, which does not look at
+        API runs.
         """
         if runtime_ctx.get("is_eval_run"):
             return False
@@ -237,6 +242,7 @@ class ToolPolicyService:
             getattr(head, "scheduled_prompt_id", None)
             or getattr(head, "webhook_id", None)
             or getattr(head, "trigger_source", None)
+            or getattr(head, "started_via", None) == "api_key"
         ):
             return False
         return True
