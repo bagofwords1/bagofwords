@@ -193,6 +193,20 @@ async def test_agent_mail_tools_work_over_the_connection(exchange, monkeypatch):
     names = [f["name"] for f in found["output"]["files"] + rest["output"]["files"]]
     assert sorted(names) == sorted(["Quarterly revenue report", "Customer cannot log in", "Revenue forecast 2025"])
 
+    # A folder tree cut at the limit: the observation must not say "Complete".
+    for i in range(510):
+        exchange.own.add_folder(f"Folder {i:03d}")
+    full, client = client, ExchangeOnpremClient(ews_url=URL, username="CORP\\reader", password="pw")
+    cut = await run(ListEmailsTool())
+    assert "NOT COMPLETE" in cut["observation"]["summary"]
+    assert "Complete: these are all" not in cut["observation"]["summary"]
+    searched = await run(SearchEmailsTool(), query="revenue")
+    assert "NOT COMPLETE" in searched["observation"]["summary"]
+    assert "Complete: these are all" not in searched["observation"]["summary"]
+    tree = await run(ListEmailsTool(), list_folders=True)
+    assert "NOT COMPLETE" in tree["observation"]["summary"]
+    client = full
+
     missing = await run(ListEmailsTool(), folder_id="No Such Folder")
     assert missing["output"]["success"] is False and "Inbox/Projects/Apollo" in missing["output"]["error"]
 

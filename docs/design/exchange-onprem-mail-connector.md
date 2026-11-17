@@ -166,10 +166,19 @@ per request. A shared mailbox address searches that mailbox. Results gathered in
 one call are returned newest first; the cursor is the folder and offset reached.
 One call is bounded in requests and returns a cursor when it stops early.
 
+Each request restarts at the top of a folder, so the messages already returned
+at the cursor's second come back first. If a capped page holds too few new
+ones, the client reads on within that folder rather than ask again from the
+top; if it still cannot advance within its request budget it raises instead of
+returning no cursor, because no cursor reads as "complete".
+
 **Saying what was covered.** Listings and searches return a note the tool adds
 to its observation: what a whole-mailbox listing covered, which other mailboxes
 exist, and which configured mailboxes this identity could not open. Without it
-the agent reported an unreachable shared mailbox as visible.
+the agent reported an unreachable shared mailbox as visible. A result that could
+not cover its scope — a folder tree cut at the folder limit, or the Inbox-only
+fallback — is also flagged `partial`, and the tool then does not say "Complete".
+A mailbox the limit left unread is reported as unread, not as inaccessible.
 
 **Filters with search.** A keyword query and a structured restriction cannot be
 sent in the same `FindItem`. Unread and received bounds are therefore folded

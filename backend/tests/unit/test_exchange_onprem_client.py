@@ -249,6 +249,49 @@ def test_folder_level_sharing_exposes_the_inbox_subtree(exchange):
     assert subjects(c.list_messages(folder=SUPPORT)) == ["Customer cannot log in", "Outage in billing"]
 
 
+def test_a_folder_tree_past_the_limit_is_reported_as_partly_read(exchange):
+    """Folders beyond the limit were never read. A result over the folders
+    that were must not be presented as the whole mailbox."""
+    for i in range(510):
+        exchange.own.add_folder(f"Folder {i:03d}")
+    hidden = exchange.own.add("Folder 509", msg("needle beyond the limit", 1))
+    c = client(shared_mailboxes="")
+    assert len(c.list_mail_folders()) == 500
+    assert "NOT COMPLETE" in c.folders_note()
+
+    listed = c.list_messages()
+    assert hidden.id not in [i["id"] for i in listed["items"]]
+    assert listed["partial"] is True and "NOT COMPLETE" in listed["note"]
+
+    found = c.search_messages("needle")
+    assert found["items"] == [] and found["partial"] is True and "NOT COMPLETE" in found["note"]
+
+    # One named folder that was read is a complete answer about that folder.
+    assert c.list_messages(folder="Inbox")["partial"] is False
+    assert c.search_messages("needle", folder="Inbox")["partial"] is False
+    assert "500 mail folders" in c.test_connection()["message"]
+
+
+def test_a_mailbox_left_unread_by_the_limit_is_not_called_inaccessible(exchange):
+    for i in range(520):
+        exchange.own.add_folder(f"Folder {i:03d}")
+    c = client()
+    assert not any(f["mailbox"] for f in c.list_mail_folders()), "the limit was used up by the first mailbox"
+    note = c.coverage_note()
+    assert SUPPORT in note and SALES in note and "Not read at all" in note
+    assert c.unreachable_note() is None, "an unread mailbox is not an inaccessible one"
+    with pytest.raises(ValueError) as error:
+        c.list_messages(folder=SUPPORT)
+    assert "was not read" in str(error.value) and "cannot be opened" not in str(error.value)
+    assert c.search_messages("revenue")["partial"] is True
+
+
+def test_a_tree_within_the_limit_is_not_flagged(exchange):
+    c = client()
+    assert c.coverage_note() is None and c.folders_note() is None
+    assert c.list_messages()["partial"] is False and c.search_messages("revenue")["partial"] is False
+
+
 def test_large_folder_trees_are_walked_page_by_page(exchange):
     for i in range(450):
         exchange.own.add_folder(f"Team {i:03d}")
@@ -366,6 +409,47 @@ def test_whole_mailbox_listing_pages_newest_first_exactly_once(exchange, limit, 
     assert times == sorted(times, reverse=True)
 
 
+@pytest.mark.parametrize("ties", [7, 23])
+@pytest.mark.parametrize("server_page_cap", [1, 3, 1000])
+@pytest.mark.parametrize("limit", [1, 2, 5])
+def test_more_same_second_messages_than_a_server_page_are_all_returned(exchange, ties, server_page_cap, limit):
+    """A burst of mail stamped with one second, larger than the page a server
+    will return: every request restarts at the top of the folder, so the client
+    has to read past what it already returned instead of reporting the end."""
+    exchange.max_page = server_page_cap
+    for folder in exchange.own.folders.values():
+        folder.messages.clear()
+    expected = [exchange.own.add("Inbox", msg(f"burst {i}", 5.0)) for i in range(ties)]
+    expected.append(exchange.own.add("Inbox", msg("older", 9.0)))
+    exchange.own.add_folder("Other")
+    expected += [exchange.own.add("Other", msg(f"other burst {i}", 5.0)) for i in range(4)]
+    items, _ = page_all(client(shared_mailboxes="").list_messages, max_results=limit)
+    ids = [i["id"] for i in items]
+    assert sorted(ids) == sorted(m.id for m in expected) and len(ids) == len(set(ids))
+    assert items[-1]["name"] == "older"
+
+
+def test_the_end_is_never_reported_while_a_folder_has_more(exchange, monkeypatch):
+    """If one call cannot get past a run of same-second messages it says so;
+    it must not hand back "no cursor", which the agent reads as complete."""
+    from app.data_sources.clients import exchange_onprem_client as module
+    monkeypatch.setattr(module, "_MAX_REQUESTS", 2)
+    exchange.max_page = 1
+    for folder in exchange.own.folders.values():
+        folder.messages.clear()
+    for i in range(12):
+        exchange.own.add("Inbox", msg(f"burst {i}", 5.0))
+    c = client(shared_mailboxes="")
+    cursor, seen = None, []
+    with pytest.raises(ValueError) as stuck:
+        for _ in range(20):
+            result = c.list_messages(max_results=1, cursor=cursor)
+            seen += result["items"]
+            cursor = result["next_cursor"]
+            assert cursor, "reported complete with messages still unread"
+    assert "Name a folder" in str(stuck.value) and 0 < len(seen) < 12
+
+
 def test_whole_mailbox_cursor_belongs_to_its_mailbox(exchange):
     cursor = client().list_messages(max_results=1)["next_cursor"]
     assert cursor
@@ -386,6 +470,7 @@ def test_a_mailbox_with_too_many_folders_degrades_to_its_inbox_and_says_so(excha
     result = c.list_messages()
     assert subjects(result) == ["Quarterly revenue report", "Lunch on Thursday?", "Vendor contract renewal"]
     assert "only its Inbox" in result["note"]
+    assert result["partial"] is True, "an Inbox-only answer is not the whole mailbox"
     assert exchange.state["posts"] - before <= 2
 
 

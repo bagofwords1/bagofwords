@@ -90,10 +90,13 @@ There is no autodiscovery: enter the server URL.
 - Results are paged. The agent is told when a result is incomplete and how to
   continue, and what a listing did and did not cover.
 
-Limits: one connection sees up to 500 mail folders across its mailboxes. On a
-server that can only read one folder per request, a mailbox with more than 30
-non-empty incoming folders is listed Inbox-only when no folder is named; the
-agent is told so and can name other folders.
+Limits: one connection reads up to 500 mail folders across its mailboxes, in the
+order the mailboxes are listed. Past that, folders are not read: the connection
+test says so, and the agent is told that its answer is not complete and which
+mailboxes were only partly read or not read at all. Put very large mailboxes on
+their own connection. On a server that can only read one folder per request, a
+mailbox with more than 30 non-empty incoming folders is listed Inbox-only when
+no folder is named; the agent is told so and can name other folders.
 
 ## Server requirements
 

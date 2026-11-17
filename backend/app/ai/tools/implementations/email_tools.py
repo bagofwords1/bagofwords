@@ -178,6 +178,10 @@ class _MailboxTool(Tool):
                 f'cursor="{cursor}" (keep going until no cursor is returned) before '
                 "concluding anything about the whole set."
             )
+        elif result.get("partial"):
+            # The source could not cover its whole scope: an exhausted cursor is
+            # the end of what was read, not of what exists.
+            summary += ". No more messages in the part that was read."
         else:
             summary += ". Complete: these are all the matching messages."
         if result.get("note"):
@@ -253,7 +257,7 @@ class ListEmailsTool(_MailboxTool):
         if data.list_folders:
             folders = await asyncio.to_thread(client.list_mail_folders)
             # A connection spanning several mailboxes says which ones it could not open.
-            note = getattr(client, "unreachable_note", None)
+            note = getattr(client, "folders_note", None)
             return {"folders": folders, "note": await asyncio.to_thread(note) if note else None}
         return await asyncio.to_thread(
             client.list_messages,

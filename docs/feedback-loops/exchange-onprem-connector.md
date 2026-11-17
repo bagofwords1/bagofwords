@@ -20,7 +20,7 @@ Three layers, each runnable on its own.
 cd backend
 export BOW_DATABASE_URL='sqlite:///db/unit.db' TESTING=true
 uv run pytest tests/unit/test_exchange_onprem_client.py \
-              tests/unit/test_exchange_onprem_schema_context.py -q        # 121 tests
+              tests/unit/test_exchange_onprem_schema_context.py -q        # 143 tests
 uv run pytest tests/e2e/test_exchange_onprem.py -m e2e --db=sqlite -q    # 5 tests
 uv run pytest tests/unit/test_connector_egress.py -k exchange -q         # egress pinning
 ```
@@ -124,6 +124,21 @@ written. Each now has a test.
 4. **A server that reports a multi-folder refusal per folder** (rather than for
    the whole request) was not recognized, so search failed instead of falling
    back to one folder per request.
+
+Two more were found in code review, both cases of a partial result being
+reported as complete:
+
+5. **More same-second messages than a server page.** Whole-mailbox paging
+   restarts each request at the top of a folder; when a server capped the page
+   below the number of messages sharing the cursor's timestamp, no new message
+   could be reached and the listing ended early. The client now reads on within
+   that folder, and raises rather than report the end if it still cannot advance.
+6. **A folder tree past the 500-folder limit** was truncated silently, so
+   listings and searches over the retained folders claimed full coverage, and a
+   mailbox left unread by the limit was described as inaccessible. Results are
+   now flagged as partial, the tool observation no longer says "Complete", and
+   an unread mailbox is reported as unread. The Inbox-only fallback for
+   mailboxes with too many folders is flagged the same way.
 
 ## UI evidence
 

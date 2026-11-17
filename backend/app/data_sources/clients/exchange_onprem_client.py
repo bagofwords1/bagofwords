@@ -155,6 +155,9 @@ class ExchangeOnpremClient(DataSourceClient):
         self._ews = EwsTransport(self.ews_url, self._sessions, username=username, password=password)
         self._folders: Optional[List[dict]] = None
         self._unreachable: Dict[str, str] = {}
+        self._partial: set = set()          # mailbox labels whose folder tree was cut at the limit
+        self._not_covered: List[str] = []   # mailboxes never read because the limit was used up
+        self._walk_truncated = False
         self._rich_listing = True
         self._batch_search = True
 
@@ -224,14 +227,19 @@ class ExchangeOnpremClient(DataSourceClient):
         return rows
 
     def _walk(self, parent) -> List[dict]:
+        """Folders under ``parent``. Stops at the connection's folder limit and
+        records that it did, so a partial tree is never taken for the whole one."""
         out: List[dict] = []
         offset = 0
-        while len(out) < _MAX_FOLDERS:
+        while True:
             message = self._ews.call(ews.find_folders(parent, offset=offset, page_size=_FOLDER_PAGE_SIZE))[0]
             page = ews.parse_folders_page(ews.ensure_success(message))
             out.extend(page["folders"])
             offset += len(page["folders"])
             if page["last"] or not page["folders"]:
+                break
+            if len(out) >= _MAX_FOLDERS:
+                self._walk_truncated = True
                 break
         return out
 
@@ -247,18 +255,58 @@ class ExchangeOnpremClient(DataSourceClient):
         rows: List[dict] = []
         first_error: Optional[ExchangeError] = None
         self._unreachable = {}
+        self._partial, self._not_covered = set(), []
         for mailbox in self._mailboxes:
+            name = mailbox or "own mailbox"
+            room = _MAX_FOLDERS - len(rows)
+            if room <= 0:
+                # The limit was used up by earlier mailboxes. This one exists and
+                # may well be readable: it was not looked at.
+                self._not_covered.append(name)
+                continue
             try:
-                rows.extend(self._mailbox_folders(mailbox))
+                self._walk_truncated = False
+                found = self._mailbox_folders(mailbox)
             except ExchangeError as exc:
                 if exc.code not in ACCESS_CODES:
                     raise
-                self._unreachable[mailbox or "own mailbox"] = str(exc)
+                self._unreachable[name] = str(exc)
                 first_error = first_error or exc
+                continue
+            if self._walk_truncated or len(found) > room:
+                self._partial.add(self._label(mailbox))
+            rows.extend(found[:room])
         if not rows and first_error is not None:
             raise first_error
-        self._folders = rows[:_MAX_FOLDERS]
+        self._folders = rows
         return self._folders
+
+    def _is_partial(self, label: Optional[str]) -> bool:
+        """Was folder discovery cut short for this mailbox (None: for any)?"""
+        self.list_mail_folders()
+        if label is None:
+            return bool(self._partial or self._not_covered)
+        return label in self._partial
+
+    def coverage_note(self, label: Optional[str] = None) -> Optional[str]:
+        """Says when folder discovery stopped at the folder limit.
+
+        Folders past the limit are neither missing nor forbidden — they were
+        never read — so a result over a truncated tree must not be presented as
+        complete.
+        """
+        if not self._is_partial(label):
+            return None
+        parts = [f"NOT COMPLETE: this connection reads at most {_MAX_FOLDERS} mail folders."]
+        partial = sorted(name or (self._mailboxes[0] or "the default mailbox") for name in self._partial
+                         if label is None or name == label)
+        if partial:
+            parts.append("Only part of the folder tree was read for: " + ", ".join(partial) + ".")
+        if label is None and self._not_covered:
+            parts.append("Not read at all: " + ", ".join(self._not_covered) + ".")
+        parts.append("Mail in folders beyond the limit is not included, so do not conclude anything about the "
+                     "whole mailbox. Tell the user the connection needs a narrower scope (fewer mailboxes).")
+        return " ".join(parts)
 
     def unreachable_note(self) -> Optional[str]:
         """Names the configured mailboxes this identity could not open.
@@ -271,6 +319,12 @@ class ExchangeOnpremClient(DataSourceClient):
             return None
         return ("NOT reachable with this account (no permission, or no such mailbox): "
                 + ", ".join(sorted(self._unreachable)) + ". Nothing from there is included.")
+
+    def folders_note(self) -> Optional[str]:
+        """What a folder listing could not show: unreachable mailboxes and a
+        tree cut short at the folder limit."""
+        parts = [part for part in (self.unreachable_note(), self.coverage_note()) if part]
+        return " ".join(parts) or None
 
     def _mailbox_scope(self, label: str, address: str) -> dict:
         """A pseudo-folder meaning "this whole mailbox" (search only)."""
@@ -304,6 +358,12 @@ class ExchangeOnpremClient(DataSourceClient):
                 label = self._label(address)
                 if any(row["mailbox"] == label for row in folders):
                     return self._mailbox_scope(label, address)
+                if address in self._not_covered:
+                    raise ValueError(
+                        f"The mailbox {address} was not read: this connection reads at most {_MAX_FOLDERS} "
+                        "mail folders and the mailboxes listed before it used them up. It is not missing or "
+                        "forbidden. Tell the user the connection needs fewer mailboxes."
+                    )
                 raise ValueError(
                     f"The mailbox {address} cannot be opened with this account: it has no permission "
                     "on it, or the mailbox does not exist. Do not retry; tell the user."
@@ -426,7 +486,7 @@ class ExchangeOnpremClient(DataSourceClient):
                 break
         else:
             next_cursor = encode_cursor({"f": row["id"], "o": offset})
-        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": None}
+        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": None, "partial": False}
 
     def _list_mailbox(self, label: str, scope: Optional[dict], limit: int, filters: dict,
                       cursor: Optional[str]) -> Dict[str, Any]:
@@ -453,6 +513,7 @@ class ExchangeOnpremClient(DataSourceClient):
             note += " Other mailboxes on this connection (pass the address as the folder): " + ", ".join(others) + "."
         if self._unreachable:
             note += " " + self.unreachable_note()
+        narrowed = False
         per_request = _SEARCH_BATCH if self._batch_search else 1
         if len(targets) > _MAX_REQUESTS * per_request:
             # Too many folders to read together in one call: stay correct on a
@@ -460,6 +521,7 @@ class ExchangeOnpremClient(DataSourceClient):
             targets = [self._inbox(label)]
             note = ("This mailbox has too many folders to list together, so only its Inbox is covered. "
                     "Name a folder to list another one.")
+            narrowed = True
 
         state = decode_cursor(cursor)
         if state and (state.get("m") != label or not state.get("t")):
@@ -473,6 +535,10 @@ class ExchangeOnpremClient(DataSourceClient):
         # newest such point may be emitted yet, or that folder's next message
         # would be skipped.
         horizon = ""
+        # Pages read past a folder's first one, when the server returned fewer
+        # rows than asked (it caps page size) and those did not yield a full
+        # page of messages not already returned.
+        extra_pages = _MAX_REQUESTS
         position = 0
         while position < len(targets):
             size = _SEARCH_BATCH if self._batch_search else 1
@@ -482,21 +548,53 @@ class ExchangeOnpremClient(DataSourceClient):
             if len(batch) > 1 and any(p["error"] and p["error"] not in ACCESS_CODES for p in pages):
                 self._batch_search = False  # this server reads one folder per request
                 continue
-            for page in pages:
+            for target, page in zip(batch, pages):
                 if page["error"]:
                     if page["error"] in ACCESS_CODES:
                         continue  # folder vanished or is not visible to this identity
                     raise ews.error_for(page["error"])
-                rows.extend(page["items"])
-                if not page["last"] and page["items"]:
-                    horizon = max(horizon, min(r.get("received") or "" for r in page["items"]))
+                got = list(page["items"])
+                fresh = sum(1 for r in got if _short_id(r.get("id")) not in already)
+                # Every request restarts at the top of the folder, so messages
+                # already returned at the cursor's second come back first. When a
+                # capped page holds too few new ones, read on from where it ended:
+                # asking again from the top could never get past them.
+                while not page["last"] and page["items"] and fresh < limit:
+                    if extra_pages <= 0:
+                        raise ValueError(
+                            "Too many messages share one received time to page through this mailbox in "
+                            "one call. Name a folder, or narrow the received window, and try again."
+                        )
+                    extra_pages -= 1
+                    page = self._find([target["id"]], offset=len(got), page_size=limit + len(already),
+                                      received_up_to=watermark, **filters)[0]
+                    if page["error"]:
+                        if page["error"] in ACCESS_CODES:
+                            page = {"items": [], "last": True, "error": None}
+                            break
+                        raise ews.error_for(page["error"])
+                    got.extend(page["items"])
+                    fresh += sum(1 for r in page["items"] if _short_id(r.get("id")) not in already)
+                rows.extend(got)
+                if not page["last"] and got:
+                    horizon = max(horizon, min(r.get("received") or "" for r in got))
             position += len(batch)
         rows = [r for r in rows if _short_id(r.get("id")) not in already]
         rows.sort(key=lambda r: r.get("received") or "", reverse=True)
         ready = [r for r in rows if (r.get("received") or "") >= horizon]
         page_rows = ready[:limit]
+        more = len(rows) > len(page_rows) or bool(horizon)
+        if more and not (page_rows and page_rows[-1].get("received")):
+            # Never report the end while a folder still has messages to give.
+            raise ValueError(
+                "This mailbox could not be paged further from here. Name a folder, or narrow the "
+                "received window, and try again."
+            )
+        partial = narrowed or self._is_partial(label)
+        if self._is_partial(label):
+            note += " " + self.coverage_note(label)
         next_cursor = None
-        if (len(rows) > len(page_rows) or horizon) and page_rows and page_rows[-1].get("received"):
+        if more:
             last = page_rows[-1]["received"]
             same_second = {_short_id(r["id"]) for r in page_rows if r.get("received") == last}
             if last == watermark:
@@ -507,6 +605,7 @@ class ExchangeOnpremClient(DataSourceClient):
             "next_cursor": next_cursor,
             "folder": scope,
             "note": note,
+            "partial": partial,
         }
 
     def search_messages(
@@ -637,9 +736,13 @@ class ExchangeOnpremClient(DataSourceClient):
     def _search_result(self, items: List[dict], next_cursor: Optional[str], row: Optional[dict]) -> Dict[str, Any]:
         # A wide search gathers folder by folder; present what was gathered newest first.
         items.sort(key=lambda item: item.get("modified_at") or "", reverse=True)
-        # Only a search across every mailbox can be silently narrower than asked.
+        # Only a search wider than one folder can be silently narrower than asked.
         note = self.unreachable_note() if row is None else None
-        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": note}
+        label = None if row is None else (row["mailbox"] if row.get("whole_mailbox") else False)
+        partial = label is not False and self._is_partial(label)
+        if partial:
+            note = " ".join(part for part in (note, self.coverage_note(label)) if part)
+        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": note, "partial": partial}
 
     # ---------------------------------------------------------------- reads
 
@@ -693,6 +796,11 @@ class ExchangeOnpremClient(DataSourceClient):
                 " Not reachable with this account: "
                 + ", ".join(sorted(self._unreachable))
                 + " — check the address and the account's permissions."
+            )
+        if self._is_partial(None):
+            message += (
+                f" This connection reads at most {_MAX_FOLDERS} mail folders and these mailboxes have more, "
+                "so some mail will not be covered. List fewer mailboxes on one connection."
             )
         return {"success": True, "message": message}
 
