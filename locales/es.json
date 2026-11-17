@@ -1415,7 +1415,18 @@
     "compactionTurns": "{turns} turnos",
     "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens",
     "contextClearedDivider": "Contexto borrado",
-    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea"
+    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea",
+    "rewind": {
+      "action": "Rebobinar",
+      "tooltip": "Volver a este mensaje: lo elimina junto con todo lo posterior",
+      "confirmTitle": "¿Rebobinar a este mensaje?",
+      "confirmBody": "Esto elimina este mensaje del chat y del contexto del agente. | Esto elimina este mensaje y 1 mensaje posterior del chat y del contexto del agente. | Esto elimina este mensaje y {n} mensajes posteriores del chat y del contexto del agente.",
+      "confirmKeeps": "El mensaje vuelve al cuadro de texto para que puedas editarlo y reenviarlo. Los gráficos y tableros creados en esos turnos se conservan.",
+      "confirmAction": "Rebobinar",
+      "done": "Rebobinado · edita el mensaje y envíalo de nuevo",
+      "failed": "No se pudo rebobinar",
+      "busy": "El agente sigue ejecutándose en este informe. Inténtalo de nuevo cuando termine."
+    }
   },
   "tools": {
     "common": {

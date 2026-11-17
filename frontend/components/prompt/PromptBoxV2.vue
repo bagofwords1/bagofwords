@@ -2160,6 +2160,11 @@ defineExpose({
     getProject: () => currentProject.value?.id || null,
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
+    // Put text back into the composer (Rewind refills the removed prompt).
+    setText: (value: string) => {
+        text.value = value || ''
+        placeCaretAtEnd()
+    },
     submitPrompt: async (value: string) => {
         text.value = value
         await nextTick()

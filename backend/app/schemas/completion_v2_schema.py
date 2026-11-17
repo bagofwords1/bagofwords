@@ -289,6 +289,12 @@ class CompletionsV2Response(BaseModel):
     compaction: Optional[CompactionStateSchema] = None
 
 
+class RewindReportRequest(BaseModel):
+    """Body for POST /api/reports/{id}/rewind: the user prompt to rewind to.
+    It and every later completion are removed (BOW-145)."""
+    completion_id: str = Field(..., min_length=1, max_length=36)
+
+
 class CompactContextRequest(BaseModel):
     """Optional body for POST /context/compact (the composer's /compact)."""
     # Focus for the summary: "/compact focus on the churn numbers".

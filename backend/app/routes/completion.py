@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest, RewindReportRequest
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -168,6 +168,33 @@ async def clear_report_context(
 
     result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
     return result
+
+
+@router.post("/api/reports/{report_id}/rewind")
+@requires_permission('create_reports', model=Report, owner_only=True)
+async def rewind_report(
+    report_id: str,
+    body: RewindReportRequest,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Rewind: remove the chosen user prompt and every later turn from the
+    transcript and from the agent's context (soft delete), so the chat goes on
+    from just before it. Returns the prompt text so the composer can offer it
+    again. Widgets, queries and dashboards built in removed turns are kept.
+    Idle-only, like /compact and /clear: 409 while a run is active."""
+    from sqlalchemy import select
+    from app.services.report_rewind_service import report_rewind_service, RewindError
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+    try:
+        return await report_rewind_service.rewind(db, report, body.completion_id)
+    except RewindError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
 
 
 @router.post("/api/reports/{report_id}/completions")

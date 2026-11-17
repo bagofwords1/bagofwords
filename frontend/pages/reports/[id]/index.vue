@@ -310,6 +310,17 @@
 												{{ copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy') }}
 											</button>
 										</UTooltip>
+										<UTooltip v-if="canRewindTo(m)" :text="responseT('reportView.rewind.tooltip')" :popper="{ placement: 'bottom' }">
+											<button
+												type="button"
+												data-testid="rewind-message"
+												@click="openRewind(m)"
+												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
+											>
+												<Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 rtl:-scale-x-100" />
+												{{ responseT('reportView.rewind.action') }}
+											</button>
+										</UTooltip>
 										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
@@ -1149,6 +1160,24 @@
 
 	<!-- Image Preview Modal -->
 	<ImagePreviewModal ref="imagePreviewModalRef" />
+
+	<!-- Rewind confirmation: removes the prompt and every later turn -->
+	<UModal v-model="rewindOpen" :ui="{ width: 'sm:max-w-md' }">
+		<div class="p-6" data-testid="rewind-confirm">
+			<div class="flex items-center gap-2 mb-3">
+				<UIcon name="i-heroicons-arrow-uturn-left" class="w-5 h-5 text-ink-muted rtl:-scale-x-100" />
+				<h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reportView.rewind.confirmTitle') }}</h3>
+			</div>
+			<p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+				{{ $t('reportView.rewind.confirmBody', { n: rewindLaterCount }, rewindLaterCount) }}
+			</p>
+			<p class="mt-2 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">{{ $t('reportView.rewind.confirmKeeps') }}</p>
+			<div class="mt-6 flex justify-end gap-2">
+				<UButton color="gray" variant="ghost" :disabled="isRewinding" @click="rewindOpen = false">{{ $t('common.cancel') }}</UButton>
+				<UButton color="red" :loading="isRewinding" data-testid="rewind-confirm-button" @click="confirmRewind">{{ $t('reportView.rewind.confirmAction') }}</UButton>
+			</div>
+		</div>
+	</UModal>
 
 </template>
 
@@ -2055,6 +2084,76 @@ function applyClearResult(result: any) {
 	if (result.covers_until_completion_id) compactionWatermarkId.value = result.covers_until_completion_id
 	compactionInfo.value = null
 	compactionSummary.value = null
+}
+
+// ── Rewind (BOW-145) ─────────────────────────────────────────────────────
+// Go back to an earlier prompt: it and every later turn leave the chat and
+// the agent's context (server soft-delete), and its text returns to the
+// composer to edit and resend. Owner-only and idle-only, like /clear.
+const rewindTarget = ref<ChatMessage | null>(null)
+const rewindOpen = ref(false)
+const isRewinding = ref(false)
+
+function canRewindTo(m: ChatMessage): boolean {
+	if (!isReportOwner.value || isCompletionInProgress.value || hasInProgressCompletion.value) return false
+	if (m.role !== 'user' || m.status === 'queued' || m.message_type === 'steering') return false
+	if ((m as any).scheduled_prompt_id) return false
+	// Optimistic rows have a client id until the server answers.
+	return !!m.id && !String(m.id).startsWith('user-')
+}
+
+// Visible turns after the rewind point (session events render nothing).
+const rewindLaterCount = computed(() => {
+	const target = rewindTarget.value
+	if (!target) return 0
+	const idx = messages.value.findIndex(m => m.id === target.id)
+	if (idx < 0) return 0
+	return messages.value.slice(idx + 1).filter(m => m.role === 'user' || m.role === 'system').length
+})
+
+function openRewind(m: ChatMessage) {
+	rewindTarget.value = m
+	rewindOpen.value = true
+}
+
+async function confirmRewind() {
+	const target = rewindTarget.value
+	if (!target || isRewinding.value) return
+	isRewinding.value = true
+	try {
+		const { data, error } = await useMyFetch(`/reports/${report_id}/rewind`, {
+			method: 'POST',
+			body: { completion_id: target.id },
+		})
+		if (error.value) throw error.value
+		const result: any = data.value
+		// Drop the removed turns right away, then re-read the server's view.
+		const idx = messages.value.findIndex(m => m.id === target.id)
+		if (idx >= 0) messages.value = messages.value.slice(0, idx)
+		rewindOpen.value = false
+		await loadCompletions({ skipEstimate: true })
+		if (result?.compaction) {
+			clearBoundaries.value = Array.isArray(result.compaction.clear_boundaries) ? result.compaction.clear_boundaries : []
+			compactionWatermarkId.value = result.compaction.covers_until_completion_id || null
+			if (!compactionWatermarkId.value) {
+				compactionInfo.value = null
+				compactionSummary.value = null
+			}
+		}
+		promptBoxRef.value?.setText?.(result?.prompt || target.prompt?.content || '')
+		promptBoxRef.value?.refreshContextEstimate?.()
+		toast.add({ title: t('reportView.rewind.done'), color: 'green' })
+	} catch (err: any) {
+		const status = err?.statusCode || err?.status || err?.response?.status
+		toast.add({
+			title: t('reportView.rewind.failed'),
+			description: status === 409 ? t('reportView.rewind.busy') : (err?.data?.detail || undefined),
+			color: 'red',
+		})
+	} finally {
+		isRewinding.value = false
+		rewindTarget.value = null
+	}
 }
 
 function fmtTokensShort(n: number | null | undefined): string {

@@ -1441,7 +1441,18 @@
     "compactionTurns": "{turns} turns",
     "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
     "contextClearedDivider": "Context cleared",
-    "contextClearedDividerHint": "The agent does not see anything above this line"
+    "contextClearedDividerHint": "The agent does not see anything above this line",
+    "rewind": {
+      "action": "Rewind",
+      "tooltip": "Go back to this prompt: remove it and everything after it",
+      "confirmTitle": "Rewind to this prompt?",
+      "confirmBody": "This removes this prompt from the chat and from the agent's context. | This removes this prompt and 1 later message from the chat and from the agent's context. | This removes this prompt and {n} later messages from the chat and from the agent's context.",
+      "confirmKeeps": "The prompt goes back into the prompt box so you can edit and resend it. Charts and dashboards built in those turns are kept.",
+      "confirmAction": "Rewind",
+      "done": "Rewound · edit the prompt and send it again",
+      "failed": "Couldn't rewind",
+      "busy": "The agent is still running on this report. Try again when it finishes."
+    }
   },
   "tools": {
     "common": {

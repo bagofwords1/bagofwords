@@ -266,3 +266,35 @@ def after_update_completion(mapper, connection, target):
 # Register the event listeners
 event.listen(Completion, 'after_insert', after_insert_completion)
 event.listen(Completion, 'after_update', after_update_completion)
+
+
+# ── Rewound turns are invisible everywhere ──────────────────────────────────
+# Rewind (POST /api/reports/{id}/rewind, BOW-145) soft-deletes every completion
+# from the chosen prompt onwards. Completions are read from ~60 call sites —
+# the timeline, the agent's history window, compaction, instruction matching,
+# shares, check-ins, evals — and most never filtered `deleted_at`, so a
+# rewound turn would come back in the chat or, worse, in the agent's context.
+# One ORM-level criterion hides them from every SELECT (relationship loads
+# included) instead of trusting each query to remember. Nothing else
+# soft-deletes completions, so before rewind this hid nothing.
+#
+# Opt out per statement with .execution_options(include_deleted_completions=True)
+# (audits, tests that assert the rows still exist).
+INCLUDE_DELETED_COMPLETIONS = "include_deleted_completions"
+
+from sqlalchemy.orm import Session as _OrmSession, with_loader_criteria as _with_loader_criteria
+
+
+@event.listens_for(_OrmSession, "do_orm_execute")
+def _hide_soft_deleted_completions(execute_state):
+    if not execute_state.is_select or execute_state.is_column_load:
+        return
+    if execute_state.execution_options.get(INCLUDE_DELETED_COMPLETIONS, False):
+        return
+    execute_state.statement = execute_state.statement.options(
+        _with_loader_criteria(
+            Completion,
+            lambda cls: cls.deleted_at.is_(None),
+            include_aliases=True,
+        )
+    )
