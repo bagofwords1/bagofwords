@@ -7,7 +7,10 @@ It reuses the existing mail agent tools (`list_emails`, `read_email`,
 `sharepoint_onprem` connector, so it ships **no new agent tool surface and no
 new authentication code path**.
 
-Status: **design, not implemented.** Nothing in this document exists in code yet.
+Status: **phase 1 implemented, in beta.** Verified with automated tests and a
+local protocol-accurate server; not yet verified against a real Exchange Server.
+See [the feedback loop](../feedback-loops/exchange-onprem-connector.md) for what
+was run and what remains, and [the admin guide](../exchange-server.md).
 
 ## Why a new connector
 
@@ -112,7 +115,7 @@ Four read operations, all `POST` to the single endpoint:
 | `FindFolder` | Folder tree under the message root of each mailbox (deep traversal), with unread and total counts. |
 | `FindItem` | Listing (sorted by received time, newest first, with unread / received restrictions) and keyword search (query string), paged by offset. |
 | `GetItem` | One message: subject, sender, recipients, received time, body requested as **plain text**, and the web-client link. |
-| `ResolveNames` | Connection test: confirms the identity resolves to a mailbox. |
+| `GetFolder` | The well-known folders of each mailbox (Inbox, Sent, Drafts, Deleted, Junk) by role, so they are found whatever the server language. Doubles as the connection test. |
 
 Requests carry a fixed schema version suitable for Exchange 2013 and later
 (2016, 2019 and Subscription Edition are the targets). No version selector in
@@ -129,27 +132,44 @@ The client mirrors `GraphMailClient` so `email_tools.py` needs no change.
 |---|---|
 | `list_mail_folders()` | Rows of `{id, path, unread, total}` for the primary mailbox and each configured shared mailbox. Bounded (same 500-folder ceiling as the other mail clients). Cached per client instance. |
 | `resolve_mail_folder(folder)` | Accepts a folder id, a path, or a unique display name, case-insensitive. Unknown or ambiguous names raise with the paths that do exist. |
-| `list_messages(folder, unread_only, received_after, received_before, max_results, cursor)` | Returns `{items, next_cursor, folder}`, newest first, filtered server-side. |
+| `list_messages(folder, unread_only, received_after, received_before, max_results, cursor)` | Returns `{items, next_cursor, folder, note}`, newest first, filtered server-side. |
 | `search_messages(query, …same filters…)` | Keyword search, same return shape. |
 | `read_file(message_id)` | `Subject / From / To / Date / Link` header block plus the plain-text body — the same rendering as the other mail clients. |
 | `get_schemas()` | Returns `[]`. Mail is always read live; nothing is indexed or copied. |
-| `test_connection()` | Authenticates, resolves the identity's mailbox, reads one item from the Inbox, then probes each shared mailbox and reports which ones were reachable. |
+| `test_connection()` | Authenticates, opens the Inbox of each mailbox on the connection, and reports the message count of each and which mailboxes were not reachable. Fails only when no mailbox can be opened. |
 
 **Folder addressing across mailboxes.** Paths in the primary mailbox are
 unprefixed (`Inbox/Projects`). Paths in a shared mailbox are prefixed with its
 address (`support@acme.example/Inbox`). The prefix is what `list_mail_folders`
 returns, so the agent copies it back rather than constructing it.
 
-**Default scope.** With no `folder`, listing targets the primary Inbox. EWS has
-no "whole mailbox" item listing, unlike the cloud mail APIs; walking every
-folder to emulate one would be slow and would surface Sent and Deleted Items in
-a "what came in today" answer. The tool observation states the scope so the
-planner knows to name another folder.
+**Default listing scope.** With no `folder`, a listing covers the whole default
+mailbox: every folder mail arrives in, newest first, leaving out Sent, Drafts,
+Deleted and Junk. A shared mailbox address as the folder covers that mailbox the
+same way. The first implementation listed the Inbox only; a live agent run then
+missed an unread escalation that an inbox rule had filed into a subfolder, which
+is the common case on Exchange, so the default was widened.
 
-**Search scope.** With no `folder`, search fans out over the mail folders of the
-primary mailbox (excluding Deleted Items and Junk), bounded by a folder ceiling,
-and merges results newest first. The cursor encodes per-folder offsets. This is
-the most intricate part of the client — see Open questions.
+EWS has no "whole mailbox" item listing, so the client asks each incoming folder
+for its newest messages (several folders per request) and merges them. Folders
+cannot be paged together by offset; the page boundary is therefore a point in
+time. The cursor is the received time of the last message returned, plus the
+ids already returned at that exact second, and the next call asks every folder
+for what is at or before it. A folder that had more to give than it returned
+only vouches for messages down to its oldest returned one, so nothing older
+than that is emitted until the next call. This stays correct when a server caps
+its pages or reads one folder per request.
+
+**Search scope.** With no `folder`, search covers every mailbox on the
+connection (excluding Deleted and Junk), skipping empty folders, several folders
+per request. A shared mailbox address searches that mailbox. Results gathered in
+one call are returned newest first; the cursor is the folder and offset reached.
+One call is bounded in requests and returns a cursor when it stops early.
+
+**Saying what was covered.** Listings and searches return a note the tool adds
+to its observation: what a whole-mailbox listing covered, which other mailboxes
+exist, and which configured mailboxes this identity could not open. Without it
+the agent reported an unreachable shared mailbox as visible.
 
 **Filters with search.** A keyword query and a structured restriction cannot be
 sent in the same `FindItem`. Unread and received bounds are therefore folded
@@ -170,8 +190,9 @@ Registry entry `exchange_onprem` in `data_source_registry.py`: category
 
 | Field | Notes |
 |---|---|
-| `ews_url` | Required. Full endpoint URL. HTTPS only, no credentials, query or fragment in the URL. No autodiscovery in v1 — it adds DNS and redirect surface for little gain when an admin is filling in the form. |
-| `shared_mailboxes` | Optional list of mailbox addresses. Validated as addresses; capped (for example 20). |
+| `ews_url` | Required. Server URL; the standard service path is added when omitted. HTTPS only, no credentials, query or fragment in the URL. No autodiscovery in v1 — it adds DNS and redirect surface for little gain when an admin is filling in the form. |
+| `shared_mailboxes` | Optional comma-separated mailbox addresses. Validated as addresses; at most 20. |
+| `include_own_mailbox` | On by default. Off for a service account whose own mailbox is irrelevant: the first shared mailbox becomes the default. |
 | `allow_http` | Lab-only escape hatch, default off, same wording as the SharePoint connector. |
 
 **Credentials** — the same two variants as `sharepoint_onprem`:
@@ -181,8 +202,8 @@ Registry entry `exchange_onprem` in `data_source_registry.py`: category
 | Windows credentials (NTLM) | `system`, `user` | `DOMAIN\user` or `user@domain` plus password. |
 | Kerberos service account | `system` | Mounted `krb5.conf` and client keytab; optional principal. Requires the `kerberos` extra. |
 
-Reuse the SharePoint credential schemas if the field copy fits; otherwise
-subclass them so mail-specific descriptions do not leak onto the SharePoint form.
+The credential schemas mirror the SharePoint Server ones, with mail-specific
+field descriptions.
 
 ## Security
 
@@ -195,7 +216,10 @@ subclass them so mail-specific descriptions do not leak onto the SharePoint form
   encrypted, as the SharePoint connector does today. Two rules follow:
   - Stop after the first authentication failure for a credential and surface
     "sign in again". Repeated attempts with a stale password can lock the
-    account in the directory.
+    account in the directory. Implemented as a process-wide memory of rejected
+    username/password pairs (five minutes): a client is built per tool call, so
+    a per-client flag would not stop an agent that calls three tools in a row.
+    Changed credentials are a different pair and are tried at once.
   - Never log request bodies or headers.
 - **Egress.** The endpoint host is fixed at connection time and pinned; redirects
   to another host are refused.
@@ -237,24 +261,35 @@ Map EWS faults to messages a user or admin can act on, in the style of
 
 | Phase | Content |
 |---|---|
-| 1 | Shared session helper; client with primary mailbox + named shared mailboxes; registry entry, schemas, locale strings in all three catalogs; unit tests; live verification; user doc. |
+| 1 — **done** | Shared session helper; client with own mailbox + named shared mailboxes; registry entry, schemas, locale strings in every catalog; unit, e2e and egress tests; sandbox verification with a real LLM; admin guide. Verification on a real Exchange server is outstanding. |
 | 2 | Public folders (level-by-level tree, per-folder search) and online archive, each behind a config switch. Attachments, reusing the document extraction the file connectors use. |
 | 3 | Service-account impersonation with an explicit allowlist of mailboxes; OAuth sign-in for servers that offer it. Each needs its own security review. |
 
+## Planner context
+
+The tool surface is identical for a personal mailbox read with each user's own
+sign-in and a team mailbox read through one service account. The schema context
+therefore states which it is and names the mailboxes; otherwise the model calls
+a shared support mailbox "your Inbox".
+
 ## Open questions
 
-These must be answered against a real server before or during Phase 1.
+Status after Phase 1. Items marked *client-side settled* are handled in code
+and tested against the local server; all still need confirming on a real one.
 
-1. **Channel binding.** Recent Exchange builds enforce Extended Protection by
-   default, which requires the NTLM client to bind to the TLS channel and breaks
-   behind TLS-terminating load balancers. The SharePoint connector uses the same
-   NTLM path, so behavior should match — confirm on an Exchange server with the
-   setting on, and document the load-balancer requirement.
-2. **Search fan-out.** Whether one `FindItem` can page across several folders at
-   once, or whether the client must query folders one by one and merge. This
-   decides the cost and the cursor shape of mailbox-wide search.
-3. **Filter folding.** Which unread / received expressions the server's query
-   syntax accepts, and whether results differ from structured restrictions.
+1. **Channel binding** — *client-side settled.* Recent Exchange builds enforce
+   Extended Protection by default, which requires the NTLM client to bind to the
+   TLS channel and breaks behind TLS-terminating load balancers. A local server
+   that refuses unbound sign-ins accepts the connector's, and refuses the same
+   sign-in with the binding switched off. The load-balancer requirement is in the
+   admin guide. Still to confirm on an Exchange server with the setting on.
+2. **Search fan-out** — *client-side settled.* The client sends several folders
+   per request and falls back to one per request when a server refuses, whether
+   the refusal comes for the whole request or per folder. Which path a real
+   server takes decides only the number of round-trips.
+3. **Filter folding** — *avoided.* Unread and received bounds on a keyword
+   search are applied to the returned rows, so nothing depends on the server's
+   query syntax for dates or read state.
 4. **Public-folder keyword search.** Whether content search works there at all
    on-prem, or only subject/sender matching.
 5. **Schema version floor.** Whether one fixed schema version serves 2013
