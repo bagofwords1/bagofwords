@@ -95,6 +95,10 @@ def test_active_tables_run_in_every_dialect(dialect, sql):
     ("SELECT * FROM sales.orders o, LATERAL query_table('sales.payroll') p", "postgres"),
     ("SELECT * FROM sales.orders o JOIN LATERAL some_reader('sales.payroll') p ON true", "postgres"),
     ("SELECT * FROM sales.orders o LEFT JOIN LATERAL query('SELECT * FROM sales.payroll') p ON true", "duckdb"),
+    ("SELECT * FROM sales.orders t, LATERAL public.my_fn(t.x) f", "postgres"),
+    ("SELECT * FROM sales.orders t CROSS APPLY dbo.my_tvf(t.x) f", "tsql"),
+    ("SELECT * FROM sales.orders o, LATERAL main.histogram('sales.payroll', id) h", "duckdb"),
+    ("SELECT * FROM read_duckdb('other.db', table_name => 'payroll')", "duckdb"),
 ])
 def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     with pytest.raises(TableScopeViolation):
@@ -112,6 +116,11 @@ def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     ("SELECT * FROM sales.orders o, LATERAL jsonb_array_elements(o.items) i", "postgres"),
     ("SELECT * FROM sales.orders o, LATERAL (SELECT * FROM sales.customers c WHERE c.id = o.id) x", "postgres"),
     ("SELECT * FROM sales.orders o, LATERAL unnest([1]) u", "duckdb"),
+    ("SELECT * FROM sales.orders t LATERAL VIEW json_tuple(t.j, 'a') v AS a", "spark"),
+    ("SELECT * FROM sales.orders t LATERAL VIEW explode(t.arr) v AS a", "spark"),
+    ("SELECT * FROM sales.orders t LATERAL VIEW stack(2, 1, 2) v AS a", "spark"),
+    ("SELECT * FROM sales.orders t, LATERAL regexp_matches(t.s, 'a') m", "postgres"),
+    ("SELECT * FROM sales.orders t OUTER APPLY (SELECT 1 AS a) f", "tsql"),
 ])
 def test_dialect_features_over_active_tables_still_run(sql, dialect):
     check_table_scope(sql, dialect, SCOPE)

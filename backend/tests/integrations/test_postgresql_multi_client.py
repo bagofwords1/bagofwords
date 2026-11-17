@@ -241,6 +241,7 @@ def test_denied_function_is_refused_without_a_table_scope(multi_tenant_server, s
         "SELECT * FROM query_table('__t0001.public.orders')",
         "SELECT * FROM public.orders o, LATERAL query_table('__t0001.public.orders') x",
         "PRAGMA table_info('__t0001.public.orders')",
+        "SELECT x.* FROM public.orders o, LATERAL main.histogram('__t0001.public.orders', id) x",
         "SELECT * FROM __t0001.public.orders",
         "SELECT * FROM __t0001.orders",
         "SELECT * FROM public.no_such_table",

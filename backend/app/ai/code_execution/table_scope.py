@@ -129,7 +129,8 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "json_each_text", "jsonb_each", "jsonb_each_text", "json_to_recordset",
     "jsonb_to_recordset", "json_populate_recordset", "jsonb_populate_recordset",
     "json_table", "openjson", "string_split", "generate_array",
-    "generate_date_array", "generate_timestamp_array",
+    "generate_date_array", "generate_timestamp_array", "json_tuple", "stack",
+    "regexp_matches",
 })
 
 # Functions that read a table named in a string, run SQL held in a string, or
@@ -139,7 +140,7 @@ _DENIED_FUNCTION = re.compile(
     r"query_to_xml.*|table_to_xml.*|schema_to_xml.*|database_to_xml.*|cursor_to_xml.*|"
     r"dblink.*|pg_read_.*|pg_ls_.*|lo_.*|"
     r"system\$.*|external_query|"
-    r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_.*|mysql_scan|"
+    r"read_(csv|json|parquet|text|blob|ndjson|xlsx|duckdb).*|sqlite_scan|postgres_.*|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
     r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc)$",
     re.IGNORECASE,
@@ -169,31 +170,32 @@ def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> Non
             )
 
 
-def _refuse_unchecked_source(table, dialect: str) -> None:
-    """Refuse a non-identifier query source (table function, string) whose target cannot be named."""
+def _source_is_checkable(target) -> bool:
     from sqlglot import exp
 
-    target = table.this
+    if isinstance(target, (exp.Identifier, exp.Subquery, exp.Query)):
+        return True
     if type(target).__name__ == "SemanticView":
-        return  # its view name is a separate Table node, checked above
-    name = _func_name(target).lower() if isinstance(target, exp.Func) else ""
-    if isinstance(target, exp.Func) and not isinstance(target, exp.Anonymous):
-        return  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
-    if name in _SAFE_TABLE_FUNCTIONS:
-        return
-    raise TableScopeViolation(
-        f"'{table.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
-        "the table it reads cannot be checked."
-    )
+        return True  # its view name is a separate Table node, checked by name
+    while isinstance(target, exp.Dot):
+        target = target.expression
+    if isinstance(target, exp.Anonymous):
+        return _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS
+    return isinstance(target, exp.Func)  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
 
 
-def _refuse_unchecked_laterals(stmt, dialect: str) -> None:
-    """A LATERAL over a table function reads like a FROM source; LATERAL subqueries are walked as tables."""
+def _refuse_unchecked_sources(stmt, dialect: str) -> None:
+    """Every FROM, JOIN, LATERAL and APPLY source must be a named table, a subquery, or a
+    function known to read no table; anything else (a schema-qualified table macro, an
+    unknown table function, an unfamiliar node) is refused."""
     from sqlglot import exp
 
-    for lateral in stmt.find_all(exp.Lateral):
-        if isinstance(lateral.this, exp.Func):
-            _refuse_unchecked_source(lateral, dialect)
+    for node in stmt.find_all(exp.Table, exp.Lateral):
+        if not _source_is_checkable(node.this):
+            raise TableScopeViolation(
+                f"'{node.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
+                "the table it reads cannot be checked."
+            )
 
 
 def _resolves_to_cte(table) -> bool:
@@ -266,7 +268,7 @@ def check_table_scope(
             )
 
         _refuse_denied_functions(stmt)
-        _refuse_unchecked_laterals(stmt, dialect)
+        _refuse_unchecked_sources(stmt, dialect)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
@@ -278,8 +280,7 @@ def check_table_scope(
                 )
 
         for t in stmt.find_all(exp.Table):
-            target = t.this
-            if isinstance(target, exp.Identifier):
+            if isinstance(t.this, exp.Identifier):
                 ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
                 if len(ref) == 1 and _resolves_to_cte(t):
                     continue
@@ -303,8 +304,6 @@ def check_table_scope(
                     shown = _display(ref)
                     if shown not in denied:
                         denied.append(shown)
-                continue
-            _refuse_unchecked_source(t, dialect)
 
     if denied:
         raise TableScopeViolation(
@@ -365,16 +364,11 @@ def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | No
     """Raise TableScopeViolation when `sql` reads through a denied function (or one matching
     `extra_denied`, anywhere in the query) or a query source whose target cannot be named;
     unreadable SQL raises too. Applies with no scope attached."""
-    from sqlglot import exp
-
     for stmt in _parse_for_refs(sql, dialect):
         _refuse_denied_functions(stmt)
         if extra_denied is not None:
             _refuse_denied_functions(stmt, extra_denied)
-        _refuse_unchecked_laterals(stmt, dialect)
-        for t in stmt.find_all(exp.Table):
-            if not isinstance(t.this, exp.Identifier):
-                _refuse_unchecked_source(t, dialect)
+        _refuse_unchecked_sources(stmt, dialect)
 
 
 def enforce_table_scope(client, query) -> None:

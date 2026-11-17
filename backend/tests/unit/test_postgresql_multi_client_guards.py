@@ -48,6 +48,15 @@ _READERS = [
     "sql_auto_complete('SELECT')",
     "unknown_reader('__t0001.public.orders')",
 ]
+REFUSED += [
+    "SELECT * FROM public.orders o, LATERAL main.histogram('__t0001.public.orders', id) x",
+    "SELECT * FROM public.orders o, LATERAL system.main.histogram('__t0001.public.orders', id) x",
+    'SELECT * FROM public.orders o, LATERAL "main"."histogram"(\'__t0001.public.orders\', id) x',
+    "SELECT * FROM public.orders o JOIN LATERAL main.histogram_values('__t0001.public.orders', id) x ON true",
+    "WITH h AS (SELECT x.* FROM public.orders o, LATERAL main.histogram('__t0001.public.orders', id) x) "
+    "SELECT * FROM h",
+    "SELECT * FROM main.unknown_fn('__t0001.public.orders')",
+]
 REFUSED += [f"SELECT * FROM public.orders o, LATERAL {fn} x" for fn in _READERS]
 REFUSED += [f"SELECT * FROM public.orders o JOIN LATERAL {fn} x ON true" for fn in _READERS]
 REFUSED += [f"SELECT * FROM public.orders o LEFT JOIN LATERAL {fn} x ON true" for fn in _READERS]
@@ -62,6 +71,8 @@ ALLOWED = [
     "SELECT * FROM public.orders o, LATERAL unnest([1]) u",
     "SELECT * FROM public.orders o, LATERAL (SELECT * FROM public.users u WHERE u.id = o.user_id) x",
     "SELECT * FROM public.orders WHERE note GLOB 'a*'",
+    "SELECT histogram(id) FROM public.orders",
+    "SELECT * FROM public.orders o, LATERAL generate_series(1, 3) g",
 ]
 
 
