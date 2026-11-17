@@ -18,7 +18,8 @@
         <template #panel="{ close }">
             <div class="p-2 text-xs w-[260px]" data-testid="permission-mode-panel">
                 <div class="px-2 pb-1 text-gray-500 dark:text-gray-400">{{ $t('prompt.permissionMode.title') }}</div>
-                <!-- The org settings did not load: the mode in force is unknown. -->
+                <!-- The org settings did not load: the mode in force is unknown.
+                     Ask is still offered (always safe), stored for the report. -->
                 <div v-if="unknown" class="px-2 py-1.5 flex flex-col items-start gap-2">
                     <span class="text-gray-600 dark:text-gray-300 leading-snug">{{ $t('prompt.permissionMode.unknown.hint') }}</span>
                     <button
@@ -31,7 +32,7 @@
                     </button>
                 </div>
                 <button
-                    v-for="m in (unknown ? [] : options)"
+                    v-for="m in shown"
                     :key="m"
                     type="button"
                     :data-testid="`permission-mode-${m}`"
@@ -43,12 +44,12 @@
                         <span class="min-w-0">
                             <span class="block text-gray-800 dark:text-gray-100">
                                 {{ $t(`prompt.permissionMode.modes.${m}.label`) }}
-                                <span v-if="m === orgDefault" class="text-gray-400">· {{ $t('prompt.permissionMode.default') }}</span>
+                                <span v-if="!unknown && m === orgDefault" class="text-gray-400">· {{ $t('prompt.permissionMode.default') }}</span>
                             </span>
                             <span class="block text-gray-500 dark:text-gray-400 leading-snug">{{ $t(`prompt.permissionMode.modes.${m}.hint`) }}</span>
                         </span>
                     </span>
-                    <Icon v-if="m === effective" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <Icon v-if="!modeUnknown && m === effective" name="heroicons-check" class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
                 </button>
             </div>
         </template>
@@ -76,6 +77,9 @@ const { t } = useI18n()
 const popper = { strategy: 'absolute' as const, placement: 'top-start' as const, offset: [0, 8] }
 
 const options = computed<Mode[]>(() => (props.allowAllEnabled ? ['ask', 'auto', 'allow_all'] : ['ask', 'auto']))
+// While the org settings are unknown only Ask is offered: it is safe whatever
+// the default and the switch are.
+const shown = computed<Mode[]>(() => (props.unknown ? ['ask'] : options.value))
 
 // What the next run will use. Allow all without the switch acts as Ask, the
 // same rule the server applies.
@@ -85,18 +89,20 @@ const effective = computed<Mode>(() => {
 })
 
 // Never the Ask label for a mode nobody knows: the server may run Allow all.
-const chipMode = computed(() => (props.unknown ? 'unknown' : effective.value))
-const chipLabel = computed(() => (props.unknown
+// The report's own Ask is known whatever the org settings say.
+const modeUnknown = computed(() => props.unknown && props.modelValue !== 'ask')
+const chipMode = computed(() => (modeUnknown.value ? 'unknown' : effective.value))
+const chipLabel = computed(() => (modeUnknown.value
     ? t('prompt.permissionMode.unknown.label')
     : t(`prompt.permissionMode.modes.${effective.value}.label`)))
-const chipIcon = computed(() => (props.unknown
+const chipIcon = computed(() => (modeUnknown.value
     ? 'heroicons-question-mark-circle'
     : effective.value === 'allow_all' ? 'heroicons-shield-exclamation' : 'heroicons-shield-check'))
 
 const tooltip = computed(() => t('prompt.permissionMode.tooltip', { mode: chipLabel.value }))
 
 const chipClass = computed(() => {
-    if (props.unknown) {
+    if (modeUnknown.value) {
         return 'text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-300 dark:border-red-800/60 dark:hover:bg-red-900/30'
     }
     if (effective.value === 'allow_all') {
@@ -113,9 +119,10 @@ function iconClass(m: Mode) {
 }
 
 // Picking the org's default mode clears the report's own choice, so the
-// report keeps following the default if an admin changes it later.
+// report keeps following the default if an admin changes it later. While the
+// default is unknown the choice is always stored for the report.
 function pick(m: Mode) {
-    const next = m === props.orgDefault ? null : m
+    const next = !props.unknown && m === props.orgDefault ? null : m
     if (next !== props.modelValue) emit('update:modelValue', next)
 }
 </script>
