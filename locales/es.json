@@ -8124,7 +8124,12 @@
     "updateFailed": "No se pudieron actualizar los permisos",
     "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
     "added": "Miembros añadidos",
-    "addFailed": "No se pudieron añadir los miembros"
+    "addFailed": "No se pudieron añadir los miembros",
+    "inherited": "Acceso heredado",
+    "inheritedHint": "Estas personas y grupos acceden a este agente a través de una carpeta o conexión. Cambia su acceso en el origen.",
+    "viaFolder": "A través de la carpeta {name}",
+    "viaConnection": "A través de la conexión {name}",
+    "inheritedHidden": "Otras personas pueden tener acceso a través de una carpeta o conexión que no administras."
   },
   "productUpdates": {
     "checkbox": "Envíame novedades del producto",

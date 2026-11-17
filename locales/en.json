@@ -8153,7 +8153,12 @@
     "updateFailed": "Failed to update permissions",
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
-    "addFailed": "Failed to add members"
+    "addFailed": "Failed to add members",
+    "inherited": "Inherited access",
+    "inheritedHint": "These people and groups reach this agent through a folder or connection. Change their access at the source.",
+    "viaFolder": "Via folder {name}",
+    "viaConnection": "Via connection {name}",
+    "inheritedHidden": "Others may have access through a folder or connection you don't manage."
   },
   "productUpdates": {
     "checkbox": "Send me product updates",

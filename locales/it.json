@@ -7296,7 +7296,12 @@
     "updateFailed": "Impossibile aggiornare i permessi",
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
-    "addFailed": "Impossibile aggiungere i membri"
+    "addFailed": "Impossibile aggiungere i membri",
+    "inherited": "Accesso ereditato",
+    "inheritedHint": "Queste persone e gruppi raggiungono l'agente tramite una cartella o una connessione. Modifica l'accesso all'origine.",
+    "viaFolder": "Tramite la cartella {name}",
+    "viaConnection": "Tramite la connessione {name}",
+    "inheritedHidden": "Altri potrebbero avere accesso tramite una cartella o una connessione che non gestisci."
   },
   "productUpdates": {
     "checkbox": "Inviami gli aggiornamenti del prodotto",
