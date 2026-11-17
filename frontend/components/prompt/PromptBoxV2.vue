@@ -2179,6 +2179,19 @@ defineExpose({
     chooseFolder: (id: string) => dataSourceSelectorRef.value?.chooseFolder(id),
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
+    // Rerun (a control outside the box) passes the send button's gates, minus
+    // the text check: nothing uploading, a usable model, a settled agent scope.
+    // Returns null when the prompt can't be sent now, else the model to send:
+    // the earlier turn's model while this user can still pick it, otherwise
+    // the box's current choice (an explicit model id has no server fallback).
+    prepareRerun: async (modelId?: string | null): Promise<{ model_id: string | null } | null> => {
+        if (isSubmitting.value || isHydratingDataSources.value || hasFilesUploading.value
+            || !selectedModel.value || !hasDataSourceOrFile.value) return null
+        if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return null
+        if (!modelId) return { model_id: null }
+        const known = models.value.some(m => String(m.id) === String(modelId))
+        return { model_id: known ? modelId : modelIdForPayload.value }
+    },
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
     submitPrompt: async (value: string) => {

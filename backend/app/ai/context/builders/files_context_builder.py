@@ -170,14 +170,10 @@ class FilesContextBuilder:
         except Exception as e:
             logger.warning(f"[files_context] mention lookup failed: {e}")
         try:
-            from app.models.report_file_association import report_file_association
-            result = await self.db.execute(
-                select(report_file_association.c.file_id).where(
-                    report_file_association.c.report_id == str(self.report.id),
-                    report_file_association.c.completion_id == cid,
-                )
-            )
-            forced |= {str(row[0]) for row in result.fetchall()}
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(self.db, [cid])
+            forced |= {str(f.id) for f in attached.get(cid, [])}
         except Exception as e:
             logger.warning(f"[files_context] turn-attachment lookup failed: {e}")
         return forced

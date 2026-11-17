@@ -2149,22 +2149,16 @@ class AgentV2:
         """
         import base64
         import aiofiles
-        from app.models.report_file_association import report_file_association
 
         # Load images that belong to the current completion
         current_cid = str(self.head_completion.id) if self.head_completion else None
         eligible_files = []
         if current_cid and self.image_files and self.db and self.report:
             try:
-                image_file_ids = [str(f.id) for f in self.image_files]
-                result = await self.db.execute(
-                    select(report_file_association.c.file_id).where(
-                        report_file_association.c.report_id == str(self.report_id),
-                        report_file_association.c.file_id.in_(image_file_ids),
-                        report_file_association.c.completion_id == current_cid,
-                    )
-                )
-                current_ids = {row[0] for row in result.fetchall()}
+                # Upload links and Rerun links (prompt.file_ids) alike.
+                from app.services.completion_attachments import attached_files_by_completion
+                attached = await attached_files_by_completion(self.db, [current_cid], images_only=True)
+                current_ids = {str(f.id) for f in attached.get(current_cid, [])}
                 eligible_files = [f for f in self.image_files if str(f.id) in current_ids]
             except Exception as e:
                 logger.warning(f"Failed to filter images by completion, attaching none: {e}")
