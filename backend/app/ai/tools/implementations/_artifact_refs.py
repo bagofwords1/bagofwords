@@ -592,12 +592,15 @@ _CHART_FIELD_PROPS = {"TrendChart": ("x", "y", "series"), "RankChart": ("label",
 _VIZ_ASSIGN_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*vizById\(\s*['\"]([0-9a-fA-F][0-9a-fA-F-]{10,40})['\"]\s*\)")
 
 
-def _jsx_tag_body(src: str, start: int) -> str:
+def _jsx_tag_body(src: str, start: int, ends: Optional[Dict[int, Optional[int]]] = None) -> str:
     """The attribute text of the JSX tag opening at ``start`` (``<Name …>``).
 
     Walks braces and quotes so an ``onClick={p => …}`` arrow does not end the tag.
+    ``ends`` caches where elements in ``src`` end; pass one dict for every tag
+    of the same ``src``.
     """
     depth, quote, i, comments = 0, None, start + 1, {}
+    ends = {} if ends is None else ends
     while i < len(src):
         ch = src[i]
         if quote:
@@ -606,7 +609,7 @@ def _jsx_tag_body(src: str, start: int) -> str:
                 continue
             if ch == quote:
                 quote = None
-        elif (j := _skip_nested(src, i, depth, comments)) != i:
+        elif (j := _skip_nested(src, i, depth, comments, ends)) != i:
             i = j
             continue
         elif ch in "\"'`":
@@ -621,14 +624,16 @@ def _jsx_tag_body(src: str, start: int) -> str:
     return src[start:]
 
 
-def _jsx_prop(body: str, name: str):
+def _jsx_prop(body: str, name: str, ends: Optional[Dict[int, Optional[int]]] = None):
     """(kind, value) for prop ``name``: ("str", text) for name="…", ("expr", text) for name={…}.
 
     Only a top-level attribute counts: text inside another attribute's quoted
-    value or {expression} (``alt='id="x"'``) is skipped.
+    value or {expression} (``alt='id="x"'``) is skipped. ``ends`` caches where
+    elements in ``body`` end, for reading several props of one body.
     """
     attr = re.compile(r"\s" + re.escape(name) + r"\s*=\s*")
     depth, quote, i, m, comments = 0, None, 0, None, {}
+    ends = {} if ends is None else ends
     while i < len(body):
         ch = body[i]
         if quote:
@@ -637,7 +642,7 @@ def _jsx_prop(body: str, name: str):
                 continue
             if ch == quote:
                 quote = None
-        elif (j := _skip_nested(body, i, depth, comments)) != i:
+        elif (j := _skip_nested(body, i, depth, comments, ends)) != i:
             i = j
             continue
         elif ch in "\"'`":
@@ -694,8 +699,9 @@ def bow_file_literal_ids(code: str) -> set:
     """
     src = code or ""
     found: set = set()
+    ends: Dict[int, Optional[int]] = {}
     for m in _BOW_FILE_TAG_RE.finditer(src):
-        prop = _jsx_prop(_jsx_tag_body(src, m.start()), "id")
+        prop = _jsx_prop(_jsx_tag_body(src, m.start(), ends), "id")
         if not prop:
             continue
         kind, value = prop
@@ -817,14 +823,14 @@ def _comment_end(src: str, i: int, end: int) -> int:
     return i
 
 
-def _skip_nested(src: str, i: int, depth: int, comments: Dict[int, int]) -> int:
+def _skip_nested(src: str, i: int, depth: int, comments: Dict[int, int], ends: Dict[int, Optional[int]]) -> int:
     """End of what starts at ``src[i]`` and is not the tag's own syntax; ``i`` if nothing does.
 
     For the JSX tag walkers: a comment, and inside a ``{…}`` expression
     (``depth > 0``) a regex literal or a JSX element (``format={v => <b>…</b>}``).
     A quote in any of them is not a string, and a ``//`` or ``/*`` in an
     element's text is not a comment. ``comments`` collects the comments passed,
-    for the look-behind.
+    for the look-behind; ``ends`` caches where elements in ``src`` end.
     """
     end = len(src)
     j = _comment_end(src, i, end)
@@ -834,21 +840,28 @@ def _skip_nested(src: str, i: int, depth: int, comments: Dict[int, int]) -> int:
     if depth > 0 and src[i] == "/" and src[i - 1] != "<" and _expression_may_start(src, i, comments):
         return _skip_regex(src, i, end)
     if depth > 0 and _jsx_opens(src, i, end, comments):
-        close = _jsx_element_end(src, i)
+        close = _jsx_element_end(src, i, ends)
         if close is not None:
             return close
     return i
 
 
 def _jsx_opens(src: str, i: int, end: int, comments: Dict[int, int]) -> bool:
-    """Whether the ``<`` at ``src[i]`` in code opens a JSX element (or a ``<>`` fragment)."""
+    """Whether the ``<`` at ``src[i]`` in code opens a JSX element (or a ``<>`` fragment).
+
+    A ``<`` right after another is the second half of a ``<<`` shift (``1 <<n``).
+    """
     return (
         src[i] == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">")
+        and (i == 0 or src[i - 1] != "<")
         and _expression_may_start(src, i, comments)
     )
 
 
-def _jsx_scan(src: str, i: int, end: int, stack: List[str], starts: set, comments: Dict[int, int]) -> int:
+def _jsx_scan(
+    src: str, i: int, end: int, stack: List[str], starts: set, comments: Dict[int, int],
+    ends: Optional[Dict[int, Optional[int]]] = None, open_elements: Optional[List[int]] = None,
+) -> int:
     """A small JS/JSX scanner: runs from ``src[i]`` in the state on top of ``stack``
     until ``end`` or until the stack empties, and returns where it stopped.
 
@@ -856,8 +869,20 @@ def _jsx_scan(src: str, i: int, end: int, stack: List[str], starts: set, comment
     inside one is not an element; in JSX text quotes, ``//`` and ``/*`` are plain
     characters (``<p>Don't</p>``). The ``<`` of every element opened is added to
     ``starts``, the end -> start of every comment in code to ``comments``.
+
+    ``ends``, if given, gets start -> end of every element the scan closes, and
+    start -> None for the ones still open when it reaches ``end``.
+    ``open_elements`` holds the starts of the elements already on ``stack``.
     """
     # Modes: code | template | tag (inside <Name …>) | text (an element's children).
+    # Each tag/text entry on the stack is an element; its start is in `opened`.
+    opened = open_elements if open_elements is not None else []
+
+    def element_closed(at: int) -> None:
+        start = opened.pop()
+        if ends is not None:
+            ends[start] = at
+
     while i < end and stack:
         mode, ch = stack[-1], src[i]
         if mode == "code":
@@ -884,6 +909,7 @@ def _jsx_scan(src: str, i: int, end: int, stack: List[str], starts: set, comment
                 i += 1
             elif _jsx_opens(src, i, end, comments):
                 starts.add(i)
+                opened.append(i)
                 stack.append("tag")
                 i += 1
             else:
@@ -911,6 +937,7 @@ def _jsx_scan(src: str, i: int, end: int, stack: List[str], starts: set, comment
             elif src.startswith("/>", i):
                 stack.pop()
                 i += 2
+                element_closed(i)
             elif ch == ">":
                 stack[-1] = "text"
                 i += 1
@@ -921,15 +948,19 @@ def _jsx_scan(src: str, i: int, end: int, stack: List[str], starts: set, comment
                 stack.append("code")
                 i += 1
             elif src.startswith("</", i):
-                close = src.find(">", i, end)
-                i = end if close < 0 else close + 1
+                gt = src.find(">", i, end)
+                i = end if gt < 0 else gt + 1
                 stack.pop()
+                element_closed(i)
             elif ch == "<":
                 starts.add(i)
+                opened.append(i)
                 stack.append("tag")
                 i += 1
             else:
                 i += 1
+    if ends is not None and i >= end:
+        ends.update(dict.fromkeys(opened))
     return i
 
 
@@ -950,18 +981,24 @@ def _jsx_element_starts(src: str) -> set:
     return starts
 
 
-def _jsx_element_end(src: str, i: int) -> Optional[int]:
+def _jsx_element_end(src: str, i: int, ends: Dict[int, Optional[int]]) -> Optional[int]:
     """Offset just past the JSX element (or fragment) whose ``<`` is at ``src[i]``:
     after its ``/>``, or after its matching close tag, nested elements included.
-    None if it never closes."""
-    stack = ["tag"]
-    j = _jsx_scan(src, i + 1, len(src), stack, set(), {})
-    return None if stack else j
+    None if it never closes.
+
+    ``ends`` caches start -> end for ``src``, filled by every scan with all the
+    elements it passes, so an element that never closes is scanned to the end
+    of ``src`` once, not once per tag that holds one.
+    """
+    if i not in ends:
+        _jsx_scan(src, i + 1, len(src), ["tag"], set(), {}, ends, [i])
+    return ends[i]
 
 
-def _has_spread_attr(body: str) -> bool:
+def _has_spread_attr(body: str, ends: Optional[Dict[int, Optional[int]]] = None) -> bool:
     """Whether a JSX tag body has a top-level ``{...props}`` attribute."""
     depth, quote, i, comments = 0, None, 0, {}
+    ends = {} if ends is None else ends
     while i < len(body):
         ch = body[i]
         if quote:
@@ -970,7 +1007,7 @@ def _has_spread_attr(body: str) -> bool:
                 continue
             if ch == quote:
                 quote = None
-        elif (j := _skip_nested(body, i, depth, comments)) != i:
+        elif (j := _skip_nested(body, i, depth, comments, ends)) != i:
             i = j
             continue
         elif ch in "\"'`":
@@ -995,12 +1032,14 @@ def _charts_without_viz(src: str) -> List[Tuple[str, str, str]]:
     """
     elements = _jsx_element_starts(src)
     found: List[Tuple[str, str, str]] = []
+    ends: Dict[int, Optional[int]] = {}
     for m in _CHART_TAG_RE.finditer(src):
         start = m.start()
         if start not in elements:
             continue
-        body = _jsx_tag_body(src, start)
-        if _jsx_prop(body, "viz") is not None or _has_spread_attr(body):
+        body = _jsx_tag_body(src, start, ends)
+        body_ends: Dict[int, Optional[int]] = {}
+        if _jsx_prop(body, "viz", body_ends) is not None or _has_spread_attr(body, body_ends):
             continue
         tag = body + ">" if src[start + len(body):start + len(body) + 1] == ">" else body
         found.append((m.group(1), " ".join(tag.split()), body))
@@ -1059,12 +1098,14 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code
             "Only when its rows come from no visualization (a resource or constants) pass viz={null}."
         )
     elements = _jsx_element_starts(src)
+    ends: Dict[int, Optional[int]] = {}
     for m in _CHART_TAG_RE.finditer(src):
         if m.start() not in elements:
             continue
         comp = m.group(1)
-        body = _jsx_tag_body(src, m.start())
-        viz_prop = _jsx_prop(body, "viz")
+        body = _jsx_tag_body(src, m.start(), ends)
+        body_ends: Dict[int, Optional[int]] = {}
+        viz_prop = _jsx_prop(body, "viz", body_ends)
         if not viz_prop or viz_prop[0] != "expr":
             continue
         expr = viz_prop[1]
@@ -1074,7 +1115,7 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code
         viz = vizs.get(str(viz_id)) if viz_id else None
         if not viz:
             continue
-        rows_prop = _jsx_prop(body, "rows")
+        rows_prop = _jsx_prop(body, "rows", body_ends)
         if rows_prop is not None:
             v = rows_prop[1] if rows_prop[0] == "expr" else ""
             own = bool(ident) and (
@@ -1087,7 +1128,7 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code
         if not cols:
             continue
         for prop in _CHART_FIELD_PROPS[comp]:
-            p = _jsx_prop(body, prop)
+            p = _jsx_prop(body, prop, body_ends)
             if not p or p[0] != "str" or p[1] in cols:
                 continue
             title = viz.get("title") or "Untitled"

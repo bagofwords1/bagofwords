@@ -1,6 +1,7 @@
 """<BowFile> references and the attachable-file lookup shared by create_artifact and edit_artifact."""
 import asyncio
 import sys
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,6 +39,12 @@ FID = "3f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b"
     f'<BowFile alt={{<i>see /* the */ logo</i>}} id="{FID}" />',
     f"<BowFile alt={{<b>Don't {{name}}</b>}} id=\"{FID}\" />",
     f"<BowFile alt={{<>it's <i>ours</i></>}} id=\"{FID}\" />",
+    # A shift is not JSX, spaced or not.
+    f'<BowFile w={{1 <<n}} id="{FID}" />',
+    f'<BowFile w={{1<<n}} id="{FID}" />',
+    f'<BowFile w={{(m <<= n)}} id="{FID}" />',
+    f'<BowFile w={{m >>n}} id="{FID}" />',
+    f'<BowFile w={{m >>>n}} id="{FID}" />',
 ])
 def test_a_literal_id_is_found_in_every_tag_shape(tag):
     assert bow_file_literal_ids(f"function App() {{ return <div>{tag}</div> }}") == {FID}
@@ -77,6 +84,18 @@ def test_an_unattached_reference_after_jsx_in_an_attribute_is_an_error():
     code = f'function App() {{ return <BowFile alt={{<i>see http://x</i>}} id="{FID}" /> }}'
     errors = file_reference_errors(code, {"files": []})
     assert len(errors) == 1 and FID in errors[0]
+
+
+def test_a_page_of_unclosed_jsx_in_attributes_is_read_in_linear_time():
+    # Each nested element that never closes must not rescan the rest of the
+    # page: these checks run on the event loop, before the page is parsed.
+    tag = f'<BowFile alt={{<b>{{x}}}} id="{FID}" />\n'
+    code = tag * (100 * 1024 // len(tag))
+    started = time.perf_counter()
+    errors = file_reference_errors(code, {"files": []})
+    elapsed = time.perf_counter() - started
+    assert len(errors) == 1 and FID in errors[0]
+    assert elapsed < 1.0, f"{elapsed:.2f}s for 100 KB"
 
 
 def test_references_already_broken_can_be_left_alone():
