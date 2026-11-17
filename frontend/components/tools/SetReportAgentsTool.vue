@@ -3,7 +3,7 @@
     <div class="flex items-center text-gray-700 dark:text-gray-300">
       <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
-      <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
+      <span v-else-if="isRunning" class="tool-shimmer">Setting agent focus…</span>
       <!-- The status row talks about AGENTS (the report's context), so it
            carries the neutral agent cube — the connector logo stays on the
            approval card below, where identifying the source matters. -->
@@ -56,6 +56,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { isToolRunning } from '~/utils/toolOutcome'
 
 const props = defineProps<{
   toolExecution: {
@@ -69,6 +70,8 @@ const props = defineProps<{
 }>()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
+// Live stream says 'running'; a row loaded after reload says 'in_progress'.
+const isRunning = computed(() => isToolRunning(status.value))
 const names = computed<string[]>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return Array.isArray(rj.focused_agent_names) ? rj.focused_agent_names : []
@@ -103,7 +106,7 @@ watch(names, (v) => {
 const showApprovalCard = computed(() =>
   !!confirmation.value?.confirmation_id &&
   !responded.value &&
-  status.value === 'running' &&
+  isRunning.value &&
   ['awaiting_confirmation', 'awaiting_approval'].includes(props.toolExecution?.progress_stage || ''))
 
 const { markConfirmationAnswered } = useToolConfirmations()

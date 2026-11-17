@@ -1248,6 +1248,7 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import { isToolRunning } from '~/utils/toolOutcome'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 import { createStreamDeliveryTracker, isBufferedDelivery } from '~/utils/streamDelivery'
@@ -1503,14 +1504,19 @@ const inProgressHasFirstToken = computed(() =>
 // user hasn't answered yet. Switches the prompt box indicator from "Working"
 // to "Waiting for your confirmation"; flips back as soon as they respond.
 const { isConfirmationAnswered } = useToolConfirmations()
+// Same conditions the approval card renders on (a confirmation id, on a block
+// the timeline shows): the indicator must never ask for a confirmation the
+// user has no card to give. The backend's keepalive alone sets the stage
+// without a confirmation, and harness blocks render no card.
 const inProgressAwaitingInput = computed(() =>
 	messages.value.some(m =>
 		m.role === 'system' && m.status === 'in_progress' &&
-		(m.completion_blocks || []).some((b: any) => {
+		visibleBlocks(m).some((b: any) => {
 			const te = b.tool_execution
-			return te && !['success', 'error', 'stopped'].includes(te.status) &&
+			const cid = te?.confirmation?.confirmation_id
+			return te && !!cid && !['success', 'error', 'stopped'].includes(te.status) &&
 				['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
-				!isConfirmationAnswered(te.confirmation?.confirmation_id)
+				!isConfirmationAnswered(cid)
 		})
 	)
 )
@@ -3943,6 +3949,24 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (!incomingHasTE && existing.tool_execution) {
 						delete (merged as any).tool_execution
 					}
+					// A mid-run upsert replaces the whole tool_execution object. Keep
+					// the approval this client already received (from the live
+					// tool.confirmation event) while the same tool is still running
+					// and the server copy doesn't carry it — otherwise the card
+					// vanishes while the run keeps waiting on it. Not when the server
+					// says the approval is already answered (e.g. from another tab):
+					// then the card must go.
+					const prevTE = existing.tool_execution as any
+					const nextTE = (merged as any).tool_execution
+					if (incomingHasTE && prevTE?.confirmation && nextTE && !nextTE.confirmation &&
+						// Same tool: same id, or the client-made placeholder (temp id)
+						// that held the card until the real execution arrived.
+						(String(prevTE.id) === String(nextTE.id) || String(prevTE.id).startsWith('temp-')) &&
+						isToolRunning(nextTE.status) &&
+						(!nextTE.review_state || nextTE.review_state === 'pending')) {
+						nextTE.confirmation = prevTE.confirmation
+						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
+					}
 					Object.assign(existing, merged)
 				} else {
 					// Stamp client arrival time (naive-UTC, matching server
@@ -4392,9 +4416,32 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Confirmation request from create_artifact / edit_artifact
 			if (payload.tool_name) {
 				const lastBlock = resolveToolEventBlock(sysMessage, payload)
-				if (lastBlock?.tool_execution) {
-					;(lastBlock.tool_execution as any).confirmation = payload.payload
-					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
+				if (lastBlock) {
+					// The confirmation can arrive before the block has a tool_execution
+					// (same race tool.started / tool.progress cover). Dropping it left the
+					// run waiting on a card that never rendered.
+					// resolveToolEventBlock falls back to the last block when no id
+					// matches. Only build the placeholder on the block the event
+					// names (or, for an event with no block id, a block still in
+					// progress), and never hang the approval on a tool that already
+					// finished: both would draw a card (and a spinner) on an
+					// unrelated row.
+					const te = lastBlock.tool_execution as any
+					const namesBlock = payload.block_id
+						? String(lastBlock.id) === String(payload.block_id)
+						: lastBlock.status === 'in_progress'
+					if (!te && namesBlock) {
+						lastBlock.tool_execution = {
+							id: payload.tool_execution_id || `temp-${Date.now()}`,
+							tool_name: payload.tool_name,
+							status: 'running'
+						}
+					}
+					const target = lastBlock.tool_execution as any
+					if (target && !['success', 'error', 'stopped'].includes(target.status)) {
+						target.confirmation = payload.payload
+						target.progress_stage = 'awaiting_confirmation'
+					}
 				}
 			}
 			break

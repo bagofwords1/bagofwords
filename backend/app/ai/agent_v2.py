@@ -2827,14 +2827,23 @@ class AgentV2:
                             completion_id=str(self.system_completion_id),
                             agent_execution_id=str(self.current_execution.id),
                             seq=seq_ts,
-                            data={"tool_name": tool_name, "arguments": tool_input},
+                            data={
+                                "tool_name": tool_name,
+                                "arguments": tool_input,
+                                "tool_execution_id": str(tool_execution.id) if tool_execution is not None else None,
+                            },
                         ))
                     except Exception:
                         pass
 
                     # Forward tool streaming events (tool.progress / stdout / partial / error)
-                    # to the UI, same as the main loop.
-                    async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input):
+                    # to the UI, same as the main loop. Keyed by tool_execution_id so the
+                    # frontend routes them to this tool, not whatever block is last (the
+                    # harness block only links its tool_execution once the tool finishes,
+                    # so there is no block_id to send yet).
+                    _harness_te_id = str(tool_execution.id) if tool_execution is not None else None
+
+                    async def _harness_emit(ev: dict, _tn=tool_name, _ti=tool_input, _te_id=_harness_te_id):
                         try:
                             await self._handle_streaming_event(_tn, ev, _ti)
                         except Exception:
@@ -2847,7 +2856,7 @@ class AgentV2:
                                     completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=seq_ev,
-                                    data={"tool_name": _tn, "payload": ev.get("payload", {})},
+                                    data={"tool_name": _tn, "payload": ev.get("payload", {}), "tool_execution_id": _te_id},
                                 ))
                             except Exception:
                                 pass
