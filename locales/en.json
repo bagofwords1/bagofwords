@@ -4990,6 +4990,13 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesDescription": "Comma-separated database names, globs and !-exclusions, e.g. tenant_*, !tenant_test. Matching is case-sensitive. Every matching database is unified into one set of tables with a tenant_db column.",
+      "discoveryDatabaseTitle": "Discovery Database",
+      "discoveryDatabaseDescription": "Database used to list the server's databases. Default: postgres.",
+      "tableExcludeTitle": "Table Exclude Pattern",
+      "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "App Filter",
       "appFilterDescription": "Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
