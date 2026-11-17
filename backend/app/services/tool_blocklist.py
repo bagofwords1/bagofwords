@@ -296,6 +296,9 @@ _NOT_SQL_TOOL_WORDS = frozenset({
     "search", "semantic", "vector", "natural", "genie", "analyst", "ask", "history", "log", "logs", "list",
     "named", "saved",
 })
+# A name with one of these as a part says it runs SQL: the words above never
+# demote it (runSQLLogQuery, MSSQLListQuery).
+_SQL_NAME_PARTS = frozenset({"sql", "tsql", "mssql", "mysql", "postgresql", "sqlite"})
 # AI words demote only a name that is a SQL tool by engine + query alone
 # (databricks_ai_query, snowflake_cortex_complete_query); a name that says SQL
 # otherwise (mssql_ai_query, execute_sql_prompt, run_query_complete) stays one.
@@ -336,6 +339,8 @@ def _is_sql_tool(tool_name: str) -> bool:
     if not says_sql and not any(_SQL_ENGINE_QUERY_NAME.search(n) for n in names):
         return False
     parts = set(re.split(r"[^a-z0-9]+", split.lower()))
+    if _SQL_NAME_PARTS.intersection(parts):
+        return True
     return not (_NOT_SQL_TOOL_WORDS.intersection(parts) or (not says_sql and _AI_TOOL_WORDS.intersection(parts)))
 
 
@@ -467,7 +472,8 @@ _MAX_PARSE_BYTES = 200 * 1024
 _MAX_SCAN_BYTES = 1024 * 1024
 # A necessary condition only: no finding is possible without one of these
 # words, so a text without them passes before any tokenizing. Never decisive.
-_GATE_WORDS = ("drop", "truncate", "delete", "exec")
+# "call": CALL p('DR' || 'OP TABLE x') holds its statement only once joined.
+_GATE_WORDS = ("drop", "truncate", "delete", "exec", "call")
 # EXEC bodies are read as SQL again, at most this many levels deep; a body
 # still holding SQL to run at that depth is refused as unreadable.
 _MAX_EXEC_DEPTH = 2
@@ -730,21 +736,30 @@ def _proc_call_at_start(toks: list) -> Optional[int]:
     return i
 
 
-def _literal_items(tokens: list, items: dict, level: str) -> None:
+# A procedure name no search phrase starts with: bracketed, a temporary
+# procedure's (#run, ##run), sp_/xp_, or qualified (dbo.run). Matched at the
+# start of the name's source text.
+_NO_WORD_PROCEDURE_NAME = re.compile(r"\s*(\[|#|(sp|xp)_|(\"[^\"]*\"|`[^`]*`|[\w$@]+)\s*\.)", re.IGNORECASE)
+
+
+def _literal_items(tokens: list, items: dict, level: str, text: str) -> None:
     """Text in this SQL that would itself run as SQL, added to ``items`` in
     order: the string literals of a statement with EXEC/EXECUTE (and their
     concatenation), the literal of PREPARE … FROM '…' and the statement of
-    PREPARE … AS …. At level "sql" only (SQL arguments; a search phrase like
-    "find 'DELETE FROM x' in the logs" reads the same way), also the literals
-    of a procedure call: one without EXEC, and CALL p('…'). When SQL held in a
-    variable is run (EXEC(@q), EXEC sp_executesql @q, PREPARE s FROM @q), the
-    text can come from any statement, so every literal of the whole text is
-    added too."""
+    PREPARE … AS …; also the literals of a procedure call: one without EXEC,
+    and CALL p('…'). At level "shared" a procedure call counts only when its
+    name is one no search phrase starts with (_NO_WORD_PROCEDURE_NAME): "find
+    'DELETE FROM x' in the logs" reads like a call to "find". When SQL held
+    in a variable is run (EXEC(@q), EXEC sp_executesql @q, PREPARE s FROM @q),
+    the text can come from any statement, so every literal of the whole text
+    is added too. ``text`` is the source the tokens were read from."""
     every: list = []
     dynamic = False
     procedures = level == "sql"
     for kws, toks in _segments(tokens):
-        proc = _proc_call_at_start(toks) if procedures else None
+        proc = _proc_call_at_start(toks)
+        if proc is not None and not procedures and not _NO_WORD_PROCEDURE_NAME.match(text, toks[0].start):
+            proc = None
         has_exec = proc is not None or any(k in _EXEC_WORDS for k in kws)
         if (proc is not None and toks[proc].text.upper() in _EXEC_PROCS
                 and toks[proc + 1:proc + 2] and toks[proc + 1].token_type.name == "PARAMETER"):
@@ -781,7 +796,7 @@ def _literal_items(tokens: list, items: dict, level: str) -> None:
                         # Read as an EXEC statement by the tokenizers that read
                         # EXEC as a word.
                         items["EXEC " + t.text] = None
-                elif head == "CALL" and procedures:
+                elif head == "CALL" and (procedures or _NO_WORD_PROCEDURE_NAME.match(t.text)):
                     _add(items, inner)  # CALL p('…'): the procedure may run them
                 continue
             every.append(t.text)
@@ -796,6 +811,18 @@ def _utf8_len(text: str) -> int:
     """UTF-8 size of a text; a lone surrogate (invalid in UTF-8, but a Python
     str can hold one) counts as its three bytes instead of raising."""
     return len(text.encode("utf-8", "surrogatepass"))
+
+
+def _valid_utf8(text: str) -> bool:
+    """False for a text holding a lone surrogate. At "sql" and "shared" such a
+    text with a gate word is refused as unreadable; at "other" it is read as
+    it is (a surrogate is one more character that keeps a text from being a
+    lone DROP, like any other junk there)."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 class _Budget:
@@ -1026,6 +1053,11 @@ def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = froze
         return []
     if level == "other":
         return _other_findings(text)
+    if not _valid_utf8(text):
+        # A lone surrogate: an engine or driver could drop or replace it and
+        # run the rest, which the tokenizers never read as it would run.
+        logger.info("blocklist: %s-level text with a gate word is not valid UTF-8; refused", level)
+        return [REASON_UNREADABLE]
     size = _utf8_len(text)
     if size > _MAX_SCAN_BYTES:
         logger.info("blocklist: %s-level SQL text of %d bytes is over the scan cap; refused", level, size)
@@ -1054,7 +1086,7 @@ def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = froze
         _scan_tree(text, level, token_lists, found)
     items: dict = {}  # SQL to run held in literals, in order
     for tokens in readable:
-        _literal_items(tokens, items, level)
+        _literal_items(tokens, items, level, text)
     found.update(_recheck_literals(text, items, depth, seen, budget))
     return [reason for reason in _REASON_ORDER if reason in found]
 

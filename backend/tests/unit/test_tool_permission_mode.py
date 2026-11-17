@@ -452,21 +452,39 @@ def test_accepted_false_refusals_in_sql(sql):
     "update on the delete account flow",  # D10, new
     "with delete pending, then archive",  # D10, new
     "Delete from inbox",  # catalog, as today
+    # A temporary procedure's name (#run) is read on shared keys too; a
+    # hashtag-led phrase with quoted SQL is refused.
+    "#run 'DROP TABLE x' failed",
 ])
 def test_accepted_false_refusals_on_a_search_tool(text):
     assert block_reason(tool_name="search_docs", arguments={"query": text})
 
 
 @pytest.mark.parametrize("text", [
-    # A word, then a quoted text: a procedure call without EXEC in SQL, but the
-    # procedure-call rule reads SQL arguments only, so a search phrase passes.
+    # A word, then a quoted text: a procedure call without EXEC in SQL, but on
+    # a shared key the procedure-call rule reads only names a search phrase
+    # does not start with, so a search phrase passes.
     "errors 'drop table' today", "user said 'TRUNCATE TABLE orders'", "logs containing 'DELETE FROM' last week",
     "find 'DELETE FROM orders' in the logs", "customers who typed 'delete from orders'",
-    "call log 'DELETE FROM orders'", "#run 'DROP TABLE x' failed",
+    "call log 'DELETE FROM orders'", "\"refund\" 'DELETE FROM orders'",
 ])
 @pytest.mark.parametrize("tool", ["search_docs", "query_knowledge_base"])
 def test_quoted_sql_in_a_search_phrase_passes(tool, text):
     assert block_reason(tool_name=tool, arguments={"query": text}) is None, (tool, text)
+
+
+@pytest.mark.parametrize("tool,key", [("mssql_execute", "input"), ("run_sql", "text"), ("execute", "query"),
+                                      ("search_docs", "query")])
+@pytest.mark.parametrize("call", [
+    # Names a search phrase does not start with: qualified, bracketed, a
+    # temporary procedure's, or sp_/xp_.
+    "sp_MSforeachtable 'DROP TABLE ?'", "dbo.run N'DELETE FROM x'", "[dbo].[run] N'DELETE FROM x'",
+    "[run] N'TRUNCATE TABLE x'", "#run N'DROP TABLE x'", "##run N'DROP TABLE x'", "xp_runner 'TRUNCATE TABLE x'",
+    "CALL dbo.run('DELETE FROM t')", "CALL sp_run('DROP TABLE t')", "CALL [run]('DROP TABLE t')",
+    "CALL #run('DROP TABLE t')",
+])
+def test_a_procedure_call_on_a_shared_key_is_read_when_its_name_is_no_word(tool, key, call):
+    assert block_reason(tool_name=tool, arguments={key: call}), (tool, key, call)
 
 
 def test_accepted_false_refusal_of_other_text_on_a_sql_tool():
@@ -790,6 +808,19 @@ def test_harmless_call_and_temporary_procedures_pass(sql):
     assert sql_block_reason(sql) is None, sql
 
 
+@pytest.mark.parametrize("sql", ["CALL p('DR' || 'OP TABLE x')", "CALL p(CONCAT('DR','OP TABLE x'))",
+                                 "CALL p('TRUNC' || 'ATE TABLE x')"])
+def test_a_call_with_split_literals_is_read_joined(sql):
+    # CALL is a gate word: the joined literals are read like EXEC's.
+    assert sql_block_reason(sql), sql
+    assert block_reason(tool_name="run_sql", arguments={"sql": sql}), sql
+
+
+@pytest.mark.parametrize("sql", ["CALL p('a' || 'b')", "CALL refresh_stats()", "recall the callback"])
+def test_a_harmless_call_with_split_literals_passes(sql):
+    assert sql_block_reason(sql) is None, sql
+
+
 @pytest.mark.parametrize("sql", [
     # Statements that start with a keyword are not procedure calls.
     "SELECT 'DROP TABLE x'", "SET @q = 'DROP TABLE orders'", "VALUES ('DELETE FROM orders')",
@@ -857,20 +888,32 @@ def test_a_string_nested_in_a_search_argument_stays_lenient():
 
 
 def test_a_lone_surrogate_never_breaks_the_check():
-    # A lone surrogate (invalid UTF-8) is counted as three bytes and the text is
-    # read like any other: a refusal reason, never an exception. Without a
-    # gate word it passes, at every level.
-    assert block_reason(tool_name="run_sql", arguments={"sql": "DROP TABLE x \ud800"}) == DROP
-    assert block_reason(tool_name="search_docs", arguments={"query": "drop table x \ud800"}) == DROP
+    # A lone surrogate (invalid UTF-8) never raises. At "sql" and "shared" a
+    # text with one and a gate word is refused as unreadable (fail closed: an
+    # engine could drop the surrogate and run the rest). Without a gate word it
+    # passes, at every level.
+    assert block_reason(tool_name="run_sql", arguments={"sql": "DROP TABLE x \ud800"}) == UNREADABLE
+    assert block_reason(tool_name="search_docs", arguments={"query": "drop table x \ud800"}) == UNREADABLE
     assert block_reason(tool_name="save_note", arguments={"title": "DROP TABLE x -- \ud800"}) == DROP
     assert block_reason(tool_name="save_note", arguments={"title": "DROP TABLE \"x\ud800\""}) == DROP
-    # At "other" a trailing surrogate is junk after the DROP, like any other
-    # character there: the text is no lone DROP, so it passes.
+    # At "other" the text is read as it is: a surrogate before or after the
+    # DROP is junk, like any other character there, so it is no lone DROP.
     for junk in ("\ud800", "é"):
         assert block_reason(tool_name="save_note", arguments={"title": "DROP TABLE x " + junk}) is None
-    assert sql_block_reason("EXEC('DELETE FROM t \udfff')") == DELETE
+        assert block_reason(tool_name="save_note", arguments={"title": junk + "DROP TABLE x"}) is None
+    assert sql_block_reason("EXEC('DELETE FROM t \udfff')") == UNREADABLE
     for key in ("sql", "query", "title"):
         assert block_reason(tool_name="run_sql", arguments={key: "select \ud800"}) is None, key
+
+
+# ids: pytest-xdist cannot send a test id holding a lone surrogate.
+@pytest.mark.parametrize("text", ["\ud800DELETE FROM x", "SELECT 1;\ud800DELETE FROM x", "EXEC('\ud800DELETE FROM x')",
+                                  "\udfffTRUNCATE TABLE x"], ids=["lead", "after_select", "in_exec", "truncate"])
+def test_a_lone_surrogate_with_a_gate_word_is_unreadable_in_sql_and_shared_text(text):
+    # ascii(): the failure message is sent between xdist workers as UTF-8.
+    assert block_reason(tool_name="run_sql", arguments={"sql": text}) == UNREADABLE, ascii(text)
+    assert block_reason(tool_name="search_docs", arguments={"query": text}) == UNREADABLE, ascii(text)
+    assert sql_block_reason(text, sql_context="shared") == UNREADABLE, ascii(text)
 
 
 def _nest(command, shell, n):
@@ -955,6 +998,15 @@ def test_sql_sent_to_a_search_tool_named_for_an_engine_still_gets_the_shared_rul
 @pytest.mark.parametrize("text", ["TRUNCATE orders", "DELETE orders", "SET XACT_ABORT ON DELETE FROM orders"])
 def test_a_tool_with_words_between_engine_and_query_gets_the_full_sql_rules(tool, text):
     assert block_reason(tool_name=tool, arguments={"query": text}), (tool, text)
+
+
+@pytest.mark.parametrize("tool", ["runSQLLogQuery", "MSSQLListQuery", "run_sql_log_query", "mysql_list_query",
+                                  "PostgreSQLHistoryQuery", "sqlite_saved_query", "TSQLSearch"])
+@pytest.mark.parametrize("text", ["DELETE FROM x", "TRUNCATE TABLE x"])
+def test_guard_words_never_demote_a_name_that_names_sql(tool, text):
+    # log, list, history, search … demote engine-named search tools, never a
+    # name with sql (or tsql, mssql, mysql, postgresql, sqlite) as a part.
+    assert block_reason(tool_name=tool, arguments={"input": text}), (tool, text)
 
 
 @pytest.mark.parametrize("tool", ["snowflake_cortex_query", "postgres_prompt_query", "bigquery_ai_complete_query",
