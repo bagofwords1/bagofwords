@@ -7821,6 +7821,23 @@
     "modelDesc": "El modelo predeterminado de cada espectador sigue a su grupo y a la organización (y al enrutamiento automático si está activo). Si un espectador no puede usar un modelo, se usa su predeterminado.",
     "bubbleUsesAgents": "Los agentes de arriba"
   },
+  "dashboardDelete": {
+    "action": "Eliminar",
+    "title": "¿Eliminar este panel?",
+    "titleDoc": "¿Eliminar este documento?",
+    "titleSlides": "¿Eliminar esta presentación?",
+    "body": "Se eliminarán {title} y todas sus versiones. Las conversaciones en las que se creó se conservan.",
+    "publishedWarning": "Está publicado: su enlace dejará de funcionar para todos los que lo tengan.",
+    "sharedWarning": "Está compartido: todas las personas con quienes se comparte perderán el acceso.",
+    "scheduleWarning": "Su actualización programada se detiene y los suscriptores dejarán de recibir correos.",
+    "confirm": "Eliminar",
+    "deleted": "Se eliminó {title}",
+    "failed": "No se pudo eliminar",
+    "settingsTitle": "Eliminar este panel",
+    "settingsTitleDoc": "Eliminar este documento",
+    "settingsTitleSlides": "Eliminar esta presentación",
+    "settingsDesc": "Lo elimina junto con todas sus versiones para todos. Se te pedirá confirmación."
+  },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",
     "subtitle": "Crea uno en esta conversación o sigue con uno que puedas editar.",

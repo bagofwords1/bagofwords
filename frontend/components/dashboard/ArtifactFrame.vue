@@ -151,7 +151,7 @@
           :rename="canRename ? renameTo : undefined"
           :resources-available="resourcesAvailable && !verificationPreview"
           :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
-          @history-changed="onHistoryChanged" @saved="onSettingsSaved" />
+          @history-changed="onHistoryChanged" @saved="onSettingsSaved" @deleted="onDashboardDeleted" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -1940,6 +1940,14 @@ const publishKey = ref(0);
 function onHistoryChanged() {
   publishKey.value += 1;
   loadDashboardMeta(true);
+}
+
+// The owner deleted the dashboard from its settings: the conversation stays,
+// the pane goes on with whatever artifact is left (or none).
+async function onDashboardDeleted() {
+  selectedArtifactId.value = undefined;
+  selectedArtifact.value = null;
+  await fetchArtifactsList(true);
 }
 
 // Viewer settings saved: re-render the canvas for the display-only ones that
