@@ -9,6 +9,8 @@ against the shared multi-tenant Postgres container.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from app.ai.code_execution.sql_guard import dialect_for_client
@@ -104,10 +106,11 @@ def test_index_fails_when_no_matching_tenant_is_readable(multi_tenant_server):
     with pytest.raises(RuntimeError) as raised:
         client.get_schemas()
 
+    assert re.search(r"\b1\b", str(raised.value))
     assert str(multi_tenant_server.port) not in str(raised.value)
 
 
-@pytest.mark.parametrize("error", [TypeError, IndexingCancelled])
+@pytest.mark.parametrize("error", [TypeError, NotImplementedError, RecursionError, IndexingCancelled])
 def test_non_connection_error_in_a_tenant_read_fails_the_index(multi_tenant_server, monkeypatch, error):
     def broken(self, progress_callback=None):
         raise error("boom")
@@ -236,6 +239,8 @@ def test_denied_function_is_refused_without_a_table_scope(multi_tenant_server, s
     "sql",
     [
         "SELECT * FROM query_table('__t0001.public.orders')",
+        "SELECT * FROM public.orders o, LATERAL query_table('__t0001.public.orders') x",
+        "PRAGMA table_info('__t0001.public.orders')",
         "SELECT * FROM __t0001.public.orders",
         "SELECT * FROM __t0001.orders",
         "SELECT * FROM public.no_such_table",

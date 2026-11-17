@@ -92,6 +92,9 @@ def test_active_tables_run_in_every_dialect(dialect, sql):
     ("SELECT query_to_xml('select * from sales.payroll', true, true, '')", "postgres"),
     ("SELECT schema_to_xml('sales', true, true, '')", "postgres"),
     ("SELECT * FROM read_csv('/data/payroll.csv')", "duckdb"),
+    ("SELECT * FROM sales.orders o, LATERAL query_table('sales.payroll') p", "postgres"),
+    ("SELECT * FROM sales.orders o JOIN LATERAL some_reader('sales.payroll') p ON true", "postgres"),
+    ("SELECT * FROM sales.orders o LEFT JOIN LATERAL query('SELECT * FROM sales.payroll') p ON true", "duckdb"),
 ])
 def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     with pytest.raises(TableScopeViolation):
@@ -106,6 +109,9 @@ def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     ("SELECT * FROM generate_series(1, 3) g", "postgres"),
     ("SELECT * FROM sales.orders o, jsonb_array_elements(o.items) i", "postgres"),
     ("SELECT * FROM UNNEST([1, 2])", "bigquery"),
+    ("SELECT * FROM sales.orders o, LATERAL jsonb_array_elements(o.items) i", "postgres"),
+    ("SELECT * FROM sales.orders o, LATERAL (SELECT * FROM sales.customers c WHERE c.id = o.id) x", "postgres"),
+    ("SELECT * FROM sales.orders o, LATERAL unnest([1]) u", "duckdb"),
 ])
 def test_dialect_features_over_active_tables_still_run(sql, dialect):
     check_table_scope(sql, dialect, SCOPE)

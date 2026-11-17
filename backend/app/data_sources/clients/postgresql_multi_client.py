@@ -1,9 +1,12 @@
 import logging
+import re
 
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlglot import exp
 
+from app.ai.code_execution.sql_parser import parse_guard_sql
 from app.ai.code_execution.table_scope import TableScopeViolation, refuse_unchecked_reads, table_refs
 from app.ai.prompt_formatters import Table, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
@@ -26,6 +29,12 @@ logger = logging.getLogger(__name__)
 ENGINE_TTL_SECONDS = 600
 DIALECT = "duckdb"
 UNREADABLE_TENANTS_KEY = "unreadable_tenants"
+
+_DUCKDB_CATALOG_READERS = re.compile(
+    r"^(query_table|query|duckdb_.*|pragma_.*|sql_auto_complete|json_execute_serialized_sql|"
+    r"json_deserialize_sql|which_secret|glob)$",
+    re.IGNORECASE,
+)
 
 _DISCOVERY_SQL = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
 
@@ -110,6 +119,8 @@ class PostgresqlMultiClient(DataSourceClient):
         client = self._tenant_client(database)
         try:
             tables = require_complete_discovery(client, client.get_tables())
+        except (NotImplementedError, RecursionError):
+            raise
         except (IncompleteDiscoveryError, SQLAlchemyError, RuntimeError) as exc:
             reason = self._unreadable_reason(client, str(exc))
             logger.warning("Could not read tenant database %s: %s", database, reason)
@@ -181,7 +192,11 @@ class PostgresqlMultiClient(DataSourceClient):
 
     def _check_table_refs(self, sql: str) -> None:
         refs = table_refs(sql, DIALECT)
-        refuse_unchecked_reads(sql, DIALECT)
+        refuse_unchecked_reads(sql, DIALECT, extra_denied=_DUCKDB_CATALOG_READERS)
+        if any(isinstance(stmt, exp.Pragma) for stmt in parse_guard_sql(sql, DIALECT)):
+            raise TableScopeViolation(
+                "PRAGMA statements are not allowed: the unified tables are already described in the schema."
+            )
         known = {tuple(name.lower().split(".", 1)) for name in self._views}
         outside = [
             ".".join(r) for r in refs

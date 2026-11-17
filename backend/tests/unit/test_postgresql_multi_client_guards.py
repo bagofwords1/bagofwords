@@ -29,7 +29,28 @@ REFUSED = [
     "SELECT * FROM duckdb_databases()",
     "SELECT * FROM duckdb_secrets()",
     "SELECT * FROM 'orders.csv'",
+    "SELECT (SELECT count(*) FROM query_table('public.orders'))",
+    "SELECT query('SELECT 1')",
+    "SELECT json_execute_serialized_sql('{}')",
+    "SELECT which_secret('s3://bucket/x', 's3')",
+    "SELECT * FROM pragma_table_info('__t0001.public.orders')",
+    "SELECT * FROM glob('*')",
+    "PRAGMA table_info('__t0001.public.orders')",
+    "PRAGMA database_list",
 ]
+
+_READERS = [
+    "query_table('__t0001.public.orders')",
+    "query('SELECT * FROM __t0001.public.orders')",
+    "duckdb_databases()",
+    "duckdb_secrets()",
+    "glob('*')",
+    "sql_auto_complete('SELECT')",
+    "unknown_reader('__t0001.public.orders')",
+]
+REFUSED += [f"SELECT * FROM public.orders o, LATERAL {fn} x" for fn in _READERS]
+REFUSED += [f"SELECT * FROM public.orders o JOIN LATERAL {fn} x ON true" for fn in _READERS]
+REFUSED += [f"SELECT * FROM public.orders o LEFT JOIN LATERAL {fn} x ON true" for fn in _READERS]
 
 ALLOWED = [
     "SELECT tenant_db, count(*) FROM public.orders GROUP BY tenant_db",
@@ -38,6 +59,9 @@ ALLOWED = [
     "SELECT * FROM public.orders, range(3)",
     "SELECT * FROM public.orders, json_each('[1]')",
     "SELECT 1",
+    "SELECT * FROM public.orders o, LATERAL unnest([1]) u",
+    "SELECT * FROM public.orders o, LATERAL (SELECT * FROM public.users u WHERE u.id = o.user_id) x",
+    "SELECT * FROM public.orders WHERE note GLOB 'a*'",
 ]
 
 

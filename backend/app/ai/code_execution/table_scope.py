@@ -157,12 +157,12 @@ def _func_name(node) -> str:
         return ""
 
 
-def _refuse_denied_functions(stmt) -> None:
+def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> None:
     from sqlglot import exp
 
     for fn in stmt.find_all(exp.Func):
         name = _func_name(fn)
-        if name and _DENIED_FUNCTION.match(name):
+        if name and denied.match(name):
             raise TableScopeViolation(
                 f"The function {name.upper()}() is not allowed in agent queries, because "
                 "the table it reads cannot be checked. Query the enabled tables directly."
@@ -185,6 +185,15 @@ def _refuse_unchecked_source(table, dialect: str) -> None:
         f"'{table.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
         "the table it reads cannot be checked."
     )
+
+
+def _refuse_unchecked_laterals(stmt, dialect: str) -> None:
+    """A LATERAL over a table function reads like a FROM source; LATERAL subqueries are walked as tables."""
+    from sqlglot import exp
+
+    for lateral in stmt.find_all(exp.Lateral):
+        if isinstance(lateral.this, exp.Func):
+            _refuse_unchecked_source(lateral, dialect)
 
 
 def _resolves_to_cte(table) -> bool:
@@ -257,6 +266,7 @@ def check_table_scope(
             )
 
         _refuse_denied_functions(stmt)
+        _refuse_unchecked_laterals(stmt, dialect)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
@@ -351,13 +361,17 @@ def one_part_table_refs(sql: str, dialect: str) -> list[str]:
     return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
 
 
-def refuse_unchecked_reads(sql: str, dialect: str) -> None:
-    """Raise TableScopeViolation when `sql` reads through a denied function or a query source
-    whose target cannot be named; unreadable SQL raises too. Applies with no scope attached."""
+def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | None = None) -> None:
+    """Raise TableScopeViolation when `sql` reads through a denied function (or one matching
+    `extra_denied`, anywhere in the query) or a query source whose target cannot be named;
+    unreadable SQL raises too. Applies with no scope attached."""
     from sqlglot import exp
 
     for stmt in _parse_for_refs(sql, dialect):
         _refuse_denied_functions(stmt)
+        if extra_denied is not None:
+            _refuse_denied_functions(stmt, extra_denied)
+        _refuse_unchecked_laterals(stmt, dialect)
         for t in stmt.find_all(exp.Table):
             if not isinstance(t.this, exp.Identifier):
                 _refuse_unchecked_source(t, dialect)
