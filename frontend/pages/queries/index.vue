@@ -6,7 +6,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.agents', auth: true })
 
 onMounted(() => navigateTo('/agents', { replace: true }))
 </script>

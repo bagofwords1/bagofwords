@@ -6,5 +6,5 @@
 
 <script setup lang="ts">
 const { organization } = useOrganization()
-definePageMeta({ auth: true, permissions: ['manage_llm'] })
+definePageMeta({ titleKey: 'settings.llm', auth: true, permissions: ['manage_llm'] })
 </script> 

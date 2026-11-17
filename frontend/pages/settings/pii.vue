@@ -167,7 +167,7 @@ import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 
-definePageMeta({ auth: true, permissions: ['manage_settings'] })
+definePageMeta({ titleKey: 'settings.piiTab', auth: true, permissions: ['manage_settings'] })
 
 const { t } = useI18n()
 const toast = useToast()

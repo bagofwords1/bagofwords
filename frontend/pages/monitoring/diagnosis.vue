@@ -73,6 +73,7 @@ import { addTerms as addTermsTo, removeTerms } from '~/utils/diagnosisQuery'
 import type { Chip } from '~/components/diagnosis/QuickFilters.vue'
 
 definePageMeta({
+    titleKey: 'monitoring.tabDiagnosis',
     auth: true,
     layout: 'monitoring',
     // Mirrors the /console/* gate: org admins see the org-wide console, agent

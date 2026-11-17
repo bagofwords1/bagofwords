@@ -4,6 +4,7 @@
 
 <script setup lang="ts">
 definePageMeta({
+  titleKey: 'pageTitles.evalRun',
   auth: true,
   layout: 'default',
   // Org-level eval admins get the org-wide view; a per-agent manager reaches

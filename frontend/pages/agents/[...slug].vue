@@ -10,6 +10,7 @@
 import KnowledgeExplorer from '~/components/KnowledgeExplorer.vue'
 
 definePageMeta({
+    titleKey: 'nav.agents',
     auth: true,
     layout: 'default'
 })

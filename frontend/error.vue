@@ -32,6 +32,18 @@ const props = defineProps<{ error: NuxtError | null }>()
 const error = props.error
 const route = useRoute()
 const { t: $t } = useI18n()
+usePageTitle(() => null, { fallbackKey: error?.statusCode === 404 ? 'pageTitles.notFound' : 'pageTitles.error' })
+// When the error is thrown while the app boots (an unknown URL), Nuxt starts a
+// head render on `app:error`, before this page has registered its title. A
+// render requested while one is in flight joins it, and when it lands it marks
+// the head clean — so our title is never written and the tab stays a bare
+// "Bag of Words". Once mounted, let that render land, then render again.
+// (`_domUpdatePromise` is unhead's in-flight render; undefined when idle.)
+const head = injectHead()
+onMounted(async () => {
+  await (head as { _domUpdatePromise?: Promise<void> })._domUpdatePromise
+  head.invalidate()
+})
 </script>
 
 <style scoped>

@@ -323,10 +323,9 @@
 <script setup lang="ts">
 import { useProjects, type Project } from '~/composables/useProjects'
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'projects.title', auth: true })
 
 const { t } = useI18n()
-useHead({ title: () => t('projects.title') })
 
 const router = useRouter()
 const toast = useToast()

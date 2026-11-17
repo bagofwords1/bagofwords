@@ -20,7 +20,7 @@
 
 <script setup lang="ts">
   // Public: reached from shared reports (/r/:id) by signed-out viewers too.
-  definePageMeta({ layout: 'users', auth: false })
+  definePageMeta({ titleKey: 'pageTitles.notFound', layout: 'users', auth: false })
 
   // Same primary button as the auth pages (users/sign-in.vue).
   const primaryButtonClass =

@@ -433,7 +433,7 @@ const router = useRouter()
 const { timeZone } = useFormatDate()
 const { isExcel } = useExcel()
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.dashboards', auth: true })
 // The scrollbar's gutter stays reserved on this page only (the class leaves
 // with the page): a list that grows past the window, or shrinks under it, no
 // longer shifts the centred layout sideways by the scrollbar's width.

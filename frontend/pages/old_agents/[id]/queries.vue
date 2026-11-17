@@ -112,7 +112,7 @@ import { useCan } from '~/composables/usePermissions'
 import { useAuth } from '#imports'
 import type { Ref } from 'vue'
 
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 
 const { t } = useI18n()
 const router = useRouter()

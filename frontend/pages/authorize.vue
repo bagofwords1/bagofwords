@@ -71,7 +71,7 @@
 import Spinner from '~/components/Spinner.vue'
 import { isSafeRedirectUri } from '~/utils/safeUrl'
 
-definePageMeta({ layout: 'users' })
+definePageMeta({ titleKey: 'pageTitles.authorize', layout: 'users' })
 
 const route = useRoute()
 const { status, getSession } = useAuth()

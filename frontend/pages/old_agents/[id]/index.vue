@@ -188,7 +188,7 @@ import PrimaryInstructionMenu from '~/components/instructions/PrimaryInstruction
 import { useOrgSettings } from '~/composables/useOrgSettings'
 import type { Ref } from 'vue'
 
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 
 const { t } = useI18n()
 const route = useRoute()

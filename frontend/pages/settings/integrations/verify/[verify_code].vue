@@ -39,7 +39,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 
-definePageMeta({ auth: true, permissions: ['create_reports'], layout: 'default' })
+definePageMeta({ titleKey: 'pageTitles.connectChannel', auth: true, permissions: ['create_reports'], layout: 'default' })
 
 const route = useRoute()
 const verifyCode = route.params.verify_code

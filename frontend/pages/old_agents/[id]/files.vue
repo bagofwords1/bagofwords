@@ -85,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useCan } from '~/composables/usePermissions'
 import type { Ref } from 'vue'

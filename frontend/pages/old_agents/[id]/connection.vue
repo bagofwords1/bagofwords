@@ -261,7 +261,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import Spinner from '~/components/Spinner.vue'

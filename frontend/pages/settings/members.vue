@@ -30,6 +30,7 @@ const activeTab = computed(() => {
 })
 
 definePageMeta({
+    titleKey: 'settings.membersTab',
     permissions: ['view_members'],
 })
 </script>

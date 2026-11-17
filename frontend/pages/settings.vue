@@ -33,6 +33,7 @@
 
 <script setup lang="ts">
 import { isAdminRoute, resolveAdminPage } from '~/composables/useAdminNav'
+import { TITLE_SEPARATOR } from '~/composables/usePageTitle'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -43,6 +44,11 @@ const page = computed(() => resolveAdminPage(route.path, String(route.query.tab 
 
 const pageTitle = computed(() => page.value ? t(page.value.label) : t('settings.title'))
 const pageDescription = computed(() => page.value?.description ? t(page.value.description) : '')
+
+// Browser tab: the same heading as the header above, then the section —
+// "Roles · Settings · Bag of Words". Outside the console the child page's
+// own `titleKey` applies (plugins/page-title.ts).
+usePageTitle(() => inConsole.value ? `${pageTitle.value}${TITLE_SEPARATOR}${t('nav.settings')}` : null)
 
 // Fixed measures, never a percentage of the window (see AdminPageWidth).
 const widthClass = computed(() => page.value?.width === 'narrow' ? 'max-w-3xl' : 'max-w-6xl')

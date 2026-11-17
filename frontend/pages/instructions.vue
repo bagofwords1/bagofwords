@@ -6,6 +6,7 @@
 // The instructions page has moved to the Agents explorer at /agents.
 // Keep this route as a redirect so existing links/bookmarks still work.
 definePageMeta({
+    titleKey: 'nav.instructions',
     auth: true,
     layout: 'default'
 })

@@ -177,7 +177,7 @@
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
 import type { Ref } from 'vue'
 
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 
 const { t } = useI18n()
 const router = useRouter()

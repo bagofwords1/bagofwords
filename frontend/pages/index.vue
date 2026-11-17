@@ -276,6 +276,7 @@ const orgAIAnalystName = computed(() => {
 })
 
 definePageMeta({
+  titleKey: 'nav.home',
   layout: 'default',
   auth: true,
   permissions: ['view_reports']

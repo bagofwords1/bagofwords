@@ -35,7 +35,7 @@ import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import AutomationsScheduledTab from '~/components/automations/ScheduledTab.vue'
 import AutomationsTriggersTab from '~/components/automations/TriggersTab.vue'
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.automations', auth: true })
 
 const { isExcel } = useExcel()
 const route = useRoute()

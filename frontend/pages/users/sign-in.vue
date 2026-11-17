@@ -169,6 +169,7 @@
   }
 
   definePageMeta({
+  titleKey: 'pageTitles.signIn',
   auth: {
     unauthenticatedOnly: true,
   },

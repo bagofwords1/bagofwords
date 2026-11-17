@@ -233,7 +233,7 @@ const { t } = useI18n()
 const { organization } = useOrganization()
 const { isExcel } = useExcel()
 
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'nav.agents', auth: true })
 
 const connected_ds = ref<any[]>([])
 const connections = ref<any[]>([])

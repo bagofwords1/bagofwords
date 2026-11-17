@@ -30,6 +30,7 @@ import EmbeddedArtifactGate from '~/components/dashboard/EmbeddedArtifactGate.vu
 import type { EmbedLoadFailure } from '~/utils/embedSession';
 
 definePageMeta({
+    titleKey: 'pageTitles.dashboard',
     layout: false,
     auth: false
 });

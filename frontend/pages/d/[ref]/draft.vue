@@ -15,6 +15,7 @@
 import SharedDashboardView from '~/components/dashboard/SharedDashboardView.vue';
 
 definePageMeta({
+    titleKey: 'pageTitles.dashboard',
     layout: false,
     auth: false
 });

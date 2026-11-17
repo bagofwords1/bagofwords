@@ -132,7 +132,7 @@
 <script setup lang="ts">
 // No custom layout: the `integrations` layout this page used to inject its
 // data from was renamed away in 6f352fbdb, so the page loads its own data.
-definePageMeta({ auth: true })
+definePageMeta({ titleKey: 'pageTitles.connection', auth: true })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import KmsDiagnosticsPanel from '~/components/datasources/KmsDiagnosticsPanel.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
@@ -217,6 +217,9 @@ const connection = computed(() => integration.value?.connections?.[0] || null)
 const connectionId = computed(() => connection.value?.id || null)
 const connectionType = computed(() => connection.value?.type || integration.value?.type)
 const connectionName = computed(() => connection.value?.name || integration.value?.name || 'Connection')
+// Tab title. `integration` is only set by a successful fetch, so a 403/404
+// never shows a name; the route default ("Connection") covers that case.
+usePageTitle(() => connection.value?.name || integration.value?.name, { loading: isLoading })
 const connectionAuthPolicy = computed(() => connection.value?.auth_policy || integration.value?.auth_policy || 'system_only')
 const connectionUserStatus = computed(() => connection.value?.user_status || integration.value?.user_status)
 

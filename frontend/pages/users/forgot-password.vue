@@ -76,6 +76,7 @@ import Spinner from '~/components/Spinner.vue'
 const { t } = useI18n()
 
 definePageMeta({
+  titleKey: 'pageTitles.forgotPassword',
   auth: {
     unauthenticatedOnly: true,
     navigateAuthenticatedTo: '/'

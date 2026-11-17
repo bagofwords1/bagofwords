@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'data' })
+definePageMeta({ titleKey: 'nav.agents', auth: true, layout: 'data' })
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 import AddMCPModal from '@/components/AddMCPModal.vue'
 import AddCustomAPIModal from '@/components/AddCustomAPIModal.vue'
