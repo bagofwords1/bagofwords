@@ -206,6 +206,42 @@ def test_a_comment_inside_an_attribute_does_not_hide_the_attributes_after_it():
     assert chart_prop_errors(page('<RankChart format={v => <b>{v}</b>} viz={sales} label="rep" value="revenue" />'), DATA) == []
 
 
+NESTED_JSX = (
+    "format={v => <a>see http://x</a>}",                     # // in nested text
+    "format={v => <a>see /* the */ notes</a>}",              # /* in nested text
+    "format={v => <b>Don't {v}</b>}",                        # an apostrophe in nested text
+    "format={v => <b title=\"it's\">{v + '%'} isn't</b>}",   # nested {…} of its own
+    "format={v => <>Don't {v}</>}",                          # a fragment
+    "format={v => <span>a <i>won't</i> b</span>}",           # elements nested in nested text
+    "format={v => v > 1 ? <i>it's</i> : null}",              # after a comparison
+)
+
+
+def test_jsx_written_in_an_attribute_does_not_hide_the_attributes_after_it():
+    # JSX text is not code: a // or /* or an apostrophe in it starts nothing.
+    for attr in NESTED_JSX:
+        assert chart_prop_errors(page(f'<RankChart {attr} viz={{sales}} label="rep" value="revenue" />'), DATA) == [], attr
+        errs = chart_prop_errors(page(f'<RankChart {attr} viz={{sales}} label="rep" value="nope" />'), DATA)
+        assert len(errs) == 1 and 'value="nope"' in errs[0], (attr, errs)
+        errs = chart_prop_errors(page(f'<RankChart {attr} rows={{byRep}} label="rep" value="total" />'), DATA)
+        assert len(errs) == 1 and errs[0].startswith("[chart] <RankChart> has no viz prop"), (attr, errs)
+        assert chart_prop_errors(page(f'<TrendChart {attr} {{...common}} x="month" y="revenue" />'), DATA) == [], attr
+
+
+def test_a_chart_drawn_from_rows_is_not_said_to_draw_an_error_box():
+    # rows= after a // comment between attributes is still a rows prop.
+    for chart in (
+        '<RankChart label="rep"\n  // from the tally\n  rows={tally} value="votes" />',
+        '<RankChart label="rep" /* it\'s the tally */ rows={tally} value="votes" />',
+        '<RankChart rows={tally} label="rep" value="votes" />',
+    ):
+        errs = chart_prop_errors(page(chart), DATA)
+        assert len(errs) == 1 and errs[0].startswith("[chart] <RankChart> has no viz prop"), (chart, errs)
+        assert "error box" not in errs[0], (chart, errs)
+    errs = chart_prop_errors(page('<RankChart label="rep"\n  // rows={tally}\n  value="votes" />'), DATA)
+    assert len(errs) == 1 and "error box" in errs[0], errs
+
+
 def test_a_comment_between_attributes_is_skipped():
     for chart in (
         "<TrendChart viz={sales} /* it's monthly */ x=\"day\" y=\"revenue\" />",

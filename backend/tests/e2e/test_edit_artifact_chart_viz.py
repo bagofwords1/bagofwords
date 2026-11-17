@@ -152,3 +152,43 @@ def test_an_edit_that_adds_a_chart_without_a_viz_is_rejected(
     with_viz = _edit(report["id"], artifact_id, "<h1>Sales</h1>",
                      '<h1>Sales</h1><RankChart viz={sales} rows={rows} label="rep" value="total" />')
     assert with_viz["output"].get("success") is True, with_viz["observation"]
+
+
+@pytest.mark.e2e
+def test_an_edit_by_instruction_sends_the_chart_rules_to_the_model(
+    create_report, create_user, login_user, whoami, create_llm_provider_and_models, test_client, monkeypatch
+):
+    """The MCP edit tool writes the code with one prompt; the chart rules must be in it."""
+    from app.ai.llm.llm import LLM
+    from app.ai.tools.implementations.edit_artifact_legacy import EDIT_NEW_CHARTS_RULE, EDIT_VIZ_PROP_RULE
+    from app.ai.tools.mcp.edit_artifact import EditArtifactMCPTool
+
+    monkeypatch.setenv("OPENAI_API_KEY_TEST", "dummy-local-provider-boundary")
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    create_llm_provider_and_models(user_token=token, org_id=org_id)
+    report = create_report(title=f"R {uuid.uuid4().hex[:6]}", user_token=token, org_id=org_id, data_sources=[])
+    artifact_id, _ = _run(_seed_page(report["id"], "<h1>Sales</h1>"))
+
+    prompts = []
+
+    def _model(self, prompt, *args, usage_scope=None, **kwargs):
+        if usage_scope == "mcp_edit_artifact":  # the edit itself, not context selection
+            prompts.append(prompt)
+        return ""
+
+    monkeypatch.setattr(LLM, "inference", _model)
+
+    async def go():
+        async with async_session_maker() as db:
+            r = await db.get(Report, report["id"])
+            return await EditArtifactMCPTool().execute(
+                {"report_id": report["id"], "artifact_id": artifact_id, "edit_instruction": "Add a monthly trend chart"},
+                db, await db.get(User, r.user_id), await db.get(Organization, r.organization_id),
+            )
+
+    _run(go())
+    assert len(prompts) == 1, "the model was not asked for the edit"
+    for rule in (EDIT_VIZ_PROP_RULE, EDIT_NEW_CHARTS_RULE):
+        assert rule in prompts[0], rule[:80]
