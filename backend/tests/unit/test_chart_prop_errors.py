@@ -159,6 +159,35 @@ def test_a_chart_inside_a_card_still_needs_its_viz():
     assert "so it has no ⓘ" not in errs[0]
 
 
+def test_a_chart_of_resource_or_constant_rows_may_pass_a_null_viz():
+    # Rows read with records.collection(...) or written as constants come from no
+    # visualization; viz={null} draws them with no ⓘ instead of borrowing another query's.
+    for chart in (
+        '<TrendChart viz={null} rows={entries} x="day" y="count" />',
+        '<SectionCard title="Votes"><RankChart viz={null} rows={tally} label="option" value="votes" /></SectionCard>',
+    ):
+        assert chart_prop_errors(page(chart), DATA) == [], chart
+
+
+def test_the_error_offers_a_null_viz_for_rows_from_no_visualization():
+    errs = chart_prop_errors(page('<RankChart rows={tally} label="option" value="votes" />'), DATA)
+    assert len(errs) == 1, errs
+    assert "viz={vizById(" in errs[0]
+    assert "viz={null}" in errs[0] and "resource" in errs[0] and "constants" in errs[0], errs[0]
+
+
+def test_the_authoring_docs_offer_a_null_viz_only_for_resource_or_constant_rows():
+    from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+    from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool as LegacyEditTool
+
+    lines = [ln for ln in SANDBOX_RUNTIME_PROMPT.splitlines() if "viz={null}" in ln]
+    assert len(lines) == 1, lines
+    assert "resource" in lines[0] and "constants" in lines[0], lines[0]
+    legacy = [ln for ln in LegacyEditTool()._build_edit_system_prompt().splitlines() if ln.startswith("- **`viz` prop:**")]
+    assert len(legacy) == 1 and "viz={null}" in legacy[0], legacy
+    assert "resource" in legacy[0] and "constants" in legacy[0], legacy[0]
+
+
 def test_the_error_quotes_the_whole_tag():
     tag = '<RankChart rows={byRep} label="rep" value="total" />'
     errs = chart_prop_errors(page(tag), DATA)
