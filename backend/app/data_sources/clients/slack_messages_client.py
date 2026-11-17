@@ -87,6 +87,9 @@ _CONTEXT_CHARS = 200
 _MAX_BROADENED_TERMS = 3
 # Most allowed channels named as in:#x filters in one search query.
 _MAX_IN_FILTERS = 10
+# Pages walked when matches are filtered HERE (scope not sent to Slack):
+# search.messages is Tier 2, so a wide workspace scan stays small.
+_MAX_FILTERED_SEARCH_PAGES = 3
 # Messages shown each side of an unthreaded message on read.
 _WINDOW = 10
 _PREVIEW_CHARS = 255
@@ -120,6 +123,9 @@ _SPECIAL_MENTION_RE = re.compile(r"<!(here|channel|everyone)(?:\|[^>]*)?>")
 _SUBTEAM_RE = re.compile(r"<!subteam\^[A-Z0-9]+(?:\|([^>]*))?>")
 _LINK_RE = re.compile(r"<((?:https?|mailto):[^>|]+)(?:\|([^>]*))?>")
 _CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9]{6,}$")
+#: Ids an agent's channel scope may hold: public (C…) and private (G…)
+#: channels — DMs are one switch, never picked one by one.
+SCOPE_CHANNEL_ID_RE = re.compile(r"^[CG][A-Z0-9]{6,}$")
 _THREAD_TS_RE = re.compile(r"[?&]thread_ts=([0-9]+\.[0-9]+)")
 
 # Message subtypes that are not something a person said.
@@ -362,6 +368,16 @@ class SlackMessagesClient(DataSourceClient):
             self._users[user_id] = name or user_id
         return self._users[user_id]
 
+    def _prefetch_message_users(self, messages) -> None:
+        """Name every poster and @-mentioned user of a page in one parallel
+        batch, instead of one users.info round trip per row."""
+        ids = []
+        for m in messages or []:
+            if not (m.get("user_profile") or {}).get("display_name") and m.get("user"):
+                ids.append(m["user"])
+            ids.extend(user for user, _label in _USER_MENTION_RE.findall(str(m.get("text") or "")))
+        self._prefetch_users(ids)
+
     def _prefetch_users(self, user_ids) -> None:
         with self._users_lock:
             todo = sorted({u for u in user_ids if u and u not in self._users})
@@ -581,6 +597,7 @@ class SlackMessagesClient(DataSourceClient):
             roots = [m for m in messages[skip:] if self._is_user_message(m) and m.get("reply_count")
                      and str(m.get("thread_ts") or "") == str(m.get("ts"))]
             replies = self._thread_replies(conv, roots) if expand_threads else {}
+            self._prefetch_message_users(messages[skip:] + [r for rs in replies.values() for r in rs])
             for i in range(skip, len(messages)):
                 m = messages[i]
                 if not self._is_user_message(m):
@@ -636,6 +653,12 @@ class SlackMessagesClient(DataSourceClient):
                     "folder": self._folder(conv)}
 
         # No conversation: the newest messages across conversations (bounded).
+        # The window's upper bound is frozen at the first page and carried in
+        # the cursor, so messages arriving meanwhile can't shift the offset
+        # (repeating or skipping rows on page 2).
+        frozen = str(state.get("t") or f"{time.time():.6f}")
+        frozen_at = datetime.fromtimestamp(float(frozen), tz=timezone.utc)
+        before = frozen_at if before is None or before > frozen_at else before
         convs = self.list_conversations()
         if not convs:
             return {"items": [], "next_cursor": None, "folder": None}
@@ -662,7 +685,7 @@ class SlackMessagesClient(DataSourceClient):
         merged.sort(key=lambda r: r.get("modified_at") or "", reverse=True)
         skip = int(state.get("o") or 0)
         page = merged[skip: skip + n]
-        nxt = encode_cursor({"o": skip + n}) if len(merged) > skip + n else None
+        nxt = encode_cursor({"o": skip + n, "t": frozen}) if len(merged) > skip + n else None
         return {"items": page, "next_cursor": nxt, "folder": None, "partial": partial}
 
     @staticmethod
@@ -792,12 +815,17 @@ class SlackMessagesClient(DataSourceClient):
         data = self._call("search.messages", query=query, count=_SEARCH_PAGE, page=page,
                           sort="score", highlight="false")
         block = data.get("messages") or {}
+        self._prefetch_message_users(block.get("matches") or [])
         paging = block.get("paging") or block.get("pagination") or {}
         return block.get("matches") or [], int(paging.get("pages") or paging.get("page_count") or 1)
 
     def _search_walk(self, q: str, conv: Optional[dict], after, before, n: int,
                      state: dict, flt: tuple, scoped: bool = True) -> Dict[str, Any]:
         full_q = state.get("q") or self._search_query(q, conv, after, before, scoped=scoped)
+        # Scope applied HERE (not sent to Slack as in:#x): walk only a few
+        # pages — most of a workspace-wide page would be thrown away.
+        filtering = conv is None and (bool(self.allowed) or not self.include_dms) and "in:#" not in full_q
+        max_pages = _MAX_FILTERED_SEARCH_PAGES if filtering else _MAX_SEARCH_PAGES
         page = int(state.get("p") or 1)
         skip = int(state.get("o") or 0)
         items: List[dict] = []
@@ -807,7 +835,7 @@ class SlackMessagesClient(DataSourceClient):
             cur = encode_cursor({**nxt, "q": full_q}) if nxt else None
             return {"items": items, "next_cursor": cur, "folder": folder}
 
-        for _ in range(_MAX_SEARCH_PAGES):
+        for _ in range(max_pages):
             matches, pages = self._search_page(full_q, page)
             for i in range(skip, len(matches)):
                 row = self._match_row(matches[i], flt)
@@ -902,6 +930,7 @@ class SlackMessagesClient(DataSourceClient):
             data = self._call("conversations.replies", channel=channel_id, ts=ts,
                               limit=_PAGE_SIZE, cursor=cursor)
             out.extend(m for m in data.get("messages") or [] if self._is_user_message(m))
+            self._prefetch_message_users(data.get("messages") or [])
             cursor = (data.get("response_metadata") or {}).get("next_cursor") or None
             if not cursor or not data.get("has_more", True):
                 break

@@ -770,3 +770,54 @@ def test_a_fanout_spends_a_small_thread_budget():
     _client(fake).list_messages()  # no conversation: fan out
     assert fake.count("conversations.replies") <= mod._FANOUT_THREAD_EXPANSIONS
     assert fake.count("conversations.history") <= mod._FANOUT_CONVERSATIONS
+
+
+def test_fanout_pages_share_one_frozen_window():
+    """Page 2 of a cross-conversation listing reads the same window as page 1
+    (upper bound frozen in the cursor), so new messages can't shift rows."""
+    fake = FakeSlack()
+    latest_seen = []
+
+    def history(q):
+        latest_seen.append(q.get("latest"))
+        return {"ok": True, "has_more": False, "messages": [
+            _msg(f"17000001{n:02d}.000100", text=f"{q['channel']}-{n}") for n in range(5)]}
+
+    fake.routes["conversations.history"] = history
+    client = _client(fake, include_direct_messages=False)
+    first = client.list_messages(max_results=4)
+    second = _client(fake, include_direct_messages=False).list_messages(max_results=4, cursor=first["next_cursor"])
+    bounds = {b for b in latest_seen if b}
+    assert len(bounds) == 1  # every page, every conversation: the same frozen upper bound
+    assert not {i["id"] for i in first["items"]} & {i["id"] for i in second["items"]}
+
+
+def test_a_locally_filtered_search_walks_only_a_few_pages():
+    import app.data_sources.clients.slack_messages_client as mod
+
+    fake = FakeSlack()
+    fake.routes["search.messages"] = lambda q: {"ok": True, "messages": {
+        "matches": [_match("C0SALES001", f"17000{int(q['page']):03d}0.000100", name="sales")],
+        "paging": {"pages": 50}}}
+    # DMs on + a channel scope: the scope can't go to Slack as in:#x.
+    _client(fake, allowed_channels=["C0SUPPORT1"]).search_messages("churn")
+    assert fake.count("search.messages") <= mod._MAX_FILTERED_SEARCH_PAGES
+
+
+def test_posters_are_named_in_one_parallel_batch_per_page():
+    fake = FakeSlack()
+    fake.routes["conversations.history"] = lambda q: {"ok": True, "has_more": False, "messages": [
+        _msg("1700000300.000100", user="U0OMER0001", text="hi <@U0DANA0001>"),
+        _msg("1700000200.000100", user="U0DANA0001"),
+        _msg("1700000100.000100", user="U0OMER0001"),
+    ]}
+    _client(fake).list_messages(conversation="#support")
+    looked_up = [q["user"] for m, q in fake.calls if m == "users.info"]
+    assert sorted(looked_up) == ["U0DANA0001", "U0OMER0001"]  # once each, poster or mention
+
+
+def test_oauth_requests_exactly_the_scopes_the_client_checks():
+    from app.data_sources.clients.slack_messages_client import DM_SCOPES, REQUIRED_SCOPES
+    from app.services.connection_oauth_service import get_oauth_params
+
+    assert get_oauth_params(_conn())["scopes"].split(",") == [*REQUIRED_SCOPES, *DM_SCOPES]

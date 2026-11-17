@@ -38,10 +38,14 @@
           <button class="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="editScope(conn)">Edit scope</button>
         </div>
       </div>
-      <p v-if="LIVE_TYPES.includes(conn.type)" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('agentsPage.liveSourceHint') }}</p>
-      <p v-if="conn.type === 'slack_messages'" class="mt-1 text-xs text-gray-600 dark:text-gray-300" data-testid="slack-scope-summary">
-        {{ slackScopeSummary(conn) }}
-      </p>
+      <!-- One v-if/v-else pair: the Base / Scope grid is for path-scoped
+           sources only, never for live per-user ones (mail, Teams, Slack). -->
+      <template v-if="LIVE_TYPES.includes(conn.type)">
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('agentsPage.liveSourceHint') }}</p>
+        <p v-if="conn.type === 'slack_messages'" class="mt-1 text-xs text-gray-600 dark:text-gray-300" data-testid="slack-scope-summary">
+          {{ slackScopeSummary(conn) }}
+        </p>
+      </template>
       <div v-else class="mt-3 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-xs">
         <span class="text-ink-muted">Base</span>
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) }}</span>

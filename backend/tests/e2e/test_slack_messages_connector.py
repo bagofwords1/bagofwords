@@ -269,3 +269,25 @@ def test_deleting_the_connection_removes_agents_channel_choices(test_client, org
             return (await db.execute(select(DataSourceConnectionSetting).where(
                 DataSourceConnectionSetting.connection_id == conn["id"]))).scalars().all()
     assert asyncio.run(rows()) == []
+
+
+@pytest.mark.e2e
+def test_concurrent_first_saves_of_a_scope_do_not_fail(test_client, org):
+    """Two managers (or a double click) saving the first scope at once: the
+    second write updates instead of hitting the unique constraint (500)."""
+    import asyncio
+    from app.dependencies import async_session_maker
+    from app.services.slack_channel_scope import get_scope, set_scope
+
+    conn, ds = _slack_agent(test_client, org["headers"])
+
+    async def both():
+        async with async_session_maker() as a, async_session_maker() as b:
+            await asyncio.gather(
+                set_scope(a, ds["id"], conn["id"], {"allowed_channels": [{"id": "C0SUPPORT1", "name": "support"}]}),
+                set_scope(b, ds["id"], conn["id"], {"allowed_channels": [{"id": "C0SALES001", "name": "sales"}]}),
+            )
+        async with async_session_maker() as c:
+            return await get_scope(c, ds["id"], conn["id"])
+    scope = asyncio.run(both())
+    assert len(scope["allowed_channels"]) == 1

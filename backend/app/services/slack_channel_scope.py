@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_source_connection_setting import DataSourceConnectionSetting
@@ -67,12 +68,23 @@ async def set_scope(db: AsyncSession, data_source_id: str, connection_id: str, s
         )
     )).scalar_one_or_none()
     if row is None:
-        row = DataSourceConnectionSetting(
+        db.add(DataSourceConnectionSetting(
             data_source_id=str(data_source_id), connection_id=str(connection_id), settings=scope,
-        )
-        db.add(row)
-    else:
-        row.settings = {**(row.settings or {}), **scope}
+        ))
+        try:
+            await db.commit()
+            return scope
+        except IntegrityError:
+            # A concurrent first save (two managers, a double click) inserted
+            # the row first: last write wins, as an update.
+            await db.rollback()
+            row = (await db.execute(
+                select(DataSourceConnectionSetting).where(
+                    DataSourceConnectionSetting.data_source_id == str(data_source_id),
+                    DataSourceConnectionSetting.connection_id == str(connection_id),
+                )
+            )).scalar_one()
+    row.settings = {**(row.settings or {}), **scope}
     await db.commit()
     return scope
 
@@ -134,3 +146,40 @@ def describe_scope(scope: Dict[str, Any]) -> Optional[str]:
     tail = " and the user's DMs" if dms else ""
     return (f"This agent reads only these Slack channels{tail}: {names}. "
             "Other channels are not readable here.")
+
+
+async def agents_on_connection(db: AsyncSession, connection_id: str) -> List[str]:
+    """Ids of every agent linked to the connection."""
+    from app.models.domain_connection import domain_connection
+
+    rows = (await db.execute(
+        select(domain_connection.c.data_source_id).where(domain_connection.c.connection_id == str(connection_id))
+    )).all()
+    return [str(r[0]) for r in rows]
+
+
+async def run_scope(
+    db: AsyncSession,
+    connection_id: str,
+    run_agent_ids: Optional[Iterable[str]],
+    pinned_ids: Iterable[str] = (),
+) -> Dict[str, Any]:
+    """THE scope a Slack client gets for one run — every entry point (chat
+    tools, file references, the planner note) calls this, so they agree.
+
+    - Candidates: the run's agents that carry this connection; with no run
+      context (no report, or none of its agents carry it), every agent linked
+      to the connection — so a call outside a report is never wider than what
+      the agents on the connection allow.
+    - Agents the report pins win over ones that joined the run by themselves
+      (a personal connector), so they can't reopen a scope the user picked.
+    - The scopes of the remaining agents combine as a union.
+    """
+    on_conn = await agents_on_connection(db, connection_id)
+    on_set = set(on_conn)
+    candidates = [str(i) for i in (run_agent_ids or []) if str(i) in on_set]
+    if not candidates:
+        candidates = on_conn
+    pinned = {str(i) for i in pinned_ids or ()}
+    chosen = [i for i in candidates if i in pinned] or candidates
+    return await scope_for_agents(db, connection_id, chosen)

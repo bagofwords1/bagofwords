@@ -404,19 +404,15 @@ async def resolve_file_client(
 
     service = ConnectionService()
     config_overrides = None
-    if resolved_conn.type == "slack_messages" and report:
-        # Each agent may narrow the shared Slack connection to its channels;
-        # a report with several agents on this connection reads the union.
-        from app.services.slack_channel_scope import client_overrides, scope_for_agents
-        agent_ids = [str(ds.id) for ds, conn in attached if str(conn.id) == str(resolved_conn.id)]
-        # An explicit choice wins: when the report pins agents on this
-        # connection, only THEIR scopes count. A personal connector that joins
-        # every run on its own (see resolve_run_agents) must not reopen a
-        # channel scope the user deliberately picked.
-        pinned = {str(ds.id) for ds in (getattr(report, "data_sources", None) or [])}
-        if any(i in pinned for i in agent_ids):
-            agent_ids = [i for i in agent_ids if i in pinned]
-        config_overrides = client_overrides(await scope_for_agents(db, str(resolved_conn.id), agent_ids))
+    if resolved_conn.type == "slack_messages":
+        # Each agent may narrow the shared Slack connection to its channels.
+        # One rule for every entry point (see slack_channel_scope.run_scope):
+        # union of the run's agents on this connection, pinned agents win;
+        # with no report, every agent linked to the connection.
+        from app.services.slack_channel_scope import client_overrides, run_scope
+        run_ids = [str(ds.id) for ds, conn in attached if str(conn.id) == str(resolved_conn.id)] if report else None
+        pinned = [str(ds.id) for ds in (getattr(report, "data_sources", None) or [])] if report else []
+        config_overrides = client_overrides(await run_scope(db, str(resolved_conn.id), run_ids, pinned))
     try:
         # Only Slack passes overrides; every other type keeps the exact call
         # it always made.

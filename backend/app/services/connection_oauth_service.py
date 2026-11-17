@@ -515,11 +515,8 @@ def get_oauth_params(connection: Connection) -> dict:
         # which sees only channels the bot was invited to and cannot search.
         # DM scopes are always requested: whether an agent reads DMs is a
         # per-agent choice made after sign-in, on the same token.
-        scopes = [
-            "channels:read", "groups:read", "channels:history", "groups:history",
-            "search:read", "users:read",
-            "im:read", "im:history", "mpim:read", "mpim:history",
-        ]
+        from app.data_sources.clients.slack_messages_client import DM_SCOPES, REQUIRED_SCOPES
+        scopes = [*REQUIRED_SCOPES, *DM_SCOPES]
         return {
             "authorize_url": "https://slack.com/oauth/v2/authorize",
             "token_url": "https://slack.com/api/oauth.v2.access",

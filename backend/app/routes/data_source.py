@@ -745,8 +745,8 @@ async def put_channel_scope(
     _require_slack(conn)
     if len(body.allowed_channels) > MAX_CHANNELS:
         raise HTTPException(status_code=400, detail=f"At most {MAX_CHANNELS} channels per agent")
-    import re as _re
-    bad = [c.id for c in body.allowed_channels if not _re.fullmatch(r"[CG][A-Z0-9]{6,}", c.id or "")]
+    from app.data_sources.clients.slack_messages_client import SCOPE_CHANNEL_ID_RE
+    bad = [c.id for c in body.allowed_channels if not SCOPE_CHANNEL_ID_RE.match(c.id or "")]
     if bad:
         # Ids only: a name would match by name and break on a rename.
         raise HTTPException(status_code=400, detail=f"Not Slack channel ids: {', '.join(bad[:5])}")

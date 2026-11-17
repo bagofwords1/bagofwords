@@ -1062,15 +1062,20 @@ class SchemaContextBuilder:
     _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages"}
 
     async def _stamp_slack_scopes(self, ds, file_scopes) -> None:
-        """Tell the model which Slack channels THIS agent reads (its per-agent
-        channel choice), so it doesn't go looking in the others."""
+        """Tell the model which Slack channels this run reads, so it doesn't
+        go looking in the others."""
         slack = [fs for fs in file_scopes if fs.type == "slack_messages" and fs.connection_id]
         if not slack:
             return
         try:
-            from app.services.slack_channel_scope import describe_scope, get_scope
+            # The same scope the run's Slack client gets (run_scope): the
+            # union across this run's agents, pinned agents winning — not this
+            # agent's own choice alone, or the note and the client disagree.
+            from app.services.slack_channel_scope import describe_scope, run_scope
+            run_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
+            pinned = [str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or [])]
             for fs in slack:
-                fs.note = describe_scope(await get_scope(self.db, str(ds.id), str(fs.connection_id)))
+                fs.note = describe_scope(await run_scope(self.db, str(fs.connection_id), run_ids, pinned))
         except Exception:  # context is best-effort; never fail the build
             logger.debug("slack channel scope note unavailable", exc_info=True)
 
