@@ -193,6 +193,13 @@ async def _placement(db, organization, user, inst_id, renderer: Optional[Placeme
     return await renderer.render(found) if found else None
 
 
+def _in_effect(db_status, pending: bool, *, created: bool = False) -> bool:
+    """Whether the rule reaches any report right now: it must be active, and a
+    rule that was just created must not be waiting for approval (a pending
+    edit leaves the live version in force)."""
+    return DB_TO_STATUS.get(db_status) == "active" and not (created and pending)
+
+
 # list_instructions fetches up to this many rows when it filters by placement,
 # then pages the matches itself.
 PLACEMENT_FILTER_FETCH = 1000
@@ -577,31 +584,56 @@ class CreateInstructionMCPTool(MCPTool):
         # Report what the build layer actually did.
         pending = await _waiting_for_review(db, result.id)
         logger.info("create_instruction: %s by user %s pending=%s", result.id, user_id, pending)
+        # Where it applies as this caller may see it; the inputs stand in when
+        # the placement can't be read back.
+        placement = await _placement(db, organization, user, result.id) or {
+            "scope": "targeted" if (folder_ids or ds_ids) else "global",
+            "folders": [{"id": f} for f in folder_ids], "agents": [{"id": a} for a in ds_ids],
+        }
+        in_effect = _in_effect(getattr(result, "status", None), pending, created=True)
         return MCPCreateInstructionOutput(
             success=True,
             instruction_id=str(result.id), folder_id=input_data.folder_id,
             scope="targeted" if (folder_ids or ds_ids) else "global",
             folder_ids=folder_ids, data_source_ids=ds_ids,
-            applies_in=applies_in("targeted" if (folder_ids or ds_ids) else "global", folder_ids, ds_ids),
+            applies_in=applies_in(placement, in_effect=in_effect, pending=pending),
+            in_effect=in_effect,
             build_status="pending_approval" if pending else "approved",
             requires_approval=pending,
         ).model_dump()
 
 
-def applies_in(scope: str, folder_ids, agent_ids) -> str:
-    """Where a rule takes effect, in the words a client should repeat."""
-    if scope == "global":
-        return "Every report."
-    parts = []
-    if folder_ids:
-        parts.append(
-            f"reports scoped to its {len(folder_ids)} folder(s) (create_report agent_folder_ids), for every "
-            "agent in them, including agents added later — not in reports pinned to individual agents or "
-            "title-only reports"
-        )
-    if agent_ids:
-        parts.append(f"any report that uses one of its {len(agent_ids)} agent(s)")
-    return ("In " + "; and in ".join(parts) + ".") if parts else "No report: it has no folder or agent."
+def applies_in(placement: Optional[Dict[str, Any]], *, in_effect: bool = True, pending: bool = False) -> str:
+    """Where a rule takes effect, in the words a client should repeat.
+
+    ``placement`` is the caller's rendered view (PlacementRenderer), so the
+    counts cover only the folders and agents this caller may see; the rest are
+    mentioned without a number. A rule that is inactive, or was just created
+    and waits for approval, reaches no report yet, and the text says so first.
+    """
+    placement = placement or {}
+    if placement.get("scope") == "global":
+        where = "every report"
+    else:
+        folders, agents = len(placement.get("folders") or []), len(placement.get("agents") or [])
+        parts = []
+        if folders:
+            parts.append(
+                f"reports scoped to its {folders} folder(s) (create_report agent_folder_ids), for every "
+                "agent in them, including agents added later — not in reports pinned to individual agents or "
+                "title-only reports"
+            )
+        if agents:
+            parts.append(f"any report that uses one of its {agents} agent(s)")
+        if placement.get("hidden_target_count"):
+            parts.append("reports that reach its other folders or agents, which you can't see")
+        if not parts:
+            return "No report: it has no folder or agent."
+        where = "in " + "; and in ".join(parts)
+    if in_effect:
+        return where[0].upper() + where[1:] + "."
+    why = "it waits for approval" if pending else "it is inactive"
+    return f"No report yet: {why}. Once it is live: {where}."
 
 
 LAST_TARGET = (
@@ -812,8 +844,8 @@ class EditInstructionMCPTool(MCPTool):
 
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
         pending = await _waiting_for_review(db, data.instruction_id)
-        placement_after = (await load_placements(db, [data.instruction_id])).get(str(data.instruction_id))
-        placement = await PlacementRenderer(db, organization, user).render(placement_after) if placement_after else None
+        placement = await _placement(db, organization, user, data.instruction_id)
+        in_effect = _in_effect(getattr(fresh, "status", None), pending)
         status_changed = new_db_status is not None and new_db_status != base_status
         logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
@@ -826,8 +858,8 @@ class EditInstructionMCPTool(MCPTool):
             previous_status=DB_TO_STATUS.get(base_status) if status_changed else None,
             new_status=data.status if status_changed else None,
             instruction=_detail(fresh, can_edit=True, pending=pending, placement=placement),
-            applies_in=applies_in(placement_after.scope, placement_after.folder_ids, placement_after.agent_ids)
-            if placement_after else None,
+            applies_in=applies_in(placement, in_effect=in_effect) if placement else None,
+            in_effect=in_effect if placement else None,
         ).model_dump()
 
 

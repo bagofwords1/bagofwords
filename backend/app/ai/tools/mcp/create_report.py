@@ -1,5 +1,6 @@
 """MCP Tool: create_report - Creates a new analysis session (report)."""
 
+import logging
 from typing import Dict, Any, List
 
 from fastapi import HTTPException
@@ -12,6 +13,8 @@ from app.services.report_service import ReportService
 from app.services.data_source_service import DataSourceService
 from app.schemas.report_schema import ReportCreate
 from app.settings.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _ids(value) -> List[str]:
@@ -59,9 +62,11 @@ async def missing_folder_rules(db, organization, user, report, agents) -> List[D
     Folder rules apply only in reports scoped to that folder. A report pinned
     to an agent (or a title-only report, which pins every agent) runs without
     the rules of the agent's folder, and nothing else tells the client. Only
-    folders the caller can query are named, so a direct grant on one agent
-    reveals nothing about its folder.
+    folders the caller can query (the folder ``view`` right) are named, so a
+    direct grant on one agent reveals nothing about its folder.
     """
+    from sqlalchemy import select
+    from app.models.folder import folder_instructions
     from app.models.report import report_folder_ids
     from app.services.folder_knowledge import readable_folder_rules
     from app.services.folder_service import browsable_folder_tree, folder_path
@@ -74,9 +79,16 @@ async def missing_folder_rules(db, organization, user, report, agents) -> List[D
             homes.setdefault(home, []).append(str(a.id))
     if not homes:
         return []
+    # One query for the folders that have any rule attached: a title-only
+    # report spans every agent, and most folders have none to load.
+    with_rules = set(await db.scalars(
+        select(folder_instructions.c.folder_id).where(folder_instructions.c.folder_id.in_(homes)).distinct()
+    ))
+    if not with_rules:
+        return []
     tree, rights = await browsable_folder_tree(db, organization, user)
     out = []
-    for fid in sorted(homes, key=lambda f: folder_path(tree, f).lower() if f in tree else ""):
+    for fid in sorted(with_rules, key=lambda f: folder_path(tree, f).lower() if f in tree else ""):
         if fid not in tree or not rights.has_resource_permission("folder", fid, "view"):
             continue
         rules = await readable_folder_rules(db, organization, user, fid)
@@ -226,7 +238,7 @@ class CreateReportTool(MCPTool):
             if picked_ids:
                 result["scope"] = {"mode": "agents", "folders": [], "hidden_folder_count": 0,
                                    "pinned_agent_ids": [str(ds.id) for ds in attached]}
-            self._add_missing(result, await missing_folder_rules(db, organization, user, report, attached))
+            await self._add_missing(result, db, organization, user, report, attached)
             return result
 
         # Folder scope: report what the run will actually use — the folders'
@@ -241,12 +253,22 @@ class CreateReportTool(MCPTool):
              "folder_path": paths.get(str(ds.id))}
             for ds in effective
         ]
-        self._add_missing(result, await missing_folder_rules(db, organization, user, loaded, effective))
+        await self._add_missing(result, db, organization, user, loaded, effective)
         await db.commit()
         return result
 
     @staticmethod
-    def _add_missing(result: Dict[str, Any], missing: List[Dict[str, Any]]) -> None:
+    async def _add_missing(result: Dict[str, Any], db, organization, user, report, agents) -> None:
+        """Add the missing-folder-rules note. It is advice: the report already
+        exists, so a failure here must not fail the call (the client would
+        retry and create a second report). Runs in a savepoint so a failed
+        read leaves the caller's transaction usable."""
+        try:
+            async with db.begin_nested():
+                missing = await missing_folder_rules(db, organization, user, report, agents)
+        except Exception:
+            logger.exception("create_report: listing missing folder rules failed")
+            return
         if missing:
             result["missing_folder_rules"] = missing
             result["missing_folder_rules_hint"] = missing_folder_rules_hint(missing)

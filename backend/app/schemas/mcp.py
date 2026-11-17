@@ -383,6 +383,7 @@ class MCPCreateInstructionOutput(BaseModel):
     data_source_ids: Optional[List[str]] = None
     rejected_reason: Optional[str] = Field(default=None, description="no_target, invalid_input, permission_denied")
     applies_in: Optional[str] = Field(default=None, description="Where the rule takes effect — tell the user this, not more")
+    in_effect: Optional[bool] = Field(default=None, description="False while the rule reaches no report: it waits for approval or is inactive")
     success: bool
     instruction_id: Optional[str] = None
     build_status: Optional[str] = Field(default=None, description="Build status: approved (live) or pending_approval (needs admin review)")
@@ -624,6 +625,7 @@ class MCPEditInstructionOutput(BaseModel):
     )
     current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
     applies_in: Optional[str] = Field(default=None, description="Where the rule takes effect after this edit — tell the user this, not more")
+    in_effect: Optional[bool] = Field(default=None, description="False while the rule reaches no report: it is inactive")
     error_message: Optional[str] = None
 
 
