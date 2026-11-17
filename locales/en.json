@@ -907,6 +907,15 @@
         "degraded": "fallback summary (no model summary)",
         "cancel": "Cancel",
         "dismiss": "Dismiss"
+      },
+      "clear": {
+        "description": "Start a fresh context — earlier turns stay visible, the agent stops seeing them",
+        "usage": "/clear",
+        "pending": "Will clear the context when the agent finishes this run",
+        "running": "Clearing context…",
+        "done": "Context cleared · the agent starts fresh from your next message",
+        "nothing": "Nothing to clear yet",
+        "failed": "Couldn't clear the context"
       }
     },
     "permissionMode": {
@@ -1420,6 +1429,9 @@
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
     "followUp": "Follow up",
+    "rerun": "Rerun",
+    "rerunTooltip": "Run this prompt again as a new message",
+    "rerunQueuedTooltip": "Add to the queue: runs again after the current response",
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
@@ -1458,7 +1470,9 @@
     "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
     "compactingContext": "Compacting context…",
     "compactionTurns": "{turns} turns",
-    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Context cleared",
+    "contextClearedDividerHint": "The agent does not see anything above this line"
   },
   "tools": {
     "common": {
@@ -5010,6 +5024,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     },
+    "exchangeOnprem": {
+      "urlTitle": "Exchange server URL",
+      "urlDescription": "Address of your Exchange server, e.g. https://mail.example.com. The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out.",
+      "sharedTitle": "Shared mailboxes",
+      "sharedDescription": "Optional. Addresses of shared or team mailboxes to include, separated by commas, e.g. support@example.com, sales@example.com. Exchange decides who may open each one: people only see the mailboxes their account already has access to.",
+      "ownTitle": "Include the account's own mailbox",
+      "ownDescription": "Turn off when signing in with a service account whose own mailbox is not relevant. The first shared mailbox then becomes the default."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
@@ -7974,6 +7996,23 @@
     "modelDesc": "Each viewer's default follows their group and the organization (and Auto routing when it is on). A model a viewer can't use falls back to their default.",
     "bubbleUsesAgents": "The agents above"
   },
+  "dashboardDelete": {
+    "action": "Delete",
+    "title": "Delete this dashboard?",
+    "titleDoc": "Delete this document?",
+    "titleSlides": "Delete this presentation?",
+    "body": "{title} and all of its versions will be deleted. The conversations it was made in are kept.",
+    "publishedWarning": "It is published: its link will stop working for everyone who has it.",
+    "sharedWarning": "It is shared: everyone it is shared with loses access.",
+    "scheduleWarning": "Its scheduled refresh stops, and subscribers get no more emails.",
+    "confirm": "Delete",
+    "deleted": "{title} was deleted",
+    "failed": "Could not delete it",
+    "settingsTitle": "Delete this dashboard",
+    "settingsTitleDoc": "Delete this document",
+    "settingsTitleSlides": "Delete this presentation",
+    "settingsDesc": "Removes it and all of its versions for everyone. You will be asked to confirm."
+  },
   "dashboardStart": {
     "title": "No dashboard here yet",
     "subtitle": "Create one in this conversation, or keep working on one you can edit.",
@@ -8238,6 +8277,11 @@
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
     "addFailed": "Failed to add members",
+    "inherited": "Inherited access",
+    "inheritedHint": "These people and groups reach this agent through a folder or connection. Change their access at the source.",
+    "viaFolder": "Via folder {name}",
+    "viaConnection": "Via connection {name}",
+    "inheritedHidden": "Others may have access through a folder or connection you don't manage.",
     "permissionCap": {
       "title": "Permission mode cap",
       "hint": "Limits the permission mode of reports that use this agent. Ask: every tool follows its own setting. Auto: a model may decide.",

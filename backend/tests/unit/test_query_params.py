@@ -583,6 +583,7 @@ _EXPECTED_LITERAL_RULES = {
     "CouchbaseClient": "backslash", "CrowdStrikeClient": "standard", "DataSourceClient": "standard",
     "DatabricksSqlClient": "backslash", "Db2Client": "standard", "DellOmeClient": "standard",
     "DocumentumClient": "standard", "DremioClient": "standard", "DruidClient": "standard",
+    "ExchangeOnpremClient": "standard",
     "DuckDBClient": "standard", "DynamodbClient": "doubled", "ElasticsearchClient": "standard+envelope",
     "F5BigIpClient": "standard", "GCSClient": "standard", "GitHubRepoClient": "standard",
     "GitLabRepoClient": "standard", "GitRepoClient": "standard", "GmailMailClient": "standard",

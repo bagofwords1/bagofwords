@@ -136,6 +136,42 @@ async def compact_report_context(
     return result
 
 
+@router.post("/api/reports/{report_id}/context/clear")
+@requires_permission('create_reports', model=Report, owner_only=True)
+async def clear_report_context(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """/clear in the composer: start a fresh agent context. Nothing is
+    deleted — earlier turns stay in the transcript behind a "Context cleared"
+    divider, but the agent no longer sees them (no summary, no protected
+    opening exchange). No LLM call. Idle-only, like /compact: 409 while an
+    agent execution is streaming or a compaction is running on this report."""
+    from sqlalchemy import select
+    from app.services.context_compaction_service import context_compaction_service, ContextCompactionService
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if await ContextCompactionService.is_report_busy(db, report_id):
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+
+    result = await context_compaction_service.clear(db, report)
+    if result.get("status") == "already_running":
+        raise HTTPException(status_code=409, detail="Context compaction is in progress on this report; try again when it finishes.")
+    if result.get("status") == "busy":
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message", "Clear failed"))
+
+    result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
+    return result
+
+
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports', model=Report, owner_only=True)
 async def create_completion(

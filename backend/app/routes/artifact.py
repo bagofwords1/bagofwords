@@ -420,14 +420,17 @@ async def update_artifact(
 
 
 @router.delete("/{artifact_id}")
-@requires_permission('update_reports', model=ArtifactModel, owner_only=True)
+@requires_permission('delete_reports', model=ArtifactModel, owner_only=True)
 async def delete_artifact(
     artifact_id: str,
     current_user: User = Depends(current_user_dep),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Delete an artifact (soft delete)."""
+    """Delete ONE VERSION (`artifact_id` is an ArtifactVersion id; soft).
+    The dashboard goes with its last version, and nothing else is touched:
+    no unpublish, no schedule. To delete a dashboard, use
+    `DELETE /artifacts/{dashboard_id}/dashboard` (routes/dashboard.py)."""
     await _assert_may_write_version(db, artifact_id, current_user)
     success = await service.delete(db, artifact_id)
     if not success:

@@ -802,6 +802,33 @@ class TablesSchemaContext(ContextSection):
                 if fs.connection_id:
                     attrs["id"] = fs.connection_id
                 return xml_tag("connection", "\n".join(inner), attrs)
+            if fs.type == "exchange_onprem":
+                inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
+                # Same mail vocabulary as the cloud mailboxes, but the identity
+                # is the connection's Windows account and the connection may
+                # span several mailboxes.
+                inner.append(xml_tag(
+                    "auth",
+                    xml_escape(fs.note) if fs.note else (
+                        "read live with this connection's Windows account. Nothing is "
+                        "indexed, so an empty count here does NOT mean no mail."
+                    )
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "list_emails with list_folders=true to see the mailboxes and folders · "
+                    "search_email to find messages (keywords, from:, subject:) — with no "
+                    "folder it searches every mailbox on the connection · list_emails to "
+                    "browse a time window or unread mail — with no folder it covers the "
+                    "whole default mailbox, with a mailbox address as the folder it covers "
+                    "that mailbox · read_email to open one. A non-default mailbox's "
+                    "folders are prefixed with its address. Cite the message's Link: URL "
+                    "when one is shown."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "mailbox"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
             if fs.type in ("outlook_mail", "gmail_mail"):
                 inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
                 # Mail vocabulary: a mailbox backs only search_email /

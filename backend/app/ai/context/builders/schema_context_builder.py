@@ -1038,14 +1038,14 @@ class SchemaContextBuilder:
         "sharepoint_onprem",
         "documentum",
         "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail", "onenote", "teams_messages",
+        "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
         "documentum",
-        "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+        "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem",
         # OneNote search is local (over the walked hierarchy), not a provider
         # call, but it is still a first-class search the agent should prefer
         # over paging the whole catalog.
@@ -1056,7 +1056,7 @@ class SchemaContextBuilder:
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
-    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "teams_messages"}
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages"}
 
     async def _stamp_index_times(self, file_scopes) -> None:
         """Attach each file scope's last completed shared index time, so the
@@ -1130,6 +1130,8 @@ class SchemaContextBuilder:
                 base = " / ".join(str(cfg[k]) for k in ("site_url", "drive_name", "folder_path") if cfg.get(k))
             elif c.type == "documentum":
                 base = " / ".join(str(cfg[k]) for k in ("rest_url", "repository", "root_path") if cfg.get(k))
+            elif c.type == "exchange_onprem":
+                base = " / ".join(str(cfg[k]) for k in ("ews_url", "shared_mailboxes") if cfg.get(k))
             elif c.type == "kms_lighthouse":
                 # Folder id 0 is a real id; only a missing or blank value is left out.
                 base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
@@ -1163,6 +1165,11 @@ class SchemaContextBuilder:
                 from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
                 enforces_scope = False
                 note = planner_scope_note(cfg)
+            if c.type == "exchange_onprem":
+                # Says whose mail this is: one shared service account, or each
+                # user's own sign-in. The tool surface alone cannot tell.
+                from app.data_sources.clients.exchange_onprem_client import planner_scope_note as _mail_note
+                note = _mail_note(cfg, getattr(c, "auth_policy", None) == "user_required")
             try:
                 cap = int(cfg.get("max_catalog_objects") or 0)
             except (TypeError, ValueError):

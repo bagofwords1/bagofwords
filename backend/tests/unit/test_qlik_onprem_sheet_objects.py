@@ -130,7 +130,7 @@ class TestSheetCatalog:
         # A text box computes nothing.
         assert "About this sheet" not in cols
 
-    def test_variables_and_master_visualizations_are_master_item_columns(self, client):
+    def test_variables_and_master_visualizations_are_master_item_columns(self, site, client):
         master = _by_name(client.get_schemas())[f"{APP}/Master Items"]
         cols = _columns(master)
         assert cols["vCurrentYear"].dtype == "variable"
@@ -138,7 +138,9 @@ class TestSheetCatalog:
         assert "$(vCurrentYear)" in cols["vCurrentYear"].description
         assert cols["Revenue Trend"].dtype == "linechart"
         meta = master.metadata_json["qlik_sense_onprem"]
-        assert meta["variableCount"] == 1
+        app_variables = next(iter(site.apps.values())).variables
+        assert meta["variableCount"] == len(app_variables)
+        assert all(cols[name].dtype == "variable" for name in app_variables)
         assert meta["masterVisualizationCount"] == 1
 
     def test_sheet_objects_can_be_turned_off(self, site, monkeypatch):

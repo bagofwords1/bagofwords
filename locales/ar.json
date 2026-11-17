@@ -4385,6 +4385,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "اسم مكتبة المستندات، أو * لجميع المكتبات المرئية. يؤدي تركه فارغًا إلى اختيار المكتبة الافتراضية في وضع REST الحديث فقط."
     },
+    "exchangeOnprem": {
+      "urlTitle": "عنوان خادم Exchange",
+      "urlDescription": "عنوان خادم Exchange لديك، مثل https://mail.example.com. يُضاف مسار Exchange Web Services ‏(/EWS/Exchange.asmx) إذا لم تكتبه.",
+      "sharedTitle": "صناديق البريد المشتركة",
+      "sharedDescription": "اختياري. عناوين صناديق البريد المشتركة أو صناديق الفرق المراد تضمينها، مفصولة بفواصل، مثل support@example.com, sales@example.com. يحدد Exchange من يمكنه فتح كل صندوق: يرى كل شخص فقط الصناديق التي يملك حسابه صلاحية الوصول إليها.",
+      "ownTitle": "تضمين صندوق بريد الحساب نفسه",
+      "ownDescription": "أوقف هذا الخيار عند تسجيل الدخول بحساب خدمة لا يهم صندوق بريده. يصبح أول صندوق مشترك هو الافتراضي."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
@@ -7381,6 +7389,11 @@
     "addIncomplete": "تعذر حفظ بعض العضويات أو الأذونات. راجع القائمة وحاول مجددًا.",
     "added": "تمت إضافة الأعضاء",
     "addFailed": "تعذرت إضافة الأعضاء",
+    "inherited": "وصول موروث",
+    "inheritedHint": "يصل هؤلاء الأشخاص والمجموعات إلى هذا الوكيل عبر مجلد أو اتصال. غيّر وصولهم من المصدر.",
+    "viaFolder": "عبر المجلد {name}",
+    "viaConnection": "عبر الاتصال {name}",
+    "inheritedHidden": "قد يملك آخرون وصولاً عبر مجلد أو اتصال لا تديره.",
     "permissionCap": {
       "title": "حد وضع الأذونات",
       "hint": "يحدّ من وضع الأذونات للتقارير التي تستخدم هذا الوكيل. اسأل: كل أداة تتبع إعدادها. تلقائي: قد يقرر نموذج.",

@@ -145,7 +145,7 @@ import { treeDropTarget } from '~/utils/treeDragStyles'
 
 type Folder = { id: string, parent_id: string | null, name: string, limited_access: boolean, can_manage: boolean, can_move_from_folder: boolean, can_query: boolean, capabilities: string[] }
 type Recipient = { id: string, type: string, name: string, role: string | null, inherited?: {role: string, source: string, source_id: string}[] }
-const props = defineProps<{ agents: DragAgent[], knowledgeRevision: number, loading: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
+const props = defineProps<{ agents: DragAgent[], knowledgeRevision: number, loading: boolean, showAll?: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
 const emit = defineEmits<{ knowledge: [folderId:string, kind:'instructions'|'evals'|'files', item?:{id:string,name:string}], select: [id: string | null], create: [parentId: string | null], changed: [] }>()
 const foldersLoaded = ref(false)
 const expanded = ref(new Set<string>())
@@ -172,7 +172,7 @@ function open(id: string | null) {
   emit('select', id)
 }
 async function load() {
-  const { data } = await useMyFetch<{ folders: Folder[], can_create: boolean }>('/folders')
+  const { data } = await useMyFetch<{ folders: Folder[], can_create: boolean }>('/folders', { query: { show_all: !!props.showAll } })
   folders.value = data.value?.folders || []
   canCreate.value = !!data.value?.can_create
   foldersLoaded.value = true
@@ -426,4 +426,6 @@ async function dropAgent(event: DragEvent, id: string | null) {
 onBeforeUnmount(endDrag)
 defineExpose({afterDelete, openMemberAccess, accessRevision, open, folders, current, moveAgent, openAgentAccess, canDrag, startDrag, endDrag, dragged, folderCreated})
 onMounted(load)
+// Follows the agents "Show all" toggle: off lists only folders shared with the caller.
+watch(() => props.showAll, load)
 </script>

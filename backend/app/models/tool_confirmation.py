@@ -40,6 +40,12 @@ class ToolConfirmation(BaseSchema):
     # than a FK-less JSON list so the authorization check stays queryable.
     system_completion_id = Column(String(36), nullable=True, index=True)
     head_completion_id = Column(String(36), nullable=True, index=True)
+    # The tool execution that is paused on this approval. Read paths match a
+    # running tool to its pending card by this id: the tool name is not a
+    # reliable key (an MCP confirmation stores the inner tool name, the
+    # execution row the dispatched mcp__… / execute_mcp name). Null on rows
+    # written before it existed — those fall back to the name match.
+    tool_execution_id = Column(String(36), nullable=True, index=True)
 
     # Only this user may answer (the run's requesting user).
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)

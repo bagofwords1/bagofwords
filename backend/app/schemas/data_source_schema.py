@@ -98,6 +98,24 @@ class DataSourceMembershipSchema(BaseModel):
         from_attributes = True
 
 
+class DataSourceInheritedPrincipal(BaseModel):
+    """A principal that reaches the agent through a folder or connection grant."""
+    principal_type: str  # "user" | "group" | "role"
+    principal_id: str
+    principal_name: Optional[str] = None
+    principal_email: Optional[str] = None
+    access: str  # "query" | "manage"
+    source_type: str  # "folder" | "connection"
+    source_id: str
+    source_name: str
+
+
+class DataSourceInheritedAccess(BaseModel):
+    principals: List[DataSourceInheritedPrincipal] = []
+    # Inherited access exists that this viewer is not allowed to enumerate.
+    hidden: bool = False
+
+
 class DataSourceMembershipCreate(BaseModel):
     principal_type: str = "user"  # Default to "user"
     principal_id: str

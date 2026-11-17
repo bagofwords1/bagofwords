@@ -4385,6 +4385,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome da biblioteca de documentos ou * para todas as bibliotecas visíveis. O campo vazio seleciona a biblioteca padrão apenas no modo REST moderno."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL do servidor Exchange",
+      "urlDescription": "Endereço do seu servidor Exchange, por ex. https://mail.example.com. O caminho do Exchange Web Services (/EWS/Exchange.asmx) é adicionado se você o omitir.",
+      "sharedTitle": "Caixas de correio compartilhadas",
+      "sharedDescription": "Opcional. Endereços de caixas de correio compartilhadas ou de equipe a incluir, separados por vírgulas, por ex. support@example.com, sales@example.com. O Exchange decide quem pode abrir cada uma: cada pessoa vê apenas as caixas às quais sua conta já tem acesso.",
+      "ownTitle": "Incluir a caixa de correio da própria conta",
+      "ownDescription": "Desative ao entrar com uma conta de serviço cuja caixa de correio não é relevante. A primeira caixa compartilhada passa a ser a padrão."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
@@ -7381,6 +7389,11 @@
     "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
     "added": "Membros adicionados",
     "addFailed": "Não foi possível adicionar membros",
+    "inherited": "Acesso herdado",
+    "inheritedHint": "Estas pessoas e grupos chegam a este agente através de uma pasta ou conexão. Altere o acesso na origem.",
+    "viaFolder": "Via pasta {name}",
+    "viaConnection": "Via conexão {name}",
+    "inheritedHidden": "Outras pessoas podem ter acesso através de uma pasta ou conexão que você não gerencia.",
     "permissionCap": {
       "title": "Limite do modo de permissão",
       "hint": "Limita o modo de permissão dos relatórios que usam este agente. Perguntar: cada ferramenta segue a própria configuração. Automático: um modelo pode decidir.",

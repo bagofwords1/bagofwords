@@ -11,7 +11,7 @@
 All nullable, no backfill.
 
 Revision ID: permmode01
-Revises: queryexec03
+Revises: toolconfte01
 Create Date: 2026-11-17
 """
 import sqlalchemy as sa
@@ -19,24 +19,35 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "permmode01"
-down_revision = "queryexec03"
+down_revision = "toolconfte01"
 branch_labels = None
 depends_on = None
 
 
+COLUMNS = (
+    ("reports", "permission_mode"),
+    ("data_sources", "max_permission_mode"),
+    ("tool_confirmations", "scope"),
+)
+
+
+def _has_column(table: str, column: str) -> bool:
+    return column in {c["name"] for c in sa.inspect(op.get_bind()).get_columns(table)}
+
+
 def upgrade() -> None:
-    with op.batch_alter_table("reports", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("permission_mode", sa.String(length=16), nullable=True))
-    with op.batch_alter_table("data_sources", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("max_permission_mode", sa.String(length=16), nullable=True))
-    with op.batch_alter_table("tool_confirmations", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("scope", sa.String(length=16), nullable=True))
+    # Idempotent: the dashboard test corpus applies this unstamped, so a later
+    # `upgrade head` runs it again.
+    for table, column in COLUMNS:
+        if _has_column(table, column):
+            continue
+        with op.batch_alter_table(table, schema=None) as batch_op:
+            batch_op.add_column(sa.Column(column, sa.String(length=16), nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("tool_confirmations", schema=None) as batch_op:
-        batch_op.drop_column("scope")
-    with op.batch_alter_table("data_sources", schema=None) as batch_op:
-        batch_op.drop_column("max_permission_mode")
-    with op.batch_alter_table("reports", schema=None) as batch_op:
-        batch_op.drop_column("permission_mode")
+    for table, column in reversed(COLUMNS):
+        if not _has_column(table, column):
+            continue
+        with op.batch_alter_table(table, schema=None) as batch_op:
+            batch_op.drop_column(column)

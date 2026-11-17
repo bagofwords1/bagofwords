@@ -20,11 +20,25 @@ branch_labels = None
 depends_on = None
 
 
+TABLE = "completions"
+COLUMN = "started_via"
+
+
+def _has_column() -> bool:
+    return COLUMN in {c["name"] for c in sa.inspect(op.get_bind()).get_columns(TABLE)}
+
+
 def upgrade() -> None:
-    with op.batch_alter_table("completions", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("started_via", sa.String(length=16), nullable=True))
+    # Idempotent: the dashboard test corpus applies this unstamped, so a later
+    # `upgrade head` runs it again.
+    if _has_column():
+        return
+    with op.batch_alter_table(TABLE, schema=None) as batch_op:
+        batch_op.add_column(sa.Column(COLUMN, sa.String(length=16), nullable=True))
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("completions", schema=None) as batch_op:
-        batch_op.drop_column("started_via")
+    if not _has_column():
+        return
+    with op.batch_alter_table(TABLE, schema=None) as batch_op:
+        batch_op.drop_column(COLUMN)

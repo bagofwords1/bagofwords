@@ -2117,6 +2117,7 @@ class DataSourceService:
                 "data_shape": entry.data_shape,
                 "catalog_ownership": entry.catalog_ownership,
                 "ui_form": entry.ui_form,
+                "personal_connector": entry.personal_connector,
                 # Numbered setup steps rendered above the fields (None for most types).
                 "setup_guide": meta.get("setup_guide"),
                 "auth": {
@@ -4367,7 +4368,7 @@ class DataSourceService:
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
             "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail", "teams_messages",
+            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
         ]

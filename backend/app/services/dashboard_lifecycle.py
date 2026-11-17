@@ -532,3 +532,60 @@ async def leave_project(db, project_id: str) -> None:
         (Artifact.published_release_id.is_(None)) | (Artifact.published_release_id.notin_(live)),
         (Artifact.report_id.is_(None)) | (Artifact.report_id.in_(gone)))
         .values(deleted_at=datetime.utcnow()))
+
+
+# ── the owner deletes the dashboard itself ───────────────────────────────
+
+async def delete_dashboard(db, artifact: Artifact, user, organization, request=None) -> dict:
+    """The owner deletes the dashboard, not one version of it: soft, as
+    everything here is (the rows stay, deleted_at set).
+
+    Locked as start_publish and settle_dashboards lock it, so the three
+    never interleave; 409 while it is publishing, as a conversation delete
+    is refused then. A published dashboard is unpublished in the same
+    transaction: its link opens nothing (dashboard_access.resolve skips a
+    deleted row), its name stays taken (dashboard_slug), and its sharing goes
+    back to private. Its schedule is cleared and the job removed, so no
+    refresh runs and no subscriber is mailed again. The editing
+    conversations stay; they lose the dashboard."""
+    from app.services.dashboard_publish import _publishing, reap_stale
+
+    artifact = (await db.execute(
+        select(Artifact).where(Artifact.id == str(artifact.id), Artifact.deleted_at.is_(None))
+        .with_for_update().execution_options(populate_existing=True)
+    )).scalar_one_or_none()
+    if artifact is None:  # deleted meanwhile
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND)
+    await reap_stale(db, artifact, commit=False)  # with this delete, or not at all
+    if await _publishing(db, artifact) is not None:
+        title = artifact.title or "This dashboard"
+        await db.rollback()  # the lock, and anything reap_stale flushed
+        raise AppError.conflict(ErrorCode.DASHBOARD_PUBLISH_IN_PROGRESS,
+                                f'"{title}" is being published; try again when it finishes')
+    was_published = await _live_release(db, artifact) is not None
+    was_shared = (artifact.visibility or "none") != "none"
+    had_schedule = bool(artifact.cron_schedule)
+    now = datetime.utcnow()
+    await db.execute(update(Artifact).where(Artifact.id == str(artifact.id)).values(
+        deleted_at=now, published_release_id=None, visibility="none",
+        cron_schedule=None, notification_subscribers=None,
+    ))
+    await db.execute(update(ArtifactVersion).where(
+        ArtifactVersion.artifact_id == str(artifact.id), ArtifactVersion.deleted_at.is_(None),
+    ).values(deleted_at=now))
+    await db.commit()
+
+    from app.services.dashboard_refresh import remove_job
+
+    remove_job(str(artifact.id))
+    details = {"title": artifact.title, "mode": artifact.mode, "was_published": was_published,
+               "was_shared": was_shared, "had_schedule": had_schedule}
+    try:
+        from app.ee.audit.service import audit_service
+
+        await audit_service.log(db=db, organization_id=str(organization.id), action="artifact.deleted",
+                                user_id=str(user.id), resource_type="artifact", resource_id=str(artifact.id),
+                                details=details, request=request)
+    except Exception:
+        logger.warning("dashboard delete audit log failed", exc_info=True)
+    return {"id": str(artifact.id), "status": "deleted", **details}

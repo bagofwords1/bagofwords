@@ -80,7 +80,7 @@ def decide_focus_mode(
 # list_emails) — file tools reject them, and the model can't tell from the
 # item count alone (mailboxes render as file scopes). Surfacing this in the
 # roster prevents the observed search_files-on-Gmail probe failures.
-EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail"}
+EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail", "exchange_onprem"}
 
 # Connection types whose tools are the CHAT family (search_chat_messages /
 # read_chat_thread / list_chat_messages) — same reasoning as email.
