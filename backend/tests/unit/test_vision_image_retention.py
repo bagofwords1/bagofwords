@@ -110,33 +110,42 @@ def test_batched_decision_leaves_no_base64_on_the_recorded_observation():
 
 
 class _Rows:
-    def __init__(self, ids):
-        self._ids = ids
+    def __init__(self, rows):
+        self._rows = rows
 
-    def fetchall(self):
-        return [(i,) for i in self._ids]
+    def all(self):
+        return list(self._rows)
 
 
 class _UploadsDb:
-    """Stands in for the report_file_association lookup: which file ids were
-    uploaded with which completion."""
+    """Stands in for the attachment lookups: which file ids were uploaded with
+    which completion, and which ids the current prompt re-attaches
+    (``prompt.file_ids``, the Rerun link)."""
 
-    def __init__(self, uploads_by_completion):
+    def __init__(self, uploads_by_completion, files_by_id, rerun_ids=()):
         self.uploads = uploads_by_completion
+        self.files_by_id = files_by_id
+        self.rerun_ids = list(rerun_ids)
         self.current = None
 
-    async def execute(self, _stmt):
-        return _Rows(self.uploads.get(self.current, []))
+    async def execute(self, stmt):
+        sql = str(stmt)
+        if "completions.prompt" in sql:
+            prompt = {"file_ids": self.rerun_ids} if self.rerun_ids else {}
+            return _Rows([(self.current, "r1", prompt)])
+        if "report_file_association.report_id IN" in sql:
+            return _Rows([("r1", self.files_by_id[i]) for i in self.rerun_ids if i in self.files_by_id])
+        return _Rows([(self.current, self.files_by_id[i]) for i in self.uploads.get(self.current, [])])
 
 
-def _uploads_agent(tmp_path, uploads_by_completion, current_cid):
+def _uploads_agent(tmp_path, uploads_by_completion, current_cid, rerun_ids=()):
     files = []
     for cid, ids in uploads_by_completion.items():
         for fid in ids:
             path = tmp_path / f"{fid}.png"
             path.write_bytes(fid.encode())
             files.append(SimpleNamespace(id=fid, path=str(path), content_type="image/png"))
-    db = _UploadsDb(uploads_by_completion)
+    db = _UploadsDb(uploads_by_completion, {f.id: f for f in files}, rerun_ids)
     db.current = current_cid
     # A real AgentV2 (no __init__) so every method the loader may call exists.
     agent = AgentV2.__new__(AgentV2)
@@ -172,3 +181,13 @@ async def test_a_turn_attaches_exactly_its_own_uploads(tmp_path):
     uploads = {"c0": ["old_a", "old_b"], "now": ["new_a", "new_b"]}
     agent = _uploads_agent(tmp_path, uploads, "now")
     assert await _attached(agent) == ["new_a", "new_b"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rerun", [["old_a"], ["old_a", "old_b"]])
+async def test_a_rerun_turn_attaches_the_images_it_re_sends(tmp_path, rerun):
+    """Rerun re-sends an earlier prompt with its attachments (prompt.file_ids):
+    the new turn sees exactly those images, nothing else from earlier turns."""
+    uploads = {"c0": ["old_a", "old_b"], "c1": ["other"], "now": []}
+    agent = _uploads_agent(tmp_path, uploads, "now", rerun_ids=rerun)
+    assert await _attached(agent) == sorted(rerun)
