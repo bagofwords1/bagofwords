@@ -141,8 +141,54 @@ def _same(a: Any, b: Any) -> bool:
     return str(a) == str(b)
 
 
+_CHOICE_CALL_RE = re.compile(r"\b(Pick|If|Match|MixMatch|Only|GetFieldSelections)\s*\(", re.IGNORECASE)
+_ISLAND_FORMULA_RE = re.compile(r"\$\(\s*=\s*Only\(\s*\[?([^\]()]+?)\]?\s*\)\s*\)")
+
+
+def _close_paren(text: str, open_index: int) -> Optional[int]:
+    depth, quote = 0, None
+    for i in range(open_index, len(text)):
+        ch = text[i]
+        if quote:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in "'[":
+            quote = "'" if ch == "'" else "]"
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def _as_literal(token: str) -> Tuple[bool, Any]:
+    t = token.strip()
+    if len(t) >= 2 and t[0] == t[-1] == "'":
+        return True, t[1:-1]
+    try:
+        return True, float(t)
+    except ValueError:
+        return False, None
+
+
+def _quote(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        return str(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 class Evaluator:
-    """Computes the subset of Qlik expressions the demo app uses."""
+    """Computes the subset of Qlik expressions the demo app uses.
+
+    Choice logic — `Pick(Match(...))`, `If(a = b, ...)`, `Only(Field)`,
+    `$(=Only(Field))` and bare variable names — is reduced against the
+    session's selections and the app's variables before aggregating. It is
+    written independently of the client's resolver so the tests compare two
+    implementations, not one with itself.
+    """
 
     def __init__(self, fields: List[str], variables: Dict[str, str]):
         self.fields = set(fields)
@@ -214,8 +260,69 @@ class Evaluator:
             rows = [r for r in rows if any(_same(r.get(field), v) for v in values)]
         return rows
 
-    def measure(self, expr: str, rows: List[Dict[str, Any]]) -> Optional[float]:
-        text = self.expand(expr or "").strip().lstrip("=")
+    def reduce(self, expr: str, only) -> str:
+        """Resolve choice logic to the branch the current state selects."""
+        text = _ISLAND_FORMULA_RE.sub(lambda m: str(only(m.group(1).strip()) or ""), expr or "")
+        text = self.expand(text)
+        for name, value in self.variables.items():
+            text = re.sub(r"(?<![\w\[.'])" + re.escape(name) + r"(?![\w\].(]|\s*\()", _quote(value), text)
+        for _ in range(30):
+            calls = list(_CHOICE_CALL_RE.finditer(text))
+            for m in reversed(calls):
+                close = _close_paren(text, m.end() - 1)
+                if close is None:
+                    continue
+                args = _split_top_level(text[m.end():close])
+                name = m.group(1).lower()
+                out = None
+                if name in ("only", "getfieldselections") and len(args) == 1:
+                    field = args[0].strip().strip("[]")
+                    value = only(field)
+                    out = "Null()" if value is None else _quote(value)
+                elif name in ("match", "mixmatch"):
+                    parsed = [_as_literal(a) for a in args]
+                    if all(ok for ok, _ in parsed):
+                        target = parsed[0][1]
+                        hits = [i for i, (_, v) in enumerate(parsed[1:], 1)
+                                if (str(v).lower() == str(target).lower() if name == "mixmatch" else str(v) == str(target))]
+                        out = str(hits[0] if hits else 0)
+                elif name == "pick":
+                    ok, n = _as_literal(args[0])
+                    if ok and isinstance(n, float):
+                        out = args[int(n)].strip() if 1 <= n < len(args) else "Null()"
+                elif name == "if" and len(args) in (2, 3):
+                    decided = self._compare(args[0])
+                    if decided is not None:
+                        out = args[1].strip() if decided else (args[2].strip() if len(args) == 3 else "Null()")
+                if out is not None:
+                    text = text[:m.start()] + out + text[close + 1:]
+                    break
+            else:
+                break
+        return text
+
+    @staticmethod
+    def _compare(cond: str) -> Optional[bool]:
+        parts = _split_top_level(cond, "=")
+        if len(parts) == 2:
+            (lok, left), (rok, right) = _as_literal(parts[0]), _as_literal(parts[1])
+            if lok and rok:
+                return str(left).lower() == str(right).lower()
+        return None
+
+    def measure(self, expr: str, rows: List[Dict[str, Any]], only=None) -> Optional[float]:
+        only = only or (lambda field: None)
+        text = self.reduce(expr or "", only).strip().lstrip("=")
+        if text in ("", "Null()"):
+            # `$(=Only(F))` with no single value expands to nothing: the
+            # Engine shows the column as nulls.
+            return None
+        decided = self._compare(text)
+        if decided is not None:
+            return 1.0 if decided else 0.0
+        ok, number = _as_literal(text)
+        if ok and isinstance(number, float):
+            return number
         agg = _parse_agg(text)
         if not agg:
             raise EngineError(-32602, f"Unsupported measure in the fake Engine: {expr}")
@@ -274,6 +381,7 @@ class FakeApp:
         master_objects: Optional[List[Dict[str, Any]]] = None,
         script: str = "",
         lineage: Optional[List[str]] = None,
+        islands: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ):
         self.id = app_id
         self.rows = rows
@@ -285,7 +393,10 @@ class FakeApp:
         self.master_objects = master_objects or []
         self.script = script
         self.lineage = lineage or []
-        self.fields = sorted({f for cols in tables.values() for f in cols})
+        # Data islands: small tables with no key to the model.
+        self.islands = islands or {}
+        self.island_fields = {f: name for name, rows in self.islands.items() for f in (rows[0] if rows else {})}
+        self.fields = sorted({f for cols in tables.values() for f in cols} | set(self.island_fields))
         self.evaluator = Evaluator(self.fields, self.variables)
 
     # Objects are stored as {"props": {...}, "children": [...]} trees.
@@ -306,6 +417,11 @@ class FakeApp:
             if node["props"]["qInfo"]["qId"] == object_id:
                 return node
         return None
+
+    def field_rows(self, field: str) -> List[Dict[str, Any]]:
+        """The rows a field's values live in: its island, or the dataset."""
+        island = self.island_fields.get(field)
+        return self.islands[island] if island else self.rows
 
     def master_measure(self, item_id: str) -> Optional[Dict[str, Any]]:
         return next((m for m in self.master_measures if m["qInfo"]["qId"] == item_id), None)
@@ -373,10 +489,24 @@ class EngineSession:
     def _selected_rows(self, exclude: Optional[str] = None) -> List[Dict[str, Any]]:
         rows = self.app.rows
         for field, values in self.selections.items():
-            if field == exclude:
-                continue
+            if field == exclude or field in self.app.island_fields:
+                continue  # an island is unlinked: selecting in it filters no data
             rows = [r for r in rows if any(_same(r.get(field), v) for v in values)]
         return rows
+
+    def _island_rows(self, island: str) -> List[Dict[str, Any]]:
+        rows = self.app.islands.get(island) or []
+        for field, values in self.selections.items():
+            if self.app.island_fields.get(field) == island:
+                rows = [r for r in rows if any(_same(r.get(field), v) for v in values)]
+        return rows
+
+    def _only(self, field: str) -> Any:
+        """Only(field): the single possible value, else None."""
+        island = self.app.island_fields.get(field)
+        rows = self._island_rows(island) if island else self._selected_rows()
+        values = {r.get(field) for r in rows if r.get(field) is not None}
+        return next(iter(values)) if len(values) == 1 else None
 
     def _dimension_field(self, dim: Dict[str, Any]) -> Tuple[str, str]:
         """(field, title) for a hypercube dimension."""
@@ -407,7 +537,11 @@ class EngineSession:
     def _compute_cube(self, cube: Dict[str, Any]) -> Dict[str, Any]:
         dims = [self._dimension_field(d) for d in cube.get("qDimensions") or []]
         meas = [self._measure_expr(m) for m in cube.get("qMeasures") or []]
-        rows = self._selected_rows()
+        island_dims = {self.app.island_fields.get(f) for f, _ in dims}
+        if dims and None not in island_dims and len(island_dims) == 1:
+            rows = self._island_rows(island_dims.pop())
+        else:
+            rows = self._selected_rows()
         groups: Dict[Tuple, List[Dict[str, Any]]] = {}
         if dims:
             for row in rows:
@@ -418,7 +552,7 @@ class EngineSession:
             groups = {(): rows}
         records = []
         for key, members in groups.items():
-            values = [self.app.evaluator.measure(expr, members) for expr, _ in meas]
+            values = [self.app.evaluator.measure(expr, members, self._only) for expr, _ in meas]
             records.append((key, values))
 
         order = cube.get("qInterColumnSortOrder") or []
@@ -465,6 +599,12 @@ class EngineSession:
                 "qFields": [{"qName": c, "qTags": ["$numeric"] if all(isinstance(r.get(c), (int, float)) for r in app.rows) else ["$text"],
                              "qnTotalDistinctValues": len({r.get(c) for r in app.rows})} for c in cols],
             })
+        for name, island_rows in app.islands.items():
+            qtr.append({
+                "qName": name,
+                "qNoOfRows": len(island_rows),
+                "qFields": [{"qName": c, "qTags": ["$text"]} for c in (island_rows[0] if island_rows else {})],
+            })
         owners: Dict[str, List[str]] = {}
         for name, cols in app.tables.items():
             for c in cols:
@@ -506,7 +646,7 @@ class EngineSession:
         for field in fields:
             if field not in app.fields:
                 continue
-            values = sorted({str(r.get(field)) for r in app.rows if r.get(field) is not None})
+            values = sorted({str(r.get(field)) for r in app.field_rows(field) if r.get(field) is not None})
             matches = [v for v in values if all(t.lower() in v.lower() for t in terms)]
             if matches:
                 items.append({
@@ -519,6 +659,21 @@ class EngineSession:
         groups = [{"qGroupType": "DatasetType", "qSearchTermsMatched": [0], "qId": 0, "qItems": items}] if items else []
         return {"qResult": {"qSearchTerms": terms, "qTotalNumberOfGroups": len(groups), "qSearchGroupArray": groups}}
 
+    def _doc_GetMeasure(self, app: FakeApp, params: Any) -> Any:
+        item = app.master_measure(self._arg(params, 0, "qId"))
+        if item is None:
+            return {"qReturn": {"qType": "GenericMeasure", "qHandle": None}}
+        return {"qReturn": {"qType": "GenericMeasure", "qHandle": self._new_handle("library", item)}}
+
+    def _doc_GetDimension(self, app: FakeApp, params: Any) -> Any:
+        item = app.master_dimension(self._arg(params, 0, "qId"))
+        if item is None:
+            return {"qReturn": {"qType": "GenericDimension", "qHandle": None}}
+        return {"qReturn": {"qType": "GenericDimension", "qHandle": self._new_handle("library", item)}}
+
+    def _library_GetProperties(self, item: Dict[str, Any], params: Any) -> Any:
+        return {"qProp": copy.deepcopy(item)}
+
     def _doc_CreateSessionObject(self, app: FakeApp, params: Any) -> Any:
         definition = self._arg(params, 0, "qProp") or {}
         return {"qReturn": {"qType": "GenericObject", "qHandle": self._new_handle("session", definition)}}
@@ -526,7 +681,7 @@ class EngineSession:
     # -- Field methods ---------------------------------------------------
     def _field_SelectValues(self, field: str, params: Any) -> Any:
         wanted = self._arg(params, 0, "qFieldValues") or []
-        values = {r.get(field) for r in self.app.rows if r.get(field) is not None}
+        values = {r.get(field) for r in self.app.field_rows(field) if r.get(field) is not None}
         matched = []
         for w in wanted:
             for v in values:
@@ -887,6 +1042,55 @@ class FakeQlikSite:
                 }),
             ],
         }
+        # A sheet whose charts follow a user choice, in the three shapes Qlik
+        # apps use: a variable set by buttons / a variable input, "show column
+        # if" conditions on that variable, and a selection in a data island
+        # that holds each choice's formula.
+        def column(expr, label, show_when):
+            m = meas(expr, label)
+            m["qCalcCondition"] = {"qCond": {"qv": show_when}}
+            return m
+
+        dynamic = {
+            "props": {"qInfo": {"qId": "sheet-dynamic", "qType": "sheet"},
+                      "qMetaDef": {"title": "Dynamic Metrics", "description": "Pick a metric, read it by region"}},
+            "meta": {"published": True, "approved": True},
+            "children": [
+                obj("var-metric", "variable", "Metric", None, {
+                    "variableName": "vMetric",
+                    "alternatives": [{"value": "Sales", "label": "Sales amount"},
+                                     {"value": "Quantity", "label": "Units"}],
+                }),
+                obj("btn-sales", "action-button", "", None, {
+                    "style": {"label": "Show sales"},
+                    "actions": [{"actionType": "setVariable", "variable": "vMetric", "value": "Sales"}],
+                }),
+                obj("btn-qty", "action-button", "", None, {
+                    "style": {"label": "Show units"},
+                    "actions": [{"actionType": "setVariable", "variable": "vMetric", "value": "Quantity"}],
+                }),
+                obj("obj-dyn-bar", "barchart", "Metric by Region", {
+                    "qDimensions": [dim("Region Name")],
+                    "qMeasures": [{"qLibraryId": "mm-dynamic", "qDef": {
+                        "qLabel": "Metric", "qLabelExpression": "=If(vMetric='Sales','Revenue','Units')"}}],
+                }),
+                obj("obj-dyn-table", "table", "Metric by Group", {
+                    "qDimensions": [dim("Product Group")],
+                    "qMeasures": [
+                        column("Sum([Sales Quantity]*[Sales Price])", "Revenue", "vMetric='Sales'"),
+                        column("Sum([Sales Quantity])", "Units", "vMetric='Quantity'"),
+                        meas("Count(distinct [Order Number])", "Orders"),
+                    ],
+                }),
+                obj("obj-island-bar", "barchart", "Selected metric by Year", {
+                    "qDimensions": [dim("Year")],
+                    "qMeasures": [meas("$(=Only(MetricExpr))", "Selected metric")],
+                }),
+                obj("obj-metric-pick", "filterpane", "", None, children=[
+                    obj("lb-metric", "listbox", "", None, {"qListObjectDef": {"qDef": {"qFieldDefs": ["Metric"]}}}),
+                ]),
+            ],
+        }
         trend = {
             "props": {"qInfo": {"qId": "mv-trend", "qType": "masterobject"}, "visualization": "linechart",
                       "title": "Revenue Trend", "qMetaDef": {"title": "Revenue Trend", "description": "Revenue per year"},
@@ -902,6 +1106,10 @@ class FakeQlikSite:
                 {"qInfo": {"qId": "mm-revenue", "qType": "measure"},
                  "qMeasure": {"qDef": "Sum([Sales Quantity]*[Sales Price])", "qLabel": "Revenue"},
                  "qMetaDef": {"title": "Revenue", "description": "Gross revenue in USD"}},
+                {"qInfo": {"qId": "mm-dynamic", "qType": "measure"},
+                 "qMeasure": {"qDef": "Pick(Match(vMetric,'Sales','Quantity'), Sum([Sales Quantity]*[Sales Price]), Sum([Sales Quantity]))",
+                              "qLabel": "Metric"},
+                 "qMetaDef": {"title": "Dynamic Metric", "description": "Sales amount or units, per vMetric"}},
                 {"qInfo": {"qId": "mm-ne", "qType": "measure"},
                  "qMeasure": {"qDef": "Sum({<[Region Name]={'Northeast'}>} [Sales Quantity]*[Sales Price])", "qLabel": ""},
                  "qMetaDef": {"title": "Northeast Revenue", "description": ""}},
@@ -911,8 +1119,12 @@ class FakeQlikSite:
                  "qDim": {"qGrouping": "N", "qFieldDefs": ["Region Name"]},
                  "qMetaDef": {"title": "Region", "description": "Sales region"}},
             ],
-            variables={"vCurrentYear": "2024"},
-            sheets=[overview, community, private],
+            variables={"vCurrentYear": "2024", "vMetric": "Sales"},
+            sheets=[overview, community, private, dynamic],
+            islands={"MetricSelector": [
+                {"MetricExpr": "Sum([Sales Quantity]*[Sales Price])", "Metric": "Sales"},
+                {"MetricExpr": "Sum([Sales Quantity])", "Metric": "Quantity"},
+            ]},
             master_objects=[trend],
             script="LOAD * FROM [lib://Demo/sales.qvd] (qvd);",
             lineage=["lib://Demo/sales.qvd"],

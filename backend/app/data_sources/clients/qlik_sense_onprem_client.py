@@ -61,6 +61,16 @@ from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableC
 from app.data_sources.clients._qix_common import (
     MasterItemIndex,
     QixSession,
+    decide_condition,
+    describe_options,
+    dollar_formulas,
+    expression_drivers,
+    literal_text,
+    object_options,
+    resolve_expression,
+    selector_fields,
+    summarize_switch,
+    summary_drivers,
     apply_field_selections,
     build_hypercube_def,
     build_ssl_context,
@@ -205,6 +215,14 @@ class QlikSenseOnPremClient(DataSourceClient):
     _MAX_OBJECTS_PER_SHEET = 60
     _MAX_MASTER_OBJECTS = 100
     _MAX_OBJECT_DESCRIPTION_CHARS = 600
+    # A dynamic object's description carries one formula per option, so it
+    # gets more room than a static one.
+    _MAX_DYNAMIC_DESCRIPTION_CHARS = 1500
+    # A data island is a small table with no key to the model: a list of
+    # choices (and sometimes their formulas), not data.
+    _MAX_ISLAND_ROWS = 50
+    _MAX_ISLAND_FIELDS = 8
+    _MAX_ISLANDS = 10
     _MAX_VARIABLE_DEFINITION_CHARS = 300
     _MAX_SEARCH_RESULTS = 1000
 
@@ -795,6 +813,78 @@ class QlikSenseOnPremClient(DataSourceClient):
             except Exception as e:
                 logger.debug("Qlik master visualization %s unreadable in app %s: %s", object_id, app_id, e)
 
+    def _expression_texts(self, payload: Dict[str, Any]) -> List[str]:
+        """Every expression the app's sheets, master items and variables hold."""
+        index = self._master_index(payload)
+        texts: List[str] = []
+        for tree in (payload.get("sheet_trees") or {}).values():
+            for props, parent in flatten_property_tree(tree):
+                if parent is None:
+                    continue
+                summary = summarize_object_properties(props, index)
+                for key in ("measures", "dimensions"):
+                    for item in summary.get(key) or []:
+                        texts += [item.get("expression") or "", item.get("showWhen") or "", item.get("field") or ""]
+                texts.append(summary.get("calcCondition") or "")
+        for props in (payload.get("master_object_props") or {}).values():
+            summary = summarize_object_properties(props, index)
+            for item in summary.get("measures") or []:
+                texts.append(item.get("expression") or "")
+        for item in payload.get("measures") or []:
+            texts.append((item.get("qData") or {}).get("expression") or "")
+        for item in payload.get("variables") or []:
+            texts.append(str((item.get("qData") or {}).get("definition") or ""))
+        return [t for t in texts if t]
+
+    async def _read_islands(self, qix: QixSession, doc_handle: int, out: Dict[str, Any]) -> None:
+        """Read the rows of the small unlinked tables that drive expressions.
+
+        A data island holds a dynamic chart's choices — "Sales amount",
+        "Quantity" — and sometimes the formula of each. Only islands whose
+        fields an expression actually reads (`Only(Metric)`,
+        `$(=Only(MetricExpr))`, `GetFieldSelections(...)`) are read, and only
+        while they stay small, so a crawl never pages a real data table.
+        """
+        drivers: set = set()
+        for text in self._expression_texts(out):
+            drivers.update(expression_drivers(text)["fields"])
+        if not drivers:
+            return
+        linked = {t for key in out.get("qk") or [] for t in key.get("qTables") or []}
+        read = 0
+        for tbl in out.get("qtr") or []:
+            name = tbl.get("qName") or ""
+            fields = [f.get("qName") for f in tbl.get("qFields") or [] if f.get("qName")]
+            rows = tbl.get("qNoOfRows")
+            if (
+                not name or name in linked or not fields
+                or not drivers.intersection(fields)
+                or not isinstance(rows, int) or rows > self._MAX_ISLAND_ROWS
+                or len(fields) > self._MAX_ISLAND_FIELDS
+            ):
+                continue
+            cube = build_hypercube_def(fields, [], self._MAX_ISLAND_ROWS)
+            session = await qix.rpc(doc_handle, "CreateSessionObject", [{
+                "qInfo": {"qType": "bow-island"}, "qHyperCubeDef": cube,
+            }])
+            handle = (session.get("qReturn") or {}).get("qHandle")
+            if handle is None:
+                continue
+            matrix = await fetch_hypercube_pages(qix, handle, len(fields), self._MAX_ISLAND_ROWS)
+            table_rows = []
+            for cells in matrix:
+                row = {}
+                for field, cell in zip(fields, cells, strict=False):
+                    text = cell.get("qText") if isinstance(cell, dict) else None
+                    if text in (None, "", "-") and isinstance(cell, dict) and isinstance(cell.get("qNum"), (int, float)):
+                        text = cell["qNum"]
+                    row[field] = text
+                table_rows.append(row)
+            out["islands"][name] = {"fields": fields, "rows": table_rows}
+            read += 1
+            if read >= self._MAX_ISLANDS:
+                break
+
     async def _read_app_async(self, app: Dict[str, Any], user: str) -> Dict[str, Any]:
         """One Engine session per app: model, master items, sheets, lineage, script size."""
         app_id = app.get("id")
@@ -802,6 +892,7 @@ class QlikSenseOnPremClient(DataSourceClient):
             "app_id": app_id,
             "qtr": [], "qk": [], "measures": [], "dimensions": [], "variables": [],
             "sheets": [], "master_objects": [], "sheet_trees": {}, "master_object_props": {},
+            "islands": {},
             "lineage": [], "has_data": None, "script_chars": None,
         }
         async with self._qix_session(app_id, user) as qix:
@@ -852,6 +943,10 @@ class QlikSenseOnPremClient(DataSourceClient):
 
             if self.include_sheet_objects:
                 await self._read_sheet_objects(qix, doc_handle, out)
+                try:
+                    await self._read_islands(qix, doc_handle, out)
+                except Exception as e:
+                    logger.debug("Qlik data islands unreadable in app %s: %s", app_id, e)
 
             if self.include_lineage:
                 try:
@@ -1363,6 +1458,10 @@ class QlikSenseOnPremClient(DataSourceClient):
             if parent is None:
                 continue  # the sheet itself
             summary = summarize_object_properties(props, index)
+            switch = summarize_switch(props)
+            if switch:
+                summary["switch"] = switch
+                summary.setdefault("title", switch.get("title") or "")
             parent_id = (parent.get("qInfo") or {}).get("qId")
             parent_summary = by_id.get(parent_id) if parent_id else None
             if parent_summary is not None and parent_summary.get("type") == "filterpane":
@@ -1389,8 +1488,118 @@ class QlikSenseOnPremClient(DataSourceClient):
         return [
             o for o in objects
             if o.get("type") not in _LAYOUT_ONLY_TYPES
-            and (o.get("dimensions") or o.get("measures") or o.get("listFields"))
+            and (o.get("dimensions") or o.get("measures") or o.get("listFields") or o.get("switch"))
         ][: self._MAX_OBJECTS_PER_SHEET]
+
+    def _dynamic_context(
+        self,
+        payload: Dict[str, Any],
+        sheet_objects: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Everything that lets a user switch what a chart shows, app-wide.
+
+        * `variable_choices` — per variable, the values buttons and variable
+          inputs on any sheet can set it to (a switch on one sheet drives
+          charts on others);
+        * `islands` — per field of a data-island table, its rows and the field
+          users select in (the one shown in a filter pane or set by a button);
+          a button that selects values in an ordinary field counts as a
+          one-column island of those values;
+        * `known_variables` — names an expression may use bare (`vMetric='x'`);
+        * `current` — each variable's current definition.
+        """
+        variable_choices: Dict[str, List[Dict[str, Any]]] = {}
+        field_choices: Dict[str, List[Any]] = {}
+        user_selected: set = set()
+        for summary in sheet_objects:
+            user_selected.update(summary.get("listFields") or [])
+            for entry in (summary.get("switch") or {}).get("sets") or []:
+                if entry.get("variable") and entry.get("value") not in (None, ""):
+                    bucket = variable_choices.setdefault(entry["variable"], [])
+                    if not any(str(c["value"]) == str(entry["value"]) for c in bucket):
+                        bucket.append({"value": entry["value"], "label": entry.get("label")})
+                elif entry.get("field"):
+                    user_selected.add(entry["field"])
+                    if entry.get("value") not in (None, ""):
+                        values = field_choices.setdefault(entry["field"], [])
+                        if entry["value"] not in values:
+                            values.append(entry["value"])
+
+        # Fields whose value is spliced in as a formula (`$(=Only(MetricExpr))`)
+        # hold formula text; users select in the island's other field.
+        formula_fields: set = set()
+        for text in self._expression_texts(payload):
+            for body in dollar_formulas(text):
+                formula_fields.update(selector_fields(body))
+
+        islands: Dict[str, Dict[str, Any]] = {}
+        for name, island in (payload.get("islands") or {}).items():
+            fields = island.get("fields") or []
+            rows = island.get("rows") or []
+            if not fields or not rows:
+                continue
+            selector = (
+                next((f for f in fields if f in user_selected), None)
+                or next((f for f in fields if f not in formula_fields), None)
+                or fields[0]
+            )
+            entry = {"name": name, "selector": selector, "rows": rows}
+            for field in fields:
+                islands[field] = entry
+        for field, values in field_choices.items():
+            if field not in islands:
+                islands[field] = {
+                    "name": f"switch:{field}",
+                    "selector": field,
+                    "rows": [{field: v} for v in values],
+                }
+
+        current: Dict[str, str] = {}
+        for item in payload.get("variables") or []:
+            name = item.get("qName") or (item.get("qMeta") or {}).get("title")
+            if name:
+                current[name] = str((item.get("qData") or {}).get("definition") or "")
+        known = set(current) | set(variable_choices)
+        return {
+            "variable_choices": variable_choices,
+            "islands": islands,
+            "known_variables": known,
+            "current": current,
+        }
+
+    def _describe_dynamic(self, summary: Dict[str, Any], context: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]]]:
+        """Description and options of one object, given the app's switches."""
+        base = describe_object(summary, self._MAX_OBJECT_DESCRIPTION_CHARS)
+        if summary.get("switch"):
+            sets = summary["switch"].get("sets") or []
+            parts = []
+            for entry in sets:
+                target = entry.get("variable") or entry.get("field")
+                if entry.get("freeInput"):
+                    parts.append(f"{target} (free input)")
+                    continue
+                label = f" ({entry['label']})" if entry.get("label") else ""
+                parts.append(f"{target}={entry.get('value')!r}{label}")
+            base = (
+                f"switch id={summary.get('id')}; a user choice, not data: sets " + ", ".join(parts)
+                + ". Charts that read it are described with one formula per choice."
+            )
+            return base, []
+        options = object_options(
+            summary, context["variable_choices"], context["islands"], context["known_variables"],
+        )
+        drivers = summary_drivers(summary, context["known_variables"])
+        notes = []
+        for variable in drivers["variables"]:
+            if variable in context["current"] and not context["variable_choices"].get(variable):
+                notes.append(f"{variable} is currently {context['current'][variable]!r}")
+        text = base
+        if notes:
+            text += "; depends on " + "; ".join(notes)
+        if options:
+            text += "; " + describe_options(options, summary.get("id") or "")
+            return text[: self._MAX_DYNAMIC_DESCRIPTION_CHARS], options
+        return text, options
 
     def _build_sheet_tables(
         self,
@@ -1404,6 +1613,10 @@ class QlikSenseOnPremClient(DataSourceClient):
         carry the expressions the business reads every day. Recording each
         chart's dimensions and measures lets the agent reuse that exact logic,
         or read the chart itself with `execute_query(object_id=...)`.
+
+        A chart whose measure follows a user choice (a button, a variable
+        input, a selection in a data island) is described once per choice,
+        with the formula and visible columns that choice gives it.
         """
         trees = payload.get("sheet_trees") or {}
         if not trees:
@@ -1416,19 +1629,24 @@ class QlikSenseOnPremClient(DataSourceClient):
             for object_id, props in (payload.get("master_object_props") or {}).items()
         }
 
-        tables: List[Table] = []
-        taken = set(taken_names)
+        sheets: List[Tuple[Dict[str, Any], str, List[Dict[str, Any]]]] = []
         for item in (payload.get("sheets") or [])[: self._MAX_SHEETS]:
             sheet_id = (item.get("qInfo") or {}).get("qId")
             tree = trees.get(sheet_id) if sheet_id else None
             if not tree:
                 continue
+            objects = self._sheet_objects(tree, index, master_objects)
+            if objects:
+                sheets.append((item, sheet_id, objects))
+        context = self._dynamic_context(payload, [o for _, _, objs in sheets for o in objs])
+        payload["_dynamic_context"] = context
+
+        tables: List[Table] = []
+        taken = set(taken_names)
+        for item, sheet_id, objects in sheets:
             data = item.get("qData") or {}
             meta_def = item.get("qMeta") or {}
             title = data.get("title") or meta_def.get("title") or sheet_id
-            objects = self._sheet_objects(tree, index, master_objects)
-            if not objects:
-                continue
 
             columns: List[TableColumn] = []
             used: set = set()
@@ -1441,11 +1659,18 @@ class QlikSenseOnPremClient(DataSourceClient):
                 if name in used:
                     name = f"{name} ({summary.get('id')})"
                 used.add(name)
+                description, options = self._describe_dynamic(summary, context)
+                meta = self._object_column_meta(summary)
+                if options:
+                    meta["options"] = options
+                if summary.get("switch"):
+                    meta["role"] = "switch"
+                    meta["sets"] = summary["switch"].get("sets")
                 columns.append(TableColumn(
                     name=name,
                     dtype=str(summary.get("type") or "object"),
-                    description=_mask_secrets(describe_object(summary, self._MAX_OBJECT_DESCRIPTION_CHARS)),
-                    metadata=self._object_column_meta(summary),
+                    description=_mask_secrets(description),
+                    metadata=meta,
                 ))
 
             prefix = f"{app_key}/{_SHEET_TABLE_SEGMENT}" if app_key else _SHEET_TABLE_SEGMENT
@@ -1462,6 +1687,7 @@ class QlikSenseOnPremClient(DataSourceClient):
                 "sheetTitle": title,
                 "sheetDescription": description or None,
                 "objectCount": len(columns),
+                "dynamicObjectCount": sum(1 for c in columns if (c.metadata or {}).get("options")),
                 "approved": meta_def.get("approved"),
                 "sheetUrl": (
                     f"https://{self.host}/sense/app/{app.get('id')}/sheet/{sheet_id}"
@@ -1643,6 +1869,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         object_id: Optional[str] = None,
         search: Optional[str] = None,
         fields: Optional[List[str]] = None,
+        variables: Optional[Dict[str, Any]] = None,
         **_kwargs: Any,
     ) -> pd.DataFrame:
         """Run one Engine query against one app and return a DataFrame.
@@ -1672,6 +1899,12 @@ class QlikSenseOnPremClient(DataSourceClient):
             object_id: id of a sheet object or master visualization.
             search: text to look up across field values.
             fields: optional field names to restrict ``search`` to.
+            variables: ``{name: value}`` — run as if a Qlik variable held this
+                value, the way a dynamic chart's switch sets it. Applied to
+                this query's expressions only (``$(v)`` and bare ``v``
+                references, then ``Pick``/``If`` branches collapsed); the
+                app's variables are never changed, so other users are not
+                affected.
         """
         target = app or table_name
         if not target:
@@ -1693,19 +1926,38 @@ class QlikSenseOnPremClient(DataSourceClient):
                 raise ValueError("search looks values up across fields; it takes no dimensions, measures or filters")
         elif not dimensions and not measures:
             raise ValueError("At least one dimension or measure is required")
+        if variables is not None:
+            if search is not None:
+                raise ValueError("search takes no variables")
+            if not isinstance(variables, dict) or not all(
+                isinstance(k, str) and k and isinstance(v, (str, int, float)) and not isinstance(v, bool)
+                for k, v in variables.items()
+            ):
+                raise ValueError("variables must be a dict of variable name to a text or number value")
+        variables = variables or {}
 
         app_id, app_row = self._resolve_app(target)
         user = self._acting_user(app_row)
         selections = list((filters or {}).items())
         if object_id:
             return asyncio.run(
-                self._execute_object(app_id, user, selections, str(object_id), max_rows)
+                self._execute_object(app_id, user, selections, str(object_id), max_rows, variables)
             )
         if search is not None:
             limit = max(1, min(int(max_rows or self._MAX_SEARCH_RESULTS), self._MAX_SEARCH_RESULTS))
             return asyncio.run(
                 self._execute_search(app_id, user, str(search).strip(), list(fields or []), limit)
             )
+        if variables:
+            measures = [
+                {**m, "expr": resolve_expression(m.get("expr") or "", variables)} if isinstance(m, dict)
+                else resolve_expression(str(m), variables)
+                for m in measures
+            ]
+            dimensions = [
+                ("=" + resolve_expression(d[1:], variables)) if isinstance(d, str) and d.startswith("=") else d
+                for d in dimensions
+            ]
         hypercube_def = build_hypercube_def(dimensions, measures, max_rows)
         return asyncio.run(
             self._execute_hypercube(app_id, user, selections, hypercube_def, max_rows)
@@ -1846,6 +2098,7 @@ class QlikSenseOnPremClient(DataSourceClient):
         selections: List,
         object_id: str,
         max_rows: int,
+        variables: Optional[Dict[str, Any]] = None,
     ) -> pd.DataFrame:
         async with self._qix_session(app_id, user) as qix:
             doc_handle = await self._open_doc(qix, app_id)
@@ -1880,6 +2133,16 @@ class QlikSenseOnPremClient(DataSourceClient):
                     pass
                 hint = f" Query one of its child objects instead: {', '.join(children)}." if children else ""
                 raise ValueError(f"Qlik object {object_id!r} is a {kind} and holds no data of its own.{hint}")
+
+            if variables:
+                await self._inline_library_items(qix, doc_handle, cube)
+                self._apply_variables(cube, variables)
+            hidden = await self._apply_column_conditions(qix, doc_handle, cube)
+            if not (cube.get("qDimensions") or cube.get("qMeasures")):
+                raise ValueError(
+                    f"Qlik object {object_id!r} shows no columns under these choices "
+                    f"(hidden: {', '.join(hidden) or 'all'})"
+                )
 
             session = await qix.rpc(doc_handle, "CreateSessionObject", [{
                 "qInfo": {"qType": "bow-object-data"},
@@ -1925,7 +2188,157 @@ class QlikSenseOnPremClient(DataSourceClient):
         total = (info.get("qSize") or {}).get("qcy")
         if isinstance(total, int):
             df.attrs["qlik_total_rows"] = total
+        if hidden:
+            df.attrs["qlik_hidden_columns"] = hidden
+        if variables:
+            df.attrs["qlik_variables"] = dict(variables)
         return df
+
+    @staticmethod
+    async def _inline_library_items(qix: QixSession, doc_handle: int, cube: Dict[str, Any]) -> None:
+        """Replace master-item references with their definitions.
+
+        A variable override is applied to expression text, and a master
+        measure's text lives in the library, not in the chart. Inlining it
+        (label, sort and column condition kept) lets the override reach it.
+        """
+        for key, getter, prop_key in (
+            ("qMeasures", "GetMeasure", "qMeasure"),
+            ("qDimensions", "GetDimension", "qDim"),
+        ):
+            for item in cube.get(key) or []:
+                library_id = item.get("qLibraryId")
+                if not library_id:
+                    continue
+                try:
+                    found = await qix.rpc(doc_handle, getter, [library_id])
+                    handle = (found.get("qReturn") or {}).get("qHandle")
+                    if handle is None:
+                        continue
+                    props = (await qix.rpc(handle, "GetProperties", [])).get("qProp") or {}
+                except RuntimeError as e:
+                    logger.debug("Qlik library item %s unreadable: %s", library_id, e)
+                    continue
+                definition = props.get(prop_key) or {}
+                title = (props.get("qMetaDef") or {}).get("title") or ""
+                qdef = dict(item.get("qDef") or {})
+                if key == "qMeasures":
+                    qdef["qDef"] = definition.get("qDef") or ""
+                    qdef["qLabel"] = qdef.get("qLabel") or definition.get("qLabel") or title
+                    if definition.get("qLabelExpression") and not qdef.get("qLabelExpression"):
+                        qdef["qLabelExpression"] = definition["qLabelExpression"]
+                else:
+                    qdef["qFieldDefs"] = list(definition.get("qFieldDefs") or [])
+                    qdef["qFieldLabels"] = list(definition.get("qFieldLabels") or []) or [title]
+                item["qDef"] = qdef
+                item.pop("qLibraryId", None)
+
+    @staticmethod
+    def _apply_variables(cube: Dict[str, Any], variables: Dict[str, Any]) -> None:
+        """Substitute variable values into every expression of a cube."""
+        def resolve(text: Any) -> Any:
+            return resolve_expression(text, variables) if isinstance(text, str) else text
+
+        def resolve_label_expression(qdef: Dict[str, Any], label_key: str) -> None:
+            expression = qdef.get("qLabelExpression")
+            if isinstance(expression, str) and expression:
+                resolved = resolve(expression)
+                text = literal_text(resolved)
+                if text is not None:
+                    qdef[label_key] = [text] if label_key == "qFieldLabels" else text
+                    qdef.pop("qLabelExpression", None)
+                else:
+                    qdef["qLabelExpression"] = resolved
+
+        for item in cube.get("qMeasures") or []:
+            qdef = item.get("qDef") or {}
+            qdef["qDef"] = resolve(qdef.get("qDef") or "")
+            resolve_label_expression(qdef, "qLabel")
+        for item in cube.get("qDimensions") or []:
+            qdef = item.get("qDef") or {}
+            qdef["qFieldDefs"] = [
+                ("=" + resolve(f[1:])) if isinstance(f, str) and f.startswith("=") else f
+                for f in qdef.get("qFieldDefs") or []
+            ]
+            resolve_label_expression(qdef, "qFieldLabels")
+        for item in (cube.get("qMeasures") or []) + (cube.get("qDimensions") or []):
+            condition = item.get("qCalcCondition") or {}
+            if isinstance(condition.get("qCond"), dict) and isinstance(condition["qCond"].get("qv"), str):
+                condition["qCond"]["qv"] = resolve(condition["qCond"]["qv"])
+            if isinstance(item.get("qCalcCond"), dict) and isinstance(item["qCalcCond"].get("qv"), str):
+                item["qCalcCond"]["qv"] = resolve(item["qCalcCond"]["qv"])
+        cube_condition = (cube.get("qCalcCondition") or {}).get("qCond")
+        if isinstance(cube_condition, dict) and isinstance(cube_condition.get("qv"), str):
+            cube_condition["qv"] = resolve(cube_condition["qv"])
+
+    @staticmethod
+    async def _apply_column_conditions(qix: QixSession, doc_handle: int, cube: Dict[str, Any]) -> List[str]:
+        """Drop the columns a "show column if" condition hides; return their labels.
+
+        A condition decided by literals (after a variable override) is decided
+        here. The rest are evaluated by the Engine, under the query's
+        selections, as one measures-only cube. A condition the Engine cannot
+        evaluate keeps its column: hiding data on a guess is worse than
+        showing one column too many.
+        """
+        entries: List[Tuple[str, int, str, str]] = []
+        for key in ("qDimensions", "qMeasures"):
+            for position, item in enumerate(cube.get(key) or []):
+                condition = (
+                    ((item.get("qCalcCondition") or {}).get("qCond") or {}).get("qv")
+                    or (item.get("qCalcCond") or {}).get("qv")
+                )
+                if isinstance(condition, str) and condition.strip():
+                    qdef = item.get("qDef") or {}
+                    label = (
+                        qdef.get("qLabel") or (qdef.get("qFieldLabels") or [""])[0]
+                        or (qdef.get("qFieldDefs") or [""])[0] or qdef.get("qDef") or key
+                    )
+                    entries.append((key, position, condition.strip(), label))
+        if not entries:
+            return []
+
+        shown: Dict[Tuple[str, int], bool] = {}
+        pending = []
+        for key, position, condition, _label in entries:
+            decided = decide_condition(condition)
+            if decided is None:
+                pending.append((key, position, condition))
+            else:
+                shown[(key, position)] = decided
+        if pending:
+            try:
+                check = await qix.rpc(doc_handle, "CreateSessionObject", [{
+                    "qInfo": {"qType": "bow-column-conditions"},
+                    "qHyperCubeDef": build_hypercube_def(
+                        [], [{"expr": c.lstrip("="), "alias": f"c{i}"} for i, (_, _, c) in enumerate(pending)], 1,
+                    ),
+                }])
+                handle = (check.get("qReturn") or {}).get("qHandle")
+                row = (await fetch_hypercube_pages(qix, handle, len(pending), 1) or [[]])[0] if handle is not None else []
+            except RuntimeError as e:
+                logger.debug("Qlik column conditions not evaluated: %s", e)
+                row = []
+            for i, (key, position, _condition) in enumerate(pending):
+                value = row[i].get("qNum") if i < len(row) and isinstance(row[i], dict) else None
+                shown[(key, position)] = not (isinstance(value, (int, float)) and value == 0)
+
+        hidden: List[str] = []
+        labels = {(k, p): label for k, p, _, label in entries}
+        for key in ("qDimensions", "qMeasures"):
+            kept = []
+            for position, item in enumerate(cube.get(key) or []):
+                if shown.get((key, position), True):
+                    item.pop("qCalcCondition", None)
+                    item.pop("qCalcCond", None)
+                    kept.append(item)
+                else:
+                    hidden.append(labels[(key, position)])
+            cube[key] = kept
+        if hidden:
+            # Sort order indexes columns by position; it no longer lines up.
+            cube.pop("qInterColumnSortOrder", None)
+        return hidden
 
     async def _execute_search(
         self,
@@ -2022,10 +2435,33 @@ Prefer, in this order:
    reproduce.
 3. An expression you write yourself, only when nothing above fits.
 
+#### Dynamic charts (the user switches what a chart shows)
+
+Many charts change their measure when the user clicks a button, picks a value
+in a variable input, or selects a value in a small selector field ("Sales
+amount" / "Quantity"). Such a chart's description starts its options with
+`DYNAMIC —` and lists one entry per choice:
+
+`when vMetric='Quantity' (Units): by Region: Units = Sum([Sales Quantity]) [execute_query(object_id='abc', variables={"vMetric": "Quantity"})]`
+
+- Pick the choice that matches the question and run exactly the call shown
+  in brackets. Do not rebuild the formula yourself and do not run the
+  chart's default: the default is only one of the choices.
+- `variables={...}` applies a variable value to this query only (the app is
+  not changed for anyone else). `filters={...}` selects the choice in its
+  selector field, the same click a user makes.
+- Columns marked `(shown only when ...)` appear only under that choice; the
+  option lists already leave out the columns a choice hides.
+- Objects whose dtype is a button or variable input are the switches
+  themselves: they say which variable or field they set, and to what. They
+  hold no data.
+- `variables=` also works with ad-hoc `dimensions`/`measures` when you reuse
+  a dynamic expression.
+
 ### How to Execute Queries
 
 Signature: `execute_query(app, dimensions=None, measures=None, filters=None, max_rows=10000,
-object_id=None, search=None, fields=None)`
+object_id=None, search=None, fields=None, variables=None)`
 
 Filter values must retain their Qlik types: send numeric years/IDs as numbers,
 and textual IDs (including leading zeros) as strings. Dual/date fields may
@@ -2055,6 +2491,11 @@ df = client.execute_query(app="Sales/Consumer Sales", object_id="kPqRsT", max_ro
 # Same chart, narrowed by a selection
 df = client.execute_query(
     app="Sales/Consumer Sales", object_id="kPqRsT", filters={"Year": [2024]},
+)
+
+# A dynamic chart under one choice (copy the call from the DYNAMIC options)
+df = client.execute_query(
+    app="Sales/Consumer Sales", object_id="kPqRsT", variables={"vMetric": "Quantity"},
 )
 
 # Find which field holds a value and how it is spelled, before filtering on it
