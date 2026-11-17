@@ -1004,12 +1004,17 @@ class MessageContextBuilder:
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
         summary). Rendered ahead of the summary once
-        a watermark exists, so 'what was my first ask' stays answerable."""
+        a watermark exists, so 'what was my first ask' stays answerable.
+        After /clear, only the opening exchange of the fresh context: nothing
+        at or before the newest clear boundary may reach the agent."""
         try:
             from app.services.context_compaction_service import (
-                PROTECT_FIRST_N, COMPACTION_MESSAGE_TYPE,
+                PROTECT_FIRST_N, COMPACTION_MESSAGE_TYPE, ContextCompactionService,
             )
-            rows = (await self.db.execute(
+            cleared_at = await ContextCompactionService.clear_boundary_created_at(
+                self.db, str(self.report.id)
+            )
+            query = (
                 select(Completion)
                 .options(lazyload("*"))
                 .filter(Completion.report_id == self.report.id)
@@ -1018,7 +1023,10 @@ class MessageContextBuilder:
                 .filter((Completion.trigger_source.is_(None)) | (Completion.trigger_source != "sub_agent"))
                 .order_by(Completion.created_at.asc())
                 .limit(PROTECT_FIRST_N)
-            )).scalars().all()
+            )
+            if cleared_at is not None:
+                query = query.filter(Completion.created_at > cleared_at)
+            rows = (await self.db.execute(query)).scalars().all()
             return list(rows)
         except Exception:
             return []

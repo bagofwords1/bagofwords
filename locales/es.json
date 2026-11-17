@@ -890,6 +890,15 @@
         "degraded": "resumen de respaldo (sin resumen del modelo)",
         "cancel": "Cancelar",
         "dismiss": "Descartar"
+      },
+      "clear": {
+        "description": "Empieza un contexto nuevo: los turnos anteriores siguen visibles, pero el agente deja de verlos",
+        "usage": "/clear",
+        "pending": "Se borrará el contexto cuando el agente termine esta ejecución",
+        "running": "Borrando el contexto…",
+        "done": "Contexto borrado · el agente empieza de cero con tu próximo mensaje",
+        "nothing": "Todavía no hay nada que borrar",
+        "failed": "No se pudo borrar el contexto"
       }
     }
   },
@@ -1404,7 +1413,9 @@
     "compactionSummaryHint": "El agente ve este resumen en lugar de los turnos sobre la línea.",
     "compactingContext": "Compactando contexto…",
     "compactionTurns": "{turns} turnos",
-    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens"
+    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Contexto borrado",
+    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea"
   },
   "tools": {
     "common": {

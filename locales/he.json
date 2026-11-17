@@ -890,6 +890,15 @@
         "degraded": "סיכום חלופי (ללא סיכום מודל)",
         "cancel": "ביטול",
         "dismiss": "סגירה"
+      },
+      "clear": {
+        "description": "התחלת הקשר חדש — התורות הקודמות נשארות גלויות, אבל הסוכן כבר לא רואה אותן",
+        "usage": "/clear",
+        "pending": "ההקשר ינוקה כשהסוכן יסיים את ההרצה הנוכחית",
+        "running": "מנקה את ההקשר…",
+        "done": "ההקשר נוקה · הסוכן מתחיל מחדש מההודעה הבאה שלך",
+        "nothing": "אין עדיין מה לנקות",
+        "failed": "לא ניתן היה לנקות את ההקשר"
       }
     }
   },
@@ -1404,7 +1413,9 @@
     "compactionSummaryHint": "הסוכן רואה את הסיכום הזה במקום התורות שמעל הקו.",
     "compactingContext": "דוחס את ההקשר…",
     "compactionTurns": "{turns} תורות",
-    "compactionLast": "דחיסה אחרונה: היסטוריה ~{before} ← ~{after} טוקנים"
+    "compactionLast": "דחיסה אחרונה: היסטוריה ~{before} ← ~{after} טוקנים",
+    "contextClearedDivider": "ההקשר נוקה",
+    "contextClearedDividerHint": "הסוכן לא רואה שום דבר מעל הקו הזה"
   },
   "tools": {
     "common": {
