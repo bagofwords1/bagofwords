@@ -113,7 +113,7 @@ def downgrade_test_db_to_base() -> None:
 # code at head reads their tables and columns, so a corpus stopped before the
 # data migration gets them too: their upgrade() runs on its own, unstamped,
 # and is idempotent, so a later `upgrade head` finds it done.
-SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01", "pubkeep01", "auditcontract01", "conndownalert01", "connalertmode01", "connalertstate01", "dashlist01", "dashlist02", "schedagents01", "roleovr01", "ctxcomp02", "dskind01", "cqruns01", "shwinfo01", "artpopup01", "dashacc01", "folder01", "folder02", "folder03", "folder04", "folder05", "folder06", "folder07", "folder08", "folder10", "folder11", "folder12", "decmodel01", "dashdesc01", "queryexec01", "queryexec02", "queryexec03", "ctxclear01", "toolconfte01")
+SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01", "pubkeep01", "auditcontract01", "conndownalert01", "connalertmode01", "connalertstate01", "dashlist01", "dashlist02", "schedagents01", "roleovr01", "ctxcomp02", "dskind01", "cqruns01", "shwinfo01", "artpopup01", "dashacc01", "folder01", "folder02", "folder03", "folder04", "folder05", "folder06", "folder07", "folder08", "folder10", "folder11", "folder12", "decmodel01", "dashdesc01", "queryexec01", "queryexec02", "queryexec03", "ctxclear01", "toolconfte01", "slackchan01")
 
 
 # Later revisions that add columns to the tables connapps01 creates. A test

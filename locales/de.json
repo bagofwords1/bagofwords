@@ -7427,5 +7427,28 @@
       "stale": "Der Prozess, der diese Abfrage ausführte, reagiert nicht mehr; sein Platz wurde freigegeben.",
       "busy": "Kein Platz wurde rechtzeitig frei: Die Verbindung war an ihrem Limit gleichzeitiger Abfragen."
     }
+  },
+  "slackChannels": {
+    "button": "Kanäle",
+    "title": "Slack-Kanäle für diesen Agenten",
+    "subtitle": "Wähle, welche Slack-Kanäle dieser Agent liest.",
+    "allChannels": "Alle meine Kanäle",
+    "allChannelsHint": "Jeder Kanal, in dem die jeweilige Person Mitglied ist.",
+    "selectedChannels": "Nur ausgewählte Kanäle",
+    "connectRequired": "Melde dich bei dieser Verbindung mit Slack an, um Kanäle auszuwählen.",
+    "searchPlaceholder": "Kanäle suchen",
+    "notYourChannel": "nicht in deinem Slack",
+    "noMatch": "Keine passenden Kanäle.",
+    "selectedCount": "{n} ausgewählt",
+    "includeDms": "Direktnachrichten einbeziehen",
+    "includeDmsHint": "Auch die Direkt- und Gruppennachrichten jeder Person lesen.",
+    "membershipNote": "Jede Person sieht weiterhin nur die Kanäle, in denen sie Mitglied ist.",
+    "saveFailed": "Kanäle konnten nicht gespeichert werden",
+    "saved": "Kanäle gespeichert",
+    "summaryAll": "Liest alle Kanäle und Direktnachrichten",
+    "summaryAllNoDms": "Liest alle Kanäle, keine Direktnachrichten",
+    "summarySome": "Liest {names}",
+    "summarySomeWithDms": "Liest {names} und Direktnachrichten",
+    "loadFailed": "Die Kanäle dieses Agenten konnten nicht geladen werden. Schließe und versuche es erneut."
   }
 }

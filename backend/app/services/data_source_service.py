@@ -4361,7 +4361,7 @@ class DataSourceService:
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
             "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages",
+            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
         ]
@@ -7128,6 +7128,16 @@ class DataSourceService:
                 DataSourceConnectionTool.connection_tool_id.in_(
                     select(ConnectionTool.id).where(ConnectionTool.connection_id == connection_id)
                 ),
+            )
+        )
+
+        # This agent's settings for the connection (e.g. its Slack channels):
+        # same reason — they must not come back silently on a relink.
+        from app.models.data_source_connection_setting import DataSourceConnectionSetting
+        await db.execute(
+            delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.data_source_id == data_source_id,
+                DataSourceConnectionSetting.connection_id == connection_id,
             )
         )
 

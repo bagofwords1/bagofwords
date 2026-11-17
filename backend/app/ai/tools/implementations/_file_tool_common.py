@@ -39,7 +39,7 @@ FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
     "documentum",
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem",
-    "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages",
+    "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages", "slack_messages",
     # KMS Lighthouse: live only (no catalog), read with the caller's identity.
     "kms_lighthouse",
     # Code connections: a cached clone served by a NetworkDirClient subclass.
@@ -403,8 +403,25 @@ async def resolve_file_client(
     from app.services.connection_service import ConnectionService
 
     service = ConnectionService()
+    config_overrides = None
+    if resolved_conn.type == "slack_messages" and report:
+        # Each agent may narrow the shared Slack connection to its channels;
+        # a report with several agents on this connection reads the union.
+        from app.services.slack_channel_scope import client_overrides, scope_for_agents
+        agent_ids = [str(ds.id) for ds, conn in attached if str(conn.id) == str(resolved_conn.id)]
+        # An explicit choice wins: when the report pins agents on this
+        # connection, only THEIR scopes count. A personal connector that joins
+        # every run on its own (see resolve_run_agents) must not reopen a
+        # channel scope the user deliberately picked.
+        pinned = {str(ds.id) for ds in (getattr(report, "data_sources", None) or [])}
+        if any(i in pinned for i in agent_ids):
+            agent_ids = [i for i in agent_ids if i in pinned]
+        config_overrides = client_overrides(await scope_for_agents(db, str(resolved_conn.id), agent_ids))
     try:
-        client = await service.construct_client(db, resolved_conn, current_user)
+        # Only Slack passes overrides; every other type keeps the exact call
+        # it always made.
+        extra = {"config_overrides": config_overrides} if config_overrides else {}
+        client = await service.construct_client(db, resolved_conn, current_user, **extra)
     except Exception as e:
         return None, f"Failed to construct client: {e}"
 

@@ -87,6 +87,7 @@ from app.models.tool_confirmation import ToolConfirmation
 from app.models.officejs_pending_result import OfficeJsPendingResult
 from app.models.login_exchange_code import LoginExchangeCode
 from app.models.data_source_connection_tool import DataSourceConnectionTool
+from app.models.data_source_connection_setting import DataSourceConnectionSetting
 from app.models.domain_connection import domain_connection
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
