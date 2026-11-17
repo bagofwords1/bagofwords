@@ -220,6 +220,10 @@ def _db_client_sql(tokens: list) -> tuple:
 
 def shell_block_reason(command: str) -> Optional[str]:
     """Why a remote shell command is blocked, or None."""
+    return _shell_reason(command, _Budget())
+
+
+def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
     if not isinstance(command, str) or not command.strip():
         return None
     try:
@@ -243,12 +247,12 @@ def shell_block_reason(command: str) -> Optional[str]:
         # and SQL piped into one (echo "DROP TABLE x" | psql).
         client_sql, _ = _db_client_sql(tokens)
         for text in client_sql:
-            reason = sql_block_reason(text, sql_context="sql")
+            reason = _sql_reason(text, "sql", budget)
             if reason:
                 return reason
         if client_anywhere:
             for tok in tokens:
-                reason = sql_block_reason(tok, sql_context="shared")
+                reason = _sql_reason(tok, "shared", budget)
                 if reason:
                     return reason
     return None
@@ -269,35 +273,39 @@ def shell_block_reason(command: str) -> Optional[str]:
 #              ("Drop table orders_tmp after migration" in a title passes).
 # A list item gets its key's kind ("queries": ["SELECT 1", "DELETE …"]).
 _SQL_SHARED_KEYS = {"query", "q", "command", "script", "code"}
-# A tool whose name says it runs SQL: an engine name right before query or
-# queries (postgres_query), run/execute + query, read/write/start + query.
+# A tool whose name says it runs SQL: an engine name before query or queries,
+# with or without words between (postgres_query, postgres_raw_query,
+# bigquery_run_readonly_query), run/execute + query, read/write/start + query.
 _SQL_TOOL_NAME = re.compile(
     r"sql|statement|stmt|database|^query$|(^|[_-])(run|execute|exec)[_-]?(query|queries)|(^|[_-])db([_-]|$)"
     r"|(^|[_-])(read|write|start)[_-]?(query|queries)([_-]|$)"
     r"|(^|[_-])(postgres|postgresql|pg|mysql|mariadb|mssql|tsql|oracle|snowflake|bigquery|bq|duckdb|redshift"
     r"|athena|clickhouse|trino|presto|databricks|sqlite|synapse|teradata|vertica|cockroach|spanner)"
-    r"[_-]?(query|queries)([_-]|$)",
+    r"[_-]?(\w*[_-])?(query|queries)([_-]|$)",
     re.IGNORECASE)
-# Search, natural-language and history tools are never SQL tools, whatever
-# engine they name (snowflake_cortex_search_query, pg_query_history): their
-# "query" is a question or a filter. Compared by whole name part.
+# Search, natural-language, AI and history tools are never SQL tools,
+# whatever engine they name (snowflake_cortex_search_query, pg_query_history,
+# databricks_ai_query): their "query" is a question, a prompt or a filter.
+# Compared by whole name part.
 _NOT_SQL_TOOL_WORDS = frozenset({
     "search", "semantic", "vector", "natural", "genie", "analyst", "ask", "history", "log", "logs", "list",
-    "named", "saved",
+    "named", "saved", "complete", "ai", "cortex", "prompt",
 })
 # On a SQL tool, a key naming a query or statement holds SQL.
 _SQL_TOOL_KEY = re.compile(r"quer(y|ies)|statement|stmt")
 # A parameter whose schema title or description says it holds SQL: it names
-# (T-)SQL, or it has statement(s) and run/execute among its words. Only the
-# first _MAX_DESCRIPTION_CHARS are read (MCP server text has no size bound,
-# and re holds the GIL).
+# (T-)SQL, or it has statement(s) and run/execute among its words. The whole
+# text is read (both checks are linear).
 _SQL_DESCRIPTION_WORD = re.compile(r"\b(t-?)?sql\b", re.IGNORECASE)
-_MAX_DESCRIPTION_CHARS = 2048
 # Schema nesting read for SQL descriptions; a schema deeper than this makes
 # every argument of the tool "sql" (fail closed: the unread part could say so).
 _MAX_SCHEMA_DEPTH = 32
-# $ref hops followed from one schema node.
+# $ref hops followed from one schema node; a chain still unresolved after
+# this many makes the parameter "sql" (fail closed, the same reason).
 _MAX_REF_HOPS = 8
+# Schema nodes read for one parameter's descriptions (its $ref chains,
+# allOf/anyOf/oneOf members and array items); more makes it "sql".
+_MAX_DESCRIPTION_NODES = 256
 
 
 class _EveryParam(frozenset):
@@ -318,7 +326,6 @@ def _is_sql_tool(tool_name: str) -> bool:
 
 
 def _described_as_sql(text: str) -> bool:
-    text = text[:_MAX_DESCRIPTION_CHARS]
     if _SQL_DESCRIPTION_WORD.search(text):
         return True
     words = set(re.findall(r"[a-z]+", text.lower()))
@@ -349,24 +356,41 @@ def _resolve_ref(node: dict, root: dict) -> Optional[dict]:
     return target if isinstance(target, dict) else None
 
 
-def _description_texts(sub: dict, root: dict) -> Iterable[str]:
-    """Title and description of a property schema, of what its $ref chain
-    points to, and of its allOf/anyOf/oneOf members and their refs (the
-    shapes pydantic writes). Bounded by _MAX_REF_HOPS per chain; a cycle
-    stops at the first node seen again."""
-    starts = [sub]
-    for field in ("allOf", "anyOf", "oneOf"):
-        members = sub.get(field)
-        if isinstance(members, list):
-            starts.extend(m for m in members if isinstance(m, dict))
-    for start in starts:
-        node, visited = start, set()
+def _param_described_as_sql(sub: dict, root: dict, memo: dict) -> bool:
+    """Whether a property schema's title or description says it holds SQL:
+    its own, what its $ref chain points to, its allOf/anyOf/oneOf members
+    (the shapes pydantic writes) and its array ``items``, each with their
+    refs. A cycle stops at the first node seen again. Fail closed: a $ref
+    chain still unresolved after _MAX_REF_HOPS, or more than
+    _MAX_DESCRIPTION_NODES nodes to read, counts as SQL. ``memo`` holds the
+    verdict of each node already read, so a $def shared by many properties
+    is read once per schema."""
+    starts, visited = [sub], set()
+    while starts:
+        node = starts.pop()
         for _ in range(_MAX_REF_HOPS + 1):
             if node is None or id(node) in visited:
                 break
             visited.add(id(node))
-            yield f"{node.get('title') or ''} {node.get('description') or ''}"
+            if len(visited) > _MAX_DESCRIPTION_NODES:
+                return True
+            if id(node) not in memo:
+                memo[id(node)] = _described_as_sql(f"{node.get('title') or ''} {node.get('description') or ''}")
+            if memo[id(node)]:
+                return True
+            for field in ("allOf", "anyOf", "oneOf"):
+                members = node.get(field)
+                if isinstance(members, list):
+                    starts.extend(m for m in members if isinstance(m, dict))
+            if isinstance(node.get("items"), dict):
+                starts.append(node["items"])
             node = _resolve_ref(node, root)
+        else:
+            if node is not None and id(node) not in visited:
+                logger.info("blocklist: schema $ref chain longer than %d hops; parameter read as SQL",
+                            _MAX_REF_HOPS)
+                return True
+    return False
 
 
 def _sql_params(schema: Any) -> frozenset:
@@ -376,6 +400,7 @@ def _sql_params(schema: Any) -> frozenset:
     _EVERY_PARAM."""
     names: set = set()
     root = schema if isinstance(schema, dict) else {}
+    memo: dict = {}
     stack = [(schema, 0)]
     while stack:
         node, depth = stack.pop()
@@ -390,7 +415,7 @@ def _sql_params(schema: Any) -> frozenset:
         if isinstance(props, dict):
             for name, sub in props.items():
                 if isinstance(sub, dict):
-                    if any(_described_as_sql(t) for t in _description_texts(sub, root)):
+                    if _param_described_as_sql(sub, root, memo):
                         names.add(str(name))
                     children.append(sub)
         for field in ("items", "additionalProperties"):
@@ -432,17 +457,12 @@ _GATE_WORDS = ("drop", "truncate", "delete", "exec")
 # EXEC bodies are read as SQL again, at most this many levels deep; a body
 # still holding SQL to run at that depth is refused as unreadable.
 _MAX_EXEC_DEPTH = 2
-# Literals with these can open a quote, name or comment that would run into
-# the next one, so they are not joined into the batched recheck; each is
-# rechecked alone, at most this many per level (more: refused as unreadable).
-# The concatenation of an EXEC's literals is one of them.
-_JOIN_UNSAFE = re.compile(r"['\"`\[$]|/\*")
-_MAX_SEPARATE_RECHECKS = 64
-# Joins the other literals. A line comment (--, #, //) ends at the first
-# newline, so it never reaches the ";" on the next line; the constructs that
-# span lines (quotes, quoted names, block comments, dollar quotes) are
-# _JOIN_UNSAFE and never joined.
-_JOIN = "\n;\n"
+# SQL held in literals (an EXEC body, a concatenation of an EXEC's literals,
+# a procedure argument) is rechecked one item at a time, each read alone so
+# nothing in one can affect another. At most this many rechecks per call
+# (block_reason, sql_block_reason or shell_block_reason), across every level
+# and argument; a call that needs more is refused as unreadable.
+_MAX_RECHECKS = 64
 # Argument values nested deeper than this are refused as unreadable.
 _MAX_ARGUMENT_DEPTH = 64
 
@@ -646,35 +666,61 @@ def _add(items: dict, texts: list) -> None:
         items["".join(texts)] = None  # split strings: EXEC('DR' + 'OP TABLE x')
 
 
-def _exec_proc_at_start(toks: list) -> Optional[int]:
-    """Index of the sp_executesql / sp_execute name a segment starts with,
-    plain or qualified (sys.sp_executesql, master..sp_executesql), or None.
-    T-SQL runs the first statement of a batch without EXEC, so such a
-    segment runs its literals like EXEC does."""
+# Statement words some tokenizers read as a plain name (VAR): a segment
+# starting with one is never a procedure call.
+_NOT_A_PROCEDURE = frozenset({
+    "IF", "WHILE", "DECLARE", "PRINT", "THROW", "RAISERROR", "WAITFOR", "RETURN", "GOTO", "BREAK", "CONTINUE",
+    "SETUSER", "BULK", "NOTIFY", "DBCC",
+})
+# Tokens an argument list of a procedure call can start with.
+_PROC_ARGUMENT_START = frozenset({
+    "STRING", "NATIONAL_STRING", "UNICODE_STRING", "NULL", "NUMBER", "DASH", "PARAMETER", "DEFAULT", "VAR",
+    "IDENTIFIER",
+})
+
+
+def _proc_call_at_start(toks: list) -> Optional[int]:
+    """Index of the procedure name a segment starts with when the segment is
+    a procedure call without EXEC (``sp_MSforeachtable 'DELETE FROM ?'``,
+    ``dbo.run N'…'``, ``[dbo].[run] NULL, N'…'``), or None. T-SQL runs the
+    first statement of a batch without EXEC, so such a segment runs its
+    literals like EXEC does. The name is a plain, qualified or bracketed name
+    (never a keyword token or a statement word in _NOT_A_PROCEDURE) followed
+    by an argument, not by "(", "=", ":" or more name."""
+    def name_part(k: int) -> bool:
+        return k < len(toks) and toks[k].token_type.name in ("VAR", "IDENTIFIER")
+
+    if not name_part(0):
+        return None
     i = 0
     while i + 1 < len(toks) and toks[i + 1].token_type.name == "DOT":
         i += 1
         while i + 1 < len(toks) and toks[i + 1].token_type.name == "DOT":
             i += 1
         i += 1
-    if i >= len(toks) or (toks[i].token_type.name in _LITERAL_TOKENS and toks[i].token_type.name != "IDENTIFIER"):
+        if not name_part(i):
+            return None
+    if i == 0 and toks[0].token_type.name == "VAR" and toks[0].text.upper() in _NOT_A_PROCEDURE:
         return None
-    return i if toks[i].text.upper() in _EXEC_PROCS else None
+    if i + 1 >= len(toks) or toks[i + 1].token_type.name not in _PROC_ARGUMENT_START:
+        return None
+    return i
 
 
 def _literal_items(tokens: list, items: dict) -> None:
     """Text in this SQL that would itself run as SQL, added to ``items`` in
     order: the string literals of a statement with EXEC/EXECUTE or one that
-    starts with sp_executesql (and their concatenation), the literal of
+    is a procedure call without EXEC (and their concatenation), the literal of
     PREPARE … FROM '…' and the statement of PREPARE … AS …. When SQL held in a variable is run (EXEC(@q), EXEC
     sp_executesql @q, PREPARE s FROM @q), the text can come from any
     statement, so every literal of the whole text is added too."""
     every: list = []
     dynamic = False
     for kws, toks in _segments(tokens):
-        proc = _exec_proc_at_start(toks)
+        proc = _proc_call_at_start(toks)
         has_exec = proc is not None or any(k in _EXEC_WORDS for k in kws)
-        if proc is not None and toks[proc + 1:proc + 2] and toks[proc + 1].token_type.name == "PARAMETER":
+        if (proc is not None and toks[proc].text.upper() in _EXEC_PROCS
+                and toks[proc + 1:proc + 2] and toks[proc + 1].token_type.name == "PARAMETER"):
             dynamic = True  # sp_executesql @q
         parts: list = []
         for i, t in enumerate(toks):
@@ -717,15 +763,22 @@ def _literal_items(tokens: list, items: dict) -> None:
         _add(items, every)
 
 
-def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset) -> set:
-    """Read each item as SQL, in at most one batch per level: the items
-    joined with _JOIN (each starts its own statement), plus one read per item
-    that could run into the next one. An item whose exact text was already
-    read at a shallower level (``seen``) is not read again: the tokenizers
-    that keep an EXEC body raw give back the "EXEC " + body item this module
-    made, unchanged. Only the exact text is skipped: a near copy (other case
-    or spacing) can hold different SQL one level deeper. Past
-    _MAX_EXEC_DEPTH, any item still to read makes the text unreadable."""
+class _Budget:
+    """Rechecks left for one call (_MAX_RECHECKS)."""
+
+    def __init__(self) -> None:
+        self.left = _MAX_RECHECKS
+
+
+def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset, budget: _Budget) -> set:
+    """Read each item as SQL on its own, at level "sql". Only items with a
+    gate word are read. An item whose exact text was already read at a
+    shallower level (``seen``) is not read again: the tokenizers that keep an
+    EXEC body raw give back the "EXEC " + body item this module made,
+    unchanged. Only the exact text is skipped: a near copy (other case or
+    spacing) can hold different SQL one level deeper. Past _MAX_EXEC_DEPTH,
+    any item still to read makes the text unreadable, and so does a call
+    that needs more than _MAX_RECHECKS reads."""
     seen = seen | {text}
     pending = [t for t in items if _passes_gate(t.lower(), "sql") and t not in seen]
     if not pending:
@@ -733,17 +786,14 @@ def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset) -> se
     if depth >= _MAX_EXEC_DEPTH:
         logger.info("blocklist: SQL to run nested past %d levels; refused", _MAX_EXEC_DEPTH)
         return {REASON_UNREADABLE}
-    joined = [t for t in pending if not _JOIN_UNSAFE.search(t)]
-    alone = [t for t in pending if _JOIN_UNSAFE.search(t)]
-    if len(alone) > _MAX_SEPARATE_RECHECKS:
-        logger.info("blocklist: %d quoted SQL literals to recheck; refused", len(alone))
+    if len(pending) > budget.left:
+        logger.info("blocklist: more than %d SQL literals to recheck in one call; refused", _MAX_RECHECKS)
         return {REASON_UNREADABLE}
+    budget.left -= len(pending)
     seen = seen | set(pending)
     found: set = set()
-    if joined:
-        found.update(_sql_findings(_JOIN.join(joined), "sql", depth + 1, seen))
-    for t in alone:
-        found.update(_sql_findings(t, "sql", depth + 1, seen))
+    for t in pending:
+        found.update(_sql_findings(t, "sql", depth + 1, seen, budget))
     return found
 
 
@@ -920,10 +970,12 @@ def _other_findings(text: str) -> list:
     return []
 
 
-def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = frozenset()) -> list[str]:
+def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = frozenset(),
+                  budget: Optional[_Budget] = None) -> list[str]:
     """The reasons ``text`` is refused at ``level`` ("sql", "shared" or
-    "other"); empty means it passes. ``depth`` and ``seen`` belong to the
-    recheck of SQL held in literals (_recheck_literals)."""
+    "other"); empty means it passes. ``depth``, ``seen`` and ``budget``
+    belong to the recheck of SQL held in literals (_recheck_literals)."""
+    budget = budget or _Budget()
     if level == "shared" and _promoted(text):
         level = "sql"
     if not _passes_gate(text.lower(), level):
@@ -959,7 +1011,7 @@ def _sql_findings(text: str, level: str, depth: int = 0, seen: frozenset = froze
     items: dict = {}  # SQL to run held in literals, in order
     for tokens in readable:
         _literal_items(tokens, items)
-    found.update(_recheck_literals(text, items, depth, seen))
+    found.update(_recheck_literals(text, items, depth, seen, budget))
     return [reason for reason in _REASON_ORDER if reason in found]
 
 
@@ -968,10 +1020,14 @@ def sql_block_reason(text: str, *, sql_context: Any = True) -> Optional[str]:
     True), "shared" or "other" (or False); see the levels above. Literals and
     comments are never keywords, so a query that searches for 'drop table' in
     a log is not refused; ``EXEC('…')`` bodies are read as SQL on their own."""
+    return _sql_reason(text, sql_context, _Budget())
+
+
+def _sql_reason(text: str, sql_context: Any, budget: _Budget) -> Optional[str]:
     level = {True: "sql", False: "other"}.get(sql_context, sql_context)
     if not isinstance(text, str) or not text.strip():
         return None
-    findings = _sql_findings(text, level)
+    findings = _sql_findings(text, level, budget=budget)
     return findings[0] if findings else None
 
 
@@ -1007,8 +1063,9 @@ def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False,
     if isinstance(tool_name, str) and _TOOL_NAME.search(_bare_tool_name(tool_name)):
         return "the tool's name marks it as a mass-delete action"
     args = arguments if isinstance(arguments, dict) else {}
+    budget = _Budget()  # one recheck budget for the whole call
     if remote_shell:
-        reason = shell_block_reason(args.get("command", ""))
+        reason = _shell_reason(args.get("command", ""), budget)
         if reason:
             return reason
     bare = _bare_tool_name(tool_name) if isinstance(tool_name, str) else ""
@@ -1017,7 +1074,7 @@ def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False,
         if text is _TOO_DEEP:
             logger.info("blocklist: arguments nested past %d levels; refused", _MAX_ARGUMENT_DEPTH)
             return REASON_UNREADABLE
-        reason = sql_block_reason(text, sql_context=_key_kind(key, bare, sql_params))
+        reason = _sql_reason(text, _key_kind(key, bare, sql_params), budget)
         if reason:
             return reason
     return None

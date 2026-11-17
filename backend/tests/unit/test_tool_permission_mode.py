@@ -442,6 +442,7 @@ def test_ordinary_db_client_commands_pass(command):
     "SELECT a AS delete FROM t",  # catalog: AS DELETE FROM is also a procedure body, new
     "SELECT 1 # drop table x",  # catalog: # is a comment only in MySQL, as today
     "EXEC sp_log 'drop table happened'",  # catalog: EXEC literals are rechecked, as today
+    "sp_log 'drop table happened'",  # a procedure call without EXEC: its literals are rechecked, new
 ])
 def test_accepted_false_refusals_in_sql(sql):
     assert sql_block_reason(sql)
@@ -451,6 +452,8 @@ def test_accepted_false_refusals_in_sql(sql):
     "update on the delete account flow",  # D10, new
     "with delete pending, then archive",  # D10, new
     "Delete from inbox",  # catalog, as today
+    "find 'DELETE FROM orders' in the logs",  # reads as a procedure call without EXEC, new
+    "customers who typed 'delete from orders'",  # the same: a word, then an argument, new
 ])
 def test_accepted_false_refusals_on_a_search_tool(text):
     assert block_reason(tool_name="search_docs", arguments={"query": text})
@@ -526,18 +529,21 @@ def _many_literals(k):
     return "EXEC p " + ",".join("'drop%d'" % i for i in range(k))
 
 
-@pytest.mark.parametrize("text", [
-    pytest.param(_many_literals(20_000), id="many-literals"),  # 228,896 bytes
-    pytest.param("".join("EXEC p%d; " % i for i in range(8_000)), id="many-exec-statements"),
+@pytest.mark.parametrize("text,expect", [
+    # 20,000 literals to recheck, past the 64 rechecks of one call: refused
+    # before any of them is read.
+    pytest.param(_many_literals(20_000), UNREADABLE, id="many-literals"),  # 228,896 bytes
+    pytest.param("".join("EXEC p%d; " % i for i in range(2_000)), None, id="2000-exec-statements"),
+    pytest.param("".join("EXEC p%d; " % i for i in range(8_000)), None, id="8000-exec-statements"),
 ])
-def test_many_exec_literals_cost_about_one_read_of_the_text(text):
+def test_many_exec_literals_cost_about_one_read_of_the_text(text, expect):
     # Accepted exception to tests/AGENTS.md rule 8: this reads the clock, but it
-    # compares two timings taken in one process with a lenient bound. Literals
-    # are rechecked in one batch, not one sqlglot read each (about 1.2 ms per
-    # literal: 18 s for the 229 KB row, 15 times one read, before the batching).
+    # compares two timings taken in one process with a lenient bound. Each
+    # literal is rechecked alone (about 1.2 ms each), at most 64 per call, so
+    # the check costs about one read of the text whatever it holds.
     base = _read_once(text)
     start = time.perf_counter()
-    assert block_reason(tool_name="search_docs", arguments={"query": text}) is None
+    assert block_reason(tool_name="search_docs", arguments={"query": text}) == expect
     assert time.perf_counter() - start <= 4 * base
 
 
@@ -548,21 +554,64 @@ def test_many_distinct_exec_literals_are_checked_in_linear_time():
 
     def check(t):
         start = time.perf_counter()
-        assert sql_block_reason(t) is None
+        assert sql_block_reason(t) == UNREADABLE  # past the 64 rechecks of one call
         return time.perf_counter() - start
 
     check_small, check_large = check(small), check(large)
     assert check_large / check_small <= 2 * (base_large / base_small)
 
 
+def _exec_statements(k, start=0):
+    return "; ".join("EXEC('drop%d')" % i for i in range(start, start + k))
+
+
+def test_more_rechecks_than_the_call_bound_are_refused():
+    # Accepted false refusal (a cost bound): each literal to run is rechecked
+    # alone, at most 64 rechecks per call across every level and argument.
+    assert sql_block_reason(_exec_statements(64)) is None
+    assert sql_block_reason(_exec_statements(65)) == UNREADABLE
+    # The bound is per call, not per argument.
+    two = {"sql": _exec_statements(40), "statement": _exec_statements(40, start=40)}
+    assert block_reason(tool_name="run", arguments={"sql": two["sql"]}) is None
+    assert block_reason(tool_name="run", arguments=two) == UNREADABLE
+
+
+_VERBS = [("DELETE FROM orders", DELETE), ("DROP TABLE orders", DROP), ("TRUNCATE TABLE orders", TRUNCATE)]
+
+
+@pytest.mark.parametrize("verb,reason", _VERBS)
+@pytest.mark.parametrize("shape", [
+    "DECLARE @a NVARCHAR(99) = 'deleted {#'; DECLARE @b NVARCHAR(99) = '%s --#}'; EXEC(@b)",
+    "EXEC('deleted {#'); EXEC('%s --#}')",
+    "EXEC sp_executesql N'deleted {#'; EXEC sp_executesql N'%s --#}'",
+])
+def test_a_block_comment_opened_in_one_literal_never_hides_the_next(shape, verb, reason):
+    sql = shape % verb
+    assert sql_block_reason(sql) == reason, sql
+    assert block_reason(tool_name="mssql_query", arguments={"query": sql}) == reason, sql
+
+
+@pytest.mark.parametrize("opener,closer", [
+    ("{#", "#}"), ("--", ""), ("#", ""), ("//", ""), ("/*", "*/"), ("\"", "\""), ("[", "]"), ("`", "`"),
+    ("$$", "$$"), ("$t$", "$t$"), ("{{", "}}"), ("{%", "%}"),
+])
+@pytest.mark.parametrize("verb,reason", _VERBS)
+def test_an_unclosed_construct_in_one_literal_never_reaches_a_later_one(opener, closer, verb, reason):
+    # Each literal is read on its own: nothing in one can open a quote, name or
+    # comment that runs into the next. (A lone closing quote can make the
+    # later literal itself unreadable, which is refused too.)
+    for sql in ("EXEC('deleted %s'); EXEC('%s %s')" % (opener, verb, closer),
+                "EXEC p 'deleted %s', '%s %s'" % (opener, verb, closer)):
+        assert sql_block_reason(sql) in (reason, UNREADABLE), sql
+    assert sql_block_reason("EXEC('deleted %s'); EXEC('%s')" % (opener, verb)) == reason
+
+
 @pytest.mark.parametrize("sql", [
-    # Each literal is its own statement in the batched recheck, and split
-    # strings are still joined.
+    # Each literal is rechecked on its own, and split strings are still joined.
     "EXEC p 'x', 'DROP TABLE orders'", "EXEC('DR' + 'OP TABLE orders')",
     "EXEC sp_executesql N'DELETE FROM t WHERE n = ''a''', N'TRUNCATE TABLE u'",
     "EXEC p 'it''s'; EXEC('DROP TABLE orders')",
-    # A literal that opens a quote, name or comment is never joined to the
-    # next one, where it would hide it.
+    # A literal that opens a quote, name or comment never hides the next one.
     "EXEC p 'drop \"'; EXEC('DROP TABLE orders'); EXEC q '\" drop'",
     "EXEC p 'drop /*'; EXEC('DROP TABLE orders'); EXEC q 'drop */'",
     "EXEC p 'drop ['; EXEC('DROP TABLE orders'); EXEC q 'drop ]'",
@@ -598,8 +647,8 @@ def test_ordinary_exec_and_prepared_statements_pass(sql):
 
 
 def test_more_quoted_exec_literals_than_the_recheck_bound_are_refused():
-    # Accepted false refusal (a cost bound, like D8): a literal with a quote is
-    # rechecked alone, at most 64 per level; past that the text is refused.
+    # Accepted false refusal (a cost bound, like D8): each literal is
+    # rechecked alone, at most 64 per call; past that the text is refused.
     def text(k):
         return "EXEC p " + ", ".join("'drop \"t%d\"'" % i for i in range(k))
 
@@ -673,6 +722,33 @@ def test_sp_executesql_without_exec_is_read(sql):
     assert sql_block_reason(sql), sql
 
 
+@pytest.mark.parametrize("call", [
+    "sp_MSforeachtable 'DELETE FROM ?'", "sp_MSforeachdb N'DROP TABLE [?].dbo.x'",
+    "sp_prepexec NULL, NULL, N'DROP TABLE x'", "sp_prepexec @h OUTPUT, NULL, N'TRUNCATE TABLE x'",
+    "sys.sp_MSforeachtable @command1 = N'DELETE FROM ?'",
+    # Names on no list: any procedure runs its arguments' SQL the same way.
+    "dbo.my_runner 'TRUNCATE TABLE x'", "[dbo].[my_runner] N'DROP TABLE x'", "run_later -1, 'DELETE FROM t'",
+])
+def test_a_procedure_called_without_exec_has_its_literals_read(call):
+    # T-SQL runs any procedure without EXEC as the first statement of a batch.
+    for sql in (call, "SELECT 1\nGO\n" + call, "EXEC " + call):
+        assert sql_block_reason(sql), sql
+
+
+@pytest.mark.parametrize("sql", [
+    # Statements that start with a keyword are not procedure calls.
+    "SELECT 'DROP TABLE x'", "SET @q = 'DROP TABLE orders'", "VALUES ('DELETE FROM orders')",
+    "INSERT INTO log VALUES ('truncate table orders')", "COMMENT ON TABLE t IS 'drop table t when done'",
+    "DECLARE @q NVARCHAR(99) = 'DELETE FROM orders'", "IF @x = 'DROP TABLE x' SELECT 1",
+    "PRINT 'DROP TABLE x'", "THROW 50000, 'DELETE FROM orders failed', 1", "RAISERROR('DROP TABLE x', 16, 1)",
+    "UPDATE t SET note = 'DELETE FROM orders' WHERE id = 1",
+    # A procedure call whose literals hold no destructive SQL passes.
+    "sp_MSforeachtable 'SELECT COUNT(*) FROM ?'", "dbo.my_runner 'deleted rows'",
+])
+def test_statements_starting_with_a_keyword_are_not_procedure_calls(sql):
+    assert sql_block_reason(sql) is None, sql
+
+
 def test_sp_executesql_with_harmless_sql_passes():
     assert sql_block_reason("sp_executesql N'SELECT 1'") is None
     assert sql_block_reason(
@@ -680,7 +756,7 @@ def test_sp_executesql_with_harmless_sql_passes():
 
 
 def test_the_quoted_literal_recheck_bound_counts_the_concatenation():
-    # 64 rechecks per level, and the concatenation of the literals is one of
+    # 64 rechecks per call, and the concatenation of the literals is one of
     # them: 63 quoted literals pass, 64 are refused.
     def text(k):
         return "EXEC p " + ", ".join("'drop \"t%d\"'" % i for i in range(k))
@@ -779,6 +855,20 @@ def test_sql_sent_to_a_search_tool_named_for_an_engine_still_gets_the_shared_rul
     assert block_reason(tool_name=tool, arguments={"query": "DELETE FROM orders"}) == DELETE
 
 
+@pytest.mark.parametrize("tool", ["postgres_raw_query", "pg_safe_query", "snowflake_readonly_query",
+                                  "trino_adhoc_query", "bigquery_run_readonly_query", "postgres_readonly_query",
+                                  "mssql_query"])
+@pytest.mark.parametrize("text", ["TRUNCATE orders", "DELETE orders", "SET XACT_ABORT ON DELETE FROM orders"])
+def test_a_tool_with_words_between_engine_and_query_gets_the_full_sql_rules(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}), (tool, text)
+
+
+@pytest.mark.parametrize("tool", ["snowflake_cortex_query", "postgres_prompt_query", "bigquery_ai_complete_query",
+                                  "databricks_complete_query"])
+def test_ai_tools_named_for_a_sql_engine_stay_lenient(tool):
+    assert block_reason(tool_name=tool, arguments={"query": "delete account"}) is None, tool
+
+
 @pytest.mark.parametrize("tool", _SQL_TOOLS + ["execute_sql", "run_query"])
 def test_every_sql_tool_of_the_last_round_stays_classified(tool):
     assert block_reason(tool_name=tool, arguments={"query": "DELETE orders"}) == DELETE, tool
@@ -864,11 +954,72 @@ def test_a_long_schema_description_is_read_in_bounded_time():
 
 @pytest.mark.parametrize("description,expect", [
     ("Run this statement", DELETE), ("Statements to execute", DELETE), ("The T-SQL batch", DELETE),
-    ("Bank statement id", None), ("Run the job", None), ("A " + "long text " * 400 + "SQL to run", None),
+    ("Bank statement id", None), ("Run the job", None),
+    # The whole title and description are read, however long.
+    ("A " + "long text " * 400 + "SQL to run", DELETE), ("x" * 2200 + " Pass the SQL statement to run.", DELETE),
+    ("y " * 1100 + "Body of the T-SQL batch to execute", DELETE), ("z " * 1100 + "Statements to run", DELETE),
 ])
-def test_a_description_is_read_by_words_in_its_first_part(description, expect):
+def test_a_description_is_read_by_words(description, expect):
     schema = {"type": "object", "properties": {"text": {"type": "string", "description": description}}}
     assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM orders"}, input_schema=schema) == expect
+    titled = {"type": "object", "properties": {"text": {"type": "string", "title": description}}}
+    assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM orders"}, input_schema=titled) == expect
+
+
+def _ref_chain(hops, description):
+    defs = {f"D{i}": {"$ref": f"#/$defs/D{i + 1}"} for i in range(hops - 1)}
+    defs[f"D{hops - 1}"] = {"type": "string", "description": description}
+    return {"type": "object", "properties": {"body": {"$ref": "#/$defs/D0"}}, "$defs": defs}
+
+
+@pytest.mark.parametrize("hops", [3, 8, 10, 40])
+def test_a_long_schema_reference_chain_counts_as_sql(hops):
+    # Within the hop bound the chain's end is read; past it the parameter is
+    # read as SQL (fail closed: the unread end could say so).
+    schema = _ref_chain(hops, "SQL to run")
+    assert block_reason(tool_name="warehouse", arguments={"body": "TRUNCATE orders"}, input_schema=schema) == TRUNCATE
+
+
+def test_a_reference_chain_past_the_hop_bound_is_read_as_sql_whatever_it_ends_in():
+    # Accepted false refusal (new): the end of the chain is never read.
+    schema = _ref_chain(10, "Search text")
+    assert block_reason(tool_name="warehouse", arguments={"body": "delete account"}, input_schema=schema) == DELETE
+    short = _ref_chain(3, "Search text")
+    assert block_reason(tool_name="warehouse", arguments={"body": "delete account"}, input_schema=short) is None
+
+
+@pytest.mark.parametrize("items", [
+    {"type": "string", "description": "One T-SQL statement to run"},
+    {"type": "string", "title": "SQL statement"},
+    {"$ref": "#/$defs/Stmt"},
+    {"anyOf": [{"$ref": "#/$defs/Stmt"}, {"type": "null"}]},
+])
+def test_array_items_described_as_sql_get_the_sql_rules(items):
+    schema = {"properties": {"batch": {"type": "array", "items": items}},
+              "$defs": {"Stmt": {"type": "string", "description": "SQL to run"}}}
+    assert block_reason(tool_name="warehouse", arguments={"batch": ["TRUNCATE orders"]},
+                        input_schema=schema) == TRUNCATE
+    by_ref = {"properties": {"batch": {"$ref": "#/$defs/Batch"}},
+              "$defs": {"Batch": {"type": "array", "items": items},
+                        "Stmt": {"type": "string", "description": "SQL to run"}}}
+    assert block_reason(tool_name="warehouse", arguments={"batch": ["TRUNCATE orders"]},
+                        input_schema=by_ref) == TRUNCATE
+
+
+def test_a_parameter_with_more_schema_nodes_than_the_read_bound_is_read_as_sql():
+    # Fail closed: past 256 nodes for one parameter the rest is not read.
+    def schema(k):
+        return {"properties": {"body": {"anyOf": [{"type": "string", "description": "Text %d" % i}
+                                                  for i in range(k)]}}}
+
+    assert block_reason(tool_name="warehouse", arguments={"body": "delete account"}, input_schema=schema(200)) is None
+    assert block_reason(tool_name="warehouse", arguments={"body": "delete account"},
+                        input_schema=schema(300)) == DELETE
+
+
+def test_array_items_not_described_as_sql_keep_the_key_rule():
+    schema = {"properties": {"tags": {"type": "array", "items": {"type": "string", "description": "A tag"}}}}
+    assert block_reason(tool_name="warehouse", arguments={"tags": ["TRUNCATE orders"]}, input_schema=schema) is None
 
 
 # ── small-model judge ───────────────────────────────────────────────────────
