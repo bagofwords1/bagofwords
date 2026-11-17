@@ -257,7 +257,8 @@ def test_a_page_of_charts_with_unclosed_jsx_in_attributes_is_read_in_linear_time
     started = time.perf_counter()
     errs = chart_prop_errors(code, DATA)
     elapsed = time.perf_counter() - started
-    assert errs == []
+    # Only the last chart's <b> closes (at the page's </div>), past its viz=.
+    assert len(errs) == 1 and errs[0].startswith("[chart] <RankChart> has no viz prop"), errs
     # ~0.3 s here; rescanning the page per chart took over 20 s.
     assert elapsed < 2.0, f"{elapsed:.2f}s for 100 KB"
 
