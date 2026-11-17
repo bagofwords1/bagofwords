@@ -744,7 +744,142 @@ def _function_param_names(src: str) -> set:
     return found
 
 
-_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+_SCRIPT_OPEN_RE = re.compile(r"^\s*<script\b[^>]*>", re.I)
+# Where an expression may start, so a `<` opens JSX and a `/` a regex: after
+# one of these characters or keywords, not after a value (`i < n`, `a / b`).
+_EXPR_START_CHARS = frozenset("([{,;:=!&|?+-*/%~^<>")
+_EXPR_START_WORDS = frozenset((
+    "return", "case", "typeof", "void", "delete", "in", "of", "await", "yield",
+    "throw", "else", "do", "new", "instanceof", "default", "export",
+))
+
+
+def _expression_may_start(src: str, i: int) -> bool:
+    k = i - 1
+    while k >= 0 and src[k].isspace():
+        k -= 1
+    if k < 0:
+        return True
+    if src[k] in _EXPR_START_CHARS:
+        return True
+    if src[k].isalnum() or src[k] in "_$":
+        end = k + 1
+        while k >= 0 and (src[k].isalnum() or src[k] in "_$"):
+            k -= 1
+        return src[k + 1:end] in _EXPR_START_WORDS
+    return False
+
+
+def _skip_regex(src: str, i: int, end: int) -> int:
+    """End of the regex literal starting at ``src[i] == "/"``; ``i + 1`` if it isn't one."""
+    j, in_class = i + 1, False
+    while j < end:
+        ch = src[j]
+        if ch == "\n":
+            return i + 1
+        if ch == "\\":
+            j += 2
+            continue
+        if in_class:
+            in_class = ch != "]"
+        elif ch == "[":
+            in_class = True
+        elif ch == "/":
+            return j + 1
+        j += 1
+    return i + 1
+
+
+def _jsx_element_starts(src: str) -> set:
+    """Offsets of the ``<`` of every JSX element the page's code opens.
+
+    A small JS/JSX scanner. String, template and regex literals and comments
+    are skipped, so a tag named inside one is not an element; in JSX text
+    quotes are plain characters (``<p>Don't</p>``). The stored
+    ``<script type="text/babel">`` wrapper is not part of the code.
+    """
+    start, end = 0, len(src)
+    wrapper = _SCRIPT_OPEN_RE.match(src)
+    if wrapper:
+        start = wrapper.end()
+        close = src.rfind("</script>")
+        end = close if close >= start else end
+    starts: set = set()
+    stack = ["code"]  # code | template | tag (inside <Name …>) | text (an element's children)
+    i = start
+    while i < end:
+        mode, ch = stack[-1], src[i]
+        if mode == "code":
+            if src.startswith("//", i):
+                nl = src.find("\n", i, end)
+                i = end if nl < 0 else nl
+            elif src.startswith("/*", i):
+                close = src.find("*/", i + 2, end)
+                i = end if close < 0 else close + 2
+            elif ch in "'\"":
+                j = i + 1
+                while j < end and src[j] != ch and src[j] != "\n":
+                    j += 2 if src[j] == "\\" else 1
+                i = j + 1
+            elif ch == "`":
+                stack.append("template")
+                i += 1
+            elif ch == "/" and _expression_may_start(src, i):
+                i = _skip_regex(src, i, end)
+            elif ch == "{":
+                stack.append("code")
+                i += 1
+            elif ch == "}":
+                if len(stack) > 1:
+                    stack.pop()
+                i += 1
+            elif ch == "<" and i + 1 < end and (src[i + 1].isalpha() or src[i + 1] == ">") and _expression_may_start(src, i):
+                starts.add(i)
+                stack.append("tag")
+                i += 1
+            else:
+                i += 1
+        elif mode == "template":
+            if ch == "\\":
+                i += 2
+            elif ch == "`":
+                stack.pop()
+                i += 1
+            elif src.startswith("${", i):
+                stack.append("code")
+                i += 2
+            else:
+                i += 1
+        elif mode == "tag":
+            if ch in "'\"":  # JSX attribute strings have no escapes
+                close = src.find(ch, i + 1, end)
+                i = end if close < 0 else close + 1
+            elif ch == "{":
+                stack.append("code")
+                i += 1
+            elif src.startswith("/>", i):
+                stack.pop()
+                i += 2
+            elif ch == ">":
+                stack[-1] = "text"
+                i += 1
+            else:
+                i += 1
+        else:  # text
+            if ch == "{":
+                stack.append("code")
+                i += 1
+            elif src.startswith("</", i):
+                close = src.find(">", i, end)
+                i = end if close < 0 else close + 1
+                stack.pop()
+            elif ch == "<":
+                starts.add(i)
+                stack.append("tag")
+                i += 1
+            else:
+                i += 1
+    return starts
 
 
 def _has_spread_attr(body: str) -> bool:
@@ -771,34 +906,32 @@ def _has_spread_attr(body: str) -> bool:
 
 
 def _charts_without_viz(src: str) -> List[Tuple[str, str]]:
-    """(component, tag text with whitespace collapsed) of each chart with no ``viz`` prop.
+    """(component, whole tag with whitespace collapsed) of each chart with no ``viz`` prop.
 
     Tags inside a comment or a string, and tags with a ``{...spread}`` that may
     carry the viz, are left out.
     """
-    comments = [m.span() for m in _BLOCK_COMMENT_RE.finditer(src)]
+    elements = _jsx_element_starts(src)
     found: List[Tuple[str, str]] = []
     for m in _CHART_TAG_RE.finditer(src):
         start = m.start()
-        if any(a <= start < b for a, b in comments):
-            continue
-        line_start = src.rfind("\n", 0, start) + 1
-        line_end = src.find("\n", start)
-        if _inside_string_or_comment(src[line_start:line_end if line_end >= 0 else len(src)], start - line_start):
+        if start not in elements:
             continue
         body = _jsx_tag_body(src, start)
         if _jsx_prop(body, "viz") is not None or _has_spread_attr(body):
             continue
-        found.append((m.group(1), " ".join(body.split())))
+        tag = body + ">" if src[start + len(body):start + len(body) + 1] == ">" else body
+        found.append((m.group(1), " ".join(tag.split())))
     return found
 
 
 def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code: Optional[str] = None) -> List[str]:
     """TrendChart/RankChart must name their viz, and field props its columns.
 
-    A chart without a ``viz`` prop has no ⓘ, and without ``rows`` it draws an
-    error box. ``previous_code`` (an edit) leaves the viz-less charts the page
-    already had alone, so only the ones an edit adds are flagged.
+    A chart without a ``viz`` prop has no ⓘ of its own, and without ``rows`` it
+    draws an error box. ``previous_code`` (an edit) leaves the viz-less charts
+    the page already had alone, so only the ones an edit adds are flagged. A
+    page with no visualizations has no viz to pass, so it isn't asked for one.
 
     Field props are checked only where the chart provably draws the viz's own
     rows: no ``rows`` prop, or ``rows={v.rows}`` / ``rows={filterRows(v.rows…)}``
@@ -828,19 +961,24 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code
     params = _function_param_names(src)
     names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1 and k not in params}
     errors: List[str] = []
-    existing = Counter(tag for _, tag in _charts_without_viz(previous_code or ""))
-    for comp, tag in _charts_without_viz(src):
+    # A page with no visualizations (static, resource-backed) has no viz to
+    # pass: its charts draw from their own rows.
+    existing = Counter(tag for _, tag in _charts_without_viz(previous_code or "")) if vizs else Counter()
+    for comp, tag in _charts_without_viz(src) if vizs else []:
         if existing[tag] > 0:
             existing[tag] -= 1
             continue
         shown = tag if len(tag) <= 120 else tag[:119] + "…"
         drawn = "" if _jsx_prop(tag, "rows") is not None else " and draws an error box instead of a chart"
         errors.append(
-            f"[chart] <{comp}> has no viz prop ({shown}), so it has no ⓘ{drawn}. "
-            f"Pass viz={{vizById(\"<uuid>\")}} for the visualization its rows come from; "
-            "keep rows= for filtered or derived rows."
+            f"[chart] <{comp}> has no viz prop ({shown}): it has no ⓘ of its own{drawn}. "
+            f"Pass viz={{vizById(\"<uuid>\")}} for the visualization its rows come from, inside a SectionCard too "
+            "(a card with the same viz keeps the only ⓘ); keep rows= for filtered or derived rows."
         )
+    elements = _jsx_element_starts(src)
     for m in _CHART_TAG_RE.finditer(src):
+        if m.start() not in elements:
+            continue
         comp = m.group(1)
         body = _jsx_tag_body(src, m.start())
         viz_prop = _jsx_prop(body, "viz")

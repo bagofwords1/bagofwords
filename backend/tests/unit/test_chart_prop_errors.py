@@ -139,6 +139,83 @@ def test_older_runtimes_are_not_checked_for_a_viz():
     assert chart_prop_errors(page('<TrendChart rows={r} x="m" y="v" />'), {**DATA, "runtime": {"version": 10}}) == []
 
 
+def test_a_page_without_visualizations_may_chart_its_own_rows():
+    # Static and resource-backed pages have no viz to pass.
+    for chart in (
+        '<TrendChart rows={entries} x="day" y="count" />',
+        '<SectionCard title="Votes"><RankChart rows={tally} label="option" value="votes" /></SectionCard>',
+    ):
+        for data in ({**DATA, "visualizations": []}, {"runtime": {"version": 11}}):
+            assert chart_prop_errors(page(chart), data) == [], (chart, data)
+
+
+def test_a_chart_inside_a_card_still_needs_its_viz():
+    errs = chart_prop_errors(page(
+        '<SectionCard viz={sales} rows={filtered} title="Revenue">'
+        '<TrendChart rows={filtered} x="month" y="revenue" /></SectionCard>'
+    ), DATA)
+    assert len(errs) == 1 and errs[0].startswith("[chart] <TrendChart>")
+    # Inside a card that shows the viz's ⓘ the chart is not without one.
+    assert "so it has no ⓘ" not in errs[0]
+
+
+def test_the_error_quotes_the_whole_tag():
+    tag = '<RankChart rows={byRep} label="rep" value="total" />'
+    errs = chart_prop_errors(page(tag), DATA)
+    assert len(errs) == 1 and tag in errs[0], errs
+
+
+def test_text_with_an_apostrophe_before_a_chart_does_not_hide_it():
+    for line in (
+        "<p>Don't forget Q1</p><TrendChart rows={byMonth} x=\"month\" y=\"total\" />",
+        "<h2>Rep's ranking</h2> <RankChart rows={byRep} label=\"rep\" value=\"total\" />",
+        '<p>The "best" month</p><TrendChart rows={byMonth} x="month" y="total" />',
+        "<a href=\"x\">see http://example.test</a><TrendChart rows={byMonth} x=\"month\" y=\"total\" />",
+    ):
+        errs = chart_prop_errors(page(line), DATA)
+        assert len(errs) == 1 and errs[0].startswith("[chart]"), line
+
+
+def test_tags_named_in_strings_comments_and_regexes_are_not_charts():
+    code = page(
+        "{/* <TrendChart rows={old} x=\"m\" y=\"v\" /> */}"
+        "<p title=\"<RankChart> ranks\">{'<TrendChart rows={r} />'}</p>"
+    ) + (
+        "\nconst help = `use <RankChart rows={r} label=\"a\" value=\"b\" /> here`;"
+        "\nconst clean = s => s.replace(/'/g, '');"
+        "\n// <RankChart rows={r} label=\"a\" value=\"b\" />"
+    )
+    assert chart_prop_errors(code, DATA) == []
+
+
+def test_a_page_in_its_script_tag_is_checked_like_bare_code():
+    wrapped = '<script type="text/babel">\n' + page("<p>It's here</p><TrendChart rows={r} x=\"m\" y=\"v\" />") + "\n</script>"
+    assert len(chart_prop_errors(wrapped, DATA)) == 1
+    wrapped_ok = '<script type="text/babel">\n' + page('<TrendChart viz={sales} x="month" y="revenue" />') + "\n</script>"
+    assert chart_prop_errors(wrapped_ok, DATA) == []
+
+
+def test_the_authoring_docs_ask_for_the_viz_the_page_check_requires():
+    """The prompts must not teach a chart the page check then rejects."""
+    from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+    from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool as LegacyEditTool
+
+    lines = SANDBOX_RUNTIME_PROMPT.splitlines()
+    provenance = next(ln for ln in lines if "Pass viz={vizById(" in ln)
+    assert "TrendChart" in provenance and "RankChart" in provenance, provenance
+    assert "no visualizations" in SANDBOX_RUNTIME_PROMPT, "the exception for pages without visualizations is not stated"
+    first = next(i for i, ln in enumerate(lines) if ln.startswith("CHARTS:"))
+    last = next(i for i, ln in enumerate(lines) if ln.startswith("OTHER CHARTS:"))
+    # Every sentence about a chart in a card, or about filtered rows, keeps the viz.
+    for line in (ln for ln in lines[first:last] if "SectionCard" in ln or "rows={filterRows(" in ln):
+        assert "viz" in line, line
+    legacy = LegacyEditTool()._build_edit_system_prompt()
+    rules = [ln for ln in legacy.splitlines() if ln.startswith(("- For NEW charts", "- **`viz` prop:**"))]
+    assert len(rules) == 2, rules
+    for line in rules:
+        assert "TrendChart" in line and "RankChart" in line and "SectionCard" in line, line
+
+
 def test_the_edit_gate_runs_every_page_check_the_create_gate_runs():
     """A page edited mechanically must pass the same deterministic checks as a new one."""
     import re

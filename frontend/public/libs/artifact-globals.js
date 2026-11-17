@@ -2086,15 +2086,15 @@ function _dtDetectDir(cols, rows) {
   // EChart's. The builders are exposed on window.__bowCharts for tests.
   var _CH_LABELS = {
     en: { latest: 'Latest {n} of {total} {unit}', rollup: '{total} {from} grouped into {n} {to}', dropped: 'incomplete periods at the ends left out',
-      top: 'Top {n} of {total}', bottom: 'Bottom {n} of {total}', other: 'Other ({n})', noData: 'No data', series: 'Showing {n} of {total} series',
+      top: 'Top {n} of {total}', bottom: 'Bottom {n} of {total}', other: 'Other ({n})', noData: 'No data', gone: "This chart's data is no longer available.", series: 'Showing {n} of {total} series',
       q: 'Q{q} {y}', w: 'W{w} {y}',
       units: { day: ['day', 'days'], week: ['week', 'weeks'], month: ['month', 'months'], quarter: ['quarter', 'quarters'], year: ['year', 'years'], point: ['point', 'points'] } },
     he: { latest: 'התקופה האחרונה: {n} מתוך {total} {unit}', rollup: 'הנתונים מקובצים: {total} {from} ב-{n} {to}', dropped: 'תקופות חלקיות בקצוות הושמטו',
-      top: 'מוצגים {n} מתוך {total}', bottom: 'מוצגים {n} מתוך {total}', other: 'אחר ({n})', noData: 'אין נתונים', series: 'מוצגות {n} מתוך {total} סדרות',
+      top: 'מוצגים {n} מתוך {total}', bottom: 'מוצגים {n} מתוך {total}', other: 'אחר ({n})', noData: 'אין נתונים', gone: 'הנתונים של התרשים הזה אינם זמינים עוד.', series: 'מוצגות {n} מתוך {total} סדרות',
       q: 'Q{q} {y}', w: 'שבוע {w} {y}',
       units: { day: ['יום', 'ימים'], week: ['שבוע', 'שבועות'], month: ['חודש', 'חודשים'], quarter: ['רבעון', 'רבעונים'], year: ['שנה', 'שנים'], point: ['נקודה', 'נקודות'] } },
     es: { latest: 'Periodo más reciente: {n} de {total} {unit}', rollup: 'Datos agrupados: {total} {from} en {n} {to}', dropped: 'se omitieron periodos incompletos en los extremos',
-      top: 'Se muestran {n} de {total}', bottom: 'Se muestran {n} de {total}', other: 'Otros ({n})', noData: 'Sin datos', series: 'Se muestran {n} de {total} series',
+      top: 'Se muestran {n} de {total}', bottom: 'Se muestran {n} de {total}', other: 'Otros ({n})', noData: 'Sin datos', gone: 'Los datos de este gráfico ya no están disponibles.', series: 'Se muestran {n} de {total} series',
       q: 'T{q} {y}', w: 'S{w} {y}',
       units: { day: ['día', 'días'], week: ['semana', 'semanas'], month: ['mes', 'meses'], quarter: ['trimestre', 'trimestres'], year: ['año', 'años'], point: ['punto', 'puntos'] } }
   };
@@ -2233,6 +2233,13 @@ function _dtDetectDir(cols, rows) {
     return rows.length && rows[0] ? Object.keys(rows[0]) : [];
   }
   function _chMissing(need, fields) { return need.filter(function(f) { return f != null && fields.indexOf(f) === -1; }); }
+  // Neither a viz nor rows. A chart that names a viz the page doesn't have
+  // where it is viewed (vizById → null: its query was deleted) tells the
+  // viewer the data is gone; only a chart that names no viz is the author's error.
+  function _chNoViz(name, props, L) {
+    if (Object.prototype.hasOwnProperty.call(props, 'viz')) return { empty: true, noData: L.gone };
+    return { error: name + ' needs viz={vizById("…")} or rows.' };
+  }
   function _chErr(msg, fields) { return { error: msg + (fields && fields.length ? ' Available fields: ' + fields.join(', ') + '.' : '') }; }
   function _chNum(v) { return typeof v === 'number' ? v : (v != null && v !== '' && !isNaN(Number(v)) ? Number(v) : null); }
   function _chColorFor(name, i, props, theme) {
@@ -2246,7 +2253,7 @@ function _dtDetectDir(cols, rows) {
     var viz = props.viz;
     var L = _chLabels(lang, props.labels);
     // Rows alone are enough to draw; the viz adds the ⓘ and is the rows' fallback.
-    if (!viz && !Array.isArray(props.rows)) return { error: 'TrendChart needs viz={vizById("…")} or rows.' };
+    if (!viz && !Array.isArray(props.rows)) return _chNoViz('TrendChart', props, L);
     var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var fields = _chFields(props, rows, viz);
     var ys = Array.isArray(props.y) ? props.y.slice() : (props.y != null ? [props.y] : []);
@@ -2409,7 +2416,7 @@ function _dtDetectDir(cols, rows) {
     var viz = props.viz;
     var L = _chLabels(lang, props.labels);
     // Rows alone are enough to draw; the viz adds the ⓘ and is the rows' fallback.
-    if (!viz && !Array.isArray(props.rows)) return { error: 'RankChart needs viz={vizById("…")} or rows.' };
+    if (!viz && !Array.isArray(props.rows)) return _chNoViz('RankChart', props, L);
     var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var fields = _chFields(props, rows, viz);
     if (props.label == null || props.value == null) return _chErr('RankChart needs label and value.', fields);
