@@ -22,6 +22,7 @@ from app.data_sources.clients.progress import (
     unreadable_note,
 )
 from app.data_sources.engine_pool import ephemeral
+from app.data_sources.query_cancellation import track
 from app.utils.safe_regex import compile_bounded
 
 logger = logging.getLogger(__name__)
@@ -214,7 +215,8 @@ class PostgresqlMultiClient(DataSourceClient):
         self._query_failures = sorted(f["name"] for f in engine.failed_tenants)
         cursor = engine.cursor()
         try:
-            return cursor.execute(sql).fetchdf()
+            with track(self, cursor):
+                return cursor.execute(sql).fetchdf()
         finally:
             cursor.close()
 
