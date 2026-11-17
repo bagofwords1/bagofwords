@@ -139,7 +139,7 @@ _DENIED_FUNCTION = re.compile(
     r"query_to_xml.*|table_to_xml.*|schema_to_xml.*|database_to_xml.*|cursor_to_xml.*|"
     r"dblink.*|pg_read_.*|pg_ls_.*|lo_.*|"
     r"system\$.*|external_query|"
-    r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_scan|mysql_scan|"
+    r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_.*|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
     r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc)$",
     re.IGNORECASE,

@@ -374,3 +374,33 @@ def test_exact_scope_allows_database_qualified_active_tables_and_ctes(sql):
 def test_default_scope_matching_is_unchanged_by_the_exact_option():
     scope = TableScope.from_names(active=["globex_db.asset", "asset"], inactive=[])
     check_table_scope("SELECT * FROM billing_db.asset", "athena", scope)
+
+
+UNIFIED_SCOPE = TableScope.from_names(active=["public.asset"], inactive=[])
+
+UNIFIED_REFUSED = [
+    "SELECT * FROM postgres_query('__t0001', 'select 1')",
+    "SELECT * FROM postgres_execute('__t0001', 'drop table x')",
+    "SELECT * FROM read_csv('f.csv')",
+    "SELECT * FROM 'f.csv'",
+    "SELECT * FROM __t0001.public.asset",
+    "SELECT postgres_query('__t0001', 'select 1')",
+    "SELECT postgres_execute('__t0001', 'drop table x')",
+    "SELECT postgres_attach('x')",
+]
+
+UNIFIED_ALLOWED = [
+    "SELECT tenant_db, count(*) FROM public.asset GROUP BY 1",
+    "SELECT * FROM memory.public.asset",
+]
+
+
+@pytest.mark.parametrize("sql", UNIFIED_REFUSED)
+def test_duckdb_unified_scope_refuses_escape_hatches(sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "duckdb", UNIFIED_SCOPE, ("memory",))
+
+
+@pytest.mark.parametrize("sql", UNIFIED_ALLOWED)
+def test_duckdb_unified_scope_allows_unified_views(sql):
+    check_table_scope(sql, "duckdb", UNIFIED_SCOPE, ("memory",))

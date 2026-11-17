@@ -62,6 +62,7 @@ CLIENT_DIALECTS = {
     "TeradataClient": "teradata",
     "DruidClient": "druid",
     "IcebergClient": "duckdb",
+    "PostgresqlMultiClient": "duckdb",
     "DremioClient": "dremio",
     "HiveClient": "hive",
 }
