@@ -16,12 +16,22 @@ chat bubble, the agent's vision input, history tags and the files context.
 from __future__ import annotations
 
 import logging
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+def names_its_attachments(prompt) -> bool:
+    """True when the prompt lists its attachments itself (``file_ids``, the
+    Rerun link — an empty list included: a rerun of a prompt that had none).
+    Such a turn carries exactly those files: it does not also claim uploads
+    waiting in the composer for the user's next message."""
+    if isinstance(prompt, dict):
+        return isinstance(prompt.get("file_ids"), list)
+    return isinstance(getattr(prompt, "file_ids", None), list)
 
 
 def prompt_file_ids(prompt) -> List[str]:
@@ -39,6 +49,7 @@ async def attached_files_by_completion(
     completion_ids: Iterable[str],
     *,
     images_only: bool = False,
+    completions: Optional[Iterable] = None,
 ) -> Dict[str, list]:
     """Map each completion id to the File rows attached to it.
 
@@ -46,6 +57,10 @@ async def attached_files_by_completion(
     files named in the completion's ``prompt.file_ids`` that are linked to the
     same report. Each file appears once per completion. Completions with no
     attachments are absent from the result.
+
+    ``completions``: the already-loaded Completion rows for these ids (id,
+    role, report_id, prompt). A caller that holds them passes them so the
+    prompts are not read a second time.
     """
     from app.models.completion import Completion
     from app.models.file import File
@@ -79,13 +94,20 @@ async def attached_files_by_completion(
             _add(str(cid), f)
 
     # Rerun links: ids stored on the prompt, restricted to the report's files.
-    prompts = await db.execute(
-        select(Completion.id, Completion.report_id, Completion.prompt)
-        .where(Completion.id.in_(ids), Completion.role == "user")
-    )
+    if completions is not None:
+        wanted_ids = set(ids)
+        prompt_rows = [
+            (c.id, c.report_id, c.prompt) for c in completions
+            if str(c.id) in wanted_ids and c.role == "user"
+        ]
+    else:
+        prompt_rows = (await db.execute(
+            select(Completion.id, Completion.report_id, Completion.prompt)
+            .where(Completion.id.in_(ids), Completion.role == "user")
+        )).all()
     wanted: Dict[str, List[str]] = {}
     report_of: Dict[str, str] = {}
-    for cid, report_id, prompt in prompts.all():
+    for cid, report_id, prompt in prompt_rows:
         fids = prompt_file_ids(prompt)
         if fids and report_id:
             wanted[str(cid)] = fids

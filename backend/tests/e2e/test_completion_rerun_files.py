@@ -152,3 +152,27 @@ def test_queued_rerun_carries_the_files(
 
     comps = _completions(test_client, report["id"], token, org_id)
     assert _file_ids_of(comps, queued["id"]) == set(image_ids)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("original_has_image", [True, False])
+def test_rerun_leaves_an_image_waiting_in_the_composer_for_the_next_message(
+    test_client, create_report, upload_file, org, agent_succeeds, original_has_image,
+):
+    """An image uploaded but not yet sent belongs to the user's NEXT message.
+    A Rerun names its own attachments (none included), so it must not take
+    that image along."""
+    token, org_id = org
+    report, image_ids, _first = _report_with_attached_image(
+        test_client, create_report, upload_file, token, org_id, n_images=1 if original_has_image else 0
+    )
+    staged = upload_file(_PNG, "staged.png", "image/png", user_token=token, org_id=org_id, report_id=report["id"])
+
+    rerun = _send(test_client, report["id"], token, org_id, "what does this chart show?", file_ids=image_ids)
+    comps = _completions(test_client, report["id"], token, org_id)
+    assert _file_ids_of(comps, rerun["id"]) == set(image_ids)
+
+    following = _send(test_client, report["id"], token, org_id, "and this one?")
+    comps = _completions(test_client, report["id"], token, org_id)
+    assert _file_ids_of(comps, following["id"]) == {str(staged["id"])}
+    assert _file_ids_of(comps, rerun["id"]) == set(image_ids)

@@ -14,8 +14,6 @@ from sqlalchemy.orm import selectinload
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.services.artifact_payload import partial_data_used, partial_data_warning, row_count_fields
 from app.ai.tools.base import Tool
-from app.models.file import File
-from app.models.report_file_association import report_file_association
 
 logger = logging.getLogger(__name__)
 

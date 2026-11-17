@@ -319,7 +319,7 @@
 												@click="rerunPrompt(m)"
 												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
 											>
-												<Icon name="heroicons-arrow-path" class="w-3 h-3" />
+												<Icon name="heroicons-arrow-path-rounded-square" class="w-3 h-3" />
 												{{ responseT('reportView.rerun') }}
 											</button>
 										</UTooltip>
@@ -5608,7 +5608,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
 					artifact_version_id: openVersion.value?.version_id || null,
-					file_ids: data.file_ids?.length ? data.file_ids : undefined,
+					file_ids: data.file_ids ?? undefined,
 				},
 				queue: true
 			})
@@ -5691,20 +5691,34 @@ const isRunBusy = computed(() => isStreaming.value || isCompletionInProgress.val
 function canRerunPrompt(m: ChatMessage) {
 	return !!report.value && isReportOwner.value
 		&& m.status !== 'queued'
+		// A steering message was injected into a running turn: on its own it
+		// is not a prompt that can start one.
+		&& m.message_type !== 'steering'
 		&& !!(m.prompt?.content || '').trim()
 }
 
 // Rerun: send the same prompt again as a new turn at the bottom, with its
 // mentions, attached files, mode, model and reasoning effort.
-function rerunPrompt(m: ChatMessage) {
-	if (!canRerunPrompt(m)) return
+// It goes through the prompt box's send gates (prepareRerun), and falls back to
+// the box's model when the earlier one is no longer available to this user.
+let rerunPreparing = false
+async function rerunPrompt(m: ChatMessage) {
+	if (!canRerunPrompt(m) || rerunPreparing) return
 	const p = m.prompt || {}
+	rerunPreparing = true
+	let ready: { model_id: string | null } | null | undefined
+	try {
+		ready = await promptBoxRef.value?.prepareRerun?.(p.model_id)
+	} finally {
+		rerunPreparing = false
+	}
+	if (!ready) return
 	const files = (m.files || []).map(f => ({ id: f.id, filename: f.filename, content_type: f.content_type }))
 	const payload = {
 		text: p.content || '',
 		mentions: p.mentions || [],
 		mode: p.mode || currentPromptMode.value,
-		model_id: p.model_id || undefined,
+		model_id: ready.model_id || undefined,
 		reasoning_effort: p.reasoning_effort || null,
 		files,
 		file_ids: files.map(f => String(f.id)),
@@ -5793,7 +5807,16 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,
 		role: 'user',
-		prompt: { content: text, mentions: data.mentions || [] },
+		// What was sent, so a Rerun of this bubble (before the server row
+		// replaces it) repeats the same mode, model, effort and attachments.
+		prompt: {
+			content: text,
+			mentions: data.mentions || [],
+			mode: data.mode || 'chat',
+			model_id: data.model_id || null,
+			reasoning_effort: data.reasoning_effort || undefined,
+			file_ids: data.file_ids ?? undefined,
+		},
 		files: data.files || [],
 		created_at: new Date().toISOString()
 	}
@@ -5824,8 +5847,10 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
 			artifact_version_id: openVersion.value?.version_id || null,
-			// Rerun: the earlier turn's attachments (report files) ride along.
-			file_ids: data.file_ids?.length ? data.file_ids : undefined,
+			// Rerun: the earlier turn's attachments (report files) ride along. An
+			// empty list still marks a rerun, so it leaves images staged in the
+			// composer for the user's next message.
+			file_ids: data.file_ids ?? undefined,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
 				sheetName: excelSelection.value.sheetName,
@@ -5885,7 +5910,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
 			}
 			if (created?.id && !messages.value.some(m => m.id === created.id)) {
-				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, files: created.files || [], created_at: created.created_at })
 			}
 			// The receipt identifies the server turn even when history refresh is
 			// slow or unavailable. Transfer busy-state ownership to its watcher.

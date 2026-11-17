@@ -2139,7 +2139,6 @@ class AgentV2:
         """
         import base64
         import aiofiles
-        from app.models.report_file_association import report_file_association
 
         # Load images that belong to the current completion
         current_cid = str(self.head_completion.id) if self.head_completion else None
