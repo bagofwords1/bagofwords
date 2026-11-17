@@ -65,12 +65,14 @@ from app.data_sources.clients._qix_common import (
     describe_options,
     dollar_formulas,
     expression_drivers,
+    expression_choices,
     literal_text,
     object_options,
     resolve_expression,
     selector_fields,
     summarize_switch,
     summary_drivers,
+    variable_dependencies,
     apply_field_selections,
     build_hypercube_def,
     build_ssl_context,
@@ -215,15 +217,11 @@ class QlikSenseOnPremClient(DataSourceClient):
     _MAX_OBJECTS_PER_SHEET = 60
     _MAX_MASTER_OBJECTS = 100
     _MAX_OBJECT_DESCRIPTION_CHARS = 600
-    # A dynamic object's description carries one formula per option, so it
-    # gets more room than a static one.
-    _MAX_DYNAMIC_DESCRIPTION_CHARS = 1500
     # A data island is a small table with no key to the model: a list of
     # choices (and sometimes their formulas), not data.
     _MAX_ISLAND_ROWS = 50
     _MAX_ISLAND_FIELDS = 8
     _MAX_ISLANDS = 10
-    _MAX_VARIABLE_DEFINITION_CHARS = 300
     _MAX_SEARCH_RESULTS = 1000
 
     def __init__(
@@ -1294,13 +1292,18 @@ class QlikSenseOnPremClient(DataSourceClient):
             ))
 
         variables = []
-        for item in (payload.get("variables") or [])[: self._MAX_VARIABLES]:
+        variable_items = payload.get("variables") or []
+        definitions = self._variable_definitions(variable_items)
+        required = set(variable_dependencies(self._expression_texts({**payload, "variables": []}), definitions, strict=False))
+        for position, item in enumerate(variable_items):
+            if position >= self._MAX_VARIABLES and item.get("qName") not in required:
+                continue
             data = item.get("qData") or {}
             name = (item.get("qName") or (item.get("qMeta") or {}).get("title") or "")
             if not name:
                 continue
             definition = _mask_secrets(str(data.get("definition") or ""))
-            variables.append({"name": name, "definition": definition[:200]})
+            variables.append({"name": name, "definition": definition})
             if any(c.name == name for c in columns):
                 continue  # a master item already holds this name
             # A variable is a column too: table-level metadata does not reach
@@ -1311,8 +1314,8 @@ class QlikSenseOnPremClient(DataSourceClient):
                 dtype="variable",
                 description=(
                     f"variable; use as $({name}) — definition: {definition}"
-                )[: self._MAX_VARIABLE_DEFINITION_CHARS],
-                metadata=_compact({"role": "variable", "definition": definition[:2000]}),
+                ),
+                metadata=_compact({"role": "variable", "definition": definition}),
             ))
 
         index = self._master_index(payload)
@@ -1560,6 +1563,9 @@ class QlikSenseOnPremClient(DataSourceClient):
             if name:
                 current[name] = str((item.get("qData") or {}).get("definition") or "")
         known = set(current) | set(variable_choices)
+        for name, choices in expression_choices(self._expression_texts(payload), known).items():
+            if not variable_choices.get(name):
+                variable_choices[name] = choices
         return {
             "variable_choices": variable_choices,
             "islands": islands,
@@ -1575,6 +1581,9 @@ class QlikSenseOnPremClient(DataSourceClient):
             parts = []
             for entry in sets:
                 target = entry.get("variable") or entry.get("field")
+                if entry.get("valueExpression"):
+                    parts.append(f"{target} uses expression {entry['valueExpression']!r} (choice not enumerated)")
+                    continue
                 if entry.get("freeInput"):
                     parts.append(f"{target} (free input)")
                     continue
@@ -1585,20 +1594,26 @@ class QlikSenseOnPremClient(DataSourceClient):
                 + ". Charts that read it are described with one formula per choice."
             )
             return base, []
-        options = object_options(
-            summary, context["variable_choices"], context["islands"], context["known_variables"],
-        )
+        try:
+            options = object_options(
+                summary, context["variable_choices"], context["islands"], context["known_variables"],
+                variable_definitions=context["current"],
+            )
+        except ValueError as exc:
+            return base + "; dynamic choices unresolved: " + str(exc), []
         drivers = summary_drivers(summary, context["known_variables"])
         notes = []
         for variable in drivers["variables"]:
             if variable in context["current"] and not context["variable_choices"].get(variable):
-                notes.append(f"{variable} is currently {context['current'][variable]!r}")
+                definition = context["current"][variable]
+                notes.append(f"{variable} is currently {definition!r}" if len(definition) <= 200
+                             else f"{variable}: full definition in Master Items")
         text = base
         if notes:
             text += "; depends on " + "; ".join(notes)
         if options:
             text += "; " + describe_options(options, summary.get("id") or "")
-            return text[: self._MAX_DYNAMIC_DESCRIPTION_CHARS], options
+            return text, options
         return text, options
 
     def _build_sheet_tables(
@@ -1948,19 +1963,9 @@ class QlikSenseOnPremClient(DataSourceClient):
             return asyncio.run(
                 self._execute_search(app_id, user, str(search).strip(), list(fields or []), limit)
             )
-        if variables:
-            measures = [
-                {**m, "expr": resolve_expression(m.get("expr") or "", variables)} if isinstance(m, dict)
-                else resolve_expression(str(m), variables)
-                for m in measures
-            ]
-            dimensions = [
-                ("=" + resolve_expression(d[1:], variables)) if isinstance(d, str) and d.startswith("=") else d
-                for d in dimensions
-            ]
         hypercube_def = build_hypercube_def(dimensions, measures, max_rows)
         return asyncio.run(
-            self._execute_hypercube(app_id, user, selections, hypercube_def, max_rows)
+            self._execute_hypercube(app_id, user, selections, hypercube_def, max_rows, variables)
         )
 
     @staticmethod
@@ -2036,12 +2041,15 @@ class QlikSenseOnPremClient(DataSourceClient):
         selections: List,
         hypercube_def: Dict[str, Any],
         max_rows: int,
+        variables: Optional[Dict[str, Any]] = None,
     ) -> pd.DataFrame:
         async with self._qix_session(app_id, user) as qix:
             doc_handle = await self._open_doc(qix, app_id)
 
-            await self._check_cube_expressions(qix, doc_handle, hypercube_def)
             await apply_field_selections(qix, doc_handle, selections)
+            if variables:
+                await self._resolve_cube_variables(qix, doc_handle, hypercube_def, variables)
+            await self._check_cube_expressions(qix, doc_handle, hypercube_def)
 
             session = await qix.rpc(doc_handle, "CreateSessionObject", [{
                 "qInfo": {"qType": "bow-hypercube"},
@@ -2136,7 +2144,7 @@ class QlikSenseOnPremClient(DataSourceClient):
 
             if variables:
                 await self._inline_library_items(qix, doc_handle, cube)
-                self._apply_variables(cube, variables)
+                await self._resolve_cube_variables(qix, doc_handle, cube, variables)
             hidden = await self._apply_column_conditions(qix, doc_handle, cube)
             if not (cube.get("qDimensions") or cube.get("qMeasures")):
                 raise ValueError(
@@ -2233,11 +2241,45 @@ class QlikSenseOnPremClient(DataSourceClient):
                 item["qDef"] = qdef
                 item.pop("qLibraryId", None)
 
+    async def _resolve_cube_variables(
+        self, qix: QixSession, doc_handle: int, cube: Dict[str, Any], variables: Dict[str, Any],
+    ) -> None:
+        items = await self._session_list(qix, doc_handle, "qVariableList", self._VARIABLE_LIST_DEF)
+        definitions = self._variable_definitions(items)
+        expressions = []
+
+        def collect(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key in ("qDef", "qExpression", "qLabelExpression", "qv") and isinstance(value, str):
+                        expressions.append(value)
+                    elif key == "qFieldDefs" and isinstance(value, list):
+                        expressions.extend(v for v in value if isinstance(v, str) and v.startswith("="))
+                    else:
+                        collect(value)
+            elif isinstance(node, list):
+                for value in node:
+                    collect(value)
+
+        collect(cube)
+        dependencies = variable_dependencies(expressions, {**definitions, **{k: "" for k in variables}})
+        unused = set(variables) - set(dependencies)
+        if unused:
+            raise ValueError("Qlik variable overrides do not affect this query: " + ", ".join(sorted(unused)))
+        self._apply_variables(cube, variables, definitions)
+
     @staticmethod
-    def _apply_variables(cube: Dict[str, Any], variables: Dict[str, Any]) -> None:
+    def _variable_definitions(items: List[Dict[str, Any]]) -> Dict[str, str]:
+        return {
+            item["qName"]: str(item.get("qDefinition", (item.get("qData") or {}).get("definition", "")) or "")
+            for item in items if item.get("qName")
+        }
+
+    @staticmethod
+    def _apply_variables(cube: Dict[str, Any], variables: Dict[str, Any], definitions: Optional[Dict[str, str]] = None) -> None:
         """Substitute variable values into every expression of a cube."""
         def resolve(text: Any) -> Any:
-            return resolve_expression(text, variables) if isinstance(text, str) else text
+            return resolve_expression(text, variables, variable_definitions=definitions) if isinstance(text, str) else text
 
         def resolve_label_expression(qdef: Dict[str, Any], label_key: str) -> None:
             expression = qdef.get("qLabelExpression")
@@ -2250,6 +2292,18 @@ class QlikSenseOnPremClient(DataSourceClient):
                 else:
                     qdef["qLabelExpression"] = resolved
 
+        def resolve_nested(node):
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if key in ("qExpression", "qv") and isinstance(value, str):
+                        node[key] = resolve(value)
+                    else:
+                        resolve_nested(value)
+            elif isinstance(node, list):
+                for value in node:
+                    resolve_nested(value)
+
+        resolve_nested(cube)
         for item in cube.get("qMeasures") or []:
             qdef = item.get("qDef") or {}
             qdef["qDef"] = resolve(qdef.get("qDef") or "")
