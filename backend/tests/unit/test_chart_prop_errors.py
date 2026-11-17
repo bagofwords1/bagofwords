@@ -6,6 +6,7 @@ flagged: a false error there would burn repair calls, and for planner-authored
 pages stop the page from being saved.
 """
 import sys
+import time
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -226,6 +227,39 @@ def test_jsx_written_in_an_attribute_does_not_hide_the_attributes_after_it():
         errs = chart_prop_errors(page(f'<RankChart {attr} rows={{byRep}} label="rep" value="total" />'), DATA)
         assert len(errs) == 1 and errs[0].startswith("[chart] <RankChart> has no viz prop"), (attr, errs)
         assert chart_prop_errors(page(f'<TrendChart {attr} {{...common}} x="month" y="revenue" />'), DATA) == [], attr
+
+
+SHIFTS_AND_COMPARISONS = (
+    "format={v => v & (1 <<bit)}",     # an unspaced shift is not JSX
+    "format={v => v & (1<<bit)}",
+    "format={v => (v <<= bit)}",
+    "format={v => v >>bit}",
+    "format={v => v >>>bit}",
+    "format={v => a < b > c}",
+    "format={v => v<max ? v : max}",
+    "format={(v) => (v) <max}",
+    "format={v => `${v} <b>${v < 1}</b>`}",
+)
+
+
+def test_shifts_and_comparisons_in_an_attribute_are_not_jsx():
+    for attr in SHIFTS_AND_COMPARISONS:
+        assert chart_prop_errors(page(f'<RankChart {attr} viz={{sales}} label="rep" value="revenue" />'), DATA) == [], attr
+        errs = chart_prop_errors(page(f'<RankChart {attr} viz={{sales}} label="rep" value="nope" />'), DATA)
+        assert len(errs) == 1 and 'value="nope"' in errs[0], (attr, errs)
+
+
+def test_a_page_of_charts_with_unclosed_jsx_in_attributes_is_read_in_linear_time():
+    # Each nested element that never closes must not rescan the rest of the
+    # page: these checks run on the event loop, before the page is parsed.
+    chart = '<RankChart format={v => <b>{v}} viz={sales} label="rep" value="revenue" />\n'
+    code = page(chart * (100 * 1024 // len(chart)))
+    started = time.perf_counter()
+    errs = chart_prop_errors(code, DATA)
+    elapsed = time.perf_counter() - started
+    assert errs == []
+    # ~0.3 s here; rescanning the page per chart took over 20 s.
+    assert elapsed < 2.0, f"{elapsed:.2f}s for 100 KB"
 
 
 def test_a_chart_drawn_from_rows_is_not_said_to_draw_an_error_box():
