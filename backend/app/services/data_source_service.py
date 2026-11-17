@@ -2116,6 +2116,7 @@ class DataSourceService:
                 "data_shape": entry.data_shape,
                 "catalog_ownership": entry.catalog_ownership,
                 "ui_form": entry.ui_form,
+                "personal_connector": entry.personal_connector,
                 # Numbered setup steps rendered above the fields (None for most types).
                 "setup_guide": meta.get("setup_guide"),
                 "auth": {

@@ -437,6 +437,14 @@ class DataSourceRegistryEntry(BaseModel):
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
 
+    # A source whose content is each person's own when they sign in themselves
+    # (a mailbox on a mail server), but which uses the regular connection form
+    # rather than the sign-in integration form. With per-user authentication it
+    # is a connector — offered in the prompt box, never picked by Auto, always
+    # run as that person; with a shared account it is an agent like any curated
+    # source. See app/services/data_source_kind.py.
+    personal_connector: bool = False
+
     # Optional (singular, plural) noun override for catalog items when the
     # data_shape default reads wrong — e.g. Power BI catalogs semantic-model
     # tables (not database tables) and mail connectors catalog messages (not
@@ -2517,6 +2525,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # with the connection's Windows identity.
         catalog_ownership="none",
         catalog_nouns=("message", "messages"),
+        # Each user signing in reads their own mailbox: a connector. A service
+        # account reading a team inbox is the org's curated source: an agent.
+        personal_connector=True,
         requires_license="enterprise",
         version="beta",
     ),
@@ -3244,6 +3255,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "catalog_nouns": list(e.catalog_nouns) if e.catalog_nouns else None,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
+            "personal_connector": e.personal_connector,
             "category": e.category,
             "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
         }

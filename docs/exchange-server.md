@@ -47,13 +47,28 @@ This choice decides whose mail people see. Pick it deliberately.
 | Each user signs in (NTLM, user-required) | Each member's own account | Their own mailbox, plus the listed shared mailboxes they hold rights on | Personal mail |
 | Kerberos service account | The mounted keytab / ticket-cache principal | Whatever that principal can open | A team inbox without a stored password |
 
+The same choice decides where the connection shows up for people:
+
+- **Each user signs in → a connector.** It appears under **Connectors** in the
+  prompt box. A person uses it once they have signed in, it always runs as that
+  person, and Auto never picks it on its own. When you turn on **Require user
+  authentication** in the connection form, the form offers **Make available to
+  everyone in your org**, which adds the connector for all members; each of
+  them then signs in from the connectors list.
+- **Service account → an agent.** It appears in the agent picker, Auto can
+  choose it, and instructions apply, like any other source the organization
+  curates.
+
+An admin can switch a connector to an agent from the connectors list.
+
 For a team inbox on a service account, turn **Include the account's own
 mailbox** off: the first shared mailbox becomes the default and the service
 account's own (usually empty) mailbox stays out of the way.
 
-With **each user signs in**, members click **Connect** on the agent, enter
-their domain username and password, and save. Until they do, the agent is not
-available to them; it does not fall back to the service account. This is
+With **each user signs in**, members click **Sign in** on the connector, enter
+their domain username and password, optionally test, and save. Until they do,
+the connector is not available to them; it does not fall back to the service
+account. **Sign out** removes their stored credentials. This is
 credential-based Windows authentication, not automatic single sign-on.
 
 Passwords are stored encrypted. If a stored password stops working, the

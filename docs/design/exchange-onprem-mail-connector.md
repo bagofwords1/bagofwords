@@ -274,6 +274,29 @@ Map EWS faults to messages a user or admin can act on, in the style of
 | 2 | Public folders (level-by-level tree, per-folder search) and online archive, each behind a config switch. Attachments, reusing the document extraction the file connectors use. |
 | 3 | Service-account impersonation with an explicit allowlist of mailboxes; OAuth sign-in for servers that offer it. Each needs its own security review. |
 
+## Connector or agent
+
+The product separates **connectors** (each person's own accounts: offered in the
+prompt box, used once the person is signed in, never picked by Auto) from
+**agents** (sources the organization curates: picked by Auto, with
+instructions). The rule in `app/services/data_source_kind.py` classified a type
+as a connector only when it used the sign-in integration form with a per-user
+catalog, so an Exchange connection was always an agent — and Auto could reach
+into a personal mailbox for a question that was not about mail.
+
+Exchange uses the regular connection form and keeps no catalog, so the registry
+entry carries an explicit `personal_connector` flag instead of borrowing the
+integration form. With it:
+
+| Connection | Kind | Why |
+|---|---|---|
+| Each user signs in | connector | The person's own mailbox. |
+| Service account | agent | The existing rule: a personal type with shared credentials is the org's curated source. |
+
+The flag is also served to the frontend, where the connection form offers
+"Make available to everyone in your org" once "Require user authentication" is
+on, creating the org-wide connector with the connection's own sign-in mode.
+
 ## Planner context
 
 The tool surface is identical for a personal mailbox read with each user's own

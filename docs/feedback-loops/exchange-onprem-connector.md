@@ -140,6 +140,24 @@ reported as complete:
    an unread mailbox is reported as unread. The Inbox-only fallback for
    mailboxes with too many folders is flagged the same way.
 
+## Connector or agent
+
+A per-user connection was first surfaced as an agent, so Auto could choose a
+personal mailbox. It is now a connector; a service-account connection stays an
+agent. Re-run on the same sandbox:
+
+| Step | Result |
+|---|---|
+| `GET /api/data_sources/active` | per-user mailbox `kind: connector`, team inbox `kind: agent`, with no data change |
+| Member opens the agent picker and the connectors menu | picker offers only the team inbox; the mailbox is under Connectors, "Connected" |
+| Member asks about own unread mail | answered through the connector; only that member's account reached the endpoint |
+| Member asks a question unrelated to mail | no request reached the endpoint |
+| Member signs out, then signs in again from the connectors list | status goes to "Not connected", the username-and-password dialog opens, Test connection succeeds as that member, status returns to "Connected" |
+| Admin creates a connection with "Require user authentication" on | the form offers "Make available to everyone in your org"; the connector is created and the member sees it with "Sign in" |
+
+A defect found on the way: the first version created the connector after a
+branch that returns early for sources with nothing to index, so it never ran.
+
 ## UI evidence
 
 New screens only; no existing screen changed appearance. Images are under
@@ -154,6 +172,7 @@ New screens only; no existing screen changed appearance. Images are under
 | Personal mail answer, shared mailbox not reachable | `07-agent-personal-mail.png` |
 | Wrong password: no retry | `08-wrong-password-no-retry.png` |
 | Search across mailboxes | `09-agent-search.png` |
+| Form offers the connector; prompt-box connectors; sign-in dialog | `10-form-offers-connector.png`, `11-prompt-box-connectors.png`, `12-connector-sign-in.png` |
 
 ## What still needs a real Exchange Server
 

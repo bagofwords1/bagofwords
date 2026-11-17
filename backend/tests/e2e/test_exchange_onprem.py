@@ -214,3 +214,25 @@ async def test_agent_mail_tools_work_over_the_connection(exchange, monkeypatch):
     refused = await run(SearchEmailsTool(), query="anything else")
     assert refused["output"]["success"] is False
     assert "Do NOT retry" in refused["output"]["error"] and "pw" not in refused["output"]["error"].split()
+
+
+@pytest.mark.e2e
+def test_personal_mail_is_a_connector_and_a_team_inbox_is_an_agent(
+    exchange, test_client, create_user, login_user, whoami, create_data_source,
+):
+    """Each person signing in reads their own mailbox: a connector, offered in
+    the prompt box and never picked by Auto. A service account reading a team
+    inbox is a source the org curates: an agent."""
+    admin = create_user()
+    token = login_user(admin["email"], admin["password"])
+    org = whoami(token)["organizations"][0]["id"]
+    headers = _headers(token, org)
+    credentials = {"username": "CORP\\service", "password": "system-secret"}
+    create_data_source(name="Personal mail", type="exchange_onprem", config=CONFIG, credentials=credentials,
+                       auth_policy="user_required", user_token=token, org_id=org)
+    create_data_source(name="Team inbox", type="exchange_onprem", config=CONFIG, credentials=credentials,
+                       auth_policy="system_only", user_token=token, org_id=org)
+    listed = test_client.get("/api/data_sources/active", params={"include_unconnected": "true"}, headers=headers)
+    assert listed.status_code == 200, listed.text
+    kinds = {row["name"]: row["kind"] for row in listed.json()}
+    assert kinds == {"Personal mail": "connector", "Team inbox": "agent"}

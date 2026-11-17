@@ -779,8 +779,8 @@ function validateRemoteSetup(): string | null {
 
 const formElement = ref<HTMLFormElement | null>(null)
 const submitError = ref('')
-watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged], () => {
-  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value })
+watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged, require_user_auth], () => {
+  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value, requireUserAuth: require_user_auth.value })
 })
 defineExpose({ connect: () => formElement.value?.requestSubmit(), test: testConnection })
 
