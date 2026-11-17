@@ -157,6 +157,18 @@ def _func_name(node) -> str:
         return ""
 
 
+def _refuse_denied_functions(stmt) -> None:
+    from sqlglot import exp
+
+    for fn in stmt.find_all(exp.Func):
+        name = _func_name(fn)
+        if name and _DENIED_FUNCTION.match(name):
+            raise TableScopeViolation(
+                f"The function {name.upper()}() is not allowed in agent queries, because "
+                "the table it reads cannot be checked. Query the enabled tables directly."
+            )
+
+
 def _resolves_to_cte(table) -> bool:
     """True when an unqualified table reference names a CTE visible where it
     stands.
@@ -226,13 +238,7 @@ def check_table_scope(
                 "read its enabled tables, which are already described in its schema."
             )
 
-        for fn in stmt.find_all(exp.Func):
-            name = _func_name(fn)
-            if name and _DENIED_FUNCTION.match(name):
-                raise TableScopeViolation(
-                    f"The function {name.upper()}() is not allowed in agent queries, because "
-                    "the table it reads cannot be checked. Query the enabled tables directly."
-                )
+        _refuse_denied_functions(stmt)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
@@ -292,26 +298,30 @@ def check_table_scope(
         )
 
 
-def table_refs(sql: str, dialect: str) -> list[Name]:
-    """Every table `sql` reads, as lowercased name parts, CTE names left out.
-
-    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
-    """
+def _parse_for_refs(sql: str, dialect: str) -> list:
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
     try:
-        statements = [s for s in parse_guard_sql(sql, dialect)
-                      if s is not None and not isinstance(s, exp.Semicolon)]
+        return [s for s in parse_guard_sql(sql, dialect)
+                if s is not None and not isinstance(s, exp.Semicolon)]
     except SqlglotError as e:
         raise TableScopeViolation(
             "Could not verify which tables this query reads, so it was not run. "
             "Rewrite it as a plain SELECT over <database>.<table> names."
         ) from e
 
+
+def table_refs(sql: str, dialect: str) -> list[Name]:
+    """Every table `sql` reads, as lowercased name parts, CTE names left out.
+
+    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
+    """
+    from sqlglot import exp
+
     refs: list[Name] = []
-    for stmt in statements:
+    for stmt in _parse_for_refs(sql, dialect):
         if isinstance(stmt, (exp.Command, exp.Describe, exp.Use)) or type(stmt).__name__ == "Show":
             raise TableScopeViolation(
                 "SHOW, DESCRIBE and similar statements are not allowed here. "
@@ -331,6 +341,12 @@ def table_refs(sql: str, dialect: str) -> list[Name]:
 def one_part_table_refs(sql: str, dialect: str) -> list[str]:
     """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
     return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
+
+
+def refuse_denied_functions(sql: str, dialect: str) -> None:
+    """Raise TableScopeViolation when `sql` calls a function whose target cannot be checked; unreadable SQL raises too."""
+    for stmt in _parse_for_refs(sql, dialect):
+        _refuse_denied_functions(stmt)
 
 
 def enforce_table_scope(client, query) -> None:
