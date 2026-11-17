@@ -24,11 +24,11 @@ def _majority_types(members: dict[str, Table]) -> dict[str, str]:
     majority = {}
     for name, counts in seen.items():
         top = max(counts.values())
-        majority[name] = min(dtype for dtype, count in counts.items() if count == top)
+        majority[name] = min((dtype for dtype, count in counts.items() if count == top), key=lambda d: d or "")
     return majority
 
 
-def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> Table:
+def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> Table | None:
     expected = _majority_types(members)
     included: list[str] = []
     dropped: list[str] = []
@@ -48,6 +48,10 @@ def _unify_table(name: str, members: dict[str, Table], excluded: list[dict]) -> 
                 })
         else:
             included.append(tenant)
+
+    if not included:
+        excluded.append({"table": name, "reason": "no tenant matches the resolved column types"})
+        return None
 
     columns = [TableColumn(name=TENANT_COLUMN, dtype="text")]
     column_names = {TENANT_COLUMN}
@@ -120,5 +124,7 @@ def unify_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
         if any(TENANT_COLUMN in {c.name for c in t.columns or []} for t in members.values()):
             catalog.excluded.append({"table": name, "reason": "has tenant_db column"})
             continue
-        catalog.tables.append(_unify_table(name, members, catalog.excluded))
+        unified = _unify_table(name, members, catalog.excluded)
+        if unified is not None:
+            catalog.tables.append(unified)
     return catalog

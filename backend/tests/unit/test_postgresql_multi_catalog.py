@@ -78,7 +78,8 @@ def test_type_tie_is_deterministic():
     })
     assert forward == backward
     t = forward.tables[0]
-    assert len(t.metadata_json["tenants"]) >= 1
+    assert t.metadata_json["tenants"] == ["a"]
+    assert t.metadata_json["excluded_tenants"] == ["b"]
     assert next(c for c in t.columns if c.name == "x").dtype == "integer"
 
 
@@ -144,3 +145,22 @@ def test_pks_union_and_first_description_in_sorted_tenant_order():
     t = catalog.tables[0]
     assert sorted(p.name for p in t.pks) == ["id", "k"]
     assert t.description == "from b"
+
+
+def test_table_where_every_tenant_conflicts_is_reported_not_emitted():
+    catalog = unify_catalogs({
+        "a": [table("public.t", [("x", "integer"), ("y", "text")])],
+        "b": [table("public.t", [("x", "text"), ("y", "integer")])],
+    })
+    assert catalog.tables == []
+    assert {"table": "public.t", "reason": "no tenant matches the resolved column types"} in catalog.excluded
+    assert any(e.get("column") == "x" for e in catalog.excluded)
+
+
+def test_missing_dtype_does_not_crash_type_resolution():
+    catalog = unify_catalogs({
+        "a": [table("public.t", [("x", None)])],
+        "b": [table("public.t", [("x", "integer")])],
+    })
+    assert all(isinstance(e, dict) for e in catalog.excluded)
+    assert catalog.tables[0].metadata_json["tenants"]
