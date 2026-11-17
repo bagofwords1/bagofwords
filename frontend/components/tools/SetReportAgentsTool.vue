@@ -3,7 +3,7 @@
     <div class="flex items-center text-gray-700 dark:text-gray-300">
       <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
       <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
-      <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
+      <span v-else-if="['running', 'in_progress'].includes(status)" class="tool-shimmer">Setting agent focus…</span>
       <!-- The status row talks about AGENTS (the report's context), so it
            carries the neutral agent cube — the connector logo stays on the
            approval card below, where identifying the source matters. -->
@@ -103,7 +103,8 @@ watch(names, (v) => {
 const showApprovalCard = computed(() =>
   !!confirmation.value?.confirmation_id &&
   !responded.value &&
-  status.value === 'running' &&
+  // Live stream says 'running'; a row loaded after reload says 'in_progress'.
+  ['running', 'in_progress'].includes(status.value) &&
   ['awaiting_confirmation', 'awaiting_approval'].includes(props.toolExecution?.progress_stage || ''))
 
 const { markConfirmationAnswered } = useToolConfirmations()

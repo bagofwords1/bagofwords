@@ -17,7 +17,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.tool_confirmation import ToolConfirmation
@@ -38,6 +38,7 @@ class ToolConfirmationService:
         report_id: Optional[str] = None,
         system_completion_id: Optional[str] = None,
         head_completion_id: Optional[str] = None,
+        tool_execution_id: Optional[str] = None,
         user_id: Optional[str] = None,
         connection_id: Optional[str] = None,
         connection_tool_id: Optional[str] = None,
@@ -54,6 +55,7 @@ class ToolConfirmationService:
             report_id=str(report_id) if report_id else None,
             system_completion_id=str(system_completion_id) if system_completion_id else None,
             head_completion_id=str(head_completion_id) if head_completion_id else None,
+            tool_execution_id=str(tool_execution_id) if tool_execution_id else None,
             user_id=str(user_id) if user_id else None,
             connection_id=str(connection_id) if connection_id else None,
             connection_tool_id=str(connection_tool_id) if connection_tool_id else None,
@@ -197,34 +199,72 @@ async def review_states_for_running_tools(
     reload — or someone viewing a shared conversation — saw a running tool
     with no hint that it was waiting on a person. Returns, per tool execution
     id, ``{"state": pending|approved|denied|expired, "row": ToolConfirmation}``
-    from the latest confirmation that tool asked for in that completion.
+    from the latest confirmation that tool asked for.
+
+    Matched by ``tool_execution_id``. The tool name is only a fallback for
+    rows written before that column existed: an MCP / Custom API / SSH
+    confirmation stores the inner tool name (``create_note``) while the
+    execution is named ``mcp__<conn>__create_note`` or ``execute_mcp``, so a
+    name match never found it and the card disappeared on reload.
     """
     if not running:
         return {}
+    te_ids = {str(te) for te, _, _ in running if te}
     completion_ids = {c for _, c, _ in running if c}
     tool_names = {t for _, _, t in running if t}
-    if not completion_ids or not tool_names:
+    conditions = []
+    if te_ids:
+        conditions.append(ToolConfirmation.tool_execution_id.in_(te_ids))
+    if completion_ids and tool_names:
+        conditions.append(and_(
+            ToolConfirmation.tool_execution_id.is_(None),
+            ToolConfirmation.system_completion_id.in_(completion_ids),
+            ToolConfirmation.tool_name.in_(tool_names),
+        ))
+    if not conditions:
         return {}
     rows = (await db.execute(
         select(ToolConfirmation)
-        .where(
-            ToolConfirmation.system_completion_id.in_(completion_ids),
-            ToolConfirmation.tool_name.in_(tool_names),
-        )
+        .where(or_(*conditions))
         .order_by(ToolConfirmation.created_at)
     )).scalars().all()
-    latest: dict[tuple[str, str], ToolConfirmation] = {}
-    for row in rows:
-        latest[(str(row.system_completion_id), row.tool_name)] = row
-    out: dict[str, dict] = {}
+    by_te: dict[str, ToolConfirmation] = {}
+    by_name: dict[tuple[str, str], ToolConfirmation] = {}
+    for row in rows:  # ascending created_at: the last write wins = latest
+        if row.tool_execution_id:
+            by_te[str(row.tool_execution_id)] = row
+        else:
+            by_name[(str(row.system_completion_id), row.tool_name)] = row
+    matched: dict[str, ToolConfirmation] = {}
     for te_id, completion_id, tool_name in running:
-        row = latest.get((str(completion_id), tool_name))
+        row = by_te.get(str(te_id)) or by_name.get((str(completion_id), tool_name))
         if row is not None:
-            out[str(te_id)] = {"state": row.status, "row": row}
-    return out
+            matched[str(te_id)] = row
+    # The live tool.confirmation event names the connection ("… · Billing
+    # API"); rebuild that for a pending MCP card too.
+    conn_ids = {
+        str(r.connection_id) for r in matched.values()
+        if r.connection_id and r.status == ToolConfirmation.STATUS_PENDING
+    }
+    conn_names: dict[str, str] = {}
+    if conn_ids:
+        from app.models.connection import Connection
+        conn_names = {
+            str(cid): name for cid, name in (await db.execute(
+                select(Connection.id, Connection.name).where(Connection.id.in_(conn_ids))
+            )).all()
+        }
+    return {
+        te_id: {
+            "state": row.status,
+            "row": row,
+            "connection_name": conn_names.get(str(row.connection_id)) if row.connection_id else None,
+        }
+        for te_id, row in matched.items()
+    }
 
 
-def confirmation_payload(row: ToolConfirmation) -> dict:
+def confirmation_payload(row: ToolConfirmation, connection_name: Optional[str] = None) -> dict:
     """The ``tool.confirmation`` event payload, rebuilt from the durable row so
     an approval card can render after a reload."""
     # Builtin-tool asks store the card payload itself; MCP asks store the
@@ -237,4 +277,6 @@ def confirmation_payload(row: ToolConfirmation) -> dict:
         "tool_name": row.tool_name,
         "connection_id": row.connection_id,
         "connection_tool_id": row.connection_tool_id,
+        "connection_name": connection_name,
+        "tool_execution_id": row.tool_execution_id,
     }
