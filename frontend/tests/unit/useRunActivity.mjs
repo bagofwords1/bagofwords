@@ -1,0 +1,245 @@
+import assert from 'node:assert/strict'
+
+import {
+  computeRunActivity,
+  describeDataOutput,
+  findFinalBlock,
+} from '../../composables/useRunActivity.ts'
+
+// Run: node tests/unit/useRunActivity.mjs
+
+let id = 0
+const t = (s) => new Date(Date.UTC(2026, 0, 1, 0, 0, s)).toISOString()
+function tool(name, args = {}, extra = {}) {
+  id += 1
+  return {
+    id: `b${id}`,
+    status: 'completed',
+    started_at: t(id),
+    completed_at: t(id + 1),
+    tool_execution: { id: `te${id}`, tool_name: name, status: 'success', arguments_json: args, ...extra.te },
+    ...extra.block,
+  }
+}
+function prose(text, extra = {}) {
+  id += 1
+  return { id: `b${id}`, status: 'completed', started_at: t(id), completed_at: t(id + 1), content: text, ...extra }
+}
+const final = (text = '## Done') => prose(text, { plan_decision: { analysis_complete: true } })
+const invoice = { tables_by_source: [{ data_source_id: 'ds', tables: ['Invoice'] }] }
+const table = (title, rows) => tool('create_data', { title }, {
+  te: { created_step_id: `s-${title}`, created_step: { title, data: { rows } }, result_json: { data_model: { type: 'table' } } },
+})
+
+// --- when a run folds --------------------------------------------------------
+
+// Still working: the last block is a tool call, so there is nothing to fold.
+assert.equal(computeRunActivity([prose('Checking'), tool('inspect_data', invoice)], { runStatus: 'in_progress' }), null)
+
+// Prose that the planner has not marked final is a progress message, not a
+// conclusion — it must not fold the run while it is still in progress.
+assert.equal(findFinalBlock([tool('inspect_data', invoice), prose('Looking further')], 'in_progress'), null)
+
+// The planner marks the conclusion before the run's status flips: fold then.
+{
+  const blocks = [tool('inspect_data', invoice), final()]
+  assert.equal(computeRunActivity(blocks, { runStatus: 'in_progress' })?.finalBlockId, blocks[1].id)
+}
+
+// Stored rows carry no analysis_complete on old runs; a successful status is enough.
+{
+  const blocks = [tool('inspect_data', invoice), prose('All done')]
+  assert.equal(computeRunActivity(blocks, { runStatus: 'success' })?.finalBlockId, blocks[1].id)
+}
+
+// A run that stopped or errored has no conclusion: its failure stays in view.
+for (const runStatus of ['stopped', 'error']) {
+  assert.equal(computeRunActivity([tool('inspect_data', invoice), prose('Partial')], { runStatus }), null)
+}
+assert.equal(computeRunActivity([tool('inspect_data', invoice), prose('boom', { status: 'error' })], { runStatus: 'success' }), null)
+
+// A run that ended on a question keeps the question visible.
+assert.equal(computeRunActivity([
+  tool('inspect_data', invoice),
+  tool('clarify', {}, { block: { content: 'Which year?' } }),
+], { runStatus: 'success' }), null)
+
+// A direct answer has no steps to view; reasoning alone still counts as activity.
+assert.equal(computeRunActivity([final()], { runStatus: 'success' }), null)
+assert.ok(computeRunActivity([{ ...final(), reasoning: 'thinking…' }], { runStatus: 'success' }))
+
+// --- steps -------------------------------------------------------------------
+
+// Three inspections of the same table are one step, each call a member.
+{
+  const blocks = [
+    prose("I'll check the Invoice table."),
+    tool('describe_tables', { query: ['Invoice'] }),
+    tool('inspect_data', { user_prompt: 'row count', ...invoice }),
+    tool('inspect_data', { user_prompt: 'nulls', ...invoice }),
+    final(),
+  ]
+  const a = computeRunActivity(blocks, { runStatus: 'success' })
+  assert.equal(a.steps.length, 1)
+  const [step] = a.steps
+  assert.equal(step.kind, 'inspect')
+  assert.equal(step.labelKey, 'inspectedTable')
+  assert.deepEqual(step.labelParams, { name: 'Invoice' })
+  assert.equal(step.count, 3)
+  assert.deepEqual(step.blockIds, blocks.slice(1, 4).map((b) => b.id))
+  // The header anchors on the first member; every member maps to the step.
+  assert.equal(a.headerAt[blocks[1].id], step)
+  assert.equal(a.stepOf[blocks[3].id], step)
+  // An inspection creates no artifact and is never a deliverable.
+  assert.deepEqual(a.deliverableIds, [])
+}
+
+// A different table is a different purpose.
+{
+  const a = computeRunActivity([
+    tool('inspect_data', invoice),
+    tool('inspect_data', { tables_by_source: [{ data_source_id: 'ds', tables: ['Customer'] }] }),
+    tool('inspect_data', { tables_by_source: [{ data_source_id: 'ds', tables: ['Customer', 'Invoice'] }] }),
+    final(),
+  ], { runStatus: 'success' })
+  assert.deepEqual(a.steps.map((s) => [s.labelKey, s.labelParams.name ?? s.labelParams.count]), [
+    ['inspectedTable', 'Invoice'], ['inspectedTable', 'Customer'], ['inspectedTables', 2],
+  ])
+}
+
+// A pattern query is a search, not a named table; no tables at all is "the data".
+{
+  const a = computeRunActivity([
+    tool('describe_tables', { query: 'inv.*' }),
+    tool('inspect_data', { user_prompt: 'preview the upload' }),
+    final(),
+  ], { runStatus: 'success' })
+  assert.deepEqual(a.steps.map((s) => s.labelKey), ['lookedForTables', 'inspectedData'])
+}
+
+// A progress message between two calls keeps its place: it splits the step.
+{
+  const a = computeRunActivity([
+    tool('inspect_data', invoice),
+    tool('inspect_data', invoice, { block: { content: 'One more check.' } }),
+    final(),
+  ], { runStatus: 'success' })
+  assert.equal(a.steps.length, 2)
+}
+
+// Reasoning does not split a step; a steering bubble before a call does.
+{
+  const blocks = [
+    tool('inspect_data', invoice),
+    tool('inspect_data', invoice, { block: { reasoning: 'hmm' } }),
+    tool('inspect_data', invoice),
+    final(),
+  ]
+  assert.equal(computeRunActivity(blocks, { runStatus: 'success' }).steps.length, 1)
+  assert.equal(computeRunActivity(blocks, { runStatus: 'success', breakBefore: (b) => b === blocks[2] }).steps.length, 2)
+}
+
+// Other tools merge by tool and prefer the model's own title for the label.
+{
+  const a = computeRunActivity([
+    tool('search_files', { title: 'Looking for the budget file' }),
+    tool('search_files', { title: 'Found the 2025 budget' }),
+    tool('read_file', {}),
+    final(),
+  ], { runStatus: 'success' })
+  assert.deepEqual(a.steps.map((s) => [s.count, s.labelText || s.labelKey]), [[2, 'Found the 2025 budget'], [1, 'read']])
+}
+
+// A failed member stays in its step and is counted on it.
+{
+  const a = computeRunActivity([
+    tool('inspect_data', invoice, { te: { status: 'error' } }),
+    tool('inspect_data', invoice),
+    final(),
+  ], { runStatus: 'success' })
+  assert.equal(a.steps.length, 1)
+  assert.equal(a.steps[0].issueCount, 1)
+}
+
+// --- create_data -------------------------------------------------------------
+
+// Each create_data is its own step, described by what it actually produced.
+{
+  const rows = Array.from({ length: 24 }, (_, i) => ({ country: `c${i}`, revenue: i }))
+  const blocks = [
+    table('Revenue by country', rows),
+    table('Total revenue', [{ total_revenue: 2328.6 }]),
+    final(),
+  ]
+  const a = computeRunActivity(blocks, { runStatus: 'success' })
+  assert.deepEqual(a.steps.map((s) => [s.kind, s.labelKey, s.output.kind]), [
+    ['data', 'createdTable', 'table'], ['data', 'calculated', 'number'],
+  ])
+  assert.equal(a.steps[0].output.rowCount, 24)
+  assert.equal(a.steps[1].output.value, (2328.6).toLocaleString(undefined, { maximumFractionDigits: 2 }))
+  // The table is a deliverable; the single number lives in the answer.
+  assert.deepEqual(a.deliverableIds, [blocks[0].id])
+}
+
+// Output kind comes from the result, not from the requested view.
+assert.equal(describeDataOutput(tool('create_data', { title: 'x' }, {
+  te: { created_step: { data: { rows: [{ a: 1 }, { a: 2 }] } }, created_visualizations: [{ view: { view: { type: 'bar_chart' } } }] },
+}).tool_execution).kind, 'chart')
+assert.equal(describeDataOutput(tool('create_data', { title: 'x' }, {
+  te: { created_step: { data: { rows: [{ a: 1, b: 2 }] } }, result_json: { data_model: { type: 'metric_card' } } },
+}).tool_execution).kind, 'number')
+assert.equal(describeDataOutput(tool('create_data', { title: 'x' }, { te: { status: 'error' } }).tool_execution).kind, 'none')
+// A truncated preview reports the server's total, not the preview length.
+assert.equal(describeDataOutput(tool('create_data', {}, {
+  te: { created_step: { data: { rows: [{ a: 1, b: 1 }, { a: 2, b: 2 }], truncated: true, total_rows: 500 } } },
+}).tool_execution).rowCount, 500)
+
+// A failed create_data is a step but delivers nothing.
+{
+  const a = computeRunActivity([tool('create_data', { title: 'Churn' }, { te: { status: 'error' } }), final()], { runStatus: 'success' })
+  assert.equal(a.steps[0].labelKey, 'dataFailed')
+  assert.deepEqual(a.deliverableIds, [])
+}
+
+// --- deliverables ------------------------------------------------------------
+
+// A rebuilt table or re-edited dashboard is one deliverable: the latest wins,
+// in the position of its latest revision.
+{
+  const rows = [{ a: 1, b: 2 }, { a: 3, b: 4 }]
+  const blocks = [
+    table('Top customers', rows),
+    tool('create_artifact', {}, { te: { result_json: { artifact_id: 'art1' } } }),
+    table('Top customers', rows),
+    tool('edit_artifact', { artifact_id: 'art1' }, { te: { result_json: { artifact_id: 'art1' } } }),
+    final(),
+  ]
+  const a = computeRunActivity(blocks, { runStatus: 'success' })
+  assert.deepEqual(a.deliverableIds, [blocks[2].id, blocks[3].id])
+}
+
+// Research tools and unknown tools are activity, never promoted; blocks the
+// page already hides behind another card are skipped.
+{
+  const blocks = [
+    tool('read_file', {}),
+    tool('some_future_tool', {}),
+    tool('edit_instruction', {}),
+    tool('edit_instruction', {}),
+    final(),
+  ]
+  const a = computeRunActivity(blocks, { runStatus: 'success', isSuperseded: (b) => b === blocks[3] })
+  assert.deepEqual(a.deliverableIds, [blocks[2].id])
+}
+
+// --- elapsed span ------------------------------------------------------------
+{
+  const blocks = [tool('inspect_data', invoice), tool('inspect_data', invoice), final()]
+  const a = computeRunActivity(blocks, { runStatus: 'success' })
+  assert.equal(a.spanMs, Date.parse(blocks[2].started_at) - Date.parse(blocks[0].started_at))
+  // No timestamps: no invented duration.
+  const bare = blocks.map(({ started_at, completed_at, ...b }) => b)
+  assert.equal(computeRunActivity(bare, { runStatus: 'success' }).spanMs, null)
+}
+
+console.log('useRunActivity: all assertions passed')

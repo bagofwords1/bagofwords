@@ -155,7 +155,7 @@
     <!-- Results Preview - only show if not failed.
          Small table results stay hidden until the user expands the tool via
          the existing header chevron; charts and larger tables always render. -->
-    <div class="mt-2" v-if="hasPreview && status !== 'error' && (!autoCollapsePreview || !createDataCollapsed)">
+    <div class="mt-2" v-if="hasPreview && !hidePreview && status !== 'error' && (!autoCollapsePreview || !createDataCollapsed)">
       <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" :can-expand="canExpand" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" @openDataPanel="$emit('openDataPanel', $event)" />
     </div>
   </div>
@@ -218,7 +218,9 @@ interface Props {
   }
 }
 
-const props = defineProps<Props & { readonly?: boolean; dataSources?: DataSource[]; canExpand?: boolean }>()
+// hidePreview: the host shows the result elsewhere (a folded run keeps its
+// deliverables under the conclusion), so this row is the build trail only.
+const props = defineProps<Props & { readonly?: boolean; dataSources?: DataSource[]; canExpand?: boolean; hidePreview?: boolean }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
 // Code visibility is a role permission. The server already redacts `code`,

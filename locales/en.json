@@ -1430,7 +1430,42 @@
     "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
     "compactingContext": "Compacting context…",
     "compactionTurns": "{turns} turns",
-    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
+    "runFold": {
+      "workedFor": "Worked for {duration}",
+      "worked": "Worked",
+      "viewSteps": "View steps",
+      "hideSteps": "Hide steps",
+      "checks": "{count} checks",
+      "actions": "{count} actions",
+      "openTable": "Open table",
+      "openChart": "Open chart",
+      "steps": {
+        "inspectedTable": "Checked the {name} table",
+        "inspectedTables": "Checked {count} tables",
+        "lookedForTables": "Looked for tables matching {name}",
+        "inspectedEntity": "Checked {name}",
+        "inspectedData": "Checked the data",
+        "createdTable": "Created the table “{title}”",
+        "createdTableUntitled": "Created a table",
+        "createdChart": "Created the chart “{title}”",
+        "createdChartUntitled": "Created a chart",
+        "calculated": "Calculated {title}:",
+        "calculatedUntitled": "Calculated a value:",
+        "dataFailed": "Could not create “{title}”",
+        "dataFailedUntitled": "Could not create the data",
+        "preparedData": "Prepared “{title}”",
+        "preparedDataUntitled": "Prepared the data",
+        "searched": "Searched for information",
+        "read": "Read reference material",
+        "lookedUp": "Looked up details",
+        "usedTool": "Used a connected tool",
+        "browsed": "Browsed a page",
+        "created": "Created an item",
+        "updated": "Made an update",
+        "ran": "Ran {tool}"
+      }
+    }
   },
   "tools": {
     "common": {

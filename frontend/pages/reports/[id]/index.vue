@@ -327,9 +327,19 @@
                                         </div>
 									<!-- System message -->
 									<div>
-										<!-- Sub-agent waves launched by this turn: one group line per wave -->
-										<SubAgentWaveStrip
-											v-for="w in wavesForMessage(m)"
+											<!-- Run fold: once the final message has arrived, the activity
+											     before it sits behind this one row (useRunActivity.ts). -->
+											<RunActivityToggle
+												v-if="runFold(m)"
+												:expanded="isRunExpanded(m)"
+												:duration="runFoldDuration(m)"
+												:translate="responseT"
+												@toggle="toggleRun(m)"
+											/>
+											<!-- Sub-agent waves launched by this turn: one group line per wave -->
+											<SubAgentWaveStrip
+												v-for="w in wavesForMessage(m)"
+												v-show="!runFold(m) || isRunExpanded(m)"
 											:key="'wave-' + w.id"
 											:wave="w"
 											:wave-number="waveNumber(w)"
@@ -337,7 +347,8 @@
 											@stopWave="stopWave"
 										/>
 										<!-- Render each completion block - unified structure -->
-										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution) }">
+										<template v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
+											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
 											<!-- Steering messages interleave into the block stream at the
 											     moment they arrived: before the first block that started
 											     after them. -->
@@ -405,7 +416,7 @@
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
-											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning)" class="thinking-box">
+											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning) && isRunReasoningShown(m, block)" class="thinking-box" :class="{ 'run-step-detail': isRunStepDetail(m, block) }">
 												<button type="button" class="thinking-header" :aria-expanded="!isReasoningCollapsed(block.id)" @click="toggleReasoning(block.id)">
 													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
@@ -447,14 +458,45 @@
 								/>
 											</div>
 
-											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-											<div v-if="block.tool_execution" class="tool-execution-container text-start" :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
+											<!-- Step header of a folded run: consecutive same-purpose calls
+							     sit under one plain-language line; the calls themselves are
+							     the step's details. -->
+												<div v-if="runStepHeaderFor(m, block)" class="run-step flex items-center gap-2 text-chat-2 text-start" :dir="responseDir" data-testid="run-step">
+													<button
+														type="button"
+														class="run-step-toggle flex min-w-0 items-center gap-1 rounded text-ink-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+														:aria-expanded="isRunStepExpanded(runStepHeaderFor(m, block)!.id)"
+														data-testid="run-step-toggle"
+														@click="toggleRunStep(runStepHeaderFor(m, block)!.id)"
+													>
+														<Icon :name="isRunStepExpanded(runStepHeaderFor(m, block)!.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3.5 h-3.5 shrink-0 text-ink-muted rtl-flip" />
+														<span class="min-w-0 text-start" :title="runStepHeaderFor(m, block)!.subjects.join(', ') || undefined"><bdi>{{ runStepLabel(runStepHeaderFor(m, block)!, responseT) }}</bdi></span>
+														<span v-if="runStepHeaderFor(m, block)!.output?.kind === 'number' && runStepHeaderFor(m, block)!.output?.value" class="shrink-0 font-medium text-ink nums" data-testid="run-step-value"><bdi>{{ runStepHeaderFor(m, block)!.output!.value }}</bdi></span>
+														<span v-if="runStepCountLabel(runStepHeaderFor(m, block)!, responseT)" class="shrink-0 text-ink-muted">· {{ runStepCountLabel(runStepHeaderFor(m, block)!, responseT) }}</span>
+														<span v-if="['table', 'chart'].includes(runStepHeaderFor(m, block)!.output?.kind || '') && runStepHeaderFor(m, block)!.output?.rowCount != null" class="shrink-0 text-ink-muted nums">· {{ responseT('tools.common.rows', { n: runStepHeaderFor(m, block)!.output!.rowCount!.toLocaleString() }) }}</span>
+														<span v-if="runStepHeaderFor(m, block)!.issueCount" class="shrink-0 text-amber-600 dark:text-amber-400">· {{ responseT('tools.browser.checkIssues', { count: runStepHeaderFor(m, block)!.issueCount }) }}</span>
+													</button>
+													<UButton
+														v-if="['table', 'chart'].includes(runStepHeaderFor(m, block)!.output?.kind || '')"
+														color="gray"
+														variant="link"
+														size="2xs"
+														:padded="false"
+														trailing-icon="i-heroicons-arrow-top-right-on-square"
+														data-testid="run-step-open"
+														@click="openRunStepOutput(block, runStepHeaderFor(m, block)!)"
+													>{{ responseT(runStepHeaderFor(m, block)!.output?.kind === 'chart' ? 'reportView.runFold.openChart' : 'reportView.runFold.openTable') }}</UButton>
+												</div>
+
+							<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
+												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
-                                                    :run-status="m.status"
+														:hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
+	                                                    :run-status="m.status"
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
 													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
@@ -490,14 +532,49 @@
 											</div>
 											
 											<!-- Tool widget preview -->
-											<div class="tool-preview text-start" :dir="responseDir" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+											<div class="tool-preview text-start" :dir="responseDir" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution && !runFold(m)">
 												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 											</div>
 											</div>
 
-																	</div>
+																		</div>
+											</template>
 
-										<!-- Steering messages newer than every block: render after the stream tail -->
+											<!-- Outputs of a folded run stay reachable under its conclusion:
+											     the cards the reader would open or act on, latest revision of
+											     each, whether or not the steps are open. -->
+											<div v-if="runDeliverables(m).length" class="run-deliverables mt-4 flex flex-col gap-3 text-start" :dir="responseDir" data-testid="run-deliverables">
+												<template v-for="d in runDeliverables(m)" :key="'deliverable-' + d.id">
+													<div v-if="d.tool_execution.tool_name === 'create_data' || shouldShowToolWidgetPreview(d.tool_execution)" class="tool-preview" :data-step-id="d.tool_execution?.created_step?.id || d.tool_execution?.created_step_id || ''">
+														<ToolWidgetPreview :tool-execution="d.tool_execution" :initial-collapsed="isSmallTableDeliverable(d)" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
+													</div>
+													<div v-else-if="shouldUseToolComponent(d.tool_execution)" class="tool-execution-container" :data-step-id="d.tool_execution?.created_step?.id || d.tool_execution?.created_step_id || ''">
+														<component
+															:is="getToolComponent(d.tool_execution.tool_name)"
+															:tool-execution="d.tool_execution"
+															:run-status="m.status"
+															:edit-group-count="editRunInfo(m, d)?.count"
+															:edit-group-last-new-text="editRunInfo(m, d)?.lastNewText"
+															:edit-group-last-version="editRunInfo(m, d)?.lastVersion"
+															:turn-active="m.status === 'in_progress'"
+															:data-sources="report?.data_sources"
+															:report-id="report_id"
+															:system-completion-id="m.system_completion_id || m.id"
+															:can-expand="!isMobile"
+															@openFilePreview="openFilePreview"
+															@openDataPanel="openDataPanel"
+															@openListPanel="openListPanel"
+															@toggleSplitScreen="toggleSplitScreen"
+															@editQuery="handleEditQuery"
+															@openArtifact="handleOpenArtifact"
+															@openInstruction="openInstructionById"
+															@openScheduledTask="openScheduledTaskById"
+														/>
+													</div>
+												</template>
+											</div>
+
+											<!-- Steering messages newer than every block: render after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
 											<div class="flex flex-col items-end max-w-[85%]">
 												<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
@@ -519,7 +596,7 @@
 										<!-- Loop-level rescue notices: the run hit an internal error and
 										     retried from its latest context (SSE planner.retry, reason
 										     loop_error). Amber = recovered, not failed. -->
-										<div v-for="(rn, rnIdx) in (m.retry_notices || [])" :key="'retry-notice-' + rnIdx"
+										<div v-for="(rn, rnIdx) in (m.retry_notices || [])" v-show="!runFold(m) || isRunExpanded(m)" :key="'retry-notice-' + rnIdx"
 											class="my-2 text-xs text-amber-600 dark:text-amber-400"
 											data-testid="loop-retry-notice">
 											<div class="flex items-center gap-1.5" :class="rn.message ? 'cursor-pointer select-none' : ''" @click="rn.message && ((rn as any).expanded = !(rn as any).expanded)">
@@ -1140,6 +1217,7 @@ import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { computeRunActivity, type RunActivity, type RunStep } from '~/composables/useRunActivity'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
@@ -1586,6 +1664,9 @@ const blockGroupings = computed(() => {
 	const out = new Map<string, ReturnType<typeof computeBlockGroups>>()
 	for (const m of messages.value) {
 		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		// A run folded around its final message groups its tool calls into
+		// steps instead (runActivities) — one grammar per run, never both.
+		if (runActivities.value.has(String(m.id))) continue
 		const blocks = visibleBlocks(m)
 		out.set(String(m.id), computeBlockGroups(blocks, {
 			executionStatus: m.status,
@@ -1594,6 +1675,124 @@ const blockGroupings = computed(() => {
 	}
 	return out
 })
+
+// ---------------------------------------------------------------------------
+// Run fold: once a run's final message has arrived, everything before it
+// collapses into one "Worked for 10s · View steps" row above the conclusion
+// (policy in useRunActivity). Nothing is persisted: a reopened report starts
+// collapsed, which is the state a reader wants for a finished run.
+// ---------------------------------------------------------------------------
+const runActivities = computed(() => {
+	const out = new Map<string, RunActivity>()
+	for (const m of messages.value) {
+		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
+		const blocks = visibleBlocks(m)
+		const activity = computeRunActivity(blocks, {
+			runStatus: m.status,
+			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
+			isSuperseded: (b: any) => isEditRunFolded(m, b),
+		})
+		if (activity) out.set(String(m.id), activity)
+	}
+	return out
+})
+const expandedRuns = ref<Set<string>>(new Set())
+const expandedRunSteps = ref<Set<string>>(new Set())
+
+function runFold(m: ChatMessage): RunActivity | undefined {
+	return runActivities.value.get(String(m.id))
+}
+// Keyed by the server completion id so the open/closed state survives the
+// refetch that swaps the streaming placeholder row for the stored one.
+function isRunExpanded(m: ChatMessage): boolean {
+	return expandedRuns.value.has(runKey(m))
+}
+function toggleRun(m: ChatMessage) {
+	const next = new Set(expandedRuns.value)
+	const key = runKey(m)
+	next.has(key) ? next.delete(key) : next.add(key)
+	expandedRuns.value = next
+}
+function isRunStepExpanded(stepId: string): boolean {
+	return expandedRunSteps.value.has(stepId)
+}
+function toggleRunStep(stepId: string) {
+	const next = new Set(expandedRunSteps.value)
+	next.has(stepId) ? next.delete(stepId) : next.add(stepId)
+	expandedRunSteps.value = next
+}
+// The final message always renders; the activity before it only while open.
+function isRunBlockShown(m: ChatMessage, block: any): boolean {
+	const fold = runFold(m)
+	return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
+}
+function isRunActivityBlock(m: ChatMessage, block: any): boolean {
+	const fold = runFold(m)
+	return !!fold && fold.finalBlockId !== String(block.id)
+}
+function runStepHeaderFor(m: ChatMessage, block: any): RunStep | undefined {
+	const fold = runFold(m)
+	return fold && isRunExpanded(m) ? fold.headerAt[String(block.id)] : undefined
+}
+// Later members of a step keep their reasoning and call in the step details.
+function isRunStepDetail(m: ChatMessage, block: any): boolean {
+	const step = runFold(m)?.stepOf[String(block.id)]
+	return !!step && step.id !== String(block.id)
+}
+// A step's first member shows its reasoning in the chain (it precedes the
+// step); later members' reasoning opens with the step.
+function isRunReasoningShown(m: ChatMessage, block: any): boolean {
+	const fold = runFold(m)
+	if (!fold) return true
+	if (!isRunExpanded(m)) return false
+	const step = fold.stepOf[String(block.id)]
+	return !step || step.id === String(block.id) || isRunStepExpanded(step.id)
+}
+function isRunToolShown(m: ChatMessage, block: any): boolean {
+	const fold = runFold(m)
+	if (!fold) return true
+	const step = fold.stepOf[String(block.id)]
+	return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
+}
+function runDeliverables(m: ChatMessage): any[] {
+	const fold = runFold(m)
+	if (!fold?.deliverableIds.length) return []
+	const byId = new Map(visibleBlocks(m).map((b: any) => [String(b.id), b]))
+	return fold.deliverableIds.map(id => byId.get(id)).filter(Boolean)
+}
+// Elapsed time of the run: the server's figure once stamped, the client clock
+// on the live path, and the blocks' own span for rows that carry neither.
+function runFoldDuration(m: ChatMessage): string {
+	let ms: number | null | undefined = (typeof m.total_duration_ms === 'number' && m.total_duration_ms > 0)
+		? m.total_duration_ms
+		: clientRunMs.value.get(runKey(m))
+	if (typeof ms !== 'number' && m.status === 'in_progress') {
+		const started = parseServerTimestamp(m.created_at)
+		if (started !== null) ms = Date.now() - started
+	}
+	if (typeof ms !== 'number') ms = runFold(m)?.spanMs
+	if (typeof ms !== 'number' || ms < 0) return ''
+	return formatRunDuration(Math.max(1000, ms))
+}
+function runStepLabel(step: RunStep, tr: (key: string, values?: any) => string): string {
+	return step.labelText || tr(`reportView.runFold.steps.${step.labelKey}`, step.labelParams)
+}
+function runStepCountLabel(step: RunStep, tr: (key: string, values?: any) => string): string {
+	if (step.count < 2) return ''
+	return tr(step.kind === 'inspect' ? 'reportView.runFold.checks' : 'reportView.runFold.actions', { count: step.count })
+}
+function openRunStepOutput(block: any, step: RunStep) {
+	openDataPanel({ toolExecution: block.tool_execution, title: step.output?.title, visual: step.output?.kind === 'chart' })
+}
+// A table of a few rows is described in the answer itself: keep its card to a
+// title row the reader can open (same threshold CreateDataTool uses inline).
+function isSmallTableDeliverable(block: any): boolean {
+	const te = block?.tool_execution
+	const type = String(te?.result_json?.data_model?.type || 'table')
+	const data = te?.created_step?.data
+	const n = typeof data?.total_rows === 'number' ? data.total_rows : (Array.isArray(data?.rows) ? data.rows.length : null)
+	return type === 'table' && n !== null && n < 10
+}
 
 function effortLabel(effort: string): string {
     const key = `prompt.effort.levels.${effort}`
@@ -6522,8 +6721,8 @@ onMounted(async () => {
     flex-direction: column;
     gap: 8px;
 }
-.response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview))
-~ .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .tool-execution-container, .tool-preview)) {
+.response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .run-step, .tool-execution-container, .tool-preview))
+~ .response-block:has(> [data-testid="block-group-header"], > .block-content, > .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .run-step, .tool-execution-container, .tool-preview)) {
     margin-block-start: var(--response-block-gap, 16px);
 }
 .response-block:has(> [data-testid="block-group-header"]) > .response-block-body:not([style*="display: none"]) {
@@ -6531,6 +6730,23 @@ onMounted(async () => {
 }
 .response-block.activity-only + .response-block.activity-only {
     --response-block-gap: 8px;
+}
+/* Folded run, opened: the chain reads as one indented thread above the
+   conclusion; a step's calls indent once more under its line. */
+.response-block.run-activity {
+    padding-inline-start: 12px;
+    border-inline-start: 1px solid rgb(var(--bow-line-rgb));
+}
+/* One unbroken rule down the thread: siblings space with padding, not margin,
+   and a call still tucked inside a closed step takes no room at all. */
+.response-block.run-activity ~ .response-block.run-activity {
+    margin-block-start: 0 !important;
+}
+.response-block.run-activity ~ .response-block.run-activity:has(> .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .run-step, .tool-execution-container, .tool-preview)) {
+    padding-block-start: 10px;
+}
+.run-step-detail {
+    padding-inline-start: 18px;
 }
 .tool-preview > :deep(*) {
     margin-block: 0;

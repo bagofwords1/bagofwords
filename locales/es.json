@@ -1404,7 +1404,42 @@
     "compactionSummaryHint": "El agente ve este resumen en lugar de los turnos sobre la línea.",
     "compactingContext": "Compactando contexto…",
     "compactionTurns": "{turns} turnos",
-    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens"
+    "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens",
+    "runFold": {
+      "workedFor": "Trabajó durante {duration}",
+      "worked": "Trabajó",
+      "viewSteps": "Ver pasos",
+      "hideSteps": "Ocultar pasos",
+      "checks": "{count} comprobaciones",
+      "actions": "{count} acciones",
+      "openTable": "Abrir tabla",
+      "openChart": "Abrir gráfico",
+      "steps": {
+        "inspectedTable": "Revisó la tabla {name}",
+        "inspectedTables": "Revisó {count} tablas",
+        "lookedForTables": "Buscó tablas que coincidan con {name}",
+        "inspectedEntity": "Revisó {name}",
+        "inspectedData": "Revisó los datos",
+        "createdTable": "Creó la tabla «{title}»",
+        "createdTableUntitled": "Creó una tabla",
+        "createdChart": "Creó el gráfico «{title}»",
+        "createdChartUntitled": "Creó un gráfico",
+        "calculated": "Calculó {title}:",
+        "calculatedUntitled": "Calculó un valor:",
+        "dataFailed": "No se pudo crear «{title}»",
+        "dataFailedUntitled": "No se pudieron crear los datos",
+        "preparedData": "Preparó «{title}»",
+        "preparedDataUntitled": "Preparó los datos",
+        "searched": "Buscó información",
+        "read": "Leyó material de referencia",
+        "lookedUp": "Consultó detalles",
+        "usedTool": "Usó una herramienta conectada",
+        "browsed": "Navegó una página",
+        "created": "Creó un elemento",
+        "updated": "Hizo una actualización",
+        "ran": "Ejecutó {tool}"
+      }
+    }
   },
   "tools": {
     "common": {
