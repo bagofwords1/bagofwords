@@ -4878,6 +4878,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nombre de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL del servidor Exchange",
+      "urlDescription": "Dirección de tu servidor Exchange, p. ej. https://mail.example.com. La ruta de Exchange Web Services (/EWS/Exchange.asmx) se añade si la omites.",
+      "sharedTitle": "Buzones compartidos",
+      "sharedDescription": "Opcional. Direcciones de buzones compartidos o de equipo que se incluirán, separadas por comas, p. ej. support@example.com, sales@example.com. Exchange decide quién puede abrir cada uno: cada persona solo ve los buzones a los que su cuenta ya tiene acceso.",
+      "ownTitle": "Incluir el buzón propio de la cuenta",
+      "ownDescription": "Desactívalo al iniciar sesión con una cuenta de servicio cuyo buzón propio no es relevante. El primer buzón compartido pasa a ser el predeterminado."
+    },
     "athena": {
       "databaseDescription": "Un nombre de base de datos de Glue, o una lista separada por comas de nombres, patrones glob y exclusiones con !, para indexar varias, p. ej. *_db, !billing_db, analytics_history. Con varias, las tablas se llaman base_de_datos.tabla.",
       "tableExcludeTitle": "Patrón de exclusión de tablas",

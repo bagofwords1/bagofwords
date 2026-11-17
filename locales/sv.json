@@ -4301,6 +4301,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Dokumentbibliotekets namn, eller * för alla synliga bibliotek. Ett tomt fält väljer standardbiblioteket endast i läget Modern REST."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL till Exchange-servern",
+      "urlDescription": "Adressen till din Exchange-server, t.ex. https://mail.example.com. Sökvägen till Exchange Web Services (/EWS/Exchange.asmx) läggs till om du utelämnar den.",
+      "sharedTitle": "Delade postlådor",
+      "sharedDescription": "Valfritt. Adresser till delade postlådor eller gruppostlådor som ska ingå, avgränsade med kommatecken, t.ex. support@example.com, sales@example.com. Exchange avgör vem som får öppna varje postlåda: var och en ser bara de postlådor som kontot redan har åtkomst till.",
+      "ownTitle": "Ta med kontots egen postlåda",
+      "ownDescription": "Stäng av när du loggar in med ett tjänstkonto vars egen postlåda inte är relevant. Den första delade postlådan blir då standard."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",

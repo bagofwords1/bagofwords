@@ -4940,6 +4940,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     },
+    "exchangeOnprem": {
+      "urlTitle": "Exchange server URL",
+      "urlDescription": "Address of your Exchange server, e.g. https://mail.example.com. The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out.",
+      "sharedTitle": "Shared mailboxes",
+      "sharedDescription": "Optional. Addresses of shared or team mailboxes to include, separated by commas, e.g. support@example.com, sales@example.com. Exchange decides who may open each one: people only see the mailboxes their account already has access to.",
+      "ownTitle": "Include the account's own mailbox",
+      "ownDescription": "Turn off when signing in with a service account whose own mailbox is not relevant. The first shared mailbox then becomes the default."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",

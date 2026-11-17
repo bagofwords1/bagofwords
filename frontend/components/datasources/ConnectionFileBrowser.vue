@@ -133,7 +133,7 @@ const previewSupported = ref(true)
 // The connector's own nouns (Outlook / Gmail / Teams list "messages") and
 // whether it is read live per user with nothing stored. Known from the type
 // before the first response so the loading line is already worded right.
-const MESSAGE_TYPES = ['outlook_mail', 'gmail_mail', 'teams_messages']
+const MESSAGE_TYPES = ['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages']
 const nouns = ref<string[] | null>(null)
 const liveFromServer = ref<boolean | null>(null)
 const isMessages = computed(() =>
