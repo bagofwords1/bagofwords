@@ -7296,7 +7296,12 @@
     "updateFailed": "Échec de la mise à jour des permissions",
     "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
     "added": "Membres ajoutés",
-    "addFailed": "Échec de l’ajout des membres"
+    "addFailed": "Échec de l’ajout des membres",
+    "inherited": "Accès hérité",
+    "inheritedHint": "Ces personnes et groupes accèdent à cet agent via un dossier ou une connexion. Modifiez leur accès à la source.",
+    "viaFolder": "Via le dossier {name}",
+    "viaConnection": "Via la connexion {name}",
+    "inheritedHidden": "D'autres personnes peuvent avoir accès via un dossier ou une connexion que vous ne gérez pas."
   },
   "productUpdates": {
     "checkbox": "M'envoyer les nouveautés du produit",

@@ -7296,7 +7296,12 @@
     "updateFailed": "Kunde inte uppdatera behörigheter",
     "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
     "added": "Medlemmar tillagda",
-    "addFailed": "Kunde inte lägga till medlemmar"
+    "addFailed": "Kunde inte lägga till medlemmar",
+    "inherited": "Ärvd åtkomst",
+    "inheritedHint": "De här personerna och grupperna når agenten via en mapp eller anslutning. Ändra deras åtkomst vid källan.",
+    "viaFolder": "Via mappen {name}",
+    "viaConnection": "Via anslutningen {name}",
+    "inheritedHidden": "Andra kan ha åtkomst via en mapp eller anslutning som du inte hanterar."
   },
   "productUpdates": {
     "checkbox": "Skicka produktnyheter till mig",
