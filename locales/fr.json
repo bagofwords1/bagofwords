@@ -7414,5 +7414,28 @@
       "stale": "Le processus qui exécutait cette requête ne répond plus ; sa place a été libérée.",
       "busy": "Aucune place libérée à temps : la connexion était à sa limite de requêtes simultanées."
     }
+  },
+  "slackChannels": {
+    "button": "Canaux",
+    "title": "Canaux Slack de cet agent",
+    "subtitle": "Choisissez les canaux Slack que lit cet agent.",
+    "allChannels": "Tous mes canaux",
+    "allChannelsHint": "Chaque canal dont chaque personne est membre.",
+    "selectedChannels": "Seulement les canaux sélectionnés",
+    "connectRequired": "Connectez-vous avec Slack sur cette connexion pour choisir des canaux.",
+    "searchPlaceholder": "Rechercher des canaux",
+    "notYourChannel": "pas dans votre Slack",
+    "noMatch": "Aucun canal ne correspond.",
+    "selectedCount": "{n} sélectionné(s)",
+    "includeDms": "Inclure les messages directs",
+    "includeDmsHint": "Lire aussi les messages directs et de groupe de chaque personne.",
+    "membershipNote": "Chaque personne ne voit toujours que les canaux dont elle est membre.",
+    "saveFailed": "Impossible d'enregistrer les canaux",
+    "saved": "Canaux enregistrés",
+    "summaryAll": "Lit tous les canaux et les messages directs",
+    "summaryAllNoDms": "Lit tous les canaux, sans messages directs",
+    "summarySome": "Lit {names}",
+    "summarySomeWithDms": "Lit {names} et les messages directs",
+    "loadFailed": "Impossible de charger les canaux de cet agent. Fermez et réessayez."
   }
 }

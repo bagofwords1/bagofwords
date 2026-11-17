@@ -771,17 +771,21 @@ class TablesSchemaContext(ContextSection):
             # Per-user OAuth sources: the sample/count above (if any) reflect the
             # querying user's own account, and discovery is always live — so tell
             # the model not to treat an empty scope as "no files".
-            if fs.type == "teams_messages":
+            if fs.type in ("teams_messages", "slack_messages"):
                 inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
-                # Chat vocabulary, never file tools: a Teams connection backs
-                # only search_chat_messages / list_chat_messages /
-                # read_chat_thread (see GraphTeamsClient.capabilities).
+                # Chat vocabulary, never file tools: a Teams or Slack connection
+                # backs only search_chat_messages / list_chat_messages /
+                # read_chat_thread (see GraphTeamsClient / SlackMessagesClient
+                # capabilities).
+                chats = "DMs" if fs.type == "slack_messages" else "chats"
                 inner.append(xml_tag(
                     "auth",
                     "per-user — searched live as the signed-in user; they see only "
-                    "the channels and chats they belong to. Nothing is indexed, so "
+                    f"the channels and {chats} they belong to. Nothing is indexed, so "
                     "an empty count here does NOT mean no messages."
                 ))
+                if fs.note:
+                    inner.append(xml_tag("note", xml_escape(fs.note)))
                 inner.append(xml_tag(
                     "holds",
                     "the team's conversations — decisions, reported numbers, metric "

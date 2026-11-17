@@ -236,8 +236,12 @@ async def attach_file(
     )
 
     conn = await _attached_connection(db, body.data_source_id, body.connection_id, organization)
+    from app.routes.data_source import _agent_scope_overrides
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
+        # Through the agent, so with the agent's narrowing (its Slack channels).
+        client = await ConnectionService().construct_client(
+            db, conn, current_user,
+            config_overrides=await _agent_scope_overrides(db, body.data_source_id, conn))
     except HTTPException:
         # e.g. a per-user connection the caller hasn't signed in to (403).
         raise

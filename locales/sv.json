@@ -7414,5 +7414,28 @@
       "stale": "Processen som körde frågan slutade svara; dess plats frigjordes.",
       "busy": "Ingen plats blev ledig i tid: anslutningen låg på sin gräns för samtidiga frågor."
     }
+  },
+  "slackChannels": {
+    "button": "Kanaler",
+    "title": "Slack-kanaler för den här agenten",
+    "subtitle": "Välj vilka Slack-kanaler den här agenten läser.",
+    "allChannels": "Alla mina kanaler",
+    "allChannelsHint": "Varje kanal som varje person är med i.",
+    "selectedChannels": "Endast valda kanaler",
+    "connectRequired": "Logga in med Slack på den här anslutningen för att välja kanaler.",
+    "searchPlaceholder": "Sök kanaler",
+    "notYourChannel": "inte i ditt Slack",
+    "noMatch": "Inga kanaler matchar.",
+    "selectedCount": "{n} valda",
+    "includeDms": "Inkludera direktmeddelanden",
+    "includeDmsHint": "Läs även varje persons direkt- och gruppmeddelanden.",
+    "membershipNote": "Varje person ser fortfarande bara de kanaler de är med i.",
+    "saveFailed": "Det gick inte att spara kanalerna",
+    "saved": "Kanalerna sparades",
+    "summaryAll": "Läser alla kanaler och direktmeddelanden",
+    "summaryAllNoDms": "Läser alla kanaler, inga direktmeddelanden",
+    "summarySome": "Läser {names}",
+    "summarySomeWithDms": "Läser {names} och direktmeddelanden",
+    "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen."
   }
 }

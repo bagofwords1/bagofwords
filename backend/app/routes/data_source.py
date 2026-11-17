@@ -5,9 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, release_request_db
 from typing import Literal, Optional, List, Union
 
+from pydantic import BaseModel
+
 from app.ee.audit.service import audit_service
 
 from app.models.user import User
+from app.models.data_source_connection_setting import DataSourceConnectionSetting  # noqa: F401  (registers DataSource.connection_settings)
 from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
@@ -662,6 +665,110 @@ async def _attached_connection(db: AsyncSession, data_source_id: str, connection
     return conn
 
 
+async def _agent_scope_overrides(db: AsyncSession, data_source_id: str, conn) -> Optional[dict]:
+    """This agent's narrowing of a shared connection, as client config
+    overrides (today: the Slack channel scope). None for other types."""
+    if getattr(conn, "type", None) != "slack_messages":
+        return None
+    from app.services.slack_channel_scope import client_overrides, get_scope
+    return client_overrides(await get_scope(db, data_source_id, str(conn.id)))
+
+
+class SlackChannelRef(BaseModel):
+    id: str
+    name: str = ""
+
+
+class SlackChannelScope(BaseModel):
+    allowed_channels: List[SlackChannelRef] = []
+    include_direct_messages: bool = True
+
+
+def _require_slack(conn) -> None:
+    if getattr(conn, "type", None) != "slack_messages":
+        raise HTTPException(status_code=400, detail="Channel selection is only available for Slack connections")
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/channel-scope")
+@requires_resource_permission('data_source', 'view')
+async def get_channel_scope(
+    data_source_id: str,
+    connection_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Which Slack channels this agent reads (empty = all of the user's), and
+    whether it also reads the user's DMs."""
+    from app.services.slack_channel_scope import get_scope
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    _require_slack(conn)
+    return await get_scope(db, data_source_id, connection_id)
+
+
+@router.put("/data_sources/{data_source_id}/connections/{connection_id}/channel-scope")
+@requires_resource_permission('data_source', 'manage')
+async def put_channel_scope(
+    data_source_id: str,
+    connection_id: str,
+    body: SlackChannelScope,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Set the agent's Slack channels (by Slack channel id — a rename never
+    breaks it) and DM choice. It only narrows: each user still reads only the
+    channels they belong to."""
+    from app.services.slack_channel_scope import MAX_CHANNELS, set_scope
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    _require_slack(conn)
+    if len(body.allowed_channels) > MAX_CHANNELS:
+        raise HTTPException(status_code=400, detail=f"At most {MAX_CHANNELS} channels per agent")
+    import re as _re
+    bad = [c.id for c in body.allowed_channels if not _re.fullmatch(r"[CG][A-Z0-9]{6,}", c.id or "")]
+    if bad:
+        # Ids only: a name would match by name and break on a rename.
+        raise HTTPException(status_code=400, detail=f"Not Slack channel ids: {', '.join(bad[:5])}")
+    return await set_scope(db, data_source_id, connection_id, body.model_dump())
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/conversations")
+@requires_resource_permission('data_source', 'view')
+async def list_connection_conversations(
+    data_source_id: str,
+    connection_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """The caller's Slack channels, live, for the agent's channel picker —
+    every channel they belong to (not narrowed by the agent's current choice,
+    so a choice can be widened again). DMs are not listed: they are one
+    switch, not a per-conversation choice."""
+    from app.services.connection_service import ConnectionService
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    _require_slack(conn)
+    try:
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, config_overrides={"include_direct_messages": False})
+    except Exception as e:
+        return {"connect_required": True, "reason": str(e), "channels": []}
+    if not getattr(client, "access_token", None):
+        return {"connect_required": True, "reason": "Sign in with Slack to choose channels.", "channels": []}
+    import asyncio
+    try:
+        rows = await asyncio.to_thread(client.list_conversations)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    channels = sorted(
+        ({"id": r["channel_id"], "name": r.get("channel") or r["name"].lstrip("#"),
+          "is_private": r.get("kind") == "private channel"}
+         for r in rows if r.get("kind") in ("channel", "private channel")),
+        key=lambda c: c["name"].lower(),
+    )
+    return {"connect_required": False, "channels": channels}
+
+
 @router.get("/data_sources/{data_source_id}/connections/{connection_id}/files")
 @requires_resource_permission('data_source', 'view')
 async def list_connection_files(
@@ -692,12 +799,13 @@ async def list_connection_files(
         _entry = get_entry(conn.type)
         nouns = list(_entry.catalog_nouns) if _entry.catalog_nouns else None
         live = _entry.catalog_ownership == "per_user" and _entry.type in {
-            "outlook_mail", "gmail_mail", "teams_messages",
+            "outlook_mail", "gmail_mail", "teams_messages", "slack_messages",
         }
     except Exception:
         nouns, live = None, False
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, config_overrides=await _agent_scope_overrides(db, data_source_id, conn))
         entries = await client.alist_files(recursive=True)
     except HTTPException as he:
         # Per-user OAuth sources raise 403 when the caller hasn't linked their
@@ -771,7 +879,8 @@ async def search_connection_files(
                 "limit": limit, "query": query}
     effective_limit = max(1, min(limit, 100))
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, config_overrides=await _agent_scope_overrides(db, data_source_id, conn))
         if Capability.SEARCH_FILES not in getattr(client, "capabilities", set()):
             return {"connection_id": str(connection_id), "files": [], "total": 0,
                     "limit": effective_limit, "query": query, "search_supported": False}
@@ -873,7 +982,8 @@ async def get_connection_file_content(
 
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, config_overrides=await _agent_scope_overrides(db, data_source_id, conn))
     except HTTPException:
         # e.g. the 403 "connect your account" of a per-user connection.
         raise

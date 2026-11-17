@@ -8215,5 +8215,28 @@
       "stale": "El proceso que ejecutaba esta consulta dejó de responder; se liberó su lugar.",
       "busy": "No hubo lugar a tiempo: la conexión estaba en su límite de consultas simultáneas."
     }
+  },
+  "slackChannels": {
+    "button": "Canales",
+    "title": "Canales de Slack de este agente",
+    "subtitle": "Elige qué canales de Slack lee este agente.",
+    "allChannels": "Todos mis canales",
+    "allChannelsHint": "Todos los canales a los que pertenece cada persona.",
+    "selectedChannels": "Solo los canales seleccionados",
+    "connectRequired": "Inicia sesión con Slack en esta conexión para elegir canales.",
+    "searchPlaceholder": "Buscar canales",
+    "notYourChannel": "no está en tu Slack",
+    "noMatch": "Ningún canal coincide.",
+    "selectedCount": "{n} seleccionados",
+    "includeDms": "Incluir mensajes directos",
+    "includeDmsHint": "Lee también los mensajes directos y grupales de cada persona.",
+    "membershipNote": "Cada persona sigue viendo solo los canales a los que pertenece.",
+    "saveFailed": "No se pudieron guardar los canales",
+    "saved": "Canales guardados",
+    "summaryAll": "Lee todos los canales y mensajes directos",
+    "summaryAllNoDms": "Lee todos los canales, sin mensajes directos",
+    "summarySome": "Lee {names}",
+    "summarySomeWithDms": "Lee {names} y mensajes directos",
+    "loadFailed": "No se pudieron cargar los canales de este agente. Cierra e inténtalo de nuevo."
   }
 }

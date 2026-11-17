@@ -84,7 +84,7 @@ EMAIL_CONNECTION_TYPES = {"gmail_mail", "outlook_mail"}
 
 # Connection types whose tools are the CHAT family (search_chat_messages /
 # read_chat_thread / list_chat_messages) — same reasoning as email.
-CHAT_CONNECTION_TYPES = {"teams_messages"}
+CHAT_CONNECTION_TYPES = {"teams_messages", "slack_messages"}
 
 
 def agent_tool_surface(ds) -> str:
