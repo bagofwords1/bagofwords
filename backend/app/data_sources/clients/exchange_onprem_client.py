@@ -187,7 +187,9 @@ class ExchangeOnpremClient(DataSourceClient):
             elif code not in ACCESS_CODES:
                 raise ews.error_for(code)
         role_by_id = {f["id"]: name for name, f in well_known.items() if f.get("id")}
-        inbox = well_known["inbox"]
+        inbox = well_known.get("inbox")
+        if inbox is None:
+            raise ExchangeError("BadResponse", "Exchange returned an incomplete answer. Try again.")
 
         # Walk from the top of the mailbox. With folder-level sharing only the
         # Inbox may be visible; then walk from there instead.
