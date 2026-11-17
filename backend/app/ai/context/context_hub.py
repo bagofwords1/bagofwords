@@ -817,9 +817,17 @@ class ContextHub:
         ]
 
     def _apply_mcp_catalog(self) -> None:
+        self.apply_mcp_catalog_to(self._mcp_sections())
+
+    def apply_mcp_catalog_to(self, sections) -> None:
+        """Apply the run's MCP catalog to schema sections built outside the
+        hub (set_report_agents / search_agents render their own), so every
+        listing of MCP tools the model sees agrees with its tool list."""
         available = getattr(self, "_mcp_available", None)
         gateway = getattr(self, "_mcp_gateway", False)
-        for ds in self._mcp_sections():
+        for ds in sections or []:
+            if not hasattr(ds, "mcp_tools"):
+                continue
             try:
                 ds.native_mcp = not gateway
                 if available is None:

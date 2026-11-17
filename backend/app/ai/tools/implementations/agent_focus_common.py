@@ -258,6 +258,21 @@ def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
     set_committed_value(report, "focused_data_source_ids", focus or None)
 
 
+async def construct_agent_clients(svc, db, ds: Any, user: Any, *, where: str) -> Dict[str, Any]:
+    """Build one agent's clients per connection, for run start and for agents
+    attached mid-run alike. A connection that cannot be set up gets a stand-in
+    client (see construct_clients) and is logged; when every connection fails,
+    construct_clients raises."""
+    connection_errors: list = []
+    clients = await svc.construct_clients(db, ds, user, connection_errors=connection_errors) or {}
+    for ce in connection_errors:
+        logger.warning(
+            "%s: connection %s on %s unavailable for this run — %s",
+            where, ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"),
+        )
+    return clients
+
+
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
                              data_source_service: Any = None,
                              agent_ids: Optional[List[str]] = None,
@@ -355,8 +370,13 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         await record_knowledge_scope(db, report, organization, user)
     clients: Dict[str, Any] = {}
     for ds in agents:
+        # Each connection on its own: one that cannot be set up for this user
+        # (an unreachable server, a missing sign-in) gets a stand-in client
+        # that raises its real error when used, instead of taking the agent's
+        # other connections — and every MCP tool on the agent — out of the run.
+        # When every connection fails, construct_clients still raises.
         try:
-            agent_clients = await svc.construct_clients(db, ds, user) or {}
+            agent_clients = await construct_agent_clients(svc, db, ds, user, where="run agents")
             if eval_targets and ds.connections and not agent_clients:
                 raise HTTPException(409, "An eval target is unavailable")
             clients.update(agent_clients)
@@ -429,11 +449,17 @@ async def resolve_candidate_agents(
     return visible, "attached", {str(a.id) for a in visible}
 
 
-async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:
+async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any],
+                             context_hub: Any = None) -> str:
     """Full tables/tools schema + always-on instructions for the given agents —
     the same shape an attached agent's eager context has. Used by search_agents
     results AND set_report_agents success observations, so the planner can act
-    on the schema immediately even if the rendered context lags a turn."""
+    on the schema immediately even if the rendered context lags a turn.
+
+    ``context_hub``: the run's hub. Its MCP catalog is applied to the rendered
+    sections, so MCP tools are listed only when the run can call them (with
+    their deferred flag and policy) — never "in your tool list" for an agent
+    whose connection could not be set up for this run."""
     import logging
     logger = logging.getLogger(__name__)
     if not data_sources:
@@ -444,9 +470,25 @@ async def render_agents_full(db, organization: Any, report: Any, user: Any, data
         from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
         builder = SchemaContextBuilder(db, data_sources, organization, report, user=user)
         ctx = await builder.build(with_stats=True, data_source_ids=ds_ids)
+        unavailable: List[str] = []
+        if context_hub is not None and hasattr(context_hub, "apply_mcp_catalog_to"):
+            sections = list(getattr(ctx, "data_sources", None) or [])
+            had_tools = {id(s): bool(getattr(s, "mcp_tools", None)) for s in sections}
+            context_hub.apply_mcp_catalog_to(sections)
+            unavailable = [
+                getattr(getattr(s, "info", None), "name", None) or "?"
+                for s in sections if had_tools.get(id(s)) and not getattr(s, "mcp_tools", None)
+            ]
         schema_xml = ctx.render_combined(top_k_per_ds=10, index_limit=1000)
         if schema_xml:
             parts.append(schema_xml)
+        if unavailable:
+            parts.append(
+                "<note>MCP tools of " + ", ".join(unavailable) + " are not in your tool list at this "
+                "step. For an agent that just joined this run they are added from the next step; "
+                "otherwise a connection could not be set up for this run, or its tools are off. "
+                "Call an MCP tool only once it is listed in <mcp_tools>.</note>"
+            )
     except Exception:
         logger.exception("render_agents_full: schema render failed")
     try:
