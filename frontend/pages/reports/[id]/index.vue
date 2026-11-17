@@ -461,32 +461,16 @@
 											<!-- Step header of a folded run: consecutive same-purpose calls
 							     sit under one plain-language line; the calls themselves are
 							     the step's details. -->
-												<div v-if="runStepHeaderFor(m, block)" class="run-step flex items-center gap-2 text-chat-2 text-start" :dir="responseDir" data-testid="run-step">
-													<button
-														type="button"
-														class="run-step-toggle flex min-w-0 items-center gap-1 rounded text-ink-2 hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
-														:aria-expanded="isRunStepExpanded(runStepHeaderFor(m, block)!.id)"
-														data-testid="run-step-toggle"
-														@click="toggleRunStep(runStepHeaderFor(m, block)!.id)"
-													>
-														<Icon :name="isRunStepExpanded(runStepHeaderFor(m, block)!.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3.5 h-3.5 shrink-0 text-ink-muted rtl-flip" />
-														<span class="min-w-0 text-start" :title="runStepHeaderFor(m, block)!.subjects.join(', ') || undefined"><bdi>{{ runStepLabel(runStepHeaderFor(m, block)!, responseT) }}</bdi></span>
-														<span v-if="runStepHeaderFor(m, block)!.output?.kind === 'number' && runStepHeaderFor(m, block)!.output?.value" class="shrink-0 font-medium text-ink nums" data-testid="run-step-value"><bdi>{{ runStepHeaderFor(m, block)!.output!.value }}</bdi></span>
-														<span v-if="runStepCountLabel(runStepHeaderFor(m, block)!, responseT)" class="shrink-0 text-ink-muted">· {{ runStepCountLabel(runStepHeaderFor(m, block)!, responseT) }}</span>
-														<span v-if="['table', 'chart'].includes(runStepHeaderFor(m, block)!.output?.kind || '') && runStepHeaderFor(m, block)!.output?.rowCount != null" class="shrink-0 text-ink-muted nums">· {{ responseT('tools.common.rows', { n: runStepHeaderFor(m, block)!.output!.rowCount!.toLocaleString() }) }}</span>
-														<span v-if="runStepHeaderFor(m, block)!.issueCount" class="shrink-0 text-amber-600 dark:text-amber-400">· {{ responseT('tools.browser.checkIssues', { count: runStepHeaderFor(m, block)!.issueCount }) }}</span>
-													</button>
-													<UButton
-														v-if="['table', 'chart'].includes(runStepHeaderFor(m, block)!.output?.kind || '')"
-														color="gray"
-														variant="link"
-														size="2xs"
-														:padded="false"
-														trailing-icon="i-heroicons-arrow-top-right-on-square"
-														data-testid="run-step-open"
-														@click="openRunStepOutput(block, runStepHeaderFor(m, block)!)"
-													>{{ responseT(runStepHeaderFor(m, block)!.output?.kind === 'chart' ? 'reportView.runFold.openChart' : 'reportView.runFold.openTable') }}</UButton>
-												</div>
+												<RunStepHeader
+													v-if="runStepHeaderFor(m, block)"
+													:step="runStepHeaderFor(m, block)!"
+													:expanded="isRunStepExpanded(runStepHeaderFor(m, block)!.id)"
+													:translate="responseT"
+													:dir="responseDir"
+													can-open
+													@toggle="toggleRunStep(runStepHeaderFor(m, block)!.id)"
+													@open="openRunStepOutput(block, runStepHeaderFor(m, block)!)"
+												/>
 
 							<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
 												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
@@ -1773,13 +1757,6 @@ function runFoldDuration(m: ChatMessage): string {
 	if (typeof ms !== 'number') ms = runFold(m)?.spanMs
 	if (typeof ms !== 'number' || ms < 0) return ''
 	return formatRunDuration(Math.max(1000, ms))
-}
-function runStepLabel(step: RunStep, tr: (key: string, values?: any) => string): string {
-	return step.labelText || tr(`reportView.runFold.steps.${step.labelKey}`, step.labelParams)
-}
-function runStepCountLabel(step: RunStep, tr: (key: string, values?: any) => string): string {
-	if (step.count < 2) return ''
-	return tr(step.kind === 'inspect' ? 'reportView.runFold.checks' : 'reportView.runFold.actions', { count: step.count })
 }
 function openRunStepOutput(block: any, step: RunStep) {
 	openDataPanel({ toolExecution: block.tool_execution, title: step.output?.title, visual: step.output?.kind === 'chart' })

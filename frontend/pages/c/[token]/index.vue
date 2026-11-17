@@ -126,8 +126,18 @@
                                 </div>
                                 <div class="flex-1 min-w-0 md:ms-4">
                                     <div>
+                                        <!-- Run fold: a finished run's activity sits behind this one
+                                             row above its final message (useRunActivity.ts). -->
+                                        <RunActivityToggle
+                                            v-if="runFold(m)"
+                                            :expanded="isRunExpanded(m)"
+                                            :duration="runFoldDuration(m)"
+                                            :translate="t"
+                                            @toggle="toggleRun(m)"
+                                        />
                                         <!-- Render each completion block -->
-                                        <div v-for="block in timelineBlocks(m)" :key="block.id">
+                                        <template v-for="block in timelineBlocks(m)" :key="block.id">
+                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -143,7 +153,7 @@
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
-                                            <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
+                                            <div v-if="(block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped') && isRunReasoningShown(m, block)" class="thinking-box" :class="{ 'run-step-detail': isRunStepDetail(m, block) }">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
                                                     <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
                                                     <span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
@@ -182,13 +192,25 @@
                                                 />
                                             </div>
 
+                                            <!-- Step header of a folded run: same-purpose calls sit under one
+                                                 plain-language line; the calls are the step's details. -->
+                                            <RunStepHeader
+                                                v-if="runStepHeaderFor(m, block)"
+                                                class="my-1.5"
+                                                :step="runStepHeaderFor(m, block)"
+                                                :expanded="isRunStepExpanded(runStepHeaderFor(m, block).id)"
+                                                :translate="t"
+                                                @toggle="toggleRunStep(runStepHeaderFor(m, block).id)"
+                                            />
+
                                             <!-- 3. Tool execution -->
-                                            <div v-if="block.tool_execution" class="tool-execution-container">
+                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'run-step-detail': !!runFold(m) }">
                                                 <component
                                                     v-if="shouldUseToolComponent(block.tool_execution)"
                                                     :is="getToolComponent(block.tool_execution.tool_name)"
                                                     :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
                                                     :tool-execution="block.tool_execution"
+                                                    :hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
                                                     :readonly="true"
                                                 />
                                                 <!-- Fallback to generic expandable tool display -->
@@ -211,7 +233,7 @@
                                             </div>
 
                                             <!-- Tool widget preview (readonly) -->
-                                            <div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+                                            <div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution && !runFold(m)">
                                                 <ToolWidgetPreview :tool-execution="block.tool_execution" :readonly="true" />
                                             </div>
 
@@ -226,6 +248,25 @@
                                                 />
                                             </div>
                                             </div>
+                                        </div>
+                                        </template>
+
+                                        <!-- Outputs of a folded run stay reachable under its conclusion,
+                                             whether or not the steps are open (read-only here). -->
+                                        <div v-if="runDeliverables(m).length" class="mt-4 flex flex-col gap-3" data-testid="run-deliverables">
+                                            <template v-for="d in runDeliverables(m)" :key="'deliverable-' + d.id">
+                                                <ToolWidgetPreview
+                                                    v-if="(d.tool_execution.tool_name === 'create_data' || shouldShowToolWidgetPreview(d.tool_execution)) && (d.tool_execution.created_step || d.tool_execution.created_widget)"
+                                                    :tool-execution="d.tool_execution"
+                                                    :readonly="true"
+                                                />
+                                                <component
+                                                    v-else-if="shouldUseToolComponent(d.tool_execution)"
+                                                    :is="getToolComponent(d.tool_execution.tool_name)"
+                                                    :tool-execution="d.tool_execution"
+                                                    :readonly="true"
+                                                />
+                                            </template>
                                         </div>
                                     </div>
 
@@ -270,6 +311,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { computeRunActivity, type RunActivity, type RunStep } from '~/composables/useRunActivity'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
 import Spinner from '~/components/Spinner.vue'
@@ -427,7 +469,7 @@ const visibleCompletions = computed<any[]>(() =>
 function promptDir(text?: string | null): TextDir | 'auto' {
     return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
 }
-const { locale: uiLocale } = useI18n({ useScope: 'global' })
+const { locale: uiLocale, t } = useI18n({ useScope: 'global' })
 const replyDirHints = computed(() => {
     const hints = new Map<string, TextDir>()
     let last: TextDir | null = null
@@ -474,8 +516,30 @@ const messageDirs = computed(() => {
 // ---------------------------------------------------------------------------
 const HARNESS_PHASE = 'knowledge_harness'
 
+// Calls made in parallel share one planner decision, and this payload repeats
+// that decision's progress message on every one of them. Said once, it is
+// shown once: later copies are blanked so the line is not printed per call
+// and so the calls can sit together under one step of a folded run.
+const _timelineCache = new Map<string, { key: string; blocks: any[] }>()
+
 function timelineBlocks(m: any): any[] {
-    return (m?.completion_blocks || []).filter((b: any) => b?.phase !== HARNESS_PHASE)
+    const raw = (m?.completion_blocks || []).filter((b: any) => b?.phase !== HARNESS_PHASE)
+    const key = raw.map((b: any) => `${b.id}:${b.status}:${b.tool_execution?.status}:${(b.content || '').length}:${(b.plan_decision?.assistant || '').length}`).join(',')
+    const hit = _timelineCache.get(String(m?.id))
+    if (hit && hit.key === key) return hit.blocks
+    let said = ''
+    const blocks = raw.map((b: any) => {
+        const pd = b.plan_decision
+        const own = (b.content || '').trim()
+        const shared = (pd?.assistant || '').trim()
+        if (!own && shared && !pd?.final_answer && shared === said) {
+            return { ...b, plan_decision: { ...pd, assistant: '' } }
+        }
+        said = own || shared
+        return b
+    })
+    _timelineCache.set(String(m?.id), { key, blocks })
+    return blocks
 }
 
 function harnessBlocks(m: any): any[] {
@@ -514,7 +578,11 @@ function _groupingFor(m: any) {
     const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}`).join(",")}`
     const hit = _groupingCache.get(String(m.id))
     if (hit && hit.key === key) return hit.grouping
-    const grouping = computeBlockGroups(blocks, { executionStatus: m.status })
+    // A run folded around its final message groups its calls into steps
+    // instead (see runFold below) — one grammar per run, never both.
+    const grouping = _runActivityFor(m)
+        ? { groupOf: {}, headerAt: {} }
+        : computeBlockGroups(blocks, { executionStatus: m.status })
     _groupingCache.set(String(m.id), { key, grouping })
     return grouping
 }
@@ -529,6 +597,91 @@ function isBlockFolded(m: any, block: any): boolean {
 }
 
 // Label/ticker rendering lives in BlockGroupTicker.vue.
+
+// ---------------------------------------------------------------------------
+// Run fold — the same policy as the report view (composables/useRunActivity):
+// a finished run shows its conclusion, with the activity before it behind one
+// "Worked for 10s · View steps" row. Memoized like the grouping above. A
+// shared link always opens collapsed.
+// ---------------------------------------------------------------------------
+const expandedRuns = ref<Set<string>>(new Set())
+const expandedRunSteps = ref<Set<string>>(new Set())
+const _runCache = new Map<string, { key: string; activity: RunActivity | null }>()
+
+function _runActivityFor(m: any): RunActivity | null {
+    const blocks = timelineBlocks(m)
+    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}:${!!b.plan_decision?.analysis_complete}`).join(",")}`
+    const hit = _runCache.get(String(m.id))
+    if (hit && hit.key === key) return hit.activity
+    const activity = computeRunActivity(blocks, { runStatus: m.status })
+    _runCache.set(String(m.id), { key, activity })
+    return activity
+}
+function runFold(m: any): RunActivity | null {
+    return _runActivityFor(m)
+}
+function isRunExpanded(m: any): boolean {
+    return expandedRuns.value.has(String(m.id))
+}
+function toggleRun(m: any) {
+    const next = new Set(expandedRuns.value)
+    const key = String(m.id)
+    next.has(key) ? next.delete(key) : next.add(key)
+    expandedRuns.value = next
+}
+function isRunStepExpanded(stepId: string): boolean {
+    return expandedRunSteps.value.has(stepId)
+}
+function toggleRunStep(stepId: string) {
+    const next = new Set(expandedRunSteps.value)
+    next.has(stepId) ? next.delete(stepId) : next.add(stepId)
+    expandedRunSteps.value = next
+}
+function isRunBlockShown(m: any, block: any): boolean {
+    const fold = runFold(m)
+    return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
+}
+function isRunActivityBlock(m: any, block: any): boolean {
+    const fold = runFold(m)
+    return !!fold && fold.finalBlockId !== String(block.id)
+}
+function runStepHeaderFor(m: any, block: any): RunStep | undefined {
+    const fold = runFold(m)
+    return fold && isRunExpanded(m) ? fold.headerAt[String(block.id)] : undefined
+}
+function isRunStepDetail(m: any, block: any): boolean {
+    const step = runFold(m)?.stepOf[String(block.id)]
+    return !!step && step.id !== String(block.id)
+}
+function isRunReasoningShown(m: any, block: any): boolean {
+    const fold = runFold(m)
+    if (!fold) return true
+    if (!isRunExpanded(m)) return false
+    const step = fold.stepOf[String(block.id)]
+    return !step || step.id === String(block.id) || isRunStepExpanded(step.id)
+}
+function isRunToolShown(m: any, block: any): boolean {
+    const fold = runFold(m)
+    if (!fold) return true
+    const step = fold.stepOf[String(block.id)]
+    return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
+}
+function runDeliverables(m: any): any[] {
+    const fold = runFold(m)
+    if (!fold?.deliverableIds.length) return []
+    const byId = new Map(timelineBlocks(m).map((b: any) => [String(b.id), b]))
+    return fold.deliverableIds.map(id => byId.get(id)).filter(Boolean)
+}
+// The server's run time when the payload carries it, else the span of the
+// run's own blocks (first activity -> final message).
+function runFoldDuration(m: any): string {
+    const ms = (typeof m.total_duration_ms === 'number' && m.total_duration_ms > 0)
+        ? m.total_duration_ms
+        : runFold(m)?.spanMs
+    if (typeof ms !== 'number' || ms < 0) return ''
+    const s = Math.max(1, Math.round(ms / 1000))
+    return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
 
 // Fork state
 const forkEligibility = ref<any>(null)
@@ -1007,6 +1160,20 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Folded run, opened: the chain reads as one indented thread above the
+   conclusion; a step's calls indent once more under its line. */
+.run-activity {
+    padding-inline-start: 12px;
+    padding-block: 3px;
+    border-inline-start: 1px solid rgb(var(--bow-line-rgb));
+}
+.run-activity:has(+ :not(.run-activity)) {
+    margin-block-end: 12px;
+}
+.run-step-detail {
+    padding-inline-start: 18px;
+}
+
 /* Thinking box - collapsible reasoning */
 .thinking-box {
     margin-bottom: 4px;

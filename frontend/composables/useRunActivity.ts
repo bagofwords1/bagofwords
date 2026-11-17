@@ -69,7 +69,9 @@ function viewTypeOf(te: any): string {
 }
 
 function dataOf(te: any): any {
-  return te?.created_step?.data || te?.result_json?.data || te?.result_json?.widget_data || null
+  // The shared-link payload carries no stored step, only the result's preview.
+  return te?.created_step?.data || te?.result_json?.data || te?.result_json?.widget_data
+    || te?.result_json?.data_preview || null
 }
 
 function formatValue(v: any): string {
@@ -109,11 +111,11 @@ export function describeDataOutput(te: any): DataOutput {
   if (!rows && !hasStep) return none
 
   let rowCount: number | null = rows ? rows.length : null
-  if (rows && data?.truncated && typeof data?.total_rows === 'number') {
-    rowCount = Math.max(rowCount || 0, data.total_rows)
-  } else if (rowCount === null && typeof te?.result_json?.stats?.total_rows === 'number') {
-    rowCount = te.result_json.stats.total_rows
-  }
+  // A preview holds the first rows only: report the server's total when it
+  // says there are more.
+  const totals = [data?.total_rows, data?.row_count, te?.result_json?.stats?.total_rows]
+    .filter((n): n is number => typeof n === 'number')
+  if (totals.length) rowCount = Math.max(rowCount || 0, ...totals)
 
   const type = viewTypeOf(te)
   const cell = singleCell(data)

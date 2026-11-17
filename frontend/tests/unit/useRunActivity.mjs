@@ -243,3 +243,18 @@ assert.equal(describeDataOutput(tool('create_data', {}, {
 }
 
 console.log('useRunActivity: all assertions passed')
+
+// --- shared-link payload -------------------------------------------------------
+// No stored step there: the result's preview alone must still say what was made.
+{
+  const preview = (rows, row_count) => tool('create_data', { title: 'T' }, {
+    te: { result_json: { data_preview: { rows, row_count }, stats: { total_rows: row_count }, data_model: { type: 'table' } } },
+  })
+  const big = describeDataOutput(preview([{ a: 1, b: 2 }, { a: 3, b: 4 }], 24).tool_execution)
+  assert.deepEqual([big.kind, big.rowCount], ['table', 24])
+  assert.equal(describeDataOutput(preview([{ total: 7 }], 1).tool_execution).kind, 'number')
+  const blocks = [preview([{ a: 1, b: 2 }, { a: 3, b: 4 }], 24), preview([{ total: 7 }], 1), final()]
+  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success' }).deliverableIds, [blocks[0].id])
+}
+
+console.log('useRunActivity: shared-link payload assertions passed')
