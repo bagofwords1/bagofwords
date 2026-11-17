@@ -824,7 +824,29 @@
         "dismiss": "Fermer"
       }
     },
-    "recent": "Récents"
+    "recent": "Récents",
+    "permissionMode": {
+      "title": "Autorisations des outils",
+      "tooltip": "Autorisations des outils : {mode}",
+      "default": "par défaut",
+      "allowAllBanner": "Tout autoriser est actif : l'agent exécute les outils de connexion sans demander. Les outils bloqués ou refusés ne s'exécutent jamais.",
+      "switchToAsk": "Passer à Demander",
+      "saveFailed": "Impossible de changer le mode d'autorisation",
+      "modes": {
+        "ask": {
+          "label": "Demander",
+          "hint": "Chaque outil suit son propre réglage ; demande avant toute modification."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Les appels en lecture seule s'exécutent ; un modèle décide du reste et demande en cas de doute."
+        },
+        "allow_all": {
+          "label": "Tout autoriser",
+          "hint": "Les outils qui demanderaient s'exécutent sans demander, dans ce rapport uniquement."
+        }
+      }
+    }
   },
   "reports": {
     "title": "Rapports",
@@ -1597,7 +1619,31 @@
       "allowedByYou": "Autorisé par vous",
       "deniedByYou": "Refusé par vous",
       "records": "{n} enregistrements",
-      "recordsPartial": "{shown} sur {total} enregistrements"
+      "recordsPartial": "{shown} sur {total} enregistrements",
+      "allowForReport": "Autoriser pour ce rapport",
+      "allowForReportHint": "Ne plus demander pour cet outil dans ce rapport",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Exécuté sans demander (Tout autoriser)",
+          "refused": "Non exécuté"
+        },
+        "readOnly": {
+          "allowed": "Exécuté sans demander : lecture seule",
+          "refused": "Non exécuté"
+        },
+        "blocklist": {
+          "allowed": "Autorisé",
+          "refused": "Refusé par la liste de blocage de sécurité"
+        },
+        "rememberedReport": {
+          "allowed": "Autorisé pour ce rapport",
+          "refused": "Refusé pour ce rapport"
+        },
+        "unattended": {
+          "allowed": "Autorisé par le réglage des exécutions sans surveillance",
+          "refused": "Non exécuté : nécessite une approbation et personne ne regarde"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"
@@ -3490,6 +3536,24 @@
           "name": "Autoriser les demandes d'accès",
           "description": "Permet aux membres de demander l'accès en lecture aux éditeurs d'un tableau de bord depuis la page sans accès. Désactivé, la page indique seulement le propriétaire et aucune nouvelle demande ne peut être envoyée ; les demandes déjà envoyées restent traitables."
         }
+      },
+      "permissionMode": {
+        "title": "Mode d'autorisation des outils",
+        "description": "Comment l'agent décide d'exécuter les outils de connexion et les commandes shell distantes. Les utilisateurs choisissent un mode par rapport dans la zone de saisie ; les outils désactivés ou refusés et la liste de blocage de sécurité s'appliquent dans tous les modes.",
+        "defaultMode": "Mode par défaut des nouveaux rapports",
+        "unattended": "Exécutions sans surveillance",
+        "unattendedOptions": {
+          "refuse": "Refuser",
+          "settings": "Utiliser les réglages de chaque outil",
+          "allow": "Autoriser"
+        },
+        "unattendedHints": {
+          "refuse": "Les exécutions planifiées, par webhook et autres sans surveillance ignorent les outils qui demanderaient.",
+          "settings": "Les outils en Auto passent par l'examen du modèle ; ceux en Demander sont ignorés.",
+          "allow": "Les outils qui demanderaient s'exécutent dans les exécutions planifiées et par webhook. Les discussions sur d'autres canaux les ignorent toujours."
+        },
+        "allowAll": "Permettre « Tout autoriser »",
+        "allowAllDescription": "Permet aux utilisateurs de désactiver les demandes d'approbation pour un rapport. S'applique uniquement aux exécutions du propriétaire pendant qu'il regarde, et se réinitialise à chaque nouveau rapport."
       }
     },
     "llms": {

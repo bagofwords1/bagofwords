@@ -908,6 +908,28 @@
         "cancel": "Cancel",
         "dismiss": "Dismiss"
       }
+    },
+    "permissionMode": {
+      "title": "Tool permissions",
+      "tooltip": "Tool permissions: {mode}",
+      "default": "default",
+      "allowAllBanner": "Allow all is on: the agent runs connection tools without asking. Blocked and denied tools still never run.",
+      "switchToAsk": "Switch to Ask",
+      "saveFailed": "Couldn't change the permission mode",
+      "modes": {
+        "ask": {
+          "label": "Ask",
+          "hint": "Each tool follows its own setting; asks before changes."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Read-only calls run; a model decides the rest and asks when unsure."
+        },
+        "allow_all": {
+          "label": "Allow all",
+          "hint": "Tools set to ask run without asking, in this report only."
+        }
+      }
     }
   },
   "exports": {
@@ -1781,6 +1803,30 @@
         "openLink": "Open link",
         "cancel": "Cancel",
         "contextShared": "The app shared what you selected with the assistant."
+      },
+      "allowForReport": "Allow for this report",
+      "allowForReportHint": "Don't ask again for this tool in this report",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Run without asking (Allow all)",
+          "refused": "Not run"
+        },
+        "readOnly": {
+          "allowed": "Run without asking: read-only",
+          "refused": "Not run"
+        },
+        "blocklist": {
+          "allowed": "Allowed",
+          "refused": "Refused by the safety blocklist"
+        },
+        "rememberedReport": {
+          "allowed": "Allowed for this report",
+          "refused": "Denied for this report"
+        },
+        "unattended": {
+          "allowed": "Allowed by the setting for unattended runs",
+          "refused": "Not run: needs approval and nobody is watching"
+        }
       }
     },
     "answerQuestion": {
@@ -3969,6 +4015,24 @@
           "name": "Allow access requests",
           "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."
         }
+      },
+      "permissionMode": {
+        "title": "Tool permission mode",
+        "description": "How the agent decides whether to run connection tools and remote shell commands. Users pick a mode per report in the prompt box; disabled and denied tools, and the built-in safety blocklist, apply in every mode.",
+        "defaultMode": "Default mode for new reports",
+        "unattended": "Runs nobody is watching",
+        "unattendedOptions": {
+          "refuse": "Refuse",
+          "settings": "Use the per-tool settings",
+          "allow": "Allow"
+        },
+        "unattendedHints": {
+          "refuse": "Scheduled, webhook and other unattended runs skip any tool that would ask.",
+          "settings": "Tools on Auto use the model review; tools on Ask are skipped.",
+          "allow": "Tools that would ask run in scheduled and webhook runs. Chats on other channels still skip them."
+        },
+        "allowAll": "Allow \"Allow all\"",
+        "allowAllDescription": "Let users turn off approval prompts for a report. It applies only to the report owner's own runs while they watch, and resets on each new report."
       }
     },
     "llms": {

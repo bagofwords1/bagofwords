@@ -838,6 +838,7 @@
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
 					:initialEffort="report?.reasoning_effort || ''"
+					:initialPermissionMode="report?.permission_mode || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt, awaitingInput: inProgressAwaitingInput } : undefined"
 					:isStopping="false"
@@ -4174,7 +4175,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'auto_policy_decided') {
 							;(lastBlock.tool_execution as any).auto_policy = {
 								approved: !!payload.payload.approved,
-								reason: payload.payload.reason || ''
+								reason: payload.payload.reason || '',
+								// Who decided (mode, read-only rule, judge…), for the card's label.
+								decided_by: payload.payload.decided_by || null
 							}
 						}
 

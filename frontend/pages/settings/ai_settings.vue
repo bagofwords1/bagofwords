@@ -82,6 +82,13 @@
                                     {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
                                 </p>
                             </div>
+                            <!-- Permission mode: several fields in one setting -->
+                            <ToolPermissionModeSetting
+                                v-else-if="key === 'tool_permission_mode'"
+                                :feature="configFeatures.tool_permission_mode"
+                                :disabled="!configFeatures.tool_permission_mode.editable || configFeatures.tool_permission_mode.state === 'locked'"
+                                @updated="(f: any) => { configFeatures.tool_permission_mode = f }"
+                            />
                             <AiSettingRow
                                 v-else
                                 :setting-key="key"
@@ -182,6 +189,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
 import AiSettingRow from '~/components/settings/AiSettingRow.vue'
+import ToolPermissionModeSetting from '~/components/settings/ToolPermissionModeSetting.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 
@@ -275,7 +283,7 @@ const SECTIONS: { id: string, keys: string[] }[] = [
     // What generated code (create_data) may do beyond querying. All off by default.
     { id: 'sandbox', keys: ['enable_sandbox_web_fetch', 'enable_sandbox_browser', 'enable_sandbox_lists', 'enable_load_step', 'enable_ml_training'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
-    { id: 'tools', keys: ['enable_mcp_tools', 'tools_max'] },
+    { id: 'tools', keys: ['enable_mcp_tools', 'tools_max', 'tool_permission_mode'] },
     { id: 'sub_agents', keys: ['enable_sub_agents', 'sub_agent_posture', 'sub_agent_max_steps', 'sub_agent_max_tokens', 'sub_agent_deadline_minutes', 'sub_agent_concurrency', 'sub_agent_max_per_wave', 'sub_agent_model', 'sub_agent_allow_model_override', 'sub_agent_allow_create_data'] },
     { id: 'limits', keys: ['limit_row_count', 'mcp_create_data_preview_rows', 'agent_max_steps', 'agent_loop_retries', 'limit_code_retries', 'ai_tool_concurrency', 'query_timeout_seconds', 'max_concurrent_queries_per_connection', 'max_instructions_in_context', 'smart_instructions_on_demand', 'top_k_schema', 'top_k_metadata_resources', 'agent_roster_top_k'] },
     { id: 'workspace', keys: ['allow_public_sharing', 'allow_access_requests', 'allow_report_webhooks', 'allow_forks', 'step_retention_days', 'file_retention_days'] },

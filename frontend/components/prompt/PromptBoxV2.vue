@@ -1,5 +1,18 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
+        <!-- Allow all is on for this report: say so for as long as it is. -->
+        <div
+            v-if="allowAllActive"
+            data-testid="allow-all-banner"
+            class="mb-2 px-3 py-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200 text-xs flex items-center gap-2"
+            role="status"
+        >
+            <Icon name="heroicons-shield-exclamation" class="w-4 h-4 flex-shrink-0" />
+            <span class="flex-1 min-w-0">{{ $t('prompt.permissionMode.allowAllBanner') }}</span>
+            <button type="button" class="underline flex-shrink-0 hover:text-amber-900 dark:hover:text-amber-100" @click="selectPermissionMode('ask')">
+                {{ $t('prompt.permissionMode.switchToAsk') }}
+            </button>
+        </div>
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
              from a queued chip's "send now" action. Report pages only: the
@@ -602,6 +615,19 @@
                         </button>
                     </UTooltip>
 
+                    <!-- Permission mode for tool calls (Ask / Auto / Allow all).
+                         Hidden where the box edits something else (a scheduled
+                         task), whose runs nobody watches anyway. -->
+                    <PermissionModePicker
+                        v-if="props.persistSelection"
+                        :key="'perm-' + (props.popoverOffset || 0)"
+                        :model-value="permissionMode"
+                        :org-default="orgPermissionDefault"
+                        :allow-all-enabled="allowAllEnabled"
+                        :compact="isCompactPrompt"
+                        @update:model-value="selectPermissionMode"
+                    />
+
                     <!-- Model selector: search, provider groups, effort -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelTooltip" :popper="{ strategy: 'fixed', placement: 'top' }">
@@ -704,6 +730,7 @@ import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import ConnectorsMenu from '~/components/connectors/ConnectorsMenu.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
+import PermissionModePicker from '@/components/prompt/PermissionModePicker.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import { parseSlashCommand, matchingSlashCommands, parseCompactArgs, type CompactArgs, type ParsedSlashCommand, type SlashCommandDef } from '~/utils/slashCommands'
@@ -799,6 +826,8 @@ const props = defineProps({
     initialModel: { type: String, default: '' },
     // Initial reasoning level (report.reasoning_effort); '' = Default
     initialEffort: { type: String, default: '' },
+    // Initial permission mode (report.permission_mode); '' = the org default
+    initialPermissionMode: { type: String, default: '' },
     // Save model / effort picks onto the report. Off where the box edits
     // something else that has its own model (a scheduled task), so
     // configuring the task never changes the conversation's model.
@@ -1272,8 +1301,45 @@ const modelIdForPayload = computed<string | null>(() =>
 async function loadRouting() {
     try {
         const { data } = await useMyFetch('/api/organization/settings')
-        routingOn.value = !!(data.value as any)?.config?.model_routing?.value
+        const cfg = (data.value as any)?.config
+        routingOn.value = !!cfg?.model_routing?.value
+        const pm = cfg?.tool_permission_mode?.value || {}
+        allowAllEnabled.value = pm.allow_all_enabled === true
+        orgPermissionDefault.value = (['ask', 'auto'].includes(pm.default_mode) ? pm.default_mode : 'ask')
     } catch {}
+}
+
+// ── Permission mode (Ask / Auto / Allow all) ───────────────────────────────
+// null = follow the org default. Allow all is per report: a new report never
+// inherits it (the landing page starts every report from the default).
+type PermissionMode = 'ask' | 'auto' | 'allow_all'
+const PERMISSION_MODES = ['ask', 'auto', 'allow_all']
+const asPermissionMode = (v: any): PermissionMode | null => (PERMISSION_MODES.includes(v) ? v : null)
+const permissionMode = ref<PermissionMode | null>(asPermissionMode(props.initialPermissionMode))
+const orgPermissionDefault = ref<PermissionMode>('ask')
+const allowAllEnabled = ref(false)
+const allowAllActive = computed(() => permissionMode.value === 'allow_all' && allowAllEnabled.value)
+
+function selectPermissionMode(m: PermissionMode) {
+    const previous = permissionMode.value
+    permissionMode.value = m
+    persistPermissionMode(previous)
+}
+
+async function persistPermissionMode(previous: PermissionMode | null) {
+    // Landing page: there is no report yet; the choice rides on the create call.
+    if (!props.report_id || !props.persistSelection) return
+    const { error } = await useMyFetch(`/reports/${props.report_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permission_mode: permissionMode.value || '' })
+    })
+    if (error?.value) {
+        // e.g. Allow all was switched off for the org meanwhile: show the
+        // mode the server will actually use.
+        permissionMode.value = previous
+        toast.add({ title: t('prompt.permissionMode.saveFailed'), color: 'red' })
+    }
 }
 
 // Legacy popper (for current Nuxt UI stable)
@@ -1763,6 +1829,7 @@ function buildSubmitPayload() {
         mode: mode.value,                 // 'chat' | 'training'
         model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
         reasoning_effort: selectedEffort.value,  // null = Default
+        permission_mode: permissionMode.value,   // null = the org default
         files: imageFiles                 // image files for immediate display in chat
     }
 }
@@ -2127,6 +2194,13 @@ watch(() => props.initialMode, (newVal) => {
     }
 }, { immediate: true })
 
+// Adopt the report's saved permission mode when it arrives (hydrate only, never
+// persist back).
+watch(() => props.initialPermissionMode, (v) => {
+    const next = asPermissionMode(v)
+    if (next !== permissionMode.value) permissionMode.value = next
+})
+
 // Adopt the report's saved reasoning level when it arrives (same rule as the
 // model below: hydrate the ref directly so it never persists back).
 watch(() => props.initialEffort, (v) => {
@@ -2186,6 +2260,7 @@ async function createReport() {
         // sentinel and means nothing on create.
         if (payload.model_id) body.model_id = payload.model_id
         if (payload.reasoning_effort) body.reasoning_effort = payload.reasoning_effort
+        if (payload.permission_mode) body.permission_mode = payload.permission_mode
         if (projectExplicitlyPicked.value) {
             if (currentProject.value?.id) body.project_id = currentProject.value.id
             else delete body.project_id

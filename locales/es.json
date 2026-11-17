@@ -891,6 +891,28 @@
         "cancel": "Cancelar",
         "dismiss": "Descartar"
       }
+    },
+    "permissionMode": {
+      "title": "Permisos de herramientas",
+      "tooltip": "Permisos de herramientas: {mode}",
+      "default": "predeterminado",
+      "allowAllBanner": "Permitir todo está activo: el agente ejecuta herramientas de conexión sin preguntar. Las herramientas bloqueadas o denegadas nunca se ejecutan.",
+      "switchToAsk": "Cambiar a Preguntar",
+      "saveFailed": "No se pudo cambiar el modo de permisos",
+      "modes": {
+        "ask": {
+          "label": "Preguntar",
+          "hint": "Cada herramienta sigue su propia configuración; pregunta antes de cambios."
+        },
+        "auto": {
+          "label": "Automático",
+          "hint": "Las llamadas de solo lectura se ejecutan; un modelo decide el resto y pregunta si duda."
+        },
+        "allow_all": {
+          "label": "Permitir todo",
+          "hint": "Las herramientas que preguntan se ejecutan sin preguntar, solo en este informe."
+        }
+      }
     }
   },
   "reports": {
@@ -1683,6 +1705,30 @@
         "openLink": "Abrir enlace",
         "cancel": "Cancelar",
         "contextShared": "La aplicación compartió tu selección con el asistente."
+      },
+      "allowForReport": "Permitir en este informe",
+      "allowForReportHint": "No volver a preguntar por esta herramienta en este informe",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Ejecutada sin preguntar (Permitir todo)",
+          "refused": "No ejecutada"
+        },
+        "readOnly": {
+          "allowed": "Ejecutada sin preguntar: solo lectura",
+          "refused": "No ejecutada"
+        },
+        "blocklist": {
+          "allowed": "Permitida",
+          "refused": "Rechazada por la lista de bloqueo de seguridad"
+        },
+        "rememberedReport": {
+          "allowed": "Permitida en este informe",
+          "refused": "Denegada en este informe"
+        },
+        "unattended": {
+          "allowed": "Permitida por la configuración de ejecuciones desatendidas",
+          "refused": "No ejecutada: requiere aprobación y nadie está mirando"
+        }
       }
     },
     "answerQuestion": {
@@ -3883,6 +3929,24 @@
           "name": "Permitir solicitudes de acceso",
           "description": "Permite que los miembros pidan acceso de lectura a los editores de un panel desde la página de sin acceso. Cuando está desactivado, la página solo indica a quién pedírselo y no se pueden enviar nuevas solicitudes; las ya enviadas siguen pudiéndose responder."
         }
+      },
+      "permissionMode": {
+        "title": "Modo de permisos de herramientas",
+        "description": "Cómo decide el agente si ejecuta herramientas de conexión y comandos de shell remoto. Los usuarios eligen un modo por informe en el cuadro de mensajes; las herramientas desactivadas o denegadas y la lista de bloqueo de seguridad se aplican en todos los modos.",
+        "defaultMode": "Modo predeterminado para informes nuevos",
+        "unattended": "Ejecuciones sin nadie mirando",
+        "unattendedOptions": {
+          "refuse": "Rechazar",
+          "settings": "Usar la configuración de cada herramienta",
+          "allow": "Permitir"
+        },
+        "unattendedHints": {
+          "refuse": "Las ejecuciones programadas, de webhook y otras desatendidas omiten las herramientas que preguntarían.",
+          "settings": "Las herramientas en Automático usan la revisión del modelo; las de Preguntar se omiten.",
+          "allow": "Las herramientas que preguntarían se ejecutan en ejecuciones programadas y de webhook. Los chats en otros canales las siguen omitiendo."
+        },
+        "allowAll": "Permitir \"Permitir todo\"",
+        "allowAllDescription": "Permite que los usuarios desactiven las solicitudes de aprobación en un informe. Solo se aplica a las ejecuciones del propietario mientras mira, y se restablece en cada informe nuevo."
       }
     },
     "llms": {

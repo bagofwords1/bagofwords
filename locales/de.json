@@ -824,7 +824,29 @@
         "dismiss": "Schließen"
       }
     },
-    "recent": "Zuletzt verwendet"
+    "recent": "Zuletzt verwendet",
+    "permissionMode": {
+      "title": "Tool-Berechtigungen",
+      "tooltip": "Tool-Berechtigungen: {mode}",
+      "default": "Standard",
+      "allowAllBanner": "Alles erlauben ist aktiv: Der Agent führt Verbindungstools ohne Nachfrage aus. Gesperrte und verweigerte Tools laufen nie.",
+      "switchToAsk": "Zu Fragen wechseln",
+      "saveFailed": "Berechtigungsmodus konnte nicht geändert werden",
+      "modes": {
+        "ask": {
+          "label": "Fragen",
+          "hint": "Jedes Tool folgt seiner Einstellung; fragt vor Änderungen."
+        },
+        "auto": {
+          "label": "Automatisch",
+          "hint": "Nur-Lese-Aufrufe laufen; ein Modell entscheidet den Rest und fragt im Zweifel."
+        },
+        "allow_all": {
+          "label": "Alles erlauben",
+          "hint": "Tools, die fragen würden, laufen ohne Nachfrage – nur in diesem Bericht."
+        }
+      }
+    }
   },
   "reports": {
     "title": "Berichte",
@@ -1597,7 +1619,31 @@
       "allowedByYou": "Von dir erlaubt",
       "deniedByYou": "Von dir abgelehnt",
       "records": "{n} Datensätze",
-      "recordsPartial": "{shown} von {total} Datensätzen"
+      "recordsPartial": "{shown} von {total} Datensätzen",
+      "allowForReport": "Für diesen Bericht erlauben",
+      "allowForReportHint": "In diesem Bericht nicht erneut für dieses Tool fragen",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Ohne Nachfrage ausgeführt (Alles erlauben)",
+          "refused": "Nicht ausgeführt"
+        },
+        "readOnly": {
+          "allowed": "Ohne Nachfrage ausgeführt: nur lesend",
+          "refused": "Nicht ausgeführt"
+        },
+        "blocklist": {
+          "allowed": "Erlaubt",
+          "refused": "Von der Sicherheits-Sperrliste abgelehnt"
+        },
+        "rememberedReport": {
+          "allowed": "Für diesen Bericht erlaubt",
+          "refused": "Für diesen Bericht abgelehnt"
+        },
+        "unattended": {
+          "allowed": "Durch die Einstellung für unbeaufsichtigte Läufe erlaubt",
+          "refused": "Nicht ausgeführt: braucht eine Freigabe, niemand schaut zu"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
@@ -3490,6 +3536,24 @@
           "name": "Zugriffsanfragen zulassen",
           "description": "Lass Mitglieder auf der Seite ohne Zugriff die Bearbeiter eines Dashboards um Lesezugriff bitten. Wenn deaktiviert, nennt die Seite nur den Eigentümer und es können keine neuen Anfragen gesendet werden; bereits gesendete Anfragen bleiben beantwortbar."
         }
+      },
+      "permissionMode": {
+        "title": "Tool-Berechtigungsmodus",
+        "description": "Wie der Agent entscheidet, ob er Verbindungstools und Remote-Shell-Befehle ausführt. Nutzer wählen pro Bericht einen Modus im Eingabefeld; deaktivierte und verweigerte Tools sowie die Sicherheits-Sperrliste gelten in jedem Modus.",
+        "defaultMode": "Standardmodus für neue Berichte",
+        "unattended": "Läufe ohne Zuschauer",
+        "unattendedOptions": {
+          "refuse": "Ablehnen",
+          "settings": "Tool-Einstellungen verwenden",
+          "allow": "Erlauben"
+        },
+        "unattendedHints": {
+          "refuse": "Geplante, Webhook- und andere unbeaufsichtigte Läufe überspringen Tools, die fragen würden.",
+          "settings": "Tools auf Automatisch nutzen die Modellprüfung; Tools auf Fragen werden übersprungen.",
+          "allow": "Tools, die fragen würden, laufen in geplanten und Webhook-Läufen. Chats in anderen Kanälen überspringen sie weiterhin."
+        },
+        "allowAll": "„Alles erlauben“ zulassen",
+        "allowAllDescription": "Nutzer dürfen Freigabeabfragen für einen Bericht abschalten. Gilt nur für eigene Läufe des Berichtsinhabers, während er zuschaut, und wird bei jedem neuen Bericht zurückgesetzt."
       }
     },
     "llms": {

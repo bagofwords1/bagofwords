@@ -824,7 +824,29 @@
         "dismiss": "Stäng"
       }
     },
-    "recent": "Senaste"
+    "recent": "Senaste",
+    "permissionMode": {
+      "title": "Verktygsbehörigheter",
+      "tooltip": "Verktygsbehörigheter: {mode}",
+      "default": "standard",
+      "allowAllBanner": "Tillåt allt är på: agenten kör anslutningsverktyg utan att fråga. Spärrade och nekade verktyg körs aldrig.",
+      "switchToAsk": "Byt till Fråga",
+      "saveFailed": "Det gick inte att ändra behörighetsläget",
+      "modes": {
+        "ask": {
+          "label": "Fråga",
+          "hint": "Varje verktyg följer sin egen inställning; frågar före ändringar."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Skrivskyddade anrop körs; en modell avgör resten och frågar vid osäkerhet."
+        },
+        "allow_all": {
+          "label": "Tillåt allt",
+          "hint": "Verktyg som skulle fråga körs utan att fråga, bara i den här rapporten."
+        }
+      }
+    }
   },
   "reports": {
     "title": "Rapporter",
@@ -1597,7 +1619,31 @@
       "allowedByYou": "Tillåtet av dig",
       "deniedByYou": "Nekat av dig",
       "records": "{n} poster",
-      "recordsPartial": "{shown} av {total} poster"
+      "recordsPartial": "{shown} av {total} poster",
+      "allowForReport": "Tillåt i den här rapporten",
+      "allowForReportHint": "Fråga inte igen om det här verktyget i den här rapporten",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Kördes utan att fråga (Tillåt allt)",
+          "refused": "Kördes inte"
+        },
+        "readOnly": {
+          "allowed": "Kördes utan att fråga: skrivskyddat",
+          "refused": "Kördes inte"
+        },
+        "blocklist": {
+          "allowed": "Tillåtet",
+          "refused": "Stoppat av säkerhetsspärrlistan"
+        },
+        "rememberedReport": {
+          "allowed": "Tillåtet i den här rapporten",
+          "refused": "Nekat i den här rapporten"
+        },
+        "unattended": {
+          "allowed": "Tillåtet av inställningen för obevakade körningar",
+          "refused": "Kördes inte: kräver godkännande och ingen tittar"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"
@@ -3490,6 +3536,24 @@
           "name": "Tillåt åtkomstbegäranden",
           "description": "Låt medlemmar be en instrumentpanels redigerare om visningsåtkomst från sidan utan åtkomst. När det är av visar sidan bara ägaren och inga nya begäranden kan skickas; redan skickade begäranden går fortfarande att besvara."
         }
+      },
+      "permissionMode": {
+        "title": "Behörighetsläge för verktyg",
+        "description": "Hur agenten avgör om den ska köra anslutningsverktyg och fjärrskalskommandon. Användare väljer läge per rapport i inmatningsrutan; inaktiverade och nekade verktyg samt säkerhetsspärrlistan gäller i alla lägen.",
+        "defaultMode": "Standardläge för nya rapporter",
+        "unattended": "Körningar som ingen tittar på",
+        "unattendedOptions": {
+          "refuse": "Neka",
+          "settings": "Använd varje verktygs inställning",
+          "allow": "Tillåt"
+        },
+        "unattendedHints": {
+          "refuse": "Schemalagda, webhook- och andra obevakade körningar hoppar över verktyg som skulle fråga.",
+          "settings": "Verktyg på Auto granskas av modellen; verktyg på Fråga hoppas över.",
+          "allow": "Verktyg som skulle fråga körs i schemalagda körningar och webhook-körningar. Chattar i andra kanaler hoppar fortfarande över dem."
+        },
+        "allowAll": "Tillåt ”Tillåt allt”",
+        "allowAllDescription": "Låter användare stänga av godkännandefrågor för en rapport. Gäller bara rapportägarens egna körningar medan hen tittar, och återställs i varje ny rapport."
       }
     },
     "llms": {

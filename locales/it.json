@@ -824,7 +824,29 @@
         "dismiss": "Chiudi"
       }
     },
-    "recent": "Recenti"
+    "recent": "Recenti",
+    "permissionMode": {
+      "title": "Permessi degli strumenti",
+      "tooltip": "Permessi degli strumenti: {mode}",
+      "default": "predefinito",
+      "allowAllBanner": "Consenti tutto è attivo: l'agente esegue gli strumenti di connessione senza chiedere. Gli strumenti bloccati o negati non vengono mai eseguiti.",
+      "switchToAsk": "Passa a Chiedi",
+      "saveFailed": "Impossibile cambiare la modalità dei permessi",
+      "modes": {
+        "ask": {
+          "label": "Chiedi",
+          "hint": "Ogni strumento segue la propria impostazione; chiede prima delle modifiche."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Le chiamate di sola lettura vengono eseguite; un modello decide il resto e chiede se è incerto."
+        },
+        "allow_all": {
+          "label": "Consenti tutto",
+          "hint": "Gli strumenti che chiederebbero vengono eseguiti senza chiedere, solo in questo report."
+        }
+      }
+    }
   },
   "reports": {
     "title": "Report",
@@ -1597,7 +1619,31 @@
       "allowedByYou": "Consentito da te",
       "deniedByYou": "Negato da te",
       "records": "{n} record",
-      "recordsPartial": "{shown} di {total} record"
+      "recordsPartial": "{shown} di {total} record",
+      "allowForReport": "Consenti per questo report",
+      "allowForReportHint": "Non chiedere più per questo strumento in questo report",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Eseguito senza chiedere (Consenti tutto)",
+          "refused": "Non eseguito"
+        },
+        "readOnly": {
+          "allowed": "Eseguito senza chiedere: sola lettura",
+          "refused": "Non eseguito"
+        },
+        "blocklist": {
+          "allowed": "Consentito",
+          "refused": "Rifiutato dalla blocklist di sicurezza"
+        },
+        "rememberedReport": {
+          "allowed": "Consentito per questo report",
+          "refused": "Negato per questo report"
+        },
+        "unattended": {
+          "allowed": "Consentito dall'impostazione per le esecuzioni non presidiate",
+          "refused": "Non eseguito: serve un'approvazione e nessuno sta guardando"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"
@@ -3490,6 +3536,24 @@
           "name": "Consenti richieste di accesso",
           "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
         }
+      },
+      "permissionMode": {
+        "title": "Modalità dei permessi degli strumenti",
+        "description": "Come l'agente decide se eseguire strumenti di connessione e comandi shell remoti. Gli utenti scelgono una modalità per report nella casella dei messaggi; strumenti disattivati o negati e la blocklist di sicurezza valgono in ogni modalità.",
+        "defaultMode": "Modalità predefinita per i nuovi report",
+        "unattended": "Esecuzioni senza nessuno che guarda",
+        "unattendedOptions": {
+          "refuse": "Rifiuta",
+          "settings": "Usa le impostazioni di ogni strumento",
+          "allow": "Consenti"
+        },
+        "unattendedHints": {
+          "refuse": "Le esecuzioni pianificate, via webhook e le altre non presidiate saltano gli strumenti che chiederebbero.",
+          "settings": "Gli strumenti in Auto usano la revisione del modello; quelli in Chiedi vengono saltati.",
+          "allow": "Gli strumenti che chiederebbero vengono eseguiti nelle esecuzioni pianificate e via webhook. Le chat su altri canali continuano a saltarli."
+        },
+        "allowAll": "Permetti \"Consenti tutto\"",
+        "allowAllDescription": "Consente agli utenti di disattivare le richieste di approvazione in un report. Vale solo per le esecuzioni del proprietario mentre guarda e si azzera a ogni nuovo report."
       }
     },
     "llms": {
