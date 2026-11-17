@@ -631,3 +631,52 @@ async def test_folder_authoring_tool_destinations(test_client, bootstrap_admin, 
                 assert result["success"] == (fid == folder), result
                 if result["success"]:
                     assert result["folder_id"] == folder
+
+
+@pytest.mark.e2e
+def test_folder_list_is_scoped_to_grants_unless_show_all(test_client, bootstrap_admin, invite_user_to_org):
+    """The folder tree lists what was shared with the caller. An org admin's
+    capability bypass only surfaces the rest through ``show_all``, and
+    ``show_all`` never widens a non-admin's view."""
+    owner = bootstrap_admin("owner")
+    org = owner["org_id"]
+    other_admin = invite_user_to_org(org_id=org, admin_token=owner["token"], role="admin")
+    member = invite_user_to_org(org_id=org, admin_token=owner["token"])
+
+    def request(actor, method, path, body=None):
+        response = test_client.request(
+            method, "/api/" + path, json=body,
+            headers={"Authorization": "Bearer " + actor["token"], "X-Organization-Id": str(org)},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    def listed(actor, show_all=False):
+        rows = request(actor, "GET", "folders" + ("?show_all=true" if show_all else ""))["folders"]
+        return {row["id"]: row for row in rows}
+
+    private = request(owner, "POST", "folders", {"name": "Finance"})["id"]
+    private_child = request(owner, "POST", "folders", {"name": "Payroll", "parent_id": private})["id"]
+    shared = request(owner, "POST", "folders", {"name": "Marketing"})["id"]
+    shared_child = request(owner, "POST", "folders", {"name": "Brand", "parent_id": shared})["id"]
+    everything = {private, private_child, shared, shared_child}
+
+    # The creator holds the grant, so their default list is complete.
+    assert set(listed(owner)) == everything
+
+    # No grant: nothing by default, for an admin and a member alike.
+    assert not set(listed(other_admin)) & everything
+    assert not set(listed(member)) & everything
+
+    for actor in (other_admin, member):
+        request(owner, "PUT", f"folders/{shared}/share",
+                {"principal_type": "user", "principal_id": actor["user_id"], "role": "Viewer"})
+        rows = listed(actor)
+        assert set(rows) & everything == {shared, shared_child}
+        assert rows[shared_child]["parent_id"] == shared
+
+    # show_all restores the admin view and leaves a member's view unchanged.
+    rows = listed(other_admin, show_all=True)
+    assert set(rows) & everything == everything
+    assert rows[private_child]["parent_id"] == private
+    assert set(listed(member, show_all=True)) & everything == {shared, shared_child}

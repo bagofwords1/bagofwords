@@ -212,7 +212,7 @@
           </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
-          <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded"
+          <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded" :show-all="showAllAgents"
             :active-folder="folderPaneVisible ? selectedFolder : null" :active-agent="agentView?.agentId || panelView?.agentId"
             @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event; folderSuiteId = undefined; folderSection = undefined"
             @create="(parentId) => openDirModal(parentId ? 'subfolder' : 'create', GLOBAL_SCOPE, { kind: 'agent-folder', parentId })">
