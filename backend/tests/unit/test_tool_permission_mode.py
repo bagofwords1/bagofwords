@@ -1,4 +1,5 @@
 """Pure rules behind the run permission mode and the built-in blocklist."""
+import re
 import time
 
 import pytest
@@ -455,6 +456,11 @@ def test_accepted_false_refusals_on_a_search_tool(text):
     assert block_reason(tool_name="search_docs", arguments={"query": text})
 
 
+def test_accepted_false_refusal_of_other_text_on_a_sql_tool():
+    # New: every non-query argument of a SQL tool is checked at the shared level.
+    assert block_reason(tool_name="run_query", arguments={"title": "Delete from staging", "sql": "select 1"}) == DELETE
+
+
 def test_promoted_unreadable_search_text_is_refused_as_unreadable():
     # Accepted false refusal (D10, new): promoted to SQL, and no tokenizer reads it.
     assert block_reason(tool_name="search_docs", arguments={"query": "Select John's tickets marked delete"}) == UNREADABLE
@@ -607,6 +613,82 @@ def test_exec_nested_past_the_recheck_depth_is_refused():
     assert block_reason(tool_name="run", arguments={"sql": "EXEC('EXEC(''EXEC(''''DROP TABLE orders'''')'')')"})
 
 
+@pytest.mark.parametrize("sql", [
+    # A harmless spelling of a statement (no spaces, other case) read at one
+    # level never hides the real statement one level deeper.
+    "EXEC('DROPTABLE x'); EXEC('EXEC(''DROP TABLE x'')')",
+    "EXEC('EXEC(''DROP TABLE x'')'); EXEC('DROPTABLE X')",
+    "EXEC('truncatetable x'); EXEC('EXEC(''TRUNCATE TABLE x'')')",
+    "EXEC('DELETEFROM t'); EXEC('EXEC(''DELETE FROM t'')')",
+])
+@pytest.mark.parametrize("tool,key", [("execute_sql", "sql"), ("run_query", "query")])
+def test_a_near_copy_of_a_literal_never_hides_the_one_inside_it(tool, key, sql):
+    assert block_reason(tool_name=tool, arguments={key: sql}), sql
+
+
+_NESTED_PAYLOADS = ["DROP TABLE x", "TRUNCATE TABLE x", "DELETE FROM t", "drop schema s", "Truncate Table t",
+                    "DELETE FROM t\n"]
+
+
+def _near_copies(p):
+    return {re.sub(r"\s+", "", p), p.upper(), p.lower(), p.swapcase(), re.sub(r"\s+", "", p).lower(),
+            p.replace(" ", "  "), " " + p}
+
+
+@pytest.mark.parametrize("payload", _NESTED_PAYLOADS)
+def test_near_copies_never_hide_a_nested_statement(payload):
+    for near in _near_copies(payload) - {payload}:
+        inner = "EXEC('EXEC(''%s'')')" % payload
+        outer = "EXEC('%s')" % near
+        for sql in (inner + "; " + outer, outer + "; " + inner):
+            assert sql_block_reason(sql), sql
+
+
+@pytest.mark.parametrize("sql", [
+    # A line comment at the end of one literal never swallows the next one.
+    "EXEC('SELECT deleted OR --'); EXEC('DELETE FROM orders')",
+    "EXEC('SELECT 1 AS dropped, t. --'); EXEC('DELETE FROM orders')",
+    "DECLARE @a nvarchar(50) = 'SELECT deleted OR --'; DECLARE @b nvarchar(50) = 'DELETE FROM orders'; EXEC(@b)",
+    "EXEC('SELECT deleted OR --'); EXEC('TRUNCATE TABLE orders')",
+    "EXEC('SELECT deleted OR --'); EXEC('DROP TABLE orders')",
+    "EXEC('SELECT deleted OR #'); EXEC('DELETE FROM orders')",
+    "EXEC('SELECT deleted OR #'); EXEC('TRUNCATE TABLE orders')",
+    "EXEC('SELECT dropped OR #'); EXEC('DROP TABLE orders')",
+    "EXEC('SELECT deleted OR //'); EXEC('DELETE FROM orders')",
+    "EXEC('SELECT deleted OR //'); EXEC('TRUNCATE TABLE orders')",
+    "EXEC('SELECT dropped OR //'); EXEC('DROP TABLE orders')",
+])
+def test_a_line_comment_in_one_literal_never_hides_the_next(sql):
+    assert sql_block_reason(sql), sql
+
+
+@pytest.mark.parametrize("sql", [
+    # T-SQL runs sp_executesql without EXEC as the first statement of a batch.
+    "sp_executesql N'DROP TABLE x'", "SELECT 1\nGO\nsp_executesql N'DROP TABLE x'",
+    "sys.sp_executesql N'TRUNCATE TABLE x'", "master..sp_executesql N'DELETE FROM t'",
+    "sp_execute N'DROP TABLE x'",
+    "DECLARE @q NVARCHAR(99) = 'DROP TABLE orders'\nGO\nsp_executesql @q",
+])
+def test_sp_executesql_without_exec_is_read(sql):
+    assert sql_block_reason(sql), sql
+
+
+def test_sp_executesql_with_harmless_sql_passes():
+    assert sql_block_reason("sp_executesql N'SELECT 1'") is None
+    assert sql_block_reason(
+        "SELECT 1\nGO\nsp_executesql N'SELECT * FROM t WHERE deleted = @n', N'@n int', @n = 1") is None
+
+
+def test_the_quoted_literal_recheck_bound_counts_the_concatenation():
+    # 64 rechecks per level, and the concatenation of the literals is one of
+    # them: 63 quoted literals pass, 64 are refused.
+    def text(k):
+        return "EXEC p " + ", ".join("'drop \"t%d\"'" % i for i in range(k))
+
+    assert sql_block_reason(text(63)) is None
+    assert sql_block_reason(text(64)) == UNREADABLE
+
+
 def test_arguments_nested_past_the_walk_depth_are_refused():
     deep = {"a": {"b": {"c": {"d": {"e": {"f": {"sql": "DROP TABLE orders"}}}}}}}
     assert block_reason(tool_name="run_query", arguments=deep) == DROP
@@ -676,6 +758,32 @@ def test_search_tools_stay_lenient_under_the_wider_name_rule(tool, text):
     assert block_reason(tool_name=tool, arguments={"queries": [text]}) is None, tool
 
 
+# Search, natural-language and history tools named for a SQL engine: their
+# "query" is a question or a filter, not SQL.
+_ENGINE_SEARCH_TOOLS = ["snowflake_cortex_search_query", "databricks_genie_query", "postgres_natural_language_query",
+                        "pg_query_history", "athena_list_named_queries", "search_snowflake_queries",
+                        "bigquery_search_saved_queries", "read_query_logs", "snowflake_semantic_query",
+                        "redshift_vector_query", "snowflake_analyst_query", "ask_postgres_query",
+                        # Words between the engine and "query": not a SQL tool by name.
+                        "snowflake_cortex_complete_query", "databricks_ai_query"]
+
+
+@pytest.mark.parametrize("tool", _ENGINE_SEARCH_TOOLS)
+@pytest.mark.parametrize("text", ["how do I delete a user", "delete account", "truncate text"])
+def test_search_tools_named_for_a_sql_engine_stay_lenient(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text}) is None, tool
+
+
+@pytest.mark.parametrize("tool", _ENGINE_SEARCH_TOOLS)
+def test_sql_sent_to_a_search_tool_named_for_an_engine_still_gets_the_shared_rules(tool):
+    assert block_reason(tool_name=tool, arguments={"query": "DELETE FROM orders"}) == DELETE
+
+
+@pytest.mark.parametrize("tool", _SQL_TOOLS + ["execute_sql", "run_query"])
+def test_every_sql_tool_of_the_last_round_stays_classified(tool):
+    assert block_reason(tool_name=tool, arguments={"query": "DELETE orders"}) == DELETE, tool
+
+
 @pytest.mark.parametrize("description", [
     "The SQL query to run", "SQL statement", "A T-SQL batch", "Statement to execute against the warehouse",
 ])
@@ -695,6 +803,72 @@ def test_a_parameter_described_as_sql_gets_the_sql_rules(description):
 ])
 def test_a_parameter_not_described_as_sql_keeps_its_key_rule(schema):
     assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM orders"}, input_schema=schema) is None
+
+
+@pytest.mark.parametrize("prop,defs", [
+    ({"$ref": "#/$defs/Sql"}, {"$defs": {"Sql": {"type": "string", "description": "SQL to run"}}}),
+    ({"$ref": "#/definitions/Sql"}, {"definitions": {"Sql": {"type": "string", "title": "SQL statement"}}}),
+    # A reference to a reference, and the shapes pydantic writes.
+    ({"$ref": "#/$defs/A"}, {"$defs": {"A": {"$ref": "#/$defs/Sql"}, "Sql": {"description": "SQL to run"}}}),
+    ({"allOf": [{"$ref": "#/definitions/Sql"}]}, {"definitions": {"Sql": {"description": "SQL to run"}}}),
+    ({"anyOf": [{"$ref": "#/$defs/Sql"}, {"type": "null"}]}, {"$defs": {"Sql": {"description": "SQL to run"}}}),
+])
+def test_a_parameter_whose_schema_reference_is_described_as_sql_gets_the_sql_rules(prop, defs):
+    schema = {"type": "object", "properties": {"body": prop}, **defs}
+    assert block_reason(tool_name="warehouse", arguments={"body": "DELETE FROM orders"}, input_schema=schema) == DELETE
+
+
+@pytest.mark.parametrize("defs", [
+    {"$defs": {"A": {"$ref": "#/$defs/A"}}},  # a reference to itself
+    {"$defs": {"A": {"$ref": "#/$defs/B"}, "B": {"$ref": "#/$defs/A"}}},  # a cycle
+    {"$defs": {}},  # a dangling reference
+])
+def test_a_schema_reference_that_never_resolves_keeps_the_key_rule(defs):
+    schema = {"type": "object", "properties": {"body": {"$ref": "#/$defs/A"}}, **defs}
+    assert block_reason(tool_name="warehouse", arguments={"body": "DELETE FROM orders"}, input_schema=schema) is None
+    assert block_reason(tool_name="warehouse", arguments={"body": "DROP TABLE orders"}, input_schema=schema) == DROP
+
+
+def _deep_schema(levels):
+    schema = {"type": "object", "properties": {"note": {"type": "string", "description": "A note"}}}
+    for _ in range(levels):
+        schema = {"type": "object", "properties": {"w": schema}}
+    return schema
+
+
+def test_a_schema_nested_past_the_read_depth_reads_every_argument_as_sql():
+    # Fail closed: a schema too deep to read could describe any parameter as
+    # SQL, so every argument of the tool gets the "sql" rules (the strictest).
+    deep = _deep_schema(40)
+    for arguments in ({"note": "DELETE FROM orders"}, {"title": "TRUNCATE orders"}):
+        assert block_reason(tool_name="warehouse", arguments=arguments, input_schema=deep), arguments
+    assert block_reason(tool_name="warehouse", arguments={"note": "select 1"}, input_schema=deep) is None
+    # Accepted false refusal (new, named in the PR): prose under such a tool.
+    assert block_reason(tool_name="warehouse", arguments={"note": "delete account"}, input_schema=deep) == DELETE
+    # A schema within the read depth keeps the key rule.
+    assert block_reason(tool_name="warehouse", arguments={"note": "DELETE FROM orders"},
+                        input_schema=_deep_schema(20)) is None
+
+
+def test_a_long_schema_description_is_read_in_bounded_time():
+    # Accepted exception to tests/AGENTS.md rule 8 (reads the clock, lenient
+    # bound): the description regex was quadratic on MCP server text, about
+    # 11 s for 160 KB, holding the GIL.
+    for filler in ("statement " * 16_000, "run " * 40_000, "execute statements " * 8_000):
+        schema = {"type": "object", "properties": {"text": {"type": "string", "description": filler,
+                                                           "title": filler}}}
+        start = time.perf_counter()
+        block_reason(tool_name="lookup", arguments={"text": "select 1"}, input_schema=schema)
+        assert time.perf_counter() - start < 1.0, filler[:20]
+
+
+@pytest.mark.parametrize("description,expect", [
+    ("Run this statement", DELETE), ("Statements to execute", DELETE), ("The T-SQL batch", DELETE),
+    ("Bank statement id", None), ("Run the job", None), ("A " + "long text " * 400 + "SQL to run", None),
+])
+def test_a_description_is_read_by_words_in_its_first_part(description, expect):
+    schema = {"type": "object", "properties": {"text": {"type": "string", "description": description}}}
+    assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM orders"}, input_schema=schema) == expect
 
 
 # ── small-model judge ───────────────────────────────────────────────────────

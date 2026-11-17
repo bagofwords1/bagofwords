@@ -269,48 +269,128 @@ def shell_block_reason(command: str) -> Optional[str]:
 #              ("Drop table orders_tmp after migration" in a title passes).
 # A list item gets its key's kind ("queries": ["SELECT 1", "DELETE …"]).
 _SQL_SHARED_KEYS = {"query", "q", "command", "script", "code"}
-# A tool whose name says it runs SQL. Search tools (search_docs, search_query,
-# query_knowledge_base) must not match: their "query" is a search phrase.
+# A tool whose name says it runs SQL: an engine name right before query or
+# queries (postgres_query), run/execute + query, read/write/start + query.
 _SQL_TOOL_NAME = re.compile(
     r"sql|statement|stmt|database|^query$|(^|[_-])(run|execute|exec)[_-]?(query|queries)|(^|[_-])db([_-]|$)"
     r"|(^|[_-])(read|write|start)[_-]?(query|queries)([_-]|$)"
     r"|(^|[_-])(postgres|postgresql|pg|mysql|mariadb|mssql|tsql|oracle|snowflake|bigquery|bq|duckdb|redshift"
     r"|athena|clickhouse|trino|presto|databricks|sqlite|synapse|teradata|vertica|cockroach|spanner)"
-    r"[_-]?(\w*[_-])?(query|queries)",
+    r"[_-]?(query|queries)([_-]|$)",
     re.IGNORECASE)
+# Search, natural-language and history tools are never SQL tools, whatever
+# engine they name (snowflake_cortex_search_query, pg_query_history): their
+# "query" is a question or a filter. Compared by whole name part.
+_NOT_SQL_TOOL_WORDS = frozenset({
+    "search", "semantic", "vector", "natural", "genie", "analyst", "ask", "history", "log", "logs", "list",
+    "named", "saved",
+})
 # On a SQL tool, a key naming a query or statement holds SQL.
 _SQL_TOOL_KEY = re.compile(r"quer(y|ies)|statement|stmt")
-# A parameter whose schema title or description says it holds SQL.
-_SQL_DESCRIPTION = re.compile(
-    r"\b(t-?)?sql\b|\bstatements?\b.*\b(run|execute)\b|\b(run|execute)\b.*\bstatements?\b",
-    re.IGNORECASE | re.DOTALL)
+# A parameter whose schema title or description says it holds SQL: it names
+# (T-)SQL, or it has statement(s) and run/execute among its words. Only the
+# first _MAX_DESCRIPTION_CHARS are read (MCP server text has no size bound,
+# and re holds the GIL).
+_SQL_DESCRIPTION_WORD = re.compile(r"\b(t-?)?sql\b", re.IGNORECASE)
+_MAX_DESCRIPTION_CHARS = 2048
+# Schema nesting read for SQL descriptions; a schema deeper than this makes
+# every argument of the tool "sql" (fail closed: the unread part could say so).
+_MAX_SCHEMA_DEPTH = 32
+# $ref hops followed from one schema node.
+_MAX_REF_HOPS = 8
+
+
+class _EveryParam(frozenset):
+    """_sql_params result for a schema too deep to read: every name is SQL."""
+
+    def __contains__(self, name: object) -> bool:
+        return True
+
+
+_EVERY_PARAM = _EveryParam()
+
+
+def _is_sql_tool(tool_name: str) -> bool:
+    if not tool_name or not _SQL_TOOL_NAME.search(tool_name):
+        return False
+    parts = re.split(r"[^a-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", tool_name).lower())
+    return not _NOT_SQL_TOOL_WORDS.intersection(parts)
+
+
+def _described_as_sql(text: str) -> bool:
+    text = text[:_MAX_DESCRIPTION_CHARS]
+    if _SQL_DESCRIPTION_WORD.search(text):
+        return True
+    words = set(re.findall(r"[a-z]+", text.lower()))
+    return bool(words & {"statement", "statements"}) and bool(words & {"run", "execute"})
 
 
 def _key_kind(key: str, tool_name: str = "", sql_params: frozenset = frozenset()) -> str:
     k = re.sub(r"[_\-]", "", key.lower())
     if "sql" in k or k in ("statement", "statements", "stmt", "stmts") or key in sql_params:
         return "sql"
-    if _SQL_TOOL_NAME.search(tool_name or ""):
+    if _is_sql_tool(tool_name):
         return "sql" if k in _SQL_SHARED_KEYS or _SQL_TOOL_KEY.search(k) else "shared"
     return "shared" if k in _SQL_SHARED_KEYS else "other"
 
 
+def _resolve_ref(node: dict, root: dict) -> Optional[dict]:
+    """The schema a local ``$ref`` (#/$defs/X, #/definitions/X, any #/ path)
+    points to, or None."""
+    ref = node.get("$ref")
+    if not isinstance(ref, str) or not ref.startswith("#/"):
+        return None
+    target: Any = root
+    for part in ref[2:].split("/"):
+        part = part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(target, dict) or part not in target:
+            return None
+        target = target[part]
+    return target if isinstance(target, dict) else None
+
+
+def _description_texts(sub: dict, root: dict) -> Iterable[str]:
+    """Title and description of a property schema, of what its $ref chain
+    points to, and of its allOf/anyOf/oneOf members and their refs (the
+    shapes pydantic writes). Bounded by _MAX_REF_HOPS per chain; a cycle
+    stops at the first node seen again."""
+    starts = [sub]
+    for field in ("allOf", "anyOf", "oneOf"):
+        members = sub.get(field)
+        if isinstance(members, list):
+            starts.extend(m for m in members if isinstance(m, dict))
+    for start in starts:
+        node, visited = start, set()
+        for _ in range(_MAX_REF_HOPS + 1):
+            if node is None or id(node) in visited:
+                break
+            visited.add(id(node))
+            yield f"{node.get('title') or ''} {node.get('description') or ''}"
+            node = _resolve_ref(node, root)
+
+
 def _sql_params(schema: Any) -> frozenset:
     """Names of the parameters an input schema describes as SQL, at any
-    nesting (object properties, array items, $defs, anyOf/oneOf/allOf)."""
+    nesting (object properties, array items, $defs, anyOf/oneOf/allOf), with
+    local $refs followed. A schema nested past _MAX_SCHEMA_DEPTH gives
+    _EVERY_PARAM."""
     names: set = set()
+    root = schema if isinstance(schema, dict) else {}
     stack = [(schema, 0)]
     while stack:
         node, depth = stack.pop()
-        if not isinstance(node, dict) or depth > 32:
-            continue  # a deeper schema part keeps its key rule
+        if not isinstance(node, dict):
+            continue
+        if depth > _MAX_SCHEMA_DEPTH:
+            logger.info("blocklist: tool schema nested past %d levels; every argument read as SQL",
+                        _MAX_SCHEMA_DEPTH)
+            return _EVERY_PARAM
         children: list = []
         props = node.get("properties")
         if isinstance(props, dict):
             for name, sub in props.items():
                 if isinstance(sub, dict):
-                    text = f"{sub.get('title') or ''} {sub.get('description') or ''}"
-                    if _SQL_DESCRIPTION.search(text):
+                    if any(_described_as_sql(t) for t in _description_texts(sub, root)):
                         names.add(str(name))
                     children.append(sub)
         for field in ("items", "additionalProperties"):
@@ -355,8 +435,14 @@ _MAX_EXEC_DEPTH = 2
 # Literals with these can open a quote, name or comment that would run into
 # the next one, so they are not joined into the batched recheck; each is
 # rechecked alone, at most this many per level (more: refused as unreadable).
+# The concatenation of an EXEC's literals is one of them.
 _JOIN_UNSAFE = re.compile(r"['\"`\[$]|/\*")
 _MAX_SEPARATE_RECHECKS = 64
+# Joins the other literals. A line comment (--, #, //) ends at the first
+# newline, so it never reaches the ";" on the next line; the constructs that
+# span lines (quotes, quoted names, block comments, dollar quotes) are
+# _JOIN_UNSAFE and never joined.
+_JOIN = "\n;\n"
 # Argument values nested deeper than this are refused as unreadable.
 _MAX_ARGUMENT_DEPTH = 64
 
@@ -486,6 +572,7 @@ _STATEMENT_WORDS = frozenset({
     "EXEC", "EXECUTE", "MERGE", "WITH",
 })
 _EXEC_WORDS = frozenset({"EXEC", "EXECUTE"})
+_EXEC_PROCS = frozenset({"SP_EXECUTESQL", "SP_EXECUTE"})
 
 
 def _passes_gate(low: str, level: str) -> bool:
@@ -559,17 +646,36 @@ def _add(items: dict, texts: list) -> None:
         items["".join(texts)] = None  # split strings: EXEC('DR' + 'OP TABLE x')
 
 
+def _exec_proc_at_start(toks: list) -> Optional[int]:
+    """Index of the sp_executesql / sp_execute name a segment starts with,
+    plain or qualified (sys.sp_executesql, master..sp_executesql), or None.
+    T-SQL runs the first statement of a batch without EXEC, so such a
+    segment runs its literals like EXEC does."""
+    i = 0
+    while i + 1 < len(toks) and toks[i + 1].token_type.name == "DOT":
+        i += 1
+        while i + 1 < len(toks) and toks[i + 1].token_type.name == "DOT":
+            i += 1
+        i += 1
+    if i >= len(toks) or (toks[i].token_type.name in _LITERAL_TOKENS and toks[i].token_type.name != "IDENTIFIER"):
+        return None
+    return i if toks[i].text.upper() in _EXEC_PROCS else None
+
+
 def _literal_items(tokens: list, items: dict) -> None:
     """Text in this SQL that would itself run as SQL, added to ``items`` in
-    order: the string literals of a statement with EXEC/EXECUTE (and their
-    concatenation), the literal of PREPARE … FROM '…' and the statement of
-    PREPARE … AS …. When SQL held in a variable is run (EXEC(@q), EXEC
+    order: the string literals of a statement with EXEC/EXECUTE or one that
+    starts with sp_executesql (and their concatenation), the literal of
+    PREPARE … FROM '…' and the statement of PREPARE … AS …. When SQL held in a variable is run (EXEC(@q), EXEC
     sp_executesql @q, PREPARE s FROM @q), the text can come from any
     statement, so every literal of the whole text is added too."""
     every: list = []
     dynamic = False
     for kws, toks in _segments(tokens):
-        has_exec = any(k in _EXEC_WORDS for k in kws)
+        proc = _exec_proc_at_start(toks)
+        has_exec = proc is not None or any(k in _EXEC_WORDS for k in kws)
+        if proc is not None and toks[proc + 1:proc + 2] and toks[proc + 1].token_type.name == "PARAMETER":
+            dynamic = True  # sp_executesql @q
         parts: list = []
         for i, t in enumerate(toks):
             kind = t.token_type.name
@@ -611,19 +717,17 @@ def _literal_items(tokens: list, items: dict) -> None:
         _add(items, every)
 
 
-def _squash(text: str) -> str:
-    return re.sub(r"\s+", "", text).upper()
-
-
 def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset) -> set:
     """Read each item as SQL, in at most one batch per level: the items
-    joined with ";\\n" (each starts its own statement), plus one read per item
-    that could run into the next one. An item already read at a shallower
-    level (``seen``, compared without spaces or case) is not read again: the
-    tokenizers that keep an EXEC body raw give back the same item. Past
+    joined with _JOIN (each starts its own statement), plus one read per item
+    that could run into the next one. An item whose exact text was already
+    read at a shallower level (``seen``) is not read again: the tokenizers
+    that keep an EXEC body raw give back the "EXEC " + body item this module
+    made, unchanged. Only the exact text is skipped: a near copy (other case
+    or spacing) can hold different SQL one level deeper. Past
     _MAX_EXEC_DEPTH, any item still to read makes the text unreadable."""
-    seen = seen | {_squash(text)}
-    pending = [t for t in items if _passes_gate(t.lower(), "sql") and _squash(t) not in seen]
+    seen = seen | {text}
+    pending = [t for t in items if _passes_gate(t.lower(), "sql") and t not in seen]
     if not pending:
         return set()
     if depth >= _MAX_EXEC_DEPTH:
@@ -634,10 +738,10 @@ def _recheck_literals(text: str, items: dict, depth: int, seen: frozenset) -> se
     if len(alone) > _MAX_SEPARATE_RECHECKS:
         logger.info("blocklist: %d quoted SQL literals to recheck; refused", len(alone))
         return {REASON_UNREADABLE}
-    seen = seen | {_squash(t) for t in pending}
+    seen = seen | set(pending)
     found: set = set()
     if joined:
-        found.update(_sql_findings(";\n".join(joined), "sql", depth + 1, seen))
+        found.update(_sql_findings(_JOIN.join(joined), "sql", depth + 1, seen))
     for t in alone:
         found.update(_sql_findings(t, "sql", depth + 1, seen))
     return found
