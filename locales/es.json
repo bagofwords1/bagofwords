@@ -1439,6 +1439,20 @@
         "updated": "Hizo una actualización",
         "ran": "Ejecutó {tool}"
       }
+    },
+    "citations": {
+      "untitled": "Resultado sin título",
+      "openSource": "Abrir {title}",
+      "moreRows": "+{count} filas más",
+      "moreColumns": "+{count} columnas más",
+      "noPreview": "Vista previa no disponible",
+      "chipLabel": "Fuente {number}: {title}",
+      "chipLabelUntitled": "Fuente {number}",
+      "tabs": {
+        "chart": "Gráfico",
+        "data": "Datos",
+        "code": "Código"
+      }
     }
   },
   "tools": {

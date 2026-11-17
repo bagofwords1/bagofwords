@@ -4,7 +4,7 @@
 	<button
 		type="button"
 		:aria-expanded="expanded"
-		class="run-fold-toggle flex w-full items-center gap-1 rounded py-1 text-start text-chat-2 text-ink-muted hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+		class="run-fold-toggle -mx-1.5 flex w-[calc(100%+0.75rem)] items-center gap-1 rounded-md px-1.5 py-1 text-start text-chat-2 text-ink-muted hover:text-ink focus-visible:bg-surface-muted focus-visible:text-ink focus-visible:outline focus-visible:outline-1 focus-visible:outline-blue-500"
 		data-testid="run-fold-toggle"
 		@click="$emit('toggle')"
 	>

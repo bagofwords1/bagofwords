@@ -1465,6 +1465,20 @@
         "updated": "Made an update",
         "ran": "Ran {tool}"
       }
+    },
+    "citations": {
+      "untitled": "Untitled result",
+      "openSource": "Open {title}",
+      "moreRows": "+{count} more rows",
+      "moreColumns": "+{count} more columns",
+      "noPreview": "No preview available",
+      "chipLabel": "Source {number}: {title}",
+      "chipLabelUntitled": "Source {number}",
+      "tabs": {
+        "chart": "Chart",
+        "data": "Data",
+        "code": "Code"
+      }
     }
   },
   "tools": {

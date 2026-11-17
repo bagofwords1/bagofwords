@@ -21,8 +21,14 @@
  *   keeps its chronological place. Reasoning does not — it rides inside the
  *   step it preceded.
  * - A `create_data` call is always its own step, described by what it produced.
- * - Outputs the user would open or act on (tables, charts, dashboards, docs,
- *   review cards…) are returned as `deliverableIds` so the page can keep them
+ * - A chart is the one result prose cannot stand in for: a `create_data` call
+ *   that produced a chart is never folded. It is returned in `inlineIds` and
+ *   keeps its card where it happened, above the conclusion.
+ * - Tables and single values fold into their step. They stay reachable from
+ *   the answer itself through its sources (composables/useCitations.ts), not
+ *   as cards appended to it.
+ * - Other outputs the user would open or act on (dashboards, docs, review
+ *   cards…) are returned as `deliverableIds` so the page can keep them
  *   reachable below the final message while the steps are collapsed.
  */
 // Kept local rather than imported from useBlockGrouping: both modules stay
@@ -133,9 +139,9 @@ export function describeDataOutput(te: any): DataOutput {
 
 // Tools whose successful result is something the user opens or acts on. The
 // list is explicit: an unknown tool is activity (one click away in the steps),
-// never promoted to a card under the conclusion.
+// never promoted to a card under the conclusion. create_data is not here: its
+// charts stay inline and its tables are sources of the answer (see header).
 export const DELIVERABLE_TOOLS = new Set<string>([
-  'create_data',
   'create_widget',
   'create_and_execute_code',
   'execute_code',
@@ -182,11 +188,6 @@ export function deliverableKey(block: any): string {
   if (!te || !isDeliverableTool(name) || isBlockFailed(block) || te.status !== 'success') return ''
   const rj = te.result_json || {}
   const aj = te.arguments_json || {}
-  if (name === 'create_data') {
-    const out = describeDataOutput(te)
-    if (out.kind !== 'table' && out.kind !== 'chart') return ''
-    return `data:${(out.title || String(te.created_step_id || block.id)).toLowerCase()}`
-  }
   if (CODE_TOOLS.has(name)) {
     return te.created_widget || te.created_step ? `data:${String(te.created_step_id || block.id)}` : ''
   }
@@ -235,6 +236,8 @@ export interface RunActivity {
   stepOf: Record<string, RunStep>
   /** blockId of each step's first member -> step (header render anchor) */
   headerAt: Record<string, RunStep>
+  /** create_data blocks that produced a chart: never folded, card kept in place. */
+  inlineIds: string[]
   /** Blocks whose output stays reachable below the final message, in order. */
   deliverableIds: string[]
   /** First activity start -> final message start, or null without timestamps. */
@@ -373,6 +376,12 @@ function toMs(v: any): number | null {
   return Number.isFinite(t) ? t : null
 }
 
+/** A create_data call whose result is a chart. */
+export function isInlineChart(block: any): boolean {
+  const te = block?.tool_execution
+  return te?.tool_name === 'create_data' && !isBlockFailed(block) && describeDataOutput(te).kind === 'chart'
+}
+
 /** The block that carries the run's conclusion, or null while there is none. */
 export function findFinalBlock(blocks: any[], runStatus?: string): any | null {
   const last = (blocks || [])[blocks.length - 1]
@@ -427,8 +436,15 @@ export function computeRunActivity(
     runPurpose = null
   }
 
+  const inlineIds: string[] = []
   for (const b of list) {
     if (!b?.tool_execution) { flush(); continue }
+    if (isInlineChart(b)) {
+      // Not a step: the card itself is on screen, open or closed.
+      flush()
+      inlineIds.push(String(b.id))
+      continue
+    }
     const purpose = purposeOf(b)
     const continues = !!runPurpose
       && runPurpose.key === purpose.key
@@ -462,6 +478,7 @@ export function computeRunActivity(
     steps,
     stepOf,
     headerAt,
+    inlineIds,
     deliverableIds: Array.from(latest.values()),
     spanMs,
   }

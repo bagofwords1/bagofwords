@@ -7,9 +7,11 @@ report page shows every shape the fold has to handle, with no API key:
   round 1: a progress message + three inspections of the SAME table
            (describe_tables, inspect_data x2)  -> one "Checked the Invoice
            table" step with three checks
-  round 2: a progress message + create_data producing a TABLE (deliverable)
-  round 3: create_data producing a single NUMBER (not a deliverable)
-  final:   a formatted markdown conclusion (heading, list, bold, table)
+  round 2: a progress message + create_data producing a CHART (stays inline)
+  round 3: create_data producing a TABLE
+  round 4: create_data producing a single NUMBER
+  final:   a formatted markdown conclusion (heading, list, bold) that cites
+           the three results with {{cite:<visualization id>}} markers
 
 Codegen prompts get code matching the step being built; anything else
 (titles, follow-ups, judges) gets a short plain answer.
@@ -23,6 +25,7 @@ STUB_PORT (default 9099), STUB_DELAY_S (per-response delay, default 0.8).
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 
@@ -36,20 +39,17 @@ DS_NAME = os.environ.get("STUB_DS_NAME", "Music Store")
 DELAY_S = float(os.environ.get("STUB_DELAY_S", "0.8"))
 TABLES = [{"data_source_id": DS_ID, "tables": ["Invoice"]}]
 
+# The conclusion cites the three results by visualization id (first 8
+# characters), which the stub reads back from its own tool results.
 FINAL_ANSWER = """## Revenue by country
 
-Total revenue across all invoices is **$2,328.60**.
+Total revenue across all invoices is **$2,328.60**. {cite_total}
 
-- The **USA** leads with $523.06, followed by **Canada** at $303.96.
-- The top five countries account for a little over half of all revenue.
+- The **USA** leads with $523.06, followed by **Canada** at $303.96. {cite_chart}
+- The top five countries account for a little over half of all revenue. {cite_chart}
+- The best customer spent $49.62 across 7 invoices. {cite_table}
 
-| Country | Revenue |
-|---|---|
-| USA | $523.06 |
-| Canada | $303.96 |
-| France | $195.10 |
-
-The full breakdown is in the *Revenue by country* table below.
+The chart above shows every country.
 """
 
 
@@ -62,6 +62,22 @@ def _all_text(body: dict) -> str:
         elif isinstance(c, list):
             parts.extend(i.get("text", "") for i in c if isinstance(i, dict) and i.get("type") == "text")
     return "\n".join(parts)
+
+
+_VIZ_IDS_RE = re.compile(r"created_visualization_ids\W+([0-9a-f]{8})-[0-9a-f]{4}-")
+
+
+def _cite(body: dict, index: int) -> str:
+    """Marker for the index-th create_data result, or nothing if not found."""
+    ids = []
+    for m in body.get("messages", []):
+        if m.get("role") != "tool":
+            continue
+        content = m.get("content")
+        text = content if isinstance(content, str) else json.dumps(content)
+        ids.extend(_VIZ_IDS_RE.findall(text))
+    ids = list(dict.fromkeys(ids))
+    return f"{{{{cite:{ids[index]}}}}}" if index < len(ids) else ""
 
 
 def _planner(body: dict):
@@ -82,21 +98,34 @@ def _planner(body: dict):
             "user_prompt": "Revenue by billing country",
             "interpreted_prompt": "Sum Invoice.Total grouped by BillingCountry, highest first.",
             "tables_by_source": TABLES,
-            "visualization_type": "table"}}], "The data looks clean. Building the revenue breakdown now."
+            "visualization_type": "bar_chart"}}], "The data looks clean. Charting revenue by country now."
     if obs < 5:
+        return [{"name": "create_data", "arguments": {
+            "title": "Top customers",
+            "user_prompt": "Customers ranked by total spend",
+            "interpreted_prompt": "Sum Invoice.Total per CustomerId with the invoice count, highest first.",
+            "tables_by_source": TABLES,
+            "visualization_type": "table"}}], None
+    if obs < 6:
         return [{"name": "create_data", "arguments": {
             "title": "Total revenue",
             "user_prompt": "Grand total of invoice revenue",
             "interpreted_prompt": "Sum Invoice.Total across all invoices as one number.",
             "tables_by_source": TABLES,
             "visualization_type": "table"}}], None
-    return None, FINAL_ANSWER
+    return None, FINAL_ANSWER.format(
+        cite_chart=_cite(body, 0), cite_table=_cite(body, 1), cite_total=_cite(body, 2))
 
 
 def _codegen(text: str) -> str:
+    # The codegen prompt carries the conversation so far, so match the newest
+    # request first.
     q = "SELECT COUNT(*) AS invoices, MIN(InvoiceDate) AS first_invoice, MAX(InvoiceDate) AS last_invoice FROM Invoice"
     if "Grand total" in text or "as one number" in text:
         q = "SELECT ROUND(SUM(Total), 2) AS total_revenue FROM Invoice"
+    elif "per CustomerId" in text:
+        q = ("SELECT CustomerId AS customer_id, ROUND(SUM(Total), 2) AS spend, COUNT(*) AS invoices "
+             "FROM Invoice GROUP BY CustomerId ORDER BY spend DESC")
     elif "grouped by BillingCountry" in text:
         q = ("SELECT BillingCountry AS country, ROUND(SUM(Total), 2) AS revenue, COUNT(*) AS invoices "
              "FROM Invoice GROUP BY BillingCountry ORDER BY revenue DESC")

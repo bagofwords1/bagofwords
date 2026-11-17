@@ -321,7 +321,7 @@
                                     <div v-if="!isMobile" class="w-7 shrink-0" :class="{ 'completion-enter': m._animateEntry }">
                                         <img :src="assistantLogoUrl" alt="" class="h-7 w-7 rounded object-contain" @error="assistantLogoFailed = true" />
                                     </div>
-                                    <div class="assistant-content min-w-0 flex-1 text-start">
+                                    <div class="assistant-content min-w-0 flex-1 text-start" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
                                         <div class="mb-1 flex min-h-5 items-center text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
                                             <bdi dir="ltr">{{ m.model ? responseModelName(m.model) : 'BoW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
                                         </div>
@@ -348,7 +348,7 @@
 										/>
 										<!-- Render each completion block - unified structure -->
 										<template v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
-											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
+											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
 											<!-- Steering messages interleave into the block stream at the
 											     moment they arrived: before the first block that started
 											     after them. -->
@@ -412,7 +412,7 @@
 											</div>
 <!-- Keep prose visible when only this verification step is collapsed. -->
                                             <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
-                                                <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                                <MarkdownRender :content="answerMarkdown(m, block)" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
@@ -448,9 +448,9 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && isRunProseShown(m, block) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
 								<MarkdownRender
-									:content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''"
+									:content="answerMarkdown(m, block)"
 									:final="isBlockFinalized(block)"
 									:typewriter="!isBlockFinalized(block)"
 									:render-code-blocks-as-pre="true"
@@ -473,13 +473,13 @@
 												/>
 
 							<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
+												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) && !isRunInlineBlock(m, block) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
-														:hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
+														:hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data' && !isRunInlineBlock(m, block)) || undefined"
 	                                                    :run-status="m.status"
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
@@ -529,8 +529,8 @@
 											     each, whether or not the steps are open. -->
 											<div v-if="runDeliverables(m).length" class="run-deliverables mt-4 flex flex-col gap-3 text-start" :dir="responseDir" data-testid="run-deliverables">
 												<template v-for="d in runDeliverables(m)" :key="'deliverable-' + d.id">
-													<div v-if="d.tool_execution.tool_name === 'create_data' || shouldShowToolWidgetPreview(d.tool_execution)" class="tool-preview" :data-step-id="d.tool_execution?.created_step?.id || d.tool_execution?.created_step_id || ''">
-														<ToolWidgetPreview :tool-execution="d.tool_execution" :initial-collapsed="isSmallTableDeliverable(d)" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
+													<div v-if="shouldShowToolWidgetPreview(d.tool_execution)" class="tool-preview" :data-step-id="d.tool_execution?.created_step?.id || d.tool_execution?.created_step_id || ''">
+														<ToolWidgetPreview :tool-execution="d.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 													</div>
 													<div v-else-if="shouldUseToolComponent(d.tool_execution)" class="tool-execution-container" :data-step-id="d.tool_execution?.created_step?.id || d.tool_execution?.created_step_id || ''">
 														<component
@@ -557,6 +557,18 @@
 													</div>
 												</template>
 											</div>
+
+											<!-- What the answer rests on: its cited results, numbered as in the
+											     text, plus any table the run made and did not cite. -->
+											<RunSourcesRow
+												v-if="runFold(m) || m.status !== 'in_progress'"
+												:items="runSources(m)"
+												:translate="responseT"
+												:dir="responseDir"
+												@open="(item, el) => isMobile ? citationChips.pin(item.source, item.number, el) : openCitationSource(item.source)"
+												@preview="(item, el) => citationChips.preview(item.source, item.number, el)"
+												@leave="citationChips.hideSoon()"
+											/>
 
 											<!-- Steering messages newer than every block: render after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
@@ -1194,6 +1206,17 @@
 	<!-- Image Preview Modal -->
 	<ImagePreviewModal ref="imagePreviewModalRef" />
 
+	<!-- Preview of the cited result under the pointer or keyboard focus -->
+	<CitationPreview
+		:source="citationChips.active.value?.source || null"
+		:anchor="citationChips.active.value?.anchor || null"
+		:number="citationChips.active.value?.number"
+		:translate="t"
+		:can-open="!isMobile"
+		@enter="citationChips.keep()"
+		@leave="citationChips.hideSoon()"
+		@open="openActiveCitation"
+	/>
 </template>
 
 <script setup lang="ts">
@@ -1201,7 +1224,10 @@ import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
-import { computeRunActivity, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { computeRunActivity, describeDataOutput, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
+import { useCitationChips } from '~/composables/useCitationChips'
+import type { SourceItem } from '~/components/RunSourcesRow.vue'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
@@ -1705,14 +1731,26 @@ function toggleRunStep(stepId: string) {
 	next.has(stepId) ? next.delete(stepId) : next.add(stepId)
 	expandedRunSteps.value = next
 }
-// The final message always renders; the activity before it only while open.
+// A create_data call that produced a chart: never folded, card kept in place.
+function isRunInlineBlock(m: ChatMessage, block: any): boolean {
+	return !!runFold(m)?.inlineIds.includes(String(block.id))
+}
+// The final message and inline charts always render; the rest only while open.
 function isRunBlockShown(m: ChatMessage, block: any): boolean {
 	const fold = runFold(m)
-	return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
+	return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id) || isRunInlineBlock(m, block)
 }
+// Part of the indented thread: everything before the conclusion while the
+// steps are open. A chart shown while they are closed stands on its own.
 function isRunActivityBlock(m: ChatMessage, block: any): boolean {
 	const fold = runFold(m)
-	return !!fold && fold.finalBlockId !== String(block.id)
+	return !!fold && fold.finalBlockId !== String(block.id) && isRunExpanded(m)
+}
+// Progress prose belongs to the chain: with the steps closed, an inline chart
+// shows its card only, not the sentence that introduced it.
+function isRunProseShown(m: ChatMessage, block: any): boolean {
+	const fold = runFold(m)
+	return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
 }
 function runStepHeaderFor(m: ChatMessage, block: any): RunStep | undefined {
 	const fold = runFold(m)
@@ -1734,7 +1772,7 @@ function isRunReasoningShown(m: ChatMessage, block: any): boolean {
 }
 function isRunToolShown(m: ChatMessage, block: any): boolean {
 	const fold = runFold(m)
-	if (!fold) return true
+	if (!fold || isRunInlineBlock(m, block)) return true
 	const step = fold.stepOf[String(block.id)]
 	return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
 }
@@ -1761,15 +1799,75 @@ function runFoldDuration(m: ChatMessage): string {
 function openRunStepOutput(block: any, step: RunStep) {
 	openDataPanel({ toolExecution: block.tool_execution, title: step.output?.title, visual: step.output?.kind === 'chart' })
 }
-// A table of a few rows is described in the answer itself: keep its card to a
-// title row the reader can open (same threshold CreateDataTool uses inline).
-function isSmallTableDeliverable(block: any): boolean {
-	const te = block?.tool_execution
-	const type = String(te?.result_json?.data_model?.type || 'table')
-	const data = te?.created_step?.data
-	const n = typeof data?.total_rows === 'number' ? data.total_rows : (Array.isArray(data?.rows) ? data.rows.length : null)
-	return type === 'table' && n !== null && n < 10
+// ---------------------------------------------------------------------------
+// Citations: `{{cite:<id>}}` markers in an answer become numbered chips that
+// preview and open the cited result (grammar in useCitations). A source is
+// any create_data result loaded in this conversation, so a follow-up can cite
+// an earlier turn's table.
+// ---------------------------------------------------------------------------
+const citationSources = computed<CitationSource[]>(() =>
+	collectSources(
+		messages.value.flatMap(m => (m.role === 'system' ? visibleBlocks(m) : [])),
+		describeDataOutput,
+	)
+)
+const blockText = (b: any): string => b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || ''
+// Per message: each block's prose with its markers rewritten, and the sources
+// cited, numbered in order of first mention across the message.
+const messageCitations = computed(() => {
+	const out = new Map<string, { text: Map<string, string>; cited: CitationSource[] }>()
+	const sources = citationSources.value
+	for (const m of messages.value) {
+		if (m.role !== 'system') continue
+		const text = new Map<string, string>()
+		const cited: CitationSource[] = []
+		for (const b of visibleBlocks(m)) {
+			const raw = blockText(b)
+			if (!raw.includes('{')) continue
+			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && m.status === 'in_progress' }).markdown)
+		}
+		if (text.size) out.set(String(m.id), { text, cited })
+	}
+	return out
+})
+function answerMarkdown(m: ChatMessage, block: any): string {
+	return messageCitations.value.get(String(m.id))?.text.get(String(block.id)) ?? blockText(block)
 }
+// The sources row under a folded run's answer: what it cites, numbered, then
+// the tables this run made without citing them.
+function runSources(m: ChatMessage): SourceItem[] {
+	const cited = messageCitations.value.get(String(m.id))?.cited || []
+	const items: SourceItem[] = cited.map((source, i) => ({ number: i + 1, source }))
+	// Uncited tables are listed only for a folded run, where they would
+	// otherwise sit behind the steps; an unfolded run still shows their cards.
+	if (!runFold(m)) return items
+	const own = new Set(visibleBlocks(m).map((b: any) => String(b.id)))
+	for (const source of citationSources.value) {
+		if (source.output.kind === 'table' && own.has(source.key) && !cited.includes(source)) {
+			items.push({ number: null, source })
+		}
+	}
+	return items
+}
+function openCitationSource(source: CitationSource) {
+	openDataPanel({ toolExecution: source.toolExecution, title: source.output.title, visual: source.output.kind === 'chart' })
+}
+function openActiveCitation() {
+	const source = citationChips.active.value?.source
+	citationChips.hide()
+	if (source) openCitationSource(source)
+}
+const citationChips = useCitationChips<ChatMessage>({
+	resolve: (m, key) => {
+		const source = citationSources.value.find(s => s.key === key)
+		if (!source) return null
+		const at = (messageCitations.value.get(String(m.id))?.cited || []).indexOf(source)
+		return { source, number: at >= 0 ? at + 1 : null }
+	},
+	open: openCitationSource,
+	// A phone layout has no side panel: a tap pins the preview there instead.
+	canOpen: () => !isMobile.value,
+})
 
 function effortLabel(effort: string): string {
     const key = `prompt.effort.levels.${effort}`
@@ -2723,7 +2821,7 @@ function webhookActed(m: any): boolean {
 function responseText(m: ChatMessage): string {
 	return visibleBlocks(m)
 		.filter((b: any) => b.status !== 'error' && b.tool_execution?.tool_name !== 'clarify')
-		.map((b: any) => (b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || '').trim())
+		.map((b: any) => stripCitations(b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || '').trim())
 		.filter(Boolean)
 		.join('\n\n')
 }
@@ -6708,6 +6806,12 @@ onMounted(async () => {
 .response-block.activity-only + .response-block.activity-only {
     --response-block-gap: 8px;
 }
+/* An inline chart shown while the steps are closed sits between the row and
+   the answer with the usual block spacing. */
+.response-block.run-inline:not(.run-activity) {
+    margin-block: 8px 12px;
+}
+
 /* Folded run, opened: the chain reads as one indented thread above the
    conclusion; a step's calls indent once more under its line. */
 .response-block.run-activity {

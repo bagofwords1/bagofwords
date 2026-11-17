@@ -124,7 +124,7 @@
                                     <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
-                                <div class="flex-1 min-w-0 md:ms-4">
+                                <div class="flex-1 min-w-0 md:ms-4" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
                                     <div>
                                         <!-- Run fold: a finished run's activity sits behind this one
                                              row above its final message (useRunActivity.ts). -->
@@ -137,7 +137,7 @@
                                         />
                                         <!-- Render each completion block -->
                                         <template v-for="block in timelineBlocks(m)" :key="block.id">
-                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
+                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -149,7 +149,7 @@
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
                                             <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
-                                                <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                                <MarkdownRender :content="citedMarkdown(m, block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || '')" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
@@ -182,9 +182,9 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error' && isRunProseShown(m, block)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
                                                 <MarkdownRender
-                                                    :content="block.content || block.plan_decision?.assistant || ''"
+                                                    :content="citedMarkdown(m, block.content || block.plan_decision?.assistant || '')"
                                                     :final="true"
                                                     :typewriter="false"
                                                     :render-code-blocks-as-pre="true"
@@ -204,13 +204,13 @@
                                             />
 
                                             <!-- 3. Tool execution -->
-                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'run-step-detail': !!runFold(m) }">
+                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'run-step-detail': !!runFold(m) && !isRunInlineBlock(m, block) }">
                                                 <component
                                                     v-if="shouldUseToolComponent(block.tool_execution)"
                                                     :is="getToolComponent(block.tool_execution.tool_name)"
                                                     :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
                                                     :tool-execution="block.tool_execution"
-                                                    :hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
+                                                    :hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data' && !isRunInlineBlock(m, block)) || undefined"
                                                     :readonly="true"
                                                 />
                                                 <!-- Fallback to generic expandable tool display -->
@@ -240,7 +240,7 @@
                                             <!-- 4. Final answer -->
                                             <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
                                                 <MarkdownRender
-                                                    :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
+                                                    :content="citedMarkdown(m, block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || '')"
                                                     :final="true"
                                                     :typewriter="false"
                                                     :render-code-blocks-as-pre="true"
@@ -256,7 +256,7 @@
                                         <div v-if="runDeliverables(m).length" class="mt-4 flex flex-col gap-3" data-testid="run-deliverables">
                                             <template v-for="d in runDeliverables(m)" :key="'deliverable-' + d.id">
                                                 <ToolWidgetPreview
-                                                    v-if="(d.tool_execution.tool_name === 'create_data' || shouldShowToolWidgetPreview(d.tool_execution)) && (d.tool_execution.created_step || d.tool_execution.created_widget)"
+                                                    v-if="shouldShowToolWidgetPreview(d.tool_execution)"
                                                     :tool-execution="d.tool_execution"
                                                     :readonly="true"
                                                 />
@@ -268,6 +268,16 @@
                                                 />
                                             </template>
                                         </div>
+
+                                        <!-- What the answer rests on: its cited results, numbered as in
+                                             the text, plus any table the run made and did not cite. -->
+                                        <RunSourcesRow
+                                            :items="runSources(m)"
+                                            :translate="t"
+                                            @open="(item, el) => citationChips.pin(item.source, item.number, el)"
+                                            @preview="(item, el) => citationChips.preview(item.source, item.number, el)"
+                                            @leave="citationChips.hideSoon()"
+                                        />
                                     </div>
 
                                     <!-- Knowledge harness: the post-analysis reflection sub-loop
@@ -304,6 +314,16 @@
                 </a>
             </footer>
         </template>
+        <!-- Preview of the cited result under the pointer or keyboard focus.
+             A shared link has nowhere to open the full result. -->
+        <CitationPreview
+            :source="citationChips.active.value?.source || null"
+            :anchor="citationChips.active.value?.anchor || null"
+            :number="citationChips.active.value?.number"
+            :translate="t"
+            @enter="citationChips.keep()"
+            @leave="citationChips.hideSoon()"
+        />
     </div>
 </template>
 
@@ -311,7 +331,10 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
-import { computeRunActivity, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { computeRunActivity, describeDataOutput, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { citeText, collectSources, type CitationSource } from '~/composables/useCitations'
+import { useCitationChips } from '~/composables/useCitationChips'
+import type { SourceItem } from '~/components/RunSourcesRow.vue'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
 import Spinner from '~/components/Spinner.vue'
@@ -637,13 +660,23 @@ function toggleRunStep(stepId: string) {
     next.has(stepId) ? next.delete(stepId) : next.add(stepId)
     expandedRunSteps.value = next
 }
+// A create_data call that produced a chart: never folded, kept in place.
+function isRunInlineBlock(m: any, block: any): boolean {
+    return !!runFold(m)?.inlineIds.includes(String(block.id))
+}
 function isRunBlockShown(m: any, block: any): boolean {
     const fold = runFold(m)
-    return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
+    return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id) || isRunInlineBlock(m, block)
 }
 function isRunActivityBlock(m: any, block: any): boolean {
     const fold = runFold(m)
-    return !!fold && fold.finalBlockId !== String(block.id)
+    return !!fold && fold.finalBlockId !== String(block.id) && isRunExpanded(m)
+}
+// With the steps closed an inline chart shows its card only, not the
+// progress sentence that introduced it.
+function isRunProseShown(m: any, block: any): boolean {
+    const fold = runFold(m)
+    return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
 }
 function runStepHeaderFor(m: any, block: any): RunStep | undefined {
     const fold = runFold(m)
@@ -662,7 +695,7 @@ function isRunReasoningShown(m: any, block: any): boolean {
 }
 function isRunToolShown(m: any, block: any): boolean {
     const fold = runFold(m)
-    if (!fold) return true
+    if (!fold || isRunInlineBlock(m, block)) return true
     const step = fold.stepOf[String(block.id)]
     return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
 }
@@ -672,6 +705,57 @@ function runDeliverables(m: any): any[] {
     const byId = new Map(timelineBlocks(m).map((b: any) => [String(b.id), b]))
     return fold.deliverableIds.map(id => byId.get(id)).filter(Boolean)
 }
+// ---------------------------------------------------------------------------
+// Citations — same grammar and chips as the report view (useCitations). A
+// shared link has no panel to open a result in, so a chip previews on hover
+// or focus and a click pins that preview.
+// ---------------------------------------------------------------------------
+const citationSources = computed<CitationSource[]>(() =>
+    collectSources(
+        visibleCompletions.value.flatMap((m: any) => (m.role === 'user' ? [] : timelineBlocks(m))),
+        describeDataOutput,
+    )
+)
+// Per message, the sources it cites in order of first mention across its blocks.
+const messageCited = computed(() => {
+    const out = new Map<string, CitationSource[]>()
+    for (const m of visibleCompletions.value) {
+        if (m.role === 'user') continue
+        const cited: CitationSource[] = []
+        for (const b of timelineBlocks(m)) {
+            const raw = b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || ''
+            if (raw.includes('{')) citeText(raw, citationSources.value, cited)
+        }
+        if (cited.length) out.set(String(m.id), cited)
+    }
+    return out
+})
+function citedMarkdown(m: any, raw: string): string {
+    if (!raw || !raw.includes('{')) return raw
+    // The message's numbering is fixed above; this only looks numbers up.
+    return citeText(raw, citationSources.value, [...(messageCited.value.get(String(m.id)) || [])]).markdown
+}
+function runSources(m: any): SourceItem[] {
+    const cited = messageCited.value.get(String(m.id)) || []
+    const items: SourceItem[] = cited.map((source, i) => ({ number: i + 1, source }))
+    if (!runFold(m)) return items
+    const own = new Set(timelineBlocks(m).map((b: any) => String(b.id)))
+    for (const source of citationSources.value) {
+        if (source.output.kind === 'table' && own.has(source.key) && !cited.includes(source)) {
+            items.push({ number: null, source })
+        }
+    }
+    return items
+}
+const citationChips = useCitationChips<any>({
+    resolve: (m, key) => {
+        const source = citationSources.value.find(s => s.key === key)
+        if (!source) return null
+        const at = (messageCited.value.get(String(m.id)) || []).indexOf(source)
+        return { source, number: at >= 0 ? at + 1 : null }
+    },
+})
+
 // The server's run time when the payload carries it, else the span of the
 // run's own blocks (first activity -> final message).
 function runFoldDuration(m: any): string {
@@ -1169,6 +1253,9 @@ onUnmounted(() => {
 }
 .run-activity:has(+ :not(.run-activity)) {
     margin-block-end: 12px;
+}
+.run-inline:not(.run-activity) {
+    margin-block: 6px 12px;
 }
 .run-step-detail {
     padding-inline-start: 18px;

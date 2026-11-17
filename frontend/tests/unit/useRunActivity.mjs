@@ -177,8 +177,10 @@ assert.ok(computeRunActivity([{ ...final(), reasoning: 'thinking…' }], { runSt
   ])
   assert.equal(a.steps[0].output.rowCount, 24)
   assert.equal(a.steps[1].output.value, (2328.6).toLocaleString(undefined, { maximumFractionDigits: 2 }))
-  // The table is a deliverable; the single number lives in the answer.
-  assert.deepEqual(a.deliverableIds, [blocks[0].id])
+  // Neither is appended under the answer or kept inline: a table and a number
+  // fold into their steps and are reached through the answer's sources.
+  assert.deepEqual(a.deliverableIds, [])
+  assert.deepEqual(a.inlineIds, [])
 }
 
 // Output kind comes from the result, not from the requested view.
@@ -201,16 +203,33 @@ assert.equal(describeDataOutput(tool('create_data', {}, {
   assert.deepEqual(a.deliverableIds, [])
 }
 
+// A chart is never folded: it is not a step, it keeps its place, and the calls
+// around it do not merge across it.
+{
+  const chart = (title) => tool('create_data', { title }, {
+    te: { created_step: { title, data: { rows: [{ a: 1, b: 2 }, { a: 3, b: 4 }] } }, result_json: { data_model: { type: 'bar_chart' } } },
+  })
+  const blocks = [tool('inspect_data', invoice), chart('Revenue by country'), tool('inspect_data', invoice), final()]
+  const a = computeRunActivity(blocks, { runStatus: 'success' })
+  assert.deepEqual(a.inlineIds, [blocks[1].id])
+  assert.equal(a.stepOf[blocks[1].id], undefined)
+  assert.deepEqual(a.steps.map((s) => s.count), [1, 1])
+  assert.deepEqual(a.deliverableIds, [])
+  // A chart that failed to build is a step like any other failure.
+  const failed = [tool('create_data', { title: 'x' }, { te: { status: 'error', result_json: { data_model: { type: 'bar_chart' } } } }), final()]
+  assert.deepEqual(computeRunActivity(failed, { runStatus: 'success' }).inlineIds, [])
+}
+
 // --- deliverables ------------------------------------------------------------
 
-// A rebuilt table or re-edited dashboard is one deliverable: the latest wins,
+// A re-edited doc or dashboard is one deliverable: the latest wins,
 // in the position of its latest revision.
 {
-  const rows = [{ a: 1, b: 2 }, { a: 3, b: 4 }]
+  const doc = (id) => tool('create_doc', {}, { te: { result_json: { doc_id: id } } })
   const blocks = [
-    table('Top customers', rows),
+    doc('d1'),
     tool('create_artifact', {}, { te: { result_json: { artifact_id: 'art1' } } }),
-    table('Top customers', rows),
+    tool('edit_doc', { doc_id: 'd1' }, { te: { result_json: { doc_id: 'd1' } } }),
     tool('edit_artifact', { artifact_id: 'art1' }, { te: { result_json: { artifact_id: 'art1' } } }),
     final(),
   ]
@@ -254,7 +273,7 @@ console.log('useRunActivity: all assertions passed')
   assert.deepEqual([big.kind, big.rowCount], ['table', 24])
   assert.equal(describeDataOutput(preview([{ total: 7 }], 1).tool_execution).kind, 'number')
   const blocks = [preview([{ a: 1, b: 2 }, { a: 3, b: 4 }], 24), preview([{ total: 7 }], 1), final()]
-  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success' }).deliverableIds, [blocks[0].id])
+  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success' }).steps.map((s) => s.labelKey), ['createdTable', 'calculated'])
 }
 
 console.log('useRunActivity: shared-link payload assertions passed')

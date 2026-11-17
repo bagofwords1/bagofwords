@@ -72,5 +72,33 @@ if (await steps.count()) {
   await page.waitForTimeout(1000);
   await page.screenshot({ path: `${OUT}/${LABEL}-step-details.png` });
 }
+// Citations on a shared link: hover previews, and a click pins the preview
+// (there is no panel to open the result in).
+await toggle.focus();
+await page.keyboard.press('Enter');
+await page.waitForTimeout(500);
+const chips = page.locator('[data-testid="citation-chip"]');
+log('chips:', JSON.stringify(await chips.evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('aria-label')]))));
+log('sources:', JSON.stringify(await page.locator('[data-testid="run-source"]').allInnerTexts()));
+log('raw markers on page:', (await page.evaluate(() => document.body.innerText)).includes('{{cite'));
+for (let i = 0; i < await chips.count(); i++) {
+  await chips.nth(i).hover();
+  await page.waitForTimeout(1500);
+  const pv = page.locator('[data-testid="citation-preview"]');
+  log('hover chip', i, '->', JSON.stringify((await pv.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 90)));
+  if (i === (await chips.count()) - 1) await page.screenshot({ path: `${OUT}/${LABEL}-hover.png` });
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(450);
+}
+if (await chips.count()) {
+  await chips.first().click();
+  await page.waitForTimeout(600);
+  await page.mouse.move(4, 4);
+  await page.waitForTimeout(600);
+  log('click pins preview:', await page.locator('[data-testid="citation-preview"]').count(), 'url unchanged:', page.url().includes('/c/'));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  log('Escape dismisses:', await page.locator('[data-testid="citation-preview"]').count() === 0);
+}
 await browser.close();
 log('done');

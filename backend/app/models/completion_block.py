@@ -238,7 +238,11 @@ async def send_completion_blocks_to_slack(completion_id: str):
                     if (block.source_type in ('decision', 'final') and
                         content and len(content) >= 10 and
                         block_id_str not in _sent_block_text_ids):
-                        await adapter.send_dm_in_thread(completion.external_user_id, content, thread_ts, channel_id=response_channel)
+                        # A chat channel has no source chips: citations go out as
+                        # numbered footnotes (app/ai/citations.py).
+                        from app.ai.citations import channel_text
+                        outgoing = await channel_text(db, completion.report_id, content)
+                        await adapter.send_dm_in_thread(completion.external_user_id, outgoing, thread_ts, channel_id=response_channel)
                         _sent_block_text_ids.add(block_id_str)
 
                     # If this block has a tool execution that produced output,
@@ -492,7 +496,10 @@ async def _send_block_to_slack(block_id: str):
                                 last_seen = fresh_block.updated_at
                             if block_id_str not in _sent_block_text_ids:
                                 _sent_block_text_ids.add(block_id_str)
-                                await adapter.send_dm_in_thread(completion.external_user_id, fresh_block.content or content, thread_ts, channel_id=response_channel)
+                                # Citations go out as numbered footnotes here too.
+                                from app.ai.citations import channel_text
+                                outgoing = await channel_text(db, completion.report_id, fresh_block.content or content)
+                                await adapter.send_dm_in_thread(completion.external_user_id, outgoing, thread_ts, channel_id=response_channel)
 
                 # Tool-origin content: if a tool execution exists and finished,
                 # send its output (chart/table step, or a generated image file)

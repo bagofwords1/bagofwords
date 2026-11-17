@@ -1439,6 +1439,20 @@
         "updated": "ביצע עדכון",
         "ran": "הריץ את {tool}"
       }
+    },
+    "citations": {
+      "untitled": "תוצאה ללא שם",
+      "openSource": "פתיחת {title}",
+      "moreRows": "+{count} שורות נוספות",
+      "moreColumns": "+{count} עמודות נוספות",
+      "noPreview": "אין תצוגה מקדימה",
+      "chipLabel": "מקור {number}: {title}",
+      "chipLabelUntitled": "מקור {number}",
+      "tabs": {
+        "chart": "תרשים",
+        "data": "נתונים",
+        "code": "קוד"
+      }
     }
   },
   "tools": {

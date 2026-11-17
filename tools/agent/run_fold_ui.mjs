@@ -1,6 +1,6 @@
 // Drive one scripted run on /reports/:id and capture the run-activity fold:
-// live (chronological), settled (collapsed), expanded, a step's details, and a
-// reopened report. Pair with run_fold_stub_llm.py (see its header).
+// live (chronological), settled (collapsed), expanded, a step's details,
+// citation chips with their hover previews, and a reopened report. Pair with run_fold_stub_llm.py (see its header).
 //
 //   cd frontend && node ../tools/agent/run_fold_ui.mjs <out-dir> [label]
 //
@@ -72,7 +72,7 @@ if (!reportId) {
   while (Date.now() - t0 < 180000) {
     const text = await page.evaluate(() => document.body.innerText);
     const folded = await page.locator('[data-testid="run-fold-toggle"]').count();
-    for (const [name, needle] of [['live-1-inspecting', 'checking the Invoice table'], ['live-2-building', 'Building the revenue breakdown']]) {
+    for (const [name, needle] of [['live-1-inspecting', 'checking the Invoice table'], ['live-2-building', 'Charting revenue by country']]) {
       if (!seen.has(name) && text.includes(needle) && !folded) {
         seen.add(name);
         await page.waitForTimeout(700);
@@ -112,6 +112,55 @@ if (await toggle.count()) {
   await page.keyboard.press('Escape');
   await toggle.focus();
   await page.keyboard.press('Space');
+  await page.waitForTimeout(500);
+
+  // Citations: chips in the answer, the sources row under it, hover preview
+  // per kind of result, and keyboard open into the side panel.
+  // The latest answer: the page keeps itself scrolled to it.
+  const chips = page.locator('[data-message-role="system"]').last().locator('[data-testid="citation-chip"]');
+  log('chips:', JSON.stringify(await chips.evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('aria-label')]))));
+  log('sources:', JSON.stringify(await page.locator('[data-testid="run-source"]').allInnerTexts()));
+  log('inline charts:', await page.locator('.run-inline').count(), 'appended cards:', await page.locator('[data-testid="run-deliverables"]').count());
+  log('raw markers on page:', (await page.evaluate(() => document.body.innerText)).includes('{{cite'));
+  const seenKinds = new Set();
+  for (let i = 0; i < await chips.count(); i++) {
+    await chips.nth(i).scrollIntoViewIfNeeded();
+    await chips.nth(i).hover();
+    await page.waitForTimeout(1600);
+    const pv = page.locator('[data-testid="citation-preview"]');
+    const kind = (await pv.locator('[data-testid="citation-preview-chart"], [data-testid="citation-preview-value"], [data-testid="citation-preview-table"]').first().getAttribute('data-testid').catch(() => null)) || 'none';
+    log('hover chip', i, '->', kind, JSON.stringify((await pv.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 90)));
+    if (!seenKinds.has(kind)) {
+      seenKinds.add(kind);
+      await shot(page, `hover-${kind.replace('citation-preview-', '')}`);
+      // The preview's own tabs: Chart (charts only), Data, Code (with view_code).
+      const tabs = pv.locator('[role="tab"]');
+      log('  tabs:', JSON.stringify(await tabs.allInnerTexts()));
+      for (const name of ['data', 'code']) {
+        const tab = pv.locator(`[data-testid="citation-preview-tab-${name}"]`);
+        if (!(await tab.count())) continue;
+        // Move like a hand would: from the chip onto the preview, then press.
+        const box = await tab.boundingBox();
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
+        await page.mouse.down();
+        await page.mouse.up();
+        await page.waitForTimeout(500);
+        log(`  ${name} tab ->`, JSON.stringify((await pv.innerText()).replace(/\s+/g, ' ').slice(0, 110)));
+        if (kind === 'citation-preview-chart') await shot(page, `hover-chart-${name}`);
+      }
+    }
+    await page.mouse.move(4, 4);
+    await page.waitForTimeout(450);
+  }
+  if (await chips.count()) {
+    await chips.last().focus();
+    await page.waitForTimeout(400);
+    log('focus shows preview:', await page.locator('[data-testid="citation-preview"]').count());
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(2500);
+    log('Enter opens panel:', await page.locator('[data-testid="data-panel"]').count());
+    await shot(page, 'cited-panel');
+  }
   await page.waitForTimeout(500);
   log('toggle (re-collapsed): aria-expanded=', await toggle.getAttribute('aria-expanded'));
 
