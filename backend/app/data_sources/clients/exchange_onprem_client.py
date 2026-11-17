@@ -91,6 +91,42 @@ def normalize_ews_url(value: str, allow_http: bool = False) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
+def planner_scope_note(config: Optional[dict], per_user: bool) -> str:
+    """Whose mail a connection reads, in words the planner can repeat.
+
+    A service-account connection and a per-user one look identical from the
+    tool surface, and the model otherwise calls a shared team mailbox "your
+    inbox" — which is wrong and, for a person asking about their own mail,
+    misleading.
+    """
+    config = config or {}
+    try:
+        shared = parse_shared_mailboxes(config.get("shared_mailboxes"))
+    except ValueError:
+        shared = []
+    own = config.get("include_own_mailbox", True) not in (False, "false", "False", 0)
+    if per_user:
+        parts = ["Each user reads with their own Windows sign-in, live; nothing is indexed."]
+        if own:
+            parts.append("The default mailbox is the asking user's own mailbox.")
+        if shared:
+            parts.append("Shared mailboxes on this connection: " + ", ".join(shared)
+                         + " — a user only sees the ones their account may open.")
+    else:
+        parts = [
+            "Everyone reads through one shared service account, live; nothing is indexed. "
+            "This is NOT the asking user's personal mailbox — name a mailbox by its address, "
+            "never as \"your inbox\" or \"your mail\"."
+        ]
+        if shared:
+            default = "" if own else f" The default mailbox is {shared[0]}."
+            parts.append("Team mailboxes on this connection: " + ", ".join(shared) + "." + default)
+        if own:
+            parts.append("The service account's own mailbox is the default.")
+    parts.append("An empty count here does NOT mean no mail.")
+    return " ".join(parts)
+
+
 class ExchangeOnpremClient(DataSourceClient):
     """Exchange Server mailboxes, shaped for the mail agent tools."""
 
@@ -222,6 +258,18 @@ class ExchangeOnpremClient(DataSourceClient):
         self._folders = rows[:_MAX_FOLDERS]
         return self._folders
 
+    def unreachable_note(self) -> Optional[str]:
+        """Names the configured mailboxes this identity could not open.
+
+        Skipping them silently let the agent assume it had read them — it told
+        a user it could see a shared mailbox their account has no rights on.
+        """
+        self.list_mail_folders()
+        if not self._unreachable:
+            return None
+        return ("NOT reachable with this account (no permission, or no such mailbox): "
+                + ", ".join(sorted(self._unreachable)) + ". Nothing from there is included.")
+
     def _mailbox_scope(self, label: str, address: str) -> dict:
         """A pseudo-folder meaning "this whole mailbox" (search only)."""
         return {"id": _MAILBOX_ID_PREFIX + address, "name": address, "path": address,
@@ -254,6 +302,10 @@ class ExchangeOnpremClient(DataSourceClient):
                 label = self._label(address)
                 if any(row["mailbox"] == label for row in folders):
                     return self._mailbox_scope(label, address)
+                raise ValueError(
+                    f"The mailbox {address} cannot be opened with this account: it has no permission "
+                    "on it, or the mailbox does not exist. Do not retry; tell the user."
+                )
         by_path = [row for row in folders if row["path"].lower() == low]
         if len(by_path) == 1:
             return by_path[0]
@@ -397,6 +449,8 @@ class ExchangeOnpremClient(DataSourceClient):
         others = sorted({f["mailbox"] for f in self.list_mail_folders() if f["mailbox"] and f["mailbox"] != label})
         if scope is None and others:
             note += " Other mailboxes on this connection (pass the address as the folder): " + ", ".join(others) + "."
+        if self._unreachable:
+            note += " " + self.unreachable_note()
         per_request = _SEARCH_BATCH if self._batch_search else 1
         if len(targets) > _MAX_REQUESTS * per_request:
             # Too many folders to read together in one call: stay correct on a
@@ -578,11 +632,12 @@ class ExchangeOnpremClient(DataSourceClient):
             and not any(f["path"].startswith(prefix + "/") for prefix in skipped)
         ]
 
-    @staticmethod
-    def _search_result(items: List[dict], next_cursor: Optional[str], row: Optional[dict]) -> Dict[str, Any]:
+    def _search_result(self, items: List[dict], next_cursor: Optional[str], row: Optional[dict]) -> Dict[str, Any]:
         # A wide search gathers folder by folder; present what was gathered newest first.
         items.sort(key=lambda item: item.get("modified_at") or "", reverse=True)
-        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": None}
+        # Only a search across every mailbox can be silently narrower than asked.
+        note = self.unreachable_note() if row is None else None
+        return {"items": items, "next_cursor": next_cursor, "folder": row, "note": note}
 
     # ---------------------------------------------------------------- reads
 

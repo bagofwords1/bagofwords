@@ -1165,6 +1165,11 @@ class SchemaContextBuilder:
                 from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
                 enforces_scope = False
                 note = planner_scope_note(cfg)
+            if c.type == "exchange_onprem":
+                # Says whose mail this is: one shared service account, or each
+                # user's own sign-in. The tool surface alone cannot tell.
+                from app.data_sources.clients.exchange_onprem_client import planner_scope_note as _mail_note
+                note = _mail_note(cfg, getattr(c, "auth_policy", None) == "user_required")
             try:
                 cap = int(cfg.get("max_catalog_objects") or 0)
             except (TypeError, ValueError):

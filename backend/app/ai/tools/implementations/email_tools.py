@@ -148,7 +148,8 @@ class _MailboxTool(Tool):
                 "output": {"success": True, "connection_id": data.connection_id,
                            "file_count": 0, "files": [], "folders": folders},
                 "observation": {
-                    "summary": f"Mailbox has {len(folders)} folder(s). Pass a path or id as folder_id.",
+                    "summary": f"Mailbox has {len(folders)} folder(s). Pass a path or id as folder_id."
+                               + (f" {result['note']}" if result.get("note") else ""),
                     "details": "\n".join(rows),
                     "success": True,
                 },
@@ -250,7 +251,10 @@ class ListEmailsTool(_MailboxTool):
     async def _call(self, client, data) -> Dict[str, Any]:
         import asyncio
         if data.list_folders:
-            return {"folders": await asyncio.to_thread(client.list_mail_folders)}
+            folders = await asyncio.to_thread(client.list_mail_folders)
+            # A connection spanning several mailboxes says which ones it could not open.
+            note = getattr(client, "unreachable_note", None)
+            return {"folders": folders, "note": await asyncio.to_thread(note) if note else None}
         return await asyncio.to_thread(
             client.list_messages,
             folder=data.folder_id, unread_only=data.unread_only,

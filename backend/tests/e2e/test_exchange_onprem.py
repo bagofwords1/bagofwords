@@ -163,6 +163,19 @@ async def test_agent_mail_tools_work_over_the_connection(exchange, monkeypatch):
 
     folders = await run(ListEmailsTool(), list_folders=True)
     assert f"{SUPPORT}/Inbox/Escalations" in folders["observation"]["details"]
+    assert "NOT reachable" not in folders["observation"]["summary"]
+
+    # A mailbox this identity cannot open is named, never silently skipped.
+    exchange.denied.add(SUPPORT)
+    full, client = client, ExchangeOnpremClient(ews_url=URL, username="CORP\\reader", password="pw",
+                                                shared_mailboxes=SUPPORT)
+    narrowed = await run(ListEmailsTool(), list_folders=True)
+    assert "NOT reachable" in narrowed["observation"]["summary"] and SUPPORT in narrowed["observation"]["summary"]
+    refused_mailbox = await run(ListEmailsTool(), folder_id=SUPPORT)
+    assert refused_mailbox["output"]["success"] is False
+    assert "cannot be opened with this account" in refused_mailbox["output"]["error"]
+    exchange.denied.clear()
+    client = full
 
     listed = await run(ListEmailsTool(), unread_only=True)
     assert listed["output"]["success"] and "Complete" in listed["observation"]["summary"]

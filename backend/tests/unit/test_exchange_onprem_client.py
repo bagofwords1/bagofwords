@@ -209,6 +209,22 @@ def test_a_shared_mailbox_without_access_is_skipped_and_reported(exchange):
     assert outcome["success"] is True and SALES in outcome["message"]
 
 
+def test_an_unreachable_mailbox_is_named_wherever_it_would_be_silently_missing(exchange):
+    """The agent must never conclude it read a mailbox it could not open."""
+    exchange.denied.add(SALES)
+    c = client()
+    assert SALES in c.unreachable_note() and SUPPORT not in c.unreachable_note()
+    assert SALES in c.list_messages()["note"]
+    assert SALES in c.search_messages("revenue")["note"]
+    # A search scoped to one reachable place is not narrower than asked.
+    assert c.search_messages("revenue", folder="Inbox")["note"] is None
+    for call in (lambda: c.list_messages(folder=SALES), lambda: c.search_messages("x", folder=SALES)):
+        with pytest.raises(ValueError) as error:
+            call()
+        assert "cannot be opened with this account" in str(error.value)
+    assert client(shared_mailboxes=SUPPORT).unreachable_note() is None
+
+
 def test_no_reachable_mailbox_is_an_error_not_an_empty_mailbox(exchange):
     exchange.denied.update({SUPPORT, SALES})
     c = client(include_own_mailbox=False)
