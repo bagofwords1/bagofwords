@@ -1728,6 +1728,9 @@
         "unattended": {
           "allowed": "Permitida por la configuración de ejecuciones desatendidas",
           "refused": "No ejecutada: requiere aprobación y nadie está mirando"
+        },
+        "unknownTool": {
+          "refused": "No se ejecutó: esta herramienta no está en la lista de herramientas de la conexión"
         }
       }
     },
@@ -2360,11 +2363,12 @@
       "glob": "Patrón con comodines",
       "hint": "Las reglas coinciden con comandos completos en este directorio. Los permisos por prefijo excluyen operadores y expansiones del shell.",
       "always": "Permitir siempre coincidencias",
-      "session": "Permitir en esta sesión",
+      "session": "Permitir en este informe (8 horas)",
       "mine": "Mis reglas de shell",
       "override": "Estas reglas solo se aplican a ti. Permitir siempre o Denegar siempre de la conexión tiene prioridad.",
       "save": "Guardar reglas",
-      "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo."
+      "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo.",
+      "sessionHint": "Ejecuta los comandos que coincidan en este informe sin preguntar durante las próximas 8 horas."
     },
     "readReport": {
       "window": "mensajes {start}–{end} / {total}",
@@ -3941,12 +3945,19 @@
           "allow": "Permitir"
         },
         "unattendedHints": {
-          "refuse": "Las ejecuciones programadas, de webhook y otras desatendidas omiten las herramientas que preguntarían.",
+          "refuse": "Las ejecuciones programadas, de webhook, de API y otras sin supervisión omiten cualquier herramienta que preguntaría.",
           "settings": "Las herramientas en Automático usan la revisión del modelo; las de Preguntar se omiten.",
-          "allow": "Las herramientas que preguntarían se ejecutan en ejecuciones programadas y de webhook. Los chats en otros canales las siguen omitiendo."
+          "allow": "Las herramientas que preguntarían se ejecutan en las ejecuciones programadas, de webhook y de API. Los chats de otros canales las siguen omitiendo."
         },
         "allowAll": "Permitir \"Permitir todo\"",
-        "allowAllDescription": "Permite que los usuarios desactiven las solicitudes de aprobación en un informe. Solo se aplica a las ejecuciones del propietario mientras mira, y se restablece en cada informe nuevo."
+        "allowAllDescription": "Permite a los usuarios desactivar las solicitudes de aprobación en un informe, o hacerlo el modo predeterminado de los informes nuevos. Solo se aplica a las ejecuciones del propietario del informe mientras las sigue.",
+        "judgeModel": "Modelo para las decisiones automáticas",
+        "judgeModelHint": "Automático usa el modelo de decisión del enrutador cuando el enrutamiento usa uno; si no, el modelo pequeño predeterminado.",
+        "judgeModelOptions": {
+          "automatic": "Automático",
+          "small": "Modelo pequeño predeterminado",
+          "unavailable": "Modelo no disponible"
+        }
       }
     },
     "llms": {
@@ -8188,7 +8199,14 @@
     "updateFailed": "No se pudieron actualizar los permisos",
     "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
     "added": "Miembros añadidos",
-    "addFailed": "No se pudieron añadir los miembros"
+    "addFailed": "No se pudieron añadir los miembros",
+    "permissionCap": {
+      "title": "Límite del modo de permisos",
+      "hint": "Limita el modo de permisos de los informes que usan este agente. Preguntar: cada herramienta sigue su propia configuración. Automático: un modelo puede decidir.",
+      "none": "Sin límite",
+      "ask": "Preguntar",
+      "auto": "Automático"
+    }
   },
   "productUpdates": {
     "checkbox": "Envíame novedades del producto",

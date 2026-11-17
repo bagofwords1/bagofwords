@@ -1642,6 +1642,9 @@
         "unattended": {
           "allowed": "Tillåtet av inställningen för obevakade körningar",
           "refused": "Kördes inte: kräver godkännande och ingen tittar"
+        },
+        "unknownTool": {
+          "refused": "Kördes inte: verktyget finns inte i anslutningens verktygslista"
         }
       }
     },
@@ -2136,11 +2139,12 @@
       "glob": "Jokerteckenmönster",
       "hint": "Regler matchar hela kommandon i denna arbetskatalog. Prefixgodkännanden utesluter skaloperatorer och expansioner.",
       "always": "Tillåt alltid matchningar",
-      "session": "Tillåt för denna session",
+      "session": "Tillåt för den här rapporten (8 timmar)",
       "mine": "Mina skalregler",
       "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
       "save": "Spara regler",
-      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
+      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen.",
+      "sessionHint": "Kör matchande kommandon i den här rapporten utan att fråga under de kommande 8 timmarna."
     },
     "shell": {
       "command": "Skalkommando",
@@ -3548,12 +3552,19 @@
           "allow": "Tillåt"
         },
         "unattendedHints": {
-          "refuse": "Schemalagda, webhook- och andra obevakade körningar hoppar över verktyg som skulle fråga.",
+          "refuse": "Schemalagda körningar, webhook-, API- och andra obevakade körningar hoppar över alla verktyg som skulle fråga.",
           "settings": "Verktyg på Auto granskas av modellen; verktyg på Fråga hoppas över.",
-          "allow": "Verktyg som skulle fråga körs i schemalagda körningar och webhook-körningar. Chattar i andra kanaler hoppar fortfarande över dem."
+          "allow": "Verktyg som skulle fråga körs i schemalagda körningar, webhook- och API-körningar. Chattar i andra kanaler hoppar fortfarande över dem."
         },
         "allowAll": "Tillåt ”Tillåt allt”",
-        "allowAllDescription": "Låter användare stänga av godkännandefrågor för en rapport. Gäller bara rapportägarens egna körningar medan hen tittar, och återställs i varje ny rapport."
+        "allowAllDescription": "Låter användare stänga av godkännandefrågor för en rapport, eller göra det till standard för nya rapporter. Gäller bara rapportägarens egna körningar medan hen tittar.",
+        "judgeModel": "Modell för automatiska beslut",
+        "judgeModelHint": "Automatiskt använder routerns beslutsmodell när routningen använder en, annars den lilla standardmodellen.",
+        "judgeModelOptions": {
+          "automatic": "Automatiskt",
+          "small": "Liten standardmodell",
+          "unavailable": "Modellen är inte tillgänglig"
+        }
       }
     },
     "llms": {
@@ -7360,7 +7371,14 @@
     "updateFailed": "Kunde inte uppdatera behörigheter",
     "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
     "added": "Medlemmar tillagda",
-    "addFailed": "Kunde inte lägga till medlemmar"
+    "addFailed": "Kunde inte lägga till medlemmar",
+    "permissionCap": {
+      "title": "Tak för behörighetsläge",
+      "hint": "Begränsar behörighetsläget för rapporter som använder den här agenten. Fråga: varje verktyg följer sin egen inställning. Auto: en modell kan bestämma.",
+      "none": "Inget tak",
+      "ask": "Fråga",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Skicka produktnyheter till mig",

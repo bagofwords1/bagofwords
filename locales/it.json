@@ -1642,6 +1642,9 @@
         "unattended": {
           "allowed": "Consentito dall'impostazione per le esecuzioni non presidiate",
           "refused": "Non eseguito: serve un'approvazione e nessuno sta guardando"
+        },
+        "unknownTool": {
+          "refused": "Non eseguito: questo strumento non è nell'elenco degli strumenti della connessione"
         }
       }
     },
@@ -2136,11 +2139,12 @@
       "glob": "Schema con caratteri jolly",
       "hint": "Le regole corrispondono a comandi completi in questa directory. I prefissi consentiti escludono operatori ed espansioni della shell.",
       "always": "Consenti sempre le corrispondenze",
-      "session": "Consenti per questa sessione",
+      "session": "Consenti per questo report (8 ore)",
       "mine": "Le mie regole shell",
       "override": "Queste regole valgono solo per te. Consenti sempre o Nega sempre della connessione ha priorità.",
       "save": "Salva regole",
-      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova."
+      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova.",
+      "sessionHint": "Esegue i comandi corrispondenti in questo report senza chiedere per le prossime 8 ore."
     },
     "shell": {
       "command": "Comando shell",
@@ -3548,12 +3552,19 @@
           "allow": "Consenti"
         },
         "unattendedHints": {
-          "refuse": "Le esecuzioni pianificate, via webhook e le altre non presidiate saltano gli strumenti che chiederebbero.",
+          "refuse": "Le esecuzioni pianificate, webhook, API e altre esecuzioni non supervisionate saltano qualsiasi strumento che chiederebbe.",
           "settings": "Gli strumenti in Auto usano la revisione del modello; quelli in Chiedi vengono saltati.",
-          "allow": "Gli strumenti che chiederebbero vengono eseguiti nelle esecuzioni pianificate e via webhook. Le chat su altri canali continuano a saltarli."
+          "allow": "Gli strumenti che chiederebbero vengono eseguiti nelle esecuzioni pianificate, webhook e API. Le chat su altri canali li saltano ancora."
         },
         "allowAll": "Permetti \"Consenti tutto\"",
-        "allowAllDescription": "Consente agli utenti di disattivare le richieste di approvazione in un report. Vale solo per le esecuzioni del proprietario mentre guarda e si azzera a ogni nuovo report."
+        "allowAllDescription": "Consente agli utenti di disattivare le richieste di approvazione per un report, o di renderla la modalità predefinita per i nuovi report. Si applica solo alle esecuzioni del proprietario del report mentre le segue.",
+        "judgeModel": "Modello per le decisioni automatiche",
+        "judgeModelHint": "Automatico usa il modello decisionale del router quando il routing ne usa uno, altrimenti il modello piccolo predefinito.",
+        "judgeModelOptions": {
+          "automatic": "Automatico",
+          "small": "Modello piccolo predefinito",
+          "unavailable": "Modello non disponibile"
+        }
       }
     },
     "llms": {
@@ -7360,7 +7371,14 @@
     "updateFailed": "Impossibile aggiornare i permessi",
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
-    "addFailed": "Impossibile aggiungere i membri"
+    "addFailed": "Impossibile aggiungere i membri",
+    "permissionCap": {
+      "title": "Limite della modalità di autorizzazione",
+      "hint": "Limita la modalità di autorizzazione dei report che usano questo agente. Chiedi: ogni strumento segue la propria impostazione. Auto: un modello può decidere.",
+      "none": "Nessun limite",
+      "ask": "Chiedi",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Inviami gli aggiornamenti del prodotto",

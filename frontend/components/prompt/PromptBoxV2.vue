@@ -1305,20 +1305,24 @@ async function loadRouting() {
         routingOn.value = !!cfg?.model_routing?.value
         const pm = cfg?.tool_permission_mode?.value || {}
         allowAllEnabled.value = pm.allow_all_enabled === true
-        orgPermissionDefault.value = (['ask', 'auto'].includes(pm.default_mode) ? pm.default_mode : 'ask')
+        // Allow all can be the org default only while its switch is on.
+        const defaults = allowAllEnabled.value ? ['ask', 'auto', 'allow_all'] : ['ask', 'auto']
+        orgPermissionDefault.value = (defaults.includes(pm.default_mode) ? pm.default_mode : 'ask')
     } catch {}
 }
 
 // ── Permission mode (Ask / Auto / Allow all) ───────────────────────────────
-// null = follow the org default. Allow all is per report: a new report never
-// inherits it (the landing page starts every report from the default).
+// null = follow the org default (which may be Allow all while its switch is
+// on). The landing page sends a mode only when the user picked one, so a new
+// report starts from the default.
 type PermissionMode = 'ask' | 'auto' | 'allow_all'
 const PERMISSION_MODES = ['ask', 'auto', 'allow_all']
 const asPermissionMode = (v: any): PermissionMode | null => (PERMISSION_MODES.includes(v) ? v : null)
 const permissionMode = ref<PermissionMode | null>(asPermissionMode(props.initialPermissionMode))
 const orgPermissionDefault = ref<PermissionMode>('ask')
 const allowAllEnabled = ref(false)
-const allowAllActive = computed(() => permissionMode.value === 'allow_all' && allowAllEnabled.value)
+// The banner follows the mode the next run uses: the report's own, else the default.
+const allowAllActive = computed(() => (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value)
 
 function selectPermissionMode(m: PermissionMode | null) {
     const previous = permissionMode.value

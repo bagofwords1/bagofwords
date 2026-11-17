@@ -84,7 +84,7 @@
           :disabled="responding" :title="t('tools.mcp.allowForReportHint')" @click="respond(true, true, 'report')"
         >{{ t('tools.mcp.allowForReport') }}</button>
         <UButton v-if="shellPermissions && !mandatoryApproval && confirmation?.arguments?._execution_target?.session_permissions"
-          variant="ghost" size="xs" :disabled="responding" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
+          variant="ghost" size="xs" :disabled="responding" :title="t('tools.remoteShell.sessionHint')" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
         <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
         <button
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
@@ -334,6 +334,9 @@ const autoPolicy = computed(() => {
   if (rj.blocked_by_policy === 'unattended') {
     return { approved: false, reason: '', decided_by: 'unattended_setting' }
   }
+  if (rj.blocked_by_policy === 'unknown_tool') {
+    return { approved: false, reason: '', decided_by: 'rule:unknown_tool' }
+  }
   return null
 })
 
@@ -345,6 +348,7 @@ const DECIDED_BY_KEYS: Record<string, string> = {
   'rule:blocklist': 'blocklist',
   'remembered:report': 'rememberedReport',
   'unattended_setting': 'unattended',
+  'rule:unknown_tool': 'unknownTool',
 }
 const autoPolicyLabel = computed(() => {
   const p = autoPolicy.value as any

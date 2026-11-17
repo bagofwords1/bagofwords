@@ -1642,6 +1642,9 @@
         "unattended": {
           "allowed": "Durch die Einstellung für unbeaufsichtigte Läufe erlaubt",
           "refused": "Nicht ausgeführt: braucht eine Freigabe, niemand schaut zu"
+        },
+        "unknownTool": {
+          "refused": "Nicht ausgeführt: Dieses Tool steht nicht in der Tool-Liste der Verbindung"
         }
       }
     },
@@ -2136,11 +2139,12 @@
       "glob": "Platzhaltermuster",
       "hint": "Regeln gelten für vollständige Befehle in diesem Arbeitsverzeichnis. Präfixfreigaben schließen Shell-Operatoren und Erweiterungen aus.",
       "always": "Passende Befehle immer erlauben",
-      "session": "Für diese Sitzung erlauben",
+      "session": "Für diesen Bericht erlauben (8 Stunden)",
       "mine": "Meine Shell-Regeln",
       "override": "Diese Regeln gelten nur für Sie. Immer erlauben oder Immer verweigern für die Verbindung hat Vorrang.",
       "save": "Regeln speichern",
-      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON."
+      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON.",
+      "sessionHint": "Führt passende Befehle in diesem Bericht für die nächsten 8 Stunden ohne Nachfrage aus."
     },
     "shell": {
       "command": "Shell-Befehl",
@@ -3548,12 +3552,19 @@
           "allow": "Erlauben"
         },
         "unattendedHints": {
-          "refuse": "Geplante, Webhook- und andere unbeaufsichtigte Läufe überspringen Tools, die fragen würden.",
+          "refuse": "Geplante, Webhook-, API- und andere unbeaufsichtigte Ausführungen überspringen jedes Tool, das nachfragen würde.",
           "settings": "Tools auf Automatisch nutzen die Modellprüfung; Tools auf Fragen werden übersprungen.",
-          "allow": "Tools, die fragen würden, laufen in geplanten und Webhook-Läufen. Chats in anderen Kanälen überspringen sie weiterhin."
+          "allow": "Tools, die nachfragen würden, laufen in geplanten, Webhook- und API-Ausführungen. Chats in anderen Kanälen überspringen sie weiterhin."
         },
         "allowAll": "„Alles erlauben“ zulassen",
-        "allowAllDescription": "Nutzer dürfen Freigabeabfragen für einen Bericht abschalten. Gilt nur für eigene Läufe des Berichtsinhabers, während er zuschaut, und wird bei jedem neuen Bericht zurückgesetzt."
+        "allowAllDescription": "Erlaubt Benutzern, Freigabeanfragen für einen Bericht abzuschalten oder dies zum Standard für neue Berichte zu machen. Gilt nur für die eigenen Ausführungen des Berichtsbesitzers, während er zusieht.",
+        "judgeModel": "Modell für Auto-Entscheidungen",
+        "judgeModelHint": "Automatisch nutzt das Entscheidungsmodell des Routers, wenn das Routing eines verwendet, sonst das kleine Standardmodell.",
+        "judgeModelOptions": {
+          "automatic": "Automatisch",
+          "small": "Kleines Standardmodell",
+          "unavailable": "Nicht verfügbares Modell"
+        }
       }
     },
     "llms": {
@@ -7360,7 +7371,14 @@
     "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
     "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
     "added": "Mitglieder hinzugefügt",
-    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden",
+    "permissionCap": {
+      "title": "Obergrenze für den Berechtigungsmodus",
+      "hint": "Begrenzt den Berechtigungsmodus von Berichten, die diesen Agenten nutzen. Fragen: Jedes Tool folgt seiner eigenen Einstellung. Automatisch: Ein Modell kann entscheiden.",
+      "none": "Keine Obergrenze",
+      "ask": "Fragen",
+      "auto": "Automatisch"
+    }
   },
   "productUpdates": {
     "checkbox": "Produkt-Updates an mich senden",

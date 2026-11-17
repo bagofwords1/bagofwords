@@ -30,6 +30,17 @@
                 />
                 <span class="text-xs text-ink-muted">{{ $t(`settings.aiSettingsPage.permissionMode.unattendedHints.${value.unattended}`) }}</span>
             </label>
+            <label class="flex flex-col gap-1">
+                <span class="text-sm text-ink">{{ $t('settings.aiSettingsPage.permissionMode.judgeModel') }}</span>
+                <USelect
+                    :model-value="value.judge_decision_model_id || ''"
+                    :options="judgeModelOptions"
+                    :disabled="disabled || saving"
+                    data-testid="permission-judge-model"
+                    @update:model-value="(v: string) => save({ judge_decision_model_id: v || null })"
+                />
+                <span class="text-xs text-ink-muted">{{ $t('settings.aiSettingsPage.permissionMode.judgeModelHint') }}</span>
+            </label>
         </div>
 
         <div class="flex items-start justify-between gap-4 p-3 rounded-lg border border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/40">
@@ -51,13 +62,18 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 interface PermissionValue {
-    default_mode: 'ask' | 'auto'
+    default_mode: 'ask' | 'auto' | 'allow_all'
     allow_all_enabled: boolean
     unattended: 'refuse' | 'settings' | 'allow'
+    // null = Automatic; 'small' = the small default model only; else a decision model id.
+    judge_decision_model_id: string | null
 }
+
+// Stored value that makes the Auto judge skip every decision model.
+const JUDGE_SMALL_MODEL = 'small'
 
 const props = defineProps<{ feature: any, disabled?: boolean }>()
 const emit = defineEmits<{ (e: 'updated', feature: any): void }>()
@@ -69,13 +85,48 @@ const value = computed<PermissionValue>(() => ({
     default_mode: 'ask',
     allow_all_enabled: false,
     unattended: 'refuse',
+    judge_decision_model_id: null,
     ...(props.feature?.value || {}),
 }))
 
+// Allow all is offered as the default only while its switch is on.
 const defaultModeOptions = computed(() => [
     { value: 'ask', label: t('prompt.permissionMode.modes.ask.label') },
     { value: 'auto', label: t('prompt.permissionMode.modes.auto.label') },
+    ...(value.value.allow_all_enabled ? [{ value: 'allow_all', label: t('prompt.permissionMode.modes.allow_all.label') }] : []),
 ])
+
+// The org's enabled decision models (the same list the LLM settings page reads).
+const decisionModels = ref<{ id: string, name: string }[]>([])
+const decisionModelsLoaded = ref(false)
+onMounted(async () => {
+    try {
+        const { data } = await useMyFetch('/llm/models', { method: 'GET', query: { kind: 'decision' } })
+        const list = Array.isArray(data.value) ? (data.value as any[]) : []
+        decisionModels.value = list.filter(m => m?.is_enabled !== false).map(m => ({ id: String(m.id), name: m.name || m.model_id }))
+    } catch {} finally {
+        decisionModelsLoaded.value = true
+    }
+})
+
+// Automatic ('' in the select, null when saved), each decision model, the small
+// model. A stored model that is no longer enabled shows as unavailable rather
+// than pretending to be Automatic.
+const judgeModelOptions = computed(() => {
+    const stored = value.value.judge_decision_model_id
+    const options = [
+        { value: '', label: t('settings.aiSettingsPage.permissionMode.judgeModelOptions.automatic') },
+        ...decisionModels.value.map(m => ({ value: m.id, label: m.name })),
+        { value: JUDGE_SMALL_MODEL, label: t('settings.aiSettingsPage.permissionMode.judgeModelOptions.small') },
+    ]
+    if (stored && stored !== JUDGE_SMALL_MODEL && !decisionModels.value.some(m => m.id === stored)) {
+        // Until the list arrives the stored id is shown without a name.
+        options.push({ value: stored, label: decisionModelsLoaded.value
+            ? t('settings.aiSettingsPage.permissionMode.judgeModelOptions.unavailable')
+            : '' })
+    }
+    return options
+})
 const unattendedOptions = computed(() => [
     { value: 'refuse', label: t('settings.aiSettingsPage.permissionMode.unattendedOptions.refuse') },
     { value: 'settings', label: t('settings.aiSettingsPage.permissionMode.unattendedOptions.settings') },

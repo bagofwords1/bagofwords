@@ -1642,6 +1642,9 @@
         "unattended": {
           "allowed": "Autorisé par le réglage des exécutions sans surveillance",
           "refused": "Non exécuté : nécessite une approbation et personne ne regarde"
+        },
+        "unknownTool": {
+          "refused": "Non exécuté : cet outil n'est pas dans la liste des outils de la connexion"
         }
       }
     },
@@ -2136,11 +2139,12 @@
       "glob": "Motif générique",
       "hint": "Les règles ciblent des commandes complètes dans ce répertoire. Les préfixes autorisés excluent les opérateurs et expansions du shell.",
       "always": "Toujours autoriser les correspondances",
-      "session": "Autoriser pour cette session",
+      "session": "Autoriser pour ce rapport (8 heures)",
       "mine": "Mes règles shell",
       "override": "Ces règles ne concernent que vous. Toujours autoriser ou Toujours refuser au niveau de la connexion est prioritaire.",
       "save": "Enregistrer les règles",
-      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez."
+      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez.",
+      "sessionHint": "Exécute les commandes correspondantes dans ce rapport sans demander pendant les 8 prochaines heures."
     },
     "shell": {
       "command": "Commande shell",
@@ -3548,12 +3552,19 @@
           "allow": "Autoriser"
         },
         "unattendedHints": {
-          "refuse": "Les exécutions planifiées, par webhook et autres sans surveillance ignorent les outils qui demanderaient.",
+          "refuse": "Les exécutions planifiées, webhook, API et autres exécutions sans surveillance ignorent tout outil qui demanderait une approbation.",
           "settings": "Les outils en Auto passent par l'examen du modèle ; ceux en Demander sont ignorés.",
-          "allow": "Les outils qui demanderaient s'exécutent dans les exécutions planifiées et par webhook. Les discussions sur d'autres canaux les ignorent toujours."
+          "allow": "Les outils qui demanderaient une approbation s'exécutent dans les exécutions planifiées, webhook et API. Les discussions sur d'autres canaux les ignorent toujours."
         },
         "allowAll": "Permettre « Tout autoriser »",
-        "allowAllDescription": "Permet aux utilisateurs de désactiver les demandes d'approbation pour un rapport. S'applique uniquement aux exécutions du propriétaire pendant qu'il regarde, et se réinitialise à chaque nouveau rapport."
+        "allowAllDescription": "Permet aux utilisateurs de désactiver les demandes d'approbation pour un rapport, ou d'en faire le mode par défaut des nouveaux rapports. S'applique uniquement aux exécutions du propriétaire du rapport pendant qu'il les suit.",
+        "judgeModel": "Modèle pour les décisions automatiques",
+        "judgeModelHint": "Automatique utilise le modèle de décision du routeur quand le routage en utilise un, sinon le petit modèle par défaut.",
+        "judgeModelOptions": {
+          "automatic": "Automatique",
+          "small": "Petit modèle par défaut",
+          "unavailable": "Modèle indisponible"
+        }
       }
     },
     "llms": {
@@ -7360,7 +7371,14 @@
     "updateFailed": "Échec de la mise à jour des permissions",
     "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
     "added": "Membres ajoutés",
-    "addFailed": "Échec de l’ajout des membres"
+    "addFailed": "Échec de l’ajout des membres",
+    "permissionCap": {
+      "title": "Plafond du mode d'autorisation",
+      "hint": "Limite le mode d'autorisation des rapports qui utilisent cet agent. Demander : chaque outil suit son propre réglage. Auto : un modèle peut décider.",
+      "none": "Aucun plafond",
+      "ask": "Demander",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "M'envoyer les nouveautés du produit",

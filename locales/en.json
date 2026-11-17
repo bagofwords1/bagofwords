@@ -1826,6 +1826,9 @@
         "unattended": {
           "allowed": "Allowed by the setting for unattended runs",
           "refused": "Not run: needs approval and nobody is watching"
+        },
+        "unknownTool": {
+          "refused": "Not run: this tool is not in the connection's tool list"
         }
       }
     },
@@ -2386,11 +2389,12 @@
       "glob": "Wildcard pattern",
       "hint": "Rules match full commands in this working directory. Prefix allows exclude shell operators and expansion.",
       "always": "Always allow matching",
-      "session": "Allow for this session",
+      "session": "Allow for this report (8 hours)",
       "mine": "My shell rules",
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
-      "failed": "Could not load or save rules. Check the JSON and try again."
+      "failed": "Could not load or save rules. Check the JSON and try again.",
+      "sessionHint": "Runs matching commands in this report without asking for the next 8 hours."
     },
     "readReport": {
       "window": "messages {start}–{end} / {total}",
@@ -4027,12 +4031,19 @@
           "allow": "Allow"
         },
         "unattendedHints": {
-          "refuse": "Scheduled, webhook and other unattended runs skip any tool that would ask.",
+          "refuse": "Scheduled, webhook, API and other unattended runs skip any tool that would ask.",
           "settings": "Tools on Auto use the model review; tools on Ask are skipped.",
-          "allow": "Tools that would ask run in scheduled and webhook runs. Chats on other channels still skip them."
+          "allow": "Tools that would ask run in scheduled, webhook and API runs. Chats on other channels still skip them."
         },
         "allowAll": "Allow \"Allow all\"",
-        "allowAllDescription": "Let users turn off approval prompts for a report. It applies only to the report owner's own runs while they watch, and resets on each new report."
+        "allowAllDescription": "Let users turn off approval prompts for a report, or make it the default for new reports. It applies only to the report owner's own runs while they watch.",
+        "judgeModel": "Model for Auto decisions",
+        "judgeModelHint": "Automatic uses the router's decision model when routing uses one, else the small default model.",
+        "judgeModelOptions": {
+          "automatic": "Automatic",
+          "small": "Small default model",
+          "unavailable": "Unavailable model"
+        }
       }
     },
     "llms": {
@@ -8217,7 +8228,14 @@
     "updateFailed": "Failed to update permissions",
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
-    "addFailed": "Failed to add members"
+    "addFailed": "Failed to add members",
+    "permissionCap": {
+      "title": "Permission mode cap",
+      "hint": "Limits the permission mode of reports that use this agent. Ask: every tool follows its own setting. Auto: a model may decide.",
+      "none": "No cap",
+      "ask": "Ask",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Send me product updates",

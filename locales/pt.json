@@ -1642,6 +1642,9 @@
         "unattended": {
           "allowed": "Permitida pela configuração de execuções sem supervisão",
           "refused": "Não executada: precisa de aprovação e ninguém está olhando"
+        },
+        "unknownTool": {
+          "refused": "Não executado: esta ferramenta não está na lista de ferramentas da conexão"
         }
       }
     },
@@ -2136,11 +2139,12 @@
       "glob": "Padrão com curingas",
       "hint": "As regras correspondem a comandos completos neste diretório. Permissões por prefixo excluem operadores e expansões do shell.",
       "always": "Sempre permitir correspondências",
-      "session": "Permitir nesta sessão",
+      "session": "Permitir neste relatório (8 horas)",
       "mine": "Minhas regras de shell",
       "override": "Estas regras aplicam-se apenas a você. Sempre permitir ou Sempre negar da conexão tem prioridade.",
       "save": "Salvar regras",
-      "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente."
+      "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente.",
+      "sessionHint": "Executa os comandos correspondentes neste relatório sem perguntar pelas próximas 8 horas."
     },
     "shell": {
       "command": "Comando shell",
@@ -3548,12 +3552,19 @@
           "allow": "Permitir"
         },
         "unattendedHints": {
-          "refuse": "Execuções agendadas, por webhook e outras sem supervisão pulam ferramentas que perguntariam.",
+          "refuse": "Execuções agendadas, de webhook, de API e outras sem supervisão pulam qualquer ferramenta que pediria aprovação.",
           "settings": "Ferramentas em Automático passam pela revisão do modelo; as em Perguntar são puladas.",
-          "allow": "Ferramentas que perguntariam são executadas em execuções agendadas e por webhook. Conversas em outros canais continuam pulando-as."
+          "allow": "Ferramentas que pediriam aprovação rodam em execuções agendadas, de webhook e de API. Chats em outros canais continuam pulando-as."
         },
         "allowAll": "Permitir \"Permitir tudo\"",
-        "allowAllDescription": "Permite que os usuários desliguem os pedidos de aprovação em um relatório. Vale só para as execuções do dono enquanto ele acompanha e é redefinido a cada novo relatório."
+        "allowAllDescription": "Permite que os usuários desativem os pedidos de aprovação em um relatório, ou que isso seja o padrão dos novos relatórios. Vale apenas para as execuções do dono do relatório enquanto ele acompanha.",
+        "judgeModel": "Modelo para as decisões automáticas",
+        "judgeModelHint": "Automático usa o modelo de decisão do roteador quando o roteamento usa um; caso contrário, o modelo pequeno padrão.",
+        "judgeModelOptions": {
+          "automatic": "Automático",
+          "small": "Modelo pequeno padrão",
+          "unavailable": "Modelo indisponível"
+        }
       }
     },
     "llms": {
@@ -7360,7 +7371,14 @@
     "updateFailed": "Não foi possível atualizar as permissões",
     "addIncomplete": "Algumas associações ou permissões não foram guardadas. Reveja a lista e tente novamente.",
     "added": "Membros adicionados",
-    "addFailed": "Não foi possível adicionar membros"
+    "addFailed": "Não foi possível adicionar membros",
+    "permissionCap": {
+      "title": "Limite do modo de permissão",
+      "hint": "Limita o modo de permissão dos relatórios que usam este agente. Perguntar: cada ferramenta segue a própria configuração. Automático: um modelo pode decidir.",
+      "none": "Sem limite",
+      "ask": "Perguntar",
+      "auto": "Automático"
+    }
   },
   "productUpdates": {
     "checkbox": "Enviar novidades do produto para mim",
