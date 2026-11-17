@@ -1248,6 +1248,7 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import { isToolRunning } from '~/utils/toolOutcome'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 import { createStreamDeliveryTracker, isBufferedDelivery } from '~/utils/streamDelivery'
@@ -3958,8 +3959,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					const prevTE = existing.tool_execution as any
 					const nextTE = (merged as any).tool_execution
 					if (incomingHasTE && prevTE?.confirmation && nextTE && !nextTE.confirmation &&
-						String(prevTE.id) === String(nextTE.id) &&
-						['running', 'in_progress'].includes(nextTE.status) &&
+						// Same tool: same id, or the client-made placeholder (temp id)
+						// that held the card until the real execution arrived.
+						(String(prevTE.id) === String(nextTE.id) || String(prevTE.id).startsWith('temp-')) &&
+						isToolRunning(nextTE.status) &&
 						(!nextTE.review_state || nextTE.review_state === 'pending')) {
 						nextTE.confirmation = prevTE.confirmation
 						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
@@ -4417,15 +4420,28 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// The confirmation can arrive before the block has a tool_execution
 					// (same race tool.started / tool.progress cover). Dropping it left the
 					// run waiting on a card that never rendered.
-					if (!lastBlock.tool_execution) {
+					// resolveToolEventBlock falls back to the last block when no id
+					// matches. Only build the placeholder on the block the event
+					// names (or, for an event with no block id, a block still in
+					// progress), and never hang the approval on a tool that already
+					// finished: both would draw a card (and a spinner) on an
+					// unrelated row.
+					const te = lastBlock.tool_execution as any
+					const namesBlock = payload.block_id
+						? String(lastBlock.id) === String(payload.block_id)
+						: lastBlock.status === 'in_progress'
+					if (!te && namesBlock) {
 						lastBlock.tool_execution = {
 							id: payload.tool_execution_id || `temp-${Date.now()}`,
 							tool_name: payload.tool_name,
 							status: 'running'
 						}
 					}
-					;(lastBlock.tool_execution as any).confirmation = payload.payload
-					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
+					const target = lastBlock.tool_execution as any
+					if (target && !['success', 'error', 'stopped'].includes(target.status)) {
+						target.confirmation = payload.payload
+						target.progress_stage = 'awaiting_confirmation'
+					}
 				}
 			}
 			break

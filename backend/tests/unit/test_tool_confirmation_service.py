@@ -180,3 +180,19 @@ async def test_confirmation_without_tool_execution_id_falls_back_to_name():
     async with async_session_maker() as db:
         states = await review_states_for_running_tools(db, [(te_id, comp, "create_demo_dataset")])
     assert str(states[te_id]["row"].id) == cid
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("siblings", [2, 3])
+async def test_name_fallback_never_guesses_between_running_calls_of_the_same_tool(siblings):
+    """A row without an execution id cannot say which of several running calls
+    of that tool asked — none of them may be handed the card by guesswork."""
+    from app.services.tool_confirmation_service import review_states_for_running_tools
+    svc = ToolConfirmationService()
+    comp = str(uuid4())
+    await _ask(svc, completion_id=comp, tool_name="create_demo_dataset")
+    running = [(str(uuid4()), comp, "create_demo_dataset") for _ in range(siblings)]
+    async with async_session_maker() as db:
+        states = await review_states_for_running_tools(db, running)
+    assert states == {}
+

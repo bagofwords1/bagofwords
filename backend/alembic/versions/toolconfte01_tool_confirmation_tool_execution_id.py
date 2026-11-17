@@ -23,15 +23,38 @@ branch_labels = None
 depends_on = None
 
 
+TABLE = "tool_confirmations"
+COLUMN = "tool_execution_id"
+INDEX = "ix_tool_confirmations_tool_execution_id"
+
+
+def _columns() -> set:
+    return {c["name"] for c in sa.inspect(op.get_bind()).get_columns(TABLE)}
+
+
+def _indexes() -> set:
+    return {i["name"] for i in sa.inspect(op.get_bind()).get_indexes(TABLE)}
+
+
 def upgrade() -> None:
-    with op.batch_alter_table("tool_confirmations", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("tool_execution_id", sa.String(length=36), nullable=True))
-        batch_op.create_index(
-            "ix_tool_confirmations_tool_execution_id", ["tool_execution_id"], unique=False
-        )
+    # Idempotent: the dashboard test corpus applies this unstamped, so a later
+    # `upgrade head` runs it again.
+    has_column, has_index = COLUMN in _columns(), INDEX in _indexes()
+    if has_column and has_index:
+        return
+    with op.batch_alter_table(TABLE, schema=None) as batch_op:
+        if not has_column:
+            batch_op.add_column(sa.Column(COLUMN, sa.String(length=36), nullable=True))
+        if not has_index:
+            batch_op.create_index(INDEX, [COLUMN], unique=False)
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("tool_confirmations", schema=None) as batch_op:
-        batch_op.drop_index("ix_tool_confirmations_tool_execution_id")
-        batch_op.drop_column("tool_execution_id")
+    has_column, has_index = COLUMN in _columns(), INDEX in _indexes()
+    if not has_column and not has_index:
+        return
+    with op.batch_alter_table(TABLE, schema=None) as batch_op:
+        if has_index:
+            batch_op.drop_index(INDEX)
+        if has_column:
+            batch_op.drop_column(COLUMN)

@@ -186,7 +186,7 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue'
 import RemoteShellTool from '~/components/tools/RemoteShellTool.vue'
-import { toolOutcome } from '~/utils/toolOutcome'
+import { isToolRunning, toolOutcome } from '~/utils/toolOutcome'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -221,7 +221,7 @@ const status = computed(() => props.toolExecution?.status || '')
 // Both mean the tool has not finished — without this, a reloaded tool that
 // is waiting for approval drew a finished-looking header until the next
 // keepalive flipped it to 'running'.
-const isRunning = computed(() => ['running', 'in_progress'].includes(status.value))
+const isRunning = computed(() => isToolRunning(status.value))
 
 // ── 'ask' policy: mid-run approval card ─────────────────────────────
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)

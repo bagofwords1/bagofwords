@@ -236,10 +236,21 @@ async def review_states_for_running_tools(
         else:
             by_name[(str(row.system_completion_id), row.tool_name)] = row
     matched: dict[str, ToolConfirmation] = {}
+    unmatched: dict[tuple[str, str], list[str]] = {}
     for te_id, completion_id, tool_name in running:
-        row = by_te.get(str(te_id)) or by_name.get((str(completion_id), tool_name))
+        row = by_te.get(str(te_id))
         if row is not None:
             matched[str(te_id)] = row
+        else:
+            unmatched.setdefault((str(completion_id), tool_name), []).append(str(te_id))
+    # Name fallback (rows without an execution id) only when it is
+    # unambiguous: with several running calls of the same tool in one
+    # completion, the name cannot say which of them asked, and a guess would
+    # put one call's approval card on another.
+    for key, te_ids in unmatched.items():
+        row = by_name.get(key)
+        if row is not None and len(te_ids) == 1:
+            matched[te_ids[0]] = row
     # The live tool.confirmation event names the connection ("… · Billing
     # API"); rebuild that for a pending MCP card too.
     conn_ids = {
