@@ -1646,7 +1646,7 @@ Do not use when:
             )).scalar_one_or_none()
         except Exception as e:
             logger.warning(f"execute_mcp: reading the report's permission mode failed: {e!r}")
-            return None  # → the org default; never widens past it
+            return "ask"  # fail closed: the org default could be wider than the report's choice
 
     @staticmethod
     def _shell_strict(connection) -> bool:

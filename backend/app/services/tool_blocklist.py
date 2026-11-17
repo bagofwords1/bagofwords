@@ -17,14 +17,17 @@ from typing import Any, Iterable, Optional
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
-# Compared after trailing slashes are stripped ("/etc/" → "/etc", "/" stays).
-_RM_TARGETS = {"/", "/*", "~", "~/*", "*", ".", "./*", "..", "$HOME", "${HOME}", "$HOME/*", "${HOME}/*",
-               "/home", "/root", "/etc", "/usr", "/var", "/boot", "/bin", "/lib", "/opt", "/srv"}
+# Protected roots. A target is compared after trailing "/" and "/*" are
+# stripped, so "/etc/", "/home/*" and "~/*" all count; "*" alone too.
+_RM_ROOTS = {"/", "~", "$HOME", "${HOME}", ".", "..", "*",
+             "/home", "/root", "/etc", "/usr", "/var", "/boot", "/bin", "/lib", "/opt", "/srv"}
 _POWER_PROGRAMS = {"shutdown", "reboot", "halt", "poweroff"}
 _WRAPPERS = {"sudo", "doas", "command", "exec", "nohup", "env", "nice", "time", "timeout", "ionice", "stdbuf", "xargs"}
 # Wrapper options that take a value, so the value is not read as the program.
 _WRAPPER_VALUE_OPTS = {
-    "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"},
+    "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T",
+             "--user", "--group", "--close-from", "--chdir", "--host", "--prompt", "--role", "--type",
+             "--other-user", "--command-timeout"},
     "doas": {"-u", "-C"},
     "nice": {"-n"},
     "ionice": {"-c", "-n", "-p"},
@@ -78,14 +81,32 @@ def _shell_segments(command: str, depth: int = 0) -> list:
     if depth < 3:
         nested = re.findall(r"`([^`]*)`", command) + re.findall(r"\$\(([^()]*)\)", command)
         for seg in list(out):
-            toks = _tokens(seg)
-            for i, t in enumerate(toks[:-1]):
-                # -c, or combined flags such as -lc / -ec.
-                if t.startswith("-") and not t.startswith("--") and "c" in t[1:] and i > 0 and toks[i - 1].rsplit("/", 1)[-1] in ("sh", "bash", "zsh", "dash", "ksh"):
-                    nested.append(toks[i + 1])
+            nested.extend(_nested_bodies(_tokens(seg)))
         for body in nested:
             out.extend(_shell_segments(body, depth + 1))
     return [s.strip() for s in out if s and s.strip()]
+
+
+_SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "su", "runuser"}
+
+
+def _nested_bodies(toks: list) -> list:
+    """Command strings run by a nested shell in this segment: ``bash -l -c X``,
+    ``sh -xc X``, ``su root -c X``, ``su -c X``, ``--command=X``."""
+    bodies = []
+    for i, t in enumerate(toks):
+        if t.rsplit("/", 1)[-1] not in _SHELLS:
+            continue
+        for j in range(i + 1, len(toks)):
+            a = toks[j]
+            if a in ("-c", "--command") or (a.startswith("-") and not a.startswith("--") and "c" in a[1:]):
+                if j + 1 < len(toks):
+                    bodies.append(toks[j + 1])
+                break
+            if a.startswith("--command="):
+                bodies.append(a.split("=", 1)[1])
+                break
+    return bodies
 
 
 def _program(tokens: list) -> tuple:
@@ -102,7 +123,7 @@ def _program(tokens: list) -> tuple:
             t = tokens[i]
             if t in value_opts:
                 i += 2
-            elif t.startswith("-"):
+            elif t.startswith("-"):  # also --user=root style
                 i += 1
             elif base == "env" and "=" in t:
                 i += 1
@@ -128,7 +149,14 @@ def _is_recursive_force_rm(args: list) -> bool:
         return True
     recursive = bool(flags & {"-r", "-R", "--recursive"})
     force = bool(flags & {"-f", "--force"})
-    return recursive and force and any((t.rstrip("/") or "/") in _RM_TARGETS for t in targets)
+    return recursive and force and any(_protected_target(t) for t in targets)
+
+
+def _protected_target(target: str) -> bool:
+    t = target
+    while t.endswith("/*") or (t.endswith("/") and t != "/"):
+        t = t[:-2] if t.endswith("/*") else t[:-1]
+    return (t or "/") in _RM_ROOTS
 
 
 def shell_block_reason(command: str) -> Optional[str]:
@@ -152,23 +180,40 @@ def shell_block_reason(command: str) -> Optional[str]:
 
 # ── SQL / tool names (any connection tool) ──────────────────────────────────
 
-_IDENT = r"[\w\"`\[\].]+"
+# A table name: bare, "quoted", [bracketed] or `backticked`, optionally dotted.
+_NAME = r'(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|[\w$#@]+)'
+_IDENT = _NAME + r"(?:\." + _NAME + r")*"
 # DROP is refused wherever it starts a statement. DELETE-without-WHERE and
 # TRUNCATE are refused only in arguments that hold SQL (by key name) or in a
 # text that is plainly a SQL statement, because "Delete from inbox" or
 # "truncate the axis" are ordinary words elsewhere.
 _SQL_DROP = re.compile(r"^drop\s+(database|schema|table)\b", re.IGNORECASE)
-_SQL_DROP_ANYWHERE = re.compile(r"(^|\s)drop\s+(database|schema|table)\s+(if\s+exists\s+)?" + _IDENT, re.IGNORECASE)
+_SQL_DROP_ANYWHERE = re.compile(r"(^|[\s(\'\"])drop\s+(database|schema|table)\s+(if\s+exists\s+)?" + _IDENT, re.IGNORECASE)
 _SQL_TRUNCATE = re.compile(
     r"^truncate\s+(table\s+)?(only\s+)?" + _IDENT + r"(\s*,\s*" + _IDENT + r")*"
     r"(\s+(cascade|restrict|(restart|continue)\s+identity))*\s*$", re.IGNORECASE)
-# DELETE [FROM] <table> with nothing after it (T-SQL allows dropping FROM).
-_SQL_DELETE = re.compile(r"^delete\s+(from\s+)?(only\s+)?" + _IDENT + r"\s*$", re.IGNORECASE)
+# DELETE FROM <table> with no WHERE (a RETURNING clause doesn't narrow it).
+_SQL_DELETE = re.compile(r"^delete\s+from\s+(only\s+)?" + _IDENT + r"(\s+returning\b.*)?\s*$", re.IGNORECASE | re.DOTALL)
+# T-SQL's FROM-less form ("DELETE orders") reads like plain words ("delete
+# account"), so it is only checked where the argument is certainly SQL.
+_SQL_DELETE_NO_FROM = re.compile(r"^delete\s+(only\s+)?" + _IDENT + r"\s*$", re.IGNORECASE)
+_SQL_TRUNCATE_TABLE = re.compile(r"^truncate\s+table\b", re.IGNORECASE)
 _SQL_START = re.compile(
     r"^\s*(select|with|insert|update|merge|create|alter|exec|execute|begin|declare|use)\b", re.IGNORECASE)
 _SQL_COMMENTS = re.compile(r"(--[^\n]*\n?|/\*.*?\*/)", re.DOTALL)
 _SQL_BATCH_SEP = re.compile(r";|^\s*go\s*$", re.IGNORECASE | re.MULTILINE)
-_SQL_KEYS = {"sql", "query", "statement", "statements", "command", "script", "code", "q", "sql_query", "tsql"}
+# Argument keys that certainly hold SQL vs keys a search tool also uses.
+# Keys are compared lower-cased without "_" / "-" (sqlQuery = sql_query).
+_SQL_SHARED_KEYS = {"query", "q", "command", "script", "code"}
+
+
+def _key_kind(key: str) -> str:
+    k = re.sub(r"[_\-]", "", key.lower())
+    if "sql" in k or k in ("statement", "statements", "stmt", "stmts"):
+        return "sql"
+    if k in _SQL_SHARED_KEYS:
+        return "shared"
+    return "other"
 
 _TOOL_NAME = re.compile(
     r"^(drop|purge|wipe|destroy|nuke)[_-]?(all|database|db|table|schema|everything)"
@@ -177,9 +222,12 @@ _TOOL_NAME = re.compile(
 )
 
 
-def sql_block_reason(text: str, *, sql_context: bool = True) -> Optional[str]:
-    """Why a SQL text is blocked, or None. ``sql_context`` says the text is in
-    an argument meant to hold SQL (enables the DELETE/TRUNCATE rules)."""
+def sql_block_reason(text: str, *, sql_context: Any = True) -> Optional[str]:
+    """Why a SQL text is blocked, or None. ``sql_context``: "sql" (or True)
+    for an argument that certainly holds SQL, "shared" for keys like
+    ``query`` that search tools use too, "other" (or False) for anything
+    else. DROP is checked everywhere; DELETE/TRUNCATE need SQL context."""
+    level = {True: "sql", False: "other"}.get(sql_context, sql_context)
     if not isinstance(text, str) or not text.strip():
         return None
     clean = _SQL_COMMENTS.sub(" ", text)
@@ -193,8 +241,14 @@ def sql_block_reason(text: str, *, sql_context: bool = True) -> Optional[str]:
         # T-SQL batches need no separators: "SELECT 1 DROP TABLE x".
         if batch and _SQL_DROP_ANYWHERE.search(s):
             return "drops a database, schema or table"
-        if sql_context or batch:
+        if level == "sql" or batch:
             if _SQL_TRUNCATE.search(s):
+                return "truncates a table"
+            if _SQL_DELETE.search(s) or _SQL_DELETE_NO_FROM.search(s):
+                return "deletes every row of a table (no WHERE)"
+        elif level == "shared":
+            # Only spellings a search phrase doesn't produce.
+            if _SQL_TRUNCATE_TABLE.search(s) and _SQL_TRUNCATE.search(s):
                 return "truncates a table"
             if _SQL_DELETE.search(s):
                 return "deletes every row of a table (no WHERE)"
@@ -229,7 +283,7 @@ def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False) 
         if reason:
             return reason
     for key, text in _strings(args):
-        reason = sql_block_reason(text, sql_context=key.lower() in _SQL_KEYS)
+        reason = sql_block_reason(text, sql_context=_key_kind(key))
         if reason:
             return reason
     return None

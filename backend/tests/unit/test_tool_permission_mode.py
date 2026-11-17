@@ -19,6 +19,9 @@ from app.services.tool_blocklist import block_reason, shell_block_reason, sql_bl
     "sudo -u root rm -rf /", "timeout 10 rm -rf /", "nice -n 5 rm -rf /", "env X=1 rm -rf /",
     "sudo -u postgres timeout 60s rm -fr /var/", "rm -rf /etc/", "rm -rf /home/", "rm -rf ${HOME}/",
     "find / -print0 | xargs -0 rm -rf /", "sudo -u root shutdown -h now", "timeout 5 reboot",
+    # Wildcards under protected dirs; nested shells behind flags; su -c.
+    "rm -rf /home/*", "rm -rf /var/*", "rm -rf ~/*/", "bash -l -c \"sudo reboot\"", "sh -x -c 'reboot'",
+    "sudo --user root reboot", "sudo --user=root reboot", "su -c \"shutdown -h now\"", "su root -c 'rm -rf /'",
 ])
 def test_destructive_shell_commands_are_blocked(command):
     assert shell_block_reason(command)
@@ -29,6 +32,7 @@ def test_destructive_shell_commands_are_blocked(command):
     "echo shutdown", "grep -r reboot /var/log", "df -h", "dd if=a.img of=b.img",
     "dd if=/dev/sda of=/dev/null bs=1M count=1", "Get-Date -Format H:mm", "systemctl status nginx",
     "sudo -u postgres psql -c 'select 1'", "timeout 10 ls /", "rm -rf /tmp/build/", "env X=1 echo reboot",
+    "rm -rf ./build/*", "rm -rf /var/tmp/cache/*", "su - postgres -c 'psql -l'", "bash -lc 'ls /home'",
 ])
 def test_ordinary_shell_commands_are_not_blocked(command):
     assert shell_block_reason(command) is None
@@ -41,6 +45,8 @@ def test_ordinary_shell_commands_are_not_blocked(command):
     "SELECT 1 DROP TABLE x", "select 1\nGO\ndrop table x", "insert into a values (1); truncate b",
     "TRUNCATE TABLE orders CASCADE", "truncate table a, b", "TRUNCATE ONLY t RESTART IDENTITY",
     "DELETE orders", "delete from only orders",
+    "DELETE FROM orders RETURNING *", 'DELETE FROM "Order Items"', 'TRUNCATE TABLE "Order Items"',
+    "EXEC('DROP TABLE x')", "delete from [dbo].[Order Items]",
 ])
 def test_destructive_sql_is_blocked(sql):
     assert sql_block_reason(sql)
@@ -56,9 +62,20 @@ def test_ordinary_text_and_sql_are_not_blocked(text):
 
 @pytest.mark.parametrize("key,text", [
     ("subject", "Delete from inbox"), ("title", "x; truncate the axis"), ("body", "truncate orders"),
+    # Search tools share keys like query/q with SQL tools: two-word phrases pass.
+    ("query", "delete account"), ("query", "delete user"), ("q", "truncate text"),
+    ("command", "delete branch"),
 ])
 def test_prose_outside_sql_arguments_is_not_blocked(key, text):
     assert block_reason(tool_name="send_message", arguments={key: text}) is None
+
+
+@pytest.mark.parametrize("key,text", [
+    ("sql", "DELETE orders"), ("sqlQuery", "DELETE FROM orders"), ("sql_statement", "truncate orders"),
+    ("query", "DELETE FROM orders"), ("query", "TRUNCATE TABLE orders"), ("q", "DROP TABLE orders"),
+])
+def test_sql_in_sql_and_shared_arguments_is_blocked(key, text):
+    assert block_reason(tool_name="run", arguments={key: text})
 
 
 def test_block_reason_reads_nested_arguments_and_tool_names():
