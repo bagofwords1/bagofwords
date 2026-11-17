@@ -192,3 +192,5 @@ def test_an_edit_by_instruction_sends_the_chart_rules_to_the_model(
     assert len(prompts) == 1, "the model was not asked for the edit"
     for rule in (EDIT_VIZ_PROP_RULE, EDIT_NEW_CHARTS_RULE):
         assert rule in prompts[0], rule[:80]
+    # Rows from no visualization: the rule's own wording of the null viz reaches the model.
+    assert "passes `viz={null}`" in prompts[0]
