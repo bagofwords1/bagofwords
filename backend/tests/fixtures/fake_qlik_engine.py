@@ -195,11 +195,35 @@ class Evaluator:
         self.variables = variables
 
     def expand(self, expr: str) -> str:
+        def variable(match):
+            definition = str(self.variables.get(match.group(1), ""))
+            if definition.startswith("="):
+                resolved = self.reduce(definition[1:], lambda field: None)
+                ok, value = _as_literal(resolved)
+                if not ok:
+                    raise EngineError(-32602, "Fake evaluated variable must resolve to a literal")
+                return str(value)
+            return definition
+
         for _ in range(5):  # nested variables
-            new = _VAR_RE.sub(lambda m: str(self.variables.get(m.group(1), "")), expr)
+            new = _VAR_RE.sub(variable, expr)
             if new == expr:
                 break
             expr = new
+        # Qlik evaluates $(=...) before parsing the containing expression.
+        # Keep this independent of the connector's substitution helpers.
+        for _ in range(32):
+            start = expr.rfind("$(=")
+            if start < 0:
+                break
+            end = _close_paren(expr, start + 1)
+            if end is None:
+                raise EngineError(-32602, "Unclosed dollar expression")
+            resolved = self.reduce(expr[start + 3:end], lambda field: None)
+            ok, value = _as_literal(resolved)
+            if not ok:
+                raise EngineError(-32602, "Fake dollar expression must resolve to a literal")
+            expr = expr[:start] + str(value) + expr[end + 1:]
         return expr
 
     # -- validation (CheckExpression) --------------------------------------

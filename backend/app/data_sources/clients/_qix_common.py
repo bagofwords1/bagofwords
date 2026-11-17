@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import re
+from functools import lru_cache
 from numbers import Real
 import ssl
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -962,7 +963,7 @@ def _literal_value(text: str) -> Tuple[bool, Any]:
         if parsed is None or parsed[1] != len(t) - 1:
             break
         t = t[1:-1].strip()
-    if len(t) >= 2 and t[0] == "'" and t[-1] == "'":
+    if re.fullmatch(r"'(?:[^']|'')*'", t):
         return True, t[1:-1].replace("''", "'")
     try:
         number = float(t)
@@ -1029,6 +1030,7 @@ def _match_index(name: str, args: List[str]) -> Optional[int]:
     return 0
 
 
+@lru_cache(maxsize=2048)
 def simplify_expression(expr: str, max_passes: int = 20) -> str:
     """Collapse branches whose deciding argument is a literal.
 
@@ -1140,13 +1142,132 @@ def substitute_expression(
     return text
 
 
+@lru_cache(maxsize=4096)
+def _direct_variable_dependencies(text: str, known: frozenset) -> Tuple[str, ...]:
+    # A crawl resolves the same definitions for many charts and choices. Cache
+    # parsing by text AND variable names; no app/session values are evaluated.
+    names = expression_drivers(text, known)["variables"]
+    for pattern in (r"\$\(\s*([^()]+?)\s*\)", r"\$\(\s*([^\s(),]+)\s*\("):
+        for match in re.finditer(pattern, text):
+            name = match.group(1).strip()
+            if name in known and name not in names:
+                names.append(name)
+    return tuple(names)
+
+
+def variable_dependencies(expressions: List[str], definitions: Dict[str, str], *, strict: bool = True) -> List[str]:
+    """Transitive dependencies, including quoted dollar expansions and names with hyphens.
+
+    Definitions are text, not values. Never evaluate an aggregate here: calculated
+    variables must still be evaluated by Qlik in the query's selection context.
+    """
+    found: List[str] = []
+    active: set = set()
+
+    def visit(text: str, depth: int) -> None:
+        if depth > 32:
+            if strict:
+                raise ValueError("Qlik variable dependency depth exceeds 32")
+            return
+        names = _direct_variable_dependencies(text, frozenset(definitions))
+        for name in names:
+            if name in active:
+                if strict:
+                    raise ValueError(f"Qlik variable dependency cycle at {name!r}")
+                continue
+            if name in found:
+                continue
+            found.append(name)
+            if name in definitions:
+                active.add(name)
+                visit(definitions[name], depth + 1)
+                active.remove(name)
+
+    for expression in expressions:
+        visit(expression or "", 0)
+    return found
+
+
+def expand_variable_dependencies(expr: str, definitions: Dict[str, str], overrides: Dict[str, Any]) -> str:
+    """Inline only definitions affected by an override, without writing variables.
+
+    An evaluated definition (=...) becomes $(=...), preserving Qlik's evaluation
+    boundary. Other variables stay with the Engine, including parameterized
+    macros and selection-dependent defaults. This also preserves quoted formula
+    factories such as =Pick(vChoice, 'Sum(A)', 'Sum(B)').
+    """
+    variable_dependencies([expr], {**definitions, **{k: "" for k in overrides}})
+    affected = set(overrides)
+    for _ in range(33):
+        extra = {name for name, definition in definitions.items()
+                 if name not in affected
+                 and set(_direct_variable_dependencies(definition, frozenset(definitions) | frozenset(overrides))) & affected}
+        if not extra:
+            break
+        affected.update(extra)
+    else:
+        raise ValueError("Qlik variable dependency depth exceeds 32")
+
+    def expand(text: str, depth: int = 0) -> str:
+        if depth > 32:
+            raise ValueError("Qlik variable dependency depth exceeds 32")
+
+        def dollar(match):
+            name = match.group(1).strip()
+            if name in overrides or name not in affected or name not in definitions:
+                return match.group(0)
+            definition = definitions[name].strip()
+            body = expand(definition[1:] if definition.startswith("=") else definition, depth + 1)
+            return "$(=" + body + ")" if definition.startswith("=") else body
+
+        text = re.sub(r"\$\(\s*([^()]+?)\s*\)", dollar, text)
+        quoted_at = {i for i, _, _, quoted in _scan(text) if quoted}
+        pieces, last = [], 0
+        for match in _IDENT_RE.finditer(text):
+            name = match.group(0)
+            if name not in affected or name in overrides or name not in definitions or match.start() in quoted_at:
+                continue
+            if text[match.end():].lstrip().startswith("("):
+                if text[:match.start()].rstrip().endswith("$("):
+                    raise ValueError(f"Cannot apply an override through parameterized Qlik variable {name!r}")
+                continue
+            if text[:match.start()].rstrip().endswith("$("):
+                continue
+            definition = definitions[name].strip()
+            body = expand(definition[1:] if definition.startswith("=") else definition, depth + 1)
+            pieces += [text[last:match.start()], "(" + body + ")" if definition.startswith("=") else qlik_literal(body)]
+            last = match.end()
+        pieces.append(text[last:])
+        result = "".join(pieces)
+        if len(result) > 1000000:
+            raise ValueError("Expanded Qlik expression exceeds 1 MB")
+        return result
+
+    return expand(expr)
+
+
 def resolve_expression(
     expr: str,
     variables: Optional[Dict[str, Any]] = None,
     field_values: Optional[Dict[str, Any]] = None,
+    variable_definitions: Optional[Dict[str, str]] = None,
 ) -> str:
-    """substitute_expression, then simplify_expression."""
-    return simplify_expression(substitute_expression(expr, variables, field_values))
+    """Expand affected dependencies, substitute choices, and simplify branches."""
+    # The same shared expression appears on many sheets. The key includes
+    # every definition and choice, so a reindex/session with changed definitions
+    # cannot reuse an old expansion. Only text is cached, never evaluated data.
+    return _resolve_expression_cached(
+        expr, tuple((variables or {}).items()), tuple((field_values or {}).items()),
+        tuple((variable_definitions or {}).items()),
+    )
+
+
+@lru_cache(maxsize=1024)
+def _resolve_expression_cached(expr: str, variables: tuple, field_values: tuple, definitions: tuple) -> str:
+    variable_map, fields, definition_map = dict(variables), dict(field_values), dict(definitions)
+    if definition_map and variable_map:
+        expr = expand_variable_dependencies(expr, definition_map, variable_map)
+    return simplify_expression(substitute_expression(expr, variable_map, fields))
 
 
 _SELECTOR_CALLS = ("Only", "GetFieldSelections", "MinString", "MaxString", "GetSelectedCount", "GetPossibleCount")
@@ -1239,7 +1360,26 @@ def summarize_switch(props: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             sets.append({"variable": str(variable_name), "value": None, "freeInput": True})
     if not sets:
         return None
-    label = text_or_expression(props.get("title")) or text_or_expression((props.get("style") or {}).get("label")) or text_or_expression(props.get("label"))
+    for entry in sets:
+        value = entry.get("value")
+        if isinstance(value, dict):
+            expression = text_or_expression(value)
+            ok, literal = _literal_value(expression.lstrip("="))
+            if ok:
+                entry["value"] = literal
+            else:
+                # A Qlik expression-valued control is not a literal choice.
+                # Preserve it for inspection without advertising an invalid
+                # variables={name: {qStringExpression: ...}} execution call.
+                entry.pop("value", None)
+                entry["valueExpression"] = expression
+        if isinstance(entry.get("label"), dict):
+            expression = text_or_expression(entry["label"])
+            entry["label"] = literal_text(expression) or expression
+    style = props.get("style")
+    label = (text_or_expression(props.get("title"))
+             or text_or_expression(style.get("label") if isinstance(style, dict) else None)
+             or text_or_expression(props.get("label")))
     return {
         "id": info.get("qId") or "",
         "type": kind or "switch",
@@ -1270,22 +1410,53 @@ def summary_drivers(summary: Dict[str, Any], known_variables: Optional[set] = No
     return {"variables": variables, "fields": fields}
 
 
-def _resolve_items(items: List[Dict[str, Any]], variables: Dict[str, Any], field_values: Dict[str, Any], kind: str) -> List[Dict[str, Any]]:
+def expression_choices(expressions: List[str], known_variables: set) -> Dict[str, List[Dict[str, Any]]]:
+    """Explicit Pick/Match branches when no readable UI switch lists choices.
+
+    These are expression branches, not a claim about the UI's allowed values.
+    Never invent the value of an If/else branch or parse an arbitrary expression
+    as a selector. Only a single variable (bare or dollar-expanded) qualifies.
+    """
+    choices: Dict[str, List[Dict[str, Any]]] = {}
+    for expression in expressions:
+        for _, _, function, args in _find_calls(expression, ("Pick", "Match", "MixMatch")):
+            if len(args) < 2:
+                continue
+            selector = args[0].strip()
+            if selector.startswith("$(") and selector.endswith(")"):
+                selector = selector[2:-1].strip()
+            if selector not in known_variables:
+                continue
+            if function.lower() == "pick":
+                values = list(range(1, len(args)))
+            else:
+                literals = [_literal_value(arg) for arg in args[1:]]
+                if not all(ok for ok, _ in literals):
+                    continue
+                values = [value for _, value in literals]
+            bucket = choices.setdefault(selector, [])
+            for value in values:
+                if not any(c["value"] == value for c in bucket):
+                    bucket.append({"value": value, "label": "expression branch; UI choice not verified"})
+    return choices
+
+
+def _resolve_items(items: List[Dict[str, Any]], variables: Dict[str, Any], field_values: Dict[str, Any], kind: str, definitions: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
     """Resolve one option: substitute, collapse, and drop columns it hides."""
     out = []
     for item in items:
         shown = item.get("showWhen")
         if shown:
-            decided = _decide_comparison(resolve_expression(shown, variables, field_values))
+            decided = _decide_comparison(resolve_expression(shown, variables, field_values, definitions))
             if decided is False:
                 continue
-        label = resolve_expression(item.get("label") or "", variables, field_values)
+        label = resolve_expression(item.get("label") or "", variables, field_values, definitions)
         resolved = {"label": literal_text(label) or label or None}
         if kind == "measure":
-            resolved["expression"] = resolve_expression(item.get("expression") or "", variables, field_values)
+            resolved["expression"] = resolve_expression(item.get("expression") or "", variables, field_values, definitions)
         else:
             field = item.get("field") or ""
-            resolved["field"] = resolve_expression(field, variables, field_values) if field.startswith("=") else field
+            resolved["field"] = resolve_expression(field, variables, field_values, definitions) if field.startswith("=") else field
             if item.get("master"):
                 resolved["master"] = item["master"]
         out.append({k: v for k, v in resolved.items() if v})
@@ -1297,7 +1468,8 @@ def object_options(
     variable_choices: Dict[str, List[Dict[str, Any]]],
     islands: Dict[str, Dict[str, Any]],
     known_variables: Optional[set] = None,
-    max_options: int = 12,
+    max_options: Optional[int] = None,
+    variable_definitions: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """The explicit formulas an object shows under each user choice.
 
@@ -1311,6 +1483,8 @@ def object_options(
     `{"variables": {...}}` or `{"filters": {field: [value]}}`.
     """
     drivers = summary_drivers(summary, known_variables)
+    if variable_definitions:
+        drivers["variables"] = variable_dependencies(_summary_expressions(summary), variable_definitions)
     options: List[Dict[str, Any]] = []
     for variable in drivers["variables"]:
         for choice in variable_choices.get(variable) or []:
@@ -1322,8 +1496,8 @@ def object_options(
                 "when": f"{variable}={qlik_literal(value)}",
                 "label": choice.get("label"),
                 "run": {"variables": values},
-                "dimensions": _resolve_items(summary.get("dimensions") or [], values, {}, "dimension"),
-                "measures": _resolve_items(summary.get("measures") or [], values, {}, "measure"),
+                "dimensions": _resolve_items(summary.get("dimensions") or [], values, {}, "dimension", variable_definitions),
+                "measures": _resolve_items(summary.get("measures") or [], values, {}, "measure", variable_definitions),
             })
     seen_islands: set = set()
     for field in drivers["fields"]:
@@ -1341,7 +1515,7 @@ def object_options(
                 "dimensions": _resolve_items(summary.get("dimensions") or [], {}, row, "dimension"),
                 "measures": _resolve_items(summary.get("measures") or [], {}, row, "measure"),
             })
-    return options[:max_options]
+    return options if max_options is None else options[:max_options]
 
 
 def describe_options(options: List[Dict[str, Any]], object_id: str) -> str:
@@ -1365,7 +1539,27 @@ def describe_options(options: List[Dict[str, Any]], object_id: str) -> str:
             f"when {option['when']}{label}: " + (f"by {dims}: " if dims else "") + measures
             + f" [execute_query(object_id='{object_id}', {how})]"
         )
-    return "DYNAMIC — what it shows depends on a user choice; " + " | ".join(parts)
+    description = "DYNAMIC — what it shows depends on a user choice; " + " | ".join(parts)
+    if len(description) <= 4000:
+        return description
+
+    # Do not repeat a large expanded formula for every control on every chart.
+    # The original chart expression and complete variable definitions remain
+    # in the catalog. Preserve ALL choices and executable arguments here.
+    compact = []
+    for option in options:
+        label = f" ({option['label']})" if option.get("label") else ""
+        run = option.get("run") or {}
+        how = ", ".join(f"{key}={json.dumps(value, ensure_ascii=False)}" for key, value in run.items())
+        expressions = "; ".join(m.get("expression", "") for m in option.get("measures") or [])
+        formula = f" => {expressions}" if expressions and len(expressions) <= 200 else ""
+        compact.append(f"when {option['when']}{label}: {how}{formula}")
+    return (
+        f"DYNAMIC — execute_query(object_id='{object_id}', <choice arguments below>). "
+        "Uses the original chart formulas under each override; full variable definitions are in Master Items. "
+        "Long expanded formulas are referenced, not repeated; column conditions still apply. "
+        + " | ".join(compact)
+    )
 
 
 def decide_condition(expr: str) -> Optional[bool]:
