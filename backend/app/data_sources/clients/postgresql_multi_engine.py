@@ -2,7 +2,7 @@ import hashlib
 import json
 import os
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from time import monotonic
 
 import duckdb
@@ -23,7 +23,7 @@ class PgConn:
     host: str
     port: int
     user: str
-    password: str
+    password: str = field(repr=False)
     sslmode: str
 
 
@@ -103,7 +103,8 @@ def build_engine(
         _load_postgres_extension(con)
         con.execute(f"SET memory_limit = {_sql_literal(memory_limit)}")
         con.execute(f"SET threads = {int(threads)}")
-        con.execute(f"SET pg_connection_limit = {int(pg_connection_limit)}")
+        con.execute(f"SET pg_pool_max_connections = {int(pg_connection_limit)}")
+        con.execute("SET pg_pool_acquire_mode = 'wait'")
         _create_secret(con, conn)
 
         failures: dict[str, str] = {}
@@ -157,6 +158,7 @@ def build_engine(
 _cache: dict[str, tuple[TenantEngine, float]] = {}
 _cache_lock = threading.Lock()
 _build_locks: dict[str, threading.Lock] = {}
+_generation = 0
 
 
 def _cache_key(conn: PgConn, views: dict[str, list[str]]) -> str:
@@ -168,7 +170,6 @@ def _cache_key(conn: PgConn, views: dict[str, list[str]]) -> str:
 
 
 def _drop_expired(now: float) -> None:
-    # Expired engines are dropped, not closed: queries still running on their cursors keep them alive.
     for key in [k for k, (_, expires_at) in _cache.items() if expires_at <= now]:
         del _cache[key]
 
@@ -181,8 +182,9 @@ def get_engine(conn: PgConn, views: dict[str, list[str]], ttl_seconds: int = 600
         with _cache_lock:
             _drop_expired(monotonic())
             cached = _cache.get(key)
-        if cached:
-            return cached[0]
+            if cached:
+                return cached[0]
+            generation = _generation
         engine = build_engine(
             conn,
             views,
@@ -192,13 +194,15 @@ def get_engine(conn: PgConn, views: dict[str, list[str]], ttl_seconds: int = 600
             pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
         )
         with _cache_lock:
-            _cache[key] = (engine, monotonic() + ttl_seconds)
+            if generation == _generation:
+                _cache[key] = (engine, monotonic() + ttl_seconds)
         return engine
 
 
 def invalidate_engines() -> None:
+    # Engines are dropped, not closed: queries still running on their cursors keep them alive.
+    global _generation
     with _cache_lock:
-        engines = [engine for engine, _ in _cache.values()]
+        _generation += 1
         _cache.clear()
-    for engine in engines:
-        engine.close()
+        _build_locks.clear()

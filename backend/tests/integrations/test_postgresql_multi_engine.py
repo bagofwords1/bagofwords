@@ -190,12 +190,79 @@ def test_engine_refuses_attach_and_file_reads_after_build(engine, multi_tenant_s
         " AS sneaky (TYPE postgres, READ_ONLY)"
     )
 
-    with pytest.raises(duckdb.Error):
+    with pytest.raises(duckdb.PermissionException, match="disabled"):
         cur.execute(attach)
-    with pytest.raises(duckdb.Error):
+    with pytest.raises(duckdb.PermissionException, match="disabled"):
         cur.execute("SELECT * FROM read_csv('/etc/hosts')")
-    with pytest.raises(duckdb.Error):
+    with pytest.raises(duckdb.InvalidInputException, match="locked"):
         cur.execute("SET enable_external_access = true")
+
+
+def test_connection_repr_hides_password(multi_tenant_server):
+    conn = _reader(multi_tenant_server, password="Repr-Hidden-77")
+
+    assert "Repr-Hidden-77" not in repr(conn)
+    assert multi_tenant_server.reader_user in repr(conn)
+
+
+def test_concurrent_queries_stay_within_connection_cap_per_tenant(multi_tenant_server):
+    cap = 2
+    slow_view = "slow_orders_cap"
+    for tenant in READABLE_TENANTS:
+        conn = multi_tenant_server.connect(tenant)
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"CREATE VIEW public.{slow_view} AS SELECT o.* FROM public.orders o, pg_sleep(0.4)")
+                cur.execute(f"GRANT SELECT ON public.{slow_view} TO {multi_tenant_server.reader_user}")
+            conn.commit()
+        finally:
+            conn.close()
+
+    built = build_engine(
+        _reader(multi_tenant_server),
+        {f"public.{slow_view}": READABLE_TENANTS},
+        statement_timeout_ms=60_000,
+        memory_limit="512MB",
+        threads=4,
+        pg_connection_limit=cap,
+    )
+    settings = dict(built.cursor().execute(
+        "SELECT name, value FROM duckdb_settings() WHERE name IN ('pg_pool_max_connections', 'pg_pool_acquire_mode')"
+    ).fetchall())
+    assert settings == {"pg_pool_max_connections": str(cap), "pg_pool_acquire_mode": "wait"}
+
+    errors: list[BaseException] = []
+
+    def run_query():
+        try:
+            built.cursor().execute(f"SELECT tenant_db, count(*) FROM public.{slow_view} GROUP BY 1").fetchall()
+        except BaseException as exc:
+            errors.append(exc)
+
+    workers = [threading.Thread(target=run_query) for _ in range(3 * cap)]
+    peak: dict[str, int] = {}
+    monitor = multi_tenant_server.connect("postgres")
+    monitor.autocommit = True
+    try:
+        for w in workers:
+            w.start()
+        with monitor.cursor() as cur:
+            while any(w.is_alive() for w in workers):
+                cur.execute(
+                    "SELECT datname, count(*) FROM pg_stat_activity WHERE usename = %s GROUP BY 1",
+                    [multi_tenant_server.reader_user],
+                )
+                for datname, count in cur.fetchall():
+                    peak[datname] = max(peak.get(datname, 0), count)
+        for w in workers:
+            w.join()
+    finally:
+        monitor.close()
+        built.close()
+
+    assert errors == []
+    assert set(peak) == set(READABLE_TENANTS)
+    assert max(peak.values()) <= cap, peak
 
 
 def test_password_not_in_error_text(multi_tenant_server):
@@ -237,7 +304,7 @@ def test_statement_timeout_reaches_postgres(multi_tenant_server):
     built = _build(multi_tenant_server, views={"public.slow": [slow]}, statement_timeout_ms=300)
     try:
         assert built.failed_tenants == []
-        with pytest.raises(duckdb.Error):
+        with pytest.raises(duckdb.Error, match="(?i)statement timeout|cancel"):
             built.cursor().execute("SELECT * FROM public.slow").fetchall()
     finally:
         built.close()
@@ -280,9 +347,10 @@ def test_get_engine_rebuilds_after_invalidate_and_ttl(multi_tenant_server, monke
     monkeypatch.setattr(engine_module, "monotonic", lambda: clock[0])
 
     first = get_engine(conn, views, ttl_seconds=60)
+    held = first.cursor()
     invalidate_engines()
-    with pytest.raises(duckdb.Error):
-        first.cursor()
+    assert held.execute("SELECT count(*) FROM public.users").fetchone()[0] == len(TENANT_ROWS["tenant_a"]["users"])
+    assert first.cursor().execute("SELECT count(*) FROM public.users").fetchone()[0] > 0
     second = get_engine(conn, views, ttl_seconds=60)
     assert second is not first
 
@@ -294,6 +362,25 @@ def test_get_engine_rebuilds_after_invalidate_and_ttl(multi_tenant_server, monke
     assert third.cursor().execute("SELECT count(*) FROM public.users").fetchone()[0] == len(
         TENANT_ROWS["tenant_a"]["users"]
     )
+
+
+def test_build_interrupted_by_invalidate_is_not_cached(multi_tenant_server, monkeypatch):
+    conn = _reader(multi_tenant_server)
+    views = {"public.users": ["tenant_a"]}
+    real_build = engine_module.build_engine
+
+    def build_then_reindex(*args, **kwargs):
+        built = real_build(*args, **kwargs)
+        invalidate_engines()
+        return built
+
+    monkeypatch.setattr(engine_module, "build_engine", build_then_reindex)
+    stale = get_engine(conn, views)
+    monkeypatch.setattr(engine_module, "build_engine", real_build)
+
+    fresh = get_engine(conn, views)
+    assert fresh is not stale
+    assert get_engine(conn, views) is fresh
 
 
 def test_extension_directory_without_postgres_extension_fails_offline(multi_tenant_server, monkeypatch, tmp_path):
