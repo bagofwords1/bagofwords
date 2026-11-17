@@ -91,6 +91,54 @@ def test_a_wrong_field_is_still_flagged_next_to_unrelated_parameters():
     assert len(chart_prop_errors(code, DATA)) == 1
 
 
+# A chart without a viz has no ⓘ (and without rows it draws an error box), so
+# the page check asks for the viz its rows come from.
+
+def test_a_chart_without_a_viz_is_flagged():
+    for chart in (
+        '<TrendChart rows={byMonth} x="month" y="total" unit="currency" />',
+        '<RankChart rows={byRep}\n  label="rep" value="total" onClick={p => setSel(p.label)} />',
+        '<TrendChart x="month" y="revenue" />',
+    ):
+        errs = chart_prop_errors(page(chart), DATA)
+        assert len(errs) == 1, chart
+        assert errs[0].startswith("[chart] <" + chart[1:chart.index(" ")] + ">")
+        assert "viz={vizById(" in errs[0]
+
+
+def test_a_chart_with_a_viz_prop_or_a_spread_is_not_flagged_for_its_viz():
+    for chart in (
+        '<TrendChart viz={sales} rows={byMonth} x="month" y="total" />',
+        f'<RankChart viz={{vizById("{VID}")}} label="rep" value="revenue" />',
+        '<TrendChart viz={vizById("9f2a1b4c-5d6e-4f70-8a9b-0c1d2e3f4a5b")} x="day" y="orders" />',
+        '<TrendChart {...common} x="month" y="revenue" />',
+    ):
+        assert chart_prop_errors(page(chart), DATA) == [], chart
+
+
+def test_a_chart_named_in_a_comment_or_a_string_is_not_flagged():
+    code = page(
+        '{/* <TrendChart rows={old} x="month" y="total" /> */}'
+        '<p title="<RankChart> ranks">x</p>'
+    ) + '\n// <RankChart rows={r} label="a" value="b" />'
+    assert chart_prop_errors(code, DATA) == []
+
+
+def test_an_edit_flags_only_the_charts_without_a_viz_it_adds():
+    before = page('<TrendChart rows={byMonth} x="month" y="total" />')
+    kept = page('<h1>Sales</h1><TrendChart rows={byMonth} x="month" y="total" />')
+    assert chart_prop_errors(kept, DATA, previous_code=before) == []
+    added = page('<TrendChart rows={byMonth} x="month" y="total" /><RankChart rows={byRep} label="rep" value="total" />')
+    errs = chart_prop_errors(added, DATA, previous_code=before)
+    assert len(errs) == 1 and errs[0].startswith("[chart] <RankChart>")
+    twice = page('<TrendChart rows={byMonth} x="month" y="total" /><TrendChart rows={byMonth} x="month" y="total" />')
+    assert len(chart_prop_errors(twice, DATA, previous_code=before)) == 1
+
+
+def test_older_runtimes_are_not_checked_for_a_viz():
+    assert chart_prop_errors(page('<TrendChart rows={r} x="m" y="v" />'), {**DATA, "runtime": {"version": 10}}) == []
+
+
 def test_the_edit_gate_runs_every_page_check_the_create_gate_runs():
     """A page edited mechanically must pass the same deterministic checks as a new one."""
     import re

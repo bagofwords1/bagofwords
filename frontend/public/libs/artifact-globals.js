@@ -2245,7 +2245,8 @@ function _dtDetectDir(cols, rows) {
     props = props || {};
     var viz = props.viz;
     var L = _chLabels(lang, props.labels);
-    if (!viz) return { error: 'TrendChart needs viz={vizById("…")}.' };
+    // Rows alone are enough to draw; the viz adds the ⓘ and is the rows' fallback.
+    if (!viz && !Array.isArray(props.rows)) return { error: 'TrendChart needs viz={vizById("…")} or rows.' };
     var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var fields = _chFields(props, rows, viz);
     var ys = Array.isArray(props.y) ? props.y.slice() : (props.y != null ? [props.y] : []);
@@ -2407,7 +2408,8 @@ function _dtDetectDir(cols, rows) {
     props = props || {};
     var viz = props.viz;
     var L = _chLabels(lang, props.labels);
-    if (!viz) return { error: 'RankChart needs viz={vizById("…")}.' };
+    // Rows alone are enough to draw; the viz adds the ⓘ and is the rows' fallback.
+    if (!viz && !Array.isArray(props.rows)) return { error: 'RankChart needs viz={vizById("…")} or rows.' };
     var rows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var fields = _chFields(props, rows, viz);
     if (props.label == null || props.value == null) return _chErr('RankChart needs label and value.', fields);

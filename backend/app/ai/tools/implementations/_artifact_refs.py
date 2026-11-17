@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 VIZ_POSITIONAL_RE = re.compile(r"\bviz\[(\d+)\]")
@@ -743,13 +744,67 @@ def _function_param_names(src: str) -> set:
     return found
 
 
-def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
-    """TrendChart/RankChart field props must name columns of their viz.
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
 
-    Checked only where the chart provably draws the viz's own rows: no ``rows``
-    prop, or ``rows={v.rows}`` / ``rows={filterRows(v.rows…)}`` for the same viz.
-    Derived rows, expression props and a viz that can't be resolved are skipped,
-    so a correct chart is never flagged. Runtime 11+ only, like design_errors.
+
+def _has_spread_attr(body: str) -> bool:
+    """Whether a JSX tag body has a top-level ``{...props}`` attribute."""
+    depth, quote, i = 0, None, 0
+    while i < len(body):
+        ch = body[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "\"'`":
+            quote = ch
+        elif ch == "{":
+            if depth == 0 and body[i + 1:].lstrip().startswith("..."):
+                return True
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        i += 1
+    return False
+
+
+def _charts_without_viz(src: str) -> List[Tuple[str, str]]:
+    """(component, tag text with whitespace collapsed) of each chart with no ``viz`` prop.
+
+    Tags inside a comment or a string, and tags with a ``{...spread}`` that may
+    carry the viz, are left out.
+    """
+    comments = [m.span() for m in _BLOCK_COMMENT_RE.finditer(src)]
+    found: List[Tuple[str, str]] = []
+    for m in _CHART_TAG_RE.finditer(src):
+        start = m.start()
+        if any(a <= start < b for a, b in comments):
+            continue
+        line_start = src.rfind("\n", 0, start) + 1
+        line_end = src.find("\n", start)
+        if _inside_string_or_comment(src[line_start:line_end if line_end >= 0 else len(src)], start - line_start):
+            continue
+        body = _jsx_tag_body(src, start)
+        if _jsx_prop(body, "viz") is not None or _has_spread_attr(body):
+            continue
+        found.append((m.group(1), " ".join(body.split())))
+    return found
+
+
+def chart_prop_errors(code: str, artifact_data: Dict[str, Any], *, previous_code: Optional[str] = None) -> List[str]:
+    """TrendChart/RankChart must name their viz, and field props its columns.
+
+    A chart without a ``viz`` prop has no ⓘ, and without ``rows`` it draws an
+    error box. ``previous_code`` (an edit) leaves the viz-less charts the page
+    already had alone, so only the ones an edit adds are flagged.
+
+    Field props are checked only where the chart provably draws the viz's own
+    rows: no ``rows`` prop, or ``rows={v.rows}`` / ``rows={filterRows(v.rows…)}``
+    for the same viz. Derived rows, expression props and a viz that can't be
+    resolved are skipped, so a correct chart is never flagged. Runtime 11+ only,
+    like design_errors.
     """
     runtime = (artifact_data or {}).get("runtime") or {}
     try:
@@ -773,6 +828,18 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     params = _function_param_names(src)
     names = {k: next(iter(v)) for k, v in seen.items() if len(v) == 1 and k not in params}
     errors: List[str] = []
+    existing = Counter(tag for _, tag in _charts_without_viz(previous_code or ""))
+    for comp, tag in _charts_without_viz(src):
+        if existing[tag] > 0:
+            existing[tag] -= 1
+            continue
+        shown = tag if len(tag) <= 120 else tag[:119] + "…"
+        drawn = "" if _jsx_prop(tag, "rows") is not None else " and draws an error box instead of a chart"
+        errors.append(
+            f"[chart] <{comp}> has no viz prop ({shown}), so it has no ⓘ{drawn}. "
+            f"Pass viz={{vizById(\"<uuid>\")}} for the visualization its rows come from; "
+            "keep rows= for filtered or derived rows."
+        )
     for m in _CHART_TAG_RE.finditer(src):
         comp = m.group(1)
         body = _jsx_tag_body(src, m.start())

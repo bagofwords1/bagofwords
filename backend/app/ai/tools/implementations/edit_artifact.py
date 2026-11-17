@@ -390,7 +390,7 @@ class EditArtifactTool(Tool):
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
-            gate_errors += chart_prop_errors(new_code, artifact_data)
+            gate_errors += chart_prop_errors(new_code, artifact_data, previous_code=code)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
