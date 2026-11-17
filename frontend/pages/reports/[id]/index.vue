@@ -310,6 +310,19 @@
 												{{ copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy') }}
 											</button>
 										</UTooltip>
+										<!-- Rerun: same prompt as a new turn at the bottom (mentions, files, mode, model).
+										     While a run is active it goes to the queue instead of a parallel run. -->
+										<UTooltip v-if="canRerunPrompt(m)" :text="isRunBusy ? responseT('reportView.rerunQueuedTooltip') : responseT('reportView.rerunTooltip')" :popper="{ placement: 'bottom' }">
+											<button
+												type="button"
+												data-testid="user-message-rerun"
+												@click="rerunPrompt(m)"
+												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
+											>
+												<Icon name="heroicons-arrow-path" class="w-3 h-3" />
+												{{ responseT('reportView.rerun') }}
+											</button>
+										</UTooltip>
 										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
@@ -1319,7 +1332,7 @@ interface ChatMessage {
 	status?: ChatStatus
 	// LLM model id used for this completion (e.g. "claude-sonnet-4-6"); drives the avatar brand overlay
 	model?: string | null
-	prompt?: { content?: string; mentions?: Array<{ name: string; items: any[] }>; response_locale?: string; reasoning_effort?: string }
+	prompt?: { content?: string; mentions?: Array<{ name: string; items: any[] }>; response_locale?: string; reasoning_effort?: string; mode?: string; model_id?: string | null; file_ids?: string[] }
 	completion_blocks?: CompletionBlock[]
 	tool_calls?: ToolCall[]
 	created_at?: string
@@ -5579,7 +5592,7 @@ function pinDispatchedQueuedPrompts() {
 
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
-async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; file_ids?: string[] }) {
 	const text = data.text.trim()
 	if (!text) return
 	try {
@@ -5595,6 +5608,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
 					artifact_version_id: openVersion.value?.version_id || null,
+					file_ids: data.file_ids?.length ? data.file_ids : undefined,
 				},
 				queue: true
 			})
@@ -5607,6 +5621,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 				role: 'user',
 				status: (created.status || 'queued') as ChatStatus,
 				prompt: created.prompt,
+				files: created.files || [],
 				created_at: created.created_at,
 			})
 		}
@@ -5667,6 +5682,35 @@ async function onRemoveQueuedPrompt(queuedId: string) {
 function openTraceModal(completionId: string) {
 	selectedCompletionForTrace.value = completionId
 	showTraceModal.value = true
+}
+
+// A run is active (streamed here, resumed after refresh, or started elsewhere):
+// a new prompt goes to the queue, the same way the prompt box behaves.
+const isRunBusy = computed(() => isStreaming.value || isCompletionInProgress.value || hasInProgressCompletion.value)
+
+function canRerunPrompt(m: ChatMessage) {
+	return !!report.value && isReportOwner.value
+		&& m.status !== 'queued'
+		&& !!(m.prompt?.content || '').trim()
+}
+
+// Rerun: send the same prompt again as a new turn at the bottom, with its
+// mentions, attached files, mode, model and reasoning effort.
+function rerunPrompt(m: ChatMessage) {
+	if (!canRerunPrompt(m)) return
+	const p = m.prompt || {}
+	const files = (m.files || []).map(f => ({ id: f.id, filename: f.filename, content_type: f.content_type }))
+	const payload = {
+		text: p.content || '',
+		mentions: p.mentions || [],
+		mode: p.mode || currentPromptMode.value,
+		model_id: p.model_id || undefined,
+		reasoning_effort: p.reasoning_effort || null,
+		files,
+		file_ids: files.map(f => String(f.id)),
+	}
+	if (isRunBusy.value) onQueuePrompt(payload)
+	else onSubmitCompletion(payload)
 }
 
 function handleExampleClick(starter: string) {
@@ -5738,7 +5782,7 @@ function createSystemPlaceholder(id: string, model?: string, effort?: string | n
 		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[]; file_ids?: string[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -5780,6 +5824,8 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
 			artifact_version_id: openVersion.value?.version_id || null,
+			// Rerun: the earlier turn's attachments (report files) ride along.
+			file_ids: data.file_ids?.length ? data.file_ids : undefined,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
 				sheetName: excelSelection.value.sheetName,
