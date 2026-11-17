@@ -55,7 +55,8 @@ const props = defineProps<{
     allowAllEnabled: boolean
     compact?: boolean
 }>()
-const emit = defineEmits<{ (e: 'update:modelValue', v: Mode): void }>()
+// null = follow the org default again.
+const emit = defineEmits<{ (e: 'update:modelValue', v: Mode | null): void }>()
 const { t } = useI18n()
 
 const popper = { strategy: 'absolute' as const, placement: 'top-start' as const, offset: [0, 8] }
@@ -87,7 +88,10 @@ function iconClass(m: Mode) {
     return m === 'allow_all' ? 'text-amber-500' : m === 'auto' ? 'text-blue-500' : 'text-gray-400'
 }
 
+// Picking the org's default mode clears the report's own choice, so the
+// report keeps following the default if an admin changes it later.
 function pick(m: Mode) {
-    if (m !== props.modelValue) emit('update:modelValue', m)
+    const next = m === props.orgDefault ? null : m
+    if (next !== props.modelValue) emit('update:modelValue', next)
 }
 </script>

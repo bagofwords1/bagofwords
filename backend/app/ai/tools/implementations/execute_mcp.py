@@ -741,7 +741,8 @@ Do not use when:
                     resource_id=str(report.id) if report else None,
                     details={"tool": "execute_mcp", "tool_name": data.tool_name,
                              "connection_id": str(connection.id), "approved": False,
-                             "reason": blocked, "decided_by": "rule:blocklist"},
+                             "reason": blocked, "decided_by": "rule:blocklist",  # = tool_permission_mode.BY_BLOCKLIST
+                             "permission_mode": None},
                 )
                 ev = self._policy_end_event(
                     data.tool_name,
@@ -1265,11 +1266,10 @@ Do not use when:
             and str(getattr(report, "user_id", "") or "") == str(user.id)
         )
         mode = pm.effective_mode(
-            getattr(report, "permission_mode", None), pm_settings,
+            await self._current_report_mode(db, report), pm_settings,
             agent_caps=await self._agent_mode_caps(db, ds_ids),
             allow_all_permitted=watched and run_user_is_owner,
         )
-        runtime_ctx["_permission_mode"] = mode
         audit_base = {
             "tool": "execute_mcp", "tool_name": data.tool_name,
             "connection_id": str(connection.id), "permission_mode": mode,
@@ -1419,9 +1419,8 @@ Do not use when:
                     resource_type="report",
                     resource_id=str(report.id) if report else None,
                     details={
-                        "tool": "execute_mcp", "tool_name": data.tool_name,
-                        "connection_id": str(connection.id), "policy": "ask",
-                        "reason": "non_interactive_run",
+                        **audit_base, "policy": "ask",
+                        "reason": "non_interactive_run", "decided_by": pm.BY_UNATTENDED,
                     },
                 )
                 yield self._policy_end_event(
@@ -1633,6 +1632,23 @@ Do not use when:
     # ── permission mode helpers ──────────────────────────────────────────
 
     @staticmethod
+    async def _current_report_mode(db, report):
+        """The report's mode as stored now. The report object in the run's
+        context was loaded when the run started (expire_on_commit=False), so a
+        switch to Ask from the banner mid-run would otherwise be missed."""
+        if report is None:
+            return None
+        try:
+            from sqlalchemy import select
+            from app.models.report import Report
+            return (await db.execute(
+                select(Report.permission_mode).where(Report.id == str(report.id))
+            )).scalar_one_or_none()
+        except Exception as e:
+            logger.warning(f"execute_mcp: reading the report's permission mode failed: {e!r}")
+            return None  # → the org default; never widens past it
+
+    @staticmethod
     def _shell_strict(connection) -> bool:
         """The server's shell policy demands a person approve every command;
         no mode, rule or unattended setting may relax it."""
@@ -1674,6 +1690,8 @@ Do not use when:
             return pm.is_read_only_shell_command(command, windows=cfg.get("operating_system") == "windows")
         meta = getattr(tool_record, "metadata_json", None)
         hints = meta.get("annotations") if isinstance(meta, dict) else None
+        if isinstance(meta, dict) and not isinstance(hints, dict):
+            hints = meta  # remote-server tools store the hints at the top level
         return (
             isinstance(hints, dict)
             and hints.get("readOnlyHint") is True
@@ -1696,7 +1714,10 @@ Do not use when:
         if not model_id:
             try:
                 from app.ai.model_router import routing_decision_settings
-                model_id = routing_decision_settings(org_settings).get("decision_model_id")
+                routing = routing_decision_settings(org_settings)
+                # Only a decision model the router actually uses; one an admin
+                # tried and switched off must not keep judging tool calls.
+                model_id = routing.get("decision_model_id") if routing.get("method") == "decision" else None
             except Exception:
                 model_id = None
         if model_id and organization is not None:
@@ -1706,6 +1727,8 @@ Do not use when:
             except Exception as e:
                 logger.warning(f"execute_mcp: loading the decision model failed: {e!r}")
                 decision_model = None
+            # The lookup opened a transaction; don't hold it through the call.
+            await self._release_db(db)
             if decision_model is not None:
                 try:
                     from app.ai.llm import LLM
@@ -1787,9 +1810,8 @@ Do not use when:
         nobody = "it needs a person's approval and nobody is watching this run"
         if shell_strict:
             # Mandatory approval: no mode, rule or unattended setting applies.
-            if not watched:
-                return "refuse", pm.BY_UNATTENDED, nobody
-            return "prompt", pm.BY_POLICY, ""
+            # Unwatched, "prompt" reaches the refusal below the mode layer.
+            return "prompt", (pm.BY_POLICY if watched else pm.BY_UNATTENDED), ("" if watched else nobody)
 
         if watched and not remote_shell and report is not None and user is not None:
             from app.services.tool_confirmation_service import ToolConfirmationService
@@ -1826,6 +1848,10 @@ Do not use when:
                 return "allow", pm.BY_UNATTENDED, "allowed by the organization's setting for unattended runs"
             if settings.unattended == pm.UNATTENDED_SETTINGS and effective == TOOL_POLICY_AUTO:
                 return "binary_judge", pm.BY_UNATTENDED, ""
+            if settings.unattended == pm.UNATTENDED_REFUSE:
+                # The default: today's refusal path (tool.access_blocked_by_policy,
+                # blocked_by 'ask'), unchanged for orgs that never set a mode.
+                return "prompt", pm.BY_UNATTENDED, nobody
             return "refuse", pm.BY_UNATTENDED, nobody
         return action, by, reason
 

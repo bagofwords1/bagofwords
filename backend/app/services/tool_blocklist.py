@@ -17,10 +17,21 @@ from typing import Any, Iterable, Optional
 
 # ── shell ───────────────────────────────────────────────────────────────────
 
-_RM_TARGETS = {"/", "/*", "~", "~/", "~/*", "*", ".", "./", "./*", "..", "$HOME", "$HOME/", "${HOME}",
-               "/home", "/root", "/etc", "/usr", "/var", "/boot", "/bin", "/lib"}
+# Compared after trailing slashes are stripped ("/etc/" → "/etc", "/" stays).
+_RM_TARGETS = {"/", "/*", "~", "~/*", "*", ".", "./*", "..", "$HOME", "${HOME}", "$HOME/*", "${HOME}/*",
+               "/home", "/root", "/etc", "/usr", "/var", "/boot", "/bin", "/lib", "/opt", "/srv"}
 _POWER_PROGRAMS = {"shutdown", "reboot", "halt", "poweroff"}
-_WRAPPERS = {"sudo", "doas", "command", "exec", "nohup", "env", "nice", "time", "timeout"}
+_WRAPPERS = {"sudo", "doas", "command", "exec", "nohup", "env", "nice", "time", "timeout", "ionice", "stdbuf", "xargs"}
+# Wrapper options that take a value, so the value is not read as the program.
+_WRAPPER_VALUE_OPTS = {
+    "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T"},
+    "doas": {"-u", "-C"},
+    "nice": {"-n"},
+    "ionice": {"-c", "-n", "-p"},
+    "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "env": {"-u", "-C", "--unset", "--chdir"},
+    "xargs": {"-n", "-P", "-I", "-L", "-d", "-s", "-E"},
+}
 
 _SHELL_PATTERNS = [
     re.compile(r"\bmkfs(\.\w+)?\b"),
@@ -78,16 +89,27 @@ def _shell_segments(command: str, depth: int = 0) -> list:
 
 
 def _program(tokens: list) -> tuple:
-    """(program basename, remaining tokens) after wrappers like ``sudo -n``."""
+    """(program basename, remaining tokens) after wrappers such as
+    ``sudo -u root``, ``timeout 10``, ``nice -n 5`` or ``env X=1``."""
     i = 0
     while i < len(tokens):
         base = tokens[i].rsplit("/", 1)[-1]
-        if base in _WRAPPERS:
-            i += 1
-            while i < len(tokens) and tokens[i].startswith("-"):
+        if base not in _WRAPPERS:
+            return base, tokens[i + 1:]
+        i += 1
+        value_opts = _WRAPPER_VALUE_OPTS.get(base, set())
+        while i < len(tokens):
+            t = tokens[i]
+            if t in value_opts:
+                i += 2
+            elif t.startswith("-"):
                 i += 1
-            continue
-        return base, tokens[i + 1:]
+            elif base == "env" and "=" in t:
+                i += 1
+            elif base == "timeout" and re.fullmatch(r"\d+(\.\d+)?[smhd]?", t):
+                i += 1
+            else:
+                break
     return "", []
 
 
@@ -106,7 +128,7 @@ def _is_recursive_force_rm(args: list) -> bool:
         return True
     recursive = bool(flags & {"-r", "-R", "--recursive"})
     force = bool(flags & {"-f", "--force"})
-    return recursive and force and any(t in _RM_TARGETS for t in targets)
+    return recursive and force and any((t.rstrip("/") or "/") in _RM_TARGETS for t in targets)
 
 
 def shell_block_reason(command: str) -> Optional[str]:
@@ -114,9 +136,12 @@ def shell_block_reason(command: str) -> Optional[str]:
     if not isinstance(command, str) or not command.strip():
         return None
     for seg in _shell_segments(command):
-        prog, args = _program(_tokens(seg))
-        if prog == "rm" and _is_recursive_force_rm(args):
-            return "recursive forced delete of a root, home or wildcard path"
+        tokens = _tokens(seg)
+        prog, args = _program(tokens)
+        # rm anywhere in the segment, so no wrapper spelling can hide it.
+        for i, tok in enumerate(tokens):
+            if tok.rsplit("/", 1)[-1] == "rm" and _is_recursive_force_rm(tokens[i + 1:]):
+                return "recursive forced delete of a root, home or wildcard path"
         if prog in _POWER_PROGRAMS:
             return "shuts down or restarts the server"
         for pat in _SHELL_PATTERNS:
@@ -134,8 +159,11 @@ _IDENT = r"[\w\"`\[\].]+"
 # "truncate the axis" are ordinary words elsewhere.
 _SQL_DROP = re.compile(r"^drop\s+(database|schema|table)\b", re.IGNORECASE)
 _SQL_DROP_ANYWHERE = re.compile(r"(^|\s)drop\s+(database|schema|table)\s+(if\s+exists\s+)?" + _IDENT, re.IGNORECASE)
-_SQL_TRUNCATE = re.compile(r"^truncate\s+(table\s+)?" + _IDENT + r"\s*$", re.IGNORECASE)
-_SQL_DELETE = re.compile(r"^delete\s+from\s+" + _IDENT + r"\s*$", re.IGNORECASE)
+_SQL_TRUNCATE = re.compile(
+    r"^truncate\s+(table\s+)?(only\s+)?" + _IDENT + r"(\s*,\s*" + _IDENT + r")*"
+    r"(\s+(cascade|restrict|(restart|continue)\s+identity))*\s*$", re.IGNORECASE)
+# DELETE [FROM] <table> with nothing after it (T-SQL allows dropping FROM).
+_SQL_DELETE = re.compile(r"^delete\s+(from\s+)?(only\s+)?" + _IDENT + r"\s*$", re.IGNORECASE)
 _SQL_START = re.compile(
     r"^\s*(select|with|insert|update|merge|create|alter|exec|execute|begin|declare|use)\b", re.IGNORECASE)
 _SQL_COMMENTS = re.compile(r"(--[^\n]*\n?|/\*.*?\*/)", re.DOTALL)

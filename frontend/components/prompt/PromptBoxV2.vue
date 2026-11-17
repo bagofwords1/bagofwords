@@ -1320,7 +1320,7 @@ const orgPermissionDefault = ref<PermissionMode>('ask')
 const allowAllEnabled = ref(false)
 const allowAllActive = computed(() => permissionMode.value === 'allow_all' && allowAllEnabled.value)
 
-function selectPermissionMode(m: PermissionMode) {
+function selectPermissionMode(m: PermissionMode | null) {
     const previous = permissionMode.value
     permissionMode.value = m
     persistPermissionMode(previous)

@@ -15,6 +15,10 @@ from app.services.tool_blocklist import block_reason, shell_block_reason, sql_bl
     "Format-Volume -DriveLetter D", "Remove-Item -Recurse -Force C:\\",
     "systemctl reboot", "/sbin/shutdown -r now", "sudo -n reboot", "sh -c 'rm -rf /'",
     "bash -lc \"cd / && rm -rf *\"", "echo `rm -rf ~`", "x=$(rm -rf /)",
+    # Wrapper options that take a value, and trailing slashes.
+    "sudo -u root rm -rf /", "timeout 10 rm -rf /", "nice -n 5 rm -rf /", "env X=1 rm -rf /",
+    "sudo -u postgres timeout 60s rm -fr /var/", "rm -rf /etc/", "rm -rf /home/", "rm -rf ${HOME}/",
+    "find / -print0 | xargs -0 rm -rf /", "sudo -u root shutdown -h now", "timeout 5 reboot",
 ])
 def test_destructive_shell_commands_are_blocked(command):
     assert shell_block_reason(command)
@@ -24,6 +28,7 @@ def test_destructive_shell_commands_are_blocked(command):
     "ls -la", "rm -rf ./build", "rm -rf /tmp/run-123", "rm old.log", "cat /etc/hostname",
     "echo shutdown", "grep -r reboot /var/log", "df -h", "dd if=a.img of=b.img",
     "dd if=/dev/sda of=/dev/null bs=1M count=1", "Get-Date -Format H:mm", "systemctl status nginx",
+    "sudo -u postgres psql -c 'select 1'", "timeout 10 ls /", "rm -rf /tmp/build/", "env X=1 echo reboot",
 ])
 def test_ordinary_shell_commands_are_not_blocked(command):
     assert shell_block_reason(command) is None
@@ -34,6 +39,8 @@ def test_ordinary_shell_commands_are_not_blocked(command):
     "TRUNCATE TABLE orders", "truncate orders", "DELETE FROM orders",
     "/* cleanup */ delete from orders;", "-- x\nDROP TABLE t",
     "SELECT 1 DROP TABLE x", "select 1\nGO\ndrop table x", "insert into a values (1); truncate b",
+    "TRUNCATE TABLE orders CASCADE", "truncate table a, b", "TRUNCATE ONLY t RESTART IDENTITY",
+    "DELETE orders", "delete from only orders",
 ])
 def test_destructive_sql_is_blocked(sql):
     assert sql_block_reason(sql)
@@ -129,7 +136,9 @@ def test_settings_normalize_bad_values_to_safe_defaults():
 
 
 @pytest.mark.parametrize("command,windows,expect", [
-    ("ls -la /var/log", False, True), ("df -h", False, True), ("ps aux", False, True),
+    ("ls -la /var/log", False, True), ("df -h", False, True),
+    ("ps aux", False, False), ("ps eww", False, False),  # can print other processes' environment
+    ("Get-ChildItem Env:", True, False), ("Get-Item Env:AWS_SECRET_ACCESS_KEY", True, False),
     ("ls; rm x", False, False), ("ls $(whoami)", False, False), ("rm x", False, False),
     ("ls *", False, False), ("ls > f", False, False),
     # Reads contents (could print a secret) or can also set something: judge.

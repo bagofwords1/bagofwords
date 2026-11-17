@@ -189,8 +189,9 @@ def verdict_from_small_model(approve: bool, confidence: float, settings: Permiss
 # (cat, grep, tail, Get-Content…) are left to the judge: they can't change
 # anything, but they can read a key or a .env file into the conversation.
 # Commands that can also set something (date, hostname, ipconfig) are left out.
+# (ps is left out: `ps e` / `ps eww` print other processes' environment.)
 _READ_ONLY_POSIX = {
-    "ls", "pwd", "whoami", "id", "uname", "uptime", "df", "du", "free", "ps",
+    "ls", "pwd", "whoami", "id", "uname", "uptime", "df", "du", "free",
     "wc", "stat", "file", "which", "nproc", "lscpu", "lsblk", "groups",
 }
 _READ_ONLY_WINDOWS = {
@@ -212,6 +213,9 @@ def is_read_only_shell_command(command: Any, *, windows: bool = False) -> bool:
     prog = words[0].lower() if windows else words[0]
     allowed = _READ_ONLY_WINDOWS if windows else _READ_ONLY_POSIX
     if prog not in allowed:
+        return False
+    # PowerShell's Env: drive lists environment variables (secrets).
+    if windows and "env:" in command.lower():
         return False
     return True
 
