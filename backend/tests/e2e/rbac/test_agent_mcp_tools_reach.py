@@ -262,3 +262,31 @@ def test_an_agent_created_mid_run_brings_its_tools_into_the_next_step(test_clien
     assert _names(first["slug"]) <= planner.mcp_tools(1)
 
 
+
+
+def test_a_failed_rebuild_keeps_the_tools_the_run_already_had(test_client, org, planner):
+    """The catalog rebuild for an agent attached mid-run can fail (its server
+    times out while tools are listed). The agents already in the run keep
+    their tools, under the same names, for the following steps."""
+    from app.ai.tools import mcp_tool_registry
+
+    first, second = org["connection"](), org["connection"]()
+    a = _agent(test_client, org, [first])
+    report_id, h = _report(test_client, org["admin"], org["org_id"], [a], mode="training")
+    planner.queue = [("create_agent", {"name": f"new {uuid.uuid4().hex[:6]}", "connection_ids": [second["id"]]})]
+
+    real, builds = mcp_tool_registry.build_mcp_tool_catalog, []
+
+    async def first_build_only(*args, **kwargs):
+        builds.append(1)
+        if len(builds) > 1:
+            raise RuntimeError("tool listing timed out")
+        return await real(*args, **kwargs)
+
+    with patch.object(mcp_tool_registry, "build_mcp_tool_catalog", first_build_only):
+        _ask(test_client, report_id, h, mode="training")
+
+    assert len(builds) >= 2, "the mid-run attach should have asked for a rebuild"
+    assert len(planner.requests) >= 2
+    assert _names(first["slug"]) <= planner.mcp_tools(0)
+    assert _names(first["slug"]) <= planner.mcp_tools(1), planner.mcp_tools(1)

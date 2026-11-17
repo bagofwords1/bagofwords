@@ -1508,10 +1508,16 @@ class AgentV2:
         try:
             focus = tuple(sorted(str(x) for x in (getattr(self.report, "focused_data_source_ids", None) or []))) if self.report else ()
             loaded = tuple(sorted(getattr(self, "loaded_agent_ids", ()) or ()))
-            attached = tuple(sorted(str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or []))) if self.report else ()
-            return (focus, loaded, attached)
         except Exception:
             return ()
+        # On its own: a failed read of the attachments must not hide a focus
+        # or working-set change from the comparison.
+        try:
+            attached = tuple(sorted(str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or []))) if self.report else ()
+        except Exception:
+            logger.debug("focus key: report attachments unreadable", exc_info=True)
+            attached = ()
+        return (focus, loaded, attached)
 
     def _mlog(self, label: str) -> None:
         """Run-progress log line, timestamped against the start of the run.
@@ -1548,6 +1554,7 @@ class AgentV2:
             return
         try:
             from app.services.data_source_service import DataSourceService
+            from app.ai.tools.implementations.agent_focus_common import construct_agent_clients
             svc = DataSourceService()
             user = getattr(self.head_completion, "user", None) if self.head_completion else None
             known = {str(d.id) for d in (self.data_sources or [])}
@@ -1556,11 +1563,7 @@ class AgentV2:
                     continue
                 try:
                     # Per connection, as at run start (prepare_run_agents).
-                    connection_errors: list = []
-                    built = await svc.construct_clients(self.db, ds, user, connection_errors=connection_errors)
-                    for ce in connection_errors:
-                        logger.warning("mid-run: connection %s on %s unavailable — %s",
-                                       ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"))
+                    built = await construct_agent_clients(svc, self.db, ds, user, where="mid-run")
                     if built:
                         self.clients.update(built)
                         self.data_sources.append(ds)
@@ -9667,7 +9670,7 @@ class AgentV2:
     # call takes, whatever name the model used.
     _mcp_offered: bool = True
 
-    async def _register_native_mcp_tools(self) -> None:
+    async def _register_native_mcp_tools(self, *, rebuild: bool = False) -> None:
         """Register the run's MCP / custom-API tools, capped by ``tools_max``.
 
         Runs in the async post-init phase (``__init__`` is sync and has no DB
@@ -9682,6 +9685,11 @@ class AgentV2:
         # native tools first, and reuses the gateway descriptors the first
         # build took out of the catalog.
         previous = set(getattr(self, "_native_mcp_names", None) or ())
+        # What a failed rebuild puts back (see the except below).
+        kept = (
+            self.planner.tool_catalog, getattr(self, "_native_mcp_routing", None), previous,
+            getattr(self, "_deferred_mcp_tools", None), getattr(self, "_mcp_agent_key", None),
+        )
         self._native_mcp_routing = {}
         self._native_mcp_names = set()
         self._deferred_mcp_tools = []
@@ -9722,6 +9730,16 @@ class AgentV2:
             existing = {t.name for t in base_catalog}
             added = [ToolDescriptor(**d) for d in catalog.native if d["name"] not in existing]
         except Exception as e:
+            if rebuild:
+                # The run already has a working catalog: one failed rebuild
+                # (the new agent's server timing out) must not take the other
+                # agents' tools away. Keep it, and the old agent key, so the
+                # next working-set change tries again.
+                logger.warning("[agent] MCP tool rebuild failed, keeping the current tools: %s", e)
+                (self.planner.tool_catalog, self._native_mcp_routing, self._native_mcp_names,
+                 self._deferred_mcp_tools, self._mcp_agent_key) = kept
+                self._mcp_context_changed = False
+                return
             # Tools unknown, not absent: keep the gateway, which <mcp_tools>
             # (connection ids, and schemas when they fit) is enough to call.
             logger.warning("[agent] MCP tool registration failed, offering execute_mcp: %s", e)
@@ -9754,7 +9772,7 @@ class AgentV2:
         if tuple(sorted(self._run_agent_ids())) == self._mcp_agent_key:
             return
         before = len(self._native_mcp_names or ()), len(self._deferred_mcp_tools or ())
-        await self._register_native_mcp_tools()
+        await self._register_native_mcp_tools(rebuild=True)
         self._mlog(
             f"mcp tools rebuilt for mid-run agents: native {before[0]}->{len(self._native_mcp_names)}, "
             f"deferred {before[1]}->{len(self._deferred_mcp_tools)}"
@@ -9847,7 +9865,7 @@ class AgentV2:
             self._list_tool_routing = {}
 
     async def _refresh_browser_tool_catalog(self):
-        from app.ai.tools.artifact_verification import refresh_browser_tool_catalog
+        from app.ai.tools.artifact_verification import is_browser_tool, refresh_browser_tool_catalog
 
         ctx = {"session_maker": self._session_maker, "organization": self.organization,
                "report": self.report,
@@ -9864,9 +9882,9 @@ class AgentV2:
         # catalog as it is NOW: assigning the list derived from the snapshot
         # taken before the await overwrote changes made meanwhile (the MCP
         # tools rebuilt for an agent attached mid-run).
-        browser = [t for t in refreshed if t.name.startswith("browser_")]
+        browser = [t for t in refreshed if is_browser_tool(t.name)]
         self.planner.tool_catalog = [
-            t for t in (self.planner.tool_catalog or []) if not t.name.startswith("browser_")
+            t for t in (self.planner.tool_catalog or []) if not is_browser_tool(t.name)
         ] + browser
 
     # How many callable MCP names an unknown-tool refusal lists.

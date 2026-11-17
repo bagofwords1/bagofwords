@@ -258,6 +258,21 @@ def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
     set_committed_value(report, "focused_data_source_ids", focus or None)
 
 
+async def construct_agent_clients(svc, db, ds: Any, user: Any, *, where: str) -> Dict[str, Any]:
+    """Build one agent's clients per connection, for run start and for agents
+    attached mid-run alike. A connection that cannot be set up gets a stand-in
+    client (see construct_clients) and is logged; when every connection fails,
+    construct_clients raises."""
+    connection_errors: list = []
+    clients = await svc.construct_clients(db, ds, user, connection_errors=connection_errors) or {}
+    for ce in connection_errors:
+        logger.warning(
+            "%s: connection %s on %s unavailable for this run — %s",
+            where, ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"),
+        )
+    return clients
+
+
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
                              data_source_service: Any = None,
                              agent_ids: Optional[List[str]] = None,
@@ -360,16 +375,8 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         # that raises its real error when used, instead of taking the agent's
         # other connections — and every MCP tool on the agent — out of the run.
         # When every connection fails, construct_clients still raises.
-        connection_errors: list = []
         try:
-            agent_clients = await svc.construct_clients(
-                db, ds, user, connection_errors=connection_errors,
-            ) or {}
-            for ce in connection_errors:
-                logger.warning(
-                    "run agents: connection %s on %s unavailable for this run — %s",
-                    ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"),
-                )
+            agent_clients = await construct_agent_clients(svc, db, ds, user, where="run agents")
             if eval_targets and ds.connections and not agent_clients:
                 raise HTTPException(409, "An eval target is unavailable")
             clients.update(agent_clients)
@@ -478,8 +485,9 @@ async def render_agents_full(db, organization: Any, report: Any, user: Any, data
         if unavailable:
             parts.append(
                 "<note>MCP tools of " + ", ".join(unavailable) + " are not in your tool list at this "
-                "step: a connection could not be set up for this run, or its tools are off. Do not "
-                "try to call them. If they become available they appear in <mcp_tools>.</note>"
+                "step. For an agent that just joined this run they are added from the next step; "
+                "otherwise a connection could not be set up for this run, or its tools are off. "
+                "Call an MCP tool only once it is listed in <mcp_tools>.</note>"
             )
     except Exception:
         logger.exception("render_agents_full: schema render failed")
