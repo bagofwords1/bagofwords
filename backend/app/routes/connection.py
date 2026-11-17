@@ -644,6 +644,7 @@ async def update_connection(
     before = await connection_service.get_connection(db, connection_id, organization)
     previous_bindings = dict(before.member_bindings or {})
     previous_mapped = member_mapped(before)
+    previous_auth_policy = before.auth_policy
     connection = await connection_service.update_connection(
         db=db,
         connection_id=connection_id,
@@ -670,7 +671,11 @@ async def update_connection(
             )
         except Exception:
             pass
-    
+    if connection.auth_policy != previous_auth_policy:
+        # After every audit row of this request (update_connection's and the
+        # one above).
+        await connection_service.purge_results_of_previous_auth_policy(db, str(connection.id), organization)
+
     from app.schemas.data_source_registry import tool_provider_types, data_shape_for, catalog_nouns_override; _TOOL_PROVIDER_TYPES = tool_provider_types()
     # Counts come from one grouped aggregate rather than len() over the
     # eager-loaded catalog: that collection is the entire source schema
@@ -1903,10 +1908,14 @@ async def set_custom_query_rls(
         )
     except Exception:
         pass
-    return CustomQuerySchema.from_model(
+    answer = CustomQuerySchema.from_model(
         cq, await _active_agent_count(db, cq.id),
         next_run_at=custom_query_service.next_run_at(str(cq.id)),
     )
+    # Viewers' stored results filtered by the previous policy: purged last,
+    # once the change is committed and audited.
+    await custom_query_service.purge_viewer_results(db, str(cq.id))
+    return answer
 
 
 @router.post("/{connection_id}/custom-queries/{cq_id}/rls/preview",

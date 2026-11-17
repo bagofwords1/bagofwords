@@ -498,15 +498,22 @@ class RBACService:
         await db.refresh(group)
         return GroupSchema.model_validate(group)
 
-    async def delete_group(self, db: AsyncSession, org_id: str, group_id: str) -> None:
+    async def delete_group(self, db: AsyncSession, org_id: str, group_id: str) -> List[str]:
+        """Returns its registered members: their groups changed
+        (viewer_result_freshness.purge_members_results, once audited)."""
         group = await self._get_editable_group(db, org_id, group_id)
         # Dashboard grants go with the group. Their foreign key cascades on
         # Postgres only; SQLite does not enforce it here.
         from sqlalchemy import delete
         from app.models.artifact_release import ArtifactShare
         await db.execute(delete(ArtifactShare).where(ArtifactShare.group_id == group.id))
+        members = (await db.execute(
+            select(GroupMembership.user_id).where(GroupMembership.group_id == group.id,
+                                                  GroupMembership.user_id.is_not(None))
+        )).scalars().all()
         await db.delete(group)
         await db.commit()
+        return [str(m) for m in members]
 
     async def list_group_members(self, db: AsyncSession, org_id: str, group_id: str) -> List[GroupMemberSchema]:
         await self._get_group(db, org_id, group_id)
@@ -543,7 +550,10 @@ class RBACService:
         self, db: AsyncSession, org_id: str, group_id: str,
         user_id: Optional[str] = None, membership_id: Optional[str] = None,
         actor_id: Optional[str] = None,
-    ) -> None:
+    ) -> List[str]:
+        """Returns the registered user whose groups changed (none for a
+        pending invite), for viewer_result_freshness.purge_members_results
+        once the change is audited."""
         await self._get_editable_group(db, org_id, group_id)
 
         # Joining a group confers its roles and grants — same rule as assigning them.
@@ -593,9 +603,12 @@ class RBACService:
             db.add(GroupMembership(group_id=group_id, membership_id=membership_id))
 
         await db.commit()
+        return [str(user_id)] if user_id else []
 
-    async def remove_group_member(self, db: AsyncSession, org_id: str, group_id: str, principal_id: str) -> None:
-        """Remove a group member by either user id or pending membership id."""
+    async def remove_group_member(self, db: AsyncSession, org_id: str, group_id: str, principal_id: str) -> List[str]:
+        """Remove a group member by either user id or pending membership id.
+        Returns the registered user whose groups changed, as
+        add_group_member."""
         await self._get_editable_group(db, org_id, group_id)
         result = await db.execute(
             select(GroupMembership).where(
@@ -609,8 +622,10 @@ class RBACService:
         gm = result.scalar_one_or_none()
         if not gm:
             raise HTTPException(status_code=404, detail="Group membership not found")
+        user_id = gm.user_id
         await db.delete(gm)
         await db.commit()
+        return [str(user_id)] if user_id else []
 
     async def _get_pending_membership(self, db: AsyncSession, org_id: str, membership_id: str) -> Membership:
         """Return a pending (unregistered) membership in this org, or 404/400."""

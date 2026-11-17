@@ -791,28 +791,16 @@ class QueryService:
         existing = await find_viewer_result(
             db, step_id=step.id, user_id=caller.id, params_fingerprint=fingerprint)
 
-        # Freshness: a cached slice is stale once the step OR any loadable
-        # upstream (load_step/load_entity dependency) has refreshed past it.
-        step_updated = getattr(step, "updated_at", None)
-        try:
-            from app.services.identity_taint import step_identity_scope
-            _, upstream_refresh = await step_identity_scope(db, step)
-        except Exception:
-            upstream_refresh = None
-        freshness_floor = step_updated
-        if upstream_refresh is not None and (
-            freshness_floor is None or upstream_refresh > freshness_floor
-        ):
-            freshness_floor = upstream_refresh
+        # Freshness (viewer_result_freshness): a cached slice is stale once
+        # the step or a loaded upstream has refreshed past it, or what its run
+        # read has changed (row policies and the filter they compile to for
+        # this viewer, extracts, connection auth policies, identity mode).
+        from app.services.viewer_result_freshness import viewer_result_current
         cache_fresh = (
             existing is not None
             and existing.status == "success"
             and not request.force_refresh
-            and (
-                freshness_floor is None
-                or existing.last_run_at is None
-                or existing.last_run_at >= freshness_floor
-            )
+            and await viewer_result_current(db, existing, step, report_id=step_report)
         )
         # Whether the report runs on a row-filtered relation: asked by the
         # cache check below and by the choice of credentials, of the same
@@ -875,6 +863,18 @@ class QueryService:
                 owner = await db.get(User, str(report.user_id))
                 if owner is not None:
                     credential_user = owner
+
+        # Stamped before any client is built: a change racing this run
+        # leaves the stored result stale, never current. With the identity
+        # the params were bound from: a change to the caller's groups since
+        # then shows as one (not for View-as, whose params bind the target).
+        executed_as = "creator" if str(credential_user.id) != str(caller.id) else "viewer"
+        from app.services.viewer_result_freshness import stamp_columns
+        stamp = await stamp_columns(
+            db, step, user_id=str(caller.id), organization_id=str(organization_id or report.organization_id),
+            executed_as=executed_as, report_id=str(report.id),
+            identity=identity if run_as is None else None,
+        )
 
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
@@ -959,15 +959,21 @@ class QueryService:
         # Upsert the per-viewer cached result. Errors are not cached — a
         # failed run must not pin a viewer to an error until force_refresh.
         if status == "success":
+            from app.services.viewer_result_freshness import stored_columns
             from app.services.viewer_result_store import store_viewer_result
+            # Stamped again: a change that landed while it read is stored cleared.
+            columns = await stored_columns(
+                db, stamp, df, step, status=status, user_id=str(caller.id),
+                organization_id=str(organization_id or report.organization_id),
+                executed_as=executed_as, report_id=str(report.id),
+            )
             await store_viewer_result(
                 db, step_id=str(step.id), user_id=str(caller.id),
                 organization_id=str(organization_id or report.organization_id),
                 report_id=str(report.id), params_fingerprint=fingerprint,
-                status="success", status_reason=None, data=df,
+                status="success", status_reason=None,
                 applied_params=dict(resolved) if resolved else None,
-                executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
-                last_run_at=_dt.utcnow(),
+                executed_as=executed_as, last_run_at=_dt.utcnow(), **columns,
             )
             return {
                 "data": df or {},

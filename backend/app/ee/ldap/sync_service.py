@@ -50,6 +50,10 @@ class LDAPGroupSyncService:
         5. Mark removed LDAP groups as deleted
         """
         result = SyncResult(timestamp=datetime.now(timezone.utc))
+        # Registered users whose group memberships this sync changed (this
+        # run's own: concurrent syncs on one service keep theirs apart): their
+        # stored viewer results are purged once it commits.
+        changed_members: Set[str] = set()
         if not self.config.organization_id or str(organization_id) != self.config.organization_id:
             result.errors.append("Directory organization scope mismatch")
             return result
@@ -106,7 +110,7 @@ class LDAPGroupSyncService:
                     group.name = group_name
                     result.groups_updated += 1
 
-                await self._sync_memberships(db, group, target_user_ids, result)
+                await self._sync_memberships(db, group, target_user_ids, result, changed_members)
             else:
                 # Create new group
                 group = Group(
@@ -119,13 +123,16 @@ class LDAPGroupSyncService:
                 await db.flush()
                 result.groups_created += 1
 
-                await self._sync_memberships(db, group, target_user_ids, result)
+                await self._sync_memberships(db, group, target_user_ids, result, changed_members)
 
         # Remove groups no longer in LDAP
         for dn, group in existing_by_dn.items():
             if dn not in seen_dns:
                 group.deleted_at = datetime.utcnow()
                 result.groups_removed += 1
+                # Their members no longer hold the group (an invite not yet
+                # registered has no user id, and no stored results).
+                changed_members.update(str(u) for u in await self._get_current_member_ids(db, str(group.id)) if u)
 
         # Deactivate org membership for users removed from ALL LDAP groups
         await self._cleanup_org_memberships(
@@ -133,6 +140,11 @@ class LDAPGroupSyncService:
         )
 
         await db.commit()
+        # One purge for the members whose groups changed (none: nothing),
+        # after the sync committed.
+        from app.services import viewer_result_freshness
+        await viewer_result_freshness.purge_members_results(
+            db, organization_id=str(organization_id), user_ids=changed_members)
         logger.info(
             f"LDAP sync completed for org {organization_id}: "
             f"created={result.groups_created} updated={result.groups_updated} "
@@ -232,8 +244,10 @@ class LDAPGroupSyncService:
         group: Group,
         target_user_ids: Set[str],
         result: SyncResult,
+        changed_members: Set[str],
     ) -> None:
-        """Add/remove GroupMembership rows to match target set."""
+        """Add/remove GroupMembership rows to match target set; the users
+        added or removed join `changed_members`."""
         current_ids = await self._get_current_member_ids(db, str(group.id))
 
         to_add = target_user_ids - current_ids
@@ -242,6 +256,7 @@ class LDAPGroupSyncService:
         for user_id in to_add:
             db.add(GroupMembership(group_id=group.id, user_id=user_id))
             result.memberships_added += 1
+            changed_members.add(str(user_id))
 
         if to_remove:
             stmt = select(GroupMembership).where(
@@ -252,6 +267,8 @@ class LDAPGroupSyncService:
             for row in rows:
                 await db.delete(row)
                 result.memberships_removed += 1
+                if row.user_id:
+                    changed_members.add(str(row.user_id))
 
     async def _get_current_member_ids(self, db: AsyncSession, group_id: str) -> Set[str]:
         stmt = select(GroupMembership.user_id).where(GroupMembership.group_id == group_id)

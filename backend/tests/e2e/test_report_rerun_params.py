@@ -465,12 +465,16 @@ class _FakeClient:
 async def _viewer_run_with_client(step_id, user_id):
     from app.models.user import User
     from app.services.step_service import StepService
+    from tests.fixtures.viewer_result_stamp import stamp_for
 
+    # Stamped before its clients are built, as the batch run does: a stamp
+    # taken only after them stores the result cleared.
+    stamp = await stamp_for(step_id, user_id)
     async with async_session_maker() as db:
         user = await db.get(User, user_id)
         return await StepService().run_step_to_user_result(
             db, str(step_id), run_user=user, credential_user=user,
-            executed_as="viewer", db_clients={"c": _FakeClient()},
+            executed_as="viewer", db_clients={"c": _FakeClient()}, stamp=stamp,
         )
 
 

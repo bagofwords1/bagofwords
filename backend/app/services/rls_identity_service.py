@@ -58,15 +58,17 @@ async def resolve_identity(
     identity = Identity(user_id=user_id, email=getattr(user, "email", None))
 
     # --- Entra / IdP profile attributes ------------------------------------
+    # Read as a column: a session holding the membership loaded would hand
+    # back the attributes it loaded then, not the ones committed now.
     try:
-        membership = (await db.execute(
-            select(Membership).where(
+        profile = (await db.execute(
+            select(Membership.profile_attributes).where(
                 Membership.user_id == user_id,
                 Membership.organization_id == str(organization_id),
             )
         )).scalars().first()
-        if membership is not None and isinstance(membership.profile_attributes, dict):
-            identity.profile_attributes = dict(membership.profile_attributes)
+        if isinstance(profile, dict):
+            identity.profile_attributes = dict(profile)
     except Exception:
         logger.warning("rls.identity.profile_lookup_failed", exc_info=True)
 
