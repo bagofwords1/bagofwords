@@ -99,6 +99,9 @@ def test_active_tables_run_in_every_dialect(dialect, sql):
     ("SELECT * FROM sales.orders t CROSS APPLY dbo.my_tvf(t.x) f", "tsql"),
     ("SELECT * FROM sales.orders o, LATERAL main.histogram('sales.payroll', id) h", "duckdb"),
     ("SELECT * FROM read_duckdb('other.db', table_name => 'payroll')", "duckdb"),
+    ("SELECT * FROM sales.orders o, LATERAL TABLE(main.histogram('sales.payroll', v)) h", "duckdb"),
+    ("SELECT f.value FROM sales.orders o, LATERAL TABLE(unknown_fn(o.x)) f", "snowflake"),
+    ("SELECT f.value FROM sales.orders o, LATERAL TABLE(sch.unknown_fn(o.x)) f", "snowflake"),
 ])
 def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     with pytest.raises(TableScopeViolation):
@@ -108,6 +111,7 @@ def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
 @pytest.mark.parametrize("sql,dialect", [
     ("DESCRIBE TABLE sales.orders", "snowflake"),
     ("SELECT f.value FROM sales.orders o, LATERAL FLATTEN(input => o.items) f", "snowflake"),
+    ("SELECT f.value FROM sales.orders o, LATERAL TABLE(FLATTEN(o.items)) f", "snowflake"),
     ("SELECT seq4() FROM TABLE(GENERATOR(ROWCOUNT => 3))", "snowflake"),
     ("SELECT * FROM SEMANTIC_VIEW(sales.orders DIMENSIONS a.b METRICS c.d)", "snowflake"),
     ("SELECT * FROM generate_series(1, 3) g", "postgres"),

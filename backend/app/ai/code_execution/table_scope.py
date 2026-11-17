@@ -170,6 +170,16 @@ def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> Non
             )
 
 
+def _function_reads_no_table(target) -> bool:
+    from sqlglot import exp
+
+    while isinstance(target, exp.Dot):
+        target = target.expression
+    if isinstance(target, exp.Anonymous):
+        return _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS
+    return isinstance(target, exp.Func)  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
+
+
 def _source_is_checkable(target) -> bool:
     from sqlglot import exp
 
@@ -177,11 +187,9 @@ def _source_is_checkable(target) -> bool:
         return True
     if type(target).__name__ == "SemanticView":
         return True  # its view name is a separate Table node, checked by name
-    while isinstance(target, exp.Dot):
-        target = target.expression
-    if isinstance(target, exp.Anonymous):
-        return _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS
-    return isinstance(target, exp.Func)  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
+    if isinstance(target, exp.TableFromRows):
+        return _function_reads_no_table(target.this)
+    return _function_reads_no_table(target)
 
 
 def _refuse_unchecked_sources(stmt, dialect: str) -> None:
