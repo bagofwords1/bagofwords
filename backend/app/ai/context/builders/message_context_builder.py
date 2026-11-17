@@ -1072,19 +1072,16 @@ class MessageContextBuilder:
         if not completion_ids:
             return {}
         try:
-            from app.models.file import File as FileModel
-            from app.models.report_file_association import report_file_association
-            rows = await self.db.execute(
-                select(report_file_association.c.completion_id, FileModel)
-                .join(FileModel, FileModel.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(list(completion_ids)))
-            )
-            out = {}
-            for cid, f in rows.all():
-                out.setdefault(str(cid), []).append(
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(self.db, list(completion_ids))
+            return {
+                cid: [
                     f"{getattr(f, 'filename', '?')} ({getattr(f, 'content_type', None) or 'file'}, id={f.id})"
-                )
-            return out
+                    for f in files
+                ]
+                for cid, files in attached.items()
+            }
         except Exception:
             return {}
 

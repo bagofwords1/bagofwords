@@ -247,13 +247,10 @@ class CreateArtifactTool(Tool):
         images: List[ImageInput] = []
         try:
             # Query files associated with this completion that are images
-            result = await db.execute(
-                select(File)
-                .join(report_file_association, report_file_association.c.file_id == File.id)
-                .where(report_file_association.c.completion_id == head_completion_id)
-                .where(File.content_type.startswith("image/"))
-            )
-            image_files = result.scalars().all()
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(db, [str(head_completion_id)], images_only=True)
+            image_files = attached.get(str(head_completion_id), [])
 
             for f in image_files:
                 if not f.path:

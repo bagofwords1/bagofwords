@@ -1626,15 +1626,12 @@ class CompletionService:
 
         completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in completion_ids}
         if completion_ids:
-            files_stmt = (
-                select(File, report_file_association.c.completion_id)
-                .join(report_file_association, File.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(completion_ids))
-            )
-            files_res = await db.execute(files_stmt)
-            for file, comp_id in files_res.all():
-                if comp_id:
-                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            for comp_id, comp_files in (await attached_files_by_completion(db, completion_ids)).items():
+                completion_id_to_files.setdefault(comp_id, []).extend(
+                    FileSchema.from_orm(file) for file in comp_files
+                )
 
         # 6d) Batch-load instruction metadata for loaded_instructions references
         # Collect all instruction IDs stored in completion JSON across all system completions
@@ -2074,15 +2071,12 @@ class CompletionService:
 
         completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in ids}
         if ids:
-            files_stmt = (
-                select(File, report_file_association.c.completion_id)
-                .join(report_file_association, File.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(ids))
-            )
-            files_res = await db.execute(files_stmt)
-            for file, comp_id in files_res.all():
-                if comp_id:
-                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            for comp_id, comp_files in (await attached_files_by_completion(db, ids)).items():
+                completion_id_to_files.setdefault(comp_id, []).extend(
+                    FileSchema.from_orm(file) for file in comp_files
+                )
 
         # Batch-load instruction metadata for loaded_instructions references
         _all_instruction_ids: set[str] = set()
