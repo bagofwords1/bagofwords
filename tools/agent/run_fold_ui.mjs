@@ -128,23 +128,27 @@ if (await toggle.count()) {
     await chips.nth(i).hover();
     await page.waitForTimeout(1600);
     const pv = page.locator('[data-testid="citation-preview"]');
-    const kind = (await pv.locator('[data-testid="citation-preview-chart"], [data-testid="citation-preview-value"], [data-testid="citation-preview-table"]').first().getAttribute('data-testid').catch(() => null)) || 'none';
+    // A table or chart previews with the result's own card (compact
+    // ToolWidgetPreview); a single value with a light stand-in.
+    const isCard = await pv.locator('[data-testid="citation-preview-card"]').count();
+    const kind = isCard
+      ? ((await pv.locator('canvas').count()) ? 'citation-preview-chart' : 'citation-preview-table')
+      : ((await pv.locator('[data-testid="citation-preview-chart"], [data-testid="citation-preview-value"], [data-testid="citation-preview-table"]').first().getAttribute('data-testid').catch(() => null)) || 'none');
     log('hover chip', i, '->', kind, JSON.stringify((await pv.innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 90)));
     if (!seenKinds.has(kind)) {
       seenKinds.add(kind);
       await shot(page, `hover-${kind.replace('citation-preview-', '')}`);
       // The preview's own tabs: Chart (charts only), Data, Code (with view_code).
-      const tabs = pv.locator('[role="tab"]');
-      log('  tabs:', JSON.stringify(await tabs.allInnerTexts()));
-      for (const name of ['data', 'code']) {
-        const tab = pv.locator(`[data-testid="citation-preview-tab-${name}"]`);
-        if (!(await tab.count())) continue;
+      const tabs = isCard ? pv.locator('.widget-tabs > button') : pv.locator('[role="tab"]');
+      log('  tabs:', JSON.stringify((await tabs.allInnerTexts()).map((t) => t.trim())));
+      for (let ti = 1; ti < await tabs.count(); ti++) {
+        const name = (await tabs.nth(ti).innerText()).trim().toLowerCase();
         // Move like a hand would: from the chip onto the preview, then press.
-        const box = await tab.boundingBox();
+        const box = await tabs.nth(ti).boundingBox();
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 6 });
         await page.mouse.down();
         await page.mouse.up();
-        await page.waitForTimeout(500);
+        await page.waitForTimeout(name === 'code' ? 3500 : 900); // the code editor loads lazily
         log(`  ${name} tab ->`, JSON.stringify((await pv.innerText()).replace(/\s+/g, ' ').slice(0, 110)));
         if (kind === 'citation-preview-chart') await shot(page, `hover-chart-${name}`);
       }

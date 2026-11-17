@@ -3,13 +3,33 @@
 		<div
 			v-if="source && anchor"
 			ref="rootEl"
-			class="citation-preview fixed z-popover w-[360px] max-w-[calc(100vw-24px)] rounded-lg border border-line bg-surface-elevated text-start shadow-lg"
+			class="citation-preview fixed z-popover w-[420px] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg border border-line bg-surface-elevated text-start shadow-lg"
 			:style="style"
 			role="tooltip"
 			data-testid="citation-preview"
 			@mouseenter="$emit('enter')"
 			@mouseleave="$emit('leave')"
 		>
+			<!-- The result's own card, compact: the same chart, grid, code and tabs
+			     the reader gets in the transcript and the side panel. -->
+			<ToolWidgetPreview
+				v-if="useResultCard"
+				:tool-execution="source.toolExecution"
+				compact
+				readonly
+				:can-expand="canOpen"
+				data-testid="citation-preview-card"
+				@openDataPanel="$emit('open')"
+			>
+				<template #header-prefix>
+					<span v-if="number" class="citation-number me-2 shrink-0" aria-hidden="true">{{ number }}</span>
+				</template>
+			</ToolWidgetPreview>
+
+			<!-- Without a stored result to hand that card (a single value, or a
+			     shared link, which carries preview rows only): a light stand-in
+			     with the same tabs. -->
+			<template v-else>
 			<div class="flex items-center gap-2 px-3 pt-2.5" :class="tabs.length > 1 ? 'pb-1.5' : 'pb-2'">
 				<span v-if="number" class="citation-number shrink-0" aria-hidden="true">{{ number }}</span>
 				<span class="min-w-0 flex-1 truncate text-xs font-medium text-ink"><bdi>{{ title }}</bdi></span>
@@ -82,22 +102,27 @@
 				</div>
 			</div>
 			<div v-else class="px-3 py-3 text-2xs text-ink-muted">{{ translate('reportView.citations.noPreview') }}</div>
+			</template>
 		</div>
 	</Teleport>
 </template>
 
 <script setup lang="ts">
 /**
- * Hover/focus preview of a cited result (see composables/useCitations.ts),
- * with the result's own views as tabs: Chart (for a chart), Data (the value
- * of a single number, or a table's first rows) and Code (the code that
- * produced it, for readers allowed to see code). It is a glance, not the
- * working view — the header button opens the full result where the host has
- * somewhere to open it.
+ * Hover/focus preview of a cited result (see composables/useCitations.ts).
+ *
+ * A table or chart is shown with the result's own card — ToolWidgetPreview in
+ * its `compact` mode — so the preview has the same Chart / Data / Code tabs,
+ * the same renderers and the same code-permission rule as the transcript and
+ * the side panel. A single value, and any result the host has no stored step
+ * for (the shared link), gets a light stand-in with the same tabs. It is a
+ * glance, not the working view — the header button opens the full result
+ * where the host has somewhere to open it.
  */
 import { computed, nextTick, onErrorCaptured, ref, watch } from 'vue'
 import type { CitationSource } from '~/composables/useCitations'
 import RenderVisual from '~/components/RenderVisual.vue'
+import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import Spinner from '~/components/Spinner.vue'
 
 const props = defineProps<{
@@ -116,6 +141,9 @@ const MAX_COLUMNS = 4
 const CHART_TYPES = new Set(['pie_chart', 'line_chart', 'bar_chart', 'area_chart', 'heatmap', 'scatter_plot', 'map', 'candlestick', 'treemap', 'radar_chart'])
 
 const te = computed<any>(() => props.source?.toolExecution || null)
+// A single value reads better as the value itself than as a one-cell grid.
+const useResultCard = computed(() => props.source?.output.kind !== 'number'
+	&& !!(te.value?.created_step || te.value?.created_widget))
 const data = computed<any>(() => te.value?.created_step?.data || te.value?.result_json?.data || te.value?.result_json?.data_preview || null)
 const rows = computed<any[]>(() => (Array.isArray(data.value?.rows) ? data.value.rows : []))
 const title = computed(() => props.source?.output.title || props.translate('reportView.citations.untitled'))
@@ -202,7 +230,7 @@ watch(() => [props.source?.key, props.anchor?.top, props.anchor?.left, activeTab
 const style = computed(() => {
 	const a = props.anchor
 	if (!a || typeof window === 'undefined') return {}
-	const width = Math.min(360, window.innerWidth - 24)
+	const width = Math.min(420, window.innerWidth - 24)
 	const left = Math.max(12, Math.min(a.left - 12, window.innerWidth - width - 12))
 	const estimated = height.value || 240
 	const below = a.bottom + 6
