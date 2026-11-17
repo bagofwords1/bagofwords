@@ -39,7 +39,17 @@
                     data-testid="permission-judge-model"
                     @update:model-value="(v: string) => save({ judge_decision_model_id: v || null })"
                 />
-                <span class="text-xs text-ink-muted">{{ $t('settings.aiSettingsPage.permissionMode.judgeModelHint') }}</span>
+                <span
+                    v-if="decisionModelsFailed"
+                    data-testid="permission-judge-model-load-error"
+                    class="text-xs text-red-600 dark:text-red-400 flex items-center gap-2"
+                >
+                    {{ $t('settings.aiSettingsPage.permissionMode.judgeModelLoadFailed') }}
+                    <button type="button" class="underline" @click.prevent="loadDecisionModels">
+                        {{ $t('settings.aiSettingsPage.permissionMode.judgeModelRetry') }}
+                    </button>
+                </span>
+                <span v-else class="text-xs text-ink-muted">{{ $t('settings.aiSettingsPage.permissionMode.judgeModelHint') }}</span>
             </label>
         </div>
 
@@ -99,19 +109,25 @@ const defaultModeOptions = computed(() => [
 // The org's enabled decision models (the same list the LLM settings page reads).
 const decisionModels = ref<{ id: string, name: string }[]>([])
 const decisionModelsLoaded = ref(false)
-onMounted(async () => {
-    try {
-        const { data } = await useMyFetch('/llm/models', { method: 'GET', query: { kind: 'decision' } })
-        const list = Array.isArray(data.value) ? (data.value as any[]) : []
-        decisionModels.value = list.filter(m => m?.is_enabled !== false).map(m => ({ id: String(m.id), name: m.name || m.model_id }))
-    } catch {} finally {
-        decisionModelsLoaded.value = true
+// The list failed to load: a stored model can't be called unavailable.
+const decisionModelsFailed = ref(false)
+async function loadDecisionModels() {
+    // useMyFetch reports HTTP failures in error, it does not throw.
+    const { data, error } = await useMyFetch('/llm/models', { method: 'GET', query: { kind: 'decision' } })
+    if (error?.value || !Array.isArray(data.value)) {
+        decisionModelsFailed.value = true
+        return
     }
-})
+    decisionModels.value = (data.value as any[]).filter(m => m?.is_enabled !== false)
+        .map(m => ({ id: String(m.id), name: m.name || m.model_id }))
+    decisionModelsFailed.value = false
+    decisionModelsLoaded.value = true
+}
+onMounted(loadDecisionModels)
 
 // Automatic ('' in the select, null when saved), each decision model, the small
 // model. A stored model that is no longer enabled shows as unavailable rather
-// than pretending to be Automatic.
+// than pretending to be Automatic; if the list did not load, it says so.
 const judgeModelOptions = computed(() => {
     const stored = value.value.judge_decision_model_id
     const options = [
@@ -123,7 +139,7 @@ const judgeModelOptions = computed(() => {
         // Until the list arrives the stored id is shown without a name.
         options.push({ value: stored, label: decisionModelsLoaded.value
             ? t('settings.aiSettingsPage.permissionMode.judgeModelOptions.unavailable')
-            : '' })
+            : decisionModelsFailed.value ? t('settings.aiSettingsPage.permissionMode.judgeModelOptions.notLoaded') : '' })
     }
     return options
 })

@@ -845,7 +845,13 @@
           "label": "Tout autoriser",
           "hint": "Les outils qui demanderaient s'exécutent sans demander, dans ce rapport uniquement."
         }
-      }
+      },
+      "unknown": {
+        "label": "Mode inconnu",
+        "hint": "Impossible de charger les paramètres d'autorisation : le mode de la prochaine exécution est inconnu."
+      },
+      "loadFailed": "Impossible de charger les paramètres d'autorisation",
+      "retry": "Réessayer"
     }
   },
   "reports": {
@@ -3563,8 +3569,11 @@
         "judgeModelOptions": {
           "automatic": "Automatique",
           "small": "Petit modèle par défaut",
-          "unavailable": "Modèle indisponible"
-        }
+          "unavailable": "Modèle indisponible",
+          "notLoaded": "Modèle enregistré (liste non chargée)"
+        },
+        "judgeModelLoadFailed": "Impossible de charger les modèles de décision.",
+        "judgeModelRetry": "Réessayer"
       }
     },
     "llms": {

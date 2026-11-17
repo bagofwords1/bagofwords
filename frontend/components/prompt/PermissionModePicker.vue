@@ -6,20 +6,32 @@
             <button
                 type="button"
                 data-testid="permission-mode-button"
-                :data-mode="effective"
+                :data-mode="chipMode"
                 class="rounded-md px-2 py-1 text-xs flex items-center"
                 :class="chipClass"
                 :aria-label="tooltip"
             >
-                <Icon :name="effective === 'allow_all' ? 'heroicons-shield-exclamation' : 'heroicons-shield-check'" class="w-4 h-4 flex-shrink-0" />
-                <span v-if="!compact" class="ms-1">{{ $t(`prompt.permissionMode.modes.${effective}.label`) }}</span>
+                <Icon :name="chipIcon" class="w-4 h-4 flex-shrink-0" />
+                <span v-if="!compact" class="ms-1">{{ chipLabel }}</span>
             </button>
         </UTooltip>
         <template #panel="{ close }">
             <div class="p-2 text-xs w-[260px]" data-testid="permission-mode-panel">
                 <div class="px-2 pb-1 text-gray-500 dark:text-gray-400">{{ $t('prompt.permissionMode.title') }}</div>
+                <!-- The org settings did not load: the mode in force is unknown. -->
+                <div v-if="unknown" class="px-2 py-1.5 flex flex-col items-start gap-2">
+                    <span class="text-gray-600 dark:text-gray-300 leading-snug">{{ $t('prompt.permissionMode.unknown.hint') }}</span>
+                    <button
+                        type="button"
+                        data-testid="permission-mode-retry"
+                        class="px-2 py-1 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800/70 text-gray-800 dark:text-gray-100"
+                        @click="() => { emit('retry'); close(); }"
+                    >
+                        {{ $t('prompt.permissionMode.retry') }}
+                    </button>
+                </div>
                 <button
-                    v-for="m in options"
+                    v-for="m in (unknown ? [] : options)"
                     :key="m"
                     type="button"
                     :data-testid="`permission-mode-${m}`"
@@ -53,10 +65,12 @@ const props = defineProps<{
     modelValue: Mode | null
     orgDefault: Mode
     allowAllEnabled: boolean
+    // The org settings failed to load: the default and the switch are unknown.
+    unknown?: boolean
     compact?: boolean
 }>()
-// null = follow the org default again.
-const emit = defineEmits<{ (e: 'update:modelValue', v: Mode | null): void }>()
+// null = follow the org default again; retry = load the org settings again.
+const emit = defineEmits<{ (e: 'update:modelValue', v: Mode | null): void, (e: 'retry'): void }>()
 const { t } = useI18n()
 
 const popper = { strategy: 'absolute' as const, placement: 'top-start' as const, offset: [0, 8] }
@@ -70,11 +84,21 @@ const effective = computed<Mode>(() => {
     return m === 'allow_all' && !props.allowAllEnabled ? 'ask' : m
 })
 
-const tooltip = computed(() => t('prompt.permissionMode.tooltip', {
-    mode: t(`prompt.permissionMode.modes.${effective.value}.label`),
-}))
+// Never the Ask label for a mode nobody knows: the server may run Allow all.
+const chipMode = computed(() => (props.unknown ? 'unknown' : effective.value))
+const chipLabel = computed(() => (props.unknown
+    ? t('prompt.permissionMode.unknown.label')
+    : t(`prompt.permissionMode.modes.${effective.value}.label`)))
+const chipIcon = computed(() => (props.unknown
+    ? 'heroicons-question-mark-circle'
+    : effective.value === 'allow_all' ? 'heroicons-shield-exclamation' : 'heroicons-shield-check'))
+
+const tooltip = computed(() => t('prompt.permissionMode.tooltip', { mode: chipLabel.value }))
 
 const chipClass = computed(() => {
+    if (props.unknown) {
+        return 'text-red-600 border border-red-200 hover:bg-red-50 dark:text-red-300 dark:border-red-800/60 dark:hover:bg-red-900/30'
+    }
     if (effective.value === 'allow_all') {
         return 'text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30 dark:border-amber-700/60'
     }

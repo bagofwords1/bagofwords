@@ -845,7 +845,13 @@
           "label": "Consenti tutto",
           "hint": "Gli strumenti che chiederebbero vengono eseguiti senza chiedere, solo in questo report."
         }
-      }
+      },
+      "unknown": {
+        "label": "Modalità sconosciuta",
+        "hint": "Impossibile caricare le impostazioni dei permessi, quindi la modalità della prossima esecuzione è sconosciuta."
+      },
+      "loadFailed": "Impossibile caricare le impostazioni dei permessi",
+      "retry": "Riprova"
     }
   },
   "reports": {
@@ -3563,8 +3569,11 @@
         "judgeModelOptions": {
           "automatic": "Automatico",
           "small": "Modello piccolo predefinito",
-          "unavailable": "Modello non disponibile"
-        }
+          "unavailable": "Modello non disponibile",
+          "notLoaded": "Modello salvato (elenco non caricato)"
+        },
+        "judgeModelLoadFailed": "Impossibile caricare i modelli decisionali.",
+        "judgeModelRetry": "Riprova"
       }
     },
     "llms": {

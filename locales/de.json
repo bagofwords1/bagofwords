@@ -845,7 +845,13 @@
           "label": "Alles erlauben",
           "hint": "Tools, die fragen würden, laufen ohne Nachfrage – nur in diesem Bericht."
         }
-      }
+      },
+      "unknown": {
+        "label": "Modus unbekannt",
+        "hint": "Die Berechtigungseinstellungen konnten nicht geladen werden, daher ist der Modus des nächsten Laufs unbekannt."
+      },
+      "loadFailed": "Die Berechtigungseinstellungen konnten nicht geladen werden",
+      "retry": "Erneut versuchen"
     }
   },
   "reports": {
@@ -3563,8 +3569,11 @@
         "judgeModelOptions": {
           "automatic": "Automatisch",
           "small": "Kleines Standardmodell",
-          "unavailable": "Nicht verfügbares Modell"
-        }
+          "unavailable": "Nicht verfügbares Modell",
+          "notLoaded": "Gespeichertes Modell (Liste nicht geladen)"
+        },
+        "judgeModelLoadFailed": "Die Entscheidungsmodelle konnten nicht geladen werden.",
+        "judgeModelRetry": "Erneut versuchen"
       }
     },
     "llms": {

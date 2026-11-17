@@ -624,8 +624,10 @@
                         :model-value="permissionMode"
                         :org-default="orgPermissionDefault"
                         :allow-all-enabled="allowAllEnabled"
+                        :unknown="permissionSettingsFailed"
                         :compact="isCompactPrompt"
                         @update:model-value="selectPermissionMode"
+                        @retry="loadRouting"
                     />
 
                     <!-- Model selector: search, provider groups, effort -->
@@ -1299,16 +1301,22 @@ const modelIdForPayload = computed<string | null>(() =>
 )
 
 async function loadRouting() {
-    try {
-        const { data } = await useMyFetch('/api/organization/settings')
-        const cfg = (data.value as any)?.config
-        routingOn.value = !!cfg?.model_routing?.value
-        const pm = cfg?.tool_permission_mode?.value || {}
-        allowAllEnabled.value = pm.allow_all_enabled === true
-        // Allow all can be the org default only while its switch is on.
-        const defaults = allowAllEnabled.value ? ['ask', 'auto', 'allow_all'] : ['ask', 'auto']
-        orgPermissionDefault.value = (defaults.includes(pm.default_mode) ? pm.default_mode : 'ask')
-    } catch {}
+    // useMyFetch reports HTTP failures in error, it does not throw.
+    const { data, error } = await useMyFetch('/api/organization/settings')
+    if (error?.value || !data.value) {
+        // The mode the server applies is unknown: never show the Ask label for it.
+        permissionSettingsFailed.value = true
+        if (props.persistSelection) toast.add({ title: t('prompt.permissionMode.loadFailed'), color: 'red' })
+        return
+    }
+    permissionSettingsFailed.value = false
+    const cfg = (data.value as any)?.config
+    routingOn.value = !!cfg?.model_routing?.value
+    const pm = cfg?.tool_permission_mode?.value || {}
+    allowAllEnabled.value = pm.allow_all_enabled === true
+    // Allow all can be the org default only while its switch is on.
+    const defaults = allowAllEnabled.value ? ['ask', 'auto', 'allow_all'] : ['ask', 'auto']
+    orgPermissionDefault.value = (defaults.includes(pm.default_mode) ? pm.default_mode : 'ask')
 }
 
 // ── Permission mode (Ask / Auto / Allow all) ───────────────────────────────
@@ -1321,28 +1329,59 @@ const asPermissionMode = (v: any): PermissionMode | null => (PERMISSION_MODES.in
 const permissionMode = ref<PermissionMode | null>(asPermissionMode(props.initialPermissionMode))
 const orgPermissionDefault = ref<PermissionMode>('ask')
 const allowAllEnabled = ref(false)
-// The banner follows the mode the next run uses: the report's own, else the default.
-const allowAllActive = computed(() => (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value)
+// The org settings failed to load: the default and the switch are unknown.
+const permissionSettingsFailed = ref(false)
+// The banner follows the mode the next run uses: the report's own, else the
+// default. Never in a scheduled task's editor (persistSelection off): it edits
+// no report, and its runs are unattended. If the settings failed to load, a
+// report's own Allow all still shows it.
+const allowAllActive = computed(() => {
+    if (!props.persistSelection) return false
+    if (permissionSettingsFailed.value) return permissionMode.value === 'allow_all'
+    return (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value
+})
+
+// The last mode the server accepted for this report. Saves go one at a time:
+// a pick made while one is in flight is sent after it, so the server applies
+// them in the order they were made and only the latest pick decides the chip.
+let confirmedPermissionMode: PermissionMode | null = permissionMode.value
+let permissionSaveInFlight = false
+let permissionSavePending = false
 
 function selectPermissionMode(m: PermissionMode | null) {
-    const previous = permissionMode.value
     permissionMode.value = m
-    persistPermissionMode(previous)
+    persistPermissionMode()
 }
 
-async function persistPermissionMode(previous: PermissionMode | null) {
+async function persistPermissionMode() {
     // Landing page: there is no report yet; the choice rides on the create call.
     if (!props.report_id || !props.persistSelection) return
-    const { error } = await useMyFetch(`/reports/${props.report_id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permission_mode: permissionMode.value || '' })
-    })
-    if (error?.value) {
-        // e.g. Allow all was switched off for the org meanwhile: show the
-        // mode the server will actually use.
-        permissionMode.value = previous
-        toast.add({ title: t('prompt.permissionMode.saveFailed'), color: 'red' })
+    if (permissionSaveInFlight) {
+        permissionSavePending = true
+        return
+    }
+    permissionSaveInFlight = true
+    try {
+        do {
+            permissionSavePending = false
+            const wanted = permissionMode.value
+            const { error } = await useMyFetch(`/reports/${props.report_id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ permission_mode: wanted || '' })
+            })
+            if (!error?.value) {
+                confirmedPermissionMode = wanted
+            } else if (!permissionSavePending) {
+                // e.g. Allow all was switched off for the org meanwhile: show
+                // the mode the server will actually use. (A newer pick still
+                // to be sent decides instead.)
+                permissionMode.value = confirmedPermissionMode
+                toast.add({ title: t('prompt.permissionMode.saveFailed'), color: 'red' })
+            }
+        } while (permissionSavePending)
+    } finally {
+        permissionSaveInFlight = false
     }
 }
 
@@ -2202,6 +2241,7 @@ watch(() => props.initialMode, (newVal) => {
 // persist back).
 watch(() => props.initialPermissionMode, (v) => {
     const next = asPermissionMode(v)
+    confirmedPermissionMode = next
     if (next !== permissionMode.value) permissionMode.value = next
 })
 

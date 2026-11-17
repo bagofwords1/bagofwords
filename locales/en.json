@@ -929,7 +929,13 @@
           "label": "Allow all",
           "hint": "Tools set to ask run without asking, in this report only."
         }
-      }
+      },
+      "unknown": {
+        "label": "Mode unknown",
+        "hint": "Couldn't load the permission settings, so the mode the next run uses is unknown."
+      },
+      "loadFailed": "Couldn't load the permission settings",
+      "retry": "Retry"
     }
   },
   "exports": {
@@ -4042,8 +4048,11 @@
         "judgeModelOptions": {
           "automatic": "Automatic",
           "small": "Small default model",
-          "unavailable": "Unavailable model"
-        }
+          "unavailable": "Unavailable model",
+          "notLoaded": "Saved model (list not loaded)"
+        },
+        "judgeModelLoadFailed": "Couldn't load the decision models.",
+        "judgeModelRetry": "Retry"
       }
     },
     "llms": {

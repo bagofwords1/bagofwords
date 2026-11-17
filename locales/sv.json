@@ -845,7 +845,13 @@
           "label": "Tillåt allt",
           "hint": "Verktyg som skulle fråga körs utan att fråga, bara i den här rapporten."
         }
-      }
+      },
+      "unknown": {
+        "label": "Okänt läge",
+        "hint": "Det gick inte att läsa in behörighetsinställningarna, så läget för nästa körning är okänt."
+      },
+      "loadFailed": "Det gick inte att läsa in behörighetsinställningarna",
+      "retry": "Försök igen"
     }
   },
   "reports": {
@@ -3563,8 +3569,11 @@
         "judgeModelOptions": {
           "automatic": "Automatiskt",
           "small": "Liten standardmodell",
-          "unavailable": "Modellen är inte tillgänglig"
-        }
+          "unavailable": "Modellen är inte tillgänglig",
+          "notLoaded": "Sparad modell (listan lästes inte in)"
+        },
+        "judgeModelLoadFailed": "Det gick inte att läsa in beslutsmodellerna.",
+        "judgeModelRetry": "Försök igen"
       }
     },
     "llms": {

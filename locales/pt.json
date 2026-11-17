@@ -845,7 +845,13 @@
           "label": "Permitir tudo",
           "hint": "Ferramentas que perguntariam são executadas sem perguntar, só neste relatório."
         }
-      }
+      },
+      "unknown": {
+        "label": "Modo desconhecido",
+        "hint": "Não foi possível carregar as configurações de permissão, por isso o modo da próxima execução é desconhecido."
+      },
+      "loadFailed": "Não foi possível carregar as configurações de permissão",
+      "retry": "Tentar novamente"
     }
   },
   "reports": {
@@ -3563,8 +3569,11 @@
         "judgeModelOptions": {
           "automatic": "Automático",
           "small": "Modelo pequeno padrão",
-          "unavailable": "Modelo indisponível"
-        }
+          "unavailable": "Modelo indisponível",
+          "notLoaded": "Modelo salvo (lista não carregada)"
+        },
+        "judgeModelLoadFailed": "Não foi possível carregar os modelos de decisão.",
+        "judgeModelRetry": "Tentar novamente"
       }
     },
     "llms": {
