@@ -427,7 +427,7 @@ const ensureResources = async () => {
     const [ds, conns, directory] = await Promise.all([
         useMyFetch('/data_sources/active?show_all=true'),
         useMyFetch('/connections'),
-        useMyFetch<{folders: {id:string, name:string, parent_id:string | null, can_manage:boolean}[]}>('/folders'),
+        useMyFetch<{folders: {id:string, name:string, parent_id:string | null, can_manage:boolean}[]}>('/folders', { query: { show_all: true } }),
     ])
     if (ds.error.value) throw ds.error.value
     if (conns.error.value) throw conns.error.value
