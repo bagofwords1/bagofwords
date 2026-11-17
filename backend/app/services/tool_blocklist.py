@@ -159,22 +159,71 @@ def _protected_target(target: str) -> bool:
     return (t or "/") in _RM_ROOTS
 
 
+# Database command-line clients and the options that carry SQL to run.
+_DB_CLIENT_SQL_OPTS = {
+    "psql": {"-c", "--command"},
+    "mysql": {"-e", "--execute"},
+    "mariadb": {"-e", "--execute"},
+    "sqlcmd": {"-Q", "-q"},
+    "clickhouse-client": {"-q", "--query"},
+    "clickhouse": {"-q", "--query"},
+    "snowsql": {"-q", "--query"},
+    "bq": {"query"},
+    "sqlite3": set(),
+    "duckdb": {"-c"},
+    "trino": {"--execute"},
+}
+
+
+def _db_client_sql(tokens: list) -> tuple:
+    """(SQL passed by option to a DB client in this segment, whether a DB
+    client appears at all)."""
+    sql, seen = [], False
+    for i, t in enumerate(tokens):
+        base = t.rsplit("/", 1)[-1]
+        if base not in _DB_CLIENT_SQL_OPTS:
+            continue
+        seen = True
+        opts = _DB_CLIENT_SQL_OPTS[base]
+        for j in range(i + 1, len(tokens)):
+            a = tokens[j]
+            if a in opts and j + 1 < len(tokens):
+                sql.append(tokens[j + 1])
+            elif "=" in a and a.split("=", 1)[0] in opts:
+                sql.append(a.split("=", 1)[1])
+    return sql, seen
+
+
 def shell_block_reason(command: str) -> Optional[str]:
     """Why a remote shell command is blocked, or None."""
     if not isinstance(command, str) or not command.strip():
         return None
-    for seg in _shell_segments(command):
+    segments = _shell_segments(command)
+    client_anywhere = any(_db_client_sql(_tokens(seg))[1] for seg in segments)
+    for seg in segments:
         tokens = _tokens(seg)
         prog, args = _program(tokens)
         # rm anywhere in the segment, so no wrapper spelling can hide it.
         for i, tok in enumerate(tokens):
             if tok.rsplit("/", 1)[-1] == "rm" and _is_recursive_force_rm(tokens[i + 1:]):
                 return "recursive forced delete of a root, home or wildcard path"
-        if prog in _POWER_PROGRAMS:
+        if prog in _POWER_PROGRAMS or (prog in ("init", "telinit") and args[:1] in (["0"], ["6"])):
             return "shuts down or restarts the server"
         for pat in _SHELL_PATTERNS:
             if pat.search(seg):
                 return "destructive system command"
+        # SQL run through a database client: psql -c "DROP …", mysql -e …,
+        # and SQL piped into one (echo "DROP TABLE x" | psql).
+        client_sql, _ = _db_client_sql(tokens)
+        for text in client_sql:
+            reason = sql_block_reason(text, sql_context="sql")
+            if reason:
+                return reason
+        if client_anywhere:
+            for tok in tokens:
+                reason = sql_block_reason(tok, sql_context="shared")
+                if reason:
+                    return reason
     return None
 
 
@@ -183,17 +232,27 @@ def shell_block_reason(command: str) -> Optional[str]:
 # A table name: bare, "quoted", [bracketed] or `backticked`, optionally dotted.
 _NAME = r'(?:"[^"]+"|\[[^\]]+\]|`[^`]+`|[\w$#@]+)'
 _IDENT = _NAME + r"(?:\." + _NAME + r")*"
-# DROP is refused wherever it starts a statement. DELETE-without-WHERE and
-# TRUNCATE are refused only in arguments that hold SQL (by key name) or in a
-# text that is plainly a SQL statement, because "Delete from inbox" or
-# "truncate the axis" are ordinary words elsewhere.
+# An optional table alias ("DELETE FROM orders o", "… AS o"), never WHERE.
+_ALIAS = r"(?:\s+(?:as\s+)?(?!where\b|returning\b|using\b)[\w]+)?"
+
+# How much SQL rule an argument gets depends on how sure we are it is SQL:
+#   "sql"    — a key that certainly holds SQL (sql, sqlQuery, statement…), or a
+#              shared key on a tool whose name says it runs SQL;
+#   "shared" — keys a search tool uses too (query, q, command…): only
+#              spellings a search phrase doesn't produce;
+#   "other"  — anything else: only a text that is a single DROP statement
+#              ("Drop table orders_tmp after migration" in a title passes).
 _SQL_DROP = re.compile(r"^drop\s+(database|schema|table)\b", re.IGNORECASE)
-_SQL_DROP_ANYWHERE = re.compile(r"(^|[\s(\'\"])drop\s+(database|schema|table)\s+(if\s+exists\s+)?" + _IDENT, re.IGNORECASE)
+_SQL_DROP_ONLY = re.compile(
+    r"^drop\s+(database|schema|table)\s+(if\s+exists\s+)?" + _IDENT + r"(\s*,\s*" + _IDENT + r")*"
+    r"(\s+(cascade|restrict))?\s*;?\s*$", re.IGNORECASE)
+_SQL_DROP_ANYWHERE = re.compile(r"(^|[\s(])drop\s+(database|schema|table)\s+(if\s+exists\s+)?" + _IDENT, re.IGNORECASE)
 _SQL_TRUNCATE = re.compile(
     r"^truncate\s+(table\s+)?(only\s+)?" + _IDENT + r"(\s*,\s*" + _IDENT + r")*"
     r"(\s+(cascade|restrict|(restart|continue)\s+identity))*\s*$", re.IGNORECASE)
 # DELETE FROM <table> with no WHERE (a RETURNING clause doesn't narrow it).
-_SQL_DELETE = re.compile(r"^delete\s+from\s+(only\s+)?" + _IDENT + r"(\s+returning\b.*)?\s*$", re.IGNORECASE | re.DOTALL)
+_SQL_DELETE = re.compile(
+    r"^delete\s+from\s+(only\s+)?" + _IDENT + _ALIAS + r"(\s+returning\b.*)?\s*$", re.IGNORECASE | re.DOTALL)
 # T-SQL's FROM-less form ("DELETE orders") reads like plain words ("delete
 # account"), so it is only checked where the argument is certainly SQL.
 _SQL_DELETE_NO_FROM = re.compile(r"^delete\s+(only\s+)?" + _IDENT + r"\s*$", re.IGNORECASE)
@@ -202,18 +261,24 @@ _SQL_START = re.compile(
     r"^\s*(select|with|insert|update|merge|create|alter|exec|execute|begin|declare|use)\b", re.IGNORECASE)
 _SQL_COMMENTS = re.compile(r"(--[^\n]*\n?|/\*.*?\*/)", re.DOTALL)
 _SQL_BATCH_SEP = re.compile(r";|^\s*go\s*$", re.IGNORECASE | re.MULTILINE)
-# Argument keys that certainly hold SQL vs keys a search tool also uses.
-# Keys are compared lower-cased without "_" / "-" (sqlQuery = sql_query).
+_SQL_LITERAL = re.compile(r"'(?:[^']|'')*'")
+# EXEC('…'), EXEC sp_executesql N'…', EXECUTE ('…'): the string is SQL to run.
+_SQL_EXEC_BODY = re.compile(r"\bexec(?:ute)?\b\s*(?:\(\s*)?(?:[\w.\[\]]+\s*)?N?'((?:[^']|'')*)'", re.IGNORECASE)
 _SQL_SHARED_KEYS = {"query", "q", "command", "script", "code"}
+# A tool whose name says it runs SQL: then a shared key holds SQL.
+_SQL_TOOL_NAME = re.compile(
+    r"sql|statement|stmt|database|^query$|(^|[_-])(run|execute|exec)[_-]?(query|queries)|(^|[_-])db([_-]|$)",
+    re.IGNORECASE)
 
 
-def _key_kind(key: str) -> str:
+def _key_kind(key: str, tool_name: str = "") -> str:
     k = re.sub(r"[_\-]", "", key.lower())
     if "sql" in k or k in ("statement", "statements", "stmt", "stmts"):
         return "sql"
     if k in _SQL_SHARED_KEYS:
-        return "shared"
+        return "sql" if _SQL_TOOL_NAME.search(tool_name or "") else "shared"
     return "other"
+
 
 _TOOL_NAME = re.compile(
     r"^(drop|purge|wipe|destroy|nuke)[_-]?(all|database|db|table|schema|everything)"
@@ -222,15 +287,24 @@ _TOOL_NAME = re.compile(
 )
 
 
-def sql_block_reason(text: str, *, sql_context: Any = True) -> Optional[str]:
-    """Why a SQL text is blocked, or None. ``sql_context``: "sql" (or True)
-    for an argument that certainly holds SQL, "shared" for keys like
-    ``query`` that search tools use too, "other" (or False) for anything
-    else. DROP is checked everywhere; DELETE/TRUNCATE need SQL context."""
+def sql_block_reason(text: str, *, sql_context: Any = True, _depth: int = 0) -> Optional[str]:
+    """Why a SQL text is blocked, or None. ``sql_context`` is "sql" (or
+    True), "shared" or "other" (or False); see the levels above. String
+    literals are blanked before scanning, so a query that searches for
+    'drop table' in a log is not refused; ``EXEC('…')`` bodies are scanned
+    on their own."""
     level = {True: "sql", False: "other"}.get(sql_context, sql_context)
     if not isinstance(text, str) or not text.strip():
         return None
     clean = _SQL_COMMENTS.sub(" ", text)
+    if level == "other":
+        return "drops a database, schema or table" if _SQL_DROP_ONLY.match(clean.strip()) else None
+    if _depth < 2:
+        for body in _SQL_EXEC_BODY.findall(clean):
+            reason = sql_block_reason(body.replace("''", "'"), sql_context="sql", _depth=_depth + 1)
+            if reason:
+                return reason
+    clean = _SQL_LITERAL.sub("''", clean)
     batch = bool(_SQL_START.match(clean))  # plainly a SQL script
     for stmt in _SQL_BATCH_SEP.split(clean):
         s = (stmt or "").strip()
@@ -246,8 +320,7 @@ def sql_block_reason(text: str, *, sql_context: Any = True) -> Optional[str]:
                 return "truncates a table"
             if _SQL_DELETE.search(s) or _SQL_DELETE_NO_FROM.search(s):
                 return "deletes every row of a table (no WHERE)"
-        elif level == "shared":
-            # Only spellings a search phrase doesn't produce.
+        else:  # shared
             if _SQL_TRUNCATE_TABLE.search(s) and _SQL_TRUNCATE.search(s):
                 return "truncates a table"
             if _SQL_DELETE.search(s):
@@ -282,8 +355,9 @@ def block_reason(*, tool_name: str, arguments: Any, remote_shell: bool = False) 
         reason = shell_block_reason(args.get("command", ""))
         if reason:
             return reason
+    bare = _bare_tool_name(tool_name) if isinstance(tool_name, str) else ""
     for key, text in _strings(args):
-        reason = sql_block_reason(text, sql_context=_key_kind(key))
+        reason = sql_block_reason(text, sql_context=_key_kind(key, bare))
         if reason:
             return reason
     return None

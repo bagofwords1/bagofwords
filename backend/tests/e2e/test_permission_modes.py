@@ -245,7 +245,7 @@ def test_no_mode_runs_a_denied_disabled_or_blocklisted_call(env, monkeypatch, mo
     assert not out.ran and not out.prompted
 
     # list_issues is read-only and on 'allow': only the blocklist stops it.
-    out = env.call("list_issues", repo="x; DROP TABLE users")
+    out = env.call("list_issues", repo="DROP TABLE users")
     assert not out.ran and not out.prompted and out.blocked_by == "blocklist"
 
 

@@ -22,6 +22,11 @@ from app.services.tool_blocklist import block_reason, shell_block_reason, sql_bl
     # Wildcards under protected dirs; nested shells behind flags; su -c.
     "rm -rf /home/*", "rm -rf /var/*", "rm -rf ~/*/", "bash -l -c \"sudo reboot\"", "sh -x -c 'reboot'",
     "sudo --user root reboot", "sudo --user=root reboot", "su -c \"shutdown -h now\"", "su root -c 'rm -rf /'",
+    "init 0", "sudo init 6", "telinit 0",
+    # SQL through a database client.
+    "sudo -u postgres psql -c \"DROP DATABASE analytics\"", "psql -c \"DROP TABLE orders\"",
+    "mysql -e \"DROP DATABASE shop\"", "psql -c \"TRUNCATE orders\"", "echo \"DROP TABLE x;\" | psql",
+    "psql --command=\"DELETE FROM orders\"", "sqlcmd -Q \"DELETE orders\"",
 ])
 def test_destructive_shell_commands_are_blocked(command):
     assert shell_block_reason(command)
@@ -33,6 +38,8 @@ def test_destructive_shell_commands_are_blocked(command):
     "dd if=/dev/sda of=/dev/null bs=1M count=1", "Get-Date -Format H:mm", "systemctl status nginx",
     "sudo -u postgres psql -c 'select 1'", "timeout 10 ls /", "rm -rf /tmp/build/", "env X=1 echo reboot",
     "rm -rf ./build/*", "rm -rf /var/tmp/cache/*", "su - postgres -c 'psql -l'", "bash -lc 'ls /home'",
+    "psql -c \"select count(*) from orders\"", "grep -r 'drop table' /var/log/app.log",
+    "psql -c \"DELETE FROM orders WHERE id = 3\"",
 ])
 def test_ordinary_shell_commands_are_not_blocked(command):
     assert shell_block_reason(command) is None
@@ -47,6 +54,7 @@ def test_ordinary_shell_commands_are_not_blocked(command):
     "DELETE orders", "delete from only orders",
     "DELETE FROM orders RETURNING *", 'DELETE FROM "Order Items"', 'TRUNCATE TABLE "Order Items"',
     "EXEC('DROP TABLE x')", "delete from [dbo].[Order Items]",
+    "DELETE FROM orders o", "DELETE FROM orders AS o", "EXECUTE sp_executesql N'TRUNCATE TABLE t'",
 ])
 def test_destructive_sql_is_blocked(sql):
     assert sql_block_reason(sql)
@@ -65,6 +73,8 @@ def test_ordinary_text_and_sql_are_not_blocked(text):
     # Search tools share keys like query/q with SQL tools: two-word phrases pass.
     ("query", "delete account"), ("query", "delete user"), ("q", "truncate text"),
     ("command", "delete branch"),
+    # Prose that mentions a DROP under a non-SQL key.
+    ("title", "Drop table orders_tmp after migration"), ("text", "Drop schema staging once the backfill is done"),
 ])
 def test_prose_outside_sql_arguments_is_not_blocked(key, text):
     assert block_reason(tool_name="send_message", arguments={key: text}) is None
@@ -76,6 +86,24 @@ def test_prose_outside_sql_arguments_is_not_blocked(key, text):
 ])
 def test_sql_in_sql_and_shared_arguments_is_blocked(key, text):
     assert block_reason(tool_name="run", arguments={key: text})
+
+
+@pytest.mark.parametrize("tool", ["execute_sql", "run_query", "query", "postgres__query", "db_execute"])
+@pytest.mark.parametrize("text", ["TRUNCATE orders", "truncate public.orders restart identity", "DELETE orders"])
+def test_shared_key_on_a_sql_tool_gets_the_full_sql_rules(tool, text):
+    assert block_reason(tool_name=tool, arguments={"query": text})
+
+
+@pytest.mark.parametrize("tool", ["search_docs", "query_knowledge_base", "search"])
+def test_shared_key_on_a_search_tool_stays_lenient(tool):
+    assert block_reason(tool_name=tool, arguments={"query": "delete account"}) is None
+
+
+def test_reading_history_that_mentions_drop_is_not_blocked():
+    q = ("SELECT query_text FROM snowflake.account_usage.query_history "
+         "WHERE query_text ILIKE 'drop table orders%'")
+    assert block_reason(tool_name="execute_sql", arguments={"query": q}) is None
+    assert block_reason(tool_name="execute_sql", arguments={"query": "SELECT 'x; DROP TABLE y' AS s"}) is None
 
 
 def test_block_reason_reads_nested_arguments_and_tool_names():
