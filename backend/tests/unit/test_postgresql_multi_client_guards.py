@@ -94,6 +94,7 @@ def _client() -> PostgresqlMultiClient:
         user="reader",
         password="pw",
     )
+    client._bow_connection_id = "conn-guards"
     client.attach_table_metadata([
         {"name": "public.orders", "metadata_json": {"schema": "public", "tenants": ["tenant_a", "tenant_b"]}},
         {"name": "public.users", "metadata_json": {"schema": "public", "tenants": ["tenant_a"]}},
@@ -205,3 +206,62 @@ def test_error_in_agent_sql_reaches_the_agent_unchanged(monkeypatch):
         _client().execute_query("SELECT totl FROM public.orders")
 
     assert str(raised.value) == str(error)
+
+
+_PG_HBA_TEXT = (
+    'IO Error: Unable to connect to Postgres at "dbname=tenant_a sslmode=prefer": connection to server at '
+    '"unreachable.invalid" (10.9.8.7), port 6543 failed: FATAL:  no pg_hba.conf entry for host "10.1.1.1", '
+    'user "reader", database "tenant_a", no encryption'
+)
+_TLS_TEXT = (
+    'IO Error: Unable to connect to Postgres at "dbname=tenant_a sslmode=verify-full": '
+    'server certificate for "db-proxy.internal" (and 2 other names) does not match host name "unreachable.invalid"'
+)
+
+
+@pytest.mark.parametrize("text", [_PG_HBA_TEXT, _TLS_TEXT])
+def test_rejected_connection_reaches_the_agent_without_server_or_login(monkeypatch, text):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: _FailingEngine(duckdb.IOException(text)))
+
+    with pytest.raises(duckdb.Error) as raised:
+        _client().execute_query("SELECT * FROM public.orders")
+
+    message = str(raised.value)
+    for detail in ("unreachable.invalid", "10.1.1.1", "db-proxy.internal", '"reader"', "6543"):
+        assert detail not in message
+
+
+@pytest.mark.parametrize("error", [
+    duckdb.InvalidInputException("Invalid Input Error: unreachable.invalid reader pw"),
+    duckdb.BinderException('Binder Error: Referenced column "reader" not found in FROM clause!'),
+    duckdb.ConversionException("Conversion Error: Could not convert string 'pw' to INT32"),
+])
+def test_error_from_agent_sql_is_never_rewritten_with_connection_secrets(monkeypatch, error):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: _FailingEngine(error))
+
+    with pytest.raises(type(error)) as raised:
+        _client().execute_query("SELECT * FROM public.orders")
+
+    assert str(raised.value) == str(error)
+
+
+class _TwoArgumentIOError(duckdb.IOException):
+    def __init__(self, message, code):
+        super().__init__(message)
+        self.code = code
+
+
+def test_connection_error_type_that_cannot_be_rebuilt_is_still_redacted(monkeypatch):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    error = _TwoArgumentIOError(_SERVER_TEXT, 7)
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: _FailingEngine(error))
+
+    with pytest.raises(duckdb.Error) as raised:
+        _client().execute_query("SELECT * FROM public.orders")
+
+    assert "unreachable.invalid" not in str(raised.value)

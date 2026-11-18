@@ -1,6 +1,7 @@
 import logging
 import re
-import uuid
+import threading
+from time import monotonic
 
 import duckdb
 import pandas as pd
@@ -19,11 +20,14 @@ from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, uni
 from app.data_sources.clients.postgresql_multi_engine import (
     PgConn,
     TenantEngine,
+    build_default_engine,
     evict_engine,
     failure_category,
+    forced_rebuild_allowed,
     get_engine,
     invalidate_engines,
     peek_engine,
+    redact_connection_details,
 )
 from app.data_sources.clients.progress import (
     discovery_items,
@@ -59,13 +63,9 @@ _READABLE_TABLES_SQL = (
 
 _GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
 
-_TENANT_READ_FAILURES = ("failed to prepare copy", "unable to connect to postgres", "server closed the connection")
-
-_CONNECTION_DETAILS = (
-    (re.compile(r'(?i)(unable to connect to postgres) at "[^"]*"'), r"\1"),
-    (re.compile(r'(?i)(connection to server) (?:at "[^"]*"(?: \([^)]*\))?, port \d+|on socket "[^"]*")'), r"\1"),
-    (re.compile(r'(?i)(could not translate host name) "[^"]*"'), r"\1"),
-    (re.compile(r'(?i)(for user) "[^"]*"'), r"\1"),
+_VANISHED_RELATION = re.compile(
+    r'Failed to prepare COPY "COPY \(.*\) TO STDOUT \(FORMAT "binary"\);": ERROR:\s+relation "[^"]*" does not exist',
+    re.DOTALL,
 )
 
 _EXACT_TYPES_SQL = """
@@ -108,7 +108,9 @@ class PostgresqlMultiClient(DataSourceClient):
         self._query_failures: list[str] = []
         self._query_left_out: dict[str, list[str]] = {}
         self._query_missing_views: list[str] = []
-        self._unsaved_engine_owner = f"unsaved-{uuid.uuid4().hex}"
+        self._own_engine: TenantEngine | None = None
+        self._own_engine_lock = threading.Lock()
+        self._own_rebuilt_at: float | None = None
 
     def _tenant_client(self, database: str) -> PostgresqlClient:
         return PostgresqlClient(
@@ -153,6 +155,9 @@ class PostgresqlMultiClient(DataSourceClient):
             raise ValueError("table_exclude_pattern timed out; simplify the regular expression")
         return not excluded
 
+    def _redacted(self, text_: str) -> str:
+        return redact_connection_details(text_, (self.password, self.host, self.user))
+
     def _unreadable_reason(self, client: PostgresqlClient, error: Exception) -> str:
         probe = client.test_connection()
         if probe.get("success"):
@@ -180,6 +185,7 @@ class PostgresqlMultiClient(DataSourceClient):
         except (IncompleteDiscoveryError, SQLAlchemyError, RuntimeError) as exc:
             reason = self._unreadable_reason(client, exc)
             logger.warning("Could not read tenant database %s: %s", database, reason)
+            logger.debug("Reading tenant database %s failed: %s", database, self._redacted(str(exc)))
             self._unreadable.append({"name": database, "reason": reason})
             return None
         if not tables:
@@ -212,7 +218,9 @@ class PostgresqlMultiClient(DataSourceClient):
             table.metadata_json[UNREADABLE_TENANTS_KEY] = list(self._unreadable_names)
             table.metadata_json[INDEXED_TENANTS_KEY] = list(indexed)
         self._learn([(t.name, t.metadata_json) for t in catalog.tables], replace=True)
-        invalidate_engines(self._connection_id())
+        if self._connection_id():
+            invalidate_engines(self._connection_id())
+        self._own_engine = None
         return catalog.tables
 
     def _learn(self, entries, *, replace: bool) -> None:
@@ -274,7 +282,7 @@ class PostgresqlMultiClient(DataSourceClient):
         return sorted(set(self._indexed_tenants) | {t for members in self._views.values() for t in members})
 
     def _connection_id(self) -> str:
-        return str(getattr(self, "_bow_connection_id", "") or self._unsaved_engine_owner)
+        return str(getattr(self, "_bow_connection_id", "") or "")
 
     def _learn_engine(self, engine: TenantEngine) -> None:
         self._query_failures = sorted(f["name"] for f in engine.failed_tenants)
@@ -286,15 +294,40 @@ class PostgresqlMultiClient(DataSourceClient):
         self._query_missing_views = sorted({v for v in engine.missing_views if v in self._views})
 
     def _engine(self) -> TenantEngine:
-        engine = get_engine(
-            self._pg_conn(),
-            self._views,
-            ttl_seconds=ENGINE_TTL_SECONDS,
-            tenants=self._engine_tenants(),
-            connection_id=self._connection_id(),
-        )
+        if self._connection_id():
+            engine = get_engine(
+                self._pg_conn(),
+                self._views,
+                ttl_seconds=ENGINE_TTL_SECONDS,
+                tenants=self._engine_tenants(),
+                connection_id=self._connection_id(),
+            )
+        else:
+            engine = self._unshared_engine()
         self._learn_engine(engine)
         return engine
+
+    def _unshared_engine(self) -> TenantEngine:
+        with self._own_engine_lock:
+            engine = self._own_engine
+            if engine is None:
+                engine = build_default_engine(self._pg_conn(), self._views, tenants=self._engine_tenants())
+                self._own_engine = engine if engine.attached else None
+            else:
+                engine.ensure_views(self._views)
+            return engine
+
+    def _discard(self, engine: TenantEngine) -> bool:
+        if self._connection_id():
+            return evict_engine(engine)
+        now = monotonic()
+        with self._own_engine_lock:
+            if not forced_rebuild_allowed(self._own_rebuilt_at, now):
+                return False
+            self._own_rebuilt_at = now
+            if self._own_engine is engine:
+                self._own_engine = None
+        return True
 
     def _run(self, engine: TenantEngine, sql: str) -> pd.DataFrame:
         cursor = engine.cursor()
@@ -305,13 +338,15 @@ class PostgresqlMultiClient(DataSourceClient):
             cursor.close()
 
     def _without_connection_details(self, exc: duckdb.Error) -> duckdb.Error:
-        text_ = str(exc)
-        for pattern, replacement in _CONNECTION_DETAILS:
-            text_ = pattern.sub(replacement, text_)
-        for secret in (self.password, self.host, self.user):
-            if secret:
-                text_ = re.sub(rf"(?<![\w.-]){re.escape(str(secret))}(?![\w.-])", "<redacted>", text_)
-        return exc if text_ == str(exc) else type(exc)(text_)
+        if not _postgres_side(exc):
+            return exc
+        text_ = self._redacted(str(exc))
+        if text_ == str(exc):
+            return exc
+        try:
+            return type(exc)(text_)
+        except TypeError:
+            return duckdb.Error(text_)
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         self._check_table_refs(sql)
@@ -319,10 +354,13 @@ class PostgresqlMultiClient(DataSourceClient):
         try:
             return self._run(engine, sql)
         except duckdb.Error as exc:
-            if not _tenant_read_failed(exc):
+            if not (_relation_vanished(exc) and self._discard(engine)):
                 raise self._without_connection_details(exc) from None
-            logger.warning("Rebuilding the tenant engine after a tenant read failed: %s", failure_category(exc))
-        evict_engine(engine)
+            logger.warning(
+                "Rebuilding the tenant engine of connection %s after a table vanished from a tenant database",
+                self._connection_id() or "(unsaved)",
+            )
+        del engine
         try:
             return self._run(self._engine(), sql)
         except duckdb.Error as exc:
@@ -343,6 +381,7 @@ class PostgresqlMultiClient(DataSourceClient):
                     if reason:
                         unreadable.append({"name": database, "reason": reason})
         except Exception as e:
+            logger.debug("Listing databases from %s failed: %s", self.discovery_database, self._redacted(str(e)))
             return {
                 "success": False,
                 "message": f"Could not list the databases from '{self.discovery_database}': {failure_category(e)}",
@@ -365,6 +404,7 @@ class PostgresqlMultiClient(DataSourceClient):
                     text(_READABLE_TABLES_SQL.format(schema_filter=schema_filter)), {"schemas": self._schemas}
                 ).scalar()
         except Exception as exc:
+            logger.debug("Probing tenant database %s failed: %s", database, self._redacted(str(exc)))
             return failure_category(exc)
         return None if readable else NO_READABLE_TABLES_REASON
 
@@ -396,7 +436,10 @@ class PostgresqlMultiClient(DataSourceClient):
     def _peek_engine(self) -> None:
         if not self._views:
             return
-        engine = peek_engine(self._pg_conn(), tenants=self._engine_tenants(), connection_id=self._connection_id())
+        if not self._connection_id():
+            engine = self._own_engine
+        else:
+            engine = peek_engine(self._pg_conn(), tenants=self._engine_tenants(), connection_id=self._connection_id())
         if engine is not None:
             self._learn_engine(engine)
 
@@ -441,9 +484,12 @@ class PostgresqlMultiClient(DataSourceClient):
         return text_
 
 
-def _tenant_read_failed(exc: duckdb.Error) -> bool:
-    text_ = str(exc).lower()
-    return failure_category(exc) != "timed out" and any(n in text_ for n in _TENANT_READ_FAILURES)
+def _postgres_side(exc: duckdb.Error) -> bool:
+    return type(exc) is duckdb.Error or isinstance(exc, (duckdb.IOException, duckdb.ConnectionException))
+
+
+def _relation_vanished(exc: duckdb.Error) -> bool:
+    return type(exc) is duckdb.Error and bool(_VANISHED_RELATION.match(str(exc)))
 
 
 def _left_out_entry(entry: dict) -> dict:

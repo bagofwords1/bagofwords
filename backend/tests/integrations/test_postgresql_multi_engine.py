@@ -585,7 +585,7 @@ def test_engine_with_failed_tenant_expires_sooner(multi_tenant_server, monkeypat
 
 def test_failed_tenant_is_logged_without_the_password(multi_tenant_server, caplog):
     secret = "Logged-Never-42"
-    with caplog.at_level(logging.WARNING, logger=engine_module.__name__):
+    with caplog.at_level(logging.DEBUG, logger=engine_module.__name__):
         built = _build(
             multi_tenant_server,
             conn=_reader(multi_tenant_server, password=secret),
@@ -593,6 +593,13 @@ def test_failed_tenant_is_logged_without_the_password(multi_tenant_server, caplo
         )
     built.close()
 
+    messages = [r.getMessage() for r in caplog.records if r.name == engine_module.__name__]
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    details = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG and "tenant_a" in r.getMessage()]
     assert any("tenant_a" in w for w in warnings)
-    assert not any(secret in w for w in warnings)
+    assert any("password authentication failed" in d for d in details)
+    for message in messages:
+        assert secret not in message
+        assert f'"{multi_tenant_server.host}"' not in message
+        assert f"port {multi_tenant_server.port}" not in message
+        assert f'"{multi_tenant_server.reader_user}"' not in message

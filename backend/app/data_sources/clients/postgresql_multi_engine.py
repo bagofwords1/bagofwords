@@ -2,7 +2,9 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from time import monotonic
 
@@ -43,6 +45,11 @@ class TenantEngine:
         self._settled: dict[str, tuple[str, ...]] = {}
         self._created: set[str] = set()
         self._lock = threading.Lock()
+        self.cache_key = None
+
+    @property
+    def attached(self) -> bool:
+        return bool(self._aliases)
 
     @property
     def degraded(self) -> bool:
@@ -118,6 +125,7 @@ class TenantEngine:
 
 _FAILURE_CATEGORIES = (
     ("too many clients", "server has no free connection slots"),
+    ("too many connections", "server has no free connection slots"),
     ("remaining connection slots", "server has no free connection slots"),
     ("password authentication failed", "authentication failed"),
     ("permission denied", "permission denied"),
@@ -141,6 +149,26 @@ def failure_category(error: BaseException | str, default: str | None = None) -> 
     if default is not None:
         return default
     return type(error).__name__ if isinstance(error, BaseException) else "unknown error"
+
+
+_CONNECTION_DETAILS = (
+    (re.compile(r'(?i)(unable to connect to postgres) at "[^"]*"'), r"\1"),
+    (re.compile(r'(?i)(connection to server) (?:at "[^"]*"(?: \([^)]*\))?, port \d+|on socket "[^"]*")'), r"\1"),
+    (re.compile(r'(?i)(could not translate host name) "[^"]*"'), r"\1"),
+    (re.compile(r'(?i)(no pg_hba\.conf entry) for host "[^"]*", user "[^"]*", database "[^"]*"'), r"\1"),
+    (re.compile(r'(?i)(server certificate) for "[^"]*"(?: \(and \d+ other names?\))? (does not match host name) "[^"]*"'),
+     r"\1 \2"),
+    (re.compile(r'(?i)(for user) "[^"]*"'), r"\1"),
+)
+
+
+def redact_connection_details(text: str, secrets: Iterable[str]) -> str:
+    for pattern, replacement in _CONNECTION_DETAILS:
+        text = pattern.sub(replacement, text)
+    for secret in secrets:
+        if secret:
+            text = re.sub(rf"(?<![\w.-]){re.escape(str(secret))}(?![\w.-])", "<redacted>", text)
+    return text
 
 
 def _sql_literal(value: str) -> str:
@@ -224,6 +252,10 @@ def build_engine(
             except duckdb.Error as exc:
                 failures[tenant] = failure_category(exc)
                 logger.warning("Could not attach tenant database %s: %s", tenant, failures[tenant])
+                logger.debug(
+                    "Attach of tenant database %s failed: %s",
+                    tenant, redact_connection_details(str(exc), (conn.password, conn.host, conn.user)),
+                )
             else:
                 aliases[tenant] = alias
 
@@ -239,6 +271,19 @@ def build_engine(
     return engine
 
 
+def build_default_engine(conn: PgConn, views: dict[str, list[str]], *, tenants: list[str] | None = None) -> TenantEngine:
+    return build_engine(
+        conn,
+        views,
+        statement_timeout_ms=DEFAULT_STATEMENT_TIMEOUT_MS,
+        memory_limit=DEFAULT_MEMORY_LIMIT,
+        threads=DEFAULT_THREADS,
+        pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
+        pg_idle_timeout_ms=DEFAULT_PG_IDLE_TIMEOUT_MS,
+        tenants=_engine_tenants(views, tenants),
+    )
+
+
 def _engine_tenants(views: dict[str, list[str]], tenants: list[str] | None) -> list[str]:
     return sorted(set(tenants or ()) | {tenant for members in views.values() for tenant in members})
 
@@ -249,6 +294,7 @@ _cache: dict[_CacheKey, tuple[TenantEngine, float]] = {}
 _cache_lock = threading.Lock()
 _build_locks: dict[_CacheKey, threading.Lock] = {}
 _building: dict[_CacheKey, object] = {}
+_forced_rebuilds: dict[_CacheKey, float] = {}
 
 
 def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKey:
@@ -302,16 +348,7 @@ def get_engine(
                         _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
             return engine
         try:
-            engine = build_engine(
-                conn,
-                views,
-                statement_timeout_ms=DEFAULT_STATEMENT_TIMEOUT_MS,
-                memory_limit=DEFAULT_MEMORY_LIMIT,
-                threads=DEFAULT_THREADS,
-                pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
-                pg_idle_timeout_ms=DEFAULT_PG_IDLE_TIMEOUT_MS,
-                tenants=all_tenants,
-            )
+            engine = build_default_engine(conn, views, tenants=all_tenants)
         except BaseException:
             with _cache_lock:
                 if _building.get(key) is token:
@@ -320,19 +357,33 @@ def get_engine(
         with _cache_lock:
             if _building.get(key) is token:
                 del _building[key]
-                _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
+                if engine.attached:
+                    engine.cache_key = key
+                    _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
         return engine
 
 
-def evict_engine(engine: TenantEngine) -> None:
+def forced_rebuild_allowed(last: float | None, now: float) -> bool:
+    return last is None or now - last >= DEGRADED_ENGINE_TTL_SECONDS
+
+
+def evict_engine(engine: TenantEngine) -> bool:
+    key = getattr(engine, "cache_key", None)
+    if key is None:
+        return False
+    now = monotonic()
     with _cache_lock:
-        for key in [k for k, (cached, _) in _cache.items() if cached is engine]:
+        if not forced_rebuild_allowed(_forced_rebuilds.get(key), now):
+            return False
+        _forced_rebuilds[key] = now
+        if key in _cache and _cache[key][0] is engine:
             del _cache[key]
+    return True
 
 
 def invalidate_engines(connection_id: str | None = None) -> None:
     # Engines are dropped, not closed: queries still running on their cursors keep them alive.
     with _cache_lock:
-        for registry in (_cache, _build_locks, _building):
+        for registry in (_cache, _build_locks, _building, _forced_rebuilds):
             for key in [k for k in registry if connection_id is None or k[0] == connection_id]:
                 del registry[key]

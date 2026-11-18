@@ -12,7 +12,13 @@ import time
 import pytest
 
 from app.data_sources.clients import postgresql_multi_engine as engine_module
-from app.data_sources.clients.postgresql_multi_engine import PgConn, get_engine, invalidate_engines
+from app.data_sources.clients.postgresql_multi_engine import (
+    DEGRADED_ENGINE_TTL_SECONDS,
+    PgConn,
+    evict_engine,
+    get_engine,
+    invalidate_engines,
+)
 
 CONN = PgConn(host="db.invalid", port=5432, user="reader", password="pw", sslmode="disable")
 VIEWS = {"public.orders": ["tenant_a", "tenant_b"]}
@@ -86,3 +92,52 @@ def test_concurrent_callers_after_expiry_share_one_rebuild(monkeypatch, clock):
 
     assert len(builds) == 2, builds
     assert len({id(e) for e in results.values()}) == 1
+
+
+def _counting_build(monkeypatch, attached=True) -> list:
+    built: list = []
+
+    def build(conn, views, **kwargs):
+        engine = _StubEngine(attached=attached)
+        built.append(engine)
+        return engine
+
+    monkeypatch.setattr(engine_module, "build_engine", build)
+    return built
+
+
+def test_engine_with_no_attached_tenant_is_not_cached(monkeypatch, clock):
+    built = _counting_build(monkeypatch, attached=False)
+
+    first = get_engine(CONN, VIEWS, connection_id="c1")
+    second = get_engine(CONN, VIEWS, connection_id="c1")
+
+    assert second is not first
+    assert len(built) == 2
+
+
+def test_forced_rebuild_is_allowed_once_per_degraded_ttl(monkeypatch, clock):
+    built = _counting_build(monkeypatch)
+    engine = get_engine(CONN, VIEWS, connection_id="c1")
+
+    assert evict_engine(engine) is True
+    rebuilt = get_engine(CONN, VIEWS, connection_id="c1")
+    assert rebuilt is not engine
+
+    clock[0] += DEGRADED_ENGINE_TTL_SECONDS - 1
+    assert evict_engine(rebuilt) is False
+    assert get_engine(CONN, VIEWS, connection_id="c1") is rebuilt
+
+    clock[0] += 2
+    assert evict_engine(rebuilt) is True
+    assert get_engine(CONN, VIEWS, connection_id="c1") is not rebuilt
+    assert len(built) == 3
+
+
+def test_forced_rebuilds_are_counted_per_connection(monkeypatch, clock):
+    _counting_build(monkeypatch)
+    first = get_engine(CONN, VIEWS, connection_id="c1")
+    other = get_engine(CONN, VIEWS, connection_id="c2")
+
+    assert evict_engine(first) is True
+    assert evict_engine(other) is True

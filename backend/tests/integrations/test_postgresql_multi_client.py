@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from types import SimpleNamespace
 
 import duckdb
@@ -284,7 +285,7 @@ def _alter_tenant(server, database: str, statement: str) -> None:
     ("vanishing_renamed", "ALTER TABLE public.orders RENAME TO orders_archived"),
 ])
 def test_table_gone_from_one_tenant_after_build_leaves_the_others_queryable(
-    multi_tenant_server, monkeypatch, vanishing, change
+    multi_tenant_server, monkeypatch, caplog, vanishing, change
 ):
     multi_tenant_server.create_database(vanishing)
     _seed_tenant(multi_tenant_server, vanishing, TENANT_ROWS["tenant_a"])
@@ -295,11 +296,13 @@ def test_table_gone_from_one_tenant_after_build_leaves_the_others_queryable(
     _alter_tenant(multi_tenant_server, vanishing, change)
     builds = _count_builds(monkeypatch)
 
-    df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
+    with caplog.at_level(logging.WARNING):
+        df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
 
     assert dict(zip(df["tenant_db"], df["n"], strict=True)) == {
         t: len(TENANT_ROWS[t]["orders"]) for t in ("public", "tenant_old")
     }
+    assert any(f"conn-{vanishing}" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
     assert any(vanishing in line and "public.orders" in line for line in client.description.splitlines())
     assert len(builds) == 1
     assert len(client.execute_query("SELECT * FROM public.users")) > 0
@@ -322,16 +325,120 @@ def test_table_no_tenant_can_serve_at_query_time_is_named_in_the_description(mul
     assert "public.items" not in client.description
 
 
-def test_error_in_agent_sql_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
-    client = _client(multi_tenant_server, connection_id="conn-agent-typo")
+_COPY_FAILURE = (
+    'Failed to prepare COPY "COPY (SELECT "id" FROM "public"."orders" ) TO STDOUT (FORMAT "binary");": '
+    'ERROR:  relation "public.orders" does not exist'
+)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT no_such_column FROM public.orders",
+    f"SELECT * FROM public.orders WHERE error('{_COPY_FAILURE}') IS NULL",
+    "SELECT * FROM public.orders WHERE error('failed to prepare copy') IS NULL",
+    "SELECT * FROM public.orders WHERE error('server closed the connection unexpectedly') IS NULL",
+    "SELECT * FROM public.orders WHERE error('Unable to connect to Postgres') IS NULL",
+    f"SELECT CAST('{_COPY_FAILURE}' AS INTEGER) FROM public.orders",
+])
+def test_error_raised_by_agent_sql_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch, sql):
+    client = _client(multi_tenant_server, connection_id="conn-agent-errors")
     client.get_schemas()
     client.execute_query("SELECT count(*) FROM public.orders")
     builds = _count_builds(monkeypatch)
 
     with pytest.raises(duckdb.Error):
-        client.execute_query("SELECT no_such_column FROM public.orders")
+        client.execute_query(sql)
 
     assert builds == []
+
+
+def test_revoked_select_on_one_tenant_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
+    tenant = "select_revoked"
+    multi_tenant_server.create_database(tenant)
+    _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["tenant_a"])
+    client = _client(multi_tenant_server, databases=f"{tenant}, public", connection_id="conn-revoked-select")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    _alter_tenant(multi_tenant_server, tenant, f"REVOKE SELECT ON public.orders FROM {multi_tenant_server.reader_user}")
+    builds = _count_builds(monkeypatch)
+
+    for _ in range(2):
+        with pytest.raises(duckdb.Error, match="permission denied"):
+            client.execute_query("SELECT count(*) FROM public.orders")
+
+    assert builds == []
+
+
+def _reader_connections(server, databases: list[str]) -> int:
+    rows = server.query("postgres", f"SELECT datname FROM pg_stat_activity WHERE usename = '{server.reader_user}'")
+    return sum(1 for (datname,) in rows if datname in databases)
+
+
+def _wait_for(predicate, timeout=15.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def _set_reader_connection_limit(server, limit: int) -> None:
+    admin = server.connect("postgres")
+    admin.autocommit = True
+    try:
+        with admin.cursor() as cur:
+            cur.execute(f"ALTER ROLE {server.reader_user} CONNECTION LIMIT {int(limit)}")
+    finally:
+        admin.close()
+
+
+def test_query_during_slot_shortage_fails_without_poisoning_the_engine(multi_tenant_server, monkeypatch):
+    tenants = ["slots_1", "slots_2"]
+    for tenant in tenants:
+        multi_tenant_server.create_database(tenant)
+        _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["public"])
+    monkeypatch.setattr(engine_module, "DEFAULT_PG_IDLE_TIMEOUT_MS", 1_000)
+    client = _client(multi_tenant_server, databases="slots_*", connection_id="conn-slots")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    assert _wait_for(lambda: _reader_connections(multi_tenant_server, tenants) == 0)
+    builds = _count_builds(monkeypatch)
+
+    _set_reader_connection_limit(multi_tenant_server, 0)
+    try:
+        with pytest.raises(duckdb.Error) as raised:
+            client.execute_query("SELECT count(*) FROM public.orders")
+    finally:
+        _set_reader_connection_limit(multi_tenant_server, -1)
+    df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
+
+    assert multi_tenant_server.host not in str(raised.value)
+    assert builds == []
+    assert dict(zip(df["tenant_db"], df["n"], strict=True)) == {t: len(TENANT_ROWS["public"]["orders"]) for t in tenants}
+
+
+def test_client_without_a_connection_keeps_its_engine_to_itself(multi_tenant_server, monkeypatch):
+    import gc
+
+    tenants = ["private_1", "private_2"]
+    for tenant in tenants:
+        multi_tenant_server.create_database(tenant)
+        _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["public"])
+    stored = _as_stored(_client(multi_tenant_server, databases="private_*").get_schemas())
+    invalidate_engines()
+    builds = _count_builds(monkeypatch)
+    client = _client(multi_tenant_server, databases="private_*", connection_id=None)
+    client.attach_table_metadata(stored)
+
+    client.execute_query("SELECT count(*) FROM public.users")
+    client.execute_query("SELECT count(*) FROM public.orders")
+
+    assert len(builds) == 1
+    assert engine_module.peek_engine(client._pg_conn(), tenants=tenants) is None
+    assert _reader_connections(multi_tenant_server, tenants) > 0
+    del client, builds[:]
+    gc.collect()
+    assert _wait_for(lambda: _reader_connections(multi_tenant_server, tenants) == 0, timeout=5)
 
 
 def test_agents_with_different_tables_share_one_engine_and_keep_their_own_scope(multi_tenant_server, monkeypatch):
