@@ -1,5 +1,4 @@
 import fnmatch
-from typing import List
 
 from app.schemas.data_sources.configs import parse_athena_database_spec as parse_database_spec
 
@@ -16,12 +15,12 @@ def _fold(text: str, case_sensitive: bool) -> str:
     return text if case_sensitive else text.lower()
 
 
-def is_excluded(name: str, excludes: List[str], *, case_sensitive: bool) -> bool:
+def is_excluded(name: str, excludes: list[str], *, case_sensitive: bool) -> bool:
     candidate = _fold(name, case_sensitive)
     return any(fnmatch.fnmatchcase(candidate, _fold(e, case_sensitive)) for e in excludes)
 
 
-def spec_matches(name: str, includes: List[str], excludes: List[str], *, case_sensitive: bool) -> bool:
+def spec_matches(name: str, includes: list[str], excludes: list[str], *, case_sensitive: bool) -> bool:
     candidate = _fold(name, case_sensitive)
     included = any(
         fnmatch.fnmatchcase(candidate, _fold(i, case_sensitive)) if is_glob(i)
@@ -32,8 +31,8 @@ def spec_matches(name: str, includes: List[str], excludes: List[str], *, case_se
 
 
 def select_databases(
-    available: List[str], includes: List[str], excludes: List[str], *, case_sensitive: bool
-) -> List[str]:
+    available: list[str], includes: list[str], excludes: list[str], *, case_sensitive: bool
+) -> list[str]:
     return list(dict.fromkeys(
         name for name in available
         if spec_matches(name, includes, excludes, case_sensitive=case_sensitive)
