@@ -1240,13 +1240,17 @@ Do not use when:
         remote_shell = connection.type == "remote_ssh" and data.tool_name == "execute_shell"
         if remote_shell:
             from app.services.remote_shell_policy import effective_shell_policy
-            effective = await effective_shell_policy(db, connection, tool_record, resolution, user, data.arguments, getattr(report, "id", None) if ToolPolicyService.is_interactive_run(runtime_ctx) else None)
+            effective = await effective_shell_policy(db, connection, tool_record, resolution, user, data.arguments, getattr(report, "id", None) if ToolPolicyService.report_grants_apply(runtime_ctx) else None)
 
         # Run-level permission mode (Auto / Ask / Allow all) — see
         # app/services/tool_permission_mode.py. Resolved here so every audit
         # record below can name it.
         from app.services import tool_permission_mode as pm
+        # watched: a person can answer a card for this run. grants: the
+        # report's grants (its "for this report" answers and Allow all) apply,
+        # also to a hidden sub-agent turn that cannot show a card.
         watched = ToolPolicyService.is_interactive_run(runtime_ctx)
+        grants = ToolPolicyService.report_grants_apply(runtime_ctx)
         pm_settings = pm.permission_settings(runtime_ctx.get("settings"))
         run_user_is_owner = bool(
             user is not None and report is not None
@@ -1261,7 +1265,7 @@ Do not use when:
         mode = pm.effective_mode(
             await self._current_report_mode(db, report), pm_settings,
             agent_caps=await self._agent_mode_caps(db, run_agents),
-            allow_all_permitted=watched and run_user_is_owner,
+            allow_all_permitted=grants and run_user_is_owner,
         )
         audit_base = {
             "tool": "execute_mcp", "tool_name": data.tool_name,
@@ -1332,7 +1336,7 @@ Do not use when:
         action, decided_by, mode_reason = await self._permission_mode_action(
             db, connection, tool_record, data, runtime_ctx, report,
             mode=mode, effective=effective, resolution=resolution, remote_shell=remote_shell,
-            shell_mandatory=shell_mandatory, watched=watched, settings=pm_settings, user=user,
+            shell_mandatory=shell_mandatory, watched=watched, grants=grants, settings=pm_settings, user=user,
         )
         if action in ("allow", "refuse"):
             approved = action == "allow"
@@ -1558,7 +1562,7 @@ Do not use when:
                 still_authorized = await remote_run_access(db, connection, user, ds_ids)
                 latest_effective = latest_policy.effective
                 if remote_shell:
-                    latest_effective = await effective_shell_policy(db, connection, tool_record, latest_policy, user, data.arguments, getattr(report, "id", None) if ToolPolicyService.is_interactive_run(runtime_ctx) else None)
+                    latest_effective = await effective_shell_policy(db, connection, tool_record, latest_policy, user, data.arguments, getattr(report, "id", None) if ToolPolicyService.report_grants_apply(runtime_ctx) else None)
                 if current != approval_snapshot or not latest_policy.is_enabled or latest_effective == TOOL_POLICY_DENY or not still_authorized:
                     approved = False
             # Who decided. The DB-poll path only carries the resolver's id, but
@@ -1812,13 +1816,15 @@ Do not use when:
 
     async def _permission_mode_action(
         self, db, connection, tool_record, data, runtime_ctx, report, *,
-        mode, effective, resolution, remote_shell, shell_mandatory, watched, settings, user,
+        mode, effective, resolution, remote_shell, shell_mandatory, watched, grants, settings, user,
     ):
         """What to do with a call whose per-tool setting is 'ask' or 'auto'.
 
         Returns (action, decided_by, reason) with action one of ``allow``,
         ``refuse``, ``binary_judge`` (today's yes/no judge for 'auto' tools) or
         ``prompt`` (ask the user — only ever returned for a watched run).
+        ``grants``: the report's "for this report" answers apply (a watched
+        run, or a hidden sub-agent turn of one).
         Callers have already applied the disabled check, the blocklist and
         every 'deny', so nothing here can loosen those.
         """
@@ -1832,7 +1838,7 @@ Do not use when:
             # Unwatched, "prompt" reaches the refusal below the mode layer.
             return "prompt", (pm.BY_POLICY if watched else pm.BY_UNATTENDED), ("" if watched else nobody)
 
-        if watched and not remote_shell and report is not None and user is not None:
+        if grants and not remote_shell and report is not None and user is not None:
             from app.services.tool_confirmation_service import ToolConfirmationService
             remembered = await ToolConfirmationService().report_decision(
                 db, report_id=str(report.id), user_id=str(user.id),

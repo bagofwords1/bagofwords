@@ -128,7 +128,8 @@ def env(test_client, create_user, login_user, whoami, create_data_source, create
     email = f"permmode_{uuid.uuid4().hex[:8]}@test.com"
     create_user(email=email, password="test123")
     token = login_user(email, "test123")
-    org_id = whoami(token)["organizations"][0]["id"]
+    me = whoami(token)
+    org_id = me["organizations"][0]["id"]
     headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
 
     r = test_client.post("/api/llm/providers", headers=headers, json={
@@ -151,6 +152,7 @@ def env(test_client, create_user, login_user, whoami, create_data_source, create
 
     e = E()
     e.headers, e.token, e.org_id, e.ds_id, e.conn_id, e.report_id = headers, token, org_id, ds["id"], conn_id, report_id
+    e.user_id = str(me["id"])
 
     def tools():
         r = test_client.get(f"/api/data_sources/{ds['id']}/tools", headers=headers)
@@ -444,6 +446,72 @@ def test_unattended_allow_never_runs_a_blocklisted_call(env):
     _ScriptedAgent.extra = dict(_MACHINE_RUN)
     out = env.call("mystery_action", x="DROP DATABASE prod")
     assert not out.ran and out.blocked_by == "blocklist"
+
+
+# ── Machine turns in the report (the real run_machine_turn path) ────────────
+
+def _machine_turn(env, trigger_source, tool_name="delete_branch", **arguments) -> _Outcome:
+    """A machine turn on the env report, as a wait wake, check-in or
+    sub-agent starts one: run_machine_turn → create_completion → the agent."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+    from app.services.machine_turn import run_machine_turn
+
+    _ScriptedAgent.call = {"connection_id": env.conn_id, "tool_name": tool_name,
+                           "arguments": arguments or {"branch": "feature-x"}}
+    before = len(_ScriptedAgent.runs)
+
+    async def _run():
+        async with async_session_maker() as db:
+            await run_machine_turn(
+                db, report=await db.get(Report, env.report_id), user=await db.get(User, env.user_id),
+                organization=await db.get(Organization, env.org_id), summary="machine turn",
+                trigger_source=trigger_source, message_type=f"{trigger_source}_event", instruction="resume")
+
+    asyncio.run(_run())
+    assert len(_ScriptedAgent.runs) == before + 1, f"the {trigger_source} turn did not run"
+    return _Outcome(_ScriptedAgent.runs[-1])
+
+
+@pytest.mark.parametrize("trigger", ["wait", "checkin", "sub_agent_message", "sub_agent_wave"])
+def test_a_machine_turn_shown_in_the_report_prompts_like_a_user_turn(env, trigger):
+    # As on main: the card shows in the report and the owner can answer it.
+    out = _machine_turn(env, trigger)
+    assert out.prompted and not out.ran
+
+
+@pytest.mark.parametrize("trigger", ["wait", "sub_agent"])
+def test_allow_all_and_report_grants_apply_to_machine_turns_in_the_report(env, test_client, alembic_config,
+                                                                         trigger):
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+    out = _machine_turn(env, trigger)
+    assert out.ran and not out.prompted
+    env.set_mode("ask")
+    r = _answer(env, test_client, alembic_config, "mystery_action", approved=True, scope="report")
+    assert r.status_code == 200, r.text
+    out = _machine_turn(env, trigger, "mystery_action", x="1")
+    assert out.ran and not out.prompted
+
+
+@pytest.mark.parametrize("unattended,ran", [("refuse", False), ("allow", True)])
+def test_a_hidden_sub_agent_turn_that_would_prompt_follows_the_unattended_setting(env, unattended, ran):
+    # Nobody sees a sub-agent's card, so a prompt there is never raised.
+    assert env.org_setting(unattended=unattended).status_code == 200
+    out = _machine_turn(env, "sub_agent")
+    assert not out.prompted
+    assert out.ran is ran
+
+
+def test_an_eval_turn_gets_no_report_grants(env, test_client, alembic_config):
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+    out = _machine_turn(env, "eval_run")
+    assert not out.ran and not out.prompted
 
 
 # ── Scheduled-prompt and webhook turns (the real paths) ─────────────────────

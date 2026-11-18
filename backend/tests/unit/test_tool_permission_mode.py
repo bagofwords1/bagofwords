@@ -1345,6 +1345,40 @@ def test_read_only_shell_rule(command, windows, expect):
     assert pm.is_read_only_shell_command(command, windows=windows) is expect
 
 
+@pytest.mark.parametrize("trigger,can_prompt,grants,machine", [
+    # Machine turns shown in the report: a person sees the card, as on main.
+    ("wait", True, True, False), ("checkin", True, True, False),
+    ("sub_agent_message", True, True, False), ("sub_agent_wave", True, True, False),
+    # A sub-agent's hidden turn: the report's grants apply, a prompt cannot.
+    ("sub_agent", False, True, True),
+    # Eval runs and any value this code does not know: unattended.
+    ("eval_run", False, False, True), ("something_new", False, False, True),
+])
+def test_machine_turns_split_answering_a_card_from_the_reports_grants(trigger, can_prompt, grants, machine):
+    from app.services.tool_policy_service import ToolPolicyService
+
+    head = SimpleNamespace(webhook_id=None, trigger_source=trigger, scheduled_prompt_id=None, started_via=None)
+    ctx = {"user": SimpleNamespace(id="u"), "head_completion": head}
+    assert ToolPolicyService.is_interactive_run(ctx) is can_prompt
+    assert ToolPolicyService.report_grants_apply(ctx) is grants
+    assert ToolPolicyService.is_machine_run(ctx) is machine
+
+
+def test_scheduled_webhook_api_and_other_channel_runs_get_no_report_grants():
+    from app.services.tool_policy_service import ToolPolicyService
+
+    user = SimpleNamespace(id="u")
+    blank = {"webhook_id": None, "trigger_source": None, "scheduled_prompt_id": None, "started_via": None}
+    for marker, value in (("webhook_id", "w"), ("scheduled_prompt_id", "s"), ("started_via", "api_key")):
+        # A sub-agent turn of such a run is unattended too.
+        for trigger in (None, "sub_agent"):
+            head = SimpleNamespace(**{**blank, marker: value, "trigger_source": trigger})
+            assert not ToolPolicyService.report_grants_apply({"user": user, "head_completion": head})
+    assert not ToolPolicyService.report_grants_apply({"user": user, "platform": "slack"})
+    assert not ToolPolicyService.report_grants_apply({"user": user, "is_eval_run": True})
+    assert ToolPolicyService.report_grants_apply({"user": user, "head_completion": SimpleNamespace(**blank)})
+
+
 def test_webhook_turn_counts_as_unattended():
     from types import SimpleNamespace
 
