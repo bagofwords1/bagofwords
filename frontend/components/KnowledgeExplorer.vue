@@ -1152,11 +1152,8 @@
     />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal :folder-id="selectedFolder" v-model="showNewAgent" @finished="onNewAgentFinished" />
-<<<<<<< ours
     <AgentCloneModal v-model="showCloneAgent" :agent="cloneSource" @finished="onCloneFinished" />
-=======
     <ImportAgentWizardModal :folder-id="selectedFolder" v-model="showImportAgent" @finished="onImportAgentFinished" />
->>>>>>> theirs
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
@@ -1267,11 +1264,8 @@ import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
-<<<<<<< ours
 import AgentCloneModal from '~/components/AgentCloneModal.vue'
-=======
 import ImportAgentWizardModal from '~/components/ImportAgentWizardModal.vue'
->>>>>>> theirs
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
