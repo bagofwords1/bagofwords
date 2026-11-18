@@ -40,16 +40,22 @@ _RM_ROOTS = {"/", "~", ".", "..", "*",
 # $HOME: under /home, so "~/.." normalizes to /home and "~/../.." to /.
 _HOME = "/home/~"
 
-# Disk devices: a whole disk or one of its partitions.
-_DISK = r"/dev/(sd|hd|nvme|xvd|vd|disk|mmcblk)\w*"
+# Disk devices: a whole disk or one of its partitions, a device-mapper, RAID
+# or loop device, and the /dev/disk/by-* links to them.
+_DISK = r"/dev/(sd|hd|nvme|xvd|vd|disk|mmcblk|mapper/|dm-|md|loop)\w*"
+# A token naming a disk device: alone, as an option's value (--device=/dev/sda,
+# --target-directory=…) or attached to a short option (-t/dev/sda).
+_DISK_TOKEN = re.compile(r"(?:--[\w-]+=|-[A-Za-z]*t)?" + _DISK)
+# Disk tools, formatting tools, tee and truncate: refused on a disk device
+# wherever it sits in their arguments. dd, cp and install: see _token_reason.
+_DISK_TOOLS = frozenset({"wipefs", "blkdiscard", "shred", "sgdisk", "sfdisk", "parted", "fdisk", "tee", "truncate",
+                         "mke2fs", "mkswap"})
+# fdisk / sfdisk only list partitions with these (fdisk -l /dev/sda).
+_DISK_LISTING = frozenset({"-l", "--list", "-x", "--list-details"})
+_DD_DISK_TARGET = re.compile(r"of=/dev/(?!null\b|zero\b|stdout\b|stderr\b)")
 _SHELL_PATTERNS = [
     re.compile(r"\bmkfs(\.\w+)?\b"),
-    re.compile(r"\bdd\b[^|;&]*\bof=/dev/(?!null\b|zero\b|stdout\b|stderr\b)"),
     re.compile(r">\s*" + _DISK),
-    # Disk tools, tee and truncate on a disk device, wherever it sits in their
-    # arguments; cp onto one (its last argument).
-    re.compile(r"\b(wipefs|blkdiscard|shred|sgdisk|sfdisk|parted|fdisk|tee|truncate)\b[^|;&\n]*\s['\"]?" + _DISK),
-    re.compile(r"\bcp\b[^|;&\n]*\s['\"]?" + _DISK + r"['\"]?\s*([|;&\n)]|$)"),
     re.compile(r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:"),          # :(){ :|:& };:
     re.compile(r"\bformat-volume\b", re.IGNORECASE),
     re.compile(r"\bclear-disk\b", re.IGNORECASE),
@@ -61,7 +67,8 @@ _SHELL_PATTERNS = [
 # Shutting down or restarting: the words anywhere in a command, like mkfs, so
 # no program in front of them (ssh host, echo … | sh, docker exec, watch) hides
 # them. A command that only mentions one is refused too (accepted false
-# refusals, named in the PR: systemctl status reboot.target, grep -r reboot).
+# refusals, named in the PR: systemctl status reboot.target, echo shutdown),
+# except a lone read-only command (see _reads_only).
 _POWER_PATTERNS = [
     re.compile(r"(?<![\w-])(shutdown|reboot|halt|poweroff)(?![\w-])", re.IGNORECASE),
     re.compile(r"(?<![\w-])(tel)?init\s+[06](?!\w)"),
@@ -70,17 +77,64 @@ _POWER_PATTERNS = [
 ]
 
 
-def _tokens(segment: str) -> list:
+_POWER_READERS = frozenset({"grep", "zgrep", "egrep", "fgrep", "journalctl", "last", "tail", "head", "cat", "less",
+                            "ls"})
+_SHELL_SYNTAX = re.compile(r"[|;&><$`()\n]")
+
+
+def _reads_only(command: str) -> bool:
+    """A lone read-only command (grep, last, tail, journalctl…) with no shell
+    syntax: none of these runs its arguments, so a shutdown word in them is
+    only text. Anything with a pipe, separator, redirect, substitution or
+    second line is not."""
+    if _SHELL_SYNTAX.search(command):
+        return False
+    views = _token_views(command)
+    return all(toks and _program(toks[0]) in _POWER_READERS for toks in views)
+
+
+def _program(token: str) -> str:
+    """A token as a program name: its basename (/ or \\), lowercased, without
+    a Windows .exe/.cmd/.bat ending (SQLCMD.EXE, C:\\tools\\psql.exe)."""
+    name = re.split(r"[/\\]", token)[-1].lower()
+    for ext in (".exe", ".cmd", ".bat"):
+        if name.endswith(ext):
+            return name[:-len(ext)]
+    return name
+
+
+def _token_views(segment: str) -> list:
+    """The segment's words, as one or more token lists the rules check in
+    turn. shlex reads them as bash does, except that bash ignores an
+    unbalanced quote inside a # comment and shlex raises; then the rules check
+    every reading that could hide a command, so they can only over-match: the
+    words with comments dropped (if that parses), the raw words with their
+    quotes stripped, and the raw words. A segment with a backslash gets the
+    raw readings too: shlex drops it, a Windows path keeps it
+    (C:\\tools\\psql.exe)."""
+    views = []
     try:
-        return shlex.split(segment, posix=True)
+        views.append(shlex.split(segment, posix=True))
+        if "\\" not in segment:
+            return views
     except ValueError:
-        return segment.split()
+        pass
+    try:
+        views.append(shlex.split(segment, comments=True, posix=True))
+    except ValueError:
+        pass
+    raw = segment.split()
+    views.append([w.replace('"', "").replace("'", "") for w in raw])
+    views.append(raw)
+    return views
 
 
-def _shell_segments(command: str, depth: int = 0) -> list:
+def _shell_segments(command: str, depth: int = 0, split: Optional[set] = None) -> list:
     """The command, each simple segment between separators, and the body of
     any ``sh -c '…'`` / backtick / ``$(…)`` inside it, so a blocked action
-    can't hide behind a separator or a nested shell."""
+    can't hide behind a separator or a nested shell. ``split`` collects the
+    texts the lexer split at a separator: their segments are read instead of
+    them by the rules that stop at a separator (cp, dd, the disk tools)."""
     out = [command]
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
@@ -88,23 +142,28 @@ def _shell_segments(command: str, depth: int = 0) -> list:
         lexer.whitespace_split = True
         lexer.commenters = ""
         seg: list = []
+        parts = []
         for tok in lexer:
             if tok and all(c in ";&|()\n" for c in tok):
-                out.append(" ".join(seg))
+                parts.append(" ".join(seg))
                 seg = []
             else:
                 seg.append(tok)
-        out.append(" ".join(seg))
+        parts.append(" ".join(seg))
+        out.extend(parts)
+        if len(parts) > 1 and split is not None:
+            split.add(command.strip())
     except ValueError:
         out.extend(re.split(r"[;&|\n]+", command))
     nested = re.findall(r"`([^`]*)`", command) + re.findall(r"\$\(([^()]*)\)", command)
     for seg in list(out):
-        nested.extend(_nested_bodies(_tokens(seg)))
+        for toks in _token_views(seg):
+            nested.extend(_nested_bodies(toks))
     nested = [body for body in nested if body.strip()]
     if nested and depth >= _MAX_SHELL_DEPTH:
         raise _ShellTooDeep()  # a body this check would not read: refuse, never skip
     for body in nested:
-        out.extend(_shell_segments(body, depth + 1))
+        out.extend(_shell_segments(body, depth + 1, split))
     return [s.strip() for s in out if s and s.strip()]
 
 
@@ -125,10 +184,12 @@ def _nested_bodies(toks: list) -> list:
     ``sh -xc X``, ``su root -c X``, ``su -c X``, ``--command=X``."""
     bodies = []
     for i, t in enumerate(toks):
-        if t.rsplit("/", 1)[-1] not in _SHELLS:
+        if _program(t) not in _SHELLS:
             continue
         for j in range(i + 1, len(toks)):
             a = toks[j]
+            if _program(a) in _SHELLS:
+                break  # that shell reads the same options (linear work on "sh sh sh …")
             if a in ("-c", "--command") or (a.startswith("-") and not a.startswith("--") and "c" in a[1:]):
                 if j + 1 < len(toks):
                     bodies.append(toks[j + 1])
@@ -139,70 +200,146 @@ def _nested_bodies(toks: list) -> list:
     return bodies
 
 
-def _is_recursive_force_rm(args: list) -> bool:
-    flags, targets = set(), []
-    for t in args:
-        if t == "--":
-            continue
-        if t.startswith("--"):
-            flags.add(t)
-        elif t.startswith("-") and len(t) > 1:
-            flags.update(f"-{c}" for c in t[1:])
-        else:
-            targets.append(t)
-    if "--no-preserve-root" in flags:
-        return True
-    recursive = bool(flags & {"-r", "-R", "--recursive"})
-    force = bool(flags & {"-f", "--force"})
-    return recursive and force and any(_protected_target(t) for t in targets)
+_VARIABLE_WILDCARD = re.compile(r"\$(\w+|\{[^}]*\})(/+\*)+/*")
+_HOME_PREFIX = re.compile(r"~([\w.+-]*)(?=/|$)")
 
 
 def _protected_target(target: str) -> bool:
     """Whether a path names a protected root: after "/*" and "/" endings are
-    stripped, ~ and $HOME expanded and the path normalized, it is one of
-    _RM_ROOTS or the home directory, or only ".." parts (../.., ./..)."""
+    stripped, ~, ~user and $HOME expanded and the path normalized, it is one
+    of _RM_ROOTS or a home directory, or only ".." parts (../.., ./..). A
+    wildcard under any variable ("$DIR/"*, ${DIR}/*) counts too: with the
+    variable unset it is /* (an accepted false refusal when it is set)."""
+    if _VARIABLE_WILDCARD.fullmatch(target):
+        return True
     t = target
     while t.endswith("/*") or (t.endswith("/") and t != "/"):
         t = t[:-2] if t.endswith("/*") else t[:-1]
     if not t:
         return True
-    for home in ("${HOME}", "$HOME", "~"):
-        if t == home or t.startswith(home + "/"):
-            t = _HOME + t[len(home):]
-            break
+    home = _HOME_PREFIX.match(t)
+    if home:
+        # ~root is /root; ~ and any other ~user are a home directory.
+        t = ("/root" if home.group(1) == "root" else _HOME) + t[home.end():]
+    else:
+        for var in ("${HOME}", "$HOME"):
+            if t == var or t.startswith(var + "/"):
+                t = _HOME + t[len(var):]
+                break
     t = posixpath.normpath(t)
     t = re.sub(r"^/+", "/", t)  # normpath keeps a leading "//"
     return t in _RM_ROOTS or t == _HOME or all(part == ".." for part in t.split("/"))
 
 
-def _is_recursive_tree_change(args: list) -> bool:
-    """chmod / chown / chgrp -R on a protected root."""
-    recursive, targets = False, []
-    for t in args:
-        if t == "--recursive" or (t.startswith("-") and not t.startswith("--") and "R" in t[1:]):
-            recursive = True
-        elif not t.startswith("-"):
-            targets.append(t)
-    return recursive and any(_protected_target(t) for t in targets)
+_SEPARATOR_TOKEN = re.compile(r"[;&|()\n]+")
+_EXEC_ACTIONS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+_FIND_GLOBAL_OPTION = re.compile(r"-[HLP]|-O\d*|--")
+_DELETING_PROGRAMS = frozenset({"rm", "shred", "unlink"})
+# A redirect operator alone (its target is the next word), or with its target
+# attached (2>/dev/null, >log, 2>&1).
+_REDIRECT_ALONE = re.compile(r"\d*(>>?|<<?<?|>&|&>>?)")
+_REDIRECT_ATTACHED = re.compile(r"\d*(>|<|&>)")
+_CP_VALUE_OPTIONS = frozenset({"-t", "-S", "-m", "-o", "-g", "--target-directory", "--suffix", "--mode", "--owner",
+                               "--group"})
+# Option words skipped while looking for find's roots or cp's first operand.
+# Past this many the command is not read further: refused (find) or every
+# disk device in it counts as a target (cp), so the work stays linear.
+_MAX_OPTION_WORDS = 64
 
 
-def _is_find_delete(args: list) -> bool:
-    """find <protected root> … -delete, or … -exec rm …. The working
-    directory alone is not a root here: ``find . -name x -delete`` deletes
-    only what it matches."""
-    roots = []
-    for t in args:
-        if t.startswith("-") or t in ("(", "!"):
-            break
-        roots.append(t)
-    if not any(_protected_target(t) and t not in (".", "./") for t in roots):
-        return False
-    rest = args[len(roots):]
-    if "-delete" in rest:
-        return True
-    return any(t in ("-exec", "-execdir", "-ok", "-okdir") and i + 1 < len(rest)
-               and rest[i + 1].rsplit("/", 1)[-1] in ("rm", "shred", "unlink")
-               for i, t in enumerate(rest))
+def _cp_source(tokens: list, k: int, end: int) -> Optional[int]:
+    """Index of the first operand (the source) of cp/install whose options
+    start at ``k``, or None. Redirects are skipped; an option that may take a
+    value skips it too, which can only make more devices count as targets."""
+    skipped = 0
+    while k < end and skipped <= _MAX_OPTION_WORDS:
+        a = tokens[k]
+        if _REDIRECT_ALONE.fullmatch(a):
+            k += 2
+        elif _REDIRECT_ATTACHED.match(a):
+            k += 1
+        elif a == "--":
+            return k + 1 if k + 1 < end else None
+        elif a.startswith("-") and len(a) > 1:
+            takes_value = a in _CP_VALUE_OPTIONS or (not a.startswith("--") and a[-1] in "tSmog")
+            k += 2 if takes_value else 1
+        else:
+            return k
+        skipped += 1
+    return None
+
+
+def _token_reason(tokens: list, devices: bool = True) -> Optional[str]:
+    """rm, find, chmod/chown/chgrp, dd, cp/install and the disk tools
+    anywhere in a segment's words, so no wrapper spelling can hide them.
+    rm, find and chmod read the rest of the words; dd, cp and the disk tools
+    (only with ``devices``: not for a text whose segments are read instead)
+    the words up to the next separator. Facts about the words to the right
+    are gathered in one pass, so the work is linear ("rm rm rm …" included)."""
+    n = len(tokens)
+    names = [_program(t) for t in tokens]
+    disk = [bool(_DISK_TOKEN.match(t)) for t in tokens]
+    target = [not t.startswith("-") and _protected_target(t) for t in tokens]
+    # Suffix facts: index i covers tokens[i:].
+    r_flag, f_flag, no_preserve, tree_r, protected, delete, exec_rm = ([False] * (n + 1) for _ in range(7))
+    # Prefix counts: tokens[:i].
+    disks, dd_disk, listing, other, find_root, deleting = ([0] * (n + 1) for _ in range(6))
+    for i, t in enumerate(tokens):
+        disks[i + 1] = disks[i] + disk[i]
+        dd_disk[i + 1] = dd_disk[i] + bool(_DD_DISK_TARGET.match(t))
+        listing[i + 1] = listing[i] + (t in _DISK_LISTING)
+        other[i + 1] = other[i] + (not disk[i] and t not in _DISK_LISTING)
+        find_root[i + 1] = find_root[i] + (target[i] and t not in (".", "./"))
+        deleting[i + 1] = deleting[i] + (names[i] in _DELETING_PROGRAMS)
+    next_sep, next_term, next_opt = [n] * (n + 1), [n] * (n + 1), [n] * (n + 1)
+    for i in range(n - 1, -1, -1):
+        t = tokens[i]
+        short = t.startswith("-") and not t.startswith("--") and len(t) > 1
+        r_flag[i] = r_flag[i + 1] or t == "--recursive" or (short and ("r" in t or "R" in t))
+        f_flag[i] = f_flag[i + 1] or t == "--force" or (short and "f" in t)
+        no_preserve[i] = no_preserve[i + 1] or t == "--no-preserve-root"
+        tree_r[i] = tree_r[i + 1] or t == "--recursive" or (short and "R" in t)
+        protected[i] = protected[i + 1] or target[i]
+        delete[i] = delete[i + 1] or t == "-delete"
+        next_sep[i] = i if _SEPARATOR_TOKEN.fullmatch(t) else next_sep[i + 1]
+        next_term[i] = i if t in (";", "+") else next_term[i + 1]
+        next_opt[i] = i if (t.startswith("-") or t in ("(", "!")) else next_opt[i + 1]
+        exec_rm[i] = exec_rm[i + 1] or (
+            t in _EXEC_ACTIONS and deleting[next_term[i + 1]] - deleting[i + 1] > 0)
+
+    for i, name in enumerate(names):
+        a = i + 1
+        if name == "rm" and (no_preserve[a] or (r_flag[a] and f_flag[a] and protected[a])):
+            return "recursive forced delete of a root, home or wildcard path"
+        if name in ("chmod", "chown", "chgrp") and tree_r[a] and protected[a]:
+            return "destructive system command"
+        if name == "find":
+            j, skipped = a, 0
+            while j < n and (tokens[j] == "-D" or _FIND_GLOBAL_OPTION.fullmatch(tokens[j])):
+                j += 2 if tokens[j] == "-D" else 1
+                skipped += 1
+                if skipped > _MAX_OPTION_WORDS:
+                    return REASON_SHELL_UNREADABLE
+            j = min(j, n)
+            rest = next_opt[j]
+            if find_root[rest] - find_root[j] > 0 and (delete[rest] or exec_rm[rest]):
+                return "destructive system command"
+        if not devices:
+            continue
+        end = next_sep[a]
+        on_disks = disks[end] - disks[a]
+        if name in _DISK_TOOLS and on_disks:
+            if (name in ("fdisk", "sfdisk") and other[end] - other[a] == 0
+                    and listing[end] - listing[a] > 0):
+                continue  # fdisk -l /dev/sda only lists the partitions
+            return "destructive system command"
+        if name == "dd" and dd_disk[end] - dd_disk[a] > 0:
+            return "destructive system command"
+        if name in ("cp", "install") and on_disks:
+            source = _cp_source(tokens, a, end)
+            if on_disks - (1 if source is not None and disk[source] else 0) > 0:
+                return "destructive system command"
+    return None
 
 
 # Database command-line clients and the options that carry SQL to run.
@@ -223,17 +360,18 @@ _DB_CLIENT_SQL_OPTS = {
 
 def _db_client_sql(tokens: list) -> tuple:
     """(SQL passed by option to a DB client in this segment, whether a DB
-    client appears at all)."""
+    client appears at all). A word after a client is read with the options of
+    every client before it, in one pass (linear work on "psql psql …")."""
     sql, seen = [], False
-    for i, t in enumerate(tokens):
-        base = t.rsplit("/", 1)[-1]
-        if base not in _DB_CLIENT_SQL_OPTS:
+    opts, letters = set(), set()
+    for j, a in enumerate(tokens):
+        base = _program(a)
+        if base in _DB_CLIENT_SQL_OPTS:
+            seen = True
+            opts |= _DB_CLIENT_SQL_OPTS[base]
+            letters = {o[1] for o in opts if len(o) == 2 and o[0] == "-"}
             continue
-        seen = True
-        opts = _DB_CLIENT_SQL_OPTS[base]
-        letters = [o[1] for o in opts if len(o) == 2 and o[0] == "-"]
-        for j in range(i + 1, len(tokens)):
-            a = tokens[j]
+        if seen:
             if a in opts and j + 1 < len(tokens):
                 sql.append(tokens[j + 1])
             elif "=" in a and a.split("=", 1)[0] in opts:
@@ -260,43 +398,49 @@ def shell_block_reason(command: str) -> Optional[str]:
     return _shell_reason(command, _Budget())
 
 
+# The longest command read: execute_shell's schema allows 16384 characters;
+# counted here in UTF-8 bytes. A longer one is refused before any pattern.
+_MAX_SHELL_BYTES = 16 * 1024
+
+
 def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
     if not isinstance(command, str) or not command.strip():
         return None
+    if _utf8_len(command) > _MAX_SHELL_BYTES:
+        return REASON_SHELL_UNREADABLE
+    split: set = set()
     try:
-        segments = _shell_segments(command)
+        segments = _shell_segments(command, split=split)
     except _ShellTooDeep:
         return REASON_SHELL_UNREADABLE
-    client_anywhere = any(_db_client_sql(_tokens(seg))[1] for seg in segments)
+    views = {seg: _token_views(seg) for seg in segments}
+    client_anywhere = any(_db_client_sql(toks)[1] for seg in segments for toks in views[seg])
+    power_words_are_text = _reads_only(command)
     for seg in segments:
-        tokens = _tokens(seg)
-        # rm, find, chmod/chown/chgrp anywhere in the segment, so no wrapper
-        # spelling can hide them.
-        for i, tok in enumerate(tokens):
-            name = tok.rsplit("/", 1)[-1]
-            if name == "rm" and _is_recursive_force_rm(tokens[i + 1:]):
-                return "recursive forced delete of a root, home or wildcard path"
-            if (name == "find" and _is_find_delete(tokens[i + 1:])) or (
-                    name in ("chmod", "chown", "chgrp") and _is_recursive_tree_change(tokens[i + 1:])):
-                return "destructive system command"
-        for pat in _POWER_PATTERNS:
-            if pat.search(seg):
-                return "shuts down or restarts the server"
+        for tokens in views[seg]:
+            reason = _token_reason(tokens, devices=seg not in split)
+            if reason:
+                return reason
+        if not power_words_are_text:
+            for pat in _POWER_PATTERNS:
+                if pat.search(seg):
+                    return "shuts down or restarts the server"
         for pat in _SHELL_PATTERNS:
             if pat.search(seg):
                 return "destructive system command"
         # SQL run through a database client: psql -c "DROP …", mysql -e …,
         # and SQL piped into one (echo "DROP TABLE x" | psql).
-        client_sql, _ = _db_client_sql(tokens)
-        for text in client_sql:
-            reason = _sql_reason(text, "sql", budget)
-            if reason:
-                return reason
-        if client_anywhere:
-            for tok in tokens:
-                reason = _sql_reason(tok, "shared", budget)
+        for tokens in views[seg]:
+            client_sql, _ = _db_client_sql(tokens)
+            for text in client_sql:
+                reason = _sql_reason(text, "sql", budget)
                 if reason:
                     return reason
+            if client_anywhere:
+                for tok in tokens:
+                    reason = _sql_reason(tok, "shared", budget)
+                    if reason:
+                        return reason
     return None
 
 

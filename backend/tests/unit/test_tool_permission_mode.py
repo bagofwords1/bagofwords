@@ -62,7 +62,7 @@ def _every_tokenizer_raises(text):
 
 # ── blocklist ───────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("command", [
+_DESTRUCTIVE_SHELL = [
     "rm -rf /", "rm -fr ~", "sudo rm -rf /*", "rm --recursive --force $HOME",
     "ls && rm -rf /", "cd /tmp; rm -Rf *", "rm --no-preserve-root -rf /",
     "mkfs.ext4 /dev/sdb1", "dd if=/dev/zero of=/dev/sda bs=1M", "shutdown -h now",
@@ -82,7 +82,10 @@ def _every_tokenizer_raises(text):
     "sudo -u postgres psql -c \"DROP DATABASE analytics\"", "psql -c \"DROP TABLE orders\"",
     "mysql -e \"DROP DATABASE shop\"", "psql -c \"TRUNCATE orders\"", "echo \"DROP TABLE x;\" | psql",
     "psql --command=\"DELETE FROM orders\"", "sqlcmd -Q \"DELETE orders\"",
-])
+]
+
+
+@pytest.mark.parametrize("command", _DESTRUCTIVE_SHELL)
 def test_destructive_shell_commands_are_blocked(command):
     assert shell_block_reason(command)
 
@@ -103,12 +106,15 @@ def test_ordinary_shell_commands_are_not_blocked(command):
     assert shell_block_reason(command) is None
 
 
-@pytest.mark.parametrize("command", [
+_SQL_ATTACHED = [
     # SQL attached to a short option, alone or after other options in a cluster.
     'psql -c"drop table x"', 'mysql -e"DROP DATABASE x"', 'sqlcmd -Q"DROP DATABASE x"',
     'psql -X -c"drop table x"', 'psql -U u -c"drop table x"', 'psql -Xc"drop table x"',
     'duckdb -c"drop table x"', 'clickhouse-client -q"DROP DATABASE x"', 'snowsql -q"drop database x"',
-])
+]
+
+
+@pytest.mark.parametrize("command", _SQL_ATTACHED)
 def test_sql_attached_to_a_db_client_option_is_refused(command):
     assert shell_block_reason(command) == DROP
 
@@ -121,7 +127,7 @@ def test_a_dotted_path_to_a_protected_root_is_refused(target):
     assert shell_block_reason(f"rm -rf {target}") == "recursive forced delete of a root, home or wildcard path"
 
 
-@pytest.mark.parametrize("command", [
+_DISK_AND_ROOT = [
     # Block devices written by disk tools, copies and tee.
     "wipefs -a /dev/sda", "blkdiscard /dev/nvme0n1", "shred -n1 /dev/sdb", "sgdisk --zap-all /dev/sda",
     "sfdisk /dev/vda < layout", "parted -s /dev/xvda mklabel gpt", "fdisk /dev/mmcblk0",
@@ -131,17 +137,23 @@ def test_a_dotted_path_to_a_protected_root_is_refused(target):
     "chmod -R 777 /", "chown -R nobody /etc", "sudo chmod --recursive 000 /usr/.", "chgrp -R x /home",
     # A format behind cmd /c.
     "cmd /c format c:", "cmd.exe /c \"format d: /q\"",
-])
+]
+
+
+@pytest.mark.parametrize("command", _DISK_AND_ROOT)
 def test_disk_wipes_and_root_changes_are_refused(command):
     assert shell_block_reason(command) == "destructive system command"
 
 
-@pytest.mark.parametrize("command", [
+_SHUTDOWN_WORDS = [
     # Shutdown words anywhere in the command, behind any program.
     "ssh host shutdown -h now", "echo shutdown | sh", "ssh host 'sudo reboot'", "halt", "poweroff",
     "docker exec box /sbin/init 0", "systemctl poweroff", "Stop-Computer -Force", "Restart-Computer",
     "SHUTDOWN /s /t 0", "watch -n 60 reboot",
-])
+]
+
+
+@pytest.mark.parametrize("command", _SHUTDOWN_WORDS)
 def test_shutdown_words_are_refused_behind_any_program(command):
     assert shell_block_reason(command) == "shuts down or restarts the server"
 
@@ -151,10 +163,174 @@ def test_shutdown_words_are_refused_behind_any_program(command):
     # are matched as text anywhere in a command, like the other destructive
     # commands, so a command that only mentions one is refused too.
     "systemctl status reboot.target", "grep mkfs /etc/fstab", "man mkfs", "echo shutdown",
-    "grep -r reboot /var/log", "env X=1 echo reboot", "fdisk -l /dev/sda",
+    "env X=1 echo reboot", "sudo grep reboot /var/log", "psql -c \"select 1 where state='shutdown'\"",
+    "find ~ -name '*.tmp' -delete", "find /home -name core -delete",
 ])
 def test_accepted_false_refusals_of_shell_text(command):
     assert shell_block_reason(command)
+
+
+# ── blocklist: shell forms of this round ────────────────────────────────────
+
+_RM_ROOT = "recursive forced delete of a root, home or wildcard path"
+_DESTRUCTIVE = "destructive system command"
+_POWER = "shuts down or restarts the server"
+
+
+@pytest.mark.parametrize("command,reason", [
+    # bash reads an unbalanced quote inside a # comment; shlex does not.
+    ("rm -rf \"/var\" # it's", _RM_ROOT), ("rm -rf \"$HOME/\" # clean the user's home", _RM_ROOT),
+    ("chmod -R 777 \"/etc\" # it's fine", _DESTRUCTIVE), ("find \"/var\" -delete # don't", _DESTRUCTIVE),
+    ("bash -c \"rm -rf /etc\" # it's", _RM_ROOT), ("rm -rf /etc/\"\" # x'", _RM_ROOT),
+])
+def test_an_unbalanced_quote_in_a_comment_never_hides_a_command(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+@pytest.mark.parametrize("command", _DESTRUCTIVE_SHELL + _SQL_ATTACHED + _DISK_AND_ROOT + _SHUTDOWN_WORDS)
+def test_every_refused_command_is_still_refused_behind_an_unbalanced_comment(command):
+    assert shell_block_reason(command + " # it's")
+
+
+@pytest.mark.parametrize("command", [
+    # find: options before the roots, and a program in front of rm in -exec.
+    "find -P / -delete", "find -L /etc -name x -exec rm {} +", "find -- / -delete", "find -H /etc -exec rm {} +",
+    "find -D tree / -delete", "find / -exec sudo rm -f {} +", "find -O3 /var -delete",
+    # cp / install onto a disk device: redirects, trailing options, comments, -t.
+    "cp image.iso /dev/sdb 2>/dev/null", "cp image.iso /dev/sdb -v", "cp image.iso /dev/disk/by-id/ata-X",
+    "cp disk.img /dev/sda 2>&1", "cp disk.img /dev/sda > log", "cp disk.img /dev/sda # flash",
+    "sudo cp -v disk.img /dev/nvme0n1 2>/dev/null", "cp -t /dev/sda x", "install x /dev/sda",
+    "cp --target-directory=/dev/sda x",
+    # More disk devices and formatting tools.
+    "wipefs -a /dev/mapper/vg-root", "mke2fs /dev/sdb1", "mkswap /dev/sda2", "blkdiscard /dev/dm-0",
+    "shred /dev/md0", "wipefs -a /dev/loop0", "mkfs.xfs /dev/mapper/data",
+])
+def test_find_cp_and_disk_device_forms_are_refused(command):
+    assert shell_block_reason(command) == _DESTRUCTIVE
+
+
+@pytest.mark.parametrize("command", [
+    "cp /dev/sda disk.img", "cp a b 2>/dev/null", "find . -name x -delete", "find -L . -name x -delete",
+    "cp -v a.txt /tmp/b.txt", "install -m 644 a.conf /etc/app/a.conf", "cp /dev/sda img; ls /dev/sdb",
+    "dd if=/dev/sda of=disk.img", "cat /dev/sda | tee disk.img",
+])
+def test_find_and_cp_near_misses_pass(command):
+    assert shell_block_reason(command) is None
+
+
+@pytest.mark.parametrize("command,reason", [
+    ('SQLCMD -Q "drop database x"', DROP), ('sqlcmd.exe -Q "drop database x"', DROP),
+    ('psql.exe -c "drop table x"', DROP), ('C:\\tools\\psql.exe -c "drop table x"', DROP),
+    ('MYSQL.EXE -e "DROP DATABASE x"', DROP),
+])
+def test_windows_db_client_names_are_read(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf ~root", "rm -rf ~alice", "rm -rf ~alice/", "rm -rf \"$DIR/\"*", "rm -rf $DIR/*", "rm -rf ${DIR}/*",
+    "rm -rf \"${BUILD_ROOT}\"/*",
+])
+def test_rm_of_another_home_or_a_variable_wildcard_is_refused(command):
+    # A variable wildcard: an unset variable expands to /* (an accepted false
+    # refusal for a set one, named in the PR).
+    assert shell_block_reason(command) == _RM_ROOT
+
+
+@pytest.mark.parametrize("command", ["rm -rf ~alice/tmp", "rm -rf $DIR/build", "rm -rf ${DIR}/cache"])
+def test_rm_below_another_home_or_a_variable_passes(command):
+    assert shell_block_reason(command) is None
+
+
+@pytest.mark.parametrize("command", [
+    "last reboot", "grep -r reboot /var/log", "tail shutdown.log", "zgrep -i halt /var/log/syslog.gz",
+    "journalctl -u reboot-notifier", "/usr/bin/grep shutdown notes.txt", "fdisk -l /dev/sda",
+    "sfdisk -l /dev/sda", "fdisk --list /dev/nvme0n1",
+])
+def test_read_only_commands_that_mention_a_shutdown_word_or_list_a_disk_pass(command):
+    assert shell_block_reason(command) is None
+
+
+@pytest.mark.parametrize("command,reason", [
+    ("grep reboot f | sh", _POWER), ("last reboot; reboot", _POWER), ("grep x $(reboot)", _POWER),
+    ("cat `reboot`", _POWER), ("tail -f log && shutdown now", _POWER), ("grep reboot\nreboot", _POWER),
+    ("fdisk /dev/sda", _DESTRUCTIVE), ("fdisk -l /dev/sda --wipe always", _DESTRUCTIVE),
+    ("sfdisk /dev/sda < layout", _DESTRUCTIVE),
+])
+def test_the_read_only_exemptions_stay_narrow(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+@pytest.mark.parametrize("words", [
+    ["ls", ";", "cp", "a", "/dev/sda"], ["ls", "&&", "wipefs", "-a", "/dev/sda"], ["true", "|", "dd", "of=/dev/sda"],
+])
+def test_a_program_with_nothing_to_its_right_never_hides_a_later_one(words):
+    # The word rules, on one reading of a segment: a first program with no
+    # device before the separator must not end the scan.
+    assert tool_blocklist._token_reason(words) == _DESTRUCTIVE
+
+
+def test_a_command_over_the_size_cap_is_unreadable_before_any_pattern(monkeypatch):
+    class Spy:
+        def __init__(self, pat):
+            self.pat, self.calls = pat, 0
+
+        def search(self, text, *a):
+            self.calls += 1
+            return self.pat.search(text, *a)
+
+    spies = [Spy(p) for p in tool_blocklist._SHELL_PATTERNS + tool_blocklist._POWER_PATTERNS]
+    monkeypatch.setattr(tool_blocklist, "_SHELL_PATTERNS", spies[:len(tool_blocklist._SHELL_PATTERNS)])
+    monkeypatch.setattr(tool_blocklist, "_POWER_PATTERNS", spies[len(tool_blocklist._SHELL_PATTERNS):])
+    cap = 16 * 1024
+    assert shell_block_reason("ls " + "a" * (cap - 3)) is None  # control: at the cap it is read
+    assert sum(s.calls for s in spies) > 0
+    for s in spies:
+        s.calls = 0
+    assert shell_block_reason("ls " + "a" * (cap - 2)) == "could not read the command safely"
+    assert shell_block_reason("ls " + "\u05d0" * (cap // 2)) == "could not read the command safely"  # UTF-8 bytes
+    assert sum(s.calls for s in spies) == 0
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize("word", ["tee ", "cp ", "dd ", "wipefs ", "install ", "fdisk "])
+def test_a_repeated_tool_word_at_the_size_cap_is_checked_in_bounded_work(word):
+    # The old word … target regexes were quadratic here (minutes at this size).
+    command = (word * (16 * 1024 // len(word)))[:16 * 1024]
+    assert shell_block_reason(command) is None
+    target = " of=/dev/sda1" if word == "dd " else " /dev/sda1"
+    assert shell_block_reason(command[:-16] + target) == _DESTRUCTIVE
+
+
+def test_a_command_far_over_the_size_cap_is_refused_at_once():
+    # Minutes with the old quadratic rules; refused before any of them now.
+    assert shell_block_reason("tee " * 250_000 + "/dev/sda") == "could not read the command safely"
+
+
+@pytest.mark.parametrize("word", ["rm -rf ", "rm ", "find ", "chmod -R ", "psql -c ", "psql ", "sh ", "cp -t ",
+                                  "find -D "])
+def test_repeated_program_words_cost_work_linear_in_the_words(monkeypatch, word):
+    # Each rule reads the words to its right once, not once per program word
+    # (rm rm rm …): a work count, not a clock (tests/AGENTS.md).
+    calls = {"target": 0, "sql": 0}
+    real_target, real_sql = tool_blocklist._protected_target, tool_blocklist._sql_reason
+
+    def target(t):
+        calls["target"] += 1
+        return real_target(t)
+
+    def sql(*a, **k):
+        calls["sql"] += 1
+        return real_sql(*a, **k)
+
+    monkeypatch.setattr(tool_blocklist, "_protected_target", target)
+    monkeypatch.setattr(tool_blocklist, "_sql_reason", sql)
+    command = (word * (16 * 1024 // len(word)))[:16 * 1024].rsplit(" ", 1)[0]
+    shell_block_reason(command)
+    words = len(command.split())
+    # The command and its one segment, each read once per word.
+    assert calls["target"] <= 2 * words + 4
+    assert calls["sql"] <= 4 * words + 4
 
 
 @pytest.mark.parametrize("sql", [
@@ -1369,14 +1545,35 @@ def test_scheduled_webhook_api_and_other_channel_runs_get_no_report_grants():
 
     user = SimpleNamespace(id="u")
     blank = {"webhook_id": None, "trigger_source": None, "scheduled_prompt_id": None, "started_via": None}
-    for marker, value in (("webhook_id", "w"), ("scheduled_prompt_id", "s"), ("started_via", "api_key")):
-        # A sub-agent turn of such a run is unattended too.
-        for trigger in (None, "sub_agent"):
+    for marker, value in (("webhook_id", "w"), ("scheduled_prompt_id", "s"), ("started_via", "api_key"),
+                          ("started_via", "unattended")):
+        # A machine turn of such a run is unattended too, whatever its trigger.
+        for trigger in (None, "sub_agent", "wait", "checkin", "sub_agent_wave", "sub_agent_message"):
             head = SimpleNamespace(**{**blank, marker: value, "trigger_source": trigger})
-            assert not ToolPolicyService.report_grants_apply({"user": user, "head_completion": head})
+            ctx = {"user": user, "head_completion": head}
+            assert not ToolPolicyService.report_grants_apply(ctx)
+            assert not ToolPolicyService.is_interactive_run(ctx)
+            assert ToolPolicyService.is_machine_run(ctx)
     assert not ToolPolicyService.report_grants_apply({"user": user, "platform": "slack"})
     assert not ToolPolicyService.report_grants_apply({"user": user, "is_eval_run": True})
     assert ToolPolicyService.report_grants_apply({"user": user, "head_completion": SimpleNamespace(**blank)})
+
+
+@pytest.mark.parametrize("trigger", [None, "wait", "checkin", "sub_agent", "sub_agent_wave", "sub_agent_message"])
+def test_a_platform_run_is_unwatched_and_gets_no_report_grants_as_on_main(trigger):
+    # As on main (4b99ad3de is_interactive_run): a Slack/Teams/email run, with
+    # or without a trigger, shows no card and gets no report grants. It is a
+    # person's run, so the unattended 'allow' does not cover it either.
+    from app.services.tool_policy_service import ToolPolicyService
+
+    blank = {"webhook_id": None, "trigger_source": trigger, "scheduled_prompt_id": None, "started_via": None}
+    ctx = {"user": SimpleNamespace(id="u"), "platform": "slack", "head_completion": SimpleNamespace(**blank)}
+    assert not ToolPolicyService.is_interactive_run(ctx)
+    assert not ToolPolicyService.report_grants_apply(ctx)
+    assert not ToolPolicyService.is_machine_run(ctx)
+    # A scheduled run that answers on a platform is still a job.
+    ctx["head_completion"] = SimpleNamespace(**{**blank, "scheduled_prompt_id": "s"})
+    assert ToolPolicyService.is_machine_run(ctx) and not ToolPolicyService.is_interactive_run(ctx)
 
 
 def test_webhook_turn_counts_as_unattended():
