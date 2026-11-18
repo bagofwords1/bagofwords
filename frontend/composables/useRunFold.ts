@@ -23,7 +23,9 @@ export function createRunActivityMemo() {
   const blockKey = (b: any) => {
     const pd = b?.plan_decision
     const prose = hasText(b?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
-    return `${b?.id}:${b?.status}:${b?.tool_execution?.status ?? ''}:${prose ? 1 : 0}:${pd?.analysis_complete ? 1 : 0}`
+    // While live, the row's status line reads the progress notes and titles.
+    const live = `${(b?.content || pd?.assistant || '').length}:${b?.tool_execution?.tool_name ?? ''}:${b?.tool_execution?.arguments_json?.title ?? ''}:${b?.tool_execution?.progress_stage ?? ''}`
+    return `${b?.id}:${b?.status}:${b?.tool_execution?.status ?? ''}:${prose ? 1 : 0}:${pd?.analysis_complete ? 1 : 0}:${live}`
   }
   return function runActivityFor(
     messageId: string,
@@ -69,14 +71,16 @@ export function useRunFold<M>(opts: {
 
   // Part of the answer shown while the steps are closed.
   const isRunAnswerBlock = (m: M, block: any): boolean => !!runFold(m)?.answerIds.includes(String(block.id))
+  // Shown in full while folded: a card waiting on the user.
+  const isRunOpenBlock = (m: M, block: any): boolean => !!runFold(m)?.openIds.includes(String(block.id))
   // The answer always renders; the activity before it only while open.
   function isRunBlockShown(m: M, block: any): boolean {
-    return !runFold(m) || isRunExpanded(m) || isRunAnswerBlock(m, block)
+    return !runFold(m) || isRunExpanded(m) || isRunAnswerBlock(m, block) || isRunOpenBlock(m, block)
   }
   // Part of the indented thread: everything before the answer while the steps
   // are open.
   function isRunActivityBlock(m: M, block: any): boolean {
-    return !!runFold(m) && !isRunAnswerBlock(m, block) && isRunExpanded(m)
+    return !!runFold(m) && !isRunAnswerBlock(m, block) && (isRunExpanded(m) || isRunOpenBlock(m, block))
   }
   function runStepHeaderFor(m: M, block: any): RunStep | undefined {
     const fold = runFold(m)
@@ -99,6 +103,7 @@ export function useRunFold<M>(opts: {
   function isRunToolShown(m: M, block: any): boolean {
     const fold = runFold(m)
     if (!fold) return true
+    if (isRunOpenBlock(m, block) && !isRunExpanded(m)) return true
     const step = fold.stepOf[String(block.id)]
     return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
   }
@@ -118,6 +123,7 @@ export function useRunFold<M>(opts: {
     isRunStepExpanded,
     toggleRunStep,
     isRunAnswerBlock,
+    isRunOpenBlock,
     isRunBlockShown,
     isRunActivityBlock,
     runStepHeaderFor,

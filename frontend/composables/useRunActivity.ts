@@ -1,17 +1,25 @@
 /**
  * Run-level activity fold for the report conversation.
  *
- * While a run works, its blocks render chronologically as they arrive. Once
- * the run's FINAL MESSAGE has arrived, everything that came before it folds
- * into one "Worked for 10s · View steps" row above the conclusion. Expanding
- * the row shows the chain again, with consecutive same-purpose tool calls
- * merged under one plain-language step ("Checked the customers table").
+ * A run's activity sits behind one row. While the run works the row reads
+ * "Working for 12s · <what it is doing> · View steps" and only the text being
+ * streamed (and any card waiting on the user) stays open below it — tool
+ * cards, create_data results and reasoning included stay folded. Once the
+ * FINAL MESSAGE has arrived the row settles to "Worked for 10s · View steps"
+ * above the conclusion. Expanding the row shows the chain, with consecutive
+ * same-purpose tool calls merged under one plain-language step ("Checked the
+ * customers table").
  *
  * Pure functions — no Vue reactivity — so the policy is unit-testable
  * (tests/unit/useRunActivity.mjs). Labels are returned as i18n keys + params;
  * the page translates them in the response's language.
  *
  * Policy:
+ * - Live (run still in progress, no final message yet): the last block's
+ *   prose is shown while that block has not started a tool call — it may be
+ *   the answer being written, or a progress note that folds into the row as
+ *   soon as its tool call starts. `keepOpen` blocks (an approval card) stay
+ *   open too. The row's status is the latest progress note or step title.
  * - The final message is the LAST block, when it carries user-facing prose and
  *   the run is known to be over (the planner marked it `analysis_complete`, or
  *   the run's status is `success`). A run that stopped, errored, or ended on a
@@ -226,9 +234,14 @@ export interface RunStep {
   subjects: string[]
   /** What a `data` step produced. */
   output: DataOutput | null
+  /** A member's tool call is still running (live runs only). */
+  running: boolean
 }
 
 export interface RunActivity {
+  /** True while the run is still working (no final message yet). */
+  live: boolean
+  /** Empty while live. */
   finalBlockId: string
   /**
    * Blocks shown as the answer while folded: the final block, preceded by the
@@ -244,6 +257,11 @@ export interface RunActivity {
   headerAt: Record<string, RunStep>
   /** Blocks whose output stays reachable below the final message, in order. */
   deliverableIds: string[]
+  /** Blocks shown in full — prose and tool card — while folded (approval cards). */
+  openIds: string[]
+  /** What the run is doing now, for the live row: the latest progress note or
+      step title, one line. Empty when finished or unknown. */
+  status: string
   /** First activity start -> final message start, or null without timestamps. */
   spanMs: number | null
 }
@@ -322,7 +340,11 @@ function buildStep(run: any[], kind: RunStepKind, subjects: string[]): RunStep {
   let labelText = ''
   let output: DataOutput | null = null
 
-  if (kind === 'data') {
+  const running = run.some((b) => RUNNING_STATUSES.has(String(b?.tool_execution?.status || '')))
+  if (kind === 'data' && running) {
+    labelKey = (llmTitle(first) ? 'creatingData' : 'creatingDataUntitled')
+    labelParams = { title: llmTitle(first) }
+  } else if (kind === 'data') {
     output = describeDataOutput(te)
     const title = output.title
     if (output.kind === 'table') labelKey = title ? 'createdTable' : 'createdTableUntitled'
@@ -363,8 +385,11 @@ function buildStep(run: any[], kind: RunStepKind, subjects: string[]): RunStep {
     labelText,
     subjects,
     output,
+    running,
   }
 }
+
+const RUNNING_STATUSES = new Set(['running', 'pending', 'in_progress', 'queued'])
 
 function hasReasoning(block: any): boolean {
   const hasText = (v: any) => typeof v === 'string' && v.trim() !== ''
@@ -413,13 +438,25 @@ export function computeRunActivity(
     runStatus?: string
     breakBefore?: (block: any) => boolean
     isSuperseded?: (block: any) => boolean
+    /** Blocks that must stay open while folded (a card waiting on the user). */
+    keepOpen?: (block: any) => boolean
   },
 ): RunActivity | null {
   const list = blocks || []
   const final = findFinalBlock(list, opts?.runStatus)
-  if (!final) return null
-  const before = list.slice(0, -1)
-  if (!before.length && !hasReasoning(final) && !final.tool_execution) return null
+  const live = !final && opts?.runStatus === 'in_progress'
+  if (!final && !live) return null
+  const last = list[list.length - 1]
+  // While live, the trailing block's prose is the text being streamed — until
+  // that block starts a tool call.
+  const streaming = live && last && !last.tool_execution && blockHasMessage(last) ? last : null
+  const anchor = final || streaming
+  const before = anchor ? list.slice(0, -1) : list
+  // A finished direct answer has no steps to view. A live run keeps its row
+  // from the first block on: dropping it while a first progress note streams
+  // and bringing it back when that note's tool call starts would flicker.
+  if (!live && !before.length && !hasReasoning(final) && !final.tool_execution) return null
+  if (live && !list.length) return null
 
   const steps: RunStep[] = []
   const stepOf: Record<string, RunStep> = {}
@@ -463,24 +500,43 @@ export function computeRunActivity(
   }
 
   const starts = list.map((b) => toMs(b?.started_at) ?? toMs(b?.tool_execution?.started_at)).filter((t): t is number => t !== null)
-  const finalStart = toMs(final.started_at)
+  const finalStart = final ? toMs(final.started_at) : null
   const spanMs = starts.length && finalStart !== null && finalStart >= Math.min(...starts)
     ? finalStart - Math.min(...starts)
     : null
 
-  const answerIds = [String(final.id)]
+  const answerIds = anchor ? [String(anchor.id)] : []
   const lead = before[before.length - 1]
-  if (final.tool_execution && lead && !lead.tool_execution && blockHasMessage(lead) && !opts?.breakBefore?.(final)) {
+  if (final && final.tool_execution && lead && !lead.tool_execution && blockHasMessage(lead) && !opts?.breakBefore?.(final)) {
     answerIds.unshift(String(lead.id))
   }
 
   return {
-    finalBlockId: String(final.id),
+    live,
+    finalBlockId: final ? String(final.id) : '',
     answerIds,
     steps,
     stepOf,
     headerAt,
     deliverableIds: Array.from(latest.values()),
+    openIds: live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : [],
+    status: live ? liveStatus(before) : '',
     spanMs,
   }
+}
+
+/** One line for the live row: the newest progress note, else the newest tool
+    title, among the folded blocks. */
+function liveStatus(folded: any[]): string {
+  for (let i = folded.length - 1; i >= 0; i--) {
+    const b = folded[i]
+    const pd = b?.plan_decision
+    const prose = [b?.content, pd?.assistant].find((v) => typeof v === 'string' && v.trim() !== '')
+    const text = prose || llmTitle(b)
+    if (text) {
+      const line = String(text).replace(/[*_`#>\[\]]/g, '').replace(/\s+/g, ' ').trim()
+      if (line) return line.length > 120 ? `${line.slice(0, 117)}…` : line
+    }
+  }
+  return ''
 }

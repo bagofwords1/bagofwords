@@ -1447,6 +1447,8 @@
     "runFold": {
       "workedFor": "Worked for {duration}",
       "worked": "Worked",
+      "working": "Working",
+      "workingFor": "Working for {duration}",
       "viewSteps": "View steps",
       "hideSteps": "Hide steps",
       "checks": "{count} checks",
@@ -1469,6 +1471,8 @@
         "dataFailedUntitled": "Could not create the data",
         "preparedData": "Prepared “{title}”",
         "preparedDataUntitled": "Prepared the data",
+        "creatingData": "Creating “{title}”…",
+        "creatingDataUntitled": "Creating the data…",
         "searched": "Searched for information",
         "read": "Read reference material",
         "lookedUp": "Looked up details",

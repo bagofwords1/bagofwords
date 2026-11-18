@@ -133,6 +133,8 @@
                                             :expanded="isRunExpanded(m)"
                                             :duration="runFoldDuration(m)"
                                             :translate="t"
+                                            :live="runFold(m)!.live"
+                                            :status="runFold(m)!.status"
                                             @toggle="toggleRun(m)"
                                         />
                                         <!-- Render each completion block -->

@@ -33,8 +33,78 @@ const table = (title, rows) => tool('create_data', { title }, {
 
 // --- when a run folds --------------------------------------------------------
 
-// Still working: the last block is a tool call, so there is nothing to fold.
-assert.equal(computeRunActivity([prose('Checking'), tool('inspect_data', invoice)], { runStatus: 'in_progress' }), null)
+// Still working: everything folds behind a live row; nothing is the answer
+// yet, and the row reads the latest progress note.
+{
+  const blocks = [prose('Checking the invoices'), tool('inspect_data', invoice)]
+  const live = computeRunActivity(blocks, { runStatus: 'in_progress' })
+  assert.equal(live?.live, true)
+  assert.equal(live?.finalBlockId, '')
+  assert.deepEqual(live?.answerIds, [])
+  assert.equal(live?.status, 'Checking the invoices')
+  assert.deepEqual(live?.steps.map((s) => s.kind), ['inspect'])
+}
+
+// A create_data card folds while live too, chart or table alike.
+{
+  const blocks = [tool('inspect_data', invoice), table('Revenue', [{ a: 1 }, { a: 2 }])]
+  const live = computeRunActivity(blocks, { runStatus: 'in_progress' })
+  assert.deepEqual(live?.answerIds, [])
+  assert.equal(live?.stepOf[blocks[1].id]?.kind, 'data')
+}
+
+// Text being streamed with no tool call yet stays open below the row; as soon
+// as its block starts a tool call it folds and becomes the row's status.
+{
+  const writing = prose('**Revenue** grew')
+  const blocks = [tool('inspect_data', invoice), writing]
+  const live = computeRunActivity(blocks, { runStatus: 'in_progress' })
+  assert.deepEqual(live?.answerIds, [writing.id])
+  assert.equal(live?.status, '')
+  writing.tool_execution = { id: 'k', tool_name: 'create_data', status: 'running', arguments_json: { title: 'Revenue' } }
+  const next = computeRunActivity(blocks, { runStatus: 'in_progress' })
+  assert.deepEqual(next?.answerIds, [])
+  assert.equal(next?.status, 'Revenue grew')
+}
+
+// A create_data still running reads as in progress, by its title.
+{
+  const running = tool('create_data', { title: 'Revenue' }, { te: { status: 'running' } })
+  const step = computeRunActivity([tool('inspect_data', invoice), running], { runStatus: 'in_progress' })?.stepOf[running.id]
+  assert.equal(step?.running, true)
+  assert.equal(step?.labelKey, 'creatingData')
+  assert.deepEqual(step?.labelParams, { title: 'Revenue' })
+}
+
+// The same block is the answer while streaming and once final: nothing moves
+// when the run concludes.
+{
+  const answer = prose('## Done')
+  const blocks = [tool('inspect_data', invoice), answer]
+  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'in_progress' })?.answerIds, [answer.id])
+  answer.plan_decision = { analysis_complete: true }
+  const done = computeRunActivity(blocks, { runStatus: 'in_progress' })
+  assert.equal(done?.live, false)
+  assert.deepEqual(done?.answerIds, [answer.id])
+}
+
+// A card waiting on the user stays open while live.
+{
+  const ask = tool('send_email', {}, { te: { status: 'running', progress_stage: 'awaiting_confirmation' } })
+  const blocks = [tool('inspect_data', invoice), ask]
+  const live = computeRunActivity(blocks, { runStatus: 'in_progress', keepOpen: (b) => b.id === ask.id })
+  assert.deepEqual(live?.openIds, [ask.id])
+}
+
+// A live run keeps its row from the first block on, so a first progress note
+// does not drop it and bring it back when its tool call starts. Once a lone
+// answer is final there are no steps to view and the row goes.
+{
+  const first = prose('Hi')
+  assert.equal(computeRunActivity([first], { runStatus: 'in_progress' })?.live, true)
+  first.plan_decision = { analysis_complete: true }
+  assert.equal(computeRunActivity([first], { runStatus: 'success' }), null)
+}
 
 // Prose that the planner has not marked final is a progress message, not a
 // conclusion — it must not fold the run while it is still in progress.

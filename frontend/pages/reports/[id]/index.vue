@@ -340,13 +340,16 @@
                                         </div>
 									<!-- System message -->
 									<div>
-											<!-- Run fold: once the final message has arrived, the activity
-											     before it sits behind this one row (useRunActivity.ts). -->
+											<!-- Run fold: the run's activity sits behind this one row — live
+											     while it works, settled once the final message has arrived
+											     (useRunActivity.ts). -->
 											<RunActivityToggle
 												v-if="runFold(m)"
 												:expanded="isRunExpanded(m)"
 												:duration="runFoldDuration(m)"
 												:translate="responseT"
+												:live="runFold(m)!.live"
+												:status="runFold(m)!.status"
 												@toggle="toggleRun(m)"
 											/>
 											<!-- Sub-agent waves launched by this turn: one group line per wave -->
@@ -575,7 +578,7 @@
 											<!-- What the answer rests on: its cited results, numbered as in the
 											     text, plus any table the run made and did not cite. -->
 											<RunSourcesRow
-												v-if="runFold(m) || m.status !== 'in_progress'"
+												v-if="m.status !== 'in_progress' || (runFold(m) && !runFold(m)!.live)"
 												:items="runSources(m)"
 												:translate="responseT"
 												:dir="responseDir"
@@ -1628,16 +1631,17 @@ const { isConfirmationAnswered } = useToolConfirmations()
 // the timeline shows): the indicator must never ask for a confirmation the
 // user has no card to give. The backend's keepalive alone sets the stage
 // without a confirmation, and harness blocks render no card.
+function isAwaitingUser(b: any): boolean {
+	const te = b?.tool_execution
+	const cid = te?.confirmation?.confirmation_id
+	return !!te && !!cid && !['success', 'error', 'stopped'].includes(te.status) &&
+		['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
+		!isConfirmationAnswered(cid)
+}
 const inProgressAwaitingInput = computed(() =>
 	messages.value.some(m =>
 		m.role === 'system' && m.status === 'in_progress' &&
-		visibleBlocks(m).some((b: any) => {
-			const te = b.tool_execution
-			const cid = te?.confirmation?.confirmation_id
-			return te && !!cid && !['success', 'error', 'stopped'].includes(te.status) &&
-				['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
-				!isConfirmationAnswered(cid)
-		})
+		visibleBlocks(m).some(isAwaitingUser)
 	)
 )
 // Server-side start of the in-progress run (naive-UTC). Lets the prompt box
@@ -1747,7 +1751,8 @@ const runActivities = computed(() => {
 			runStatus: m.status,
 			breakBefore: (b: any) => steerBreaks.has(String(b.id)),
 			isSuperseded: (b: any) => superseded.includes(String(b.id)),
-			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}`,
+			keepOpen: isAwaitingUser,
+			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}|${blocks.filter(isAwaitingUser).map((b: any) => b.id).join(',')}`,
 		})
 		if (activity) out.set(String(m.id), activity)
 	}
@@ -1776,7 +1781,16 @@ const {
 })
 // Elapsed time of the run: the server's figure once stamped, the client clock
 // on the live path, and the blocks' own span for rows that carry neither.
+// Ticks once a second while any run is live, so its row's timer advances.
+const runFoldNow = ref(Date.now())
+let runFoldClock: ReturnType<typeof setInterval> | null = null
+watch(() => [...runActivities.value.values()].some(a => a.live), (anyLive) => {
+	if (anyLive && !runFoldClock) runFoldClock = setInterval(() => { runFoldNow.value = Date.now() }, 1000)
+	if (!anyLive && runFoldClock) { clearInterval(runFoldClock); runFoldClock = null }
+}, { immediate: true })
+onBeforeUnmount(() => { if (runFoldClock) clearInterval(runFoldClock) })
 function runFoldDuration(m: ChatMessage): string {
+	if (runFold(m)?.live) void runFoldNow.value
 	let ms: number | null | undefined = (typeof m.total_duration_ms === 'number' && m.total_duration_ms > 0)
 		? m.total_duration_ms
 		: clientRunMs.value.get(runKey(m))

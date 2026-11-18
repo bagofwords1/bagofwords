@@ -10,7 +10,8 @@
 			@click="$emit('toggle')"
 		>
 			<Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3.5 h-3.5 shrink-0 text-ink-muted rtl-flip" />
-			<span class="min-w-0 text-start" :title="step.subjects.join(', ') || undefined"><bdi>{{ label }}</bdi></span>
+			<Spinner v-if="step.running" class="h-3 w-3 shrink-0 text-ink-muted" data-testid="run-step-running" />
+			<span class="min-w-0 text-start" :class="{ 'tool-shimmer': step.running }" :title="step.subjects.join(', ') || undefined"><bdi>{{ label }}</bdi></span>
 			<span v-if="step.output?.kind === 'number' && step.output.value" class="shrink-0 font-medium text-ink nums" data-testid="run-step-value"><bdi>{{ step.output.value }}</bdi></span>
 			<span v-if="step.count > 1" class="shrink-0 text-ink-muted">· {{ translate(step.kind === 'inspect' ? 'reportView.runFold.checks' : 'reportView.runFold.actions', { count: step.count }) }}</span>
 			<span v-if="isOpenable && step.output?.rowCount != null" class="shrink-0 text-ink-muted nums">· {{ translate('tools.common.rows', { n: step.output.rowCount.toLocaleString() }) }}</span>

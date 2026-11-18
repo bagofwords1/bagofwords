@@ -1421,6 +1421,8 @@
     "runFold": {
       "workedFor": "עבד במשך {duration}",
       "worked": "עבד",
+      "working": "עובד",
+      "workingFor": "עובד כבר {duration}",
       "viewSteps": "הצגת השלבים",
       "hideSteps": "הסתרת השלבים",
       "checks": "{count} בדיקות",
@@ -1443,6 +1445,8 @@
         "dataFailedUntitled": "לא ניתן היה ליצור את הנתונים",
         "preparedData": "הכין את ״{title}״",
         "preparedDataUntitled": "הכין את הנתונים",
+        "creatingData": "יוצר את ״{title}״…",
+        "creatingDataUntitled": "יוצר את הנתונים…",
         "searched": "חיפש מידע",
         "read": "קרא חומר עזר",
         "lookedUp": "איתר פרטים",
