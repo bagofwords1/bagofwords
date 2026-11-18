@@ -7517,5 +7517,52 @@
     "loadFailed": "Die Kanäle dieses Agenten konnten nicht geladen werden. Schließe und versuche es erneut.",
     "privateChannel": "Privater Kanal",
     "privateCount": "{n} privater Kanal | {n} private Kanäle"
+  },
+  "agentClone": {
+    "menu": "Agent klonen",
+    "titleFor": "{name} klonen",
+    "name": "Name",
+    "description": "Beschreibung",
+    "defaultName": "Kopie von {name}",
+    "alwaysIncluded": "Immer dabei:",
+    "always": {
+      "settings": "Einstellungen",
+      "tables": "Tabellen",
+      "tools": "Tools",
+      "prompts": "Prompts",
+      "files": "Dateien"
+    },
+    "parts": {
+      "instructions": "Anweisungen",
+      "access": "Zugriff"
+    },
+    "choices": {
+      "copy": "Kopieren",
+      "link": "Teilen",
+      "none": "Nichts",
+      "sameAccess": "Dieselben Personen",
+      "onlyMe": "Nur ich"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Eigene Kopien, getrennt bearbeitet",
+        "link": "Dieselben Anweisungen; Änderungen wirken auf beide",
+        "none": "Nur globale Anweisungen"
+      },
+      "access": {
+        "same": "Dieselben Personen und Rechte",
+        "only_me": "Nur du, bis du ihn teilst"
+      }
+    },
+    "footnote": "Gespeicherte Abfragen, Evals, Listen, Unterhaltungen und Dashboards werden nicht geklont. Der neue Agent startet im Training (in Entwicklung, wenn dieser es ist).",
+    "submit": "Klonen",
+    "cloning": "Wird geklont…",
+    "nameTaken": "Ein Agent mit diesem Namen existiert bereits.",
+    "instructionsChanged": "Die Anweisungen haben sich beim Klonen geändert. Versuche es noch einmal.",
+    "linkBlocked": "Diese Anweisungen werden auch von Agenten oder Ordnern genutzt, die du nicht verwaltest, daher können sie nicht geteilt werden. Kopiere sie stattdessen oder frage jemanden, der sie verwaltet.",
+    "linkPending": "Für diese Anweisungen warten Änderungen auf Freigabe, daher können sie noch nicht geteilt werden. Gib diese Änderungen zuerst frei oder lehne sie ab, oder kopiere die Anweisungen stattdessen.",
+    "notInFolder": "Du verwaltest den Ordner von {name} nicht, daher wurde der neue Agent auf der obersten Ebene erstellt.",
+    "done": "{name} erstellt",
+    "failed": "Der Agent konnte nicht geklont werden"
   }
 }

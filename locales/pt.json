@@ -7517,5 +7517,52 @@
     "loadFailed": "Não foi possível carregar os canais deste agente. Feche e tente novamente.",
     "privateChannel": "Canal privado",
     "privateCount": "{n} canal privado | {n} canais privados"
+  },
+  "agentClone": {
+    "menu": "Clonar agente",
+    "titleFor": "Clonar {name}",
+    "name": "Nome",
+    "description": "Descrição",
+    "defaultName": "Cópia de {name}",
+    "alwaysIncluded": "Sempre incluído:",
+    "always": {
+      "settings": "Configurações",
+      "tables": "Tabelas",
+      "tools": "Ferramentas",
+      "prompts": "Prompts",
+      "files": "Arquivos"
+    },
+    "parts": {
+      "instructions": "Instruções",
+      "access": "Acesso"
+    },
+    "choices": {
+      "copy": "Copiar",
+      "link": "Compartilhar",
+      "none": "Nada",
+      "sameAccess": "Mesmas pessoas",
+      "onlyMe": "Só eu"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Cópias próprias, editadas separadamente",
+        "link": "Mesmas instruções; edições valem para ambos",
+        "none": "Só instruções globais"
+      },
+      "access": {
+        "same": "Mesmas pessoas e permissões",
+        "only_me": "Só você, até compartilhar"
+      }
+    },
+    "footnote": "Consultas salvas, avaliações, listas, conversas e dashboards não são clonados. O novo agente começa em treinamento (em desenvolvimento, se este estiver).",
+    "submit": "Clonar",
+    "cloning": "Clonando…",
+    "nameTaken": "Já existe um agente com este nome.",
+    "instructionsChanged": "As instruções mudaram durante a clonagem. Tente de novo.",
+    "linkBlocked": "Essas instruções também são usadas por agentes ou pastas que você não gerencia, então não podem ser compartilhadas. Copie-as ou peça a quem as gerencia.",
+    "linkPending": "Essas instruções têm alterações aguardando aprovação, então ainda não podem ser compartilhadas. Aprove ou rejeite essas alterações primeiro, ou copie as instruções.",
+    "notInFolder": "Você não gerencia a pasta de {name}, então o novo agente foi criado no nível superior.",
+    "done": "{name} criado",
+    "failed": "Não foi possível clonar o agente"
   }
 }

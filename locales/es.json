@@ -8349,5 +8349,52 @@
     "loadFailed": "No se pudieron cargar los canales de este agente. Cierra e inténtalo de nuevo.",
     "privateChannel": "Canal privado",
     "privateCount": "{n} canal privado | {n} canales privados"
+  },
+  "agentClone": {
+    "menu": "Clonar agente",
+    "titleFor": "Clonar {name}",
+    "name": "Nombre",
+    "description": "Descripción",
+    "defaultName": "Copia de {name}",
+    "alwaysIncluded": "Siempre incluido:",
+    "always": {
+      "settings": "Configuración",
+      "tables": "Tablas",
+      "tools": "Herramientas",
+      "prompts": "Prompts",
+      "files": "Archivos"
+    },
+    "parts": {
+      "instructions": "Instrucciones",
+      "access": "Acceso"
+    },
+    "choices": {
+      "copy": "Copiar",
+      "link": "Compartir",
+      "none": "Nada",
+      "sameAccess": "Las mismas personas",
+      "onlyMe": "Solo yo"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Copias propias, se editan por separado",
+        "link": "Las mismas instrucciones; los cambios se ven en ambos",
+        "none": "Solo instrucciones globales"
+      },
+      "access": {
+        "same": "Las mismas personas y permisos",
+        "only_me": "Solo tú, hasta que lo compartas"
+      }
+    },
+    "footnote": "Las consultas guardadas, las evaluaciones, las listas, las conversaciones y los dashboards no se clonan. El agente nuevo empieza en Entrenamiento (en desarrollo si este lo está).",
+    "submit": "Clonar",
+    "cloning": "Clonando…",
+    "nameTaken": "Ya existe un agente con este nombre.",
+    "instructionsChanged": "Las instrucciones cambiaron durante la clonación. Inténtalo de nuevo.",
+    "linkBlocked": "Estas instrucciones también las usan agentes o carpetas que no administras, así que no se pueden compartir. Cópialas, o pide ayuda a quien las administre.",
+    "linkPending": "Estas instrucciones tienen cambios pendientes de aprobación, así que todavía no se pueden compartir. Aprueba o rechaza esos cambios primero, o copia las instrucciones.",
+    "notInFolder": "No administras la carpeta de {name}, así que el agente nuevo se creó en el nivel superior.",
+    "done": "Se creó {name}",
+    "failed": "No se pudo clonar el agente"
   }
 }
