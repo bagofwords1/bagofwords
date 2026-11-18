@@ -778,10 +778,6 @@ def test_a_queued_api_prompt_stays_unattended_when_dispatched_later(env, test_cl
 def _origin(env, test_client, alembic_config, create_api_key, path) -> dict:
     """Run one turn started by ``path`` and return the ids of its report, head
     and system rows: the turn a delegate, wait or check-in comes from."""
-    from sqlalchemy import select
-
-    from app.models.completion import Completion
-
     _ScriptedAgent.call = {"connection_id": env.conn_id, "tool_name": "delete_branch",
                            "arguments": {"branch": "feature-x"}}
     if path in _FIRE:
@@ -790,6 +786,15 @@ def _origin(env, test_client, alembic_config, create_api_key, path) -> dict:
         env.call_as(_api_key_headers(env, create_api_key), "delete_branch", branch="feature-x")
     else:
         env.call("delete_branch", branch="feature-x")
+    return _latest_turn(env, alembic_config)
+
+
+def _latest_turn(env, alembic_config) -> dict:
+    """The ids of the report, head and system rows of the user's latest turn."""
+    from sqlalchemy import select
+
+    from app.models.completion import Completion
+
     c = Completion.__table__.c
     engine = _sync_engine(alembic_config)
     with engine.connect() as conn:
@@ -928,6 +933,161 @@ def test_the_wait_wake_of_a_watched_run_still_prompts(env, test_client, alembic_
     out = _wake(env, origin)
     assert _latest_head_started_via(env, alembic_config) is None
     assert out.prompted and not out.ran
+
+
+# ── Turns started by a turn from another channel ────────────────────────────
+# A person on Slack, Teams or email cannot answer a card and gets none of the
+# report's grants. The turns their turn starts later (a wait wake, a
+# sub-agent) are the same kind of run: the head row carries a 'channel' mark.
+
+def _channel_origin(env, alembic_config) -> dict:
+    """One turn a person sent from Slack, started as the channel handler
+    starts it (create_completion with the channel's fields); its row ids."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+    from app.models.user import User
+    from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
+    from app.services.completion_service import CompletionService
+
+    _ScriptedAgent.call = {"connection_id": env.conn_id, "tool_name": "delete_branch",
+                           "arguments": {"branch": "feature-x"}}
+    before = len(_ScriptedAgent.runs)
+
+    async def _run():
+        async with async_session_maker() as db:
+            await CompletionService().create_completion(
+                db=db, report_id=env.report_id,
+                completion_data=CompletionCreate(prompt=PromptSchema(content="run delete_branch")),
+                current_user=await db.get(User, env.user_id), organization=await db.get(Organization, env.org_id),
+                background=False, external_user_id="U1", external_platform="slack", external_thread_ts="1.0",
+                external_message_ts="1.0", external_channel_id="C1", external_channel_type="im")
+
+    asyncio.run(_run())
+    assert len(_ScriptedAgent.runs) == before + 1, "the channel turn did not run"
+    return _latest_turn(env, alembic_config)
+
+
+@pytest.mark.parametrize("unattended", ["refuse", "allow"])
+@pytest.mark.parametrize("start", ["wake", "delegate"])
+def test_a_turn_started_by_a_channel_turn_gets_no_report_grants(env, test_client, alembic_config, start, unattended):
+    assert env.org_setting(allow_all_enabled=True, default_mode="allow_all", unattended=unattended).status_code == 200
+    env.set_mode("allow_all")
+    r = _answer(env, test_client, alembic_config, "delete_branch", approved=True, scope="report")
+    assert r.status_code == 200, r.text
+    origin = _channel_origin(env, alembic_config)
+    out = (_wake if start == "wake" else _delegate)(env, origin)
+    # Neither Allow all, nor the owner's "for this report" answer, nor the
+    # unattended 'allow' (it covers runs no person started) lets it run.
+    assert not out.ran and not out.prompted
+    assert _latest_head_started_via(env, alembic_config) == "channel"
+
+
+def test_a_turn_started_by_a_turn_whose_row_is_gone_is_unattended(env, test_client, alembic_config):
+    # The wake names the turn that armed it; with that row missing nobody can
+    # say a person watched it, so the wake fails closed.
+    assert env.org_setting(allow_all_enabled=True, unattended="refuse").status_code == 200
+    env.set_mode("allow_all")
+    out = _wake(env, {"report_id": env.report_id, "system_id": str(uuid.uuid4())})
+    assert not out.ran and not out.prompted
+    assert _latest_head_started_via(env, alembic_config) == "unattended"
+
+
+@pytest.mark.parametrize("path,stamp", [("scheduled", "unattended"), ("watched", None)])
+def test_a_sub_agents_question_wakes_its_parent_with_the_origins_mark(env, test_client, alembic_config,
+                                                                     create_api_key, path, stamp):
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.sub_agent import RUN_RUNNING, WAVE_RUNNING, SubAgentRun, SubAgentWave
+    from app.services.sub_agent_message_service import sub_agent_message_service
+
+    assert env.org_setting(allow_all_enabled=True, unattended="refuse").status_code == 200
+    env.set_mode("allow_all")
+    origin = _origin(env, test_client, alembic_config, create_api_key, path)
+
+    async def _ask():
+        # A live child of the origin turn asks its parent a question: the
+        # service queues the parent's reply turn in the report.
+        async with async_session_maker() as db:
+            wave = SubAgentWave(organization_id=str(env.org_id), report_id=origin["report_id"], user_id=env.user_id,
+                                parent_completion_id=origin["system_id"], status=WAVE_RUNNING, remaining=1, total=1)
+            db.add(wave)
+            await db.flush()
+            child = SubAgentRun(wave_id=str(wave.id), organization_id=str(env.org_id), report_id=origin["report_id"],
+                                wave_index=0, parent_completion_id=origin["system_id"], title="Check",
+                                profile="investigate", goal="Delete the branch.", status=RUN_RUNNING)
+            db.add(child)
+            await db.commit()
+            await sub_agent_message_service.send(
+                db, organization_id=str(env.org_id), report_id=origin["report_id"], sender_sub_agent_id=str(child.id),
+                recipient="parent", kind="question", body="Which branch?", idempotency_key=uuid.uuid4().hex)
+
+    asyncio.run(_ask())
+    assert _latest_head_started_via(env, alembic_config) == stamp
+    before = len(_ScriptedAgent.runs)
+    _drive_dispatcher(origin["report_id"])
+    assert len(_ScriptedAgent.runs) == before + 1, "the parent's reply turn did not run"
+    out = _Outcome(_ScriptedAgent.runs[-1])
+    assert not out.prompted
+    assert out.ran is (stamp is None)  # Allow all applies only to the watched origin's reply
+
+
+def _event_status(env, alembic_config, trigger):
+    from sqlalchemy import select
+
+    from app.models.completion import Completion
+
+    c = Completion.__table__.c
+    engine = _sync_engine(alembic_config)
+    with engine.connect() as conn:
+        status = conn.execute(select(c.status).where(c.report_id == env.report_id, c.role == "external",
+                                                     c.trigger_source == trigger)
+                              .order_by(c.created_at.desc()).limit(1)).scalar_one()
+    engine.dispose()
+    return status
+
+
+def _origin_read_fails(monkeypatch):
+    # The origin's row is read from the session (already loaded there), so the
+    # fault is injected at the read itself.
+    import app.services.machine_turn as machine_turn
+
+    async def failing_read(session, completion_id):
+        raise RuntimeError("origin read failed")
+
+    monkeypatch.setattr(machine_turn, "unattended_origin", failing_read)
+
+
+def test_a_wake_whose_origin_cannot_be_read_ends_as_a_failed_event(env, test_client, alembic_config, create_api_key,
+                                                                    monkeypatch):
+    origin = _origin(env, test_client, alembic_config, create_api_key, "watched")
+    _origin_read_fails(monkeypatch)
+    before = len(_ScriptedAgent.runs)
+    with pytest.raises(AssertionError, match="the wait wake did not run"):
+        _wake(env, origin)
+    assert len(_ScriptedAgent.runs) == before
+    # The visible event does not stay "in progress" forever.
+    assert _event_status(env, alembic_config, "wait") == "error"
+
+
+def test_a_sub_agent_whose_origin_cannot_be_read_ends_as_failed(env, test_client, alembic_config, create_api_key,
+                                                                 monkeypatch):
+    from sqlalchemy import select
+
+    from app.models.sub_agent import RUN_FAILED, SubAgentRun
+
+    origin = _origin(env, test_client, alembic_config, create_api_key, "watched")
+    _origin_read_fails(monkeypatch)
+    with pytest.raises(AssertionError, match="the sub-agent did not run"):
+        _delegate(env, origin)
+    engine = _sync_engine(alembic_config)
+    with engine.connect() as conn:
+        status = conn.execute(select(SubAgentRun.__table__.c.status)
+                              .where(SubAgentRun.__table__.c.report_id == origin["report_id"])).scalar_one()
+    engine.dispose()
+    assert status == RUN_FAILED
 
 
 # ── Remember: once / this report / always ───────────────────────────────────

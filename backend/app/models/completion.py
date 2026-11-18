@@ -106,10 +106,14 @@ class Completion(BaseSchema):
     # agent's role='system' reply. Null for human-initiated turns.
     trigger_source = Column(String, nullable=True, index=True)
 
-    # How a person started this run, when it matters to the tool permission
-    # rules: 'api_key' for a prompt created by an API-key request (nobody is in
-    # the loop to answer an approval). Stamped at insert on role='user' rows by
-    # app/core/request_origin.py. NULL for every other run.
+    # How this run was started, when it matters to the tool permission rules.
+    # 'api_key': a prompt created by an API-key request (nobody is in the loop
+    # to answer an approval), stamped at insert on role='user' rows by
+    # app/core/request_origin.py. On a machine turn (wait wake, check-in,
+    # sub-agent, wave or message reply) the mark of the turn that started it:
+    # 'api_key', 'unattended' (a scheduled, webhook or eval run) or 'channel'
+    # (a Slack, Teams, email or app-surface run); see
+    # app/services/machine_turn.py. NULL for every other run.
     started_via = Column(String(16), nullable=True)
 
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null

@@ -457,9 +457,6 @@ class SubAgentService:
             from app.services.conversation_surface import parent_app_surface
             from app.services.machine_turn import unattended_origin
             surface = await parent_app_surface(db, wave.parent_completion_id)
-            # A child of a scheduled, webhook or API-key turn is unattended too:
-            # no report grants, no Allow all.
-            started_via = await unattended_origin(db, wave.parent_completion_id)
             prompt = PromptSchema(
                 **surface,
                 content=_child_prompt(row),
@@ -468,6 +465,10 @@ class SubAgentService:
                 sub_agent_id=str(row.id),
             )
             try:
+                # A child of a scheduled, webhook or API-key turn is unattended
+                # too: no report grants, no Allow all. Read inside the try: if
+                # it fails, the child ends as failed instead of staying claimed.
+                started_via = await unattended_origin(db, wave.parent_completion_id)
                 res = await CompletionService().create_completion(
                     db=db, report_id=str(report.id),
                     completion_data=CompletionCreate(prompt=prompt),

@@ -217,17 +217,21 @@ class ToolPolicyService:
         or ``nobody`` (no user)."""
         if runtime_ctx.get("is_eval_run"):
             return "machine"
+        from app.core.request_origin import CHANNEL_STARTED
+
         head = runtime_ctx.get("head_completion")
         # started_via: 'api_key' (an API-key prompt), or 'unattended' / 'api_key'
         # on a machine turn started by an unattended run (wait wake, check-in,
-        # sub-agent, wave or message reply), so chains of turns inherit it.
+        # sub-agent, wave or message reply), so chains of turns inherit it;
+        # 'channel' on a machine turn started by a platform run.
+        started_via = getattr(head, "started_via", None) if head is not None else None
         if head is not None and (
             getattr(head, "scheduled_prompt_id", None)
             or getattr(head, "webhook_id", None)
-            or getattr(head, "started_via", None)
+            or (started_via and started_via != CHANNEL_STARTED)
         ):
             return "machine"
-        if runtime_ctx.get("platform"):
+        if runtime_ctx.get("platform") or started_via == CHANNEL_STARTED:
             return "channel"
         trigger = getattr(head, "trigger_source", None) if head is not None else None
         if trigger and trigger not in ToolPolicyService.WATCHED_TRIGGERS:

@@ -1332,13 +1332,16 @@ Do not use when:
             yield ToolProgressEvent(type="tool.progress", payload={
                 "stage": "auto_policy_review", "tool_name": data.tool_name,
             })
-        runtime_ctx.pop("_mcp_asked_because", None)
+        # This call's own notes for its audit entry: never a slot on the
+        # runtime context, which every tool call of the run shares.
+        audit_notes: dict = {}
         action, decided_by, mode_reason = await self._permission_mode_action(
             db, connection, tool_record, data, runtime_ctx, report,
             mode=mode, effective=effective, resolution=resolution, remote_shell=remote_shell,
             shell_mandatory=shell_mandatory, watched=watched, grants=grants, settings=pm_settings, user=user,
+            audit_notes=audit_notes,
         )
-        asked_because = runtime_ctx.pop("_mcp_asked_because", None)
+        asked_because = audit_notes.get("asked_because")
         if action in ("allow", "refuse"):
             approved = action == "allow"
             await log_tool_audit(
@@ -1848,6 +1851,7 @@ Do not use when:
     async def _permission_mode_action(
         self, db, connection, tool_record, data, runtime_ctx, report, *,
         mode, effective, resolution, remote_shell, shell_mandatory, watched, grants, settings, user,
+        audit_notes: dict,
     ):
         """What to do with a call whose per-tool setting is 'ask' or 'auto'.
 
@@ -1856,6 +1860,8 @@ Do not use when:
         ``prompt`` (ask the user — only ever returned for a watched run).
         ``grants``: the report's "for this report" answers apply (a watched
         run, or a hidden sub-agent turn of one).
+        ``audit_notes``: this call's own dict; ``asked_because`` is set in it
+        when the audit entry should say why a judge decided.
         Callers have already applied the disabled check, the blocklist and
         every 'deny', so nothing here can loosen those.
         """
@@ -1908,7 +1914,7 @@ Do not use when:
                     # Auto already asked the small model: its plain yes/no is
                     # the per-tool judge's answer, so it is not asked again.
                     # Its audit entry says why, as the per-tool judge's does.
-                    runtime_ctx["_mcp_asked_because"] = pm.BY_UNATTENDED
+                    audit_notes["asked_because"] = pm.BY_UNATTENDED
                     approved = bool(small_verdict.approve)
                     return ("allow" if approved else "refuse"), pm.BY_SMALL_MODEL, small_verdict.reason or ""
                 return "binary_judge", pm.BY_UNATTENDED, ""

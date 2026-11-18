@@ -52,6 +52,10 @@ API_KEY_STARTED = "api_key"
 # app.services.machine_turn.unattended_origin; an API-key origin keeps
 # API_KEY_STARTED.
 UNATTENDED_STARTED = "unattended"
+# A machine turn started by a turn a person sent from another channel (Slack,
+# Teams, email, an app surface): the same kind of run as that turn, which
+# shows no approval card and gets none of the report's grants.
+CHANNEL_STARTED = "channel"
 
 _api_key_request: ContextVar[bool] = ContextVar("bow_api_key_request", default=False)
 
