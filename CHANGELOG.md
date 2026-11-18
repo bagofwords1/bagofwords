@@ -1,8 +1,8 @@
 # Release Notes
 
 ## Version 0.0.629 (November 18, 2026)
-- Added a PostgreSQL (multi-database) connection: one connection over many single-tenant databases on the same server, queried as unified tables with a `tenant_db` column; database names, globs and !-exclusions pick the tenants
-- Fixed agent queries reaching tables outside the agent's selection through a LATERAL or APPLY table function
+- Added a PostgreSQL (multi-database) connection: one connection over many single-tenant databases on the same server, queried as unified tables with a `tenant_db` column; database names, globs and !-exclusions pick the tenants (#1808)
+- Fixed agent queries reaching tables outside the agent's selection through a LATERAL or APPLY table function (#1808)
 
 ## Version 0.0.628 (November 18, 2026)
 - Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
