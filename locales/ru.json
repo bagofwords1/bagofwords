@@ -4223,6 +4223,11 @@
     "setupGuideTitle": "Шаги настройки",
     "setupGuideCopy": "Копировать",
     "setupGuideCopied": "Скопировано",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Ключ не сохраняется. Запросы выполняются от имени учётной записи Google, настроенной на сервере: подключённого сервисного аккаунта или конфигурации Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

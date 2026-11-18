@@ -4223,6 +4223,11 @@
     "setupGuideTitle": "Passaggi di configurazione",
     "setupGuideCopy": "Copia",
     "setupGuideCopied": "Copiato",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Non viene salvata alcuna chiave. Le query vengono eseguite con l'identità Google configurata sul server: un account di servizio collegato o una configurazione di Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

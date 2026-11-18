@@ -4223,6 +4223,11 @@
     "setupGuideTitle": "Einrichtungsschritte",
     "setupGuideCopy": "Kopieren",
     "setupGuideCopied": "Kopiert",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Es wird kein Schlüssel gespeichert. Abfragen laufen mit der auf dem Server konfigurierten Google-Identität: einem angehängten Dienstkonto oder einer Workload-Identity-Federation-Konfiguration."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

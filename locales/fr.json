@@ -4223,6 +4223,11 @@
     "setupGuideTitle": "Étapes de configuration",
     "setupGuideCopy": "Copier",
     "setupGuideCopied": "Copié",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Aucune clé n'est stockée. Les requêtes s'exécutent avec l'identité Google configurée sur le serveur : un compte de service associé ou une configuration Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

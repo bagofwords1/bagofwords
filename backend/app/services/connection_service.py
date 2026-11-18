@@ -149,6 +149,89 @@ def _reject_unsafe_google_keys(credentials) -> None:
                 raise HTTPException(status_code=400, detail=f"{key}: {e}")
 
 
+def _config_auth_type(config) -> Optional[str]:
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except ValueError:
+            return None
+    return (config or {}).get("auth_type") if isinstance(config, dict) else None
+
+
+def _auth_methods_exclusive(conn_type: str) -> bool:
+    from app.schemas.data_source_registry import get_entry
+
+    try:
+        return bool(get_entry(conn_type).credentials_auth.exclusive_methods)
+    except ValueError:
+        return False
+
+
+def _merge_credential_changes(conn_type: str, existing: Optional[dict], incoming: Optional[dict]) -> dict:
+    """Saved credentials with an edit applied.
+
+    Edits are partial: an omitted or blank value keeps what is saved, so one
+    secret can be rotated without resending the rest (a blank secret box means
+    "unchanged"). Where a connector declares its auth methods exclusive, an
+    explicit ``null`` additionally clears the field — its optional, non-secret
+    fields (a service account to impersonate) must be removable, and the form
+    sends null only for a field the admin emptied.
+    """
+    merged = dict(existing or {})
+    incoming = incoming or {}
+    merged.update({k: v for k, v in incoming.items() if v is not None and v != ""})
+    if _auth_methods_exclusive(conn_type):
+        for key, value in incoming.items():
+            if value is None:
+                merged.pop(key, None)
+    return merged
+
+
+def _prepare_auth_credentials(conn_type: str, config, credentials):
+    """System credentials as they should be stored for the connection's auth
+    method (`config.auth_type`).
+
+    * A method the deployment has not enabled (one that borrows the server's
+      own identity) is refused.
+    * Fields that belong to another method are dropped where the connector
+      declares its methods exclusive, so the saved blob never says two things.
+    * A deployment-identity method has no secret to check by connecting, so
+      its fields are validated against the schema here and its defaults filled
+      in — the client can then rely on what is stored.
+    """
+    from app.schemas.data_source_registry import (
+        auth_variant_enabled, credentials_for_auth_method, get_entry,
+    )
+
+    if not isinstance(credentials, dict) and credentials is not None:
+        return credentials
+    auth_type = _config_auth_type(config)
+    try:
+        options = get_entry(conn_type).credentials_auth
+    except ValueError:
+        return credentials
+    variant = options.by_auth.get(auth_type or options.default)
+    if variant is None or not variant.requires_security_flag:
+        if credentials is None:
+            return None
+        return credentials_for_auth_method(conn_type, auth_type, credentials)
+
+    if not auth_variant_enabled(variant):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{variant.title} is turned off on this deployment. Ask the operator to enable it before using this authentication method.",
+        )
+    from pydantic import ValidationError
+    cleaned = credentials_for_auth_method(conn_type, auth_type, credentials or {})
+    try:
+        validated = variant.schema(**{k: v for k, v in cleaned.items() if v is not None and v != ""})
+    except ValidationError as e:
+        first = e.errors()[0]
+        reason = str(first["msg"]).removeprefix("Value error, ")
+        raise HTTPException(status_code=400, detail=reason)
+    return {**cleaned, **validated.model_dump(exclude_none=True)}
+
+
 async def grant_connection_owner(
     db: AsyncSession, organization_id: str, connection_id: str, user_id: str,
 ) -> None:
@@ -608,6 +691,7 @@ class ConnectionService:
         _check_network_dir_root(type, config)
         _validate_connection_config(type, config)
         _check_query_tag_label(config)
+        credentials = _prepare_auth_credentials(type, config, credentials)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -970,6 +1054,7 @@ class ConnectionService:
         current_config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
         if not isinstance(current_config, dict):
             current_config = {}
+        previous_config = current_config
 
         if "config" in updates:
             new_config = updates.pop("config")
@@ -998,17 +1083,28 @@ class ConnectionService:
                     merged.pop(key, None)
             connection.config = json.dumps(merged)
 
-        if "credentials" in updates:
-            new_credentials = updates.pop("credentials")
-            if new_credentials:
-                # Credential edits are partial updates, like test overrides:
-                # omitted/blank values keep the saved value. Never replace the
-                # entire blob when rotating a single secret or identifier.
-                existing = connection.decrypt_credentials() or {}
-                changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
-                if changes:
-                    connection.encrypt_credentials({**existing, **changes})
-                    connection_changed = True
+        auth_method_changed = _config_auth_type(current_config) != _config_auth_type(previous_config)
+        credential_changes = {}
+        new_credentials = updates.pop("credentials", None) if "credentials" in updates else None
+        if new_credentials:
+            # Credential edits are partial updates, like test overrides:
+            # omitted/blank values keep the saved value. Never replace the
+            # entire blob when rotating a single secret or identifier.
+            credential_changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+        target_type = updates.get("type", connection.type)
+        # A change of method alone only matters where methods are exclusive;
+        # elsewhere the stored credentials are left exactly as they were.
+        if new_credentials or (auth_method_changed and _auth_methods_exclusive(target_type)):
+            existing = connection.decrypt_credentials() or {}
+            # Merge, then keep only what the (possibly new) auth method owns:
+            # switching method must not leave the previous method's key or
+            # marker in the stored credentials.
+            merged = _prepare_auth_credentials(
+                target_type, current_config, _merge_credential_changes(target_type, existing, new_credentials),
+            )
+            if credential_changes or merged != existing:
+                connection.encrypt_credentials(merged)
+                connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
@@ -1368,6 +1464,7 @@ class ConnectionService:
             _check_network_dir_root(data_source_type, config)
             _reject_unsafe_google_keys(credentials)
             _check_query_tag_label(config)
+            credentials = _prepare_auth_credentials(data_source_type, config, credentials)
         except HTTPException as e:
             return {"success": False, "message": e.detail, "connectivity": False}
         except AppError as e:
@@ -2835,9 +2932,13 @@ class ConnectionService:
         creds = await self.resolve_credentials(db, connection, current_user)
         # Merge credential overrides (non-empty values win, blank keeps saved)
         if credential_overrides:
-            for k, v in credential_overrides.items():
-                if v is not None and v != "":
-                    creds[k] = v
+            creds = _merge_credential_changes(connection.type, creds, credential_overrides)
+        if getattr(self, "last_credential_identity", "system") == "system":
+            # The (possibly overridden) auth method decides which system
+            # fields count: an edit form testing a switch of method sends the
+            # new method's fields on top of the saved ones.
+            from app.schemas.data_source_registry import credentials_for_auth_method
+            creds = credentials_for_auth_method(connection.type, _config_auth_type(config), creds)
         logger.info(f"construct_client: Credentials resolved, keys={list(creds.keys()) if creds else []}")
 
         params = {**(config or {}), **(creds or {})}

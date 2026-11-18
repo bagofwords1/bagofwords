@@ -4844,6 +4844,11 @@
     "setupGuideTitle": "Setup steps",
     "setupGuideCopy": "Copy",
     "setupGuideCopied": "Copied",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "No key is stored. Queries run as the Google identity configured on the server: an attached service account or a Workload Identity Federation configuration."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

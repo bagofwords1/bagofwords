@@ -4782,6 +4782,11 @@
     "setupGuideTitle": "Pasos de configuración",
     "setupGuideCopy": "Copiar",
     "setupGuideCopied": "Copiado",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "No se guarda ninguna clave. Las consultas se ejecutan con la identidad de Google configurada en el servidor: una cuenta de servicio asociada o una configuración de Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
