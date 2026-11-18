@@ -24,6 +24,16 @@ from tests.fixtures.client import (
 from tests.fixtures.signals import handling_sigint, retrying_signal
 
 app = FastAPI()
+
+
+@pytest.fixture(autouse=True)
+def _sigint_raises():
+    """This module's interrupts (``_thread.interrupt_main``) raise also in a
+    run that inherited SIGINT ignored (see ``handling_sigint``)."""
+    with handling_sigint():
+        yield
+
+
 TASKS = {}
 GATES = {}
 
@@ -613,14 +623,6 @@ def test_an_interrupted_connection_release_still_stops_the_loop(client, loop, mo
     assert alive == []
     assert loop.portal is None
     assert not loop._stopping
-
-
-@pytest.fixture(autouse=True)
-def _sigint_raises():
-    """This module's interrupts (``_thread.interrupt_main``) raise also in a
-    run that inherited SIGINT ignored (see ``handling_sigint``)."""
-    with handling_sigint():
-        yield
 
 
 def test_retrying_signal_restores_the_handler_where_sigtimedwait_is_missing(monkeypatch):

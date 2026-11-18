@@ -242,7 +242,8 @@ class _TestLoop:
         normal way (asyncio.Runner cancels and awaits what is left, closes async
         generators and joins the default executor). With ``interrupted`` (the
         exception that is unwinding the stop), or when the release itself is
-        interrupted (that exception is re-raised once the loop is gone), the
+        interrupted (that exception is re-raised once the loop is gone or given
+        up on, see ``_exit_portal``), the
         portal cancels the calls still running on it instead of waiting for
         them."""
         if cm is None:
