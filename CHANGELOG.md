@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.0.628 (November 18, 2026)
+- Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
+
+## Version 0.0.627 (November 18, 2026)
+- Added keyless BigQuery connections that use the server's Google identity instead of a service-account key (#1794) — enable with `BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true`
+
+## Version 0.0.626 (November 18, 2026)
+- Added Slack as a data source: each user signs in with their own Slack account, and each agent reads only the channels picked for it (#1785)
+- Fixed "Save and Run" on an eval test case failing silently and creating duplicate test cases on retry (#1787)
+
 ## Version 0.0.625 (November 17, 2026)
 - Added Rerun on a chat message: sends the same prompt again with its mentions, attached images, mode and model (#1771)
 - Added `/clear` in the report prompt box: starts a fresh agent context while earlier turns stay visible (#1767)

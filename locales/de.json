@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Welt unter Agenten anzeigen"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Dateien suchen…",
@@ -2544,6 +2543,35 @@
       "googleTitle": "Google-Profilsynchronisierung"
     },
     "auditLogs": "Audit-Protokolle",
+    "systemLogsTab": "Systemprotokolle",
+    "systemLogs": {
+      "title": "Systemprotokolle",
+      "subtitle": "Die eigene Protokollausgabe des Servers, zur Fehlersuche. Nur für Administratoren sichtbar.",
+      "retention": "Protokolle werden {days} Tage aufbewahrt, insgesamt bis zu {max}; darüber hinaus werden die ältesten zuerst gelöscht. Belegt: {used}.",
+      "droppedNotice": "{count} Zeilen dieser Instanz konnten nicht gespeichert werden, weil das Protokollverzeichnis nicht beschreibbar war.",
+      "writeError": "Diese Instanz kann nicht in das Protokollverzeichnis ({directory}) schreiben. Prüfen Sie, ob es existiert und beschreibbar ist.",
+      "searchPlaceholder": "Meldungen durchsuchen…",
+      "from": "Von",
+      "to": "Bis",
+      "allInstances": "Alle Instanzen",
+      "thisInstance": "{id} (diese Instanz)",
+      "errorsOnly": "Nur Fehler",
+      "autoRefresh": "Automatisch aktualisieren",
+      "clearFilters": "Filter zurücksetzen",
+      "refresh": "Aktualisieren",
+      "rangeInvalid": "„Von“ muss vor „Bis“ liegen.",
+      "empty": "Noch keine passenden Zeilen.",
+      "count": "Angezeigte Zeilen: {count}",
+      "countTruncated": "Die neuesten {count} Zeilen werden angezeigt. Grenzen Sie die Filter ein, um ältere zu sehen.",
+      "deleteAll": "Alle Protokolle löschen",
+      "deleteTitle": "Alle Systemprotokolle löschen?",
+      "deleteMessage": "Alle gespeicherten Protokollzeilen aller Instanzen werden endgültig gelöscht. Neue Zeilen werden weiterhin aufgezeichnet.",
+      "deleteConfirm": "Alle löschen",
+      "cancel": "Abbrechen",
+      "deletedToast": "Alle Systemprotokolle wurden gelöscht",
+      "deleteFailed": "Die Protokolle konnten nicht gelöscht werden",
+      "loadFailed": "Systemprotokolle konnten nicht geladen werden"
+    },
     "integrations": {
       "title": "Kanäle",
       "subtitle": "Konfigurieren Sie externe Plattformen wie Slack und Microsoft Teams für Ihre Organisation.",
@@ -3545,6 +3573,10 @@
         "allow_access_requests": {
           "name": "Zugriffsanfragen zulassen",
           "description": "Lass Mitglieder auf der Seite ohne Zugriff die Bearbeiter eines Dashboards um Lesezugriff bitten. Wenn deaktiviert, nennt die Seite nur den Eigentümer und es können keine neuen Anfragen gesendet werden; bereits gesendete Anfragen bleiben beantwortbar."
+        },
+        "show_world": {
+          "name": "Weltansicht",
+          "description": "Zeigt auf der Agenten-Seite einen Schalter, der die Welt öffnet: eine Karte der Agenten, des Wissens, der Quellen und der Arbeit, die Ihre Organisation verbinden. Jeder Benutzer sieht nur, worauf er Zugriff hat."
         }
       },
       "permissionMode": {
@@ -4307,6 +4339,11 @@
     "setupGuideTitle": "Einrichtungsschritte",
     "setupGuideCopy": "Kopieren",
     "setupGuideCopied": "Kopiert",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Es wird kein Schlüssel gespeichert. Abfragen laufen mit der auf dem Server konfigurierten Google-Identität: einem angehängten Dienstkonto oder einer Workload-Identity-Federation-Konfiguration."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4584,6 +4621,9 @@
     "connection.table_preview_failed": "Vorschau fehlgeschlagen: {reason}",
     "data_source.not_found": "Datenquelle nicht gefunden",
     "file.not_found": "Datei nicht gefunden",
+    "system_logs.instance_admin_required": "Auf einer Instanz mit mehreren Organisationen kann nur ein Instanzadministrator die Systemprotokolle verwenden.",
+    "system_logs.invalid_range": "Die Startzeit muss vor der Endzeit liegen.",
+    "system_logs.delete_failed": "Die Protokolldateien in {directory} konnten nicht gelöscht werden. Prüfen Sie, ob das Verzeichnis existiert und beschreibbar ist.",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",
     "body.invalid_json": "Ungültiger JSON-Body",
     "organization.not_found": "Organisation nicht gefunden",
@@ -4686,7 +4726,11 @@
     "frame_ancestors.too_many": "Sie können höchstens {max} Websites angeben.",
     "connection.query_not_found": "Abfrage auf dieser Verbindung nicht gefunden.",
     "connection.query_finished": "Diese Abfrage ist bereits beendet ({status}).",
-    "connection.query_not_killable": "Diese Abfrage kann nicht aus BOW gestoppt werden: Ihr Client setzt ein eigenes Zeitlimit durch."
+    "connection.query_not_killable": "Diese Abfrage kann nicht aus BOW gestoppt werden: Ihr Client setzt ein eigenes Zeitlimit durch.",
+    "connection.slack_channels_not_slack": "Die Kanalauswahl ist nur für Slack-Verbindungen verfügbar.",
+    "connection.slack_channels_too_many": "Höchstens {max} Kanäle pro Agent.",
+    "connection.slack_channels_not_ids": "Das sind keine Slack-Kanal-IDs: {ids}",
+    "connection.slack_channels_unavailable": "Slack hat nicht geantwortet: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5349,6 +5393,7 @@
       "toastCreated": "Testfall erstellt",
       "toastDeleteFailed": "Testfall konnte nicht gelöscht werden",
       "saveFailed": "Testfall konnte nicht gespeichert werden",
+      "runFailed": "Testfall gespeichert, aber der Lauf konnte nicht gestartet werden",
       "emptyDescription": "Tests bewerten, wie deine Agenten auf Prompts und Regeln reagieren."
     },
     "filter": {
@@ -7521,5 +7566,30 @@
       "stale": "Der Prozess, der diese Abfrage ausführte, reagiert nicht mehr; sein Platz wurde freigegeben.",
       "busy": "Kein Platz wurde rechtzeitig frei: Die Verbindung war an ihrem Limit gleichzeitiger Abfragen."
     }
+  },
+  "slackChannels": {
+    "button": "Kanäle",
+    "title": "Slack-Kanäle für diesen Agenten",
+    "subtitle": "Wähle, welche Slack-Kanäle dieser Agent liest.",
+    "allChannels": "Alle meine Kanäle",
+    "allChannelsHint": "Jeder Kanal, in dem die jeweilige Person Mitglied ist.",
+    "selectedChannels": "Nur ausgewählte Kanäle",
+    "connectRequired": "Melde dich bei dieser Verbindung mit Slack an, um Kanäle auszuwählen.",
+    "searchPlaceholder": "Kanäle suchen",
+    "notYourChannel": "nicht in deinem Slack",
+    "noMatch": "Keine passenden Kanäle.",
+    "selectedCount": "{n} ausgewählt",
+    "includeDms": "Direktnachrichten einbeziehen",
+    "includeDmsHint": "Auch die Direkt- und Gruppennachrichten jeder Person lesen.",
+    "membershipNote": "Jede Person sieht weiterhin nur die Kanäle, in denen sie Mitglied ist.",
+    "saveFailed": "Kanäle konnten nicht gespeichert werden",
+    "saved": "Kanäle gespeichert",
+    "summaryAll": "Liest alle Kanäle und Direktnachrichten",
+    "summaryAllNoDms": "Liest alle Kanäle, keine Direktnachrichten",
+    "summarySome": "Liest {names}",
+    "summarySomeWithDms": "Liest {names} und Direktnachrichten",
+    "loadFailed": "Die Kanäle dieses Agenten konnten nicht geladen werden. Schließe und versuche es erneut.",
+    "privateChannel": "Privater Kanal",
+    "privateCount": "{n} privater Kanal | {n} private Kanäle"
   }
 }

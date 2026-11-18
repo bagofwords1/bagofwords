@@ -226,6 +226,9 @@ from app.schemas.data_sources.configs import (
     GoogleDriveServiceAccountCredentials,
     GmailConfig,
     GmailCredentials,
+    # Slack
+    SlackMessagesConfig,
+    SlackCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -275,6 +278,7 @@ from app.schemas.data_sources.configs import (
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
     BigQueryCredentials,
+    BigQueryDefaultCredentials,
     NetSuiteCredentials,
     SQLCredentials,
     PrestoCredentials,
@@ -342,6 +346,16 @@ class AuthVariant(BaseModel):
     # in) and a shared mode (one service identity, one admin-side catalog) —
     # e.g. Google Drive via user OAuth vs. a service account.
     catalog_ownership: Optional[str] = None
+    # One line of help shown under the auth selector when this variant is
+    # picked — for variants whose setup happens outside the form. English
+    # default; the frontend prefers the locale catalog key
+    # `data.authDescriptions.<type>.<auth>` when it exists.
+    description: Optional[str] = None
+    # Name of a boolean on `bow_config.security` that must be true for this
+    # variant to be offered or used. For variants that borrow the deployment's
+    # own identity instead of a credential the admin supplies: only the
+    # operator can opt in. None = always available.
+    requires_security_flag: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -356,6 +370,11 @@ class AuthOptions(BaseModel):
 
     default: str
     by_auth: Dict[str, AuthVariant]
+    # When the admin switches auth method, drop the stored fields that belong
+    # only to the method being left (see `credentials_after_auth_switch`).
+    # Needed wherever two methods would contradict each other if both were
+    # present in the saved credentials. Opt-in per connector.
+    exclusive_methods: bool = False
 
     class Config:
         arbitrary_types_allowed = True
@@ -823,9 +842,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Google BigQuery",
         description="Serverless, highly scalable, and cost-effective multi-cloud data warehouse.",
         config_schema=BigQueryConfig,
-        credentials_auth=AuthOptions(default="service_account", by_auth={
+        # A pasted key and "use the server's identity" contradict each other,
+        # so switching between them clears the other's fields.
+        credentials_auth=AuthOptions(default="service_account", exclusive_methods=True, by_auth={
             "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system", "user"]),
             "oauth": AuthVariant(title="Sign in with Google", schema=OAuthDelegatedCredentials, scopes=["user"]),
+            # Keyless: the deployment's own Google identity. System scope only —
+            # it is the server's identity, never something a member supplies.
+            "adc": AuthVariant(
+                title="Application Default Credentials",
+                schema=BigQueryDefaultCredentials,
+                scopes=["system"],
+                description=(
+                    "No key is stored. Queries run as the Google identity configured on the server: "
+                    "an attached service account or a Workload Identity Federation configuration."
+                ),
+                requires_security_flag="allow_google_default_credentials",
+            ),
         }),
         client_path=None,
     ),
@@ -2561,6 +2594,37 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         catalog_nouns=("message", "messages"),
     ),
+    "slack_messages": DataSourceRegistryEntry(
+        type="slack_messages",
+        category="services",
+        title="Slack",
+        description="Search and read Slack channels and DMs, live, with each user's own access — nothing is copied or indexed.",
+        config_schema=SlackMessagesConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Slack App (OAuth)",
+                    schema=SlackCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Slack",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Messages reuse the file-payload transport internally (like Teams);
+        # capability gating exposes the chat-named agent tools instead.
+        client_path="app.data_sources.clients.slack_messages_client.SlackMessagesClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        catalog_nouns=("message", "messages"),
+        dev_only=True,
+    ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
         category="services",
@@ -3432,6 +3496,74 @@ def credentials_schema_for(ds_type: str, auth_type: Optional[str]) -> Type[BaseM
     if not variant:
         raise ValueError("Unsupported authentication method for this data source")
     return variant.schema
+
+
+def auth_variant_enabled(variant: Optional[AuthVariant]) -> bool:
+    """False when the variant depends on a deployment opt-in that is off."""
+    flag = getattr(variant, "requires_security_flag", None)
+    if not flag:
+        return True
+    try:
+        return bool(getattr(settings.bow_config.security, flag, False))
+    except Exception:
+        return False
+
+
+def disabled_auth_variant(ds_type: Optional[str], auth_type: Optional[str]) -> Optional[AuthVariant]:
+    """The variant `auth_type` names when the deployment has not enabled it,
+    else None (enabled, unknown type, or no auth_type given)."""
+    if not ds_type or not auth_type:
+        return None
+    try:
+        variant = get_entry(ds_type).credentials_auth.by_auth.get(auth_type)
+    except ValueError:
+        return None
+    if variant is None or auth_variant_enabled(variant):
+        return None
+    return variant
+
+
+def credentials_for_auth_method(
+    ds_type: Optional[str],
+    auth_type: Optional[str],
+    credentials: Optional[dict],
+) -> dict:
+    """System credentials with the fields of *other* auth methods removed.
+
+    Credential edits are merged over the saved blob so one secret can be
+    rotated without resending the rest. When the method itself changes, that
+    merge leaves the old method's fields behind — a pasted key next to a
+    "use the server's identity" marker, or the reverse — and the client would
+    have to guess which one is meant. The connection's `auth_type` is the
+    answer, so keep only what that method (or no method in particular) owns.
+
+    Conservative on purpose: nothing is removed unless the connector opted in
+    (`AuthOptions.exclusive_methods`) and the selected method is a known
+    system-scope variant that declares its fields (a schema accepting extras
+    keeps everything). Only fields declared by another system-scope variant
+    are dropped; `oauth_*` sign-in overrides are shared and always kept.
+    """
+    creds = dict(credentials or {})
+    if not ds_type:
+        return creds
+    try:
+        options = get_entry(ds_type).credentials_auth
+    except ValueError:
+        return creds
+    if not options.exclusive_methods:
+        return creds
+    selected = options.by_auth.get(auth_type or options.default)
+    if selected is None or "system" not in (selected.scopes or []):
+        return creds
+    if (getattr(selected.schema, "model_config", None) or {}).get("extra") == "allow":
+        return creds
+    own = set(selected.schema.model_fields)
+    foreign: set[str] = set()
+    for name, variant in options.by_auth.items():
+        if variant is selected or "system" not in (variant.scopes or []):
+            continue
+        foreign |= set(variant.schema.model_fields) - own
+    return {k: v for k, v in creds.items() if k not in foreign or k.startswith("oauth_")}
 
 
 def tool_provider_types() -> set[str]:

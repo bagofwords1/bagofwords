@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Mostra Mondo in Agenti"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Cerca file…",
@@ -2544,6 +2543,35 @@
       "googleTitle": "Sincronizzazione profilo Google"
     },
     "auditLogs": "Registri di audit",
+    "systemLogsTab": "Log di sistema",
+    "systemLogs": {
+      "title": "Log di sistema",
+      "subtitle": "L'output di log del server stesso, per la risoluzione dei problemi. Visibile solo agli amministratori.",
+      "retention": "I log vengono conservati per {days} giorni, fino a {max} in totale; oltre, vengono eliminati prima i più vecchi. In uso: {used}.",
+      "droppedNotice": "Non è stato possibile salvare {count} righe di questa istanza perché non è stato possibile scrivere nella cartella dei log.",
+      "writeError": "Questa istanza non può scrivere nella cartella dei log ({directory}). Verifica che esista e sia scrivibile.",
+      "searchPlaceholder": "Cerca nei messaggi…",
+      "from": "Da",
+      "to": "A",
+      "allInstances": "Tutte le istanze",
+      "thisInstance": "{id} (questa istanza)",
+      "errorsOnly": "Solo errori",
+      "autoRefresh": "Aggiornamento automatico",
+      "clearFilters": "Cancella filtri",
+      "refresh": "Aggiorna",
+      "rangeInvalid": "«Da» deve precedere «A».",
+      "empty": "Ancora nessuna riga corrispondente.",
+      "count": "Righe mostrate: {count}",
+      "countTruncated": "Sono mostrate le {count} righe più recenti. Restringi i filtri per vedere quelle precedenti.",
+      "deleteAll": "Elimina tutti i log",
+      "deleteTitle": "Eliminare tutti i log di sistema?",
+      "deleteMessage": "Tutte le righe di log salvate di tutte le istanze verranno eliminate definitivamente. Le nuove righe continueranno a essere registrate.",
+      "deleteConfirm": "Elimina tutto",
+      "cancel": "Annulla",
+      "deletedToast": "Tutti i log di sistema sono stati eliminati",
+      "deleteFailed": "Impossibile eliminare i log",
+      "loadFailed": "Impossibile caricare i log di sistema"
+    },
     "integrations": {
       "title": "Canali",
       "subtitle": "Configura piattaforme esterne come Slack e Microsoft Teams per la tua organizzazione.",
@@ -3545,6 +3573,10 @@
         "allow_access_requests": {
           "name": "Consenti richieste di accesso",
           "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
+        },
+        "show_world": {
+          "name": "Vista Mondo",
+          "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
         }
       },
       "permissionMode": {
@@ -4307,6 +4339,11 @@
     "setupGuideTitle": "Passaggi di configurazione",
     "setupGuideCopy": "Copia",
     "setupGuideCopied": "Copiato",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Non viene salvata alcuna chiave. Le query vengono eseguite con l'identità Google configurata sul server: un account di servizio collegato o una configurazione di Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4584,6 +4621,9 @@
     "connection.table_preview_failed": "Anteprima non riuscita: {reason}",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
+    "system_logs.instance_admin_required": "Su un'istanza con più organizzazioni, solo un amministratore dell'istanza può usare i log di sistema.",
+    "system_logs.invalid_range": "L'ora di inizio deve precedere l'ora di fine.",
+    "system_logs.delete_failed": "Impossibile eliminare i file di log in {directory}. Verifica che la cartella esista e sia scrivibile.",
     "verification.invalid": "Token di verifica non valido o scaduto",
     "body.invalid_json": "Corpo JSON non valido",
     "organization.not_found": "Organizzazione non trovata",
@@ -4686,7 +4726,11 @@
     "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
     "connection.query_not_found": "Query non trovata su questa connessione.",
     "connection.query_finished": "Questa query è già terminata ({status}).",
-    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo."
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo.",
+    "connection.slack_channels_not_slack": "La selezione dei canali è disponibile solo per le connessioni Slack.",
+    "connection.slack_channels_too_many": "Al massimo {max} canali per agente.",
+    "connection.slack_channels_not_ids": "Questi non sono ID di canali Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack non ha risposto: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5349,6 +5393,7 @@
       "toastCreated": "Caso di test creato",
       "toastDeleteFailed": "Impossibile eliminare il caso di test",
       "saveFailed": "Impossibile salvare il caso di test",
+      "runFailed": "Caso di test salvato, ma non è stato possibile avviare l'esecuzione",
       "emptyDescription": "I test valutano come i tuoi agenti rispondono a prompt e regole."
     },
     "filter": {
@@ -7521,5 +7566,30 @@
       "stale": "Il processo che eseguiva questa query non risponde più; il suo posto è stato liberato.",
       "busy": "Nessun posto si è liberato in tempo: la connessione era al limite di query simultanee."
     }
+  },
+  "slackChannels": {
+    "button": "Canali",
+    "title": "Canali Slack di questo agente",
+    "subtitle": "Scegli quali canali Slack legge questo agente.",
+    "allChannels": "Tutti i miei canali",
+    "allChannelsHint": "Ogni canale di cui ciascuna persona è membro.",
+    "selectedChannels": "Solo i canali selezionati",
+    "connectRequired": "Accedi con Slack su questa connessione per scegliere i canali.",
+    "searchPlaceholder": "Cerca canali",
+    "notYourChannel": "non nel tuo Slack",
+    "noMatch": "Nessun canale corrispondente.",
+    "selectedCount": "{n} selezionati",
+    "includeDms": "Includi i messaggi diretti",
+    "includeDmsHint": "Legge anche i messaggi diretti e di gruppo di ciascuna persona.",
+    "membershipNote": "Ogni persona continua a vedere solo i canali di cui è membro.",
+    "saveFailed": "Impossibile salvare i canali",
+    "saved": "Canali salvati",
+    "summaryAll": "Legge tutti i canali e i messaggi diretti",
+    "summaryAllNoDms": "Legge tutti i canali, senza messaggi diretti",
+    "summarySome": "Legge {names}",
+    "summarySomeWithDms": "Legge {names} e i messaggi diretti",
+    "loadFailed": "Impossibile caricare i canali di questo agente. Chiudi e riprova.",
+    "privateChannel": "Canale privato",
+    "privateCount": "{n} canale privato | {n} canali privati"
   }
 }

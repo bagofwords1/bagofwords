@@ -1,4 +1,4 @@
-"""Chat-named agent tools for chat knowledge sources (Microsoft Teams).
+"""Chat-named agent tools for chat knowledge sources (Microsoft Teams, Slack).
 
 Same design as the email tools: a chat source must not be reasoned about as
 "files", so it gets its own vocabulary —
@@ -11,7 +11,7 @@ Same design as the email tools: a chat source must not be reasoned about as
                           materialization and citation link)
 
 All three gate on the chat capabilities, which only chat clients declare, so a
-Teams agent sees ONLY these tools and a drive or mailbox agent never sees them.
+Teams or Slack agent sees ONLY these tools and a drive or mailbox agent never sees them.
 """
 from __future__ import annotations
 
@@ -60,6 +60,11 @@ def _message_row(e: dict) -> str:
     if len(text) > _OBS_PREVIEW_CHARS:
         text = text[: _OBS_PREVIEW_CHARS - 1] + "…"
     row = f"- [id={e.get('id')}] {head}\n    {text}"
+    # The message's own link, so an answer built from a listing or search can
+    # cite the exact messages it used (not only threads opened with
+    # read_chat_thread, whose header carries a Link: line).
+    if e.get("web_url"):
+        row += f"\n    link: {e['web_url']}"
     if e.get("thread"):
         row += f"\n    in reply to {e['thread']}"
     for line in e.get("context") or []:
@@ -176,8 +181,13 @@ class _ChatTool(Tool):
                 f'cursor="{cursor}" (keep going until no cursor is returned) before '
                 "concluding anything about the whole set."
             )
-        else:
+        elif not result.get("partial"):
             summary += ". Complete: these are all the matching messages."
+        else:
+            # Some conversations weren't scanned: never call that complete.
+            summary += ". NOT complete: not every conversation was scanned (see below)."
+        if result.get("hint"):
+            summary += f" {result['hint']}"
         partial = result.get("partial") or []
         if partial:
             summary += (
@@ -216,7 +226,7 @@ class ListChatMessagesTool(_ChatTool):
         return ToolMetadata(
             name="list_chat_messages",
             description=(
-                "List chat messages (Microsoft Teams channels and chats) newest first, "
+                "List chat messages (Microsoft Teams or Slack channels, chats and DMs) newest first, "
                 "read live as the signed-in user. Narrow with `conversation` (a "
                 "channel like 'General', a chat topic, or a person), `from_user`, "
                 "and `sent_after` / `sent_before` (ISO-8601). Channel posts are "
@@ -232,7 +242,7 @@ class ListChatMessagesTool(_ChatTool):
             output_schema=ListChatMessagesOutput.model_json_schema(),
             idempotent=True,
             timeout_seconds=90,
-            tags=["teams", "chat", "messages", "channel", "conversation", "list"],
+            tags=["teams", "slack", "chat", "messages", "channel", "conversation", "list"],
             requires_capability="list_chat_messages",
         )
 
@@ -275,8 +285,8 @@ class SearchChatMessagesTool(_ChatTool):
         return ToolMetadata(
             name="search_chat_messages",
             description=(
-                "Search chat messages (Microsoft Teams) across every channel and chat "
-                "the signed-in user can see — Microsoft Search enforces their access, "
+                "Search chat messages (Microsoft Teams or Slack) across every channel and chat "
+                "the signed-in user can see — the platform's own search enforces their access, "
                 "so private chats they are not in never appear. Use keywords or a "
                 "short phrase ('Q3 churn', 'pricing change'); try 2-3 phrasings when "
                 "the first finds nothing. Narrow with `conversation`, `from_user` and "
@@ -333,7 +343,7 @@ class ReadChatThreadTool(ReadFileTool):
         return ToolMetadata(
             name="read_chat_thread",
             description=(
-                "Read the whole conversation around a chat message (Microsoft Teams) "
+                "Read the whole conversation around a chat message (Microsoft Teams or Slack) "
                 "and attach it to the conversation. Pass the message id from "
                 "`search_chat_messages` / `list_chat_messages` as `file_id`, and the "
                 "chat connection as `connection_id`. A channel message returns its "
@@ -349,7 +359,7 @@ class ReadChatThreadTool(ReadFileTool):
             output_schema=ReadFileOutput.model_json_schema(),
             idempotent=True,
             timeout_seconds=60,
-            tags=["teams", "chat", "thread", "messages", "read"],
+            tags=["teams", "slack", "chat", "thread", "messages", "read"],
             requires_capability="read_chat_thread",
         )
 
@@ -371,9 +381,10 @@ class ReadChatThreadTool(ReadFileTool):
 
 
 def _conversation_from_thread_text(text: str) -> Optional[str]:
-    """"Sales › General" from the "Teams channel: Sales › General" header line."""
+    """"Sales › General" from the "Teams channel: Sales › General" header line
+    (or "#support" from "Slack channel: #support")."""
     first = (text or "").lstrip().split("\n", 1)[0].strip()
-    if first.startswith("Teams ") and ": " in first:
+    if first.startswith(("Teams ", "Slack ")) and ": " in first:
         return first.split(": ", 1)[1].strip() or None
     return None
 

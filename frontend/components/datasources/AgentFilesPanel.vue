@@ -32,10 +32,20 @@
         </div>
         <div class="flex items-center gap-2">
           <span :class="badgeClass(indexModeOf(conn))" class="text-2xs px-2 py-0.5 rounded-full font-medium">{{ badgeLabel(indexModeOf(conn)) }}</span>
+          <button v-if="conn.type === 'slack_messages' && canUpdate" data-testid="slack-channels-button"
+                  class="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                  @click="openChannels(conn)">{{ $t('slackChannels.button') }}</button>
           <button class="text-xs px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="editScope(conn)">Edit scope</button>
         </div>
       </div>
-      <p v-if="LIVE_TYPES.includes(conn.type)" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('agentsPage.liveSourceHint') }}</p>
+      <!-- One v-if/v-else pair: the Base / Scope grid is for path-scoped
+           sources only, never for live per-user ones (mail, Teams, Slack). -->
+      <template v-if="LIVE_TYPES.includes(conn.type)">
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ $t('agentsPage.liveSourceHint') }}</p>
+        <p v-if="conn.type === 'slack_messages'" class="mt-1 text-xs text-gray-600 dark:text-gray-300" data-testid="slack-scope-summary">
+          {{ slackScopeSummary(conn) }}
+        </p>
+      </template>
       <div v-else class="mt-3 grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-xs">
         <span class="text-ink-muted">Base</span>
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) }}</span>
@@ -47,9 +57,12 @@
         </div>
       </div>
       <div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
-        <ConnectionFileBrowser :ds-id="dsId!" :connection-id="conn.id" :connection-type="conn.type" />
+        <ConnectionFileBrowser :key="`${conn.id}:${browserKey}`" :ds-id="dsId!" :connection-id="conn.id" :connection-type="conn.type" />
       </div>
     </section>
+
+    <SlackChannelPicker v-if="channelsConn && dsId" v-model="channelsOpen" :ds-id="dsId" :connection-id="channelsConn.id"
+                        @saved="onChannelsSaved" />
 
     <div v-if="!folderId && fileConnections.length === 0 && files.length === 0" class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No files or file connections yet.</div>
   </div>
@@ -58,11 +71,13 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ConnectionFileBrowser from '~/components/datasources/ConnectionFileBrowser.vue'
+import SlackChannelPicker from '~/components/datasources/SlackChannelPicker.vue'
 const props = defineProps<{ dsId?: string; folderId?: string; canUpdate?: boolean }>()
 // `changed` tells the host tree to re-read the uploaded-file list: the two
 // views keep separate copies and neither can see the other's mutations.
 const emit = defineEmits(['edit-connection', 'changed', 'open'])
 const toast = useToast()
+const { t } = useI18n()
 
 const connections = ref<any[]>([])
 const registryByType = ref<Record<string, any>>({})
@@ -84,7 +99,7 @@ const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).ma
 // Live per-user sources (mailboxes, Teams) keep no catalog at all: every list,
 // search and read goes to the provider with the user's own token. They carry
 // no index_mode, which used to fall through to "Indexed: contents".
-const LIVE_TYPES = ['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages']
+const LIVE_TYPES = ['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages', 'slack_messages']
 const indexModeOf = (c: any) => LIVE_TYPES.includes(c.type) ? 'none'
   : (cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content'))
 const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: keywords', fulltext: 'Indexed: full text' } as any)[m] || m
@@ -107,6 +122,40 @@ async function loadAll() {
   for (const e of (reg.data.value as any[]) || []) registryByType.value[e.type] = e
   connections.value = (conns.data.value as any[]) || []
   files.value = (ups.data.value as any[]) || []
+  await loadSlackScopes()
+}
+
+// Per-agent Slack channel scope (see SlackChannelPicker).
+const slackScopes = ref<Record<string, any>>({})
+const channelsOpen = ref(false)
+const channelsConn = ref<any>(null)
+const browserKey = ref(0)
+async function loadSlackScopes() {
+  const slack = connections.value.filter(c => c.type === 'slack_messages')
+  await Promise.all(slack.map(async (c) => {
+    const { data } = await useMyFetch(`/data_sources/${props.dsId}/connections/${c.id}/channel-scope`, { method: 'GET' })
+    if (data.value) slackScopes.value[c.id] = data.value
+  }))
+}
+function slackScopeSummary(conn: any) {
+  const s = slackScopes.value[conn.id]
+  const channels = s?.allowed_channels || []
+  const dms = s?.include_direct_messages !== false
+  if (!channels.length) return dms ? t('slackChannels.summaryAll') : t('slackChannels.summaryAllNoDms')
+  // Private channels come back unnamed (the viewer may not be in them):
+  // they are counted, never named.
+  const named = channels.filter((c: any) => !c.is_private && c.name).map((c: any) => '#' + c.name)
+  const hidden = channels.length - named.length
+  // Isolate the LTR channel list so "#general" keeps its "#" in RTL locales.
+  const parts = named.length ? ['\u2066' + named.join(', ') + '\u2069'] : []
+  if (hidden) parts.push(t('slackChannels.privateCount', { n: hidden }, hidden))
+  const names = parts.join(', ')
+  return dms ? t('slackChannels.summarySomeWithDms', { names }) : t('slackChannels.summarySome', { names })
+}
+function openChannels(conn: any) { channelsConn.value = conn; channelsOpen.value = true }
+function onChannelsSaved(scope: any) {
+  if (channelsConn.value) slackScopes.value[channelsConn.value.id] = scope
+  browserKey.value++  // re-list messages under the new scope
 }
 function triggerUpload() { fileInput.value?.click() }
 async function onFileInput(e: Event) {

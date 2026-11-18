@@ -355,6 +355,12 @@ const emit = defineEmits<{
 // Mounted means open. A host that unmounts the editor closes it.
 const isOpen = computed({ get: () => props.modelValue !== false, set: (v) => emit('update:modelValue', v) })
 const isEditing = computed(() => !!props.caseId)
+// A case this editor already created while open in create mode. "Save and Run"
+// creates the case before it starts the run, so when the run then fails the
+// editor stays open on a case that exists — and the next Save used to POST it
+// again, filing a duplicate. Once set, every save is an update of this case.
+const savedCaseId = ref<string | null>(null)
+const persistedCaseId = computed(() => props.caseId || savedCaseId.value)
 const promptText = ref('')
 const isSaving = ref(false)
 const isRunning = ref(false)
@@ -932,6 +938,7 @@ function resetFormForCreate() {
   testUploadedFiles.value = []
   testMentions.value = []
   selectedSuiteIdLocal.value = props.suiteId || ''
+  savedCaseId.value = null
   // New cases default the expectation to a Judge rule (not create_data).
   categoryRules.value = []
   otherRules.value = []
@@ -941,8 +948,8 @@ function resetFormForCreate() {
 const save = async () => {
   isSaving.value = true
   try {
-    if (isEditing.value && props.caseId) {
-      const updated = await updateCase(props.caseId)
+    if (persistedCaseId.value) {
+      const updated = await updateCase(persistedCaseId.value)
       const res = updated?.raw
       if (!updated?.case) throw new Error('Failed to update case')
       // Editing existing case: emit only updated for in-place list updates
@@ -963,17 +970,17 @@ const save = async () => {
     // stayed open, the button un-spun, and nothing said why. The common case is
     // a real and actionable 403 — "Org-level 'manage_evals' required" when the
     // Agents picker is left on Auto, which authors an org-wide case.
-    const detail =
-      e?.data?.detail || e?.response?._data?.detail || e?.statusMessage || e?.message
-    toast.add({
-      title: t('evals.tests.saveFailed'),
-      description: typeof detail === 'string' ? detail : undefined,
-      color: 'red',
-    })
+    toast.add({ title: t('evals.tests.saveFailed'), description: errorDetail(e), color: 'red' })
     console.error('Failed to save test case', e)
   } finally {
     isSaving.value = false
   }
+}
+
+// The server's reason for a rejected request, when it gave one as text.
+function errorDetail(e: any): string | undefined {
+  const detail = e?.data?.detail || e?.response?._data?.detail || e?.statusMessage || e?.message
+  return typeof detail === 'string' ? detail : undefined
 }
 
 // Helper used by both save() and runNow()
@@ -1042,19 +1049,28 @@ const runNow = async () => {
   isRunning.value = true
   try {
     let caseId: string | null = null
-    if (isEditing.value && props.caseId) {
-      // Update then run
-      const updated = await updateCase(props.caseId)
-      if (!updated?.case?.id) throw new Error('Failed to update case')
-      // Editing existing case: emit only updated for in-place list updates
-      // @ts-ignore - extended event (extended event type)
-      emit('updated', updated.case)
-      caseId = updated.case.id
-    } else {
-      const created = await createCase()
-      if (!created?.case?.id) throw new Error('Failed to create case')
-      emit('created', created.case)
-      caseId = created.case.id
+    try {
+      if (persistedCaseId.value) {
+        // Update then run
+        const updated = await updateCase(persistedCaseId.value)
+        if ((updated?.raw as any)?.error?.value) throw (updated?.raw as any).error.value
+        if (!updated?.case?.id) throw new Error('Failed to update case')
+        // Editing existing case: emit only updated for in-place list updates
+        // @ts-ignore - extended event (extended event type)
+        emit('updated', updated.case)
+        caseId = updated.case.id
+      } else {
+        const created = await createCase()
+        if ((created?.raw as any)?.error?.value) throw (created?.raw as any).error.value
+        if (!created?.case?.id) throw new Error('Failed to create case')
+        savedCaseId.value = String(created.case.id)
+        emit('created', created.case)
+        caseId = created.case.id
+      }
+    } catch (e: any) {
+      toast.add({ title: t('evals.tests.saveFailed'), description: errorDetail(e), color: 'red' })
+      console.error('Failed to save test case', e)
+      return
     }
     // Create the run for this single case with selected build
     const buildId = selectedBuildId.value === 'latest' ? null : selectedBuildId.value
@@ -1070,6 +1086,10 @@ const runNow = async () => {
       router.push(`/evals/runs/${run.id}`)
     }
   } catch (e) {
+    // The case is saved at this point; only the run failed. Say so — this
+    // used to log to the console only, leaving an open editor that looked
+    // like nothing had happened.
+    toast.add({ title: t('evals.tests.runFailed'), description: errorDetail(e), color: 'red' })
     console.error('Failed to run test now', e)
   } finally {
     isRunning.value = false

@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Mostrar Mundo em Agentes"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Pesquisar arquivos…",
@@ -2544,6 +2543,35 @@
       "googleTitle": "Sincronização de perfil do Google"
     },
     "auditLogs": "Logs de auditoria",
+    "systemLogsTab": "Logs do sistema",
+    "systemLogs": {
+      "title": "Logs do sistema",
+      "subtitle": "A saída de log do próprio servidor, para resolver problemas. Só os administradores a veem.",
+      "retention": "Os logs são mantidos por {days} dias, até {max} no total; acima disso, os mais antigos são excluídos primeiro. Em uso: {used}.",
+      "droppedNotice": "Não foi possível salvar {count} linhas desta instância porque não foi possível gravar no diretório de logs.",
+      "writeError": "Esta instância não consegue gravar no diretório de logs ({directory}). Verifique se ele existe e se permite gravação.",
+      "searchPlaceholder": "Pesquisar mensagens…",
+      "from": "De",
+      "to": "Até",
+      "allInstances": "Todas as instâncias",
+      "thisInstance": "{id} (esta instância)",
+      "errorsOnly": "Só erros",
+      "autoRefresh": "Atualizar automaticamente",
+      "clearFilters": "Limpar filtros",
+      "refresh": "Atualizar",
+      "rangeInvalid": "“De” deve ser anterior a “Até”.",
+      "empty": "Ainda não há linhas correspondentes.",
+      "count": "Linhas exibidas: {count}",
+      "countTruncated": "Exibindo as {count} linhas mais recentes. Refine os filtros para ver as anteriores.",
+      "deleteAll": "Excluir todos os logs",
+      "deleteTitle": "Excluir todos os logs do sistema?",
+      "deleteMessage": "Todas as linhas de log armazenadas de todas as instâncias serão excluídas permanentemente. Novas linhas continuarão sendo registradas.",
+      "deleteConfirm": "Excluir tudo",
+      "cancel": "Cancelar",
+      "deletedToast": "Todos os logs do sistema foram excluídos",
+      "deleteFailed": "Não foi possível excluir os logs",
+      "loadFailed": "Não foi possível carregar os logs do sistema"
+    },
     "integrations": {
       "title": "Canais",
       "subtitle": "Configure plataformas externas como Slack e Microsoft Teams para sua organização.",
@@ -3545,6 +3573,10 @@
         "allow_access_requests": {
           "name": "Permitir solicitações de acesso",
           "description": "Permite que os membros peçam acesso de leitura aos editores de um painel na página sem acesso. Quando desativado, a página apenas indica o proprietário e não é possível enviar novas solicitações; as já enviadas continuam respondíveis."
+        },
+        "show_world": {
+          "name": "Vista Mundo",
+          "description": "Mostra na página Agentes um botão que abre o Mundo: um mapa dos agentes, do conhecimento, das fontes e do trabalho que ligam a sua organização. Cada utilizador vê apenas aquilo a que tem acesso."
         }
       },
       "permissionMode": {
@@ -4307,6 +4339,11 @@
     "setupGuideTitle": "Passos de configuração",
     "setupGuideCopy": "Copiar",
     "setupGuideCopied": "Copiado",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Nenhuma chave é armazenada. As consultas são executadas com a identidade Google configurada no servidor: uma conta de serviço anexada ou uma configuração de Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4584,6 +4621,9 @@
     "connection.table_preview_failed": "Falha na pré-visualização: {reason}",
     "data_source.not_found": "Fonte de dados não encontrada",
     "file.not_found": "Arquivo não encontrado",
+    "system_logs.instance_admin_required": "Em uma instância com várias organizações, só um administrador da instância pode usar os logs do sistema.",
+    "system_logs.invalid_range": "O horário de início deve ser anterior ao de término.",
+    "system_logs.delete_failed": "Não foi possível excluir os arquivos de log em {directory}. Verifique se o diretório existe e permite gravação.",
     "verification.invalid": "Token de verificação inválido ou expirado",
     "body.invalid_json": "Corpo JSON inválido",
     "organization.not_found": "Organização não encontrada",
@@ -4686,7 +4726,11 @@
     "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites.",
     "connection.query_not_found": "Consulta não encontrada nesta conexão.",
     "connection.query_finished": "Esta consulta já terminou ({status}).",
-    "connection.query_not_killable": "Esta consulta não pode ser parada pelo BOW: o cliente dela impõe o próprio limite de tempo."
+    "connection.query_not_killable": "Esta consulta não pode ser parada pelo BOW: o cliente dela impõe o próprio limite de tempo.",
+    "connection.slack_channels_not_slack": "A seleção de canais só está disponível para conexões do Slack.",
+    "connection.slack_channels_too_many": "No máximo {max} canais por agente.",
+    "connection.slack_channels_not_ids": "Estes não são IDs de canais do Slack: {ids}",
+    "connection.slack_channels_unavailable": "O Slack não respondeu: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5349,6 +5393,7 @@
       "toastCreated": "Caso de teste criado",
       "toastDeleteFailed": "Falha ao excluir caso de teste",
       "saveFailed": "Não foi possível guardar o caso de teste",
+      "runFailed": "Caso de teste guardado, mas não foi possível iniciar a execução",
       "emptyDescription": "Os testes avaliam como seus agentes respondem a prompts e regras."
     },
     "filter": {
@@ -7521,5 +7566,30 @@
       "stale": "O processo que executava esta consulta parou de responder; sua vaga foi liberada.",
       "busy": "Nenhuma vaga abriu a tempo: a conexão estava no limite de consultas simultâneas."
     }
+  },
+  "slackChannels": {
+    "button": "Canais",
+    "title": "Canais do Slack deste agente",
+    "subtitle": "Escolha quais canais do Slack este agente lê.",
+    "allChannels": "Todos os meus canais",
+    "allChannelsHint": "Todos os canais dos quais cada pessoa é membro.",
+    "selectedChannels": "Somente os canais selecionados",
+    "connectRequired": "Entre com o Slack nesta conexão para escolher canais.",
+    "searchPlaceholder": "Pesquisar canais",
+    "notYourChannel": "não está no seu Slack",
+    "noMatch": "Nenhum canal corresponde.",
+    "selectedCount": "{n} selecionados",
+    "includeDms": "Incluir mensagens diretas",
+    "includeDmsHint": "Ler também as mensagens diretas e de grupo de cada pessoa.",
+    "membershipNote": "Cada pessoa continua vendo apenas os canais dos quais é membro.",
+    "saveFailed": "Não foi possível salvar os canais",
+    "saved": "Canais salvos",
+    "summaryAll": "Lê todos os canais e mensagens diretas",
+    "summaryAllNoDms": "Lê todos os canais, sem mensagens diretas",
+    "summarySome": "Lê {names}",
+    "summarySomeWithDms": "Lê {names} e mensagens diretas",
+    "loadFailed": "Não foi possível carregar os canais deste agente. Feche e tente novamente.",
+    "privateChannel": "Canal privado",
+    "privateCount": "{n} canal privado | {n} canais privados"
   }
 }

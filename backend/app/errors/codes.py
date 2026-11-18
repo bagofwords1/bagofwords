@@ -118,6 +118,10 @@ class ErrorCode(str, Enum):
     ACCESS_REQUEST_ALREADY_DECIDED = "access_request.already_decided"
     FILE_NOT_FOUND = "file.not_found"
     FILE_IN_USE = "file.in_use"
+    # System logs (Settings → System logs) are instance-wide
+    SYSTEM_LOGS_INSTANCE_ADMIN_REQUIRED = "system_logs.instance_admin_required"
+    SYSTEM_LOGS_INVALID_RANGE = "system_logs.invalid_range"
+    SYSTEM_LOGS_DELETE_FAILED = "system_logs.delete_failed"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
@@ -210,3 +214,7 @@ class ErrorCode(str, Enum):
     # Connections
     CONNECTION_CONFIG_INVALID = "connection.config_invalid"
     CONNECTION_ATHENA_MODE_SWITCH = "connection.athena_mode_switch"
+    SLACK_CHANNELS_NOT_SLACK = "connection.slack_channels_not_slack"
+    SLACK_CHANNELS_TOO_MANY = "connection.slack_channels_too_many"
+    SLACK_CHANNELS_NOT_IDS = "connection.slack_channels_not_ids"
+    SLACK_CHANNELS_UNAVAILABLE = "connection.slack_channels_unavailable"

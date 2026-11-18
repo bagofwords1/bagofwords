@@ -597,6 +597,50 @@ class BigQueryCredentials(BaseModel):
     )
 
 
+class BigQueryDefaultCredentials(BaseModel):
+    """Keyless auth: the connection runs as the deployment's own Google
+    identity (Application Default Credentials) and stores no secret. What that
+    identity is — an attached service account, GKE Workload Identity, or a
+    Workload Identity Federation config named by GOOGLE_APPLICATION_CREDENTIALS
+    — is set up by the operator on the server, never through this form.
+    """
+    # The marker the client switches on. It travels with the credentials so
+    # every code path that builds a client sees it; the form never shows it.
+    use_application_default_credentials: bool = Field(
+        True,
+        title="Use Application Default Credentials",
+        description="Authenticate as the identity configured on the server instead of a service account key.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
+    )
+    target_service_account: Optional[str] = Field(
+        None,
+        max_length=254,
+        title="Service account to impersonate (optional)",
+        description="Email of a service account to run queries as, e.g. reader@my-project.iam.gserviceaccount.com. The server's identity needs the Service Account Token Creator role on it. Leave blank to query as the server's identity itself.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Google OAuth 2.0 Client ID for user sign-in (from Google Cloud Console > Credentials > OAuth 2.0 Client IDs)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Google OAuth 2.0 Client Secret for user sign-in",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+    @model_validator(mode="after")
+    def validate_default_credentials(cls, model: "BigQueryDefaultCredentials") -> "BigQueryDefaultCredentials":
+        if not model.use_application_default_credentials:
+            raise ValueError("Application Default Credentials must remain enabled for this authentication method.")
+        from app.data_sources.google_default_credentials import normalize_target_service_account
+        model.target_service_account = normalize_target_service_account(model.target_service_account)
+        return model
+
+
 class BigQueryConfig(BaseModel):
     project_id: str = Field(..., title="Project ID", description="", json_schema_extra={"ui:type": "string"})
     dataset: str = Field(..., title="Dataset", description="", json_schema_extra={"ui:type": "string"})
@@ -3658,6 +3702,33 @@ class TeamsMessagesConfig(BaseModel):
     pass
 
 
+# Slack
+class SlackCredentials(BaseModel):
+    """The organization's own internal Slack app. Each user then signs in with
+    Slack and BOW reads with that user's token, so they see only their own
+    channels and DMs."""
+    oauth_client_id: str = Field(
+        ...,
+        title="Slack App Client ID",
+        description="From your Slack app's Basic Information page (api.slack.com/apps).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="Slack App Client Secret",
+        description="From your Slack app's Basic Information page.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class SlackMessagesConfig(BaseModel):
+    """Slack needs no admin-side configuration: each user's own sign-in decides
+    which channels and DMs are visible, and messages are always read live.
+    Which channels an AGENT reads is set per agent (the agent's Slack
+    "Channels" picker, stored in data_source_connection_settings)."""
+    pass
+
+
 # Google Drive
 class GoogleDriveCredentials(BaseModel):
     oauth_client_id: str = Field(
@@ -5174,6 +5245,7 @@ __all__ = [
     "AWSCostCredentials",
     "AWSAthenaCredentials",
     "AWSAthenaDefaultCredentials",
+    "BigQueryDefaultCredentials",
     "VerticaCredentials",
     "AwsRedshiftCredentials",
     "TableauCredentials",

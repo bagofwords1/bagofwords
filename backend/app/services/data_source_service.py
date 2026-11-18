@@ -2076,9 +2076,16 @@ class DataSourceService:
             from app.schemas.data_source_registry import credentials_schema_for, get_entry, supports_user_auth
             entry = get_entry(data_source_type)
             # Filter auth variants by policy if provided (system_only vs user_required)
+            from app.schemas.data_source_registry import auth_variant_enabled
+
             def allowed(mode: str) -> bool:
+                variant = entry.credentials_auth.by_auth.get(mode)
+                # A method that borrows the deployment's own identity is only
+                # offered once the operator has enabled it.
+                if variant is not None and not auth_variant_enabled(variant):
+                    return False
                 try:
-                    scopes = (entry.credentials_auth.by_auth.get(mode) or {}).scopes or []
+                    scopes = (variant or {}).scopes or []
                 except Exception:
                     scopes = []
                 if not auth_policy or auth_policy == "system_only":
@@ -2127,6 +2134,7 @@ class DataSourceService:
                     "by_auth": {
                         k: {
                             "title": v.title,
+                            "description": v.description,
                             "scopes": list(v.scopes or []),
                             "catalog_ownership": v.catalog_ownership or entry.catalog_ownership,
                         }
@@ -2646,6 +2654,7 @@ class DataSourceService:
             from app.services.connection_service import (
                 _check_network_dir_root,
                 _check_tool_provider_url,
+                _prepare_auth_credentials,
                 _reject_unsafe_google_keys,
                 _validate_connection_config,
             )
@@ -2654,6 +2663,7 @@ class DataSourceService:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
                 _reject_unsafe_google_keys(credentials)
+                credentials = _prepare_auth_credentials(data_source_type, config, credentials) or {}
             except HTTPException as e:
                 return {"success": False, "message": e.detail}
 
@@ -3052,6 +3062,7 @@ class DataSourceService:
         self, db: AsyncSession, data_source: DataSource, current_user: User | None,
         *, connection_errors: Optional[list] = None,
         row_filter_user: Any = SAME_AS_CURRENT_USER,
+        run_agents: Optional[tuple] = None,
     ) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
@@ -3068,6 +3079,12 @@ class DataSourceService:
         else's credentials for a viewer's result ("run on my behalf") passes
         the viewer, so the rows stay the viewer's. None means anonymous,
         exactly as for `current_user`.
+
+        `run_agents` is ``(run_agent_ids, pinned_agent_ids)`` when the
+        clients are for a report run: a connection narrowed per agent (Slack
+        channels) then gets the run's scope (``slack_channel_scope.run_scope``),
+        the same one the chat tools and the planner note use. Without it, the
+        agent's own scope.
 
         By default the first connection that fails aborts the whole data
         source. Passing a `connection_errors` list opts into building each
@@ -3145,6 +3162,7 @@ class DataSourceService:
 
                 params = merge_client_credentials(config, creds)
                 params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+                params.update(await self._agent_connection_overrides(db, data_source, conn, run_agents))
 
                 allowed = filter_client_parameters(ClientClass, params)
 
@@ -3374,6 +3392,24 @@ class DataSourceService:
         except Exception:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
+
+    async def _agent_connection_overrides(self, db, data_source, conn, run_agents=None) -> Dict[str, Any]:
+        """The agent's narrowing of a shared connection, as client params —
+        today the Slack channel scope. Every client built here (run start,
+        code execution, inspect) carries it, so generated code handed
+        ``ds_clients`` can't read past it. In a run, the run's scope (see
+        ``construct_clients``); otherwise the agent's own. Empty for every
+        other type."""
+        if getattr(conn, "type", None) != "slack_messages":
+            return {}
+        from app.services.slack_channel_scope import client_overrides, run_scope, scope_for_agents
+        if run_agents is not None:
+            run_ids, pinned = run_agents
+            ids = [str(i) for i in (run_ids or [])]
+            if str(data_source.id) not in ids:
+                ids.append(str(data_source.id))
+            return client_overrides(await run_scope(db, str(conn.id), ids, pinned or ()))
+        return client_overrides(await scope_for_agents(db, str(conn.id), [str(data_source.id)]))
 
     async def _attach_table_scope(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Attach the agent's table selection to a SQL client so it holds at
@@ -4368,7 +4404,7 @@ class DataSourceService:
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
             "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages",
+            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
         ]
@@ -7135,6 +7171,16 @@ class DataSourceService:
                 DataSourceConnectionTool.connection_tool_id.in_(
                     select(ConnectionTool.id).where(ConnectionTool.connection_id == connection_id)
                 ),
+            )
+        )
+
+        # This agent's settings for the connection (e.g. its Slack channels):
+        # same reason — they must not come back silently on a relink.
+        from app.models.data_source_connection_setting import DataSourceConnectionSetting
+        await db.execute(
+            delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.data_source_id == data_source_id,
+                DataSourceConnectionSetting.connection_id == connection_id,
             )
         )
 

@@ -11,7 +11,7 @@
 All nullable, no backfill.
 
 Revision ID: permmode01
-Revises: toolconfte01
+Revises: worldai01
 Create Date: 2026-11-17
 """
 import sqlalchemy as sa
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "permmode01"
-down_revision = "toolconfte01"
+down_revision = "worldai01"
 branch_labels = None
 depends_on = None
 

@@ -258,13 +258,23 @@ def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
     set_committed_value(report, "focused_data_source_ids", focus or None)
 
 
-async def construct_agent_clients(svc, db, ds: Any, user: Any, *, where: str) -> Dict[str, Any]:
+def run_agents_context(agents: Any, report: Any) -> tuple:
+    """``(run_agent_ids, pinned_agent_ids)`` for construct_clients: the run's
+    agents and the ones the report pins — what the chat tools and the planner
+    note scope a shared Slack connection by."""
+    return ([str(a.id) for a in (agents or [])],
+            [str(d.id) for d in (getattr(report, "data_sources", None) or [])])
+
+
+async def construct_agent_clients(svc, db, ds: Any, user: Any, *, where: str,
+                                  run_agents: Optional[tuple] = None) -> Dict[str, Any]:
     """Build one agent's clients per connection, for run start and for agents
     attached mid-run alike. A connection that cannot be set up gets a stand-in
     client (see construct_clients) and is logged; when every connection fails,
     construct_clients raises."""
     connection_errors: list = []
-    clients = await svc.construct_clients(db, ds, user, connection_errors=connection_errors) or {}
+    extra = {"run_agents": run_agents} if run_agents is not None else {}
+    clients = await svc.construct_clients(db, ds, user, connection_errors=connection_errors, **extra) or {}
     for ce in connection_errors:
         logger.warning(
             "%s: connection %s on %s unavailable for this run — %s",
@@ -376,7 +386,8 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
         # other connections — and every MCP tool on the agent — out of the run.
         # When every connection fails, construct_clients still raises.
         try:
-            agent_clients = await construct_agent_clients(svc, db, ds, user, where="run agents")
+            agent_clients = await construct_agent_clients(
+                svc, db, ds, user, where="run agents", run_agents=run_agents_context(agents, report))
             if eval_targets and ds.connections and not agent_clients:
                 raise HTTPException(409, "An eval target is unavailable")
             clients.update(agent_clients)

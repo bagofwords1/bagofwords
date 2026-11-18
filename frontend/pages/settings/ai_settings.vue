@@ -279,7 +279,7 @@ const FEATURE_PARENT: Record<string, string> = {
 // A backend setting not listed here lands in "other" so it never disappears.
 const SECTIONS: { id: string, keys: string[] }[] = [
     { id: 'data', keys: ['allow_llm_see_data', 'enable_web_fetch'] },
-    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input'] },
+    { id: 'capabilities', keys: ['enable_training_mode', 'enable_agent_notes', 'enable_custom_queries', 'enable_artifact_resources', 'enable_follow_ups', 'enable_voice_input', 'show_world'] },
     // What generated code (create_data) may do beyond querying. All off by default.
     { id: 'sandbox', keys: ['enable_sandbox_web_fetch', 'enable_sandbox_browser', 'enable_sandbox_lists', 'enable_load_step', 'enable_ml_training'] },
     { id: 'learning', keys: ['enable_user_memory', 'suggest_instructions', 'enable_llm_judgement', 'auto_suggest_evals', 'enable_agent_dreaming', 'enable_agent_checkins'] },
@@ -366,6 +366,11 @@ const toggleSection = (id: string) => {
 
 const toast = useToast()
 
+// The app-wide settings cache (useOrgSettings) is fetched once per session and
+// drives what other pages show (e.g. the World switch on Agents). Write each
+// saved feature into it so the change shows up without a reload.
+const { settings: orgSettings } = useOrgSettings()
+
 // Fetch organization settings
 const fetchSettings = async () => {
     loading.value = true
@@ -435,6 +440,7 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
         const updatedConfig = (response.data?.value as SettingsResponse)?.config
         if (updatedConfig?.[featureKey]) {
             configFeatures.value[featureKey] = updatedConfig[featureKey] as Feature
+            if (orgSettings.value?.config) orgSettings.value.config[featureKey] = updatedConfig[featureKey]
         } else {
             // Fallback: manually update state based on new value
             configFeatures.value[featureKey].state = configFeatures.value[featureKey].value ? 'enabled' : 'disabled'

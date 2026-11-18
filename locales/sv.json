@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Visa Värld i Agenter"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Sök filer…",
@@ -2544,6 +2543,35 @@
       "googleTitle": "Profilsynk med Google"
     },
     "auditLogs": "Granskningsloggar",
+    "systemLogsTab": "Systemloggar",
+    "systemLogs": {
+      "title": "Systemloggar",
+      "subtitle": "Serverns egen loggutdata, för felsökning. Endast administratörer kan se den.",
+      "retention": "Loggarna sparas i {days} dagar, upp till {max} totalt; därutöver raderas de äldsta först. {used} används.",
+      "droppedNotice": "{count} rader på den här instansen kunde inte sparas eftersom det inte gick att skriva till loggkatalogen.",
+      "writeError": "Den här instansen kan inte skriva till loggkatalogen ({directory}). Kontrollera att den finns och är skrivbar.",
+      "searchPlaceholder": "Sök i meddelanden…",
+      "from": "Från",
+      "to": "Till",
+      "allInstances": "Alla instanser",
+      "thisInstance": "{id} (den här instansen)",
+      "errorsOnly": "Endast fel",
+      "autoRefresh": "Uppdatera automatiskt",
+      "clearFilters": "Rensa filter",
+      "refresh": "Uppdatera",
+      "rangeInvalid": "”Från” måste vara före ”Till”.",
+      "empty": "Inga loggrader matchar ännu.",
+      "count": "Visade rader: {count}",
+      "countTruncated": "De senaste {count} raderna visas. Smalna av filtren för att se äldre.",
+      "deleteAll": "Radera alla loggar",
+      "deleteTitle": "Radera alla systemloggar?",
+      "deleteMessage": "Alla sparade loggrader från alla instanser raderas permanent. Nya rader fortsätter att sparas.",
+      "deleteConfirm": "Radera alla",
+      "cancel": "Avbryt",
+      "deletedToast": "Alla systemloggar raderades",
+      "deleteFailed": "Det gick inte att radera loggarna",
+      "loadFailed": "Det gick inte att läsa in systemloggarna"
+    },
     "integrations": {
       "title": "Kanaler",
       "subtitle": "Konfigurera externa plattformar som Slack och Microsoft Teams för din organisation.",
@@ -3545,6 +3573,10 @@
         "allow_access_requests": {
           "name": "Tillåt åtkomstbegäranden",
           "description": "Låt medlemmar be en instrumentpanels redigerare om visningsåtkomst från sidan utan åtkomst. När det är av visar sidan bara ägaren och inga nya begäranden kan skickas; redan skickade begäranden går fortfarande att besvara."
+        },
+        "show_world": {
+          "name": "Världsvy",
+          "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
         }
       },
       "permissionMode": {
@@ -4307,6 +4339,11 @@
     "setupGuideTitle": "Installationssteg",
     "setupGuideCopy": "Kopiera",
     "setupGuideCopied": "Kopierat",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Ingen nyckel lagras. Frågor körs med den Google-identitet som är konfigurerad på servern: ett kopplat tjänstkonto eller en konfiguration för Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4584,6 +4621,9 @@
     "connection.table_preview_failed": "Förhandsgranskningen misslyckades: {reason}",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",
+    "system_logs.instance_admin_required": "På en instans med flera organisationer kan endast en instansadministratör använda systemloggar.",
+    "system_logs.invalid_range": "Starttiden måste vara före sluttiden.",
+    "system_logs.delete_failed": "Det gick inte att radera loggfilerna i {directory}. Kontrollera att katalogen finns och är skrivbar.",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
     "body.invalid_json": "Ogiltig JSON-kropp",
     "organization.not_found": "Organisationen hittades inte",
@@ -4686,7 +4726,11 @@
     "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser.",
     "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
     "connection.query_finished": "Frågan är redan avslutad ({status}).",
-    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns."
+    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns.",
+    "connection.slack_channels_not_slack": "Kanalval är bara tillgängligt för Slack-anslutningar.",
+    "connection.slack_channels_too_many": "Högst {max} kanaler per agent.",
+    "connection.slack_channels_not_ids": "Det här är inte Slack-kanal-id:n: {ids}",
+    "connection.slack_channels_unavailable": "Slack svarade inte: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5349,6 +5393,7 @@
       "toastCreated": "Testfallet skapades",
       "toastDeleteFailed": "Det gick inte att radera testfallet",
       "saveFailed": "Det gick inte att spara testfallet",
+      "runFailed": "Testfallet sparades, men körningen kunde inte starta",
       "emptyDescription": "Testerna utvärderar hur dina agenter svarar på prompter och regler."
     },
     "filter": {
@@ -7521,5 +7566,30 @@
       "stale": "Processen som körde frågan slutade svara; dess plats frigjordes.",
       "busy": "Ingen plats blev ledig i tid: anslutningen låg på sin gräns för samtidiga frågor."
     }
+  },
+  "slackChannels": {
+    "button": "Kanaler",
+    "title": "Slack-kanaler för den här agenten",
+    "subtitle": "Välj vilka Slack-kanaler den här agenten läser.",
+    "allChannels": "Alla mina kanaler",
+    "allChannelsHint": "Varje kanal som varje person är med i.",
+    "selectedChannels": "Endast valda kanaler",
+    "connectRequired": "Logga in med Slack på den här anslutningen för att välja kanaler.",
+    "searchPlaceholder": "Sök kanaler",
+    "notYourChannel": "inte i ditt Slack",
+    "noMatch": "Inga kanaler matchar.",
+    "selectedCount": "{n} valda",
+    "includeDms": "Inkludera direktmeddelanden",
+    "includeDmsHint": "Läs även varje persons direkt- och gruppmeddelanden.",
+    "membershipNote": "Varje person ser fortfarande bara de kanaler de är med i.",
+    "saveFailed": "Det gick inte att spara kanalerna",
+    "saved": "Kanalerna sparades",
+    "summaryAll": "Läser alla kanaler och direktmeddelanden",
+    "summaryAllNoDms": "Läser alla kanaler, inga direktmeddelanden",
+    "summarySome": "Läser {names}",
+    "summarySomeWithDms": "Läser {names} och direktmeddelanden",
+    "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen.",
+    "privateChannel": "Privat kanal",
+    "privateCount": "{n} privat kanal | {n} privata kanaler"
   }
 }

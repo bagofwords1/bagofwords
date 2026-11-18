@@ -97,8 +97,7 @@
       "handle": "מזהה"
     },
     "loadAll": "טעינת הכול",
-    "stopLoading": "עצירת הטעינה",
-    "setting": "הצגת מפת העולם בסוכנים"
+    "stopLoading": "עצירת הטעינה"
   },
   "folderRemoval": {
     "danger": "אזור סכנה",
@@ -2863,6 +2862,35 @@
       "notLicensed": "Enterprise"
     },
     "auditLogs": "יומני ביקורת",
+    "systemLogsTab": "יומני מערכת",
+    "systemLogs": {
+      "title": "יומני מערכת",
+      "subtitle": "פלט היומן של השרת עצמו, לאבחון תקלות. רק מנהלים יכולים לראות אותו.",
+      "retention": "היומנים נשמרים {days} ימים, עד {max} בסך הכול; מעבר לכך הישנים ביותר נמחקים ראשונים. בשימוש: {used}.",
+      "droppedNotice": "לא ניתן היה לשמור {count} שורות במופע הזה כי לא ניתן היה לכתוב לתיקיית היומנים.",
+      "writeError": "המופע הזה לא יכול לכתוב לתיקיית היומנים ({directory}). בדקו שהתיקייה קיימת ושיש הרשאת כתיבה אליה.",
+      "searchPlaceholder": "חיפוש בהודעות…",
+      "from": "מ־",
+      "to": "עד",
+      "allInstances": "כל המופעים",
+      "thisInstance": "{id} (המופע הזה)",
+      "errorsOnly": "שגיאות בלבד",
+      "autoRefresh": "רענון אוטומטי",
+      "clearFilters": "ניקוי מסננים",
+      "refresh": "רענון",
+      "rangeInvalid": "זמן ההתחלה חייב להיות לפני זמן הסיום.",
+      "empty": "עדיין אין שורות תואמות.",
+      "count": "שורות מוצגות: {count}",
+      "countTruncated": "מוצגות {count} השורות האחרונות. צמצמו את המסננים כדי לראות שורות ישנות יותר.",
+      "deleteAll": "מחיקת כל היומנים",
+      "deleteTitle": "למחוק את כל יומני המערכת?",
+      "deleteMessage": "כל שורות היומן השמורות מכל המופעים יימחקו לצמיתות. שורות חדשות ימשיכו להישמר.",
+      "deleteConfirm": "מחיקת הכול",
+      "cancel": "ביטול",
+      "deletedToast": "כל יומני המערכת נמחקו",
+      "deleteFailed": "לא ניתן היה למחוק את היומנים",
+      "loadFailed": "לא ניתן היה לטעון את יומני המערכת"
+    },
     "integrations": {
       "title": "ערוצים",
       "subtitle": "הגדר פלטפורמות חיצוניות כמו Slack ו-Microsoft Teams עבור הארגון שלך.",
@@ -3952,6 +3980,10 @@
         "allow_access_requests": {
           "name": "אפשר בקשות גישה",
           "description": "אפשר לחברים לבקש גישת צפייה מעורכי הגלריה מתוך דף אין‑גישה. כאשר כבוי, הדף רק מציין את בעל הגלריה לפנייה ולא ניתן לשלוח בקשות חדשות; בקשות שכבר נשלחו נשארות ניתנות למענה."
+        },
+        "show_world": {
+          "name": "תצוגת מפת העולם",
+          "description": "מציג בעמוד הסוכנים מתג שפותח את מפת העולם: מפה של הסוכנים, הידע, המקורות והעבודה שמחברים את הארגון. כל משתמש רואה רק את מה שיש לו גישה אליו."
         }
       },
       "permissionMode": {
@@ -4866,6 +4898,11 @@
     "setupGuideTitle": "שלבי הגדרה",
     "setupGuideCopy": "העתק",
     "setupGuideCopied": "הועתק",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "לא נשמר מפתח. השאילתות רצות בזהות Google שהוגדרה בשרת: חשבון שירות מצורף או תצורת Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -5166,6 +5203,9 @@
     "connection.table_preview_failed": "התצוגה המקדימה נכשלה: {reason}",
     "data_source.not_found": "מקור הנתונים לא נמצא",
     "file.not_found": "הקובץ לא נמצא",
+    "system_logs.instance_admin_required": "במופע עם כמה ארגונים, רק מנהל המופע יכול להשתמש ביומני המערכת.",
+    "system_logs.invalid_range": "זמן ההתחלה חייב להיות לפני זמן הסיום.",
+    "system_logs.delete_failed": "לא ניתן היה למחוק את קובצי היומן בתיקייה {directory}. בדקו שהתיקייה קיימת ושיש הרשאת כתיבה אליה.",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",
     "body.invalid_json": "גוף JSON לא תקין",
     "organization.not_found": "הארגון לא נמצא",
@@ -5286,7 +5326,11 @@
     "frame_ancestors.too_many": "אפשר להוסיף עד {max} אתרים.",
     "connection.query_not_found": "השאילתה לא נמצאה בחיבור הזה.",
     "connection.query_finished": "השאילתה כבר הסתיימה ({status}).",
-    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו."
+    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו.",
+    "connection.slack_channels_not_slack": "בחירת ערוצים זמינה רק בחיבורי Slack.",
+    "connection.slack_channels_too_many": "לכל היותר {max} ערוצים לסוכן.",
+    "connection.slack_channels_not_ids": "אלה אינם מזהי ערוצים של Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -6034,7 +6078,8 @@
       "toastCreated": "מקרה הבדיקה נוצר",
       "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
       "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים.",
-      "saveFailed": "לא ניתן היה לשמור את מקרה הבדיקה"
+      "saveFailed": "לא ניתן היה לשמור את מקרה הבדיקה",
+      "runFailed": "מקרה הבדיקה נשמר, אך לא ניתן היה להתחיל את ההרצה"
     },
     "filter": {
       "allSuites": "כל ה-Suites",
@@ -8373,5 +8418,30 @@
       "stale": "התהליך שהריץ את השאילתה הפסיק להגיב; התור שלה שוחרר.",
       "busy": "לא התפנה תור בזמן: החיבור היה במגבלת השאילתות המקבילות שלו."
     }
+  },
+  "slackChannels": {
+    "button": "ערוצים",
+    "title": "ערוצי Slack לסוכן הזה",
+    "subtitle": "בחרו אילו ערוצי Slack הסוכן הזה קורא.",
+    "allChannels": "כל הערוצים שלי",
+    "allChannelsHint": "כל ערוץ שכל אדם חבר בו.",
+    "selectedChannels": "רק ערוצים נבחרים",
+    "connectRequired": "התחברו ל-Slack בחיבור הזה כדי לבחור ערוצים.",
+    "searchPlaceholder": "חיפוש ערוצים",
+    "notYourChannel": "לא ב-Slack שלך",
+    "noMatch": "אין ערוצים מתאימים.",
+    "selectedCount": "{n} נבחרו",
+    "includeDms": "כולל הודעות פרטיות",
+    "includeDmsHint": "קורא גם את ההודעות הפרטיות והקבוצתיות של כל אדם.",
+    "membershipNote": "כל אדם עדיין רואה רק את הערוצים שהוא חבר בהם.",
+    "saveFailed": "שמירת הערוצים נכשלה",
+    "saved": "הערוצים נשמרו",
+    "summaryAll": "קורא את כל הערוצים וההודעות הפרטיות",
+    "summaryAllNoDms": "קורא את כל הערוצים, בלי הודעות פרטיות",
+    "summarySome": "קורא את {names}",
+    "summarySomeWithDms": "קורא את {names} והודעות פרטיות",
+    "loadFailed": "לא ניתן לטעון את הערוצים של הסוכן. סגרו ונסו שוב.",
+    "privateChannel": "ערוץ פרטי",
+    "privateCount": "ערוץ פרטי אחד | {n} ערוצים פרטיים"
   }
 }

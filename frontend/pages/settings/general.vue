@@ -22,9 +22,6 @@
                         </div>
                     </div>
                 </SettingsRow>
-                <SettingsRow :label="$t('world.setting')">
-                    <UToggle v-model="form.show_world" :aria-label="$t('world.setting')" />
-                </SettingsRow>
             </SettingsSection>
 
             <SettingsSection :title="$t('settings.generalSections.assistant')" :description="$t('settings.generalSections.assistantHint')">
@@ -88,7 +85,6 @@ const { getErrorMessage } = useErrorMessage()
 
 interface GeneralConfig {
     ai_analyst_name: string
-    show_world?: boolean
     bow_credit: boolean
     icon_url?: string | null
     icon_key?: string | null
@@ -291,7 +287,7 @@ const saveAll = async () => {
         }
 
         // 3) Save textual and toggle settings
-        const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, show_world: !!form.value.show_world, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
+        const payload = { config: { general: { ai_analyst_name: form.value.ai_analyst_name, bow_credit: form.value.bow_credit, icon_key: form.value.icon_key, icon_url: form.value.icon_url } } }
         const response = await useMyFetch('/api/organization/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
         if (response.status.value !== 'success') throw new Error(response.error?.value?.data?.message || t('settings.failedToUpdate'))
 
