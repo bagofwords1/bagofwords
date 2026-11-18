@@ -4604,7 +4604,11 @@
     "frame_ancestors.too_many": "Você pode adicionar no máximo {max} sites.",
     "connection.query_not_found": "Consulta não encontrada nesta conexão.",
     "connection.query_finished": "Esta consulta já terminou ({status}).",
-    "connection.query_not_killable": "Esta consulta não pode ser parada pelo BOW: o cliente dela impõe o próprio limite de tempo."
+    "connection.query_not_killable": "Esta consulta não pode ser parada pelo BOW: o cliente dela impõe o próprio limite de tempo.",
+    "connection.slack_channels_not_slack": "A seleção de canais só está disponível para conexões do Slack.",
+    "connection.slack_channels_too_many": "No máximo {max} canais por agente.",
+    "connection.slack_channels_not_ids": "Estes não são IDs de canais do Slack: {ids}",
+    "connection.slack_channels_unavailable": "O Slack não respondeu: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5267,6 +5271,7 @@
       "toastCreated": "Caso de teste criado",
       "toastDeleteFailed": "Falha ao excluir caso de teste",
       "saveFailed": "Não foi possível guardar o caso de teste",
+      "runFailed": "Caso de teste guardado, mas não foi possível iniciar a execução",
       "emptyDescription": "Os testes avaliam como seus agentes respondem a prompts e regras."
     },
     "filter": {
@@ -7432,5 +7437,30 @@
       "stale": "O processo que executava esta consulta parou de responder; sua vaga foi liberada.",
       "busy": "Nenhuma vaga abriu a tempo: a conexão estava no limite de consultas simultâneas."
     }
+  },
+  "slackChannels": {
+    "button": "Canais",
+    "title": "Canais do Slack deste agente",
+    "subtitle": "Escolha quais canais do Slack este agente lê.",
+    "allChannels": "Todos os meus canais",
+    "allChannelsHint": "Todos os canais dos quais cada pessoa é membro.",
+    "selectedChannels": "Somente os canais selecionados",
+    "connectRequired": "Entre com o Slack nesta conexão para escolher canais.",
+    "searchPlaceholder": "Pesquisar canais",
+    "notYourChannel": "não está no seu Slack",
+    "noMatch": "Nenhum canal corresponde.",
+    "selectedCount": "{n} selecionados",
+    "includeDms": "Incluir mensagens diretas",
+    "includeDmsHint": "Ler também as mensagens diretas e de grupo de cada pessoa.",
+    "membershipNote": "Cada pessoa continua vendo apenas os canais dos quais é membro.",
+    "saveFailed": "Não foi possível salvar os canais",
+    "saved": "Canais salvos",
+    "summaryAll": "Lê todos os canais e mensagens diretas",
+    "summaryAllNoDms": "Lê todos os canais, sem mensagens diretas",
+    "summarySome": "Lê {names}",
+    "summarySomeWithDms": "Lê {names} e mensagens diretas",
+    "loadFailed": "Não foi possível carregar os canais deste agente. Feche e tente novamente.",
+    "privateChannel": "Canal privado",
+    "privateCount": "{n} canal privado | {n} canais privados"
   }
 }

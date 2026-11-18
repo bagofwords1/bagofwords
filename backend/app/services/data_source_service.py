@@ -3154,6 +3154,7 @@ class DataSourceService:
 
                 params = merge_client_credentials(config, creds)
                 params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+                params.update(await self._agent_connection_overrides(db, data_source, conn))
 
                 allowed = filter_client_parameters(ClientClass, params)
 
@@ -3383,6 +3384,17 @@ class DataSourceService:
         except Exception:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
+
+    async def _agent_connection_overrides(self, db, data_source, conn) -> Dict[str, Any]:
+        """This agent's own narrowing of a shared connection, as client
+        params — today the Slack channel scope. Every client built here
+        (run start, code execution, inspect) carries it, so generated code
+        handed ``ds_clients`` can't read past the channels the agent was
+        given. Empty for every other type."""
+        if getattr(conn, "type", None) != "slack_messages":
+            return {}
+        from app.services.slack_channel_scope import client_overrides, scope_for_agents
+        return client_overrides(await scope_for_agents(db, str(conn.id), [str(data_source.id)]))
 
     async def _attach_table_scope(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Attach the agent's table selection to a SQL client so it holds at
@@ -4371,7 +4383,7 @@ class DataSourceService:
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
             "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages",
+            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
         ]
@@ -7138,6 +7150,16 @@ class DataSourceService:
                 DataSourceConnectionTool.connection_tool_id.in_(
                     select(ConnectionTool.id).where(ConnectionTool.connection_id == connection_id)
                 ),
+            )
+        )
+
+        # This agent's settings for the connection (e.g. its Slack channels):
+        # same reason — they must not come back silently on a relink.
+        from app.models.data_source_connection_setting import DataSourceConnectionSetting
+        await db.execute(
+            delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.data_source_id == data_source_id,
+                DataSourceConnectionSetting.connection_id == connection_id,
             )
         )
 

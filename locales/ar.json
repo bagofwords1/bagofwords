@@ -4604,7 +4604,11 @@
     "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى.",
     "connection.query_not_found": "الاستعلام غير موجود على هذا الاتصال.",
     "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status}).",
-    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به."
+    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به.",
+    "connection.slack_channels_not_slack": "اختيار القنوات متاح فقط لاتصالات Slack.",
+    "connection.slack_channels_too_many": "بحد أقصى {max} قناة لكل وكيل.",
+    "connection.slack_channels_not_ids": "هذه ليست معرّفات قنوات Slack: {ids}",
+    "connection.slack_channels_unavailable": "لم يستجب Slack: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5267,6 +5271,7 @@
       "toastCreated": "تم إنشاء حالة الاختبار",
       "toastDeleteFailed": "تعذّر حذف حالة الاختبار",
       "saveFailed": "تعذّر حفظ حالة الاختبار",
+      "runFailed": "تم حفظ حالة الاختبار، لكن تعذّر بدء التشغيل",
       "emptyDescription": "تقيس الاختبارات كيفية استجابة وكلائك للطلبات والقواعد."
     },
     "filter": {
@@ -7432,5 +7437,30 @@
       "stale": "توقفت العملية التي تشغّل هذا الاستعلام عن الاستجابة؛ وتحرر مكانها.",
       "busy": "لم يتوفر مكان في الوقت المناسب: كان الاتصال عند حده من الاستعلامات المتزامنة."
     }
+  },
+  "slackChannels": {
+    "button": "القنوات",
+    "title": "قنوات Slack لهذا الوكيل",
+    "subtitle": "اختر قنوات Slack التي يقرأها هذا الوكيل.",
+    "allChannels": "كل قنواتي",
+    "allChannelsHint": "كل قناة ينتمي إليها كل شخص.",
+    "selectedChannels": "القنوات المحددة فقط",
+    "connectRequired": "سجّل الدخول عبر Slack في هذا الاتصال لاختيار القنوات.",
+    "searchPlaceholder": "البحث في القنوات",
+    "notYourChannel": "ليست في Slack الخاص بك",
+    "noMatch": "لا توجد قنوات مطابقة.",
+    "selectedCount": "تم تحديد {n}",
+    "includeDms": "تضمين الرسائل المباشرة",
+    "includeDmsHint": "قراءة الرسائل المباشرة والجماعية لكل شخص أيضًا.",
+    "membershipNote": "يظل كل شخص يرى فقط القنوات التي ينتمي إليها.",
+    "saveFailed": "تعذّر حفظ القنوات",
+    "saved": "تم حفظ القنوات",
+    "summaryAll": "يقرأ كل القنوات والرسائل المباشرة",
+    "summaryAllNoDms": "يقرأ كل القنوات دون الرسائل المباشرة",
+    "summarySome": "يقرأ {names}",
+    "summarySomeWithDms": "يقرأ {names} والرسائل المباشرة",
+    "loadFailed": "تعذّر تحميل قنوات هذا الوكيل. أغلق وحاول مرة أخرى.",
+    "privateChannel": "قناة خاصة",
+    "privateCount": "قناة خاصة واحدة | {n} قنوات خاصة"
   }
 }

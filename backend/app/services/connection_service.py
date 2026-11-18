@@ -1254,6 +1254,13 @@ class ConnectionService:
             from app.services.file_index_store import FileIndexStore
             await FileIndexStore(db).clear(str(connection.id))
 
+            # Agents' per-connection settings (their Slack channels) go too —
+            # same reason: SQLite doesn't enforce the FK cascade here.
+            from sqlalchemy import delete as _delete
+            from app.models.data_source_connection_setting import DataSourceConnectionSetting
+            await db.execute(_delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.connection_id == str(connection.id)))
+
             # Agents that existed only through this connection were deleted
             # above, through the agent delete; any left here share another
             # connection and only lose this link (domain_connection cascade).

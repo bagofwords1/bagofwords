@@ -5204,7 +5204,11 @@
     "frame_ancestors.too_many": "אפשר להוסיף עד {max} אתרים.",
     "connection.query_not_found": "השאילתה לא נמצאה בחיבור הזה.",
     "connection.query_finished": "השאילתה כבר הסתיימה ({status}).",
-    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו."
+    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו.",
+    "connection.slack_channels_not_slack": "בחירת ערוצים זמינה רק בחיבורי Slack.",
+    "connection.slack_channels_too_many": "לכל היותר {max} ערוצים לסוכן.",
+    "connection.slack_channels_not_ids": "אלה אינם מזהי ערוצים של Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5952,7 +5956,8 @@
       "toastCreated": "מקרה הבדיקה נוצר",
       "toastDeleteFailed": "מחיקת מקרה הבדיקה נכשלה",
       "emptyDescription": "הבדיקות מעריכות כיצד הסוכנים שלך מגיבים להנחיות ולכללים.",
-      "saveFailed": "לא ניתן היה לשמור את מקרה הבדיקה"
+      "saveFailed": "לא ניתן היה לשמור את מקרה הבדיקה",
+      "runFailed": "מקרה הבדיקה נשמר, אך לא ניתן היה להתחיל את ההרצה"
     },
     "filter": {
       "allSuites": "כל ה-Suites",
@@ -8284,5 +8289,30 @@
       "stale": "התהליך שהריץ את השאילתה הפסיק להגיב; התור שלה שוחרר.",
       "busy": "לא התפנה תור בזמן: החיבור היה במגבלת השאילתות המקבילות שלו."
     }
+  },
+  "slackChannels": {
+    "button": "ערוצים",
+    "title": "ערוצי Slack לסוכן הזה",
+    "subtitle": "בחרו אילו ערוצי Slack הסוכן הזה קורא.",
+    "allChannels": "כל הערוצים שלי",
+    "allChannelsHint": "כל ערוץ שכל אדם חבר בו.",
+    "selectedChannels": "רק ערוצים נבחרים",
+    "connectRequired": "התחברו ל-Slack בחיבור הזה כדי לבחור ערוצים.",
+    "searchPlaceholder": "חיפוש ערוצים",
+    "notYourChannel": "לא ב-Slack שלך",
+    "noMatch": "אין ערוצים מתאימים.",
+    "selectedCount": "{n} נבחרו",
+    "includeDms": "כולל הודעות פרטיות",
+    "includeDmsHint": "קורא גם את ההודעות הפרטיות והקבוצתיות של כל אדם.",
+    "membershipNote": "כל אדם עדיין רואה רק את הערוצים שהוא חבר בהם.",
+    "saveFailed": "שמירת הערוצים נכשלה",
+    "saved": "הערוצים נשמרו",
+    "summaryAll": "קורא את כל הערוצים וההודעות הפרטיות",
+    "summaryAllNoDms": "קורא את כל הערוצים, בלי הודעות פרטיות",
+    "summarySome": "קורא את {names}",
+    "summarySomeWithDms": "קורא את {names} והודעות פרטיות",
+    "loadFailed": "לא ניתן לטעון את הערוצים של הסוכן. סגרו ונסו שוב.",
+    "privateChannel": "ערוץ פרטי",
+    "privateCount": "ערוץ פרטי אחד | {n} ערוצים פרטיים"
   }
 }

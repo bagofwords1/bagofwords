@@ -3702,6 +3702,33 @@ class TeamsMessagesConfig(BaseModel):
     pass
 
 
+# Slack
+class SlackCredentials(BaseModel):
+    """The organization's own internal Slack app. Each user then signs in with
+    Slack and BOW reads with that user's token, so they see only their own
+    channels and DMs."""
+    oauth_client_id: str = Field(
+        ...,
+        title="Slack App Client ID",
+        description="From your Slack app's Basic Information page (api.slack.com/apps).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="Slack App Client Secret",
+        description="From your Slack app's Basic Information page.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class SlackMessagesConfig(BaseModel):
+    """Slack needs no admin-side configuration: each user's own sign-in decides
+    which channels and DMs are visible, and messages are always read live.
+    Which channels an AGENT reads is set per agent (the agent's Slack
+    "Channels" picker, stored in data_source_connection_settings)."""
+    pass
+
+
 # Google Drive
 class GoogleDriveCredentials(BaseModel):
     oauth_client_id: str = Field(

@@ -908,6 +908,7 @@ class SchemaContextBuilder:
             if split_file_scopes:
                 file_scopes, tables = self._build_file_scopes(ds, tables)
                 await self._stamp_index_times(file_scopes)
+                await self._stamp_slack_scopes(ds, file_scopes)
             else:
                 file_scopes = []
 
@@ -1038,7 +1039,7 @@ class SchemaContextBuilder:
         "sharepoint_onprem",
         "documentum",
         "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "onedrive", "google_drive",
-        "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages",
+        "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages", "slack_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
     }
@@ -1053,10 +1054,30 @@ class SchemaContextBuilder:
         "kms_lighthouse",
         # Teams: Microsoft Search over chatMessage, as the signed-in user.
         "teams_messages",
+        # Slack: search.messages, as the signed-in user.
+        "slack_messages",
     }
     # Token-scoped sources: no admin-side path/glob boundary — the user's OAuth
     # account IS the scope. Everything else enforces a path/glob scope.
-    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages"}
+    _TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages"}
+
+    async def _stamp_slack_scopes(self, ds, file_scopes) -> None:
+        """Tell the model which Slack channels this run reads, so it doesn't
+        go looking in the others."""
+        slack = [fs for fs in file_scopes if fs.type == "slack_messages" and fs.connection_id]
+        if not slack:
+            return
+        try:
+            # The same scope the run's Slack client gets (run_scope): the
+            # union across this run's agents, pinned agents winning — not this
+            # agent's own choice alone, or the note and the client disagree.
+            from app.services.slack_channel_scope import describe_scope, run_scope
+            run_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
+            pinned = [str(getattr(d, "id", "")) for d in (getattr(self.report, "data_sources", None) or [])]
+            for fs in slack:
+                fs.note = describe_scope(await run_scope(self.db, str(fs.connection_id), run_ids, pinned))
+        except Exception:  # context is best-effort; never fail the build
+            logger.debug("slack channel scope note unavailable", exc_info=True)
 
     async def _stamp_index_times(self, file_scopes) -> None:
         """Attach each file scope's last completed shared index time, so the
