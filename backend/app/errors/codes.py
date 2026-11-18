@@ -67,6 +67,12 @@ class ErrorCode(str, Enum):
     CONVERSATION_LIMIT = "conversation.limit"
     CONVERSATION_NO_AGENTS = "conversation.no_agents"
 
+    # Agent bundle import (the zip produced by "Export agent")
+    AGENT_IMPORT_INVALID_BUNDLE = "agent_import.invalid_bundle"
+    AGENT_IMPORT_NAME_TAKEN = "agent_import.name_taken"
+    AGENT_IMPORT_NO_CONNECTION = "agent_import.no_connection"
+    AGENT_IMPORT_FAILED = "agent_import.failed"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"

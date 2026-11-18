@@ -5129,8 +5129,8 @@ class InstructionService:
                 logger.warning(f"Skipping evals in export for {data_source_id}: {e}")
 
             # queries/*.yaml — one file per saved query (Entity) scoped to this
-            # agent. Export-only (no round-trip import, like the rest of the
-            # bundle). Visibility matches the agent's "Queries" panel: EntityService
+            # agent. The whole bundle round-trips through POST /agents/import
+            # (AgentBundleImportService). Visibility matches the agent's "Queries" panel: EntityService
             # .list_entities applies the same bow/accessibility/workshop scoping,
             # so a viewer gets live queries plus their own drafts/suggestions —
             # the "like instructions" rule. Best-effort: skip on any failure.

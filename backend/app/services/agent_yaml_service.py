@@ -111,7 +111,11 @@ class AgentYamlService:
         yaml_text: str,
         *,
         dry_run: bool = False,
+        create_overrides: Optional[Dict[str, Any]] = None,
     ) -> ApplyResult:
+        """``create_overrides`` are extra ``DataSourceCreate`` fields used only
+        when the agent is created (e.g. ``folder_id`` / ``kind`` from the import
+        wizard). They are not part of the manifest, so an update ignores them."""
         errors: List[ApplyError] = []
         warnings: List[ApplyWarning] = []
 
@@ -207,7 +211,8 @@ class AgentYamlService:
         # 9. Create or update
         if existing is None:
             ds, post_warnings = await self._create_agent(
-                db, organization, current_user, manifest, resolved
+                db, organization, current_user, manifest, resolved,
+                create_overrides=create_overrides,
             )
             warnings.extend(post_warnings)
             return ApplyResult(
@@ -393,6 +398,8 @@ class AgentYamlService:
         current_user: User,
         manifest: AgentManifest,
         resolved: _Resolved,
+        *,
+        create_overrides: Optional[Dict[str, Any]] = None,
     ) -> Tuple[DataSource, List[ApplyWarning]]:
         warnings: List[ApplyWarning] = []
 
@@ -416,6 +423,7 @@ class AgentYamlService:
             is_public=manifest.is_public,
             use_llm_sync=manifest.use_llm_sync,
             member_user_ids=user_member_ids,
+            **(create_overrides or {}),
         )
         # create_data_source raises HTTPException on duplicate name —
         # we've already guarded that path, but let any other failure

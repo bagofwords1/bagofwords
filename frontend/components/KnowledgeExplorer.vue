@@ -51,6 +51,10 @@
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newAgent') }}</span><span class="block text-2xs text-ink-muted">{{ $t('agentsPage.newAgentDesc') }}</span></span>
               </button>
+              <button v-if="canCreateAgent" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" data-testid="menu-import-agent" @click="showImportAgent = true; close()">
+                <UIcon name="i-heroicons-arrow-up-tray" class="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.importAgent') }}</span><span class="block text-2xs text-ink-muted">{{ $t('agentsPage.importAgentDesc') }}</span></span>
+              </button>
             </div>
           </template>
         </UPopover>
@@ -1139,6 +1143,7 @@
     />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal :folder-id="selectedFolder" v-model="showNewAgent" @finished="onNewAgentFinished" />
+    <ImportAgentWizardModal :folder-id="selectedFolder" v-model="showImportAgent" @finished="onImportAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
@@ -1249,6 +1254,7 @@ import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
+import ImportAgentWizardModal from '~/components/ImportAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
@@ -2819,6 +2825,7 @@ const showConnectionsModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showNewAgent = ref(false)
+const showImportAgent = ref(false)
 const showAddMCP = ref(false)
 const showAddCustomAPI = ref(false)
 
@@ -2851,6 +2858,12 @@ const onNewAgentFinished = async (id: string) => {
   await fetchAgents()
   expand('agent:' + id, true)
   openAgent(id)
+}
+// Import wizard finished: same landing as a new agent (refresh + open it).
+const onImportAgentFinished = async (id: string) => {
+  showImportAgent.value = false
+  await onNewAgentFinished(id)
+  fetchCounts()
 }
 const toolsRefreshKey = ref(0)
 // When a connection is created from an agent's Tools panel, link it to that agent.
