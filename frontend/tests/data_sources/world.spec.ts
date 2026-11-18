@@ -26,7 +26,7 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
 
     // The toggle lives in AI settings and saves on change (no Save button).
     await page.goto('/settings/ai_settings')
-    await page.getByTestId('ai-settings-search').locator('input').fill('World view')
+    await page.getByTestId('ai-settings-search').fill('World view')
     const saved = page.waitForResponse(r => r.url().endsWith('/organization/settings') && r.request().method() === 'PUT')
     await page.getByTestId('ai-setting-show_world').getByRole('switch').click()
     expect((await saved).ok()).toBeTruthy()
