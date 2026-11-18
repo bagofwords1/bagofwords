@@ -78,6 +78,17 @@ after run (fail → rename back: 1 of 1 → rename again: 1 of 1).
 Screenshots (seeded data): `before-refresh-failed.png`, `after-refresh-ok.png`,
 `rename-in-settings.png`.
 
+### Second run, after review
+
+The review fixes (old keys answer lookups only; the bare key stays its
+connection's; chat roster by client key) were run through the same stack and
+database: with the agent now `Sales`, the dashboard refresh is 1 of 1; a
+third rename in Agents → Settings (`Sales` → `Revenue`) is recorded as
+`{"name": "Sales", "connection_id": "<the connection>"}`, and the saved
+`'Sales DWH:sqlite-2'` step still refreshes (1 of 1, published dashboard
+`success`). Iterating the dict handed to code yields `Revenue` and
+`Revenue:warehouse` only.
+
 ## Tests
 
 - `tests/e2e/test_client_key_survives_rename.py` — through the API: agent
@@ -86,19 +97,14 @@ Screenshots (seeded data): `before-refresh-failed.png`, `after-refresh-ok.png`,
   another agent is not answered by the renamed one, code that walks every
   client reaches each once after a rename, and the bare old key is not
   answered by a replacement connection.
-- `tests/unit/test_former_client_keys.py` — the key rules and the policy
-  mapping.
+- `tests/e2e/dashboards/test_dashboard_chat.py` — a former name joins an
+  Auto dashboard's chat roster only as a client key.
+- `tests/unit/test_former_client_keys.py` — the key rules, the policy
+  mapping, and the run in both executor modes.
 
 ## Not verified
 
 - PostgreSQL (no Docker in this sandbox); CI runs both.
-- The dashboard chat roster end to end: its tests use the dashboards corpus
-  fixture, which does not build in this sandbox (on `main` either). The rule
-  it now applies is unit-tested.
-- The live UI loop above was run on the first commit; the review fixes
-  (iteration, bare key, chat roster) are covered by tests, not a second
-  browser run.
-- A real LLM writing the code.
 - Snowflake itself. Listing a second database on a Snowflake connection also
   changes how unqualified `SCHEMA.TABLE` names resolve (the first database
   listed is the default); that is separate from the key and not changed here.
