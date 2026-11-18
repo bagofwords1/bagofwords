@@ -6018,7 +6018,8 @@
       "toastDeleted": "Test case deleted",
       "toastCreated": "Test case created",
       "toastDeleteFailed": "Failed to delete test case",
-      "saveFailed": "Couldn't save the test case"
+      "saveFailed": "Couldn't save the test case",
+      "runFailed": "Test case saved, but the run couldn't start"
     },
     "filter": {
       "allSuites": "All suites",

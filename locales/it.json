@@ -5262,6 +5262,7 @@
       "toastCreated": "Caso di test creato",
       "toastDeleteFailed": "Impossibile eliminare il caso di test",
       "saveFailed": "Impossibile salvare il caso di test",
+      "runFailed": "Caso di test salvato, ma non è stato possibile avviare l'esecuzione",
       "emptyDescription": "I test valutano come i tuoi agenti rispondono a prompt e regole."
     },
     "filter": {
