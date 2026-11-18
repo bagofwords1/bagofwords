@@ -744,7 +744,7 @@ Do not use when:
         # downstream failure, we can hand the agent the *correct* argument shape
         # in the observation. Without this the agent only learns what was wrong
         # (e.g. "invalid search field") and keeps re-guessing argument names.
-        tool_input_schema = getattr(tool_record, "input_schema", None) if tool_record else None
+        tool_input_schema = getattr(tool_record, "input_schema", None)
         # Hide admin-locked metadata fields from the schema echoed back on failure,
         # so the agent never sees (and never re-guesses) server-injected fields.
         if tool_input_schema:
@@ -762,7 +762,7 @@ Do not use when:
         # it from the agent a MUST; it is filtered out of every catalog the
         # model sees, and a call by name is refused here as well.
         from app.services.mcp_apps import model_visible
-        if tool_record is not None and not model_visible(getattr(tool_record, "metadata_json", None)):
+        if not model_visible(getattr(tool_record, "metadata_json", None)):
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -773,7 +773,7 @@ Do not use when:
                 },
             )
             return
-        if tool_record and not tool_record.is_enabled:
+        if not tool_record.is_enabled:
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -785,18 +785,17 @@ Do not use when:
 
         # Enforce the effective tool policy (user pref > agent overlay > default).
         # deny blocks, ask pauses the run for user approval, auto delegates the
-        # decision to a small-model judge. Only applies to discovered
-        # ConnectionTool rows (i.e. real MCP / custom API tools).
-        if tool_record:
-            policy_gate = self._enforce_policy(
-                db, connection, tool_record, data, runtime_ctx, report
-            )
-            async for ev in policy_gate:
-                if isinstance(ev, ToolEndEvent):
-                    ev.payload["output"].update(connection_info)
-                    yield ev
-                    return
+        # decision to a small-model judge. A tool missing from the catalog was
+        # refused above, so every call reaching here has its ConnectionTool row.
+        policy_gate = self._enforce_policy(
+            db, connection, tool_record, data, runtime_ctx, report
+        )
+        async for ev in policy_gate:
+            if isinstance(ev, ToolEndEvent):
+                ev.payload["output"].update(connection_info)
                 yield ev
+                return
+            yield ev
 
         # Validate arguments against the tool's own schema BEFORE going to the
         # network. We already hold the schema locally, so a shape error costs
@@ -1251,7 +1250,7 @@ Do not use when:
         # also to a hidden sub-agent turn that cannot show a card.
         watched = ToolPolicyService.is_interactive_run(runtime_ctx)
         grants = ToolPolicyService.report_grants_apply(runtime_ctx)
-        pm_settings = pm.permission_settings(runtime_ctx.get("settings"))
+        pm_settings = await self._current_permission_settings(db, runtime_ctx)
         run_user_is_owner = bool(
             user is not None and report is not None
             and str(getattr(report, "user_id", "") or "") == str(user.id)
@@ -1648,12 +1647,39 @@ Do not use when:
         try:
             from sqlalchemy import select
             from app.models.report import Report
-            return (await db.execute(
-                select(Report.permission_mode).where(Report.id == str(report.id))
-            )).scalar_one_or_none()
+            # A savepoint, so a failed read leaves the session usable for the
+            # reads after it (the agent caps).
+            async with db.begin_nested():
+                return (await db.execute(
+                    select(Report.permission_mode).where(Report.id == str(report.id))
+                )).scalar_one_or_none()
         except Exception as e:
             logger.warning(f"execute_mcp: reading the report's permission mode failed: {e!r}")
             return "ask"  # fail closed: the org default could be wider than the report's choice
+
+    @staticmethod
+    async def _current_permission_settings(db, runtime_ctx):
+        """The org's permission-mode settings as stored now. The run's
+        organization settings were loaded when it started
+        (expire_on_commit=False), so Allow all turned off mid-run would
+        otherwise still apply. If the read fails, Allow all counts as off."""
+        import dataclasses
+        from app.services import tool_permission_mode as pm
+        loaded = runtime_ctx.get("settings")
+        org_id = getattr(runtime_ctx.get("organization"), "id", None) or getattr(loaded, "organization_id", None)
+        try:
+            if org_id is None:
+                raise LookupError("no organization in the run context")
+            from sqlalchemy import select
+            from app.models.organization_settings import OrganizationSettings
+            async with db.begin_nested():
+                config = (await db.execute(
+                    select(OrganizationSettings.config).where(OrganizationSettings.organization_id == str(org_id))
+                )).scalar_one_or_none()
+        except Exception as e:
+            logger.warning(f"execute_mcp: reading the org's permission mode failed, Allow all counts as off: {e!r}")
+            return dataclasses.replace(pm.permission_settings(loaded), allow_all_enabled=False)
+        return pm.permission_settings(OrganizationSettings(config=config or {}))
 
     @staticmethod
     def _shell_strict(connection) -> bool:
@@ -1708,22 +1734,17 @@ Do not use when:
             if ExecuteMCPTool._shell_admin_ask(connection, data):
                 return False
             return pm.is_read_only_shell_command(args.get("command", ""), windows=cfg.get("operating_system") == "windows")
-        meta = getattr(tool_record, "metadata_json", None)
-        hints = meta.get("annotations") if isinstance(meta, dict) else None
-        if isinstance(meta, dict) and not isinstance(hints, dict):
-            hints = meta  # remote-server tools store the hints at the top level
-        return (
-            isinstance(hints, dict)
-            and hints.get("readOnlyHint") is True
-            and hints.get("destructiveHint") is not True
-        )
+        from app.data_sources.clients.mcp_client import is_read_only_tool
+        return is_read_only_tool(getattr(tool_record, "metadata_json", None))
 
     async def _mode_judge(self, db, connection, tool_record, data, runtime_ctx, report, settings):
-        """Auto mode's judge → (allow | ask | refuse, decided_by, reason).
+        """Auto mode's judge → (allow | ask | refuse, decided_by, reason, raw).
 
         The org's decision model when one is configured (P(safe) thresholded),
         else the small default model (a confident yes/no only). No model, or a
-        failure → ask: Auto never allows on a missing judge.
+        failure → ask: Auto never allows on a missing judge. ``raw`` is the
+        small model's own verdict when it decided (else None), so a caller
+        that needs its plain yes/no does not ask it again.
         """
         from app.services import tool_permission_mode as pm
         await self._release_db(db)
@@ -1777,17 +1798,18 @@ Do not use when:
                         "no answer from the decision model" if p is None
                         else f"decision model: {float(p):.0%} likely safe"
                     )
-                    return verdict, pm.BY_DECISION_MODEL, reason
+                    return verdict, pm.BY_DECISION_MODEL, reason, None
                 except Exception as e:  # DecisionError, quota, network → small model
                     logger.warning(f"execute_mcp: decision-model judge failed, using the small model: {e!r}")
 
         verdict = await self._auto_judge(db, connection, tool_record, data, runtime_ctx, report)
         if getattr(verdict, "reason", "") == self._NO_JUDGE_REASON:
-            return pm.VERDICT_ASK, pm.BY_NO_JUDGE, "no model is available to decide"
+            return pm.VERDICT_ASK, pm.BY_NO_JUDGE, "no model is available to decide", None
         return (
             pm.verdict_from_small_model(bool(verdict.approve), float(verdict.confidence or 0.0), settings),
             pm.BY_SMALL_MODEL,
             verdict.reason or "",
+            verdict,
         )
 
     @staticmethod
@@ -1857,11 +1879,12 @@ Do not use when:
         if mode == pm.MODE_AUTO:
             if self._clearly_read_only(connection, tool_record, data, resolution, remote_shell):
                 return "allow", pm.BY_READ_ONLY, "read-only call"
-            verdict, by, reason = await self._mode_judge(
+            verdict, by, reason, small_verdict = await self._mode_judge(
                 db, connection, tool_record, data, runtime_ctx, report, settings
             )
             action = {pm.VERDICT_ALLOW: "allow", pm.VERDICT_REFUSE: "refuse"}.get(verdict, "prompt")
         else:
+            small_verdict = None
             action, by, reason = ("binary_judge" if effective == TOOL_POLICY_AUTO else "prompt"), pm.BY_POLICY, ""
 
         if action == "prompt" and not watched:
@@ -1872,6 +1895,11 @@ Do not use when:
             if settings.unattended == pm.UNATTENDED_ALLOW and ToolPolicyService.is_machine_run(runtime_ctx):
                 return "allow", pm.BY_UNATTENDED, "allowed by the organization's setting for unattended runs"
             if settings.unattended == pm.UNATTENDED_SETTINGS and effective == TOOL_POLICY_AUTO:
+                if by == pm.BY_SMALL_MODEL and small_verdict is not None:
+                    # Auto already asked the small model: its plain yes/no is
+                    # the per-tool judge's answer, so it is not asked again.
+                    approved = bool(small_verdict.approve)
+                    return ("allow" if approved else "refuse"), pm.BY_SMALL_MODEL, small_verdict.reason or ""
                 return "binary_judge", pm.BY_UNATTENDED, ""
             if settings.unattended == pm.UNATTENDED_REFUSE:
                 # The default: today's refusal path (tool.access_blocked_by_policy,

@@ -1222,7 +1222,9 @@ class ReportService:
         from app.services.organization_settings_service import OrganizationSettingsService
         settings = await OrganizationSettingsService().get_settings(db, organization, None)
         if not permission_settings(settings).allow_all_enabled:
-            raise HTTPException(status_code=400, detail="'Allow all' is turned off for this organization.")
+            from app.errors import AppError, ErrorCode
+            raise AppError.bad_request(ErrorCode.TOOL_PERMISSION_MODE_ALLOW_ALL_OFF,
+                                       "'Allow all' is turned off for this organization.")
 
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))

@@ -474,9 +474,9 @@ async def respond_to_mcp_tool_confirmation(
     scope = {"session": "report", "user": "always"}.get(raw_scope, raw_scope) if raw_scope else (
         "always" if remember else "once")
     if scope not in ("once", "report", "always"):
-        raise HTTPException(status_code=400, detail="Invalid permission scope")
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
     if scope == "report" and (row is None or not row.report_id):
-        raise HTTPException(status_code=400, detail="'For this report' needs a report")
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "'For this report' needs a report")
     remember = scope == "always"
 
     shell_target = (row.arguments or {}).get("_execution_target", {}) if row is not None else {}
@@ -484,14 +484,11 @@ async def respond_to_mcp_tool_confirmation(
     shell_rule = None
     if shell_target.get("shell_permissions"):
         from app.schemas.data_sources.remote_server import ShellRule
-        if shell_scope not in ("once", "session", "user"):
-            raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+        # The scope and its report were checked above for every row.
         if shell_target.get("mandatory_approval"):
             shell_scope = "once"
         remember = shell_scope != "once"
         if remember:
-            if shell_scope == "session" and not row.report_id:
-                raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "Session permissions require a report")
             try:
                 shell_rule = ShellRule.model_validate({
                     "pattern": body.get("command_pattern") or row.arguments.get("command"),

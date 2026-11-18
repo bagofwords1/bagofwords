@@ -239,9 +239,13 @@ async def validate_settings_update(db, organization, stored: Any, incoming: Any)
     """Merge an admin update over the stored setting and normalize it.
 
     Raises HTTPException(400) for a bad value instead of silently dropping it,
-    so the settings page shows why a save failed.
+    so the settings page shows why a save failed. The failures the settings
+    page itself can produce are typed (AppError), so it shows them localized;
+    the rest only a hand-written request can send.
     """
     from fastapi import HTTPException
+
+    from app.errors import AppError, ErrorCode
 
     if not isinstance(incoming, dict):
         raise HTTPException(status_code=400, detail="tool_permission_mode must be an object.")
@@ -258,7 +262,8 @@ async def validate_settings_update(db, organization, stored: Any, incoming: Any)
     # Turning the switch off with an Allow all default stored is fine: the
     # merged value normalizes the default back to Ask.
     if normalize_mode(incoming.get("default_mode")) == MODE_ALLOW_ALL and merged.get("allow_all_enabled") is not True:
-        raise HTTPException(status_code=400, detail="Allow all can be the default only while it is turned on.")
+        raise AppError.bad_request(ErrorCode.TOOL_PERMISSION_MODE_ALLOW_ALL_DEFAULT_NEEDS_SWITCH,
+                                   "Allow all can be the default only while it is turned on.")
     for k in ("allow_threshold", "refuse_threshold"):
         if k in incoming:
             v = incoming[k]
@@ -274,5 +279,6 @@ async def validate_settings_update(db, organization, stored: Any, incoming: Any)
     if model_id and model_id != JUDGE_SMALL_MODEL:
         from app.ai.model_router import _load_decision_model
         if await _load_decision_model(db, organization, model_id) is None:
-            raise HTTPException(status_code=400, detail="Choose an enabled decision model for the Auto judge.")
+            raise AppError.bad_request(ErrorCode.TOOL_PERMISSION_MODE_JUDGE_MODEL_UNAVAILABLE,
+                                       "Choose an enabled decision model for the Auto judge.")
     return normalize_settings(merged)

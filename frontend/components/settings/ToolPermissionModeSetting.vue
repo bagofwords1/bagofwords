@@ -89,6 +89,7 @@ const props = defineProps<{ feature: any, disabled?: boolean }>()
 const emit = defineEmits<{ (e: 'updated', feature: any): void }>()
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const saving = ref(false)
 
 const value = computed<PermissionValue>(() => ({
@@ -159,13 +160,15 @@ async function save(patch: Partial<PermissionValue>) {
             body: JSON.stringify({ config: { tool_permission_mode: { value: patch } } }),
         })
         if (response.status.value !== 'success') {
-            const data: any = response.error?.value?.data
-            throw new Error((typeof data?.detail === 'string' && data.detail) || t('settings.aiSettingsPage.updateError'))
+            // Localized from the error code (Allow all default, judge model),
+            // else the server's detail, else the generic line.
+            toast.add({ title: getErrorMessage(response.error?.value, t('settings.aiSettingsPage.updateError')), color: 'red' })
+            return
         }
         const updated = (response.data?.value as any)?.config?.tool_permission_mode
         if (updated) emit('updated', updated)
     } catch (e: any) {
-        toast.add({ title: e?.message || t('settings.aiSettingsPage.updateError'), color: 'red' })
+        toast.add({ title: getErrorMessage(e, t('settings.aiSettingsPage.updateError')), color: 'red' })
     } finally {
         saving.value = false
     }

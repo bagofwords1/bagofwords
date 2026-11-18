@@ -38,8 +38,9 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.fixture(scope="module")
-def content_url():
+def _serve_content():
+    """The content MCP server on a free port of 127.0.0.1 (never "localhost":
+    it may resolve to ::1 first, and egress pins the first address)."""
     port = _free_port()
     server = uvicorn.Server(
         uvicorn.Config(content.mcp.streamable_http_app(), host="127.0.0.1", port=port, log_level="error")
@@ -53,6 +54,17 @@ def content_url():
     yield f"http://127.0.0.1:{port}/mcp"
     server.should_exit = True
     thread.join(timeout=5)
+
+
+@pytest.fixture(scope="module")
+def content_url():
+    yield from _serve_content()
+
+
+@pytest.fixture(scope="module")
+def second_content_url():
+    """A second server, so a second agent gets a connection of its own."""
+    yield from _serve_content()
 
 
 class _ScriptedAgent:
@@ -343,6 +355,30 @@ def test_agent_cap_limits_the_mode(env, test_client, monkeypatch):
     assert out.prompted and not out.ran
 
 
+def test_a_failed_report_mode_read_falls_back_to_ask_and_the_run_goes_on(env, test_client):
+    # The database rejects the read of the report's mode (a fault injected at
+    # the driver: the statement is sent with a bad column, so Postgres aborts
+    # the transaction). The mode falls back to Ask, and the reads after it
+    # (the agents' caps) still work: the call is asked about, not failed.
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+
+    def break_mode_read(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT REPORTS.PERMISSION_MODE"):
+            statement = statement.replace("reports.permission_mode", "reports.no_such_column", 1)
+        return statement, parameters
+
+    event.listen(Engine, "before_cursor_execute", break_mode_read, retval=True)
+    try:
+        out = env.call("delete_branch", branch="feature-x")
+    finally:
+        event.remove(Engine, "before_cursor_execute", break_mode_read)
+    assert out.prompted and not out.ran
+
+
 def test_agent_cap_can_be_cleared(env, test_client):
     # The agent settings page saves "no cap" as "none".
     env.org_setting(allow_all_enabled=True)
@@ -371,14 +407,14 @@ def test_member_cannot_change_the_agent_cap(env, test_client, create_user, login
 
 
 @pytest.mark.parametrize("agents_from", ["report", "run"])
-def test_a_cap_on_any_agent_in_the_run_limits_every_tool(env, test_client, create_data_source, content_url,
+def test_a_cap_on_any_agent_in_the_run_limits_every_tool(env, test_client, create_data_source, second_content_url,
                                                           agents_from):
     # A second agent with its own connection caps the mode at Ask. The tool
     # belongs to the first agent, which has no cap: the run's strictest cap
     # still applies to it.
     capped = create_data_source(
         name="Capped agent", type="mcp",
-        config={"server_url": content_url.replace("127.0.0.1", "localhost"), "transport": "streamable_http"},
+        config={"server_url": second_content_url, "transport": "streamable_http"},
         credentials={}, user_token=env.token, org_id=env.org_id)
     assert env.conn_id not in {c["id"] for c in capped["connections"]}
     r = test_client.put(f"/api/reports/{env.report_id}", headers=env.headers,
@@ -439,6 +475,21 @@ def test_unattended_allow_does_not_cover_a_person_on_another_channel(env):
     _ScriptedAgent.extra = {"platform": "slack"}
     out = env.call("delete_branch", branch="feature-x")
     assert not out.ran and not out.prompted
+
+
+@pytest.mark.parametrize("approve", [True, False])
+def test_an_unsure_auto_judge_is_asked_once_in_an_unattended_run(env, monkeypatch, approve):
+    # Auto in a run nobody watches, unattended 'settings', a tool on 'auto':
+    # the judge's unsure answer decides as the per-tool judge would, without a
+    # second judge call.
+    calls = _judge(monkeypatch, approve=approve, confidence=0.6)
+    assert env.org_setting(unattended="settings", default_mode="auto").status_code == 200
+    env.set_admin("mystery_action", policy="auto")
+    _ScriptedAgent.extra = dict(_MACHINE_RUN)
+    out = env.call("mystery_action", x="1")
+    assert calls == ["mystery_action"]
+    assert not out.prompted
+    assert out.ran is approve
 
 
 def test_unattended_allow_never_runs_a_blocklisted_call(env):
@@ -744,6 +795,36 @@ def test_always_writes_the_personal_preference(env, test_client, alembic_config)
 def test_unknown_scope_is_rejected(env, test_client, alembic_config):
     r = _answer(env, test_client, alembic_config, "delete_branch", approved=True, scope="forever")
     assert r.status_code == 400
+    assert r.json()["error_code"] == "shell_confirmation.invalid_scope"
+
+
+def test_for_this_report_without_a_report_is_rejected(env, test_client, alembic_config):
+    completion_id, confirmation_id = str(uuid.uuid4()), str(uuid.uuid4())
+    _insert_pending(
+        alembic_config, id=confirmation_id, organization_id=str(env.org_id), report_id=None,
+        system_completion_id=completion_id, user_id=env.user_id,
+        connection_tool_id=env.tools()["delete_branch"]["id"], tool_name="delete_branch", arguments={},
+    )
+    r = test_client.post(f"/api/completions/{completion_id}/mcp_tool_confirmations/{confirmation_id}",
+                         json={"approved": True, "permission_scope": "report"}, headers=env.headers)
+    assert r.status_code == 400, r.text
+    assert r.json()["error_code"] == "shell_confirmation.report_required"
+
+
+@pytest.mark.parametrize("value,code", [
+    ({"default_mode": "allow_all"}, "tool_permission_mode.allow_all_default_needs_switch"),
+    ({"judge_decision_model_id": "no-such-model"}, "tool_permission_mode.judge_model_unavailable"),
+])
+def test_settings_page_errors_are_typed(env, value, code):
+    r = env.org_setting(**value)
+    assert r.status_code == 400, r.text
+    assert r.json()["error_code"] == code
+
+
+def test_picking_allow_all_while_it_is_off_is_a_typed_error(env):
+    r = env.set_mode("allow_all")
+    assert r.status_code == 400, r.text
+    assert r.json()["error_code"] == "tool_permission_mode.allow_all_off"
 
 
 # ── Org setting validation ──────────────────────────────────────────────────
@@ -900,3 +981,195 @@ def test_allow_all_default_for_members(env, test_client, create_user, login_user
     assert len(_ScriptedAgent.runs) == before + 1, "scripted agent did not run"
     out = _Outcome(_ScriptedAgent.runs[-1])
     assert out.ran and not out.prompted
+
+
+# ── The real agent loop ─────────────────────────────────────────────────────
+# The tests above drive one execute_mcp call through a scripted stand-in for
+# AgentV2. These run the real AgentV2 (its runtime context, its org settings
+# loaded at run start, its run agents) with only the model stubbed:
+# LLM.inference_stream_v2 replays scripted tool calls, as in
+# tests/e2e/rbac/test_file_tools_run_scope.py.
+
+_REAL_AGENT = completion_mod.AgentV2
+
+
+class _Planner:
+    """One scripted tool call per planner request, then a plain answer.
+
+    A script step is (tool suffix, arguments, before): the call goes to the
+    offered tool whose name ends with ``__<suffix>``, and ``before`` (an async
+    callable, optional) runs first, between two steps of the same run."""
+
+    def __init__(self):
+        self.script: list = []
+        self.called: list = []
+
+    def stream(self):
+        from app.ai.llm.types import (
+            MessageStopEvent, TextDeltaEvent, ToolUseCompleteEvent, ToolUseStartEvent, UsageEvent,
+        )
+        planner = self
+
+        async def scripted(self, *, model_id=None, messages, system=None, tools=None, **kwargs):
+            names = [getattr(t, "name", None) or (t.get("name") if isinstance(t, dict) else None) for t in tools or []]
+            if planner.script:
+                suffix, args, before = planner.script.pop(0)
+                if before is not None:
+                    await before()
+                name = next(n for n in names if n and n.endswith(f"__{suffix}"))
+                planner.called.append(name)
+                tid = f"tu_{uuid.uuid4().hex[:8]}"
+                events = [ToolUseStartEvent(id=tid, name=name), ToolUseCompleteEvent(id=tid, name=name, input=args),
+                          MessageStopEvent(stop_reason="tool_use", raw_stop_reason="tool_use")]
+            else:
+                events = [TextDeltaEvent(text="Done."), MessageStopEvent(stop_reason="end_turn", raw_stop_reason="end_turn")]
+            for e in events + [UsageEvent(input_tokens=10, output_tokens=5)]:
+                yield e
+
+        return scripted
+
+
+@pytest.fixture
+def real_agent(env, monkeypatch):
+    from app.ai.llm.llm import LLM
+    from app.ai.tools.mcp_tool_registry import clear_usage_cache
+
+    monkeypatch.setattr(completion_mod, "AgentV2", _REAL_AGENT)
+    clear_usage_cache()
+    p = _Planner()
+
+    async def _stream(self, prompt, **kwargs):
+        yield "ok"
+
+    monkeypatch.setattr(LLM, "inference_stream_v2", p.stream())
+    monkeypatch.setattr(LLM, "inference_stream", _stream)
+    monkeypatch.setattr(LLM, "inference", lambda self, prompt, *a, **k: "[]")
+    yield p
+    clear_usage_cache()
+
+
+def _ask_real(env, test_client):
+    r = test_client.post(f"/api/reports/{env.report_id}/completions", headers=env.headers,
+                         params={"background": False}, json={"prompt": {"content": "Use the tools."}})
+    assert r.status_code == 200, r.text
+
+
+def _cards(alembic_config, env) -> list:
+    """The tool names this report raised an approval card for, in order."""
+    from sqlalchemy import select
+
+    from app.models.tool_confirmation import ToolConfirmation
+
+    t = ToolConfirmation.__table__
+    engine = _sync_engine(alembic_config)
+    with engine.connect() as conn:
+        rows = conn.execute(select(t.c.tool_name).where(t.c.report_id == env.report_id)
+                            .order_by(t.c.created_at)).scalars().all()
+    engine.dispose()
+    return list(rows)
+
+
+async def _turn_allow_all_off(org_id):
+    """An admin turns Allow all off, as the settings page saves it."""
+    from sqlalchemy import select
+
+    from app.dependencies import async_session_maker
+    from app.models.organization_settings import OrganizationSettings
+
+    async with async_session_maker() as db:
+        row = (await db.execute(select(OrganizationSettings)
+                                .where(OrganizationSettings.organization_id == str(org_id)))).scalar_one()
+        config = json.loads(json.dumps(row.config))
+        config["tool_permission_mode"]["value"]["allow_all_enabled"] = False
+        row.config = config
+        await db.commit()
+
+
+def test_real_run_sees_allow_all_turned_off_mid_run(env, test_client, alembic_config, real_agent, monkeypatch):
+    sent = _sent_to_server(monkeypatch)
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+    off = lambda: _turn_allow_all_off(env.org_id)  # noqa: E731
+    real_agent.script = [("delete_branch", {"branch": "a"}, None), ("delete_branch", {"branch": "b"}, off)]
+    _ask_real(env, test_client)
+    assert len(real_agent.called) == 2
+    # The first call ran under Allow all; the second, after the switch went
+    # off, asked (the run's org settings were loaded before it).
+    assert sent == ["delete_branch"]
+    assert _cards(alembic_config, env) == ["delete_branch"]
+
+
+def _sent_to_server(monkeypatch) -> list:
+    """Tool names the MCP client sends to the server (a spy that delegates)."""
+    from app.data_sources.clients.mcp_client import McpClient
+
+    sent = []
+    real_call = McpClient.acall_tool
+
+    async def spy(self, tool_name, *args, **kwargs):
+        sent.append(tool_name)
+        return await real_call(self, tool_name, *args, **kwargs)
+
+    monkeypatch.setattr(McpClient, "acall_tool", spy)
+    return sent
+
+
+def test_real_machine_turns_prompt_and_keep_the_reports_grants(env, test_client, alembic_config, real_agent,
+                                                               monkeypatch):
+    sent = _sent_to_server(monkeypatch)
+    # A wait wake prompts on an ask tool, as a turn the user typed.
+    real_agent.script = [("delete_branch", {"branch": "a"}, None)]
+    _machine_turn_real(env, "wait")
+    assert _cards(alembic_config, env) == ["delete_branch"]
+    assert sent == []
+    # A "for this report" allow applies to a hidden sub-agent turn: it runs
+    # without a card.
+    r = _answer(env, test_client, alembic_config, "mystery_action", approved=True, scope="report")
+    assert r.status_code == 200, r.text
+    before = len(_cards(alembic_config, env))
+    real_agent.script = [("mystery_action", {"x": "1"}, None)]
+    _machine_turn_real(env, "sub_agent")
+    assert real_agent.called[-1].endswith("__mystery_action")
+    assert len(_cards(alembic_config, env)) == before
+    assert sent == ["mystery_action"]
+
+
+def test_real_run_applies_a_cap_from_its_agents(env, test_client, alembic_config, real_agent, create_data_source,
+                                                second_content_url, monkeypatch):
+    sent = _sent_to_server(monkeypatch)
+    capped = create_data_source(
+        name="Capped agent", type="mcp", config={"server_url": second_content_url, "transport": "streamable_http"},
+        credentials={}, user_token=env.token, org_id=env.org_id)
+    r = test_client.put(f"/api/reports/{env.report_id}", headers=env.headers,
+                        json={"data_sources": [env.ds_id, capped["id"]]})
+    assert r.status_code == 200, r.text
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+    real_agent.script = [("delete_branch", {"branch": "a"}, None)]
+    _ask_real(env, test_client)
+    assert _cards(alembic_config, env) == [] and sent == ["delete_branch"]  # control: Allow all, no cap
+
+    r = test_client.put(f"/api/data_sources/{capped['id']}", headers=env.headers, json={"max_permission_mode": "ask"})
+    assert r.status_code == 200, r.text
+    real_agent.script = [("delete_branch", {"branch": "b"}, None)]
+    _ask_real(env, test_client)
+    assert _cards(alembic_config, env) == ["delete_branch"]
+
+
+def _machine_turn_real(env, trigger_source):
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+    from app.services.machine_turn import run_machine_turn
+
+    async def _run():
+        async with async_session_maker() as db:
+            await run_machine_turn(
+                db, report=await db.get(Report, env.report_id), user=await db.get(User, env.user_id),
+                organization=await db.get(Organization, env.org_id), summary="machine turn",
+                trigger_source=trigger_source, message_type=f"{trigger_source}_event", instruction="resume")
+
+    asyncio.run(_run())
