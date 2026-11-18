@@ -395,16 +395,47 @@ def test_reading_a_reply_returns_the_whole_thread():
     assert "Dana: checkout is down" in text and "↳ ▶ [" in text and "Omer: fixed" in text
 
 
+def _history_like_slack(messages):
+    """conversations.history as Slack answers it: messages strictly between
+    oldest and latest (latest defaults to now), NEWEST first, cut at limit."""
+    def history(q):
+        lo = float(q.get("oldest") or 0)
+        hi = float(q.get("latest") or 1e12)
+        inside = sorted((m for m in messages if lo < float(m["ts"]) < hi),
+                        key=lambda m: float(m["ts"]), reverse=True)
+        limit = int(q.get("limit") or 100)
+        return {"ok": True, "messages": inside[:limit], "has_more": len(inside) > limit}
+    return history
+
+
 def test_reading_an_unthreaded_message_shows_its_neighbours():
     fake = FakeSlack()
     ts = "1700000200.000100"
     fake.routes["conversations.replies"] = lambda q: {"ok": True, "messages": [_msg(ts, text="target")]}
-    fake.routes["conversations.history"] = lambda q: {"ok": True, "messages": (
-        [_msg("1700000100.000100", text="before")] if q.get("latest") else [_msg("1700000300.000100", text="after")])}
+    fake.routes["conversations.history"] = _history_like_slack([
+        _msg("1700000100.000100", text="before"), _msg(ts, text="target"), _msg("1700000300.000100", text="after")])
     text = _client(fake).read_file(f"slack:C0SUPPORT1/{ts}")
     body = text.split("\n\n", 1)[1].splitlines()
     assert [l.split(": ", 1)[1] for l in body] == ["before", "target", "after"]
     assert body[1].startswith("▶ ")
+
+
+def test_the_window_shows_what_came_right_after_not_the_channels_latest():
+    """History returns the NEWEST messages of a range first: an old message's
+    "after" must be the ones that followed it, not today's chatter."""
+    import app.data_sources.clients.slack_messages_client as mod
+
+    fake = FakeSlack()
+    ts = 1700000000.0
+    old = [_msg(f"{ts + 60 * i:.6f}", text=f"follow-up {i}") for i in range(1, 6)]
+    today = [_msg(f"{ts + 90 * 86400 + i:.6f}", text=f"today {i}") for i in range(30)]
+    target = _msg(f"{ts:.6f}", text="target")
+    fake.routes["conversations.replies"] = lambda q: {"ok": True, "messages": [target]}
+    fake.routes["conversations.history"] = _history_like_slack([target, *old, *today])
+    text = _client(fake).read_file(f"slack:C0SUPPORT1/{ts:.6f}")
+    after = text.split("▶ ", 1)[1].splitlines()[1:]
+    assert [l.split(": ", 1)[1] for l in after] == [f"follow-up {i}" for i in range(1, 6)]
+    assert len(after) <= mod._WINDOW
 
 
 # --------------------------------------------------------------- test button
@@ -943,3 +974,38 @@ def test_a_locally_filtered_search_with_more_pages_keeps_its_cursor():
     assert out["items"] == [] and out["next_cursor"]
     assert "broadened_query" not in out
     assert [q["query"] for m, q in fake.calls if m == "search.messages"] == ["refund policy"] * 3
+
+
+# -------------------------------------------------------- own review round
+
+
+def test_the_broadened_retry_does_not_re_add_the_in_filters_it_just_dropped():
+    fake = FakeSlack()
+    fake.routes["search.messages"] = lambda q: {"ok": True, "messages": {"matches": [], "paging": {"pages": 1}}}
+    _client(fake, allowed_channels=["C0SUPPORT1", "G0PRIVATE1"], include_direct_messages=False) \
+        .search_messages("refund policy change")
+    queries = [q["query"] for m, q in fake.calls if m == "search.messages"]
+    assert queries[0].startswith("refund policy change in:#")       # scoped first
+    assert queries[1] == "refund policy change"                      # unscoped fallback
+    assert queries[2:] and all("in:#" not in q for q in queries[2:])  # word by word, unscoped too
+
+
+def test_a_capped_conversation_list_says_so():
+    import app.data_sources.clients.slack_messages_client as mod
+
+    fake = FakeSlack()
+    fake.routes["users.conversations"] = lambda q: {"ok": True, "channels": [],
+                                                    "response_metadata": {"next_cursor": "more"}}
+    with pytest.raises(ValueError, match="Only the first"):
+        _client(fake).resolve_conversation("#ops")
+    assert fake.count("users.conversations") == mod._MAX_CONVERSATION_PAGES
+
+
+def test_a_fanout_asks_each_conversation_only_for_rows_it_can_use():
+    import app.data_sources.clients.slack_messages_client as mod
+
+    fake = FakeSlack()
+    fake.routes["conversations.history"] = lambda q: {"ok": True, "has_more": False, "messages": []}
+    _client(fake).list_messages()
+    limits = {q["limit"] for m, q in fake.calls if m == "conversations.history"}
+    assert limits == {str(mod._FANOUT_PAGE)}

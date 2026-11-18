@@ -298,6 +298,7 @@ class SlackMessagesClient(DataSourceClient):
         self._users_lock = threading.Lock()
         self._auth: Optional[dict] = None
         self._conversations: Optional[List[dict]] = None
+        self._conversations_capped = False
         self._users: Dict[str, str] = {}
         self._last_scopes: Optional[Set[str]] = None
         self._expansions_left = _MAX_THREAD_EXPANSIONS
@@ -508,6 +509,8 @@ class SlackMessagesClient(DataSourceClient):
                 cursor = (data.get("response_metadata") or {}).get("next_cursor") or None
                 if not cursor:
                     break
+            else:
+                self._conversations_capped = bool(cursor)
             self._conversations = rows
             return rows
 
@@ -523,7 +526,13 @@ class SlackMessagesClient(DataSourceClient):
             return self._named([row])[0]
         if self.scoped:
             raise ValueError("That Slack conversation is not one of the channels this agent reads.")
-        raise ValueError("That Slack conversation is not one this user is a member of.")
+        raise ValueError("That Slack conversation is not one this user is a member of." + self._cap_note())
+
+    def _cap_note(self) -> str:
+        if not self._conversations_capped:
+            return ""
+        return (f" (Only the first {_MAX_CONVERSATION_PAGES * _PAGE_SIZE:,} of this user's Slack "
+                "conversations could be read; a conversation past that is not reachable here.)")
 
     def _conversation_named(self, text: str) -> Optional[dict]:
         """The visible conversation whose name IS ``text`` (``#x`` or ``x``), if any."""
@@ -566,6 +575,7 @@ class SlackMessagesClient(DataSourceClient):
         reason = "matches several conversations" if loose else "was not found"
         raise ValueError(
             f"Conversation {conversation!r} {reason}. Conversations available here: {names}"
+            + self._cap_note()
         )
 
     # ------------------------------------------------------------- messages
@@ -649,7 +659,7 @@ class SlackMessagesClient(DataSourceClient):
 
     def _history_walk(self, conv: dict, after: Optional[datetime], before: Optional[datetime],
                       sender: Optional[str], n: int, state: dict, max_pages: int,
-                      expand_threads: bool = True) -> Tuple[List[dict], Optional[dict]]:
+                      expand_threads: bool = True, page_size: int = _PAGE_SIZE) -> Tuple[List[dict], Optional[dict]]:
         """Up to ``n`` messages of one conversation, newest first.
 
         Like Teams, a threaded post is followed by its replies (oldest first)
@@ -665,7 +675,7 @@ class SlackMessagesClient(DataSourceClient):
         rows: List[dict] = []
         for _ in range(max_pages):
             data = self._call(
-                "conversations.history", channel=conv["channel_id"], limit=_PAGE_SIZE,
+                "conversations.history", channel=conv["channel_id"], limit=page_size,
                 oldest=_to_ts(after), latest=_to_ts(before), cursor=page_cursor,
             )
             messages = data.get("messages") or []
@@ -743,7 +753,10 @@ class SlackMessagesClient(DataSourceClient):
             # Top-level messages only, every sender: which threads get their
             # replies is decided below, once, over all conversations.
             try:
-                return self._history_walk(conv, after, before, None, _FANOUT_PAGE, {}, 1, expand_threads=False)
+                # One page of just the rows a fan-out can use, so it doesn't
+                # fetch (and name the posters of) 200 messages per conversation.
+                return self._history_walk(conv, after, before, None, _FANOUT_PAGE, {}, 1,
+                                          expand_threads=False, page_size=_FANOUT_PAGE)
             except Exception as exc:
                 logger.warning("slack: listing %s failed: %s", conv["id"], exc)
                 return [], None
@@ -896,16 +909,18 @@ class SlackMessagesClient(DataSourceClient):
         # here rather than by Slack. Return the cursor so the caller keeps
         # paging, instead of replacing it with a broadened, cursor-less search.
         nothing = not result["items"] and not cursor and not result["next_cursor"]
+        in_filters = True
         if nothing and conv is None and len(self._scoped_channel_names()) > 1:
             # Several in:#x filters in one query: if Slack reads them as AND
             # rather than OR, nothing comes back — search everything and keep
             # the allowed channels by id instead.
             result = self._search_walk(q, conv, after, before, n, {}, flt, scoped=False)
             nothing = not result["items"] and not result["next_cursor"]
+            in_filters = False  # the word-by-word retry must not re-add them
         if nothing:
             terms = slack_broadened_terms(q)
             if terms:
-                result = self._search_any(terms, conv, after, before, n, flt)
+                result = self._search_any(terms, conv, after, before, n, flt, scoped=in_filters)
                 result["broadened_query"] = " OR ".join(terms)
         if nothing and not result["items"]:
             named = self._conversation_named(q)
@@ -994,13 +1009,13 @@ class SlackMessagesClient(DataSourceClient):
         return done({"p": page, "o": 0})
 
     def _search_any(self, terms: List[str], conv: Optional[dict], after, before, n: int,
-                    flt: tuple) -> Dict[str, Any]:
+                    flt: tuple, scoped: bool = True) -> Dict[str, Any]:
         """One page per term; messages matching more terms rank first, then
         Slack's own relevance order. Not paged (one bounded pass)."""
         found: Dict[str, Tuple[int, int, dict]] = {}
         rank = 0
         for term in terms:
-            matches, _pages = self._search_page(self._search_query(term, conv, after, before), 1)
+            matches, _pages = self._search_page(self._search_query(term, conv, after, before, scoped=scoped), 1)
             self._name_match_conversations(matches, flt)
             for mt in matches:
                 row = self._match_row(mt, flt)
@@ -1106,13 +1121,26 @@ class SlackMessagesClient(DataSourceClient):
                          f"{self._text(m) or '(no text)'}")
         return "\n".join(lines)
 
+    def _messages_after(self, cid: str, ts: str) -> List[dict]:
+        """The ``_WINDOW`` messages right after ``ts``. ``conversations.history``
+        returns the NEWEST messages of a range first, so ``oldest=ts`` alone
+        would give the channel's latest messages, not the ones that followed.
+        The range is bounded instead and widened until it holds enough."""
+        found: List[dict] = []
+        for span in (3600, 86400, 7 * 86400, 90 * 86400):
+            data = self._call("conversations.history", channel=cid, oldest=ts, inclusive="false",
+                              latest=f"{float(ts) + span:.6f}", limit=_PAGE_SIZE)
+            found = data.get("messages") or []
+            if len(found) >= _WINDOW:
+                break
+        return sorted(found, key=lambda m: float(m.get("ts") or 0))[:_WINDOW]
+
     def _read_window(self, conv: dict, target: dict) -> str:
         """An unthreaded message with the messages right before and after it."""
         cid, ts = conv["channel_id"], str(target["ts"])
         before = self._call("conversations.history", channel=cid, latest=ts, inclusive="false",
                             limit=_WINDOW).get("messages") or []
-        after = self._call("conversations.history", channel=cid, oldest=ts, inclusive="false",
-                           limit=_WINDOW).get("messages") or []
+        after = self._messages_after(cid, ts)
         window = sorted(
             [m for m in before + [target] + after if self._is_user_message(m)],
             key=lambda m: float(m.get("ts") or 0),
