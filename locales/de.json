@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Welt unter Agenten anzeigen"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Dateien suchen…",
@@ -3489,6 +3488,10 @@
         "allow_access_requests": {
           "name": "Zugriffsanfragen zulassen",
           "description": "Lass Mitglieder auf der Seite ohne Zugriff die Bearbeiter eines Dashboards um Lesezugriff bitten. Wenn deaktiviert, nennt die Seite nur den Eigentümer und es können keine neuen Anfragen gesendet werden; bereits gesendete Anfragen bleiben beantwortbar."
+        },
+        "show_world": {
+          "name": "Weltansicht",
+          "description": "Zeigt auf der Agenten-Seite einen Schalter, der die Welt öffnet: eine Karte der Agenten, des Wissens, der Quellen und der Arbeit, die Ihre Organisation verbinden. Jeder Benutzer sieht nur, worauf er Zugriff hat."
         }
       }
     },

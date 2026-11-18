@@ -97,8 +97,7 @@
       "handle": "Referencia"
     },
     "loadAll": "Cargar todo",
-    "stopLoading": "Detener carga",
-    "setting": "Mostrar Mundo en Agentes"
+    "stopLoading": "Detener carga"
   },
   "folderRemoval": {
     "danger": "Zona de peligro",
@@ -3896,6 +3895,10 @@
         "allow_access_requests": {
           "name": "Permitir solicitudes de acceso",
           "description": "Permite que los miembros pidan acceso de lectura a los editores de un panel desde la página de sin acceso. Cuando está desactivado, la página solo indica a quién pedírselo y no se pueden enviar nuevas solicitudes; las ya enviadas siguen pudiéndose responder."
+        },
+        "show_world": {
+          "name": "Vista Mundo",
+          "description": "Muestra en la página de Agentes un interruptor que abre Mundo: un mapa de los agentes, el conocimiento, las fuentes y el trabajo que conectan tu organización. Cada usuario ve solo lo que tiene permiso para ver."
         }
       }
     },

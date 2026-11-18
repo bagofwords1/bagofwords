@@ -18,7 +18,7 @@ def world_cast(test_client, create_user, login_user, whoami, invite_user_to_org)
     member = invite_user_to_org(org_id=org, admin_token=token)
     other = invite_user_to_org(org_id=org, admin_token=token)
     assert test_client.get("/api/world", headers=headers(token, org)).status_code == 404
-    enabled = {"config": {"general": {"show_world": True}}}
+    enabled = {"config": {"show_world": {"value": True}}}
     assert (
         test_client.put("/api/organization/settings", json=enabled, headers=headers(member["token"], org)).status_code
         == 403
@@ -172,7 +172,7 @@ def test_world_tool_layers_respect_user_preferences_and_admin_denial(
     org, admin, aid = ctx["org_id"], ctx["admin_token"], ctx["ds_id"]
     member = invite_user_to_org(org_id=org, admin_token=admin)["token"]
     assert test_client.put(
-        "/api/organization/settings", headers=headers(admin, org), json={"config": {"general": {"show_world": True}}}
+        "/api/organization/settings", headers=headers(admin, org), json={"config": {"show_world": {"value": True}}}
     ).is_success
     tool = _get_tools(test_client, aid, admin, org)["echo"]
 
@@ -235,7 +235,7 @@ def test_folder_hierarchy_respects_direct_grants_and_world_toggle(test_client, w
     assert child in str(child_graph) and parent not in str(child_graph) and suite not in str(child_graph)
     assert (
         test_client.put(
-            "/api/organization/settings", headers=auth, json={"config": {"general": {"show_world": False}}}
+            "/api/organization/settings", headers=auth, json={"config": {"show_world": {"value": False}}}
         ).status_code
         == 200
     )

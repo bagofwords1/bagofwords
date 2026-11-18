@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Mostrar Mundo em Agentes"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Pesquisar arquivos…",
@@ -3489,6 +3488,10 @@
         "allow_access_requests": {
           "name": "Permitir solicitações de acesso",
           "description": "Permite que os membros peçam acesso de leitura aos editores de um painel na página sem acesso. Quando desativado, a página apenas indica o proprietário e não é possível enviar novas solicitações; as já enviadas continuam respondíveis."
+        },
+        "show_world": {
+          "name": "Vista Mundo",
+          "description": "Mostra na página Agentes um botão que abre o Mundo: um mapa dos agentes, do conhecimento, das fontes e do trabalho que ligam a sua organização. Cada utilizador vê apenas aquilo a que tem acesso."
         }
       }
     },
