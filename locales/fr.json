@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites.",
     "connection.query_not_found": "Requête introuvable sur cette connexion.",
     "connection.query_finished": "Cette requête est déjà terminée ({status}).",
-    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps."
+    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps.",
+    "connection.slack_channels_not_slack": "La sélection de canaux n'est disponible que pour les connexions Slack.",
+    "connection.slack_channels_too_many": "{max} canaux au maximum par agent.",
+    "connection.slack_channels_not_ids": "Ce ne sont pas des identifiants de canaux Slack : {ids}",
+    "connection.slack_channels_unavailable": "Slack n'a pas répondu : {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5262,6 +5266,7 @@
       "toastCreated": "Cas de test créé",
       "toastDeleteFailed": "Échec de la suppression du cas de test",
       "saveFailed": "Impossible d'enregistrer le cas de test",
+      "runFailed": "Cas de test enregistré, mais l'exécution n'a pas pu démarrer",
       "emptyDescription": "Les tests évaluent la façon dont vos agents répondent aux prompts et aux règles."
     },
     "filter": {
@@ -7427,5 +7432,30 @@
       "stale": "Le processus qui exécutait cette requête ne répond plus ; sa place a été libérée.",
       "busy": "Aucune place libérée à temps : la connexion était à sa limite de requêtes simultanées."
     }
+  },
+  "slackChannels": {
+    "button": "Canaux",
+    "title": "Canaux Slack de cet agent",
+    "subtitle": "Choisissez les canaux Slack que lit cet agent.",
+    "allChannels": "Tous mes canaux",
+    "allChannelsHint": "Chaque canal dont chaque personne est membre.",
+    "selectedChannels": "Seulement les canaux sélectionnés",
+    "connectRequired": "Connectez-vous avec Slack sur cette connexion pour choisir des canaux.",
+    "searchPlaceholder": "Rechercher des canaux",
+    "notYourChannel": "pas dans votre Slack",
+    "noMatch": "Aucun canal ne correspond.",
+    "selectedCount": "{n} sélectionné(s)",
+    "includeDms": "Inclure les messages directs",
+    "includeDmsHint": "Lire aussi les messages directs et de groupe de chaque personne.",
+    "membershipNote": "Chaque personne ne voit toujours que les canaux dont elle est membre.",
+    "saveFailed": "Impossible d'enregistrer les canaux",
+    "saved": "Canaux enregistrés",
+    "summaryAll": "Lit tous les canaux et les messages directs",
+    "summaryAllNoDms": "Lit tous les canaux, sans messages directs",
+    "summarySome": "Lit {names}",
+    "summarySomeWithDms": "Lit {names} et les messages directs",
+    "loadFailed": "Impossible de charger les canaux de cet agent. Fermez et réessayez.",
+    "privateChannel": "Canal privé",
+    "privateCount": "{n} canal privé | {n} canaux privés"
   }
 }

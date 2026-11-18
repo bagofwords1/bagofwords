@@ -226,6 +226,9 @@ from app.schemas.data_sources.configs import (
     GoogleDriveServiceAccountCredentials,
     GmailConfig,
     GmailCredentials,
+    # Slack
+    SlackMessagesConfig,
+    SlackCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
     # Teradata
@@ -2560,6 +2563,37 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         catalog_ownership="per_user",
         ui_form="integration",
         catalog_nouns=("message", "messages"),
+    ),
+    "slack_messages": DataSourceRegistryEntry(
+        type="slack_messages",
+        category="services",
+        title="Slack",
+        description="Search and read Slack channels and DMs, live, with each user's own access — nothing is copied or indexed.",
+        config_schema=SlackMessagesConfig,
+        credentials_auth=AuthOptions(
+            default="oauth_app",
+            by_auth={
+                "oauth_app": AuthVariant(
+                    title="Slack App (OAuth)",
+                    schema=SlackCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Slack",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        # Messages reuse the file-payload transport internally (like Teams);
+        # capability gating exposes the chat-named agent tools instead.
+        client_path="app.data_sources.clients.slack_messages_client.SlackMessagesClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="per_user",
+        ui_form="integration",
+        catalog_nouns=("message", "messages"),
+        dev_only=True,
     ),
     "gmail_mail": DataSourceRegistryEntry(
         type="gmail_mail",
