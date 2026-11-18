@@ -63,6 +63,13 @@ REFUSED = [
     "SELECT json_transform(note, note) FROM public.orders",
     "SELECT json_transform('{}', '{not json')",
     "SELECT json_transform('{}', '\"INTEGER) FROM __t0001.public.orders --\"')",
+    "SELECT ('null').json_transform('\"__t0001.public.secret_plan\"')",
+    "SELECT 'null'.json_transform('\"__t0001.public.secret_plan\"')",
+    "SELECT ('null'::VARCHAR).from_json('\"__t0001.public.secret_plan\"')",
+    "SELECT note.from_json('\"__t0001.public.secret_plan\"') FROM public.orders",
+    "SELECT o.note.json_transform_strict('{\"a\": \"__t0002.public.x\"}') FROM public.orders o",
+    "SELECT note.from_json_strict(note) FROM public.orders",
+    "SELECT json_transform('null', '{\"a\": \"__t0004.public.x\", \"a\": \"INTEGER\"}')",
     "SET search_path = '__t0004.public'",
     "SET search_path = '__t0004.public'; SELECT * FROM public.orders",
     "SELECT * FROM public.orders; SELECT * FROM public.users",
@@ -110,6 +117,8 @@ ALLOWED = [
     "SELECT from_json(note, '\"memory.main.mood\"') FROM public.orders",
     "SELECT * FROM public.orders UNION ALL SELECT * FROM public.orders",
     "(SELECT 1)",
+    "SELECT ('null').json_transform('\"INTEGER\"')",
+    "SELECT note.from_json('{\"a\": \"VARCHAR\"}') FROM public.orders",
 ]
 
 

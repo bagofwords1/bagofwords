@@ -530,6 +530,10 @@ def _catalog_qualified_types(stmt: exp.Expression) -> list[str]:
 _JSON_STRUCTURE_FUNCTIONS = {"json_transform", "json_transform_strict", "from_json", "from_json_strict"}
 
 
+def _all_values(pairs: list[tuple[str, object]]) -> list[object]:
+    return [value for _, value in pairs]
+
+
 def _json_leaves(value):
     if isinstance(value, str):
         yield value
@@ -556,14 +560,18 @@ def _json_leaf_types(leaf: str) -> list[str]:
 def _json_structure_types(stmt: exp.Expression) -> list[str]:
     names = []
     for fn in stmt.find_all(exp.Anonymous):
-        if str(fn.name).lower() not in _JSON_STRUCTURE_FUNCTIONS or len(fn.expressions) < 2:
+        if str(fn.name).lower() not in _JSON_STRUCTURE_FUNCTIONS:
             continue
-        structure = fn.expressions[1]
+        method_call = isinstance(fn.parent, exp.Dot) and fn.parent.expression is fn
+        position = 0 if method_call else 1
+        if len(fn.expressions) <= position:
+            continue
+        structure = fn.expressions[position]
         if not (isinstance(structure, exp.Literal) and structure.is_string):
             names.append(f"{fn.name} with a structure that is not a literal")
             continue
         try:
-            leaves = list(_json_leaves(json.loads(structure.this)))
+            leaves = list(_json_leaves(json.loads(structure.this, object_pairs_hook=_all_values)))
         except ValueError:
             names.append(f"{fn.name} with a structure that is not JSON")
             continue
