@@ -44,7 +44,7 @@
                         <span class="min-w-0">
                             <span class="block text-gray-800 dark:text-gray-100">
                                 {{ $t(`prompt.permissionMode.modes.${m}.label`) }}
-                                <span v-if="!unknown && m === orgDefault" class="text-gray-400">· {{ $t('prompt.permissionMode.default') }}</span>
+                                <span v-if="!unknown && m === orgDefault" class="text-ink-muted">· {{ $t('prompt.permissionMode.default') }}</span>
                             </span>
                             <span class="block text-gray-500 dark:text-gray-400 leading-snug">{{ $t(`prompt.permissionMode.modes.${m}.hint`) }}</span>
                         </span>
@@ -66,6 +66,8 @@ const props = defineProps<{
     modelValue: Mode | null
     orgDefault: Mode
     allowAllEnabled: boolean
+    // The strictest cap among the report's agents (ask | auto), else null.
+    agentCap?: 'ask' | 'auto' | null
     // The org settings failed to load: the default and the switch are unknown.
     unknown?: boolean
     compact?: boolean
@@ -81,11 +83,13 @@ const options = computed<Mode[]>(() => (props.allowAllEnabled ? ['ask', 'auto', 
 // the default and the switch are.
 const shown = computed<Mode[]>(() => (props.unknown ? ['ask'] : options.value))
 
-// What the next run will use. Allow all without the switch acts as Ask, the
-// same rule the server applies.
+// What the next run will use. Allow all without the switch acts as Ask, and
+// an agent's cap lowers the mode to it: the same rules the server applies.
+const RANK: Record<Mode, number> = { ask: 0, auto: 1, allow_all: 2 }
 const effective = computed<Mode>(() => {
-    const m = props.modelValue || props.orgDefault || 'ask'
-    return m === 'allow_all' && !props.allowAllEnabled ? 'ask' : m
+    const picked = props.modelValue || props.orgDefault || 'ask'
+    const m: Mode = picked === 'allow_all' && !props.allowAllEnabled ? 'ask' : picked
+    return props.agentCap && RANK[props.agentCap] < RANK[m] ? props.agentCap : m
 })
 
 // Never the Ask label for a mode nobody knows: the server may run Allow all.
@@ -115,7 +119,7 @@ const chipClass = computed(() => {
 })
 
 function iconClass(m: Mode) {
-    return m === 'allow_all' ? 'text-amber-500' : m === 'auto' ? 'text-blue-500' : 'text-gray-400'
+    return m === 'allow_all' ? 'text-amber-500' : m === 'auto' ? 'text-blue-500' : 'text-ink-muted'
 }
 
 // Picking the org's default mode clears the report's own choice, so the

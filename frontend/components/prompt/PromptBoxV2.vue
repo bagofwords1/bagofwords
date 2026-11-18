@@ -624,6 +624,7 @@
                         :model-value="permissionMode"
                         :org-default="orgPermissionDefault"
                         :allow-all-enabled="allowAllEnabled"
+                        :agent-cap="agentPermissionCap"
                         :unknown="permissionSettingsFailed"
                         :compact="isCompactPrompt"
                         @update:model-value="selectPermissionMode"
@@ -897,6 +898,7 @@ const canCreateInstructions = computed(() => canManageInstructionsForSelectedAge
 
 const { t, locale } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const text = ref('')
 const composerInputAreaRef = ref<HTMLElement | null>(null)
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
@@ -1331,12 +1333,22 @@ const orgPermissionDefault = ref<PermissionMode>('ask')
 const allowAllEnabled = ref(false)
 // The org settings failed to load: the default and the switch are unknown.
 const permissionSettingsFailed = ref(false)
+// The strictest cap among the report's agents (ask | auto), else null. The
+// run applies the strictest cap of its agents, so the chip and the banner
+// show the capped mode. An Auto report has no agents attached here: no cap
+// is shown for it.
+const agentPermissionCap = computed<'ask' | 'auto' | null>(() => {
+    const caps = (selectedDataSources.value || []).map((ds: any) => ds?.max_permission_mode)
+    return caps.includes('ask') ? 'ask' : caps.includes('auto') ? 'auto' : null
+})
 // The banner follows the mode the next run uses: the report's own, else the
 // default. Never in a scheduled task's editor (persistSelection off): it edits
 // no report, and its runs are unattended. If the settings failed to load, a
 // report's own Allow all still shows it.
 const allowAllActive = computed(() => {
     if (!props.persistSelection) return false
+    // An agent of the report caps the mode below Allow all (the run applies it).
+    if (agentPermissionCap.value) return false
     if (permissionSettingsFailed.value) return permissionMode.value === 'allow_all'
     return (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value
 })
@@ -1345,44 +1357,54 @@ const allowAllActive = computed(() => {
 // a pick made while one is in flight is sent after it, so the server applies
 // them in the order they were made and only the latest pick decides the chip.
 let confirmedPermissionMode: PermissionMode | null = permissionMode.value
-let permissionSaveInFlight = false
 let permissionSavePending = false
+// The saves in flight, as one promise: true when the last pick was saved.
+// A prompt sent meanwhile waits for it (the run reads the stored mode), and
+// is not sent if the save failed.
+let permissionSaveLoop: Promise<boolean> | null = null
 
 function selectPermissionMode(m: PermissionMode | null) {
     permissionMode.value = m
     persistPermissionMode()
 }
 
-async function persistPermissionMode() {
+function persistPermissionMode() {
     // Landing page: there is no report yet; the choice rides on the create call.
     if (!props.report_id || !props.persistSelection) return
-    if (permissionSaveInFlight) {
+    if (permissionSaveLoop) {
         permissionSavePending = true
         return
     }
-    permissionSaveInFlight = true
-    try {
-        do {
-            permissionSavePending = false
-            const wanted = permissionMode.value
-            const { error } = await useMyFetch(`/reports/${props.report_id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ permission_mode: wanted || '' })
-            })
-            if (!error?.value) {
-                confirmedPermissionMode = wanted
-            } else if (!permissionSavePending) {
-                // e.g. Allow all was switched off for the org meanwhile: show
-                // the mode the server will actually use. (A newer pick still
-                // to be sent decides instead.)
-                permissionMode.value = confirmedPermissionMode
-                toast.add({ title: t('prompt.permissionMode.saveFailed'), color: 'red' })
-            }
-        } while (permissionSavePending)
-    } finally {
-        permissionSaveInFlight = false
-    }
+    permissionSaveLoop = savePermissionModes().finally(() => { permissionSaveLoop = null })
+}
+
+async function savePermissionModes(): Promise<boolean> {
+    let saved = true
+    do {
+        permissionSavePending = false
+        const wanted = permissionMode.value
+        const { error } = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ permission_mode: wanted || '' })
+        })
+        saved = !error?.value
+        if (saved) {
+            confirmedPermissionMode = wanted
+        } else if (!permissionSavePending) {
+            // e.g. Allow all was switched off for the org meanwhile: show
+            // the mode the server will actually use. (A newer pick still
+            // to be sent decides instead.)
+            permissionMode.value = confirmedPermissionMode
+            toast.add({ title: t('prompt.permissionMode.saveFailed'), description: getErrorMessage(error.value), color: 'red' })
+        }
+    } while (permissionSavePending)
+    return saved
+}
+
+// Wait for a mode switch still being saved; false if that save failed.
+async function permissionModeSettled(): Promise<boolean> {
+    return permissionSaveLoop ? await permissionSaveLoop : true
 }
 
 // Legacy popper (for current Nuxt UI stable)
@@ -2002,6 +2024,15 @@ async function submit() {
     if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return
     if (isSubmitting.value || !canSubmit.value) return
     if (isListening.value) abortVoiceInput()
+
+    // A permission-mode switch still being saved: the run reads the stored
+    // mode, so wait for it; if it failed (its toast says so) send nothing.
+    if (props.report_id && permissionSaveLoop) {
+        isSubmitting.value = true
+        const saved = await permissionModeSettled()
+        isSubmitting.value = false
+        if (!saved || !canSubmit.value) return
+    }
 
     // A completion is running: Enter/arrow adds the prompt to the queue
     // instead of starting (or clobbering) a run.
