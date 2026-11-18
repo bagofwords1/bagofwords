@@ -268,9 +268,9 @@
 								<div class="group/usermsg relative flex flex-col items-end max-w-[85%] w-full ms-auto">
 									<!-- Steering badge: this message was injected into a running completion.
 									     Flips to the applied state when the agent acks pickup. -->
-									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 mb-0.5 text-chat-3" :class="(m as any).steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
-										<Icon :name="(m as any).steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
-										<span>{{ (m as any).steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
+									<div v-if="m.message_type === 'steering'" class="flex items-center gap-1 mb-0.5 text-chat-3" :class="isSteerApplied(m as any) ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+										<Icon :name="isSteerApplied(m as any) ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+										<span>{{ isSteerApplied(m as any) ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 									</div>
 									<div class="flex items-start gap-2 w-full">
 										<!-- User message bubble -->
@@ -351,14 +351,13 @@
 										/>
 										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution) }">
-											<!-- Steering messages interleave into the block stream at the
-											     moment they arrived: before the first block that started
-											     after them. -->
+											<!-- Steering messages interleave into the block stream right
+											     above the step that picked them up (useSteerPlacement.ts). -->
 											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
 												<div class="flex flex-col items-end max-w-[85%]">
-													<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
-														<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
-														<span>{{ s.steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
+													<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="isSteerApplied(s) ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+														<Icon :name="isSteerApplied(s) ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+														<span>{{ isSteerApplied(s) ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 													</div>
 													<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
 														<CollapsiblePrompt v-if="s.prompt?.content" class="pt-1">
@@ -510,12 +509,12 @@
 
 																	</div>
 
-										<!-- Steering messages newer than every block: render after the stream tail -->
+										<!-- Steering messages whose step has not arrived yet: after the stream tail -->
 										<div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
 											<div class="flex flex-col items-end max-w-[85%]">
-												<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="s.steering_applied ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
-													<Icon :name="s.steering_applied ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
-													<span>{{ s.steering_applied ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
+												<div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="isSteerApplied(s) ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+													<Icon :name="isSteerApplied(s) ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+													<span>{{ isSteerApplied(s) ? responseT('reportView.steeringApplied') : responseT('reportView.steered') }}</span>
 												</div>
 												<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
 													<CollapsiblePrompt v-if="s.prompt?.content" class="pt-1">
@@ -1170,6 +1169,7 @@ import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
@@ -1391,6 +1391,10 @@ interface ChatMessage {
 	_render_key?: string
 	// true once the agent acked pickup (completion.steering.applied SSE)
 	steering_applied?: boolean
+	// Persisted pickup point: the first loop step that acted on the steer.
+	// The bubble renders above that step (useSteerPlacement.ts).
+	steering_applied_at?: string | null
+	steering_loop_index?: number | null
 }
 
 const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
@@ -1568,36 +1572,30 @@ function visibleBlocks(m: ChatMessage): any[] {
 }
 
 // Steering messages targeted at a given system completion
+// (grouped once per change, not rescanned per system message)
+const steersByParent = computed(() => groupSteersByParent(messages.value))
 function steeringForSystem(m: ChatMessage): ChatMessage[] {
-	const sysId = String(m.system_completion_id || m.id)
-	return messages.value.filter(s => s.message_type === 'steering' && String(s.parent_id) === sysId)
+	return steersByParent.value.get(String(m.system_completion_id || m.id)) || []
 }
 
-const _steerTs = (v: any) => (v ? new Date(v).getTime() : 0)
-// Server timestamps first; fall back to the client arrival stamp set in
-// block.upsert so a freshly-streamed skeleton block (timestamps not yet
-// serialized) never compares as epoch-0 "older than the steer".
-const _blockStart = (b: any) => _steerTs(b?.started_at || b?.created_at || b?._client_arrived_at)
+// One slot per steer, per turn: above the step that picked it up, or by send
+// time while still pending (policy in useSteerPlacement.ts).
+const steerPlacements = computed(() => {
+	const out = new Map<string, ReturnType<typeof placeSteers<ChatMessage>>>()
+	for (const m of messages.value) {
+		if (m.role !== 'system') continue
+		const steers = steeringForSystem(m)
+		if (steers.length) out.set(String(m.id), placeSteers(steers, visibleBlocks(m)))
+	}
+	return out
+})
 
-// Steers that arrived before the given block started (and after the previous
-// block started) — rendered between the two, where they actually happened.
 function steersBeforeBlock(m: ChatMessage, blockIndex: number): ChatMessage[] {
-	const steers = steeringForSystem(m)
-	if (!steers.length) return []
-	const blocks = visibleBlocks(m)
-	const lo = blockIndex === 0 ? -Infinity : _blockStart(blocks[blockIndex - 1])
-	const hi = _blockStart(blocks[blockIndex])
-	return steers.filter(s => { const t = _steerTs(s.created_at); return t > lo && t <= hi })
+	return steerPlacements.value.get(String(m.id))?.before.get(blockIndex) || []
 }
 
-// Steers newer than every block's start — rendered after the stream tail
 function steersAfterLastBlock(m: ChatMessage): ChatMessage[] {
-	const steers = steeringForSystem(m)
-	if (!steers.length) return []
-	const blocks = visibleBlocks(m)
-	if (!blocks.length) return []
-	const lastStart = _blockStart(blocks[blocks.length - 1])
-	return steers.filter(s => _steerTs(s.created_at) > lastStart)
+	return steerPlacements.value.get(String(m.id))?.tail || []
 }
 
 // ---------------------------------------------------------------------------
@@ -3928,9 +3926,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'completion.steering.applied':
 			// The agent picked up steering message(s): flip their badge from
 			// "Steered" to the applied state so the user sees the ack.
+			// The ack also carries the step that picked them up, so the bubble
+			// moves above that step live, not only after a reload.
 			for (const sid of (payload?.ids || [])) {
 				const sm = messages.value.find(m => String(m.id) === String(sid))
-				if (sm) (sm as any).steering_applied = true
+				if (sm) {
+					sm.steering_applied = true
+					if (typeof payload?.loop_index === 'number') sm.steering_loop_index = payload.loop_index
+					if (payload?.applied_at) sm.steering_applied_at = payload.applied_at
+				}
 			}
 			break
 
@@ -4965,6 +4969,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				// 'steering' for messages injected into a running completion
 				message_type: c.message_type || null,
 				parent_id: c.parent_id || null,
+				steering_applied_at: c.steering_applied_at || null,
+				steering_loop_index: c.steering_loop_index ?? null,
 				// Webhook / machine event entry fields
 				external_platform: c.external_platform || null,
 				webhook_id: c.webhook_id || null,
@@ -5217,6 +5223,10 @@ async function loadPreviousCompletions() {
                 files: c.files || [],
                 scheduled_prompt_id: c.scheduled_prompt_id || null,
                 message_type: c.message_type || null,
+                // Steering rows render inside their parent turn
+                parent_id: c.parent_id || null,
+                steering_applied_at: c.steering_applied_at || null,
+                steering_loop_index: c.steering_loop_index ?? null,
                 completion: c.completion,
                 // Webhook / machine event entry fields
                 external_platform: c.external_platform || null,
@@ -5727,15 +5737,16 @@ async function onSteerQueuedPrompt(queuedId: string) {
 			const idx = messages.value.findIndex(m => m.id === queuedId)
 			if (idx !== -1) {
 				const newMessages = [...messages.value]
-				// created_at moves to now (naive-UTC, matching the server's
-				// promotion bump) so the bubble interleaves at steer time,
-				// not at the original queue time.
+				// created_at moves to the server's promotion time so the pending
+				// bubble interleaves at steer time, not at the original queue
+				// time. The server clock, not this browser's: blocks carry server
+				// timestamps, and a skewed client clock would misplace it.
 				newMessages[idx] = {
 					...newMessages[idx],
 					status: 'success' as ChatStatus,
 					message_type: 'steering',
 					parent_id: systemId,
-					created_at: new Date().toISOString().replace('Z', ''),
+					created_at: r.created_at || newMessages[idx].created_at,
 				}
 				messages.value = newMessages
 				forceScrollToBottom()

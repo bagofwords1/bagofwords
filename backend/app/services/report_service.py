@@ -4337,6 +4337,9 @@ class ReportService:
             block_data = {
                 "id": b.id,
                 "block_index": b.block_index,
+                # Steers render above the first block with loop_index >= the
+                # steer's steering_loop_index.
+                "loop_index": b.loop_index,
                 "status": b.status,
                 "content": redact_text_display(b.content),
                 "reasoning": redact_text_display(b.reasoning),
@@ -4408,6 +4411,12 @@ class ReportService:
                 "prompt": redact_prompt_display(without_request_metadata(c.prompt)) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
+                # Steering rows ("Send now" while the agent ran) render inside
+                # their parent turn, above the step that picked them up.
+                "message_type": c.message_type,
+                "parent_id": c.parent_id,
+                "steering_applied_at": c.steering_applied_at.isoformat() if c.steering_applied_at else None,
+                "steering_loop_index": c.steering_loop_index,
             }
             sanitized_completions.append(completion_data)
         

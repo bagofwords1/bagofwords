@@ -127,7 +127,27 @@
                                 <div class="flex-1 min-w-0 md:ms-4">
                                     <div>
                                         <!-- Render each completion block -->
-                                        <div v-for="block in timelineBlocks(m)" :key="block.id">
+                                        <div v-for="(block, blockIndex) in timelineBlocks(m)" :key="block.id">
+                                            <!-- Steering messages ("Send now" while the agent ran) sit
+                                                 right above the step that picked them up
+                                                 (useSteerPlacement.ts, shared with the report view). -->
+                                            <div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+                                                <div class="flex flex-col items-end max-w-[85%]">
+                                                    <div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="isSteerApplied(s) ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+                                                        <Icon :name="isSteerApplied(s) ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+                                                        <span>{{ isSteerApplied(s) ? i18nT('reportView.steeringApplied') : i18nT('reportView.steered') }}</span>
+                                                    </div>
+                                                    <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
+                                                        <div v-if="s.prompt?.content" class="pt-1 markdown-wrapper">
+                                                            <InstructionText
+                                                                :text="s.prompt.content"
+                                                                :references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
+                                                                :prose="true"
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -227,6 +247,24 @@
                                             </div>
                                             </div>
                                         </div>
+                                        <!-- Steering messages whose step never ran (e.g. the run stopped): after the last step -->
+                                        <div v-for="s in steersAfterLastBlock(m)" :key="'steer-tail-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
+                                            <div class="flex flex-col items-end max-w-[85%]">
+                                                <div class="flex items-center gap-1 mb-0.5 text-chat-3" :class="isSteerApplied(s) ? 'text-green-600 dark:text-green-400' : 'text-amber-500'" data-testid="steering-badge">
+                                                    <Icon :name="isSteerApplied(s) ? 'heroicons-check-circle-solid' : 'heroicons-bolt-solid'" class="w-3 h-3" />
+                                                    <span>{{ isSteerApplied(s) ? i18nT('reportView.steeringApplied') : i18nT('reportView.steered') }}</span>
+                                                </div>
+                                                <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start border border-amber-200 dark:border-amber-900/60" :dir="promptDir(s.prompt?.content)">
+                                                    <div v-if="s.prompt?.content" class="pt-1 markdown-wrapper">
+                                                        <InstructionText
+                                                            :text="s.prompt.content"
+                                                            :references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
+                                                            :prose="true"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <!-- Knowledge harness: the post-analysis reflection sub-loop
@@ -270,6 +308,7 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
+import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
 import { useChatDisplay } from '~/composables/useChatDisplay'
 import Spinner from '~/components/Spinner.vue'
@@ -412,13 +451,67 @@ const conversation = ref<any>({
 // either; this guard keeps a stale payload or a future role from putting empty
 // bubbles back on the page.
 // ---------------------------------------------------------------------------
-const visibleCompletions = computed<any[]>(() =>
-    (conversation.value?.completions || []).filter((m: any) => {
-        if (m?.role === 'user') return true
+const visibleCompletions = computed<any[]>(() => {
+    const rows = (conversation.value?.completions || []).filter((m: any) => {
+        // A steer renders inside its parent turn's step stream (see
+        // steersBeforeBlock); it stays a standalone bubble only when that turn
+        // has no steps to sit between or is not on this page.
+        if (m?.role === 'user') return !inlineSteerIds.value.has(String(m.id))
         if (m?.role !== 'system') return false
         return (m.completion_blocks?.length || 0) > 0 || m.status === 'stopped' || m.status === 'error'
     })
-)
+    // A standalone steer whose turn is on the page goes right above that turn
+    // (it was sent into it), as on the report view — not after it by send time.
+    const shown = new Set(rows.map((m: any) => String(m.id)))
+    const hoisted = new Map<string, any[]>()
+    const isHoisted = (m: any) => m?.message_type === 'steering' && m.parent_id && shown.has(String(m.parent_id))
+    for (const m of rows) {
+        if (!isHoisted(m)) continue
+        const list = hoisted.get(String(m.parent_id))
+        list ? list.push(m) : hoisted.set(String(m.parent_id), [m])
+    }
+    const out: any[] = []
+    for (const m of rows) {
+        if (isHoisted(m)) continue
+        if (m.role === 'system') out.push(...(hoisted.get(String(m.id)) || []))
+        out.push(m)
+    }
+    return out
+})
+
+// ---------------------------------------------------------------------------
+// Steering messages ("Send now" while the agent ran). Same placement as the
+// report view (useSteerPlacement.ts): right above the step that picked the
+// steer up, or by send time when it was never picked up.
+// ---------------------------------------------------------------------------
+const steersByParent = computed(() => groupSteersByParent(conversation.value?.completions || []))
+
+const steerPlacements = computed(() => {
+    const out = new Map<string, ReturnType<typeof placeSteers<any>>>()
+    for (const c of conversation.value?.completions || []) {
+        if (c?.role !== 'system') continue
+        const steers = steersByParent.value.get(String(c.id))
+        if (steers?.length) out.set(String(c.id), placeSteers(steers, timelineBlocks(c)))
+    }
+    return out
+})
+
+const inlineSteerIds = computed(() => {
+    const ids = new Set<string>()
+    for (const { before, tail } of steerPlacements.value.values()) {
+        for (const list of before.values()) for (const s of list) ids.add(String(s.id))
+        for (const s of tail) ids.add(String(s.id))
+    }
+    return ids
+})
+
+function steersBeforeBlock(m: any, blockIndex: number): any[] {
+    return steerPlacements.value.get(String(m.id))?.before.get(blockIndex) || []
+}
+
+function steersAfterLastBlock(m: any): any[] {
+    return steerPlacements.value.get(String(m.id))?.tail || []
+}
 
 // Prompt bubbles take the direction of their own words (a nested
 // `dir="auto"` pair resolves LTR — see docs/design/i18n.md "Content
@@ -427,7 +520,7 @@ const visibleCompletions = computed<any[]>(() =>
 function promptDir(text?: string | null): TextDir | 'auto' {
     return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
 }
-const { locale: uiLocale } = useI18n({ useScope: 'global' })
+const { t: i18nT, locale: uiLocale } = useI18n({ useScope: 'global' })
 const replyDirHints = computed(() => {
     const hints = new Map<string, TextDir>()
     let last: TextDir | null = null
@@ -511,10 +604,16 @@ function _groupingFor(m: any) {
     // sitting between two chip-class steps would otherwise break a run that
     // reads as continuous on screen.
     const blocks = timelineBlocks(m)
-    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}`).join(",")}`
+    const steerSlots = steerPlacements.value.get(String(m.id))?.before
+    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}`).join(",")}:${[...(steerSlots?.keys() || [])].join(",")}`
     const hit = _groupingCache.get(String(m.id))
     if (hit && hit.key === key) return hit.grouping
-    const grouping = computeBlockGroups(blocks, { executionStatus: m.status })
+    // A steering bubble above a block forces a group boundary so it never
+    // lands inside a folded run (same rule as the report view).
+    const grouping = computeBlockGroups(blocks, {
+        executionStatus: m.status,
+        breakBefore: (b: any) => !!steerSlots?.has(blocks.indexOf(b)),
+    })
     _groupingCache.set(String(m.id), { key, grouping })
     return grouping
 }
