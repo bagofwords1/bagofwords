@@ -177,7 +177,7 @@ def test_callers_waiting_on_a_build_that_attached_nothing_reuse_its_result(monke
     monkeypatch.setattr(engine_module, "build_engine", empty_build)
     results: list = []
     callers = [
-        threading.Thread(target=lambda: results.append(get_engine(CONN, VIEWS, connection_id="c1")))
+        threading.Thread(target=lambda: results.append(get_engine(CONN, VIEWS, connection_id="c1").attached))
         for _ in range(4)
     ]
     callers[0].start()
@@ -190,6 +190,7 @@ def test_callers_waiting_on_a_build_that_attached_nothing_reuse_its_result(monke
         t.join()
 
     assert len(builds) == 1
-    assert len({id(e) for e in results}) == 1
-    assert get_engine(CONN, VIEWS, connection_id="c1") is not results[0]
+    assert results == [False] * 4
+    release.set()
+    get_engine(CONN, VIEWS, connection_id="c1")
     assert len(builds) == 2

@@ -4,7 +4,6 @@ import logging
 import os
 import re
 import threading
-import weakref
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from time import monotonic
@@ -331,7 +330,8 @@ _build_locks: dict[_CacheKey, threading.Lock] = {}
 _building: dict[_CacheKey, object] = {}
 _forced_rebuilds: dict[_CacheKey, float] = {}
 _finished_builds: dict[_CacheKey, int] = {}
-_last_builds: dict[_CacheKey, weakref.ref] = {}
+_last_builds: dict[_CacheKey, TenantEngine] = {}
+_waiting: dict[_CacheKey, int] = {}
 
 
 def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKey:
@@ -369,43 +369,53 @@ def get_engine(
     with _cache_lock:
         build_lock = _build_locks.setdefault(key, threading.Lock())
         seen_builds = _finished_builds.get(key, 0)
-    with build_lock:
-        token = object()
+        _waiting[key] = _waiting.get(key, 0) + 1
+    try:
+        with build_lock:
+            return _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds)
+    finally:
         with _cache_lock:
-            _drop_expired(monotonic())
-            cached = _cache.get(key)
-            if not cached and _finished_builds.get(key, 0) != seen_builds:
-                last = _last_builds.get(key)
-                last_engine = last() if last else None
-                if last_engine is not None:
-                    cached = (last_engine, 0.0)
-            if not cached:
-                _building[key] = token
-        if cached:
-            engine = cached[0]
-            was_degraded = engine.degraded
-            engine.ensure_views(views)
-            if engine.degraded and not was_degraded:
-                with _cache_lock:
-                    if key in _cache:
-                        _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
-            return engine
-        try:
-            engine = build_default_engine(conn, views, tenants=all_tenants)
-        except BaseException:
+            _waiting[key] = _waiting.get(key, 1) - 1
+            if _waiting[key] <= 0:
+                _waiting.pop(key, None)
+                _last_builds.pop(key, None)
+
+
+def _cached_or_built(conn, views, ttl_seconds, all_tenants, key, seen_builds) -> TenantEngine:
+    token = object()
+    with _cache_lock:
+        _drop_expired(monotonic())
+        cached = _cache.get(key)
+        if not cached and _finished_builds.get(key, 0) != seen_builds and key in _last_builds:
+            cached = (_last_builds[key], 0.0)
+        if not cached:
+            _building[key] = token
+    if cached:
+        engine = cached[0]
+        was_degraded = engine.degraded
+        engine.ensure_views(views)
+        if engine.degraded and not was_degraded:
             with _cache_lock:
-                if _building.get(key) is token:
-                    del _building[key]
-            raise
+                if key in _cache:
+                    _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
+        return engine
+    try:
+        engine = build_default_engine(conn, views, tenants=all_tenants)
+    except BaseException:
         with _cache_lock:
             if _building.get(key) is token:
                 del _building[key]
-                _finished_builds[key] = _finished_builds.get(key, 0) + 1
-                _last_builds[key] = weakref.ref(engine)
-                if engine.attached:
-                    engine.cache_key = key
-                    _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
-        return engine
+        raise
+    with _cache_lock:
+        if _building.get(key) is token:
+            del _building[key]
+            _finished_builds[key] = _finished_builds.get(key, 0) + 1
+            if engine.attached:
+                engine.cache_key = key
+                _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
+            elif _waiting.get(key, 0) > 1:
+                _last_builds[key] = engine
+    return engine
 
 
 def forced_rebuild_allowed(last: float | None, now: float) -> bool:
@@ -431,6 +441,6 @@ def evict_engine(engine: TenantEngine) -> bool:
 def invalidate_engines(connection_id: str | None = None) -> None:
     # Engines are dropped, not closed: queries still running on their cursors keep them alive.
     with _cache_lock:
-        for registry in (_cache, _build_locks, _building, _forced_rebuilds, _finished_builds, _last_builds):
+        for registry in (_cache, _build_locks, _building, _forced_rebuilds, _finished_builds, _last_builds, _waiting):
             for key in [k for k in registry if connection_id is None or k[0] == connection_id]:
                 del registry[key]
