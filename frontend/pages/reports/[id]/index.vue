@@ -382,7 +382,7 @@
 													</div>
 												</div>
 											</div>
-											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
+											<div v-if="isRunBlockShown(m, block)" :data-block-id="block.id" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
 											<!-- Live ticker for a run of low-signal tool steps: one line that
 											     morphs in place while the run works (crossfade between step
 											     labels), then settles into a compact summary; click expands
@@ -3823,6 +3823,67 @@ function getAttachedImages(message: ChatMessage) {
 
 // Image preview modal
 const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)
+
+// ---------------------------------------------------------------------------
+// The moment of folding. A run folds when its final message completes, which
+// removes everything above the answer in one frame. Measured on a long run:
+// - answer off screen (the turn is pinned, the reader never scrolled): it
+//   comes up right under the question — fine, nothing to hold;
+// - answer on screen (the reader followed it down): the browser's own scroll
+//   anchoring keeps most of it in place, but once the page is shorter than the
+//   reader's scroll position the answer jumps up by what cannot be absorbed
+//   (about 170px in the measurement), and Safari has no scroll anchoring.
+// So when the answer was on screen, keep its first line where it was (by
+// scrolling, unless the turn pin owns the scroll), and slide the remainder up
+// over 220ms instead of jumping. A report opened already finished, or folding
+// for any other reason than its run finishing here, is left alone.
+// ---------------------------------------------------------------------------
+const FOLD_SETTLE_MS = 220
+// Runs already folded when the transcript loaded are not "folding now".
+let foldedRunsSeen: Set<string> | null = null
+watch(completionsLoaded, (loaded) => {
+	foldedRunsSeen = loaded ? new Set(runActivities.value.keys()) : null
+}, { immediate: true, flush: 'sync' })
+watch(
+	() => [...runActivities.value.keys()].join(','),
+	(keyList) => {
+		const keys = keyList ? keyList.split(',') : []
+		const previous = foldedRunsSeen
+		if (previous === null) return
+		foldedRunsSeen = new Set(keys)
+		const container = scrollContainer.value
+		if (!container || typeof window === 'undefined') return
+		const view = container.getBoundingClientRect()
+		for (const id of keys) {
+			if (previous.has(id)) continue
+			const fold = runActivities.value.get(id)
+			const firstAnswerId = fold?.answerIds?.[0] ?? fold?.finalBlockId
+			const el = firstAnswerId ? container.querySelector(`[data-block-id="${CSS.escape(String(firstAnswerId))}"]`) as HTMLElement | null : null
+			if (!el) continue
+			const rect = el.getBoundingClientRect()
+			if (rect.top >= view.bottom || rect.bottom <= view.top) continue
+			const before = rect.top
+			nextTick(() => {
+				if (!el.isConnected) return
+				let drift = el.getBoundingClientRect().top - before
+				if (Math.abs(drift) < 1) return
+				if (pinnedId.value === null) {
+					container.scrollTop += drift
+					lastScrollTop = container.scrollTop
+					drift = el.getBoundingClientRect().top - before
+				}
+				if (Math.abs(drift) < 1) return
+				if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+				const content = (el.closest('.assistant-content') as HTMLElement | null) || el
+				content.animate(
+					[{ transform: `translateY(${-drift}px)` }, { transform: 'translateY(0)' }],
+					{ duration: FOLD_SETTLE_MS, easing: 'cubic-bezier(0.2, 0, 0, 1)' },
+				)
+			})
+		}
+	},
+	{ flush: 'pre' },
+)
 
 function openImagePreview(file: any) {
 	imagePreviewModalRef.value?.open(file)
