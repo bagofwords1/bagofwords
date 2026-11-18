@@ -24,6 +24,9 @@ import type { DataOutput } from './useRunActivity'
 export const CITATION_HREF_PREFIX = '#cite-'
 const MIN_ID_CHARS = 8
 const MARKER_RE = /[ \t]*\{\{\s*cite\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}/g
+// Older answers sometimes put citations in their own paragraph. Keep those
+// markers with the preceding text, without rewriting the stored answer.
+const STANDALONE_CITATIONS_RE = /(\S)[ \t]*(?:\r?\n[ \t]*)+(\{\{[ \t]*cite[ \t]*:[ \t]*[0-9A-Za-z-]{1,64}[ \t]*\}\}(?:[ \t]*\{\{[ \t]*cite[ \t]*:[ \t]*[0-9A-Za-z-]{1,64}[ \t]*\}\})*)[ \t]*(?=\r?\n|$)/g
 const CODE_FENCE_RE = /(```[\s\S]*?```)/
 // The start of a marker still being streamed: "{", "{{", "{{ci", "{{cite:3f9a",
 // "{{cite:3f9a1c2e}" …
@@ -111,7 +114,7 @@ export function citeText(
   const cited: CitationSource[] = []
   if (!text || !text.includes('{')) return { markdown: text || '', cited }
   const markdown = eachProse(text, (prose, last) => {
-    let out = prose.replace(MARKER_RE, (_m, raw: string) => {
+    let out = prose.replace(STANDALONE_CITATIONS_RE, '$1 $2').replace(MARKER_RE, (_m, raw: string) => {
       const source = matchSource(raw, sources)
       if (!source) return ''
       if (!numbering.includes(source)) numbering.push(source)

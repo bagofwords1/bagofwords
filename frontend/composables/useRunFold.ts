@@ -84,7 +84,11 @@ export function useRunFold<M>(opts: {
   function isRunActivityBlock(m: M, block: any): boolean {
     return !!runFold(m) && !isRunAnswerBlock(m, block) && (isRunExpanded(m) || isRunOpenBlock(m, block))
   }
-  const toolGroupFor = (m: M, block: any) => runFold(m)?.toolGroups.find(g => g.blockIds.includes(String(block.id)))
+  // Finished runs already have a disclosure: opening it reveals tool rows directly.
+  const toolGroupFor = (m: M, block: any) => {
+    const fold = runFold(m)
+    return fold?.live ? fold.toolGroups.find(g => g.blockIds.includes(String(block.id))) : undefined
+  }
   const toolGroupHeaderFor = (m: M, block: any) => {
     const group = toolGroupFor(m, block)
     return isRunExpanded(m) && group && group.blockIds.length > 1 && group.id === String(block.id) ? group : undefined

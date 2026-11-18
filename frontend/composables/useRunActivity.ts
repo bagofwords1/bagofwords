@@ -598,8 +598,9 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
         title: String(te.created_step?.title || te.arguments_json?.title || '').trim(),
         status: String(te.status || ''),
       }
+      // Match the warning to the displayed call; historical failures stay on their own rows.
+      group.failed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
     }
-    group.failed ||= !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
     group.running ||= running
   }
   return groups

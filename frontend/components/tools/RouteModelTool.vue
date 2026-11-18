@@ -2,7 +2,7 @@
   <div class="min-w-0">
     <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
       <template #label>
-      <template v-if="status !== 'running' && routed">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}{{ modelName }}</template>
+      <template v-if="status !== 'running' && routed">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}{{ ' ' }}{{ modelName }}</template>
       <template v-else>{{ label }}</template></template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
