@@ -405,7 +405,7 @@ async def fork_report(
 ):
     """Fork a published/shared report into the current user's workspace."""
     new_report = await fork_service.fork_report(
-        db, report_id, current_user, title=body.title,
+        db, report_id, current_user, title=body.title, organization=organization,
     )
     # A fork of a delegated source lands with its queries empty — no rows and
     # no SQL — and is filled in by running them under the forker's own

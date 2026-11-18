@@ -642,7 +642,9 @@ class PowerBIReportServerClient(DataSourceClient):
             )
 
         import duckdb  # type: ignore
+        from app.data_sources.clients import _duckdb_lockdown as lockdown
 
+        lockdown.check_user_sql(query)
         paths = self.ensure_pbix_parquets(report_id, modified_date, report_name=report_name)
         if not paths:
             raise RuntimeError(
@@ -669,6 +671,9 @@ class PowerBIReportServerClient(DataSourceClient):
                     f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{sql_path}\')'
                 )
 
+            # From here the session reads this report's cache only.
+            lockdown.lock_connection(con, paths=[str(p) for p in paths.values()])
+            lockdown.check_session_sql(con, query)
             df = con.execute(query).df()
             if max_rows is not None and max_rows > 0 and len(df) > max_rows:
                 df = df.head(max_rows)

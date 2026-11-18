@@ -1,5 +1,23 @@
 # Release Notes
 
+## Version 0.0.629 (November 18, 2026)
+- Added multiple organizations on one deployment as a supported mode: instance administrators create organizations from the top-left menu — `BOW_SUPERUSER_EMAILS`, `features.allow_multiple_organizations`, Enterprise license
+- Added mapping from identity-provider groups to organizations and roles at sign-in — `oidc_providers[].org_mapping`
+- Added folders reserved for one organization's file connections — `security.organization_file_roots`
+- Fixed file-based connections (DuckDB, CSV, QVD, PBIX, SQLite) being able to read or write files outside their own data — `security.unsafe_allow_unrestricted_file_connectors` restores the old behaviour
+- Fixed database connection options being injectable through the database name; options written after the name such as `mydb?sslmode=require` still apply, except ones that read local files or redirect the connection
+- Fixed Git repository indexing following symlinks out of the repository; symlinked files are no longer indexed
+- Fixed linked local files being pulled into document previews — `security.office_convert_confinement`
+- Fixed records from another organization being reachable by id through mentions, instruction references, entities, eval runs, report sharing, LLM model settings and the agent's metadata search
+- Fixed "public" agents being usable by people outside the organization that owns them
+- Fixed Slack, Teams and WhatsApp messages reaching the wrong organization when two organizations share a workspace, tenant or number; connecting one to a second organization is refused
+- Fixed SCIM in one organization changing or deactivating an account that also belongs to another
+- Fixed users being able to change their own sign-in email
+- Fixed notifications from one organization showing in another
+- Fixed a removed member keeping roles, access grants and API keys after being invited again
+- Changed, on multi-organization deployments only: creating an organization needs an instance administrator, a personal API key works only in its own organization, an existing account joins another organization by invite, a sign-up domain is assigned by an instance administrator, and a first sign-in links to an existing account by email only from a trusted provider — `trust_email_for_linking`
+- Changed `security.block_private_outbound` to also cover Cosmos DB, Couchbase, Iceberg, Azure Blob and Kubernetes endpoints and SQL Server failover hosts
+
 ## Version 0.0.628 (November 18, 2026)
 - Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
 

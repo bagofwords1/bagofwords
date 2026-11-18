@@ -937,8 +937,21 @@ class AgentYamlService:
         )
         grants = {(g.principal_type, g.principal_id): list(g.permissions or []) for g in g_q.scalars().all()}
 
+        # Only principals of the agent's own organization are named in the
+        # export; a membership row pointing anywhere else is left out.
+        from app.services.rbac_service import principals_in_org
+        org_principals = {
+            ptype: await principals_in_org(
+                db, str(ds.organization_id), ptype,
+                [m.principal_id for m in memberships if m.principal_type == ptype],
+            )
+            for ptype in (PRINCIPAL_TYPE_USER, PRINCIPAL_TYPE_GROUP)
+        }
+
         owner_id = str(ds.owner_user_id) if ds.owner_user_id else None
         for m in memberships:
+            if str(m.principal_id) not in org_principals.get(m.principal_type, set()):
+                continue
             # Skip the implicit owner row from the YAML (it's always present
             # and re-added automatically on create).
             if m.principal_type == PRINCIPAL_TYPE_USER and m.principal_id == owner_id:
@@ -1144,6 +1157,7 @@ class ManifestResolver:
             .join(Membership, Membership.user_id == User.id)
             .where(
                 Membership.organization_id == str(self.org.id),
+                Membership.deleted_at.is_(None),
                 User.email.in_(emails),
             )
         )

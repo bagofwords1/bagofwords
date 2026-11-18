@@ -2253,13 +2253,24 @@ class MessageContextBuilder:
                     file_map[str(getattr(f, 'id', ''))] = f
             except Exception:
                 pass
+        # Mention ids are client-supplied: resolve them only inside this
+        # conversation's organization. An id from elsewhere stays unresolved
+        # and renders as the mention's own text.
+        _mention_org_id = str(
+            getattr(self.organization, 'id', None)
+            or getattr(self.report, 'organization_id', None)
+            or ''
+        )
         if ds_ids:
             try:
                 # Only ds.id and ds.name are read downstream — suppress the
                 # model-level lazy="selectin" cascade (reports → widgets/
                 # queries/completions/…) that would otherwise fire per row.
                 rows = await self.db.execute(
-                    select(DataSource).where(DataSource.id.in_(list(ds_ids)))
+                    select(DataSource).where(
+                        DataSource.id.in_(list(ds_ids)),
+                        DataSource.organization_id == _mention_org_id,
+                    )
                     .options(lazyload("*"))
                 )
                 for ds in rows.scalars().all():
@@ -2268,7 +2279,14 @@ class MessageContextBuilder:
                 pass
         if tbl_ids:
             try:
-                rows = await self.db.execute(select(DataSourceTable).where(DataSourceTable.id.in_(list(tbl_ids))))
+                rows = await self.db.execute(
+                    select(DataSourceTable)
+                    .join(DataSource, DataSource.id == DataSourceTable.datasource_id)
+                    .where(
+                        DataSourceTable.id.in_(list(tbl_ids)),
+                        DataSource.organization_id == _mention_org_id,
+                    )
+                )
                 for t in rows.scalars().all():
                     tbl_map[str(getattr(t, 'id', ''))] = t
                     try:
@@ -2282,7 +2300,10 @@ class MessageContextBuilder:
                 missing_ds = [x for x in ds_ids if x not in ds_map]
                 if missing_ds:
                     rows2 = await self.db.execute(
-                        select(DataSource).where(DataSource.id.in_(missing_ds))
+                        select(DataSource).where(
+                            DataSource.id.in_(missing_ds),
+                            DataSource.organization_id == _mention_org_id,
+                        )
                         .options(lazyload("*"))
                     )
                     for ds in rows2.scalars().all():
@@ -2291,7 +2312,12 @@ class MessageContextBuilder:
                 pass
         if ent_ids:
             try:
-                rows = await self.db.execute(select(Entity).where(Entity.id.in_(list(ent_ids))))
+                rows = await self.db.execute(
+                    select(Entity).where(
+                        Entity.id.in_(list(ent_ids)),
+                        Entity.organization_id == _mention_org_id,
+                    )
+                )
                 for e in rows.scalars().all():
                     ent_map[str(getattr(e, 'id', ''))] = e
             except Exception:

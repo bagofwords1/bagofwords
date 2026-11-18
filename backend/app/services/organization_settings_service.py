@@ -672,6 +672,54 @@ class OrganizationSettingsService:
             auto_invite_role=str(raw.get("auto_invite_role") or "member"),
         )
 
+    @staticmethod
+    def _admitting_domains(policy: dict) -> set:
+        """Domains a stored signup policy currently admits (none while disabled)."""
+        if not (policy or {}).get("enabled"):
+            return set()
+        return {str(d).strip().lower() for d in (policy.get("allowed_domains") or []) if isinstance(d, str)}
+
+    async def _assert_may_claim_signup_domains(
+        self, db: AsyncSession, organization: Organization, current_user: User,
+        *, stored: dict, enabled: bool, domains: list,
+    ) -> None:
+        """On a deployment with several organizations, which organization an
+        email domain joins is an instance-level decision: only an instance
+        administrator may make a policy admit a new domain, and a domain
+        belongs to at most one organization. Removing domains, disabling the
+        policy and changing the role stay with the organization's admins.
+        Single-organization deployments are unaffected."""
+        from app.errors import AppError, ErrorCode
+        from app.settings.config import settings as app_settings
+
+        if not app_settings.bow_config.features.allow_multiple_organizations:
+            return
+        added = (set(domains) if enabled else set()) - self._admitting_domains(stored)
+        if not added:
+            return
+        if not getattr(current_user, "is_superuser", False):
+            raise AppError.forbidden(
+                ErrorCode.ORGANIZATION_SIGNUP_DOMAINS_INSTANCE_ADMIN_REQUIRED,
+                "Only an instance administrator can assign sign-up domains to an organization.",
+            )
+        others = await db.execute(
+            select(OrganizationSettings)
+            .join(Organization, Organization.id == OrganizationSettings.organization_id)
+            .where(
+                OrganizationSettings.organization_id != organization.id,
+                Organization.deleted_at.is_(None),
+            )
+        )
+        for other in others.scalars().all():
+            taken = added & self._admitting_domains((other.config or {}).get("signup_policy") or {})
+            if taken:
+                domain = sorted(taken)[0]
+                raise AppError.conflict(
+                    ErrorCode.ORGANIZATION_SIGNUP_DOMAIN_CLAIMED,
+                    f"The domain {domain} is already assigned to another organization.",
+                    domain=domain,
+                )
+
     async def update_signup_policy(
         self,
         db: AsyncSession,
@@ -735,6 +783,12 @@ class OrganizationSettingsService:
         settings = await self.get_settings(db, organization, current_user)
         if settings.config is None:
             settings.config = {}
+
+        await self._assert_may_claim_signup_domains(
+            db, organization, current_user,
+            stored=(settings.config or {}).get("signup_policy") or {},
+            enabled=bool(policy.enabled), domains=normalized_domains,
+        )
 
         current_config = dict(settings.config)
         current_config["signup_policy"] = {

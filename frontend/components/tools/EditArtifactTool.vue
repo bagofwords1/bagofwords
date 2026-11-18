@@ -99,29 +99,6 @@
         <div v-else><span>{{ t('tools.editArtifact.processing') }}</span></div>
       </div>
 
-      <!-- Confirmation card -->
-      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 p-2.5 space-y-2">
-        <div class="text-chat-2 font-medium text-gray-700 dark:text-gray-300">{{ t('tools.editArtifact.confirm') }}</div>
-        <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
-          <span
-            v-for="viz in confirmation.visualizations"
-            :key="viz.id"
-            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-white dark:bg-gray-900 border border-amber-200 text-gray-600 dark:text-gray-400"
-          >
-            {{ viz.title }}
-          </span>
-        </div>
-        <input
-          v-model="editableTitle"
-          class="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 focus:outline-none focus:border-blue-400"
-          :placeholder="t('tools.editArtifact.titlePlaceholder')"
-        />
-        <div class="flex items-center gap-2">
-          <button class="px-2.5 py-1 text-chat-2 font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors" @click="approveConfirmation">{{ t('tools.editArtifact.approve') }}</button>
-          <button class="px-2.5 py-1 text-chat-2 font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" @click="rejectConfirmation">{{ t('tools.editArtifact.cancel') }}</button>
-          <span class="text-chat-3 text-ink-muted">{{ t('tools.editArtifact.autoApprovingIn', { n: confirmationCountdown }) }}</span>
-        </div>
-      </div>
       <!-- Preview Card -->
     <div
       v-if="(status === 'success' && createdArtifact) || status === 'running'"
@@ -168,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onUnmounted } from 'vue'
+import { computed, ref } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'
@@ -253,57 +230,7 @@ const editInstruction = computed(() => {
   return ''
 })
 
-// Confirmation state
-const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
 const resolvedVisualizations = computed(() => (props.toolExecution as any).progress_visualizations || [])
-const editableTitle = ref('')
-const confirmationCountdown = ref(5)
-let countdownInterval: ReturnType<typeof setInterval> | null = null
-
-watch(confirmation, (val) => {
-  if (val) {
-    editableTitle.value = val.title || ''
-    confirmationCountdown.value = 5
-    if (countdownInterval) clearInterval(countdownInterval)
-    countdownInterval = setInterval(() => {
-      confirmationCountdown.value--
-      if (confirmationCountdown.value <= 0) {
-        if (countdownInterval) clearInterval(countdownInterval)
-        countdownInterval = null
-      }
-    }, 1000)
-  }
-}, { immediate: true })
-
-onUnmounted(() => {
-  if (countdownInterval) clearInterval(countdownInterval)
-})
-
-const { markConfirmationAnswered } = useToolConfirmations()
-
-async function approveConfirmation() {
-  if (!confirmation.value?.confirmation_id) return
-  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
-  try {
-    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
-      method: 'POST',
-      body: { approved: true, title: editableTitle.value || null },
-    })
-    markConfirmationAnswered(confirmation.value?.confirmation_id)
-  } catch {}
-}
-
-async function rejectConfirmation() {
-  if (!confirmation.value?.confirmation_id) return
-  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
-  try {
-    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
-      method: 'POST',
-      body: { approved: false },
-    })
-    markConfirmationAnswered(confirmation.value?.confirmation_id)
-  } catch {}
-}
 
 const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error))
 

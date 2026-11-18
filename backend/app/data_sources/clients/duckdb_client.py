@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients import _duckdb_lockdown as lockdown
 
 import duckdb
 import pandas as pd
@@ -73,12 +74,15 @@ class DuckDBClient(DataSourceClient):
 
         # AWS
         if self.access_key and self.secret_key:
-            con.execute(f"SET s3_access_key_id={self._sql_literal(self.access_key)};")
-            con.execute(f"SET s3_secret_access_key={self._sql_literal(self.secret_key)};")
-            if self.region:
-                con.execute(f"SET s3_region={self._sql_literal(self.region)};")
-            if self.session_token:
-                con.execute(f"SET s3_session_token={self._sql_literal(self.session_token)};")
+            if lockdown.unrestricted():
+                con.execute(f"SET s3_access_key_id={self._sql_literal(self.access_key)};")
+                con.execute(f"SET s3_secret_access_key={self._sql_literal(self.secret_key)};")
+                if self.region:
+                    con.execute(f"SET s3_region={self._sql_literal(self.region)};")
+                if self.session_token:
+                    con.execute(f"SET s3_session_token={self._sql_literal(self.session_token)};")
+            else:
+                self._create_object_store_secrets(con)
 
         # GCP
         if self.service_account_json:
@@ -88,7 +92,35 @@ class DuckDBClient(DataSourceClient):
         # Azure
         if self.connection_string:
             # DuckDB supports Azure via connection string (SAS/account key)
-            con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
+            if lockdown.unrestricted():
+                con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
+            else:
+                con.execute(
+                    "CREATE OR REPLACE SECRET bow_azure (TYPE azure, "
+                    f"CONNECTION_STRING {self._sql_literal(self.connection_string)})"
+                )
+
+    def _create_object_store_secrets(self, con: duckdb.DuckDBPyConnection) -> None:
+        """The access key as session secrets instead of settings.
+
+        A setting can be read back by any query (`current_setting`,
+        `duckdb_settings()`); a secret is used to sign requests and is shown
+        redacted. Requests are signed the same way either way. The URL style
+        and TLS settings above still apply. The key covers s3:// and, as the
+        settings did, gs:// (HMAC keys through the S3-compatible API).
+        """
+        # A secret without a region signs with an empty one; the settings
+        # path used the session default.
+        region = self.region or con.execute("SELECT current_setting('s3_region')").fetchone()[0] or "us-east-1"
+        fields = [
+            f"KEY_ID {self._sql_literal(self.access_key)}",
+            f"SECRET {self._sql_literal(self.secret_key)}",
+        ]
+        if self.session_token:
+            fields.append(f"SESSION_TOKEN {self._sql_literal(self.session_token)}")
+        s3_fields = fields + [f"REGION {self._sql_literal(region)}"]
+        con.execute(f"CREATE OR REPLACE SECRET bow_s3 (TYPE s3, {', '.join(s3_fields)})")
+        con.execute(f"CREATE OR REPLACE SECRET bow_gcs (TYPE gcs, {', '.join(fields)})")
 
     def _normalize_uri(self, pattern: str) -> str:
         """Trust user-supplied URIs.
@@ -157,18 +189,31 @@ class DuckDBClient(DataSourceClient):
         con: duckdb.DuckDBPyConnection | None = None
         try:
             local_db = self._find_local_duckdb_file()
+            db_file = self.database or local_db
 
-            if self.database:
-                # Open local .duckdb file directly (read-only for safety)
-                con = duckdb.connect(database=self.database, read_only=True)
-            elif local_db:
-                # Direct connection to local .duckdb file specified in URIs
-                con = duckdb.connect(database=local_db, read_only=True)
+            if db_file:
+                # Open the local .duckdb file directly, read-only. The file is
+                # the whole connection: nothing outside it stays reachable.
+                if lockdown.unrestricted():
+                    con = duckdb.connect(database=db_file, read_only=True)
+                else:
+                    # Besides the file: its own folder, where the files its
+                    # views read usually sit, and any other URI listed on the
+                    # connection. Nothing else.
+                    others = [p for p in self.uri_patterns if lockdown.local_path_of(p) != db_file and p != db_file]
+                    paths, directories = lockdown.database_file_sources(
+                        db_file, others, lockdown.organization_of(self))
+                    con = duckdb.connect(database=db_file, read_only=True)
+                    lockdown.lock_connection(con, paths=paths, directories=directories)
             else:
-                # In-memory database with views from URI patterns
+                # In-memory database with views from URI patterns. The path
+                # policy runs before a view can read a file; the session is
+                # sealed to these sources once the views exist.
+                paths, directories = self._allowed_sources()
                 con = duckdb.connect(database=":memory:")
                 self._configure_httpfs(con)
                 self._create_views(con)
+                lockdown.lock_connection(con, paths=paths, directories=directories)
             yield con
         except IndexingCancelled:
             raise
@@ -183,12 +228,24 @@ class DuckDBClient(DataSourceClient):
             except Exception:
                 pass
 
+    def _allowed_sources(self) -> tuple[list[str], list[str]]:
+        """Exact files/URLs and directory/URL prefixes this connection reads."""
+        if lockdown.unrestricted():
+            return [], []
+        return lockdown.sources_for_patterns(
+            (self._normalize_uri(p) for p in self.uri_patterns), lockdown.organization_of(self))
+
     def execute_query(self, sql: str) -> pd.DataFrame:
+        lockdown.check_user_sql(sql)
         try:
             with self.connect() as con:
+                lockdown.check_session_sql(con, sql)
                 res = con.execute(sql)
                 return res.df()
         except Exception as e:
+            explained = lockdown.explain_access_error(e)
+            if explained:
+                raise RuntimeError(explained) from e
             raise
 
     def _is_direct_db_connection(self) -> bool:

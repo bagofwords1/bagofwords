@@ -160,23 +160,19 @@ class AwsRedshiftClient(DataSourceClient):
     @cached_property
     def redshift_uri(self):
         """Build the Redshift connection URI (kept for compatibility but not used with psycopg2)."""
-        # Handle IAM authentication if specified
-        if self.iam_profile or self.auth_method != "PASSWORD":
-            # For IAM authentication, we'll use the AWS credentials
-            uri = (
-                f"postgresql://{self.user}@"
-                f"{self.host}:{self.port}/{self.database}"
-                f"?sslmode={self.ssl_mode}"
-            )
-        else:
-            # Standard password authentication
-            password = self.password or ""
-            uri = (
-                f"postgresql://{self.user}:{password}@"
-                f"{self.host}:{self.port}/{self.database}"
-                f"?sslmode={self.ssl_mode}"
-            )
-        return uri
+        from app.data_sources.clients._sa_url import build_url, render
+
+        # For IAM authentication the AWS credentials are used, not a password.
+        iam = bool(self.iam_profile or self.auth_method != "PASSWORD")
+        return render(build_url(
+            "postgresql",
+            username=self.user,
+            password=None if iam else (self.password or ""),
+            host=self.host,
+            port=self.port,
+            database=self.database,
+            query={"sslmode": str(self.ssl_mode)},
+        ))
 
     def _determine_auth_method(self):
         """Determine the authentication method based on available credentials."""

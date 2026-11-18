@@ -222,7 +222,7 @@ def _error_code_for(detail: Any) -> str:
     return "oauth_login_failed"
 
 
-_CALLBACK_ERROR_CODES = {"invitation_required", "oauth_email_missing", "oauth_login_failed"}
+_CALLBACK_ERROR_CODES = {"invitation_required", "oauth_email_missing", "oauth_login_failed", "account_link_required", "invite_link_required"}
 
 
 def _error_redirect(code: str) -> RedirectResponse:
@@ -408,10 +408,17 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
     import jwt as pyjwt
     account_id = None
     account_email = None
+    # What the provider says about the email itself; None when it said nothing.
+    identity_claims = None
 
     id_token_raw = token.get("id_token")
     if id_token_raw:
         id_claims = pyjwt.decode(id_token_raw, options={"verify_signature": False})
+        identity_claims = {
+            "email_verified": id_claims.get("email_verified"),
+            "xms_edov": id_claims.get("xms_edov"),
+            "issuer": id_claims.get("iss"),
+        }
         uid_claim = getattr(cfg, "uid_claim", "sub") or "sub"
         account_id = id_claims.get(uid_claim) or id_claims.get("sub")
         account_email = (
@@ -445,6 +452,27 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         )
         raise HTTPException(status_code=400, detail="Could not determine email from OIDC provider. Ensure the 'email' scope is configured.")
 
+    # Groups the provider asserts for this sign-in, read once for both the
+    # organization mapping and group sync. None = could not be determined.
+    org_mapping = getattr(cfg, 'org_mapping', None)
+    sync_groups = getattr(cfg, 'sync_groups', False)
+    login_groups = None
+    if org_mapping or sync_groups:
+        try:
+            login_groups = await _resolve_login_groups(cfg, token, access_token)
+        except Exception as e:
+            _auth_logger.warning(f"OIDC group lookup failed for provider={provider}: {e}", exc_info=True)
+
+    # A person the operator's mapping places in an organization does not also
+    # need an invitation to sign in for the first time.
+    org_mapping_admits = False
+    if org_mapping and login_groups is not None:
+        try:
+            from app.services.oidc_org_mapping import mapping_admits
+            org_mapping_admits = await mapping_admits(cfg, login_groups[0], login_groups[1])
+        except Exception as e:
+            _auth_logger.warning(f"OIDC org mapping lookup failed for provider={provider}: {e}", exc_info=True)
+
     # Any failure here (e.g. missing invite) is handled by the outer wrapper
     # and surfaced on the sign-in page.
     user = await user_manager.oauth_callback(
@@ -455,6 +483,8 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         expires_at=expires_at,
         refresh_token=refresh_token,
         request=request,
+        identity_claims=identity_claims,
+        org_mapping_admits=org_mapping_admits,
     )
 
     await _audit_auth_event(
@@ -475,14 +505,25 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         except Exception as exc:
             _auth_logger.warning("Entra identity binding unavailable (%s)", type(exc).__name__)
 
+    # Operator-owned placement into organizations (bow-config `org_mapping`).
+    # Runs before group/profile sync so they see the memberships it settles.
+    # Skipped when the groups are unknown, so an outage never removes anyone.
+    if org_mapping and login_groups is not None:
+        try:
+            from app.services.oidc_org_mapping import apply_org_mapping
+            await apply_org_mapping(cfg, user, login_groups[0], login_groups[1])
+        except Exception as e:
+            _auth_logger.warning(f"OIDC org mapping failed for user {user.id}: {e}", exc_info=True)
+
     # OIDC group sync — sync group claims from id_token into BOW Groups
-    if getattr(cfg, 'sync_groups', False):
+    if sync_groups and login_groups is not None:
         try:
             await _sync_oidc_groups_on_login(
                 cfg=cfg,
                 token=token,
                 access_token=access_token,
                 user=user,
+                groups=login_groups,
             )
         except Exception as e:
             _auth_logger.warning(f"OIDC group sync failed for user {user.id}: {e}", exc_info=True)
@@ -531,6 +572,11 @@ async def _login_redirect(user) -> RedirectResponse:
     trades it for the token over POST /api/auth/exchange.
     """
     from app.services.login_exchange_service import issue_login_code
+    from app.core.instance_admin import apply_superuser_policy
+
+    # Every SSO sign-in (OAuth, OIDC, SAML) ends here: instance administrators
+    # follow BOW_SUPERUSER_EMAILS at each sign-in.
+    await apply_superuser_policy(user)
 
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)
@@ -555,21 +601,44 @@ async def _record_login(user) -> None:
         _auth_logger.warning(f"Failed to record last_login for user {user.id}: {e}")
 
 
-async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) -> None:
-    """Extract group claims from id_token and sync into BOW Groups."""
-    import jwt as pyjwt
+async def _live_organization_ids(user) -> list:
+    """Every organization the user currently belongs to, oldest membership first."""
+    from sqlalchemy import select
     from app.dependencies import async_session_maker
-    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+    from app.models.membership import Membership
+
+    async with async_session_maker() as db:
+        rows = (await db.execute(
+            select(Membership.organization_id).where(
+                Membership.user_id == str(user.id),
+                Membership.deleted_at.is_(None),
+            ).order_by(Membership.created_at.asc(), Membership.id.asc())
+        )).scalars().all()
+    return list(dict.fromkeys(str(r) for r in rows))
+
+
+async def _resolve_login_groups(cfg, token: dict, access_token: str):
+    """Groups the provider asserts for this sign-in: ``(group_ids, names)``.
+
+    ``names`` maps group id → display name (None when names were not resolved).
+    Returns None when the groups cannot be determined (no id_token, or an
+    overage whose directory lookup failed) — different from an empty list,
+    which means the person is in no group.
+    """
+    import jwt as pyjwt
 
     id_token_raw = token.get("id_token")
     if not id_token_raw:
         _auth_logger.debug("OIDC group sync: no id_token in token response, skipping")
-        return
+        return None
 
     # Decode without signature verification — token was already validated by the provider
     id_claims = pyjwt.decode(id_token_raw, options={"verify_signature": False})
     group_claim = getattr(cfg, 'group_claim', 'groups')
     group_ids = id_claims.get(group_claim, [])
+    if isinstance(group_ids, str):
+        group_ids = [group_ids]
+    group_ids = [str(g) for g in (group_ids or [])]
 
     # Handle Entra group overage (>200 groups — groups omitted, _claim_names present)
     if not group_ids and "_claim_names" in id_claims:
@@ -581,16 +650,18 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
             group_names_map = await resolve_group_names(access_token)
         except Exception:
             group_names_map = {}
-        group_ids = list(group_names_map.keys())
-    else:
-        group_names_map = None
+        if not group_names_map:
+            _auth_logger.warning("OIDC group sync: group overage could not be resolved through Graph")
+            return None
+        return list(group_names_map.keys()), group_names_map
 
     if not group_ids:
-        _auth_logger.debug(f"OIDC group sync: no groups in claim '{group_claim}', skipping")
-        return
+        _auth_logger.debug(f"OIDC group sync: no groups in claim '{group_claim}'")
+        return [], None
 
     # Resolve group display names via Graph API using client credentials
-    if group_names_map is None and getattr(cfg, 'resolve_group_names', False):
+    group_names_map = None
+    if getattr(cfg, 'resolve_group_names', False):
         try:
             from app.ee.oidc.graph_client import resolve_group_names_by_ids
             # Extract tenant_id from issuer URL
@@ -607,27 +678,42 @@ async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user) 
             _auth_logger.warning(f"OIDC group sync: Graph API name resolution failed: {e}")
             group_names_map = None
 
-    # Get user's org — use the first membership's org
-    async with async_session_maker() as db:
-        from sqlalchemy import select
-        from app.models.membership import Membership
-        stmt = select(Membership.organization_id).where(
-            Membership.user_id == str(user.id),
-            Membership.deleted_at.is_(None),
-        )
-        org_id = (await db.execute(stmt)).scalar_one_or_none()
+    return group_ids, group_names_map
 
-        if not org_id:
-            _auth_logger.debug(f"OIDC group sync: user {user.id} has no org membership, skipping")
-            return
 
-        await sync_user_oidc_groups(
-            db=db,
-            user_id=str(user.id),
-            organization_id=str(org_id),
-            group_ids=group_ids,
-            group_names=group_names_map,
-        )
+async def _sync_oidc_groups_on_login(cfg, token: dict, access_token: str, user, groups=None) -> None:
+    """Sync the sign-in's group claims into BOW Groups, in every organization
+    the user belongs to. One organization failing does not stop the others."""
+    from app.dependencies import async_session_maker
+    from app.ee.oidc.group_sync_service import sync_user_oidc_groups
+
+    if groups is None:
+        groups = await _resolve_login_groups(cfg, token, access_token)
+    if groups is None:
+        return
+    group_ids, group_names_map = groups
+    if not group_ids:
+        return
+
+    org_ids = await _live_organization_ids(user)
+    if not org_ids:
+        _auth_logger.debug(f"OIDC group sync: user {user.id} has no org membership, skipping")
+        return
+
+    for org_id in org_ids:
+        try:
+            async with async_session_maker() as db:
+                await sync_user_oidc_groups(
+                    db=db,
+                    user_id=str(user.id),
+                    organization_id=org_id,
+                    group_ids=group_ids,
+                    group_names=group_names_map,
+                )
+        except Exception as e:
+            _auth_logger.warning(
+                f"OIDC group sync failed for user {user.id} in org {org_id}: {e}", exc_info=True
+            )
 
 
 async def _sync_provider_profile_on_login(
@@ -639,47 +725,47 @@ async def _sync_provider_profile_on_login(
     sync_fn,
     label: str,
 ) -> None:
-    """Fetch a provider profile and store it on the user's org Membership.
+    """Fetch a provider profile and store it on the user's org Memberships.
 
-    Provider-agnostic on-login gate: no-op unless the user's org has enabled
-    the given profile-sync config key. Uses the fresh login token so no
-    stored-token refresh is needed.
+    Provider-agnostic on-login gate, evaluated per organization: an
+    organization is skipped unless it has enabled the given profile-sync config
+    key, and one organization failing does not stop the others. Uses the fresh
+    login token so no stored-token refresh is needed.
     """
     from app.dependencies import async_session_maker
 
-    async with async_session_maker() as db:
-        from sqlalchemy import select
-        from app.models.membership import Membership
-        stmt = select(Membership.organization_id).where(
-            Membership.user_id == str(user.id),
-            Membership.deleted_at.is_(None),
-        )
-        org_id = (await db.execute(stmt)).scalar_one_or_none()
-        if not org_id:
-            _auth_logger.debug(f"{label}: user {user.id} has no org membership, skipping")
-            return
+    org_ids = await _live_organization_ids(user)
+    if not org_ids:
+        _auth_logger.debug(f"{label}: user {user.id} has no org membership, skipping")
+        return
 
-        from app.models.organization import Organization
-        org = (
-            await db.execute(select(Organization).where(Organization.id == str(org_id)))
-        ).scalar_one_or_none()
-        if not org:
-            return
-        settings_obj = await org.get_settings(db)
-        cfg = (settings_obj.config or {}).get(config_key) or {}
-        if not cfg.get("enabled"):
-            _auth_logger.debug(f"{label}: org {org_id} has sync disabled, skipping")
-            return
+    for org_id in org_ids:
+        try:
+            async with async_session_maker() as db:
+                from sqlalchemy import select
+                from app.models.organization import Organization
+                org = (
+                    await db.execute(select(Organization).where(Organization.id == org_id))
+                ).scalar_one_or_none()
+                if not org:
+                    continue
+                settings_obj = await org.get_settings(db)
+                cfg = (settings_obj.config or {}).get(config_key) or {}
+                if not cfg.get("enabled"):
+                    _auth_logger.debug(f"{label}: org {org_id} has sync disabled, skipping")
+                    continue
 
-        fields = list(cfg.get("fields") or default_fields)
+                fields = list(cfg.get("fields") or default_fields)
 
-        await sync_fn(
-            db=db,
-            user=user,
-            organization_id=str(org_id),
-            fields=fields,
-            access_token=access_token,
-        )
+                await sync_fn(
+                    db=db,
+                    user=user,
+                    organization_id=org_id,
+                    fields=fields,
+                    access_token=access_token,
+                )
+        except Exception as e:
+            _auth_logger.warning(f"{label} failed for user {user.id} in org {org_id}: {e}", exc_info=True)
 
 
 async def _sync_entra_profile_on_login(user, access_token: str) -> None:

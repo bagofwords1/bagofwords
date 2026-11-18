@@ -35,19 +35,17 @@ async def teams_webhook(
         # Extract tenant ID to find the right platform
         tenant_id = activity.get("channelData", {}).get("tenant", {}).get("id")
 
-        # Find platform by tenant ID, or fall back to first active Teams platform
-        # (Web Chat and Bot Framework Emulator don't send channelData.tenant.id)
-        platform = None
-        if tenant_id:
-            platform = await find_platform_by_tenant_id(db, tenant_id)
-        if not platform:
-            platform = await find_any_teams_platform(db)
+        # Find the platform this activity is for. One tenant can host a bot
+        # per organization, so the bot's app id is part of the routing key.
+        auth_header = request.headers.get("Authorization", "")
+        platform = await resolve_teams_platform(
+            db, tenant_id, _claimed_bot_app_ids(activity, auth_header)
+        )
         if not platform:
             print(f"TEAMS: No platform found for tenant_id: {tenant_id}")
             return {"ok": True}
 
-        # Verify JWT signature via adapter
-        auth_header = request.headers.get("Authorization", "")
+        # Verify JWT signature via adapter (audience = this platform's app id)
         adapter = PlatformAdapterFactory.create_adapter(platform)
         is_valid = await adapter.verify_webhook_signature(body, auth_header, "")
         if not is_valid:
@@ -107,31 +105,92 @@ async def teams_webhook(
         raise HTTPException(status_code=500, detail="Webhook processing failed")
 
 
-async def find_platform_by_tenant_id(db: AsyncSession, tenant_id: str) -> ExternalPlatform:
-    """Find platform by Teams tenant ID"""
+def _platform_app_id(platform: ExternalPlatform) -> str:
+    # Same precedence as TeamsAdapter, which validates the token audience.
+    try:
+        from_credentials = (platform.decrypt_credentials() or {}).get("app_id")
+    except Exception:
+        from_credentials = None
+    return from_credentials or (platform.platform_config or {}).get("app_id") or ""
+
+
+def _claimed_bot_app_ids(activity: dict, auth_header: str) -> list:
+    """App ids the activity says it is addressed to, most trustworthy first.
+
+    Only used to pick the candidate platform; the adapter then verifies the
+    token against that platform's app id, so a wrong claim cannot pass.
+    """
+    claimed = []
+    if auth_header.startswith("Bearer "):
+        try:
+            import jwt
+
+            aud = jwt.decode(auth_header[7:], options={"verify_signature": False}).get("aud")
+            for value in aud if isinstance(aud, list) else [aud]:
+                if isinstance(value, str) and value:
+                    claimed.append(value)
+        except Exception:
+            pass
+    recipient_id = (activity.get("recipient") or {}).get("id")
+    if isinstance(recipient_id, str) and recipient_id:
+        # Teams addresses bots as "28:<app id>"; other channels send the bare id.
+        claimed.append(recipient_id.split(":", 1)[1] if recipient_id.startswith("28:") else recipient_id)
+    return claimed
+
+
+def _teams_routing_order(platform: ExternalPlatform):
+    created = getattr(platform, "created_at", None)
+    return (
+        0 if platform.is_active else 1,
+        created.isoformat() if created is not None else "",
+        str(platform.id),
+    )
+
+
+async def resolve_teams_platform(db: AsyncSession, tenant_id, claimed_app_ids) -> ExternalPlatform:
+    """Pick the Teams platform for an inbound activity.
+
+    With a single Teams platform on the deployment the historical behaviour
+    is kept (tenant match, else the platform if active — Web Chat and the
+    Bot Framework Emulator don't send ``channelData.tenant.id``). With
+    several, the activity must name the bot's app id: there is no
+    "any platform" fallback, since that would hand one organization's
+    messages to another.
+    """
     from sqlalchemy import select
 
-    stmt = select(ExternalPlatform).where(
-        ExternalPlatform.platform_type == "teams"
-    )
+    stmt = select(ExternalPlatform).where(ExternalPlatform.platform_type == "teams")
     result = await db.execute(stmt)
-    platforms = result.scalars().all()
+    platforms = sorted(result.scalars().all(), key=_teams_routing_order)
+    if not platforms:
+        return None
 
-    for platform in platforms:
-        config = platform.platform_config
-        if config.get("tenant_id") == tenant_id:
-            return platform
+    if len(platforms) == 1:
+        only = platforms[0]
+        if tenant_id and (only.platform_config or {}).get("tenant_id") == tenant_id:
+            return only
+        return only if only.is_active else None
 
-    return None
+    matches = []
+    for app_id in claimed_app_ids:
+        matches = [p for p in platforms if _platform_app_id(p).lower() == app_id.lower()]
+        if matches:
+            break
+    if not matches:
+        logging.getLogger(__name__).warning(
+            "TEAMS: activity for tenant %s does not name a connected bot app id; not routed",
+            tenant_id,
+        )
+        return None
 
-
-async def find_any_teams_platform(db: AsyncSession) -> ExternalPlatform:
-    """Fallback: find any active Teams platform (for Web Chat / Emulator testing)"""
-    from sqlalchemy import select
-
-    stmt = select(ExternalPlatform).where(
-        ExternalPlatform.platform_type == "teams",
-        ExternalPlatform.is_active == True,
-    )
-    result = await db.execute(stmt)
-    return result.scalars().first()
+    if tenant_id:
+        same_tenant = [p for p in matches if (p.platform_config or {}).get("tenant_id") == tenant_id]
+        if same_tenant:
+            matches = same_tenant
+    if len(matches) > 1:
+        logging.getLogger(__name__).warning(
+            "TEAMS: %d platforms share bot app id %s (organizations: %s); using platform %s",
+            len(matches), _platform_app_id(matches[0]),
+            ", ".join(sorted({str(p.organization_id) for p in matches})), matches[0].id,
+        )
+    return matches[0]

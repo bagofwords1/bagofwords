@@ -400,7 +400,12 @@ class CompletionService:
             prompt = None
 
         if completion.widget_id and current_user and organization:
-            widget = await self.widget_service.get_widget_by_id(db, str(completion.widget_id), current_user, organization)
+            try:
+                widget = await self.widget_service.get_widget_by_id(db, str(completion.widget_id), current_user, organization)
+            except HTTPException:
+                # Not a widget of this organization (or gone): render the
+                # completion without it rather than failing the whole list.
+                widget = None
         else:
             widget = None
 
@@ -429,6 +434,47 @@ class CompletionService:
                 update={"last_step": await self.widget_service._get_last_step(db, widget.id)}
             ) if completion.role == "system" and widget else None
         )
+
+    async def _prompt_widget_and_step(self, db: AsyncSession, report, prompt, *, lazy: bool = False, strict: bool = True):
+        """Resolve a prompt's optional widget_id / step_id.
+
+        Both ids are client-supplied, so each must belong to the report the
+        completion is posted to: the widget directly, the step through its
+        widget or its query. Anything else is answered exactly like an id
+        that does not exist (404 when `strict`, else None).
+        """
+        from sqlalchemy import or_
+        from app.models.query import Query
+
+        def _get(obj, name):
+            return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
+
+        widget = step = None
+        widget_id = _get(prompt, "widget_id") if prompt else None
+        step_id = _get(prompt, "step_id") if prompt else None
+        if widget_id:
+            stmt = select(Widget).where(Widget.id == str(widget_id), Widget.report_id == str(report.id))
+            if lazy:
+                stmt = stmt.options(lazyload("*"))
+            widget = (await db.execute(stmt)).scalar_one_or_none()
+            if widget is None and strict:
+                raise HTTPException(status_code=404, detail="Widget not found")
+        if step_id:
+            stmt = (
+                select(Step)
+                .outerjoin(Widget, Widget.id == Step.widget_id)
+                .outerjoin(Query, Query.id == Step.query_id)
+                .where(
+                    Step.id == str(step_id),
+                    or_(Widget.report_id == str(report.id), Query.report_id == str(report.id)),
+                )
+            )
+            if lazy:
+                stmt = stmt.options(lazyload("*"))
+            step = (await db.execute(stmt)).scalars().first()
+            if step is None and strict:
+                raise HTTPException(status_code=404, detail="Step not found")
+        return widget, step
 
     async def _resolve_build_id(self, db: AsyncSession, organization: Organization, build_id: str = None) -> str | None:
         """Resolve build_id - use provided or default to main build."""
@@ -560,21 +606,7 @@ class CompletionService:
             if not report:
                 raise HTTPException(status_code=404, detail="Report not found")
 
-            if completion_data.prompt.widget_id:
-                widget_res = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
-                widget = widget_res.scalar_one_or_none()
-                if not widget:
-                    raise HTTPException(status_code=404, detail="Widget not found")
-            else:
-                widget = None
-
-            if completion_data.prompt.step_id:
-                step_res = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
-                step = step_res.scalar_one_or_none()
-                if not step:
-                    raise HTTPException(status_code=404, detail="Step not found")
-            else:
-                step = None
+            widget, step = await self._prompt_widget_and_step(db, report, completion_data.prompt)
 
             model, small_model, routing_meta = await self._resolve_completion_models(
                 db, organization, current_user, report,
@@ -800,23 +832,8 @@ class CompletionService:
             self._assert_can_write_to_report(report, current_user)
             _clamp_training_mode(completion_data, report)
 
-            # Validate widget if provided
-            if completion_data.prompt and completion_data.prompt.widget_id:
-                result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
-                widget = result.scalar_one_or_none()
-                if not widget:
-                    raise HTTPException(status_code=404, detail="Widget not found")
-            else:
-                widget = None
-
-            # Validate step if provided
-            if completion_data.prompt and completion_data.prompt.step_id:
-                step = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
-                step = step.scalar_one_or_none()
-                if not step:
-                    raise HTTPException(status_code=404, detail="Step not found")
-            else:
-                step = None
+            # Validate widget / step if provided (must belong to this report)
+            widget, step = await self._prompt_widget_and_step(db, report, completion_data.prompt)
 
             span.add_event("validation_done")
 
@@ -2403,31 +2420,10 @@ class CompletionService:
             _clamp_training_mode(completion_data, report)
             _log("report_fetched")
 
-            # Validate widget if provided
-            if completion_data.prompt.widget_id:
-                result = await db.execute(
-                    select(Widget)
-                    .options(lazyload("*"))
-                    .filter(Widget.id == completion_data.prompt.widget_id)
-                )
-                widget = result.scalar_one_or_none()
-                if not widget:
-                    raise HTTPException(status_code=404, detail="Widget not found")
-            else:
-                widget = None
-
-            # Validate step if provided
-            if completion_data.prompt.step_id:
-                step = await db.execute(
-                    select(Step)
-                    .options(lazyload("*"))
-                    .filter(Step.id == completion_data.prompt.step_id)
-                )
-                step = step.scalar_one_or_none()
-                if not step:
-                    raise HTTPException(status_code=404, detail="Step not found")
-            else:
-                step = None
+            # Validate widget / step if provided (must belong to this report)
+            widget, step = await self._prompt_widget_and_step(
+                db, report, completion_data.prompt, lazy=True
+            )
 
             span.add_event("validation_done")
             _log("validation_done")
@@ -3510,6 +3506,7 @@ class CompletionService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         self._assert_can_write_to_report(report, current_user)
+        await self._prompt_widget_and_step(db, report, completion_data.prompt, lazy=True)
 
         if completion_data.prompt and completion_data.prompt.model_id:
             model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
@@ -3830,8 +3827,7 @@ class CompletionService:
                     if not small_model:
                         small_model = model
 
-                    widget = await session.get(Widget, prompt['widget_id']) if prompt.get('widget_id') else None
-                    step = await session.get(Step, prompt['step_id']) if prompt.get('step_id') else None
+                    widget, step = await self._prompt_widget_and_step(session, report, prompt, strict=False)
 
                     run_agents, clients = await prepare_run_agents(
                         session, organization, user, report, self.data_source_service

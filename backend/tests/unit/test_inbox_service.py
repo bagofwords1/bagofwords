@@ -70,7 +70,7 @@ async def test_list_orders_newest_first_regardless_of_severity():
                       created_at=now))
         await db.commit()
 
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         titles = [i["title"] for i in res["items"]]
         # Newest-first: the fresh info row wins over the stale warning.
         assert titles == ["fresh-info", "old-warning"], titles
@@ -96,11 +96,11 @@ async def test_list_survives_a_poison_row_and_matches_count(monkeypatch):
         monkeypatch.setattr(inbox_mod, "to_dict", boom)
 
         # Must not raise, and must still return both rows (poison as placeholder).
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         assert len(res["items"]) == 2, res["items"]
 
         # The list's unread count stays consistent with the badge's count.
-        count = await inbox_service.count_unread(db, user)
+        count = await inbox_service.count_unread(db, user, org)
         assert res["unread"] == count["unread"] == 2
 
 
@@ -112,6 +112,6 @@ async def test_list_handles_null_created_at():
         db.add(_notif(org, user, title="dated", created_at=datetime.utcnow()))
         await db.commit()
 
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         assert len(res["items"]) == 2
         assert res["unread"] == 2

@@ -47,6 +47,7 @@ async def _get_current_membership(
         select(Membership).where(
             Membership.user_id == user.id,
             Membership.organization_id == organization.id,
+            Membership.deleted_at.is_(None),
         )
     )
     return result.scalars().first()
@@ -62,9 +63,12 @@ async def get_user_profile(current_user: User = Depends(current_user), db: Async
     # Build the (detached-safe) response, then release the pooled DB connection
     # before FastAPI serializes/sends it — whoami runs on every navigation, so
     # holding the connection through serialization is a real pool cost.
+    from app.core.instance_admin import can_create_additional_organization, is_instance_settings_admin
     payload = UserProfileSchema(
         **user_data,
-        organizations=organizations
+        organizations=organizations,
+        can_create_organization=can_create_additional_organization(current_user),
+        is_instance_settings_admin=await is_instance_settings_admin(db, current_user),
     )
     await release_request_db(db)
     return payload
@@ -196,6 +200,7 @@ async def get_member_viewer_context(
         select(Membership).where(
             Membership.user_id == user_id,
             Membership.organization_id == organization.id,
+            Membership.deleted_at.is_(None),
         )
     )
     membership = result.scalars().first()

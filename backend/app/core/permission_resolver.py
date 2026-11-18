@@ -1266,6 +1266,49 @@ async def get_user_ids_with_permission(
     return out
 
 
+async def _user_id_belongs_to_org(db: AsyncSession, user_id: str, org_id: str) -> bool:
+    """``principal_belongs_to_org`` for callers that hold only a user id.
+
+    Covers both bindings (Membership for humans, a live ServiceAccount row for
+    service accounts) and is memoized on the session like the RBAC memo, so the
+    public-data-source check costs one small query per (user, org) per request.
+    """
+    try:
+        memo = db.info.setdefault("_org_binding_memo", {})
+    except Exception:
+        memo = None
+    if not isinstance(memo, dict):
+        memo = None
+    key = (user_id, org_id)
+    if memo is not None and key in memo:
+        return memo[key]
+
+    from app.models.membership import Membership
+    from app.models.service_account import ServiceAccount
+
+    bound = (await db.execute(
+        select(Membership.id).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).first() is not None
+    if not bound:
+        bound = (await db.execute(
+            select(ServiceAccount.id).where(
+                ServiceAccount.user_id == user_id,
+                ServiceAccount.organization_id == org_id,
+                ServiceAccount.disabled_at.is_(None),
+                ServiceAccount.deleted_at.is_(None),
+            ).limit(1)
+        )).first() is not None
+    # Only a positive answer is cached: a binding created later in the same
+    # session (org bootstrap) must be seen.
+    if memo is not None and bound:
+        memo[key] = bound
+    return bound
+
+
 async def user_can_access_data_source(
     db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
 ) -> bool:
@@ -1275,8 +1318,15 @@ async def user_can_access_data_source(
     target = str(ds_id) if ds_id is not None else (str(ds.id) if ds is not None else None)
     if ceiling is not None and target not in ceiling:
         return False
+    # A data source is only ever accessible inside its own organization:
+    # neither the public shortcut nor an admin role in `org_id` extends to a
+    # data source that belongs to a different one.
+    ds_org_id = getattr(ds, 'organization_id', None) if ds is not None else None
+    if isinstance(ds_org_id, str) and ds_org_id != str(org_id):
+        return False
+    # "Public" means open to every member of the owning organization.
     if ds is not None and getattr(ds, 'is_public', False):
-        return True
+        return await _user_id_belongs_to_org(db, str(user_id), str(org_id))
     is_admin, accessible = await get_accessible_data_source_ids(db, user_id, org_id)
     if is_admin:
         return True

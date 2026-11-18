@@ -92,12 +92,20 @@ def _check_tool_provider_url(conn_type: str, config) -> None:
 
 def _check_network_dir_root(conn_type: str, config) -> None:
     """Save/test-time guard: a network_dir root must pass the root policy
-    (``security.network_dir_allowed_roots``). Enforced again in the client."""
+    (``security.network_dir_allowed_roots``). Enforced again in the client.
+    File-based connectors (duckdb, csv, qvd, pbix, sqlite) get their own
+    local-path policy here too."""
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     if conn_type != "network_dir":
+        from app.data_sources.clients._duckdb_lockdown import check_connection_config
+
+        try:
+            check_connection_config(conn_type, cfg)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return
     from app.data_sources.clients.network_dir_client import check_network_dir_root
 
-    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     root = (cfg.get("root_path") or "").strip() if isinstance(cfg.get("root_path"), str) else ""
     if not root:
         return
@@ -533,7 +541,8 @@ def _invalidate_engine_pool(connection) -> None:
         sig = _inspect.signature(ClientClass.__init__)
         params = {**(cfg or {}), **creds}
         allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
                      "oracle_uri", "trino_uri", "presto_uri", "teradata_uri", "db2_uri"):
             uri = getattr(client, attr, None)
@@ -2979,7 +2988,8 @@ class ConnectionService:
         # time — every test, index, query and tool call builds through here.
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         if connection.type == "network_dir":
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):
