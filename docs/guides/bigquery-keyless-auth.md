@@ -10,6 +10,8 @@ Application Default Credentials (ADC), and BOW stores no secret for it.
 What "the deployment's own identity" is depends on where BOW runs. You set it up
 once, on the server, outside BOW:
 
+The Docker and Kubernetes recipes are in step 2.
+
 | Where BOW runs | Identity it uses | Keyless? |
 |---|---|---|
 | Google Cloud (Compute Engine, GKE, Cloud Run) | The service account attached to the VM / pod | Yes |
@@ -39,64 +41,165 @@ and connections already using it stop working with a message saying so.
 
 ## 2. Give the server an identity
 
-### Google Cloud
+Pick the recipe for how BOW is deployed. In every recipe the federated
+principal or service account you end up with is the one to grant access to in
+step 3.
 
-Attach a service account to the VM, node pool, or Cloud Run service. Nothing
-else is needed: containers reach the metadata server on their own.
+For the federation recipes you first create, once, in Google Cloud:
 
-If you will impersonate another service account (step 4) from a Compute Engine
-VM, the VM's access scopes must include `cloud-platform`.
+1. a **workload identity pool** and a **provider** that trusts your workload's
+   identity, restricted with an attribute condition to the one role, managed
+   identity or service account BOW runs as;
+2. a **credential configuration file** for that provider
+   (`gcloud iam workload-identity-pools create-cred-config …`). The file holds
+   **no secret** — only where the workload finds its own token and which
+   provider to present it to.
 
-### AWS, Azure, or Kubernetes outside Google Cloud
+### Docker (docker-compose or `docker run`)
 
-1. In Google Cloud, create a workload identity pool and a provider that trusts
-   your workload's identity. Restrict it with an attribute condition to the one
-   role, managed identity, or service account BOW runs as.
-2. Grant that federated principal access (step 3), or let it impersonate a
-   service account (step 4).
-3. Generate the credential configuration file:
+**On a Google Cloud VM.** Attach a service account to the VM. Containers reach
+the metadata server on their own, so only the opt-in is needed:
 
-   ```bash
-   gcloud iam workload-identity-pools create-cred-config \
-     projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER \
-     --aws --enable-imdsv2 \
-     --output-file=credential-config.json
-   ```
+```yaml
+# docker-compose.yaml
+services:
+  app:
+    environment:
+      - BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true
+```
 
-   Use `--azure` or `--credential-source-file=/path/to/token` instead of `--aws`
-   for the other cases. The file contains **no secret** — only where the workload
-   finds its own token and which provider to present it to.
-4. Mount the file into the BOW container and point ADC at it:
+```bash
+docker run -p 3000:3000 -e BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true bagofwords/bagofwords
+```
 
-   ```yaml
-   # docker-compose.yaml
-   services:
-     app:
-       environment:
-         - BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true
-         - GOOGLE_APPLICATION_CREDENTIALS=/run/google/credential-config.json
-       volumes:
-         - ./credential-config.json:/run/google/credential-config.json:ro
-   ```
+If you will impersonate another service account (step 4), the VM's access
+scopes must include `cloud-platform`.
 
-On AWS with docker-compose, raise the instance metadata hop limit to 2
-(`aws ec2 modify-instance-metadata-options --http-put-response-hop-limit 2 ...`).
-With the default of 1, a container on the bridge network gets no answer from the
-metadata service and the token exchange fails.
+**On an AWS or Azure VM.** Generate the credential configuration for the VM's
+role or managed identity, then mount it and point ADC at it:
 
-### A server with no cloud identity
+```bash
+gcloud iam workload-identity-pools create-cred-config \
+  projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER \
+  --aws --enable-imdsv2 \
+  --output-file=credential-config.json      # use --azure on Azure
+```
 
-Federation still needs something to vouch for the workload:
+```yaml
+# docker-compose.yaml
+services:
+  app:
+    environment:
+      - BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true
+      - GOOGLE_APPLICATION_CREDENTIALS=/run/google/credential-config.json
+    volumes:
+      - ./credential-config.json:/run/google/credential-config.json:ro
+```
 
+```bash
+docker run -p 3000:3000 \
+  -e BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/run/google/credential-config.json \
+  -v "$PWD/credential-config.json:/run/google/credential-config.json:ro" \
+  bagofwords/bagofwords
+```
+
+On AWS, raise the instance metadata hop limit to 2
+(`aws ec2 modify-instance-metadata-options --http-put-response-hop-limit 2 …`).
+With the default of 1, a container on the bridge network gets no answer from
+the metadata service and the token exchange fails.
+
+**On a server with no cloud identity** (bare metal, a plain VM). Federation
+still needs something to vouch for the workload:
+
+- **An OIDC token your tooling writes to a file** (a secrets-manager agent,
+  SPIRE). Generate the configuration with
+  `--credential-source-file=/run/google/token`, mount that token file next to
+  the configuration as above; it is re-read whenever a token is needed.
 - **X.509 certificates** from your own PKI (see Google's "Workload Identity
   Federation with X.509 certificates"). The private key is yours, short-lived,
   and rotated by your tooling; no Google key exists.
-- **An OIDC token your tooling writes to a file** (a secrets-manager agent, SPIRE).
-  Use `--credential-source-file`; BOW re-reads the file whenever a token is needed.
 
 If neither fits, keep the service-account key and rotate it instead: edit the
 connection, or `PUT /api/connections/{connection_id}` with
 `{"credentials": {"credentials_json": "<new key>"}}`.
+
+### Kubernetes (Helm chart in `k8s/chart`)
+
+The chart needs no template change: use `extraEnv`, `serviceAccount`,
+`extraVolumes` and `extraVolumeMounts` in your values file.
+
+**On GKE, with Workload Identity Federation for GKE.** Grant the BigQuery roles
+(step 3) to the pod's Kubernetes service account, either directly as a
+principal or through a Google service account bound to it. With a bound Google
+service account:
+
+```yaml
+# values.yaml
+serviceAccount:
+  name: bowapp
+  annotations:
+    iam.gke.io/gcp-service-account: bow@PROJECT_ID.iam.gserviceaccount.com
+extraEnv:
+  - name: BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS
+    value: "true"
+```
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding bow@PROJECT_ID.iam.gserviceaccount.com \
+  --role=roles/iam.workloadIdentityUser \
+  --member="serviceAccount:PROJECT_ID.svc.id.goog[NAMESPACE/bowapp]"
+```
+
+No credential file is involved.
+
+**On any other cluster (EKS, AKS, on-prem).** Google trusts the cluster's own
+service-account tokens. Create the provider as an OIDC provider with the
+cluster's issuer URL (upload the cluster's signing keys to the provider if the
+issuer is not reachable from the internet), then have Kubernetes project a token
+for that provider into the pod and point the credential configuration at it:
+
+```bash
+gcloud iam workload-identity-pools create-cred-config \
+  projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER \
+  --credential-source-file=/var/run/google/token \
+  --output-file=credential-config.json
+
+kubectl -n NAMESPACE create configmap bow-google-credential-config \
+  --from-file=credential-config.json
+```
+
+```yaml
+# values.yaml
+extraEnv:
+  - name: BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS
+    value: "true"
+  - name: GOOGLE_APPLICATION_CREDENTIALS
+    value: /etc/google/credential-config.json
+extraVolumes:
+  - name: google-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            # must equal the audience the provider accepts
+            audience: https://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/providers/PROVIDER
+            expirationSeconds: 3600
+            path: token
+  - name: google-credential-config
+    configMap:
+      name: bow-google-credential-config
+extraVolumeMounts:
+  - name: google-token
+    mountPath: /var/run/google
+    readOnly: true
+  - name: google-credential-config
+    mountPath: /etc/google
+    readOnly: true
+```
+
+The federated principal to grant access to is the pod's service account:
+`principal://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/POOL/subject/system:serviceaccount:NAMESPACE:bowapp`.
+Kubernetes rotates the projected token; nothing is stored in a Secret.
 
 ## 3. Grant BigQuery access
 

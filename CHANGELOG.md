@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.627 (November 18, 2026)
+- Added keyless BigQuery connections that use the server's Google identity instead of a service-account key (#1794) — enable with `BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true`
+
 ## Version 0.0.626 (November 18, 2026)
 - Added Slack as a data source: each user signs in with their own Slack account, and each agent reads only the channels picked for it (#1785)
 - Fixed "Save and Run" on an eval test case failing silently and creating duplicate test cases on retry (#1787)
