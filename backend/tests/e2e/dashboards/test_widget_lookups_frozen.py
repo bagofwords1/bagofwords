@@ -32,7 +32,12 @@ ALLOWED = {
     "ai/agent_v2.py": 1,                                 # publish the conversation's widgets
     "ai/context/builders/widget_context_builder.py": 2,  # the agent's view of the conversation
     "serializers/completion_v2.py": 1,                   # the step a completion's widget produced
-    "services/widget_service.py": 2,                     # legacy widget dashboards
+    # Legacy widget dashboards; a widget named in a request must belong to the
+    # caller's organization, and a step named with it must be that widget's own.
+    "services/widget_service.py": 4,
+    # A completion that names a widget: it must be that conversation's (as in
+    # routes/query.py). The step it names goes through row_owner.
+    "services/completion_service.py": 1,
     "services/checkin_service.py": 4,                    # the conversation's steps for check-ins
     "services/console_service.py": 4,                    # console metrics per conversation
     "services/identity_taint.py": 2,                     # load_step targets inside a conversation

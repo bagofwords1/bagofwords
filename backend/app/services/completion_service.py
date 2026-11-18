@@ -439,12 +439,10 @@ class CompletionService:
         """Resolve a prompt's optional widget_id / step_id.
 
         Both ids are client-supplied, so each must belong to the report the
-        completion is posted to: the widget directly, the step through its
-        widget or its query. Anything else is answered exactly like an id
-        that does not exist (404 when `strict`, else None).
+        completion is posted to: the widget directly, the step through
+        row_owner. Anything else is answered exactly like an id that does not
+        exist (404 when `strict`, else None).
         """
-        from sqlalchemy import or_
-        from app.models.query import Query
 
         def _get(obj, name):
             return obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
@@ -460,18 +458,15 @@ class CompletionService:
             if widget is None and strict:
                 raise HTTPException(status_code=404, detail="Widget not found")
         if step_id:
-            stmt = (
-                select(Step)
-                .outerjoin(Widget, Widget.id == Step.widget_id)
-                .outerjoin(Query, Query.id == Step.query_id)
-                .where(
-                    Step.id == str(step_id),
-                    or_(Widget.report_id == str(report.id), Query.report_id == str(report.id)),
-                )
-            )
+            from app.services.row_owner import step_report_id
+
+            stmt = select(Step).where(Step.id == str(step_id))
             if lazy:
                 stmt = stmt.options(lazyload("*"))
             step = (await db.execute(stmt)).scalars().first()
+            # The same resolver every gate uses: the step's own conversation.
+            if step is not None and await step_report_id(db, step) != str(report.id):
+                step = None
             if step is None and strict:
                 raise HTTPException(status_code=404, detail="Step not found")
         return widget, step

@@ -507,13 +507,15 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
     # Operator-owned placement into organizations (bow-config `org_mapping`).
     # Runs before group/profile sync so they see the memberships it settles.
-    # Skipped when the groups are unknown, so an outage never removes anyone.
-    if org_mapping and login_groups is not None:
-        try:
-            from app.services.oidc_org_mapping import apply_org_mapping
-            await apply_org_mapping(cfg, user, login_groups[0], login_groups[1])
-        except Exception as e:
-            _auth_logger.warning(f"OIDC org mapping failed for user {user.id}: {e}", exc_info=True)
+    # Always called: memberships a since-deleted rule produced are reconciled
+    # too (one lookup for a provider that never had a mapping). With rules
+    # configured it does nothing while the groups are unknown, so an outage
+    # never removes anyone.
+    try:
+        from app.services.oidc_org_mapping import apply_org_mapping
+        await apply_org_mapping(cfg, user, login_groups)
+    except Exception as e:
+        _auth_logger.warning(f"OIDC org mapping failed for user {user.id}: {e}", exc_info=True)
 
     # OIDC group sync — sync group claims from id_token into BOW Groups
     if sync_groups and login_groups is not None:

@@ -474,6 +474,25 @@ async def insert_membership_if_absent(db: AsyncSession, membership):
         return existing, False
 
 
+def live_pending_invite():
+    """SQL predicate for an invite that can still be claimed: a membership row
+    nobody holds yet, not removed, and not past ``invite_expires_at``.
+
+    Every path that turns an invite into a membership — by email or by link —
+    uses this, so an expired invite is never claimed; it stays pending until
+    an admin resends it (which opens a new window). Invites written before
+    expiry existed have no ``invite_expires_at`` and do not expire.
+    """
+    from datetime import datetime
+    from app.models.membership import Membership
+
+    return and_(
+        Membership.user_id.is_(None),
+        Membership.deleted_at.is_(None),
+        or_(Membership.invite_expires_at.is_(None), Membership.invite_expires_at > datetime.utcnow()),
+    )
+
+
 async def claim_pending_invite(db: AsyncSession, user, org_id: str):
     """Attach an open email invite to ``user`` instead of creating a second row.
 
@@ -487,8 +506,8 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
 
     Returns the claimed ``Membership`` (with its role assignment ensured and
     pending RBAC materialized), or ``None`` when there is no open invite to claim.
-    Expiry is intentionally ignored — this mirrors ``_attach_open_memberships``,
-    which claims invites regardless of ``invite_expires_at``. Does NOT commit.
+    An expired invite is not claimed (``live_pending_invite``, the same rule
+    as ``_attach_open_memberships``). Does NOT commit.
 
     An invite is always admin intent, so ``directory_provider`` is deliberately
     left as-is (NULL for a hand-issued invite): stamping it would make an
@@ -508,8 +527,7 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
         select(Membership).where(
             func.lower(Membership.email) == email,
             Membership.organization_id == str(org_id),
-            Membership.user_id.is_(None),
-            Membership.deleted_at.is_(None),
+            live_pending_invite(),
         ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc()).limit(1)
     )).scalars().first()
     if invite is None:

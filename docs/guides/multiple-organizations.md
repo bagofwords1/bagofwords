@@ -113,6 +113,14 @@ At each sign-in:
 - A person who has left every group mapped to an organization is removed from
   it, if the mapping is what added them. Memberships created by an invite, by
   SCIM or by an admin are never removed by the mapping.
+- Nobody is removed on doubt. If the directory cannot tell what one of the
+  person's groups is called, a rule that maps a group by display name keeps its
+  organization's memberships until a later sign-in where the names resolve.
+  Rules that map a group by object id are not affected.
+- Deleting a rule from `org_mapping`, the last one included, removes the
+  memberships that rule created at each person's next sign-in. On a
+  single-organization deployment a person left with no membership can no longer
+  sign in until they are added again.
 - An organization at its license seat limit is skipped. Sign-in still succeeds.
 
 The identity provider must send a groups claim. For Entra ID, add the `groups`

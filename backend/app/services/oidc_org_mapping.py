@@ -10,15 +10,19 @@ rules are compared with the groups the provider asserts for the person:
   a higher mapped role is granted, but a role is never lowered: an organization
   admin may have granted it by hand, and the two cannot be told apart.
 - A membership created by this provider's mapping is removed, through the same
-  path as the members list, once the person holds no group mapped to that
-  organization. Memberships that came from anywhere else (invite, SCIM, manual)
-  are never removed here, even when a rule matched them at some point.
+  path as the members list, once no current rule for that organization applies
+  to the person: they left the group, or the rule (even the last one) was
+  deleted. Removal needs certainty — an organization with a rule that cannot
+  be decided this sign-in (keyed by display name while a group's name could
+  not be resolved) is left alone. Memberships that came from anywhere else
+  (invite, SCIM, manual) are never removed here, even when a rule matched them.
 
 Nothing here may fail the sign-in: every organization is handled on its own and
 errors are logged.
 """
 
-from typing import Dict, List, Optional, Set
+import re
+from typing import Dict, Optional, Set
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -153,21 +157,65 @@ async def _ensure_membership(db, provider_name: str, user: User, organization_id
         )
 
 
-async def _wanted_roles(db, cfg, group_ids, group_names) -> Dict[str, str]:
-    """organization id -> highest role among the rules these groups match."""
+_GUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+# (provider, rule group) pairs already reported as impossible to decide by name.
+_warned_undecidable: Set[tuple] = set()
+
+
+def _has_unnamed_groups(group_ids, group_names) -> bool:
+    """Whether the sign-in carries a group whose display name is unknown.
+
+    Only opaque object ids count: a readable claim value (Okta, Keycloak, ...)
+    is the group's name already. While such a group exists, a rule keyed by
+    display name cannot be ruled out — the person may be in exactly that group.
+    """
+    names = group_names or {}
+    return any(_GUID_RE.match(str(g)) and not names.get(g) for g in (group_ids or []))
+
+
+async def _evaluate_rules(db, cfg, group_ids, group_names):
+    """``(wanted, undecided)`` for this sign-in's groups.
+
+    ``wanted``: organization id -> highest role among the rules that match.
+    ``undecided``: organizations with a rule that did not match but could not
+    be ruled out either (keyed by display name while a group's name is
+    unknown). A membership there is neither granted nor removed this sign-in.
+    """
     ids = {str(g).casefold() for g in (group_ids or [])}
     names = {n for n in (group_names or {}).values() if n}
+    unnamed = _has_unnamed_groups(group_ids, group_names)
     wanted: Dict[str, str] = {}
+    undecided: Set[str] = set()
     resolved: Dict[str, Optional[str]] = {}
     for rule in getattr(cfg, "org_mapping", None) or []:
-        if not _matches(rule.group, ids, names):
+        matched = _matches(rule.group, ids, names)
+        # An id-keyed rule is decided by the ids alone.
+        unsure = not matched and unnamed and not _GUID_RE.match(rule.group)
+        if not matched and not unsure:
             continue
         if rule.organization not in resolved:
             resolved[rule.organization] = await _resolve_organization(db, cfg.name, rule.organization)
         org_id = resolved[rule.organization]
-        if org_id and _rank(rule.role) > _rank(wanted.get(org_id)):
-            wanted[org_id] = rule.role
-    return wanted
+        if not org_id:
+            continue
+        if matched:
+            if _rank(rule.role) > _rank(wanted.get(org_id)):
+                wanted[org_id] = rule.role
+            continue
+        undecided.add(org_id)
+        if not getattr(cfg, "resolve_group_names", False):
+            key = (cfg.name, rule.group)
+            if key not in _warned_undecidable:
+                _warned_undecidable.add(key)
+                logger.warning(
+                    "OIDC org mapping (%s): rule for group '%s' is keyed by display name but the "
+                    "provider sends group ids and resolve_group_names is off; it can never match, "
+                    "and memberships in its organization are never removed. Use the group id or "
+                    "enable resolve_group_names.",
+                    cfg.name, rule.group,
+                )
+    return wanted, undecided
 
 
 async def mapping_admits(cfg, group_ids, group_names) -> bool:
@@ -178,31 +226,50 @@ async def mapping_admits(cfg, group_ids, group_names) -> bool:
     from app.dependencies import async_session_maker
 
     async with async_session_maker() as db:
-        return bool(await _wanted_roles(db, cfg, group_ids, group_names))
+        wanted, _ = await _evaluate_rules(db, cfg, group_ids, group_names)
+        return bool(wanted)
 
 
-async def apply_org_mapping(cfg, user, group_ids: List[str], group_names: Optional[Dict[str, Optional[str]]]) -> None:
-    """Bring ``user``'s memberships in line with ``cfg.org_mapping``.
+async def apply_org_mapping(cfg, user, groups) -> None:
+    """Bring ``user``'s memberships in line with ``cfg.org_mapping`` as it is now.
 
-    ``group_ids`` must be the complete list the provider asserts for this
-    sign-in (an empty list means "no groups"); callers must not call this when
-    the groups could not be determined, or mapped memberships would be removed
-    on a provider outage.
+    ``groups`` is ``(group_ids, group_names)`` — the complete list the provider
+    asserts for this sign-in (an empty list means "no groups") and the display
+    names known for those ids — or None when the groups could not be determined.
+
+    Memberships this provider's mapping created are reconciled against the
+    current rules, an empty rule set included: deleting a rule (or all of them)
+    ends the memberships it produced at the person's next sign-in. A removal
+    needs certainty that no rule for that organization applies, so with rules
+    configured nothing is removed while the groups are unknown, and an
+    organization with a rule that cannot be decided this sign-in is left alone.
     """
-    rules = list(getattr(cfg, "org_mapping", None) or [])
-    if not rules:
-        return
-
     from app.dependencies import async_session_maker
 
+    rules = list(getattr(cfg, "org_mapping", None) or [])
     provider_name = cfg.name
+    marker = mapping_marker(provider_name)
+    user_id = str(user.id)
+    if rules and groups is None:
+        return
 
     async with async_session_maker() as db:
-        account = await db.scalar(select(User).where(User.id == str(user.id)))
-        if account is None:
-            return
-        user_id = str(account.id)
-        wanted = await _wanted_roles(db, cfg, group_ids, group_names)
+        if not rules:
+            # Providers that never had a mapping stop here, after one lookup.
+            marked = await db.scalar(
+                select(Membership.id).where(
+                    Membership.user_id == user_id,
+                    Membership.deleted_at.is_(None),
+                    Membership.directory_provider == marker,
+                ).limit(1)
+            )
+            if marked is None:
+                return
+            wanted, undecided = {}, set()
+        else:
+            if await db.scalar(select(User.id).where(User.id == user_id)) is None:
+                return
+            wanted, undecided = await _evaluate_rules(db, cfg, groups[0], groups[1])
 
         for org_id, role in wanted.items():
             try:
@@ -222,12 +289,19 @@ async def apply_org_mapping(cfg, user, group_ids: List[str], group_names: Option
                 select(Membership.id, Membership.organization_id).where(
                     Membership.user_id == user_id,
                     Membership.deleted_at.is_(None),
-                    Membership.directory_provider == mapping_marker(provider_name),
+                    Membership.directory_provider == marker,
                 )
             )
         ).all()
         for membership_id, org_id in stale:
             if str(org_id) in wanted:
+                continue
+            if str(org_id) in undecided:
+                logger.info(
+                    "OIDC org mapping (%s): kept user %s in org %s this sign-in "
+                    "(a group's display name could not be resolved)",
+                    provider_name, user_id, org_id,
+                )
                 continue
             try:
                 from app.services.organization_service import OrganizationService
@@ -236,7 +310,7 @@ async def apply_org_mapping(cfg, user, group_ids: List[str], group_names: Option
                 # schedules held in that organization end with the membership.
                 await OrganizationService().remove_member(db, str(org_id), str(membership_id), None, None)
                 logger.info(
-                    "OIDC org mapping (%s): removed user %s from org %s (no mapped group left)",
+                    "OIDC org mapping (%s): removed user %s from org %s (no rule applies any more)",
                     provider_name, user_id, org_id,
                 )
             except HTTPException as exc:

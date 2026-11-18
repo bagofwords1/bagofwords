@@ -276,9 +276,10 @@ class UserManager(BaseUserManager[User, str]):
         # surviving row's legacy `role`); the rest are retired. Deterministic, and
         # identical to the dedup migration / claim_pending_invite ordering.
         role_rank = case((Membership.role == "admin", 0), (Membership.role == "member", 1), else_=2)
+        from app.core.permission_resolver import live_pending_invite
         conditions = [
             func.lower(Membership.email) == (user.email or "").strip().lower(),
-            Membership.user_id.is_(None),
+            live_pending_invite(),
         ]
         if organization_ids is not None:
             conditions.append(Membership.organization_id.in_([str(o) for o in organization_ids]))
@@ -672,10 +673,12 @@ class UserManager(BaseUserManager[User, str]):
                         # Existence check only, and limited: the same address can
                         # hold open invites in several orgs, so scalar_one_or_none()
                         # would raise MultipleResultsFound and 500 the OAuth signup.
+                        # An expired invite admits nobody until it is resent.
+                        from app.core.permission_resolver import live_pending_invite
                         stmt = select(Membership.id).where(
                             and_(
                                 func.lower(Membership.email) == (account_email or "").strip().lower(),
-                                Membership.user_id.is_(None)
+                                live_pending_invite(),
                             )
                         ).limit(1)
                         open_membership = (await session.execute(stmt)).first()
@@ -843,8 +846,10 @@ class UserManager(BaseUserManager[User, str]):
             )).scalar_one_or_none() if token else None
             if invite is None:
                 raise HTTPException(status_code=400, detail="This invite link is invalid. Ask your admin to resend it.")
+            # Fetched without the expiry filter only to tell "expired" from
+            # "invalid"; the claim below applies live_pending_invite().
             expires = invite.invite_expires_at
-            if expires is not None and expires < datetime.utcnow():
+            if expires is not None and expires <= datetime.utcnow():
                 raise HTTPException(status_code=400, detail="This invite link has expired. Ask your admin to resend it.")
             if not _same_email(invite.email, user.email):
                 raise HTTPException(status_code=403, detail="This invite was sent to a different email address.")
@@ -1025,7 +1030,7 @@ class UserManager(BaseUserManager[User, str]):
                 if not membership:
                     raise HTTPException(status_code=400, detail="This invite link is invalid. Ask your admin to resend it.")
                 expires = membership.invite_expires_at
-                if expires is not None and expires < datetime.utcnow():
+                if expires is not None and expires <= datetime.utcnow():
                     raise HTTPException(status_code=400, detail="This invite link has expired. Ask your admin to resend it.")
                 if membership.email and membership.email.lower() != (email or "").lower():
                     raise HTTPException(status_code=400, detail="This invite was sent to a different email address.")
@@ -1269,12 +1274,12 @@ async def auto_provision_user_for_org(
     # Multiple open invites for one email in an org are allowed, so this must not
     # use scalar_one_or_none() (it would raise MultipleResultsFound). It is only a
     # presence flag here; the actual claim re-queries deterministically.
+    from app.core.permission_resolver import live_pending_invite
     open_invite = (await db.execute(
         select(Membership).where(
             Membership.organization_id == organization_id,
             func.lower(Membership.email) == email_norm,
-            Membership.user_id.is_(None),
-            Membership.deleted_at.is_(None),
+            live_pending_invite(),
         ).limit(1)
     )).scalars().first()
 
