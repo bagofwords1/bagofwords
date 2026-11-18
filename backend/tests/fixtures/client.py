@@ -267,37 +267,33 @@ class _TestLoop:
             stopped.set()
 
     def _exit_portal(self, cm, exit_args):
-        """Leave the portal's context: stop the loop and join its thread. An
-        interrupted exit (``exit_args`` carries the exception that unwinds
-        the stop) waits at most _BOUNDARY_WAIT_SECONDS: anyio's exit then
-        waits on the loop thread, which code blocking it synchronously would
-        hold up forever (and pytest-timeout's signal method fires only once,
-        so a reported Timeout would turn into a hang). If it is cut short,
-        or an interrupt lands inside the exit (e.g. while anyio joins the
-        loop thread), the loop thread may be left running: that is counted
-        (``cleanup_errors``) and said, and the exception goes on unwinding."""
+        """Leave the portal's context: stop the loop and join its thread.
+        anyio's exit runs in a helper thread, so an interrupt of the stop
+        never lands in its unbounded join of the loop thread (which code
+        blocking that thread synchronously would hold up forever, and
+        pytest-timeout's signal method fires only once, so a reported Timeout
+        would turn into a hang). The normal exit is waited for without a
+        bound; an interrupted one (``exit_args`` carries the exception that
+        unwinds the stop) at most _BOUNDARY_WAIT_SECONDS. If the wait is
+        interrupted or cut short, or the exit fails, the loop thread may be
+        left running: that is counted (``cleanup_errors``) and said. An
+        interrupt goes on unwinding; an exit's failure is raised, except on
+        an interrupted exit, where it is noted on the interrupt instead."""
+        interrupted = exit_args[1]
+        outcome = {}
+
+        def run():
+            try:
+                cm.__exit__(*exit_args)
+            except BaseException as exc:
+                outcome["error"] = exc
+
+        helper = threading.Thread(target=run, name="test-client-loop-exit", daemon=True)
         try:
-            if exit_args[0] is None:
-                cm.__exit__(None, None, None)
-                return
-            outcome = {}
-
-            def run():
-                try:
-                    cm.__exit__(*exit_args)
-                except BaseException as exc:
-                    outcome["error"] = exc
-
-            helper = threading.Thread(target=run, name="test-client-loop-exit", daemon=True)
             helper.start()
-            helper.join(_BOUNDARY_WAIT_SECONDS)
+            helper.join(None if interrupted is None else _BOUNDARY_WAIT_SECONDS)
         except BaseException as exc:
-            self.stats.add("cleanup_errors")
-            print(
-                f"Warning: stopping a test_client loop failed or was interrupted ({exc!r}); "
-                "its loop thread may still be running",
-                file=sys.stderr,
-            )
+            self._exit_failed(exc)
             raise
         if helper.is_alive():
             self.stats.add("cleanup_errors")
@@ -307,8 +303,22 @@ class _TestLoop:
                 file=sys.stderr,
             )
             return
-        if "error" in outcome:
-            raise outcome["error"]
+        if "error" not in outcome:
+            return
+        error = outcome["error"]
+        self._exit_failed(error)
+        if interrupted is None:
+            raise error
+        interrupted.add_note(f"Stopping its test_client loop then failed too: {error!r}")
+        raise interrupted
+
+    def _exit_failed(self, exc):
+        self.stats.add("cleanup_errors")
+        print(
+            f"Warning: stopping a test_client loop failed or was interrupted ({exc!r}); "
+            "its loop thread may still be running",
+            file=sys.stderr,
+        )
 
     def _wait_for_detached_stops(self, timeout=None):
         """Wait for the loops still stopping (at most ``timeout`` seconds in
@@ -341,7 +351,10 @@ class _TestLoop:
 
         It then waits for any loop still stopping, including one another
         thread detached (a dirty restart), so an engine dispose that follows
-        never races a loop still releasing its connections. With ``if_idle``
+        never races a loop still releasing its connections. The exception is
+        an interrupted stop that gives up on a loop thread (counted and said,
+        see ``_exit_portal``): a dispose that follows can then race that
+        loop. With ``if_idle``
         (the stop before a test's finalizers, one of which may be what lets
         such a stop finish) it waits for those at most
         _BOUNDARY_WAIT_SECONDS; the full stop after the finalizers waits for

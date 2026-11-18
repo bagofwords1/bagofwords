@@ -5,6 +5,8 @@ the loop are their own; the "wiring" tests use the real shared loop to check
 it is stopped at the test boundary and before an engine dispose. No database.
 """
 import asyncio
+import contextlib
+import signal
 import threading
 import time
 
@@ -613,23 +615,62 @@ def test_an_interrupted_connection_release_still_stops_the_loop(client, loop, mo
     assert not loop._stopping
 
 
+@contextlib.contextmanager
+def retrying_signal(signum, act):
+    """Within the block, ``signum``'s handler calls ``act(signum, frame)``
+    the first time it runs (later signals are no-ops), and the ``send`` it
+    yields (callable from any thread) starts a thread that sends ``signum``
+    to the main thread every 10 ms until that handler has run, giving up
+    after about 5 s. One signal is not enough to interrupt a wait: one that
+    lands after the main thread released the GIL but before it started its
+    lock wait interrupts no wait, and its handler runs only once the wait
+    ends. The block's exit stops and joins the senders before it restores
+    the previous handler, so no signal sent here reaches that one."""
+    assert threading.current_thread() is threading.main_thread()
+    main = threading.main_thread().ident
+    handled = threading.Event()
+    senders = []
+
+    def handler(signum_, frame):
+        if handled.is_set():
+            return
+        handled.set()
+        act(signum_, frame)
+
+    def keep_sending():
+        deadline = time.monotonic() + 5
+        while not handled.is_set() and time.monotonic() < deadline:
+            signal.pthread_kill(main, signum)
+            handled.wait(0.01)
+
+    def send():
+        sender = threading.Thread(target=keep_sending, name="test-signal-sender", daemon=True)
+        senders.append(sender)
+        sender.start()
+
+    previous = signal.signal(signum, handler)
+    try:
+        yield send
+    finally:
+        handled.set()
+        for sender in list(senders):
+            sender.join()
+        signal.signal(signum, previous)
+
+
 @pytest.fixture
 def interrupt_main_thread():
-    """A function that interrupts the main thread (the test's) with a
+    """A function that interrupts the main thread (the test's) with one
     KeyboardInterrupt even while it is blocked waiting: a real signal
-    (SIGUSR1, its handler raising), where ``_thread.interrupt_main`` only takes
-    effect once the main thread wakes."""
-    import signal
-
-    assert threading.current_thread() is threading.main_thread()
+    (SIGUSR1, re-sent until its handler has raised; see
+    ``retrying_signal``), where ``_thread.interrupt_main`` only takes effect
+    once the main thread wakes."""
 
     def raise_interrupt(signum, frame):
         raise KeyboardInterrupt
 
-    previous = signal.signal(signal.SIGUSR1, raise_interrupt)
-    main = threading.main_thread().ident
-    yield lambda: signal.pthread_kill(main, signal.SIGUSR1)
-    signal.signal(signal.SIGUSR1, previous)
+    with retrying_signal(signal.SIGUSR1, raise_interrupt) as send:
+        yield send
 
 
 def test_an_interrupted_stop_waits_only_so_long_for_a_blocked_loop(
@@ -719,6 +760,113 @@ def test_an_interrupt_inside_the_loops_exit_is_counted(client, loop, capsys):
     assert len(alive) == 1  # left running, as reported
     assert loop.stats.snapshot()["cleanup_errors"] == 1
     assert "loop thread may still be running" in capsys.readouterr().err
+    assert loop.portal is None and not loop._stopping
+    assert not any(t.is_alive() for t in started)
+
+
+def test_an_interrupt_while_a_normal_stop_waits_on_a_blocked_loop_is_raised(
+    client, loop, monkeypatch, capsys, interrupt_main_thread
+):
+    """The connections are released normally, then the loop thread blocks in
+    synchronous code, so the portal's normal exit (anyio stops the portal,
+    then joins its thread) waits on it; the main thread is interrupted
+    meanwhile. The normal stop waits without a bound, but the interrupt must
+    not land in anyio's unbounded join: ``stop`` re-raises it promptly,
+    counts it and says the loop thread may still be running."""
+    from app.settings import database
+
+    real_release = database.release_test_connections
+    before = _portal_threads()
+    assert client.get("/loop").status_code == 200
+    started = _portal_threads() - before
+    assert len(started) == 1
+    portal = loop.portal
+    real_call = portal.call
+    stop_requested, unblock = threading.Event(), threading.Event()
+
+    def call(func, *args):
+        if func == portal.stop:  # anyio's exit, stopping the portal
+            stop_requested.set()
+        return real_call(func, *args)
+
+    portal.call = call  # this test's own portal
+
+    def block_the_loop():
+        if stop_requested.wait(5):  # the exit now waits on this loop
+            interrupt_main_thread()
+        unblock.wait(10)  # synchronous: the loop thread is stuck (10s: a broken stop ends)
+
+    async def release_then_block():
+        await real_release()
+        asyncio.get_running_loop().call_soon(block_the_loop)
+
+    monkeypatch.setattr(database, "release_test_connections", release_then_block)
+    begun = time.monotonic()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            loop.stop()
+        took = time.monotonic() - begun
+    finally:
+        unblock.set()
+    assert took < 5, f"the interrupted normal stop took {took:.1f}s"
+    assert loop.stats.snapshot()["cleanup_errors"] == 1
+    assert "loop thread may still be running" in capsys.readouterr().err
+    assert loop.portal is None and not loop._stopping
+    for thread in started:  # unblocked: the exit left behind now ends it
+        thread.join(10)
+    assert not any(t.is_alive() for t in started)
+
+
+def test_a_failed_exit_of_an_interrupted_stop_keeps_the_interrupt(client, loop, capsys):
+    """An interrupt while the stop releases the loop's connections, and the
+    portal's exit then fails too: ``stop`` re-raises the interrupt, not the
+    exit's error (a KeyboardInterrupt never turns into an ordinary
+    exception), with that error noted on it, counted and said."""
+    import _thread
+
+    import anyio.from_thread
+
+    from app.settings import database
+
+    real_start = anyio.from_thread.start_blocking_portal
+
+    class _ExitFails:
+        """anyio's portal context; its exit stops the loop, then fails."""
+
+        def __init__(self, cm):
+            self._cm = cm
+
+        def __enter__(self):
+            return self._cm.__enter__()
+
+        def __exit__(self, *exc_info):
+            self._cm.__exit__(*exc_info)
+            raise RuntimeError("the portal's exit failed")
+
+    # Patched for this loop only, not with monkeypatch: its undo comes after
+    # this module's autouse teardown, whose shared loop must exit for real.
+    anyio.from_thread.start_blocking_portal = lambda *a, **kw: _ExitFails(real_start(*a, **kw))
+    try:
+        before = _portal_threads()
+        assert client.get("/loop").status_code == 200
+    finally:
+        anyio.from_thread.start_blocking_portal = real_start
+    started = _portal_threads() - before
+    assert len(started) == 1
+    real_release = database.release_test_connections
+
+    async def interrupted_release():
+        _thread.interrupt_main()  # raised in the test thread once this returns
+
+    database.release_test_connections = interrupted_release
+    try:
+        with pytest.raises(KeyboardInterrupt) as raised:
+            loop.stop()
+    finally:
+        database.release_test_connections = real_release
+    assert "the portal's exit failed" in "\n".join(getattr(raised.value, "__notes__", []))
+    assert loop.stats.snapshot()["cleanup_errors"] == 1
+    assert "the portal's exit failed" in capsys.readouterr().err
     assert loop.portal is None and not loop._stopping
     assert not any(t.is_alive() for t in started)
 
@@ -1081,7 +1229,6 @@ def test_teardown_hook_keeps_the_first_stop_failure_when_the_second_fails_too(mo
 _FIRST_STOP_FAILS = '''
 import asyncio
 import signal
-import threading
 from pathlib import Path
 
 import pytest
@@ -1089,6 +1236,7 @@ from fastapi import FastAPI
 
 from app.settings import database
 from tests.fixtures.client import _PersistentLoopTestClient
+from HELPERS_MODULE import retrying_signal
 
 app = FastAPI()
 
@@ -1106,18 +1254,26 @@ def request_in_teardown():
     Path("finalized").write_text("yes")
 
 
-# The signal method's timer (SIGALRM, setitimer) is one per process: this
-# inner run's replaces any outer signal-method timer in this process.
-@pytest.mark.timeout(600, method="signal")
-def test_body(request_in_teardown, monkeypatch):
+@pytest.fixture
+def time_out():
+    """Sends SIGALRM until pytest-timeout's handler has timed the test out
+    (once; see ``retrying_signal``)."""
+    timeout_handler = signal.getsignal(signal.SIGALRM)
     # pytest-timeout's handler must be the one the signal below reaches.
-    assert signal.getsignal(signal.SIGALRM) not in (signal.SIG_DFL, signal.SIG_IGN, None)
-    main = threading.main_thread().ident
+    assert timeout_handler not in (signal.SIG_DFL, signal.SIG_IGN, None)
+    with retrying_signal(signal.SIGALRM, timeout_handler) as send:
+        yield send
 
+
+# The signal method's timer (SIGALRM, setitimer) is one per process: this
+# inner run's timer replaces any outer signal-method timer in this process,
+# and its teardown cancels that outer timer.
+@pytest.mark.timeout(600, method="signal")
+def test_body(request_in_teardown, time_out, monkeypatch):
     async def release_that_times_out():
         # The first stop is waiting on this: time the test out there, as
         # pytest-timeout's signal method would, and stay until cancelled.
-        signal.pthread_kill(main, signal.SIGALRM)
+        time_out()
         await asyncio.Event().wait()
 
     monkeypatch.setattr(database, "release_test_connections", release_that_times_out)
@@ -1135,7 +1291,9 @@ def test_a_failed_first_stop_still_runs_the_finalizers_and_ends_the_loop(pyteste
     pytester.makeconftest(
         "from tests.conftest import pytest_runtest_setup, pytest_runtest_teardown\n"
     )
-    pytester.makepyfile(test_first_stop_fails=_FIRST_STOP_FAILS)
+    pytester.makepyfile(
+        test_first_stop_fails=_FIRST_STOP_FAILS.replace("HELPERS_MODULE", __name__)
+    )
     before = _portal_threads()
     result = pytester.runpytest_inprocess(
         "-p",
