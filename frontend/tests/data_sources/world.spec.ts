@@ -32,6 +32,8 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
     expect((await saved).ok()).toBeTruthy()
 
     // Client-side navigation, no reload: the shared settings cache is updated.
+    // Settings pages show the admin nav, so leave it before opening Agents.
+    await page.getByRole('button', { name: 'Back to app' }).click()
     await page.getByRole('link', { name: 'Agents' }).first().click()
     await page.getByTestId('open-world').click()
     await expect(page.getByTestId('open-world')).toHaveAttribute('aria-current', 'page')
