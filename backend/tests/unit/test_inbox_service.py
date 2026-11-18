@@ -115,3 +115,57 @@ async def test_list_handles_null_created_at():
         res = await inbox_service.list_for_user(db, user)
         assert len(res["items"]) == 2
         assert res["unread"] == 2
+
+
+@pytest.mark.asyncio
+async def test_list_returns_the_actor_name():
+    # The inbox shows who caused a notification (the sharer, the requester…).
+    async with async_session_maker() as db:
+        org, user = await _seed_user(db)
+        actor = User(name="Dana Sharer", email="actor-inbox@example.com", hashed_password="x",
+                     is_active=True, is_superuser=False, is_verified=True)
+        db.add(actor)
+        await db.flush()
+        db.add(_notif(org, user, title="shared", created_at=datetime.utcnow(),
+                      source="share", type="share_artifact", actor_user_id=str(actor.id)))
+        db.add(_notif(org, user, title="system", created_at=datetime.utcnow() - timedelta(minutes=1)))
+        await db.commit()
+
+        res = await inbox_service.list_for_user(db, user)
+        by_title = {i["title"]: i for i in res["items"]}
+        assert by_title["shared"]["actor"] == {"id": str(actor.id), "name": "Dana Sharer"}
+        assert by_title["system"]["actor"] is None
+
+
+@pytest.mark.asyncio
+async def test_resolved_rows_sort_below_open_ones():
+    # A handled item stays visible (greyed) but must not crowd out open work.
+    async with async_session_maker() as db:
+        org, user = await _seed_user(db)
+        now = datetime.utcnow()
+        db.add(_notif(org, user, title="resolved-fresh", created_at=now,
+                      resolved_at=now, resolution="resolved", read_at=now))
+        db.add(_notif(org, user, title="open-old", created_at=now - timedelta(hours=5)))
+        await db.commit()
+
+        res = await inbox_service.list_for_user(db, user)
+        assert [i["title"] for i in res["items"]] == ["open-old", "resolved-fresh"]
+        assert res["items"][1]["resolved"] is True
+        assert res["items"][1]["resolution"] == "resolved"
+
+
+@pytest.mark.asyncio
+async def test_handled_rows_drop_out_of_the_list_after_the_visible_window():
+    from app.models.notification import RESOLVED_VISIBLE_DAYS
+    async with async_session_maker() as db:
+        org, user = await _seed_user(db)
+        now = datetime.utcnow()
+        old = now - timedelta(days=RESOLVED_VISIBLE_DAYS + 1)
+        recent = now - timedelta(days=RESOLVED_VISIBLE_DAYS - 1)
+        db.add(_notif(org, user, title="handled-long-ago", created_at=old, resolved_at=old, resolution="resolved", read_at=old))
+        db.add(_notif(org, user, title="handled-recently", created_at=recent, resolved_at=recent, resolution="resolved", read_at=recent))
+        db.add(_notif(org, user, title="open-old", created_at=old))
+        await db.commit()
+
+        titles = {i["title"] for i in (await inbox_service.list_for_user(db, user))["items"]}
+        assert titles == {"handled-recently", "open-old"}

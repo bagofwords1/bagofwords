@@ -604,7 +604,7 @@
     "content": {
       "low_confidence": {
         "title": "תשובות בביטחון נמוך",
-        "body": "{n} תשובות של סוכן זה קיבלו ציון נמוך מ-3/5 בשבוע האחרון. הריצו אימון כדי לסגור את הפערים."
+        "body": "{n} תשובות של סוכן זה קיבלו ציון נמוך מ-3/5 בשבוע האחרון. שפרו אותו במצב אימון כדי לסגור את הפערים."
       },
       "slow_query": {
         "title": "שאילתות נתונים איטיות (מעל {secs} שניות)",
@@ -612,7 +612,10 @@
       },
       "schema_changed": {
         "title": "סכימת החיבור השתנתה",
-        "body": "טבלאות או עמודות השתנו בחיבור זה. הריצו מחדש הערכות או אימון כדי לשמור על דיוק ההוראות."
+        "body": "טבלאות או עמודות השתנו בחיבור זה. בדקו אותו במצב אימון כדי לשמור על דיוק ההנחיות.",
+        "title_named": "{agent}: הסכימה השתנתה ב-{connection}",
+        "title_agent": "{agent}: הסכימה השתנתה",
+        "body_counts": "טבלאות שנוספו: {added} · הוסרו: {removed} · השתנו: {modified}. כדאי לבדוק את הטבלאות וההנחיות של הסוכן."
       },
       "instruction_suggestion": {
         "body_ai": "שינוי הוראה שנוצר על ידי AI ממתין לבדיקה.",
@@ -666,12 +669,125 @@
       "access_granted": {
         "title": "אפשר כעת לצפות ב{dashboard}",
         "body": "הבקשה שלך לצפות ב”{dashboard}” אושרה."
+      },
+      "nightly_learning": {
+        "title": "{agent}: למידה לילית",
+        "title_learned": "{agent}: למידות חדשות מהלילה ({n})",
+        "title_cleanup": "{agent}: ניקוי הצעות לילי"
+      },
+      "query_error": {
+        "title": "שגיאות בשאילתות נתונים",
+        "body": "שאילתות נתונים בסוכן זה נכשלו. שפרו אותו במצב אימון כדי לסגור את הפער."
       }
     },
     "checkin": {
       "badge": "מעקב",
       "openReport": "פתח דוח",
       "assistantFallback": "אנליסט AI"
+    },
+    "filterAgents": "סוכנים",
+    "filterShares": "שיתופים",
+    "filterRuns": "ריצות",
+    "filterConnections": "חיבורים",
+    "detail": {
+      "resolved": "טופל",
+      "dismissed": "טופל",
+      "open": "פתיחה",
+      "reviewTables": "סקירת טבלאות",
+      "reviewInstruction": "סקירת ההנחיה",
+      "viewQueries": "צפייה בשאילתות",
+      "openEvals": "פתיחת בדיקות האיכות",
+      "viewChecks": "צפייה בבדיקות",
+      "openInReview": "פתיחה בסקירה",
+      "connection": "חיבור",
+      "by": "מאת {name}",
+      "reliabilityStarted": "בדיקת אמינות התחילה {time}: בדיקות האיכות רצות, ואם הן נכשלות מתבצע אימון.",
+      "history": "שינויים קודמים",
+      "historyEntry": "{added} נוספו · {removed} הוסרו · {modified} השתנו",
+      "showDetails": "פרטים",
+      "hideDetails": "הסתרת פרטים"
+    },
+    "diff": {
+      "addedTables": "טבלאות שנוספו",
+      "removedTables": "טבלאות שהוסרו",
+      "changedTables": "טבלאות שהשתנו",
+      "newInactive": "חדשות בחיבור, לא פעילות בסוכן הזה",
+      "more": "ועוד {n} טבלאות"
+    },
+    "clearHandled": "ניקוי מה שטופל",
+    "handled": {
+      "marked": "סומן כטופל ע״י {name}",
+      "suggestion_reviewed": "ההצעה נבדקה ע״י {name}",
+      "suggestion_rejected": "ההצעה נדחתה ע״י {name}",
+      "suggestion_voided": "ההנחיה השתנתה",
+      "training_passed": "האימון שהופעל ע״י {name} עבר",
+      "eval_passed": "בדיקת האיכות שהופעלה ע״י {name} עברה",
+      "condition_cleared": "הבעיה נעלמה",
+      "someone": "מישהו"
+    }
+  },
+  "reviewFeed": {
+    "title": "סקירה",
+    "subtitle": "תור משותף למנהלי הסוכנים: מה שאחד מטפל בו נסגר לכולם.",
+    "refresh": "רענון",
+    "close": "סגירה",
+    "search": "חיפוש…",
+    "allAgents": "כל הסוכנים",
+    "resolvedFilter": "טופלו",
+    "emptyTitle": "הכול מעודכן",
+    "emptyBody": "אין כרגע מה לסקור. הצעות חדשות, שינויי סכימה ואותות איכות יופיעו כאן.",
+    "emptyBodyAgent": "אין כרגע מה לסקור בסוכן הזה. הצעות חדשות, שינויי סכימה ואותות איכות יופיעו כאן.",
+    "changes": "{n} שינויים",
+    "running": "רץ",
+    "resolved": "טופל",
+    "dismiss": "סימון כטופל",
+    "agent": "סוכן",
+    "nAgents": "{n} סוכנים",
+    "noEvals": "אין בדיקות איכות לסוכן הזה. הוסיפו קודם מקרה בדיקה.",
+    "nothingToRun": "אין מה להריץ",
+    "actionUnavailable": "הפעולה לא זמינה",
+    "evalStarted": "בדיקת האיכות התחילה",
+    "done": "בוצע",
+    "actionFailed": "הפעולה נכשלה",
+    "dismissFailed": "הסגירה נכשלה",
+    "chipSuggestions": "הצעות",
+    "chipSchema": "סכימה",
+    "chipSlow": "איטיות",
+    "chipLowConfidence": "ביטחון נמוך",
+    "typeSuggestion": "הצעה",
+    "typeSchema": "שינוי סכימה",
+    "typeSlow": "שאילתה איטית",
+    "typeLowConfidence": "ביטחון נמוך",
+    "typeQueryError": "שגיאת שאילתה",
+    "actionReview": "סקירה",
+    "actionRunEval": "הרצת בדיקת איכות",
+    "focusResolved": "הפריט הזה כבר טופל.",
+    "focusGone": "הפריט הזה כבר לא פתוח. הוא נפתר או נסגר.",
+    "all": "הכול",
+    "openN": "{n} פתוחים",
+    "multipleAgents": "כמה סוכנים",
+    "more": "פעולות נוספות",
+    "times": "{n} פעמים",
+    "actionTrainInChat": "שיפור במצב אימון",
+    "train": {
+      "schema": "הסכמה של החיבור {connection} השתנתה:\n{changes}\n\nעבור על ההנחיות והשאילתות השמורות של הסוכן שמתייחסות לטבלאות או לעמודות האלה, והצע עדכונים כדי שהתשובות יישארו נכונות.",
+      "schemaGeneric": "הסכמה של החיבור {connection} השתנתה. עבור על ההנחיות והשאילתות השמורות של הסוכן שמתייחסות לטבלאות או לעמודות שהשתנו, והצע עדכונים כדי שהתשובות יישארו נכונות.",
+      "tableAdded": "- טבלה חדשה: {table}",
+      "tableRemoved": "- טבלה שנמחקה: {table}",
+      "colsAdded": "נוספו העמודות {cols}",
+      "colsRemoved": "נמחקו העמודות {cols}",
+      "typeChanged": "הסוג של {col} השתנה מ-{from} ל-{to}",
+      "lowConfidence": "השאלות האלה לסוכן קיבלו תשובות עם ציון נמוך:\n{examples}\n\nמצא מה חסר או לא ברור בהנחיות, והצע הנחיות שיסגרו את הפערים.",
+      "lowConfidenceGeneric": "{n} תשובות של הסוכן קיבלו ציון נמוך מ-3/5 בשבוע האחרון. עבור על השיחות האחרונות, מצא מה חסר או לא ברור בהנחיות, והצע הנחיות שיסגרו את הפערים.",
+      "slow": "שאילתות הנתונים האלה בסוכן רצו לאט:\n{examples}\n\nמצא את הסיבה המשותפת והצע הנחיות הגנה (למשל לחייב סינון או להימנע מסריקה מלאה) כדי שהשאילתות יישארו מהירות.",
+      "slowGeneric": "שאילתות נתונים בסוכן רצות לאט. מצא את הסיבה המשותפת והצע הנחיות הגנה (למשל לחייב סינון או להימנע מסריקה מלאה) כדי שהשאילתות יישארו מהירות.",
+      "slowLine": "{q} ({s} שניות)",
+      "error": "שאילתות הנתונים האלה בסוכן נכשלו:\n{examples}\n\nמצא את הסיבה והצע הנחיות כדי שהסוכן יכתוב שאילתות תקינות.",
+      "errorGeneric": "שאילתות נתונים בסוכן נכשלות. מצא את הסיבה והצע הנחיות כדי שהסוכן יכתוב שאילתות תקינות.",
+      "errorLine": "{q}: {error}",
+      "generic": "עבור על השיחות האחרונות עם הסוכן והצע הנחיות שישפרו את התשובות שלו.",
+      "schemaUnnamed": "הסכמה של החיבור של הסוכן השתנתה. עבור על ההנחיות והשאילתות השמורות של הסוכן שמתייחסות לטבלאות או לעמודות שהשתנו, והצע עדכונים כדי שהתשובות יישארו נכונות.",
+      "more": "- …ועוד {n} שינויים"
     }
   },
   "auth": {
@@ -5263,7 +5379,8 @@
     "connection.slack_channels_not_slack": "בחירת ערוצים זמינה רק בחיבורי Slack.",
     "connection.slack_channels_too_many": "לכל היותר {max} ערוצים לסוכן.",
     "connection.slack_channels_not_ids": "אלה אינם מזהי ערוצים של Slack: {ids}",
-    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}"
+    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}",
+    "review_item.not_found": "פריט הסקירה לא נמצא"
   },
   "email": {
     "dashboardShare": {

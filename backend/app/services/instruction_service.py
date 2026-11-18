@@ -1611,6 +1611,7 @@ class InstructionService:
                         from app.services.review_service import review_service
                         await review_service.resolve_for_instruction(
                             db, organization_id=str(organization.id), instruction_id=str(instruction.id),
+                            how="suggestion_reviewed", by_user_id=str(current_user.id) if current_user else None,
                         )
                     except Exception:
                         pass
@@ -3013,7 +3014,8 @@ class InstructionService:
             flag_modified(build, "rejected_hunks")
         try:
             from app.services.review_service import review_service
-            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=iid)
+            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=iid,
+                                                         how="suggestion_voided")
         except Exception:
             pass
 
@@ -3118,7 +3120,10 @@ class InstructionService:
             resolved_all = bool(remaining) and not remaining.get("suggestions")
             if resolved_all:
                 from app.services.review_service import review_service
-                await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
+                await review_service.resolve_for_instruction(
+                    db, organization_id=str(organization.id), instruction_id=str(instruction_id),
+                    how="suggestion_rejected", by_user_id=str(current_user.id) if current_user else None,
+                )
         except Exception:
             pass
         await self._emit_review_verdict_events(

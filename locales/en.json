@@ -621,7 +621,7 @@
     "content": {
       "low_confidence": {
         "title": "Low-confidence answers",
-        "body": "{n} answers on this agent were scored below 3/5 in the past week. Run training to close the gaps."
+        "body": "{n} answers on this agent were scored below 3/5 in the past week. Improve it in training mode to close the gaps."
       },
       "slow_query": {
         "title": "Slow data queries (>{secs}s)",
@@ -629,7 +629,10 @@
       },
       "schema_changed": {
         "title": "Connection schema changed",
-        "body": "Tables or columns changed on this connection. Re-run evals or training to keep instructions accurate."
+        "body": "Tables or columns changed on this connection. Review it in training mode to keep instructions accurate.",
+        "title_named": "{agent}: schema changed on {connection}",
+        "title_agent": "{agent}: schema changed",
+        "body_counts": "Tables added: {added} · removed: {removed} · changed: {modified}. Check the agent's tables and instructions."
       },
       "instruction_suggestion": {
         "body_ai": "AI instruction change awaiting review.",
@@ -683,12 +686,125 @@
       "access_granted": {
         "title": "You can now view {dashboard}",
         "body": "Your request to view “{dashboard}” was approved."
+      },
+      "nightly_learning": {
+        "title": "{agent}: overnight learning",
+        "title_learned": "{agent}: new overnight learnings ({n})",
+        "title_cleanup": "{agent}: overnight suggestion cleanup"
+      },
+      "query_error": {
+        "title": "Data query errors",
+        "body": "Data queries on this agent failed. Improve it in training mode to close the gap."
       }
     },
     "checkin": {
       "badge": "Follow-up",
       "openReport": "Open report",
       "assistantFallback": "AI Analyst"
+    },
+    "filterAgents": "Agents",
+    "filterShares": "Shares",
+    "filterRuns": "Runs",
+    "filterConnections": "Connections",
+    "detail": {
+      "resolved": "Handled",
+      "dismissed": "Handled",
+      "open": "Open",
+      "reviewTables": "Review tables",
+      "reviewInstruction": "Review instruction",
+      "viewQueries": "View queries",
+      "openEvals": "Open evals",
+      "viewChecks": "View checks",
+      "openInReview": "Open in Review",
+      "connection": "Connection",
+      "by": "by {name}",
+      "reliabilityStarted": "A reliability check started {time}: evals run, then training if they fail.",
+      "history": "Earlier changes",
+      "historyEntry": "{added} added · {removed} removed · {modified} changed",
+      "showDetails": "Details",
+      "hideDetails": "Hide details"
+    },
+    "diff": {
+      "addedTables": "Tables added",
+      "removedTables": "Tables removed",
+      "changedTables": "Tables changed",
+      "newInactive": "New on the connection, not active for this agent",
+      "more": "+{n} more tables"
+    },
+    "clearHandled": "Clear handled",
+    "handled": {
+      "marked": "{name} marked it as handled",
+      "suggestion_reviewed": "{name} reviewed the suggestion",
+      "suggestion_rejected": "{name} rejected the suggestion",
+      "suggestion_voided": "The instruction was changed",
+      "training_passed": "The training {name} ran passed",
+      "eval_passed": "The eval {name} ran passed",
+      "condition_cleared": "The issue cleared",
+      "someone": "Someone"
+    }
+  },
+  "reviewFeed": {
+    "title": "Review",
+    "subtitle": "A shared queue for the agent managers: what one person handles is closed for everyone.",
+    "refresh": "Refresh",
+    "close": "Close",
+    "search": "Search…",
+    "allAgents": "All agents",
+    "resolvedFilter": "Handled",
+    "emptyTitle": "You're all caught up",
+    "emptyBody": "Nothing needs review. New suggestions, schema changes and quality signals will land here.",
+    "emptyBodyAgent": "Nothing needs review for this agent. New suggestions, schema changes and quality signals will land here.",
+    "changes": "{n} changes",
+    "running": "Running",
+    "resolved": "Handled",
+    "dismiss": "Mark as handled",
+    "agent": "Agent",
+    "nAgents": "{n} agents",
+    "noEvals": "No evals for this agent. Add a test case first.",
+    "nothingToRun": "Nothing to run",
+    "actionUnavailable": "Action unavailable",
+    "evalStarted": "Eval started",
+    "done": "Done",
+    "actionFailed": "Action failed",
+    "dismissFailed": "Failed to dismiss",
+    "chipSuggestions": "Suggestions",
+    "chipSchema": "Schema",
+    "chipSlow": "Slow",
+    "chipLowConfidence": "Low confidence",
+    "typeSuggestion": "Suggestion",
+    "typeSchema": "Schema change",
+    "typeSlow": "Slow query",
+    "typeLowConfidence": "Low confidence",
+    "typeQueryError": "Query error",
+    "actionReview": "Review",
+    "actionRunEval": "Run eval",
+    "focusResolved": "This item was already handled.",
+    "focusGone": "This item is no longer open. It was resolved or closed.",
+    "all": "All",
+    "openN": "{n} open",
+    "multipleAgents": "Several agents",
+    "more": "More actions",
+    "times": "{n} times",
+    "actionTrainInChat": "Improve in training mode",
+    "train": {
+      "schema": "The schema of the {connection} connection changed:\n{changes}\n\nGo over this agent's instructions and saved queries that refer to these tables or columns, and suggest updates so answers stay correct.",
+      "schemaGeneric": "The schema of the {connection} connection changed. Go over this agent's instructions and saved queries that refer to the changed tables or columns, and suggest updates so answers stay correct.",
+      "tableAdded": "- New table: {table}",
+      "tableRemoved": "- Removed table: {table}",
+      "colsAdded": "added columns {cols}",
+      "colsRemoved": "removed columns {cols}",
+      "typeChanged": "{col} changed type from {from} to {to}",
+      "lowConfidence": "These questions to this agent got low-scored answers:\n{examples}\n\nFind what is missing or unclear in the instructions and suggest instructions that close these gaps.",
+      "lowConfidenceGeneric": "{n} answers on this agent were scored below 3/5 in the past week. Review recent conversations, find what is missing or unclear in the instructions, and suggest instructions that close these gaps.",
+      "slow": "These data queries on this agent ran slowly:\n{examples}\n\nFind the common cause and suggest guardrail instructions (for example, require a filter or avoid full scans) so queries stay fast.",
+      "slowGeneric": "Data queries on this agent have been running slowly. Find the common cause and suggest guardrail instructions (for example, require a filter or avoid full scans) so queries stay fast.",
+      "slowLine": "{q} ({s}s)",
+      "error": "These data queries on this agent failed:\n{examples}\n\nFind the cause and suggest instructions so the agent writes valid queries.",
+      "errorGeneric": "Data queries on this agent have been failing. Find the cause and suggest instructions so the agent writes valid queries.",
+      "errorLine": "{q}: {error}",
+      "generic": "Review recent conversations on this agent and suggest instructions that improve its answers.",
+      "schemaUnnamed": "This agent's connection schema changed. Go over the agent's instructions and saved queries that refer to changed tables or columns, and suggest updates so answers stay correct.",
+      "more": "- …and {n} more changes"
     }
   },
   "auth": {
@@ -5323,7 +5439,8 @@
     "connection.slack_channels_not_slack": "Channel selection is only available for Slack connections.",
     "connection.slack_channels_too_many": "At most {max} channels per agent.",
     "connection.slack_channels_not_ids": "These aren't Slack channel ids: {ids}",
-    "connection.slack_channels_unavailable": "Slack didn't answer: {detail}"
+    "connection.slack_channels_unavailable": "Slack didn't answer: {detail}",
+    "review_item.not_found": "Review item not found"
   },
   "email": {
     "dashboardShare": {

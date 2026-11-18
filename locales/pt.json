@@ -539,7 +539,7 @@
     "content": {
       "low_confidence": {
         "title": "Respostas de baixa confiança",
-        "body": "{n} respostas deste agente receberam nota abaixo de 3/5 na última semana. Execute um treinamento para fechar as lacunas."
+        "body": "{n} respostas deste agente receberam nota abaixo de 3/5 na última semana. Melhore-o no modo de treinamento para fechar as lacunas."
       },
       "slow_query": {
         "title": "Consultas de dados lentas (>{secs}s)",
@@ -547,7 +547,10 @@
       },
       "schema_changed": {
         "title": "O esquema da conexão mudou",
-        "body": "Tabelas ou colunas mudaram nesta conexão. Reexecute avaliações ou treinamento para manter as instruções precisas."
+        "body": "Tabelas ou colunas mudaram nesta conexão. Revise-o no modo de treinamento para manter as instruções precisas.",
+        "title_named": "{agent}: o esquema mudou em {connection}",
+        "title_agent": "{agent}: o esquema mudou",
+        "body_counts": "Tabelas adicionadas: {added} · removidas: {removed} · alteradas: {modified}. Verifique as tabelas e as instruções do agente."
       },
       "instruction_suggestion": {
         "body_ai": "Alteração de instrução gerada por IA aguardando revisão.",
@@ -601,12 +604,125 @@
       "access_granted": {
         "title": "Agora você pode ver {dashboard}",
         "body": "Sua solicitação para ver «{dashboard}» foi aprovada."
+      },
+      "nightly_learning": {
+        "title": "{agent}: aprendizado noturno",
+        "title_learned": "{agent}: novos aprendizados da noite ({n})",
+        "title_cleanup": "{agent}: limpeza noturna de sugestões"
+      },
+      "query_error": {
+        "title": "Erros em consultas de dados",
+        "body": "Consultas de dados deste agente falharam. Melhore-o no modo de treinamento para fechar a lacuna."
       }
     },
     "checkin": {
       "badge": "Acompanhamento",
       "openReport": "Abrir relatório",
       "assistantFallback": "Analista de IA"
+    },
+    "filterAgents": "Agentes",
+    "filterShares": "Compartilhamentos",
+    "filterRuns": "Execuções",
+    "filterConnections": "Conexões",
+    "detail": {
+      "resolved": "Tratado",
+      "dismissed": "Tratado",
+      "open": "Abrir",
+      "reviewTables": "Revisar tabelas",
+      "reviewInstruction": "Revisar instrução",
+      "viewQueries": "Ver consultas",
+      "openEvals": "Abrir avaliações",
+      "viewChecks": "Ver verificações",
+      "openInReview": "Abrir na Revisão",
+      "connection": "Conexão",
+      "by": "por {name}",
+      "reliabilityStarted": "Uma verificação de confiabilidade começou {time}: as avaliações são executadas e, se falharem, o treinamento.",
+      "history": "Alterações anteriores",
+      "historyEntry": "{added} adicionadas · {removed} removidas · {modified} alteradas",
+      "showDetails": "Detalhes",
+      "hideDetails": "Ocultar detalhes"
+    },
+    "diff": {
+      "addedTables": "Tabelas adicionadas",
+      "removedTables": "Tabelas removidas",
+      "changedTables": "Tabelas alteradas",
+      "newInactive": "Novas na conexão, inativas para este agente",
+      "more": "+{n} outras tabelas"
+    },
+    "clearHandled": "Limpar tratados",
+    "handled": {
+      "marked": "{name} marcou como tratado",
+      "suggestion_reviewed": "{name} revisou a sugestão",
+      "suggestion_rejected": "{name} rejeitou a sugestão",
+      "suggestion_voided": "A instrução mudou",
+      "training_passed": "O treinamento que {name} executou passou",
+      "eval_passed": "A avaliação que {name} executou passou",
+      "condition_cleared": "O problema desapareceu",
+      "someone": "Alguém"
+    }
+  },
+  "reviewFeed": {
+    "title": "Revisão",
+    "subtitle": "Uma fila compartilhada por quem gerencia os agentes: o que uma pessoa resolve é fechado para todos.",
+    "refresh": "Atualizar",
+    "close": "Fechar",
+    "search": "Pesquisar…",
+    "allAgents": "Todos os agentes",
+    "resolvedFilter": "Tratados",
+    "emptyTitle": "Tudo em dia",
+    "emptyBody": "Nada para revisar. Novas sugestões, mudanças de esquema e sinais de qualidade aparecerão aqui.",
+    "emptyBodyAgent": "Nada para revisar neste agente. Novas sugestões, mudanças de esquema e sinais de qualidade aparecerão aqui.",
+    "changes": "{n} alterações",
+    "running": "Em execução",
+    "resolved": "Tratado",
+    "dismiss": "Marcar como tratado",
+    "agent": "Agente",
+    "nAgents": "{n} agentes",
+    "noEvals": "Este agente não tem avaliações. Adicione primeiro um caso de teste.",
+    "nothingToRun": "Nada para executar",
+    "actionUnavailable": "Ação indisponível",
+    "evalStarted": "Avaliação iniciada",
+    "done": "Concluído",
+    "actionFailed": "A ação falhou",
+    "dismissFailed": "Não foi possível descartar",
+    "chipSuggestions": "Sugestões",
+    "chipSchema": "Esquema",
+    "chipSlow": "Lentas",
+    "chipLowConfidence": "Baixa confiança",
+    "typeSuggestion": "Sugestão",
+    "typeSchema": "Mudança de esquema",
+    "typeSlow": "Consulta lenta",
+    "typeLowConfidence": "Baixa confiança",
+    "typeQueryError": "Erro de consulta",
+    "actionReview": "Revisar",
+    "actionRunEval": "Executar avaliação",
+    "focusResolved": "Este item já foi tratado.",
+    "focusGone": "Este item não está mais aberto. Foi resolvido ou fechado.",
+    "all": "Todos",
+    "openN": "{n} abertos",
+    "multipleAgents": "Vários agentes",
+    "more": "Mais ações",
+    "times": "{n} vezes",
+    "actionTrainInChat": "Melhorar no modo de treinamento",
+    "train": {
+      "schema": "O esquema da conexão {connection} mudou:\n{changes}\n\nRevise as instruções e consultas salvas deste agente que usam estas tabelas ou colunas e sugira atualizações para que as respostas continuem corretas.",
+      "schemaGeneric": "O esquema da conexão {connection} mudou. Revise as instruções e consultas salvas deste agente que usam as tabelas ou colunas alteradas e sugira atualizações para que as respostas continuem corretas.",
+      "tableAdded": "- Nova tabela: {table}",
+      "tableRemoved": "- Tabela removida: {table}",
+      "colsAdded": "colunas adicionadas {cols}",
+      "colsRemoved": "colunas removidas {cols}",
+      "typeChanged": "o tipo de {col} mudou de {from} para {to}",
+      "lowConfidence": "Estas perguntas a este agente receberam respostas com nota baixa:\n{examples}\n\nDescubra o que falta ou não está claro nas instruções e sugira instruções que fechem essas lacunas.",
+      "lowConfidenceGeneric": "{n} respostas deste agente receberam nota abaixo de 3/5 na última semana. Revise as conversas recentes, descubra o que falta ou não está claro nas instruções e sugira instruções que fechem essas lacunas.",
+      "slow": "Estas consultas de dados deste agente foram lentas:\n{examples}\n\nEncontre a causa comum e sugira instruções de proteção (por exemplo, exigir um filtro ou evitar varreduras completas) para que as consultas continuem rápidas.",
+      "slowGeneric": "As consultas de dados deste agente estão lentas. Encontre a causa comum e sugira instruções de proteção (por exemplo, exigir um filtro ou evitar varreduras completas) para que as consultas continuem rápidas.",
+      "slowLine": "{q} ({s} s)",
+      "error": "Estas consultas de dados deste agente falharam:\n{examples}\n\nEncontre a causa e sugira instruções para que o agente escreva consultas válidas.",
+      "errorGeneric": "As consultas de dados deste agente estão falhando. Encontre a causa e sugira instruções para que o agente escreva consultas válidas.",
+      "errorLine": "{q}: {error}",
+      "generic": "Revise as conversas recentes deste agente e sugira instruções que melhorem as respostas dele.",
+      "schemaUnnamed": "O esquema da conexão deste agente mudou. Revise as instruções e consultas salvas do agente que usam tabelas ou colunas alteradas e sugira atualizações para que as respostas continuem corretas.",
+      "more": "- …e mais {n} alterações"
     }
   },
   "auth": {
@@ -4663,7 +4779,8 @@
     "connection.slack_channels_not_slack": "A seleção de canais só está disponível para conexões do Slack.",
     "connection.slack_channels_too_many": "No máximo {max} canais por agente.",
     "connection.slack_channels_not_ids": "Estes não são IDs de canais do Slack: {ids}",
-    "connection.slack_channels_unavailable": "O Slack não respondeu: {detail}"
+    "connection.slack_channels_unavailable": "O Slack não respondeu: {detail}",
+    "review_item.not_found": "Item de revisão não encontrado"
   },
   "email": {
     "dashboardShare": {

@@ -539,7 +539,7 @@
     "content": {
       "low_confidence": {
         "title": "Antworten mit geringer Konfidenz",
-        "body": "{n} Antworten dieses Agenten wurden in der letzten Woche mit weniger als 3/5 bewertet. Starten Sie ein Training, um die Lücken zu schließen."
+        "body": "{n} Antworten dieses Agenten wurden in der letzten Woche mit weniger als 3/5 bewertet. Verbessern Sie ihn im Trainingsmodus, um die Lücken zu schließen."
       },
       "slow_query": {
         "title": "Langsame Datenabfragen (>{secs}s)",
@@ -547,7 +547,10 @@
       },
       "schema_changed": {
         "title": "Verbindungsschema geändert",
-        "body": "Tabellen oder Spalten dieser Verbindung haben sich geändert. Führen Sie Evaluierungen oder Training erneut aus, damit die Anweisungen korrekt bleiben."
+        "body": "Tabellen oder Spalten dieser Verbindung haben sich geändert. Prüfen Sie ihn im Trainingsmodus, damit die Anweisungen korrekt bleiben.",
+        "title_named": "{agent}: Schema in {connection} geändert",
+        "title_agent": "{agent}: Schema geändert",
+        "body_counts": "Tabellen hinzugefügt: {added} · entfernt: {removed} · geändert: {modified}. Prüfen Sie die Tabellen und Anweisungen des Agenten."
       },
       "instruction_suggestion": {
         "body_ai": "KI-generierte Anweisungsänderung wartet auf Prüfung.",
@@ -601,12 +604,125 @@
       "access_granted": {
         "title": "Du kannst {dashboard} jetzt ansehen",
         "body": "Deine Anfrage, „{dashboard}“ anzusehen, wurde genehmigt."
+      },
+      "nightly_learning": {
+        "title": "{agent}: nächtliches Lernen",
+        "title_learned": "{agent}: neue Erkenntnisse über Nacht ({n})",
+        "title_cleanup": "{agent}: nächtliche Bereinigung der Vorschläge"
+      },
+      "query_error": {
+        "title": "Fehler bei Datenabfragen",
+        "body": "Datenabfragen dieses Agenten sind fehlgeschlagen. Verbessern Sie ihn im Trainingsmodus, um die Lücke zu schließen."
       }
     },
     "checkin": {
       "badge": "Nachfassen",
       "openReport": "Bericht öffnen",
       "assistantFallback": "KI-Analyst"
+    },
+    "filterAgents": "Agenten",
+    "filterShares": "Freigaben",
+    "filterRuns": "Ausführungen",
+    "filterConnections": "Verbindungen",
+    "detail": {
+      "resolved": "Erledigt",
+      "dismissed": "Erledigt",
+      "open": "Öffnen",
+      "reviewTables": "Tabellen prüfen",
+      "reviewInstruction": "Anweisung prüfen",
+      "viewQueries": "Abfragen ansehen",
+      "openEvals": "Evaluierungen öffnen",
+      "viewChecks": "Prüfungen ansehen",
+      "openInReview": "In Review öffnen",
+      "connection": "Verbindung",
+      "by": "von {name}",
+      "reliabilityStarted": "Eine Zuverlässigkeitsprüfung wurde {time} gestartet: Evaluierungen laufen, bei Fehlschlag folgt ein Training.",
+      "history": "Frühere Änderungen",
+      "historyEntry": "{added} hinzugefügt · {removed} entfernt · {modified} geändert",
+      "showDetails": "Details",
+      "hideDetails": "Details ausblenden"
+    },
+    "diff": {
+      "addedTables": "Hinzugefügte Tabellen",
+      "removedTables": "Entfernte Tabellen",
+      "changedTables": "Geänderte Tabellen",
+      "newInactive": "Neu in der Verbindung, für diesen Agenten nicht aktiv",
+      "more": "+{n} weitere Tabellen"
+    },
+    "clearHandled": "Erledigte entfernen",
+    "handled": {
+      "marked": "{name} hat es als erledigt markiert",
+      "suggestion_reviewed": "{name} hat den Vorschlag geprüft",
+      "suggestion_rejected": "{name} hat den Vorschlag abgelehnt",
+      "suggestion_voided": "Die Anweisung wurde geändert",
+      "training_passed": "Das von {name} gestartete Training war erfolgreich",
+      "eval_passed": "Die von {name} gestartete Evaluierung war erfolgreich",
+      "condition_cleared": "Das Problem ist verschwunden",
+      "someone": "Jemand"
+    }
+  },
+  "reviewFeed": {
+    "title": "Review",
+    "subtitle": "Eine gemeinsame Warteschlange der Agent-Verantwortlichen: Was eine Person erledigt, ist für alle erledigt.",
+    "refresh": "Aktualisieren",
+    "close": "Schließen",
+    "search": "Suchen…",
+    "allAgents": "Alle Agenten",
+    "resolvedFilter": "Erledigt",
+    "emptyTitle": "Alles erledigt",
+    "emptyBody": "Nichts zu prüfen. Neue Vorschläge, Schemaänderungen und Qualitätssignale erscheinen hier.",
+    "emptyBodyAgent": "Für diesen Agenten gibt es nichts zu prüfen. Neue Vorschläge, Schemaänderungen und Qualitätssignale erscheinen hier.",
+    "changes": "{n} Änderungen",
+    "running": "Läuft",
+    "resolved": "Erledigt",
+    "dismiss": "Als erledigt markieren",
+    "agent": "Agent",
+    "nAgents": "{n} Agenten",
+    "noEvals": "Dieser Agent hat keine Evaluierungen. Fügen Sie zuerst einen Testfall hinzu.",
+    "nothingToRun": "Nichts auszuführen",
+    "actionUnavailable": "Aktion nicht verfügbar",
+    "evalStarted": "Evaluierung gestartet",
+    "done": "Erledigt",
+    "actionFailed": "Aktion fehlgeschlagen",
+    "dismissFailed": "Verwerfen fehlgeschlagen",
+    "chipSuggestions": "Vorschläge",
+    "chipSchema": "Schema",
+    "chipSlow": "Langsam",
+    "chipLowConfidence": "Geringe Zuverlässigkeit",
+    "typeSuggestion": "Vorschlag",
+    "typeSchema": "Schemaänderung",
+    "typeSlow": "Langsame Abfrage",
+    "typeLowConfidence": "Geringe Zuverlässigkeit",
+    "typeQueryError": "Abfragefehler",
+    "actionReview": "Prüfen",
+    "actionRunEval": "Evaluierung ausführen",
+    "focusResolved": "Dieses Element wurde bereits erledigt.",
+    "focusGone": "Dieses Element ist nicht mehr offen. Es wurde gelöst oder geschlossen.",
+    "all": "Alle",
+    "openN": "{n} offen",
+    "multipleAgents": "Mehrere Agenten",
+    "more": "Weitere Aktionen",
+    "times": "{n}-mal",
+    "actionTrainInChat": "Im Trainingsmodus verbessern",
+    "train": {
+      "schema": "Das Schema der Verbindung {connection} hat sich geändert:\n{changes}\n\nPrüfe die Anweisungen und gespeicherten Abfragen dieses Agenten, die diese Tabellen oder Spalten verwenden, und schlage Änderungen vor, damit die Antworten korrekt bleiben.",
+      "schemaGeneric": "Das Schema der Verbindung {connection} hat sich geändert. Prüfe die Anweisungen und gespeicherten Abfragen dieses Agenten, die die geänderten Tabellen oder Spalten verwenden, und schlage Änderungen vor, damit die Antworten korrekt bleiben.",
+      "tableAdded": "- Neue Tabelle: {table}",
+      "tableRemoved": "- Entfernte Tabelle: {table}",
+      "colsAdded": "Spalten hinzugefügt {cols}",
+      "colsRemoved": "Spalten entfernt {cols}",
+      "typeChanged": "{col} hat den Typ von {from} zu {to} geändert",
+      "lowConfidence": "Diese Fragen an diesen Agenten erhielten schlecht bewertete Antworten:\n{examples}\n\nFinde heraus, was in den Anweisungen fehlt oder unklar ist, und schlage Anweisungen vor, die diese Lücken schließen.",
+      "lowConfidenceGeneric": "{n} Antworten dieses Agenten wurden in der letzten Woche mit weniger als 3/5 bewertet. Prüfe die letzten Unterhaltungen, finde heraus, was in den Anweisungen fehlt oder unklar ist, und schlage Anweisungen vor, die diese Lücken schließen.",
+      "slow": "Diese Datenabfragen dieses Agenten liefen langsam:\n{examples}\n\nFinde die gemeinsame Ursache und schlage Schutzanweisungen vor (zum Beispiel einen Filter verlangen oder vollständige Scans vermeiden), damit Abfragen schnell bleiben.",
+      "slowGeneric": "Datenabfragen dieses Agenten laufen langsam. Finde die gemeinsame Ursache und schlage Schutzanweisungen vor (zum Beispiel einen Filter verlangen oder vollständige Scans vermeiden), damit Abfragen schnell bleiben.",
+      "slowLine": "{q} ({s} s)",
+      "error": "Diese Datenabfragen dieses Agenten sind fehlgeschlagen:\n{examples}\n\nFinde die Ursache und schlage Anweisungen vor, damit der Agent gültige Abfragen schreibt.",
+      "errorGeneric": "Datenabfragen dieses Agenten schlagen fehl. Finde die Ursache und schlage Anweisungen vor, damit der Agent gültige Abfragen schreibt.",
+      "errorLine": "{q}: {error}",
+      "generic": "Prüfe die letzten Unterhaltungen mit diesem Agenten und schlage Anweisungen vor, die seine Antworten verbessern.",
+      "schemaUnnamed": "Das Schema der Verbindung dieses Agenten hat sich geändert. Prüfe die Anweisungen und gespeicherten Abfragen des Agenten, die geänderte Tabellen oder Spalten verwenden, und schlage Änderungen vor, damit die Antworten korrekt bleiben.",
+      "more": "- …und {n} weitere Änderungen"
     }
   },
   "auth": {
@@ -4663,7 +4779,8 @@
     "connection.slack_channels_not_slack": "Die Kanalauswahl ist nur für Slack-Verbindungen verfügbar.",
     "connection.slack_channels_too_many": "Höchstens {max} Kanäle pro Agent.",
     "connection.slack_channels_not_ids": "Das sind keine Slack-Kanal-IDs: {ids}",
-    "connection.slack_channels_unavailable": "Slack hat nicht geantwortet: {detail}"
+    "connection.slack_channels_unavailable": "Slack hat nicht geantwortet: {detail}",
+    "review_item.not_found": "Review-Eintrag nicht gefunden"
   },
   "email": {
     "dashboardShare": {
