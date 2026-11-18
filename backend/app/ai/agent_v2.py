@@ -1562,6 +1562,29 @@ class AgentV2:
         elapsed = f" +{(_time.monotonic() - t0) * 1000:.0f}ms" if t0 else ""
         logger.info(f"[agent:{rid}] {label}{elapsed}")
 
+    async def _record_exposure(self) -> None:
+        """Record every agent this run has been given — its working set plus the
+        report's pins (a pin's schema reaches the trace via set_report_agents /
+        create_agent even when no client could be built for it). Monitoring uses
+        it to decide which agent managers may see the run; see
+        app.services.folder_monitoring.record_exposed_agents. Best-effort: a
+        failure leaves the run unattributed, which hides it from scoped managers."""
+        execution = getattr(self, "current_execution", None)
+        if execution is None:
+            return
+        try:
+            ids = [d.id for d in (self.data_sources or [])]
+            if self.report is not None:
+                ids += [d.id for d in (getattr(self.report, "data_sources", None) or [])]
+            from app.services.folder_monitoring import record_exposed_agents
+            await record_exposed_agents(self.db, execution.id, ids)
+        except Exception:
+            logger.exception("recording run exposure failed")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1586,6 +1609,7 @@ class AgentV2:
                     if built:
                         self.clients.update(built)
                         self.data_sources.append(ds)
+                        await self._record_exposure()
                         self._mlog(f"mid-run client built for {ds.name}")
                 except Exception:
                     logger.exception("mid-run client construction failed for %s", getattr(ds, "name", "?"))
@@ -5622,6 +5646,7 @@ class AgentV2:
                 self.current_execution.starting_folder_ids = report_folder_ids(self.report)
                 self.current_execution.starting_folder_id = self.report.agent_folder_id
                 await self.db.commit()
+            await self._record_exposure()
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_agent:
@@ -8333,10 +8358,15 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
-                            if getattr(self.report, "agent_folder_id", None):
-                                from app.services.folder_monitoring import record_used_agents
-                                await record_used_agents(self.db, self.current_execution.id, self.data_sources,
-                                                         outcomes, self.used_agent_ids)
+                            # Every run, not only folder runs: an Auto run has no
+                            # pins, so observed use is what lets the console's
+                            # agent filter ("runs involving X") find it.
+                            from app.services.folder_monitoring import record_used_agents
+                            await record_used_agents(self.db, self.current_execution.id, self.data_sources,
+                                                     outcomes, self.used_agent_ids)
+                            # A tool may have attached an agent (set_report_agents,
+                            # create_agent): it is part of the run's exposure now.
+                            await self._record_exposure()
                             self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
@@ -8860,6 +8890,7 @@ class AgentV2:
             raise
         finally:
             self._presence(False)
+            await self._record_exposure()
             # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.

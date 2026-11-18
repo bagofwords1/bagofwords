@@ -1379,7 +1379,8 @@
       "copyTurn": "Copier ce tour en JSON",
       "copied": "JSON de la trace copié dans le presse-papiers",
       "failed": "Impossible d'exporter la trace"
-    }
+    },
+    "hiddenTurns": "{count} tour suivant masqué : lui ou un tour précédent a utilisé un agent que vous ne gérez pas | {count} tours suivants masqués : eux ou un tour précédent ont utilisé un agent que vous ne gérez pas"
   },
   "reportView": {
     "tabChat": "Conversation",

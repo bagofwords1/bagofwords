@@ -1484,7 +1484,8 @@
       "copyTurn": "Copy this turn as JSON",
       "copied": "Trace JSON copied to clipboard",
       "failed": "Couldn't export the trace"
-    }
+    },
+    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage"
   },
   "reportView": {
     "tabChat": "Chat",

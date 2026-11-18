@@ -1379,7 +1379,8 @@
       "copyTurn": "Copiar este turno como JSON",
       "copied": "JSON do rastreamento copiado para a área de transferência",
       "failed": "Não foi possível exportar o rastreamento"
-    }
+    },
+    "hiddenTurns": "{count} turno posterior oculto: ele ou um anterior usou um agente que você não gerencia | {count} turnos posteriores ocultos: eles ou um anterior usaram um agente que você não gerencia"
   },
   "reportView": {
     "tabChat": "Chat",
