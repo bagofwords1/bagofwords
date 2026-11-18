@@ -421,6 +421,19 @@ class SecurityConfig(BaseModel):
         default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
         not in ("0", "false", "no", "off")
     )
+    # Lets a connection authenticate to Google Cloud as the deployment itself
+    # (Application Default Credentials: an attached service account, GKE
+    # Workload Identity, or a Workload Identity Federation config file named by
+    # GOOGLE_APPLICATION_CREDENTIALS) instead of a pasted service-account key.
+    # Off by default: once on, anyone who may create a connection can run
+    # queries as that identity, and as any service account it is allowed to
+    # impersonate. Turn it on only where the operator owns both the deployment
+    # and the identity. Env: BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS. Only an
+    # explicit true/1/yes/on enables it.
+    allow_google_default_credentials: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS") or "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
     # Peers whose X-Forwarded-For is believed when resolving the client address
     # recorded in audit events (CIDR list). None = loopback and RFC 1918/ULA
     # ranges, which covers a reverse proxy on the same host or Docker network.
@@ -478,6 +491,26 @@ class AuditConfig(BaseModel):
     retention_days: Optional[int] = Field(default_factory=lambda: int(os.getenv("BOW_AUDIT_RETENTION_DAYS")) if os.getenv("BOW_AUDIT_RETENTION_DAYS") else None)
     legal_hold: bool = Field(default_factory=lambda: (os.getenv("BOW_AUDIT_LEGAL_HOLD") or "").strip().lower() in ("1", "true", "yes", "on"))
     platform_stream: AuditPlatformStream = AuditPlatformStream()
+
+
+class SystemLogsConfig(BaseModel):
+    """Settings → System logs: the server's own log lines, kept as files.
+
+    Every worker process appends to its own files in ``directory``. Point it at
+    storage every replica shares (the Docker image's ``logs`` volume, or a
+    ReadWriteMany volume on Kubernetes) so the page shows every instance's
+    lines. A relative path is resolved against the backend's working directory.
+    """
+    # Env: BOW_SYSTEM_LOGS_DIR.
+    directory: str = Field(default_factory=lambda: os.getenv("BOW_SYSTEM_LOGS_DIR", "logs/system"))
+    # Files whose newest line is older than this are deleted. Env: BOW_SYSTEM_LOGS_RETENTION_DAYS.
+    retention_days: int = Field(
+        default_factory=lambda: int(os.getenv("BOW_SYSTEM_LOGS_RETENTION_DAYS", "7")), ge=1,
+    )
+    # Above this total the oldest files are deleted first. Env: BOW_SYSTEM_LOGS_MAX_SIZE_MB.
+    max_size_mb: int = Field(
+        default_factory=lambda: int(os.getenv("BOW_SYSTEM_LOGS_MAX_SIZE_MB", "1024")), ge=16,
+    )
 
 
 def _storage_env(name: str, default: str = "") -> str:
@@ -624,6 +657,7 @@ class BowConfig(BaseModel):
     i18n: I18nConfig = I18nConfig()
     security: SecurityConfig = SecurityConfig()
     audit: AuditConfig = AuditConfig()
+    system_logs: SystemLogsConfig = Field(default_factory=SystemLogsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     mcp_apps: McpAppsConfig = Field(default_factory=McpAppsConfig)
 

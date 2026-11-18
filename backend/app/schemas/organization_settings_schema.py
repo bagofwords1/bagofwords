@@ -226,7 +226,6 @@ class OrganizationSettingsConfig(BaseModel):
     class GeneralConfig(BaseModel):
         ai_analyst_name: str = "AI Analyst"
         bow_credit: bool = True
-        show_world: bool = False
         # Icon storage fields (disk/object storage)
         icon_key: Optional[str] = None
         icon_url: Optional[str] = None
@@ -331,6 +330,9 @@ class OrganizationSettingsConfig(BaseModel):
     # browser vendor's speech service may receive it. Frontend-only gate:
     # when off, the microphone button is hidden. Off by default: an admin
     # opts the organization in once they accept that trade-off.
+    # World view of agents and knowledge at /agents/world. Was general.show_world
+    # (moved by migration worldai01, which carries existing orgs' choice over).
+    show_world: FeatureConfig = FeatureConfig(value=False, name="World view", description="Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access.", is_lab=False, editable=True)
     enable_voice_input: FeatureConfig = FeatureConfig(value=False, name="Voice input", description="Show a microphone button in the chat composer so users can dictate a prompt. Transcription runs in the user's browser (Chrome, Edge and Safari); audio never reaches this server, but the browser vendor's speech service may process it.", is_lab=False, editable=True)
     enable_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and documents (xls/pdf) and push their content to the LLM", is_lab=False, editable=True)
     enable_llm_judgement: FeatureConfig = FeatureConfig(value=True, name="Enable LLM Judge", description="Enable LLM to judge the quality of the analysis and user queries", is_lab=False, editable=True)

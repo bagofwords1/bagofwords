@@ -536,6 +536,9 @@ async def get_connection(
                     "user", "username", "principal", "oauth_tenant_id", "oauth_client_id",
                     # Qlik on-prem: which account the certificate acts as.
                     "user_directory", "user_id",
+                    # Keyless Google auth: which service account is impersonated,
+                    # and the marker, so an unchanged form sends no credentials.
+                    "target_service_account", "use_application_default_credentials",
                     # What DCR discovery derived from the server, so the edit
                     # form can show "Detected: …" next to the override field.
                     "discovered_scopes", "scopes_source",

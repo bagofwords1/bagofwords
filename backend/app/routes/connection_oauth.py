@@ -248,7 +248,11 @@ async def oauth_authorize(
         params["access_type"] = "offline"
         params["prompt"] = "consent"
     # Only send a scope when we actually have one (Notion DCR issues no scopes).
-    if oauth_params.get("scopes"):
+    if oauth_params.get("provider_name") == "slack":
+        # Slack's v2 flow takes USER scopes as a comma-separated `user_scope`;
+        # `scope` is for bot scopes and would mint a bot token instead.
+        params["user_scope"] = oauth_params["scopes"]
+    elif oauth_params.get("scopes"):
         params["scope"] = _normalize_scopes(oauth_params["scopes"])
     # RFC 8707 resource indicator — audience-bind the token to the MCP server.
     if oauth_params.get("audience"):

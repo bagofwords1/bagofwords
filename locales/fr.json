@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Afficher Monde dans Agents"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Rechercher des fichiers…",
@@ -2488,6 +2487,35 @@
       "googleTitle": "Synchronisation du profil Google"
     },
     "auditLogs": "Journaux d'audit",
+    "systemLogsTab": "Journaux système",
+    "systemLogs": {
+      "title": "Journaux système",
+      "subtitle": "La sortie de journal du serveur lui-même, pour le dépannage. Visible uniquement par les administrateurs.",
+      "retention": "Les journaux sont conservés {days} jours, jusqu'à {max} au total ; au-delà, les plus anciens sont supprimés en premier. Utilisé : {used}.",
+      "droppedNotice": "{count} lignes de cette instance n'ont pas pu être enregistrées, car le répertoire des journaux n'était pas accessible en écriture.",
+      "writeError": "Cette instance ne peut pas écrire dans le répertoire des journaux ({directory}). Vérifiez qu'il existe et qu'il est accessible en écriture.",
+      "searchPlaceholder": "Rechercher dans les messages…",
+      "from": "Du",
+      "to": "Au",
+      "allInstances": "Toutes les instances",
+      "thisInstance": "{id} (cette instance)",
+      "errorsOnly": "Erreurs uniquement",
+      "autoRefresh": "Actualisation automatique",
+      "clearFilters": "Effacer les filtres",
+      "refresh": "Actualiser",
+      "rangeInvalid": "« Du » doit être antérieur à « Au ».",
+      "empty": "Aucune ligne ne correspond pour l'instant.",
+      "count": "Lignes affichées : {count}",
+      "countTruncated": "Les {count} lignes les plus récentes sont affichées. Affinez les filtres pour voir les plus anciennes.",
+      "deleteAll": "Supprimer tous les journaux",
+      "deleteTitle": "Supprimer tous les journaux système ?",
+      "deleteMessage": "Toutes les lignes enregistrées de toutes les instances seront définitivement supprimées. Les nouvelles lignes continueront d'être enregistrées.",
+      "deleteConfirm": "Tout supprimer",
+      "cancel": "Annuler",
+      "deletedToast": "Tous les journaux système ont été supprimés",
+      "deleteFailed": "Impossible de supprimer les journaux",
+      "loadFailed": "Impossible de charger les journaux système"
+    },
     "integrations": {
       "title": "Canaux",
       "subtitle": "Configurez des plateformes externes comme Slack et Microsoft Teams pour votre organisation.",
@@ -3489,6 +3517,10 @@
         "allow_access_requests": {
           "name": "Autoriser les demandes d'accès",
           "description": "Permet aux membres de demander l'accès en lecture aux éditeurs d'un tableau de bord depuis la page sans accès. Désactivé, la page indique seulement le propriétaire et aucune nouvelle demande ne peut être envoyée ; les demandes déjà envoyées restent traitables."
+        },
+        "show_world": {
+          "name": "Vue Monde",
+          "description": "Affiche sur la page Agents un interrupteur qui ouvre Monde : une carte des agents, des connaissances, des sources et du travail qui relient votre organisation. Chaque utilisateur ne voit que ce à quoi il a accès."
         }
       }
     },
@@ -4223,6 +4255,11 @@
     "setupGuideTitle": "Étapes de configuration",
     "setupGuideCopy": "Copier",
     "setupGuideCopied": "Copié",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Aucune clé n'est stockée. Les requêtes s'exécutent avec l'identité Google configurée sur le serveur : un compte de service associé ou une configuration Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4497,6 +4534,9 @@
     "connection.table_preview_failed": "Échec de l'aperçu : {reason}",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",
+    "system_logs.instance_admin_required": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut utiliser les journaux système.",
+    "system_logs.invalid_range": "L'heure de début doit être antérieure à l'heure de fin.",
+    "system_logs.delete_failed": "Impossible de supprimer les fichiers journaux de {directory}. Vérifiez que le répertoire existe et qu'il est accessible en écriture.",
     "verification.invalid": "Jeton de vérification invalide ou expiré",
     "body.invalid_json": "Corps JSON invalide",
     "organization.not_found": "Organisation introuvable",
@@ -4599,7 +4639,11 @@
     "frame_ancestors.too_many": "Vous pouvez ajouter au maximum {max} sites.",
     "connection.query_not_found": "Requête introuvable sur cette connexion.",
     "connection.query_finished": "Cette requête est déjà terminée ({status}).",
-    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps."
+    "connection.query_not_killable": "Cette requête ne peut pas être arrêtée depuis BOW : son client applique sa propre limite de temps.",
+    "connection.slack_channels_not_slack": "La sélection de canaux n'est disponible que pour les connexions Slack.",
+    "connection.slack_channels_too_many": "{max} canaux au maximum par agent.",
+    "connection.slack_channels_not_ids": "Ce ne sont pas des identifiants de canaux Slack : {ids}",
+    "connection.slack_channels_unavailable": "Slack n'a pas répondu : {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -5262,6 +5306,7 @@
       "toastCreated": "Cas de test créé",
       "toastDeleteFailed": "Échec de la suppression du cas de test",
       "saveFailed": "Impossible d'enregistrer le cas de test",
+      "runFailed": "Cas de test enregistré, mais l'exécution n'a pas pu démarrer",
       "emptyDescription": "Les tests évaluent la façon dont vos agents répondent aux prompts et aux règles."
     },
     "filter": {
@@ -7427,5 +7472,30 @@
       "stale": "Le processus qui exécutait cette requête ne répond plus ; sa place a été libérée.",
       "busy": "Aucune place libérée à temps : la connexion était à sa limite de requêtes simultanées."
     }
+  },
+  "slackChannels": {
+    "button": "Canaux",
+    "title": "Canaux Slack de cet agent",
+    "subtitle": "Choisissez les canaux Slack que lit cet agent.",
+    "allChannels": "Tous mes canaux",
+    "allChannelsHint": "Chaque canal dont chaque personne est membre.",
+    "selectedChannels": "Seulement les canaux sélectionnés",
+    "connectRequired": "Connectez-vous avec Slack sur cette connexion pour choisir des canaux.",
+    "searchPlaceholder": "Rechercher des canaux",
+    "notYourChannel": "pas dans votre Slack",
+    "noMatch": "Aucun canal ne correspond.",
+    "selectedCount": "{n} sélectionné(s)",
+    "includeDms": "Inclure les messages directs",
+    "includeDmsHint": "Lire aussi les messages directs et de groupe de chaque personne.",
+    "membershipNote": "Chaque personne ne voit toujours que les canaux dont elle est membre.",
+    "saveFailed": "Impossible d'enregistrer les canaux",
+    "saved": "Canaux enregistrés",
+    "summaryAll": "Lit tous les canaux et les messages directs",
+    "summaryAllNoDms": "Lit tous les canaux, sans messages directs",
+    "summarySome": "Lit {names}",
+    "summarySomeWithDms": "Lit {names} et les messages directs",
+    "loadFailed": "Impossible de charger les canaux de cet agent. Fermez et réessayez.",
+    "privateChannel": "Canal privé",
+    "privateCount": "{n} canal privé | {n} canaux privés"
   }
 }

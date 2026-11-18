@@ -443,6 +443,13 @@ class TestRunService:
             db.add(result)
             created_results.append((result, case))
         await db.commit()
+        # Load the run's eager `build` relationship before it is serialized.
+        # The object was built in this session, so `build` was never loaded;
+        # TestRunSchema reads `build_number`, which touches it, and a lazy load
+        # during response validation raises MissingGreenlet — a 500 for every
+        # run started in an org that has a main build (the run itself was
+        # already committed). create_run_batch refreshes the same way.
+        await db.refresh(run)
         for result, _case in created_results:
             await db.refresh(result)
 

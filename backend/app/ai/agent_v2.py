@@ -1564,7 +1564,10 @@ class AgentV2:
                     continue
                 try:
                     # Per connection, as at run start (prepare_run_agents).
-                    built = await construct_agent_clients(svc, self.db, ds, user, where="mid-run")
+                    from app.ai.tools.implementations.agent_focus_common import run_agents_context
+                    built = await construct_agent_clients(
+                        svc, self.db, ds, user, where="mid-run",
+                        run_agents=run_agents_context([*(self.data_sources or []), ds], self.report))
                     if built:
                         self.clients.update(built)
                         self.data_sources.append(ds)

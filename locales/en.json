@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Show World in Agents"
+    "stopLoading": "Stop loading"
   },
   "folderRemoval": {
     "danger": "Danger zone",
@@ -2919,6 +2918,35 @@
       "notLicensed": "Enterprise"
     },
     "auditLogs": "Audit Logs",
+    "systemLogsTab": "System logs",
+    "systemLogs": {
+      "title": "System logs",
+      "subtitle": "The server's own log output, for troubleshooting. Only admins can see it.",
+      "retention": "Logs are kept for {days} days, up to {max} in total; above that the oldest are deleted first. {used} used.",
+      "droppedNotice": "{count} lines on this instance could not be saved because the log directory could not be written to.",
+      "writeError": "This instance cannot write to the log directory ({directory}). Check that it exists and is writable.",
+      "searchPlaceholder": "Search messages…",
+      "from": "From",
+      "to": "To",
+      "allInstances": "All instances",
+      "thisInstance": "{id} (this instance)",
+      "errorsOnly": "Errors only",
+      "autoRefresh": "Auto-refresh",
+      "clearFilters": "Clear filters",
+      "refresh": "Refresh",
+      "rangeInvalid": "“From” must be before “To”.",
+      "empty": "No log lines match yet.",
+      "count": "Lines shown: {count}",
+      "countTruncated": "Newest {count} lines shown. Narrow the filters to see older ones.",
+      "deleteAll": "Delete all logs",
+      "deleteTitle": "Delete all system logs?",
+      "deleteMessage": "This permanently deletes every stored log line from every instance. New lines keep being recorded.",
+      "deleteConfirm": "Delete all",
+      "cancel": "Cancel",
+      "deletedToast": "All system logs were deleted",
+      "deleteFailed": "Could not delete the logs",
+      "loadFailed": "Could not load system logs"
+    },
     "integrations": {
       "title": "Channels",
       "subtitle": "Configure external platforms like Slack and Microsoft Teams for your organization.",
@@ -4031,6 +4059,10 @@
         "allow_access_requests": {
           "name": "Allow access requests",
           "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."
+        },
+        "show_world": {
+          "name": "World view",
+          "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
         }
       }
     },
@@ -4893,6 +4925,11 @@
     "setupGuideTitle": "Setup steps",
     "setupGuideCopy": "Copy",
     "setupGuideCopied": "Copied",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "No key is stored. Queries run as the Google identity configured on the server: an attached service account or a Workload Identity Federation configuration."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -5190,6 +5227,9 @@
     "connection.table_preview_failed": "Preview failed: {reason}",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
+    "system_logs.instance_admin_required": "Only an instance administrator can use system logs on an instance with multiple organizations.",
+    "system_logs.invalid_range": "The start time must be before the end time.",
+    "system_logs.delete_failed": "The log files in {directory} could not be deleted. Check that the directory exists and is writable.",
     "verification.invalid": "Invalid or expired verification token",
     "body.invalid_json": "Invalid JSON body",
     "organization.not_found": "Organization not found",
@@ -5308,7 +5348,11 @@
     "frame_ancestors.too_many": "You can list at most {max} sites.",
     "connection.query_not_found": "Query not found on this connection.",
     "connection.query_finished": "This query has already finished ({status}).",
-    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit."
+    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit.",
+    "connection.slack_channels_not_slack": "Channel selection is only available for Slack connections.",
+    "connection.slack_channels_too_many": "At most {max} channels per agent.",
+    "connection.slack_channels_not_ids": "These aren't Slack channel ids: {ids}",
+    "connection.slack_channels_unavailable": "Slack didn't answer: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -6067,7 +6111,8 @@
       "toastDeleted": "Test case deleted",
       "toastCreated": "Test case created",
       "toastDeleteFailed": "Failed to delete test case",
-      "saveFailed": "Couldn't save the test case"
+      "saveFailed": "Couldn't save the test case",
+      "runFailed": "Test case saved, but the run couldn't start"
     },
     "filter": {
       "allSuites": "All suites",
@@ -8337,5 +8382,30 @@
       "stale": "The worker running this query stopped responding; its slot was released.",
       "busy": "No slot opened in time: the connection was at its concurrent-query limit."
     }
+  },
+  "slackChannels": {
+    "button": "Channels",
+    "title": "Slack channels for this agent",
+    "subtitle": "Choose which Slack channels this agent reads.",
+    "allChannels": "All my channels",
+    "allChannelsHint": "Every channel each person belongs to.",
+    "selectedChannels": "Only selected channels",
+    "connectRequired": "Sign in with Slack on this connection to choose channels.",
+    "searchPlaceholder": "Search channels",
+    "notYourChannel": "not in your Slack",
+    "noMatch": "No channels match.",
+    "selectedCount": "{n} selected",
+    "includeDms": "Include direct messages",
+    "includeDmsHint": "Also read each person's DMs and group DMs.",
+    "membershipNote": "Each person still sees only the channels they belong to.",
+    "saveFailed": "Couldn't save the channels",
+    "saved": "Channels saved",
+    "summaryAll": "Reads all channels and DMs",
+    "summaryAllNoDms": "Reads all channels, no DMs",
+    "summarySome": "Reads {names}",
+    "summarySomeWithDms": "Reads {names} and DMs",
+    "loadFailed": "Couldn't load this agent's channels. Close and try again.",
+    "privateChannel": "Private channel",
+    "privateCount": "{n} private channel | {n} private channels"
   }
 }
