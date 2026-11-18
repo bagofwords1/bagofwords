@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
+from types import SimpleNamespace
 
 import duckdb
 import pytest
@@ -22,6 +23,9 @@ from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_client import PostgresqlMultiClient
 from app.data_sources.clients.postgresql_multi_engine import invalidate_engines
 from app.data_sources.clients.progress import IndexingCancelled
+from app.data_sources.fast import extractor
+from app.data_sources.fast.sources import source_for
+from app.services.table_preview_service import preview_sql
 from tests.integrations.postgresql_multi_fixture import (
     GRANTLESS_TENANT,
     LOCKED_TENANT,
@@ -551,3 +555,36 @@ def test_connection_succeeds_when_a_tenant_is_readable(multi_tenant_server):
         assert tenant in result["message"]
     for tenant in READABLE_TENANTS:
         assert f"{tenant}," not in result["message"].split("Not readable")[-1]
+
+
+def _stored_table(table):
+    return SimpleNamespace(
+        name=table.name,
+        metadata_json=table.metadata_json,
+        columns=[{"name": c.name, "dtype": c.dtype} for c in table.columns],
+    )
+
+
+def test_table_preview_samples_the_unified_table(multi_tenant_server):
+    client = _client(multi_tenant_server)
+    orders = next(t for t in client.get_schemas() if t.name == "public.orders")
+    limit = 5
+
+    columns, rows = extractor.preview(client, preview_sql("postgresql_multi", _stored_table(orders), limit), limit)
+
+    assert columns[0]["name"] == "tenant_db"
+    assert len(rows) == limit
+    assert {row[0] for row in rows} <= set(READABLE_TENANTS)
+
+
+def test_custom_query_runs_over_the_unified_tables(multi_tenant_server):
+    client = _client(multi_tenant_server)
+    client.get_schemas()
+    sql = "SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db"
+
+    _, rows = extractor.preview(client, sql, 100)
+    batches = list(source_for(client).stream_batches(sql, 1_000))
+
+    expected = {t: len(TENANT_ROWS[t]["orders"]) for t in READABLE_TENANTS}
+    assert {tenant: int(n) for tenant, n in rows} == expected
+    assert sum(b.num_rows for b in batches) == len(expected)

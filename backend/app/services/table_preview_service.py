@@ -106,6 +106,7 @@ SPECS: dict[str, PreviewSpec] = {
     # Preview-only SQL sources.
     "aws_redshift": PreviewSpec(qualify_bare_name=True, case_fold="lower"),
     "aws_athena": PreviewSpec(case_fold="lower"),
+    "postgresql_multi": PreviewSpec(case_fold="lower"),
     "trino": PreviewSpec(case_fold="lower"),
     "starburst": PreviewSpec(case_fold="lower"),
     "databricks_sql": PreviewSpec(quotes=_BACKTICK),

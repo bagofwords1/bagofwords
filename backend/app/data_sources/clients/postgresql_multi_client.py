@@ -82,8 +82,6 @@ class PostgresqlMultiClient(DataSourceClient):
 
     sql_literal_style = "standard"
 
-    EXTRACTION_DIALECT = DIALECT
-
     exact_table_scope_catalogs = ("memory",)
 
     relative_date_hint = "Relative dates (DuckDB): current_date, current_date - INTERVAL 7 DAY, date_trunc('month', current_date); the clock is the app server's local time."
