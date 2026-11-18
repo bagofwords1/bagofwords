@@ -25,11 +25,51 @@ ERROR_CODES = (
     "rate_limit",
     "quota",
     "context_length",
+    "content_filter",
     "model_not_found",
     "provider_error",
     "network",
     "unknown",
 )
+
+# ---- content filter --------------------------------------------------------
+#
+# A provider safety filter rejected the request (or cut the response). Like
+# context_length it is deterministic for the same prompt: retrying or falling
+# back to another deployment behind the same filter only repeats the block,
+# and the user needs to hear that a filter — not a broken provider — stopped
+# the turn (Azure Prompt Shields once flagged every chat turn).
+_CONTENT_FILTER_MARKERS = (
+    "content_filter",                 # Azure OpenAI error code / finish_reason
+    "responsibleaipolicyviolation",   # Azure innererror code
+    "contentpolicyviolation",         # LiteLLM ContentPolicyViolationError
+    "content_policy_violation",       # OpenAI error code
+    "content management policy",      # Azure's message wording
+)
+
+# Category names as Azure reports them in content_filter_results.
+_CONTENT_FILTER_CATEGORIES = (
+    "jailbreak", "indirect_attack", "hate", "sexual", "violence", "self_harm",
+    "profanity", "protected_material_text", "protected_material_code",
+)
+_FILTERED_CATEGORY_RE = re.compile(
+    r"['\"]?(" + "|".join(_CONTENT_FILTER_CATEGORIES) + r")['\"]?\s*:\s*\{[^{}]*?['\"]?filtered['\"]?\s*:\s*(?:true|True)",
+)
+
+
+def content_filter_categories(text: str) -> list[str]:
+    """Filter categories marked ``filtered: true`` in a provider error body.
+
+    Reads both the JSON form (``"jailbreak": {"detected": true, "filtered":
+    true}``) and the Python-repr form LiteLLM re-raises (``'jailbreak':
+    {'detected': True, 'filtered': True}``). Order of first appearance, no
+    duplicates.
+    """
+    seen: list[str] = []
+    for m in _FILTERED_CATEGORY_RE.finditer(text or ""):
+        if m.group(1) not in seen:
+            seen.append(m.group(1))
+    return seen
 
 # ---- model not found -----------------------------------------------------
 #
@@ -220,6 +260,31 @@ def classify(
     #     event, which the SDK raises as a bare ``APIError`` (no status_code),
     #     and LLM.inference_stream_v2 re-raises it as a RuntimeError carrying
     #     only the message — the code survives only on ``__cause__``.
+    # Content filter / safety policy rejections (Azure OpenAI ``content_filter``
+    # with innererror ``ResponsibleAIPolicyViolation``, LiteLLM's
+    # ``ContentPolicyViolationError``, OpenAI ``content_policy_violation``).
+    # Deterministic for the same prompt, so — like context_length — it must not
+    # fall through to provider_error, which is façade-retried and
+    # fallback-eligible. Checked before context_length: an Azure filter message
+    # mentions "the prompt" too.
+    if _structured_error_code(exc, raw) in ("content_filter", "content_policy_violation") or any(
+        t in low or t in cls_name for t in _CONTENT_FILTER_MARKERS
+    ):
+        categories = content_filter_categories(raw)
+        return LLMError(
+            code="content_filter",
+            provider=provider,
+            model=model,
+            status=status,
+            summary=(
+                f"The model provider's content filter blocked this request ({', '.join(categories)})"
+                if categories else "The model provider's content filter blocked this request"
+            ),
+            provider_message=provider_message,
+            request_id=request_id,
+            raw_tail=raw_tail,
+        )
+
     if _structured_error_code(exc, raw) == "context_length_exceeded" or (status == 400 and (
         any(t in pmsg_low for t in (
             "maximum context", "context length", "too many tokens", "context_length_exceeded",
