@@ -646,6 +646,37 @@ class DataSourceService:
 
         await db.commit()
 
+    async def enforce_agent_cap(self, db: AsyncSession, organization: Organization) -> None:
+        """Per-organization agent (data source) cap from the enterprise license.
+        No-op when unlicensed/unset (max_agents == -1 → unlimited). Shared by
+        every path that adds an agent (create, clone)."""
+        from app.ee.license import get_max_agents
+        max_agents = get_max_agents()
+        if max_agents < 0:
+            return
+        current_agents = (await db.execute(
+            select(func.count(DataSource.id)).filter(DataSource.organization_id == organization.id)
+        )).scalar() or 0
+        if current_agents >= max_agents:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Agent limit reached for your license ({max_agents}). "
+                    "Contact sales to increase your agent count."
+                ),
+            )
+
+    @staticmethod
+    def enforce_connector_license(connection_types: List[Optional[str]]) -> None:
+        """402 when any connector type needs an enterprise license."""
+        from app.ee.license import is_datasource_allowed
+        for conn_type in connection_types:
+            if conn_type and not is_datasource_allowed(conn_type):
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"The {conn_type} connector requires an enterprise license."
+                )
+
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
         if data_source.folder_id is not None:
             from app.services.folder_service import require_folder_manager
@@ -656,25 +687,7 @@ class DataSourceService:
         if data_source_dict['name'] == '':
             raise HTTPException(status_code=400, detail="Data source name is required")
 
-        # Enforce per-organization agent (data source) cap from the enterprise license.
-        # No-op when unlicensed/unset (max_agents == -1 → unlimited).
-        from app.ee.license import get_max_agents
-        max_agents = get_max_agents()
-        if max_agents >= 0:
-            count_result = await db.execute(
-                select(func.count(DataSource.id)).filter(
-                    DataSource.organization_id == organization.id
-                )
-            )
-            current_agents = count_result.scalar() or 0
-            if current_agents >= max_agents:
-                raise HTTPException(
-                    status_code=402,
-                    detail=(
-                        f"Agent limit reached for your license ({max_agents}). "
-                        "Contact sales to increase your agent count."
-                    ),
-                )
+        await self.enforce_agent_cap(db, organization)
 
         # Remove legacy generation flags (generation now deferred to llm_sync after table selection)
         data_source_dict.pop("generate_summary", None)
@@ -753,13 +766,7 @@ class DataSourceService:
             ds_type = connections_to_link[0].type
 
             # Check enterprise license for ALL restricted data sources
-            from app.ee.license import is_datasource_allowed
-            for conn in connections_to_link:
-                if not is_datasource_allowed(conn.type):
-                    raise HTTPException(
-                        status_code=402,
-                        detail=f"The {conn.type} connector requires an enterprise license."
-                    )
+            self.enforce_connector_license([conn.type for conn in connections_to_link])
 
             # Extract remaining connection fields that won't be used
             data_source_dict.pop("type", None)
