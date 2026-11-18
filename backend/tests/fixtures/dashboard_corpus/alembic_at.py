@@ -174,6 +174,23 @@ def apply_schema_only_revisions(url: str) -> None:
         engine.dispose()
 
 
+DATA_MIGRATION_REVISION = "dashfc08"
+
+
+def _stamped_past_data_migration(script: ScriptDirectory, heads: tuple[str, ...]) -> bool:
+    """True when the data migration is in the stamped history of `heads`.
+
+    Then every schema-only revision above it is stamped too (or not applied
+    at all), and `alembic downgrade` undoes them itself -- running their
+    downgrade() by hand first would undo them twice. Read from the revision
+    graph, so a migration added on top of the head needs no list update here.
+    """
+    if not heads:
+        return False
+    applied = {rev.revision for rev in script.iterate_revisions(heads, "base")}
+    return DATA_MIGRATION_REVISION in applied
+
+
 def remove_schema_only_revisions(url: str) -> None:
     """Undo apply_schema_only_revisions before a downgrade below the data
     migration (their downgrade is idempotent too)."""
@@ -184,7 +201,7 @@ def remove_schema_only_revisions(url: str) -> None:
     try:
         with engine.begin() as conn:
             context = MigrationContext.configure(conn)
-            if set(context.get_current_heads()) & set(SCHEMA_ONLY_AFTER_DATA_MIGRATION):
+            if _stamped_past_data_migration(script, context.get_current_heads()):
                 return  # stamped: alembic's own downgrade undoes them
             with Operations.context(context):
                 for revision in reversed(SCHEMA_ONLY_AFTER_DATA_MIGRATION):
