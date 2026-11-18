@@ -313,6 +313,12 @@ def get_engine(
         return engine
 
 
+def evict_engine(engine: TenantEngine) -> None:
+    with _cache_lock:
+        for key in [k for k, (cached, _) in _cache.items() if cached is engine]:
+            del _cache[key]
+
+
 def invalidate_engines() -> None:
     # Engines are dropped, not closed: queries still running on their cursors keep them alive.
     global _generation

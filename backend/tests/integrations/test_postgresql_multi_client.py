@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 
+import duckdb
 import pytest
 
 from app.ai.code_execution.sql_guard import dialect_for_client
@@ -259,6 +260,57 @@ def test_tenant_missing_a_table_at_query_time_is_named_for_that_table(multi_tena
     assert list(users["tenant_db"]) == ["public"]
     assert sorted(orders["tenant_db"]) == sorted([shrinking, "public"])
     assert any(shrinking in line and "public.users" in line for line in client.description.splitlines())
+
+
+def _alter_tenant(server, database: str, statement: str) -> None:
+    conn = server.connect(database)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(statement)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize(("vanishing", "change"), [
+    ("vanishing_dropped", "DROP TABLE public.orders"),
+    ("vanishing_renamed", "ALTER TABLE public.orders RENAME TO orders_archived"),
+])
+def test_table_gone_from_one_tenant_after_build_leaves_the_others_queryable(
+    multi_tenant_server, monkeypatch, vanishing, change
+):
+    multi_tenant_server.create_database(vanishing)
+    _seed_tenant(multi_tenant_server, vanishing, TENANT_ROWS["tenant_a"])
+    spec = f"{vanishing}, public, tenant_old"
+    client = _client(multi_tenant_server, databases=spec)
+    client._bow_connection_id = f"conn-{vanishing}"
+    client.get_schemas()
+    assert len(client.execute_query("SELECT DISTINCT tenant_db FROM public.orders")) == 3
+    _alter_tenant(multi_tenant_server, vanishing, change)
+    builds = _count_builds(monkeypatch)
+
+    df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
+
+    assert dict(zip(df["tenant_db"], df["n"], strict=True)) == {
+        t: len(TENANT_ROWS[t]["orders"]) for t in ("public", "tenant_old")
+    }
+    assert any(vanishing in line and "public.orders" in line for line in client.description.splitlines())
+    assert len(builds) == 1
+    assert len(client.execute_query("SELECT * FROM public.users")) > 0
+    assert len(builds) == 1
+
+
+def test_error_in_agent_sql_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
+    client = _client(multi_tenant_server)
+    client._bow_connection_id = "conn-agent-typo"
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    builds = _count_builds(monkeypatch)
+
+    with pytest.raises(duckdb.Error):
+        client.execute_query("SELECT no_such_column FROM public.orders")
+
+    assert builds == []
 
 
 def test_agents_with_different_tables_share_one_engine_and_keep_their_own_scope(multi_tenant_server, monkeypatch):

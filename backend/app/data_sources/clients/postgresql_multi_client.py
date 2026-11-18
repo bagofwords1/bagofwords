@@ -1,6 +1,7 @@
 import logging
 import re
 
+import duckdb
 import pandas as pd
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,6 +18,7 @@ from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, uni
 from app.data_sources.clients.postgresql_multi_engine import (
     PgConn,
     TenantEngine,
+    evict_engine,
     failure_category,
     get_engine,
     invalidate_engines,
@@ -54,6 +56,15 @@ _READABLE_TABLES_SQL = (
 )
 
 _GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
+
+_TENANT_READ_FAILURES = ("failed to prepare copy", "unable to connect to postgres", "server closed the connection")
+
+_CONNECTION_DETAILS = (
+    (re.compile(r'(?i)(unable to connect to postgres) at "[^"]*"'), r"\1"),
+    (re.compile(r'(?i)(connection to server) (?:at "[^"]*"(?: \([^)]*\))?, port \d+|on socket "[^"]*")'), r"\1"),
+    (re.compile(r'(?i)(could not translate host name) "[^"]*"'), r"\1"),
+    (re.compile(r'(?i)(for user) "[^"]*"'), r"\1"),
+)
 
 _EXACT_TYPES_SQL = """
     SELECT c.table_schema, c.table_name, c.column_name, format_type(a.atttypid, NULL)
@@ -271,8 +282,7 @@ class PostgresqlMultiClient(DataSourceClient):
                 left_out.setdefault(entry["view"], []).append(entry["tenant"])
         self._query_left_out = left_out
 
-    def execute_query(self, sql: str) -> pd.DataFrame:
-        self._check_table_refs(sql)
+    def _engine(self) -> TenantEngine:
         engine = get_engine(
             self._pg_conn(),
             self._views,
@@ -281,12 +291,39 @@ class PostgresqlMultiClient(DataSourceClient):
             connection_id=self._connection_id(),
         )
         self._learn_engine(engine)
+        return engine
+
+    def _run(self, engine: TenantEngine, sql: str) -> pd.DataFrame:
         cursor = engine.cursor()
         try:
             with track(self, cursor):
                 return cursor.execute(sql).fetchdf()
         finally:
             cursor.close()
+
+    def _without_connection_details(self, exc: duckdb.Error) -> duckdb.Error:
+        text_ = str(exc)
+        for pattern, replacement in _CONNECTION_DETAILS:
+            text_ = pattern.sub(replacement, text_)
+        for secret in (self.password, self.host, self.user):
+            if secret:
+                text_ = re.sub(rf"(?<![\w.-]){re.escape(str(secret))}(?![\w.-])", "<redacted>", text_)
+        return exc if text_ == str(exc) else type(exc)(text_)
+
+    def execute_query(self, sql: str) -> pd.DataFrame:
+        self._check_table_refs(sql)
+        engine = self._engine()
+        try:
+            return self._run(engine, sql)
+        except duckdb.Error as exc:
+            if not _tenant_read_failed(exc):
+                raise self._without_connection_details(exc) from None
+            logger.warning("Rebuilding the tenant engine after a tenant read failed: %s", failure_category(exc))
+        evict_engine(engine)
+        try:
+            return self._run(self._engine(), sql)
+        except duckdb.Error as exc:
+            raise self._without_connection_details(exc) from None
 
     def test_connection(self) -> dict:
         try:
@@ -394,6 +431,11 @@ class PostgresqlMultiClient(DataSourceClient):
             "```\n"
         )
         return text_
+
+
+def _tenant_read_failed(exc: duckdb.Error) -> bool:
+    text_ = str(exc).lower()
+    return failure_category(exc) != "timed out" and any(n in text_ for n in _TENANT_READ_FAILURES)
 
 
 def _left_out_entry(entry: dict) -> dict:

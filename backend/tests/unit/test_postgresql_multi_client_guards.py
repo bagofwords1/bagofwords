@@ -6,6 +6,7 @@ not an agent table scope is attached (a connection used outside an agent run
 has none), and they need no server: nothing here is sent anywhere.
 """
 
+import duckdb
 import pytest
 
 from app.ai.code_execution.sql_guard import dialect_for_client
@@ -137,3 +138,61 @@ def test_description_names_tenants_left_out_of_a_table():
 
     assert lines
     assert all("public.orders" in line for line in lines)
+
+
+_SERVER_TEXT = (
+    'IO Error: Unable to connect to Postgres at "dbname=tenant_a sslmode=prefer '
+    "options='-c statement_timeout=300000'\": connection to server at \"unreachable.invalid\" (10.9.8.7), "
+    'port 6543 failed: FATAL:  password authentication failed for user "reader"'
+)
+
+
+class _FailingEngine:
+    failed_tenants: list = []
+    left_out: list = []
+    missing_views: list = []
+
+    def __init__(self, error):
+        self.error = error
+        self.runs = 0
+
+    def cursor(self):
+        engine = self
+
+        class _Cursor:
+            def execute(self, sql):
+                engine.runs += 1
+                raise engine.error
+
+            def close(self):
+                pass
+
+        return _Cursor()
+
+
+@pytest.mark.parametrize("error", [duckdb.IOException(_SERVER_TEXT), duckdb.Error(f"Failed to prepare COPY: {_SERVER_TEXT}")])
+def test_query_error_reaches_the_agent_without_server_or_login(monkeypatch, error):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: _FailingEngine(error))
+
+    with pytest.raises(duckdb.Error) as raised:
+        _client().execute_query("SELECT * FROM public.orders")
+
+    text = str(raised.value)
+    assert "password authentication failed" in text
+    assert "unreachable.invalid" not in text
+    assert "6543" not in text
+    assert '"reader"' not in text
+
+
+def test_error_in_agent_sql_reaches_the_agent_unchanged(monkeypatch):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    error = duckdb.BinderException('Binder Error: Referenced column "totl" not found in FROM clause!')
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: _FailingEngine(error))
+
+    with pytest.raises(duckdb.BinderException) as raised:
+        _client().execute_query("SELECT totl FROM public.orders")
+
+    assert str(raised.value) == str(error)
