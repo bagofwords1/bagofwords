@@ -118,10 +118,20 @@ def unify_catalogs(per_tenant: dict[str, list[Table]]) -> UnifiedCatalog:
         for table in per_tenant[tenant]:
             groups.setdefault(table.name, {})[tenant] = table
 
+    folded: dict[str, list[str]] = {}
+    for name in groups:
+        folded.setdefault(name.casefold(), []).append(name)
+
     catalog = UnifiedCatalog()
     for name in sorted(groups):
         members = groups[name]
-        if any(TENANT_COLUMN in {c.name for c in t.columns or []} for t in members.values()):
+        twins = [other for other in folded[name.casefold()] if other != name]
+        if twins:
+            catalog.excluded.append({"table": name, "reason": "name collides by case", "with": sorted(twins)})
+            continue
+        if any(
+            TENANT_COLUMN in {(c.name or "").casefold() for c in t.columns or []} for t in members.values()
+        ):
             catalog.excluded.append({"table": name, "reason": "has tenant_db column"})
             continue
         unified = _unify_table(name, members, catalog.excluded)

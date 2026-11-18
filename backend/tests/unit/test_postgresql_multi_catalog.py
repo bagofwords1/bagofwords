@@ -164,3 +164,22 @@ def test_missing_dtype_does_not_crash_type_resolution():
     })
     assert all(isinstance(e, dict) for e in catalog.excluded)
     assert catalog.tables[0].metadata_json["tenants"]
+
+
+def test_names_that_differ_only_by_case_are_reported_not_unified():
+    catalog = unify_catalogs({
+        "a": [table("public.users", [("id", "integer")]), table("public.orders", [("id", "integer")])],
+        "b": [table("public.Users", [("id", "integer")]), table("Public.orders", [("id", "integer")])],
+        "c": [table("public.items", [("id", "integer")])],
+    })
+    assert [t.name for t in catalog.tables] == ["public.items"]
+    collided = {e["table"] for e in catalog.excluded if "case" in e.get("reason", "")}
+    assert collided == {"public.users", "public.Users", "public.orders", "Public.orders"}
+
+
+def test_tenant_column_is_reserved_in_any_case():
+    catalog = unify_catalogs({
+        "a": [table("public.bad", [("Tenant_DB", "text")]), table("public.ok", [("id", "integer")])],
+    })
+    assert [t.name for t in catalog.tables] == ["public.ok"]
+    assert [e["table"] for e in catalog.excluded] == ["public.bad"]
