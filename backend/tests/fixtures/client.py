@@ -84,7 +84,9 @@ _CANCEL_BOUND_SECONDS = 5.0
 # before it cancels every task left on the loop, and how long it then waits for
 # those cancellations. Neither bounds the loop's final stop (asyncio.Runner
 # shutdown): a task that swallows cancellation, or executor work, still delays
-# it, exactly as the per-request loop's shutdown always has.
+# it, exactly as the per-request loop's shutdown always has. Only a stop that
+# an interrupt cuts short waits at most _BOUNDARY_WAIT_SECONDS for the loop to
+# end (see ``_TestLoop._exit_portal``).
 _BOUNDARY_WAIT_SECONDS = 60.0
 _BOUNDARY_CANCEL_SECONDS = 5.0
 
@@ -258,11 +260,55 @@ class _TestLoop:
                 exit_args = (type(exc), exc, exc.__traceback__)
                 raise
             finally:
-                cm.__exit__(*exit_args)
+                self._exit_portal(cm, exit_args)
         finally:
             with self._cond:
                 self._stopping.discard(stopped)
             stopped.set()
+
+    def _exit_portal(self, cm, exit_args):
+        """Leave the portal's context: stop the loop and join its thread. An
+        interrupted exit (``exit_args`` carries the exception that unwinds
+        the stop) waits at most _BOUNDARY_WAIT_SECONDS: anyio's exit then
+        waits on the loop thread, which code blocking it synchronously would
+        hold up forever (and pytest-timeout's signal method fires only once,
+        so a reported Timeout would turn into a hang). If it is cut short,
+        or an interrupt lands inside the exit (e.g. while anyio joins the
+        loop thread), the loop thread may be left running: that is counted
+        (``cleanup_errors``) and said, and the exception goes on unwinding."""
+        try:
+            if exit_args[0] is None:
+                cm.__exit__(None, None, None)
+                return
+            outcome = {}
+
+            def run():
+                try:
+                    cm.__exit__(*exit_args)
+                except BaseException as exc:
+                    outcome["error"] = exc
+
+            helper = threading.Thread(target=run, name="test-client-loop-exit", daemon=True)
+            helper.start()
+            helper.join(_BOUNDARY_WAIT_SECONDS)
+        except BaseException as exc:
+            self.stats.add("cleanup_errors")
+            print(
+                f"Warning: stopping a test_client loop failed or was interrupted ({exc!r}); "
+                "its loop thread may still be running",
+                file=sys.stderr,
+            )
+            raise
+        if helper.is_alive():
+            self.stats.add("cleanup_errors")
+            print(
+                f"Warning: an interrupted test_client loop did not stop within "
+                f"{_BOUNDARY_WAIT_SECONDS}s; its loop thread is still running",
+                file=sys.stderr,
+            )
+            return
+        if "error" in outcome:
+            raise outcome["error"]
 
     def _wait_for_detached_stops(self, timeout=None):
         """Wait for the loops still stopping (at most ``timeout`` seconds in
@@ -291,7 +337,7 @@ class _TestLoop:
         and the root conftest fails the test it happened in. If the loop is
         replaced while it waits (a dirty restart in another thread, and a new
         request started the next loop), the new one is stopped the same way,
-        within the same bound.
+        against the same deadline.
 
         It then waits for any loop still stopping, including one another
         thread detached (a dirty restart), so an engine dispose that follows
@@ -301,9 +347,14 @@ class _TestLoop:
         _BOUNDARY_WAIT_SECONDS; the full stop after the finalizers waits for
         them in any case. If a request started a new loop meanwhile (while a
         loop was stopping), the full stop waits for it and stops that loop
-        too, the same way and within the same bound, so it returns only with
-        no loop running."""
+        too, the same way and against the same deadline. Once that deadline
+        has passed it stops at most one more such loop: if yet another has
+        started by then (a stray thread keeps issuing requests), it counts a
+        boundary timeout, warns and returns with that loop running, so the
+        test fails rather than the run hanging. Otherwise it returns only
+        with no loop running."""
         deadline = time.monotonic() + _BOUNDARY_WAIT_SECONDS
+        last_round = False
         while True:
             try:
                 self._stop(if_idle, deadline)
@@ -312,6 +363,19 @@ class _TestLoop:
             with self._cond:
                 if if_idle or self._portal is None:
                     return
+                if time.monotonic() < deadline:
+                    continue
+                if not last_round:
+                    last_round = True
+                    continue
+            self.stats.add("boundary_wait_timeouts")
+            print(
+                "Warning: test_client requests are still starting test_client loops "
+                f"{_BOUNDARY_WAIT_SECONDS}s after the test boundary (a thread that "
+                "outlived its test?); leaving the last one running",
+                file=sys.stderr,
+            )
+            return
 
     def _stop(self, if_idle, deadline):
         while True:

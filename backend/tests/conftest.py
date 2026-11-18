@@ -183,6 +183,12 @@ def pytest_configure(config):
     # way _get_db_backend_from_argv() then resolves the same backend everywhere,
     # so every worker starts its own Postgres container / sqlite file.
     os.environ["TEST_DB"] = config.getoption("--db", default="sqlite")
+    # ``pytester``: runs pytest in-process, so a test can check this
+    # conftest's hooks against a real run (tests/unit/test_test_client_loop.py).
+    # Registered here rather than with ``pytest_plugins``, which pytest
+    # rejects in a conftest below the rootdir (a run started from the repo
+    # root); a no-op if it is already loaded or blocked (-p no:pytester).
+    config.pluginmanager.import_plugin("pytester")
     config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
     config.addinivalue_line(
         "markers",
@@ -408,10 +414,6 @@ def no_default_skills(request, monkeypatch):
 
     monkeypatch.setattr(skill_catalog_service, "list_default_skills", lambda: [])
     yield
-
-# ``pytester``: runs pytest in-process, so a test can check this conftest's
-# hooks against a real run (tests/unit/test_test_client_loop.py).
-pytest_plugins = ["pytester"]
 
 from tests.fixtures.client import test_client
 from tests.fixtures.object_storage import object_store

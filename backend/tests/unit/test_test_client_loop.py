@@ -613,6 +613,152 @@ def test_an_interrupted_connection_release_still_stops_the_loop(client, loop, mo
     assert not loop._stopping
 
 
+@pytest.fixture
+def interrupt_main_thread():
+    """A function that interrupts the main thread (the test's) with a
+    KeyboardInterrupt even while it is blocked waiting: a real signal
+    (SIGUSR1, its handler raising), where ``_thread.interrupt_main`` only takes
+    effect once the main thread wakes."""
+    import signal
+
+    assert threading.current_thread() is threading.main_thread()
+
+    def raise_interrupt(signum, frame):
+        raise KeyboardInterrupt
+
+    previous = signal.signal(signal.SIGUSR1, raise_interrupt)
+    main = threading.main_thread().ident
+    yield lambda: signal.pthread_kill(main, signal.SIGUSR1)
+    signal.signal(signal.SIGUSR1, previous)
+
+
+def test_an_interrupted_stop_waits_only_so_long_for_a_blocked_loop(
+    client, loop, monkeypatch, capsys, interrupt_main_thread
+):
+    """An interrupt while the stop releases the loop's connections, with the
+    loop thread blocked in synchronous code: the interrupted exit (anyio
+    cancels the portal's calls and joins its thread) would wait for that
+    thread forever. ``stop`` re-raises after at most _BOUNDARY_WAIT_SECONDS,
+    counts the problem and says the loop thread is still running."""
+    from app.settings import database
+
+    monkeypatch.setattr(client_mod, "_BOUNDARY_WAIT_SECONDS", 0.2)
+    before = _portal_threads()
+    assert client.get("/loop").status_code == 200
+    started = _portal_threads() - before
+    assert len(started) == 1
+    unblock = threading.Event()
+
+    async def release_blocking_the_loop():
+        interrupt_main_thread()  # the stop is waiting on this call
+        unblock.wait(10)  # synchronous: the loop thread is stuck (10s: a broken stop ends)
+
+    monkeypatch.setattr(database, "release_test_connections", release_blocking_the_loop)
+    begun = time.monotonic()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            loop.stop()
+        took = time.monotonic() - begun
+    finally:
+        unblock.set()
+    assert took < 5, f"the interrupted stop waited {took:.1f}s for the blocked loop"
+    assert loop.stats.snapshot()["cleanup_errors"] == 1
+    assert "loop thread is still running" in capsys.readouterr().err
+    assert loop.portal is None and not loop._stopping
+    for thread in started:  # unblocked: the exit left behind now ends it
+        thread.join(10)
+    assert not any(t.is_alive() for t in started)
+
+
+def test_an_interrupt_inside_the_loops_exit_is_counted(client, loop, capsys):
+    """An interrupt that lands inside the portal's exit on the normal path
+    (e.g. while anyio joins the loop thread) leaves the loop thread running:
+    ``stop`` counts it, says so and re-raises."""
+    import anyio.from_thread
+
+    real_start = anyio.from_thread.start_blocking_portal
+    real_cms = []
+
+    class _ExitInterrupted:
+        """anyio's portal context; its exit is interrupted before it has
+        ended the loop."""
+
+        def __init__(self, cm):
+            self._cm = cm
+
+        def __enter__(self):
+            return self._cm.__enter__()
+
+        def __exit__(self, *exc_info):
+            raise KeyboardInterrupt
+
+    def start_blocking_portal(*args, **kwargs):
+        real_cms.append(real_start(*args, **kwargs))
+        return _ExitInterrupted(real_cms[-1])
+
+    # Patched for this loop only, not with monkeypatch: its undo comes after
+    # this module's autouse teardown, whose shared loop must exit for real.
+    anyio.from_thread.start_blocking_portal = start_blocking_portal
+    try:
+        before = _portal_threads()
+        assert client.get("/loop").status_code == 200
+    finally:
+        anyio.from_thread.start_blocking_portal = real_start
+    started = _portal_threads() - before
+    assert len(started) == 1
+    try:
+        try:
+            loop.stop()
+        except KeyboardInterrupt:
+            alive = [t for t in started if t.is_alive()]  # while it unwinds
+        else:
+            pytest.fail("stop did not re-raise the interrupt")
+    finally:
+        for cm in real_cms:
+            cm.__exit__(None, None, None)
+    assert len(alive) == 1  # left running, as reported
+    assert loop.stats.snapshot()["cleanup_errors"] == 1
+    assert "loop thread may still be running" in capsys.readouterr().err
+    assert loop.portal is None and not loop._stopping
+    assert not any(t.is_alive() for t in started)
+
+
+def test_full_stop_gives_up_on_a_thread_that_keeps_requesting(
+    client, loop, monkeypatch, capsys
+):
+    """A stray thread whose requests start a new loop each time the stop has
+    ended the last one: past its deadline the full stop allows one more
+    round, then counts a boundary timeout, warns and returns (the root
+    conftest then fails the test) instead of stopping loops forever."""
+    from app.settings import database
+
+    real_release = database.release_test_connections
+    stray = threading.Event()
+    stray.set()
+
+    async def release_then_request_again():
+        await real_release()
+        if stray.is_set():
+            # From another thread while this loop is detached, so the request
+            # starts the next loop: every round of the stop ends with one.
+            await asyncio.to_thread(client.get, "/loop")
+
+    monkeypatch.setattr(database, "release_test_connections", release_then_request_again)
+    monkeypatch.setattr(client_mod, "_BOUNDARY_WAIT_SECONDS", 0.1)
+    assert client.get("/loop").status_code == 200
+    stopper, stopped = _in_thread(loop.stop)
+    stopper.join(10)
+    gave_up = not stopper.is_alive()
+    stray.clear()  # a broken stop then ends, rather than hang the run
+    stopper.join(10)
+    assert gave_up, "stop kept stopping the loops a stray thread kept starting"
+    assert "error" not in stopped
+    assert loop.stats.snapshot()["boundary_wait_timeouts"] == 1
+    assert "still starting test_client loops" in capsys.readouterr().err
+    loop.stop()  # nothing starts a loop now
+    assert loop.portal is None
+
+
 def test_full_stop_also_ends_a_loop_started_while_the_old_one_stopped(
     client, loop, monkeypatch
 ):
@@ -960,6 +1106,8 @@ def request_in_teardown():
     Path("finalized").write_text("yes")
 
 
+# The signal method's timer (SIGALRM, setitimer) is one per process: this
+# inner run's replaces any outer signal-method timer in this process.
 @pytest.mark.timeout(600, method="signal")
 def test_body(request_in_teardown, monkeypatch):
     # pytest-timeout's handler must be the one the signal below reaches.
@@ -989,7 +1137,15 @@ def test_a_failed_first_stop_still_runs_the_finalizers_and_ends_the_loop(pyteste
     )
     pytester.makepyfile(test_first_stop_fails=_FIRST_STOP_FAILS)
     before = _portal_threads()
-    result = pytester.runpytest_inprocess("-p", "no:randomly", "-p", "no:cacheprovider")
+    result = pytester.runpytest_inprocess(
+        "-p",
+        "no:randomly",
+        "-p",
+        "no:cacheprovider",
+        # Under a debugger pytest-timeout would not time the inner test out,
+        # so the run would hang instead.
+        "--timeout-disable-debugger-detection",
+    )
     result.assert_outcomes(passed=1, errors=1)
     result.stdout.fnmatch_lines(["*ERROR at teardown of test_body*", "*Timeout*"])
     assert (pytester.path / "finalized").read_text() == "yes"
