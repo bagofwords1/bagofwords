@@ -43,6 +43,7 @@ class TenantEngine:
         self.missing_views: list[str] = []
         self.left_out: list[dict] = []
         self._settled: dict[str, tuple[str, ...]] = {}
+        self._reading: dict[str, tuple[str, ...]] = {}
         self._created: set[str] = set()
         self._lock = threading.Lock()
         self.cache_key = None
@@ -64,7 +65,7 @@ class TenantEngine:
     def vanished_tables(self, view_names: list[str]) -> list[tuple[str, str]]:
         relations: dict[str, list[tuple[str, str]]] = {}
         for name in sorted(set(view_names)):
-            for tenant in self._settled.get(name, ()):
+            for tenant in self._reading.get(name, ()):
                 if tenant in self._aliases:
                     relations.setdefault(tenant, []).append((name, _qualified_pg_name(*_split_view_name(name))))
         vanished = []
@@ -111,6 +112,7 @@ class TenantEngine:
 
     def _create_view(self, cur: duckdb.DuckDBPyConnection, name: str, members: tuple[str, ...]) -> None:
         self._forget(name)
+        self._reading.pop(name, None)
         schema, table = _split_view_name(name)
         readable = []
         for tenant in members:
@@ -137,6 +139,7 @@ class TenantEngine:
             replace = "OR REPLACE " if name in self._created else ""
             cur.execute(f"CREATE {replace}VIEW memory.{_ident(schema)}.{_ident(table)} AS {union}")
             self._created.add(name)
+            self._reading[name] = tuple(readable)
         except duckdb.Error as exc:
             logger.warning("Could not create view %s: %s", name, failure_category(exc))
             self._drop(cur, name)

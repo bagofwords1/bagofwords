@@ -380,6 +380,33 @@ def test_forged_vanished_table_error_neither_rebuilds_nor_blocks_a_real_recovery
     assert len(builds) == 1
 
 
+def test_tenant_left_out_after_a_drop_does_not_vouch_for_a_forged_error(multi_tenant_server, monkeypatch):
+    tenants = [f"stale_{n}" for n in range(3)]
+    for tenant in tenants:
+        multi_tenant_server.create_database(tenant)
+        _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["tenant_a"])
+    offset = [0.0]
+    monkeypatch.setattr(engine_module, "monotonic", lambda: time.monotonic() + offset[0])
+    client = _client(multi_tenant_server, databases="stale_*", connection_id="conn-stale")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    _alter_tenant(multi_tenant_server, tenants[0], "DROP TABLE public.orders")
+    client.execute_query("SELECT count(*) FROM public.orders")
+    offset[0] += engine_module.DEGRADED_ENGINE_TTL_SECONDS + 1
+    client.execute_query("SELECT count(*) FROM public.orders")
+    builds = _count_builds(monkeypatch)
+
+    with pytest.raises(duckdb.Error):
+        client.execute_query(f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}' || chr(0)")
+    assert builds == []
+
+    _alter_tenant(multi_tenant_server, tenants[2], "ALTER TABLE public.orders RENAME TO orders_gone")
+    df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
+
+    assert dict(zip(df["tenant_db"], df["n"], strict=True)) == {tenants[1]: len(TENANT_ROWS["tenant_a"]["orders"])}
+    assert len(builds) == 1
+
+
 @pytest.mark.parametrize("forge", [
     f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}'",
     f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}' || chr(0)",
