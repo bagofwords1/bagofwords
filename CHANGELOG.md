@@ -38,6 +38,7 @@
 - Fixed users being able to change their own sign-in email
 - Fixed notifications from one organization showing in another
 - Fixed a removed member keeping roles, access grants and API keys after being invited again
+- Fixed saved queries and dashboards failing with a missing-key error after an agent or connection is renamed (#1822)
 
 ## Version 0.0.628 (November 18, 2026)
 - Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
