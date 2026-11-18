@@ -379,6 +379,28 @@ def test_a_failed_report_mode_read_falls_back_to_ask_and_the_run_goes_on(env, te
     assert out.prompted and not out.ran
 
 
+def test_a_failed_agent_cap_read_falls_back_to_ask_and_the_run_goes_on(env, test_client):
+    # As above, for the read of the run agents' caps: the mode falls back to
+    # Ask (the strictest cap), and the call is asked about, not failed.
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+
+    env.org_setting(allow_all_enabled=True)
+    env.set_mode("allow_all")
+
+    def break_cap_read(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT DATA_SOURCES.MAX_PERMISSION_MODE"):
+            statement = statement.replace("data_sources.max_permission_mode", "data_sources.no_such_column", 1)
+        return statement, parameters
+
+    event.listen(Engine, "before_cursor_execute", break_cap_read, retval=True)
+    try:
+        out = env.call("delete_branch", branch="feature-x")
+    finally:
+        event.remove(Engine, "before_cursor_execute", break_cap_read)
+    assert out.prompted and not out.ran
+
+
 def test_the_report_shows_its_agents_caps(env, test_client):
     # The prompt box reads them for the banner and the picker.
     url = f"/api/reports/{env.report_id}"
@@ -493,7 +515,18 @@ def test_an_unsure_auto_judge_is_asked_once_in_an_unattended_run(env, monkeypatc
     # Auto in a run nobody watches, unattended 'settings', a tool on 'auto':
     # the judge's unsure answer decides as the per-tool judge would, without a
     # second judge call.
+    import app.ai.tools.implementations.execute_mcp as execute_mcp_mod
+    from app.services import tool_permission_mode as pm
+
     calls = _judge(monkeypatch, approve=approve, confidence=0.6)
+    audits = []
+    real_audit = execute_mcp_mod.log_tool_audit
+
+    async def audit_spy(runtime_ctx, action, *args, **kwargs):
+        audits.append((action, kwargs.get("details") or {}))
+        return await real_audit(runtime_ctx, action, *args, **kwargs)
+
+    monkeypatch.setattr(execute_mcp_mod, "log_tool_audit", audit_spy)
     assert env.org_setting(unattended="settings", default_mode="auto").status_code == 200
     env.set_admin("mystery_action", policy="auto")
     _ScriptedAgent.extra = dict(_MACHINE_RUN)
@@ -501,6 +534,9 @@ def test_an_unsure_auto_judge_is_asked_once_in_an_unattended_run(env, monkeypatc
     assert calls == ["mystery_action"]
     assert not out.prompted
     assert out.ran is approve
+    # The audit says why the judge decided, as the per-tool judge's entry does.
+    decisions = [d for a, d in audits if a == "tool.auto_policy_decision"]
+    assert [(d["decided_by"], d.get("asked_because")) for d in decisions] == [(pm.BY_SMALL_MODEL, pm.BY_UNATTENDED)]
 
 
 def test_unattended_allow_never_runs_a_blocklisted_call(env):
@@ -733,6 +769,167 @@ def test_a_queued_api_prompt_stays_unattended_when_dispatched_later(env, test_cl
         assert out.ran and not out.prompted  # control: a watched owner run under Allow all
 
 
+# ── Machine turns started by an unattended run ──────────────────────────────
+# A scheduled, webhook or API-key run that delegates, waits or plans a
+# check-in starts more turns later. Their head rows carry the origin
+# (started_via), so they stay unattended: real create_completion,
+# SubAgentService._start_child and run_wait_wake paths.
+
+def _origin(env, test_client, alembic_config, create_api_key, path) -> dict:
+    """Run one turn started by ``path`` and return the ids of its report, head
+    and system rows: the turn a delegate, wait or check-in comes from."""
+    from sqlalchemy import select
+
+    from app.models.completion import Completion
+
+    _ScriptedAgent.call = {"connection_id": env.conn_id, "tool_name": "delete_branch",
+                           "arguments": {"branch": "feature-x"}}
+    if path in _FIRE:
+        _FIRE[path](env, test_client)
+    elif path == "api_key":
+        env.call_as(_api_key_headers(env, create_api_key), "delete_branch", branch="feature-x")
+    else:
+        env.call("delete_branch", branch="feature-x")
+    c = Completion.__table__.c
+    engine = _sync_engine(alembic_config)
+    with engine.connect() as conn:
+        head = conn.execute(select(c.id, c.report_id).where(c.user_id == env.user_id, c.role == "user")
+                            .order_by(c.created_at.desc()).limit(1)).one()
+        system_id = conn.execute(select(c.id).where(c.parent_id == head.id, c.role == "system")
+                                 .order_by(c.created_at.desc()).limit(1)).scalar_one()
+    engine.dispose()
+    return {"report_id": str(head.report_id), "head_id": str(head.id), "system_id": str(system_id)}
+
+
+async def _settle():
+    """Wait for the runs a machine turn started in the background."""
+    import asyncio
+
+    pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+    if pending:
+        await asyncio.wait(pending, timeout=30)
+
+
+def _delegate(env, origin) -> _Outcome:
+    """One sub-agent of the origin turn, started as the wave launcher does."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.sub_agent import RUN_PENDING, WAVE_RUNNING, SubAgentRun, SubAgentWave
+    from app.services.sub_agent_service import SubAgentService
+
+    _ScriptedAgent.call = {"connection_id": env.conn_id, "tool_name": "delete_branch",
+                           "arguments": {"branch": "feature-x"}}
+    before = len(_ScriptedAgent.runs)
+
+    async def _run():
+        async with async_session_maker() as db:
+            wave = SubAgentWave(organization_id=str(env.org_id), report_id=origin["report_id"], user_id=env.user_id,
+                                parent_completion_id=origin["system_id"], status=WAVE_RUNNING, remaining=1, total=1)
+            db.add(wave)
+            await db.flush()
+            row = SubAgentRun(wave_id=str(wave.id), organization_id=str(env.org_id), report_id=origin["report_id"],
+                              wave_index=0, parent_completion_id=origin["system_id"], title="Check", profile="investigate",
+                              goal="Delete the branch.", status=RUN_PENDING)
+            db.add(row)
+            await db.commit()
+            run_id = str(row.id)
+        await SubAgentService()._start_child(run_id)
+        await _settle()
+
+    asyncio.run(_run())
+    assert len(_ScriptedAgent.runs) == before + 1, "the sub-agent did not run"
+    return _Outcome(_ScriptedAgent.runs[-1])
+
+
+def _wake(env, origin) -> _Outcome:
+    """The wait the origin turn armed, fired as APScheduler fires it."""
+    import asyncio
+    from unittest.mock import patch
+
+    import app.services.wait_service as ws
+
+    _ScriptedAgent.call = {"connection_id": env.conn_id, "tool_name": "delete_branch",
+                           "arguments": {"branch": "feature-x"}}
+    before = len(_ScriptedAgent.runs)
+
+    async def _run():
+        # The cross-worker claim is the job store's; one worker here.
+        with patch.object(ws, "claim_scheduled_run", lambda job_id: True):
+            await ws.run_wait_wake(
+                job_id=f"wait:{origin['report_id']}:{uuid.uuid4().hex[:8]}", report_id=origin["report_id"],
+                user_id=env.user_id, organization_id=str(env.org_id), reason="check again",
+                system_completion_id=origin["system_id"])
+
+    asyncio.run(_run())
+    assert len(_ScriptedAgent.runs) == before + 1, "the wait wake did not run"
+    return _Outcome(_ScriptedAgent.runs[-1])
+
+
+def _latest_head_started_via(env, alembic_config):
+    from sqlalchemy import select
+
+    from app.models.completion import Completion
+
+    c = Completion.__table__.c
+    engine = _sync_engine(alembic_config)
+    with engine.connect() as conn:
+        value = conn.execute(select(c.started_via).where(c.user_id == env.user_id, c.role == "user")
+                             .order_by(c.created_at.desc()).limit(1)).scalar_one()
+    engine.dispose()
+    return value
+
+
+@pytest.mark.parametrize("grant", ["allow_all", "report_answer"])
+@pytest.mark.parametrize("unattended,ran", [("refuse", False), ("allow", True)])
+def test_a_scheduled_run_that_delegates_gets_no_report_grants_in_its_child(
+        env, test_client, alembic_config, create_api_key, grant, unattended, ran):
+    assert env.org_setting(allow_all_enabled=True, unattended=unattended).status_code == 200
+    if grant == "allow_all":
+        env.set_mode("allow_all")
+    else:
+        r = _answer(env, test_client, alembic_config, "delete_branch", approved=True, scope="report")
+        assert r.status_code == 200, r.text
+    origin = _origin(env, test_client, alembic_config, create_api_key, "scheduled")
+    out = _delegate(env, origin)
+    assert not out.prompted
+    assert out.ran is ran  # the unattended setting decides, not the report's grants
+    assert _latest_head_started_via(env, alembic_config) == "unattended"
+
+
+def test_a_watched_run_that_delegates_keeps_the_reports_grants_in_its_child(env, test_client, alembic_config,
+                                                                          create_api_key):
+    # Control: the child of a turn the owner typed runs under Allow all.
+    assert env.org_setting(allow_all_enabled=True, unattended="refuse").status_code == 200
+    env.set_mode("allow_all")
+    origin = _origin(env, test_client, alembic_config, create_api_key, "watched")
+    out = _delegate(env, origin)
+    assert _latest_head_started_via(env, alembic_config) is None
+    assert out.ran and not out.prompted
+
+
+@pytest.mark.parametrize("path,stamp", [("api_key", "api_key"), ("webhook", "unattended")])
+@pytest.mark.parametrize("unattended,ran", [("refuse", False), ("allow", True)])
+def test_the_wait_wake_of_an_unattended_run_follows_the_unattended_setting(
+        env, test_client, alembic_config, create_api_key, path, stamp, unattended, ran):
+    assert env.org_setting(allow_all_enabled=True, default_mode="allow_all", unattended=unattended).status_code == 200
+    env.set_mode("allow_all")
+    origin = _origin(env, test_client, alembic_config, create_api_key, path)
+    out = _wake(env, origin)
+    assert not out.prompted
+    assert out.ran is ran
+    assert _latest_head_started_via(env, alembic_config) == stamp
+
+
+def test_the_wait_wake_of_a_watched_run_still_prompts(env, test_client, alembic_config, create_api_key):
+    # Control: the owner typed the turn that waited, so its wake shows the card.
+    assert env.org_setting(unattended="allow").status_code == 200
+    origin = _origin(env, test_client, alembic_config, create_api_key, "watched")
+    out = _wake(env, origin)
+    assert _latest_head_started_via(env, alembic_config) is None
+    assert out.prompted and not out.ran
+
+
 # ── Remember: once / this report / always ───────────────────────────────────
 
 def _sync_engine(alembic_config):
@@ -806,6 +1003,13 @@ def test_always_writes_the_personal_preference(env, test_client, alembic_config)
 def test_unknown_scope_is_rejected(env, test_client, alembic_config):
     r = _answer(env, test_client, alembic_config, "delete_branch", approved=True, scope="forever")
     assert r.status_code == 400
+    assert r.json()["error_code"] == "shell_confirmation.invalid_scope"
+
+
+@pytest.mark.parametrize("scope", [["report"], {"scope": "once"}, 3])
+def test_a_scope_that_is_not_text_is_a_typed_error(env, test_client, alembic_config, scope):
+    r = _answer(env, test_client, alembic_config, "delete_branch", approved=True, scope=scope)
+    assert r.status_code == 400, r.text
     assert r.json()["error_code"] == "shell_confirmation.invalid_scope"
 
 

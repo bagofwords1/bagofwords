@@ -13,7 +13,9 @@ every prompt (Completion, role='user') it inserts with
 ``started_via = 'api_key'``. The mark lives on the row, not only in the
 request context, because a queued prompt is dispatched later from whichever
 run finishes; the tool permission rules read it from the run's head
-completion and treat such runs as unattended.
+completion and treat such runs as unattended. A machine turn started by an
+unattended run carries the same mark on its own head (``'unattended'``, or
+``'api_key'`` kept from an API-key origin), so a chain of turns inherits it.
 """
 from __future__ import annotations
 
@@ -45,6 +47,11 @@ def _stamp(_mapper, _connection, target) -> None:
 
 
 API_KEY_STARTED = "api_key"
+# A machine turn (wait wake, check-in, sub-agent, wave or message reply)
+# started by a scheduled, webhook or eval run, or by another such turn. Set by
+# app.services.machine_turn.unattended_origin; an API-key origin keeps
+# API_KEY_STARTED.
+UNATTENDED_STARTED = "unattended"
 
 _api_key_request: ContextVar[bool] = ContextVar("bow_api_key_request", default=False)
 

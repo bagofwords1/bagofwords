@@ -1332,17 +1332,20 @@ Do not use when:
             yield ToolProgressEvent(type="tool.progress", payload={
                 "stage": "auto_policy_review", "tool_name": data.tool_name,
             })
+        runtime_ctx.pop("_mcp_asked_because", None)
         action, decided_by, mode_reason = await self._permission_mode_action(
             db, connection, tool_record, data, runtime_ctx, report,
             mode=mode, effective=effective, resolution=resolution, remote_shell=remote_shell,
             shell_mandatory=shell_mandatory, watched=watched, grants=grants, settings=pm_settings, user=user,
         )
+        asked_because = runtime_ctx.pop("_mcp_asked_because", None)
         if action in ("allow", "refuse"):
             approved = action == "allow"
             await log_tool_audit(
                 runtime_ctx, action="tool.auto_policy_decision", resource_type="report",
                 resource_id=str(report.id) if report else None,
-                details={**audit_base, "approved": approved, "reason": mode_reason, "decided_by": decided_by},
+                details={**audit_base, "approved": approved, "reason": mode_reason, "decided_by": decided_by,
+                         **({"asked_because": asked_because} if asked_because else {})},
             )
             yield ToolProgressEvent(type="tool.progress", payload={
                 "stage": "auto_policy_decided", "approved": approved,
@@ -1704,14 +1707,20 @@ Do not use when:
 
     @staticmethod
     async def _agent_mode_caps(db, ds_ids) -> list:
-        """Each run agent's cap on the permission mode (strictest applies)."""
+        """Each run agent's cap on the permission mode (strictest applies).
+        Read in a savepoint; if the read fails, the cap is Ask (fail closed)."""
         if not ds_ids:
             return []
         from sqlalchemy import select
         from app.models.data_source import DataSource
-        rows = (await db.execute(
-            select(DataSource.max_permission_mode).where(DataSource.id.in_([str(i) for i in ds_ids]))
-        )).all()
+        try:
+            async with db.begin_nested():
+                rows = (await db.execute(
+                    select(DataSource.max_permission_mode).where(DataSource.id.in_([str(i) for i in ds_ids]))
+                )).all()
+        except Exception as e:
+            logger.warning(f"execute_mcp: reading the agents' permission-mode caps failed, capping at Ask: {e!r}")
+            return ["ask"]
         return [r[0] for r in rows if r[0]]
 
     @staticmethod
@@ -1898,6 +1907,8 @@ Do not use when:
                 if by == pm.BY_SMALL_MODEL and small_verdict is not None:
                     # Auto already asked the small model: its plain yes/no is
                     # the per-tool judge's answer, so it is not asked again.
+                    # Its audit entry says why, as the per-tool judge's does.
+                    runtime_ctx["_mcp_asked_because"] = pm.BY_UNATTENDED
                     approved = bool(small_verdict.approve)
                     return ("allow" if approved else "refuse"), pm.BY_SMALL_MODEL, small_verdict.reason or ""
                 return "binary_judge", pm.BY_UNATTENDED, ""

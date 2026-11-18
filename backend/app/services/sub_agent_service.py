@@ -455,7 +455,11 @@ class SubAgentService:
                 return
             await db.refresh(row)
             from app.services.conversation_surface import parent_app_surface
+            from app.services.machine_turn import unattended_origin
             surface = await parent_app_surface(db, wave.parent_completion_id)
+            # A child of a scheduled, webhook or API-key turn is unattended too:
+            # no report grants, no Allow all.
+            started_via = await unattended_origin(db, wave.parent_completion_id)
             prompt = PromptSchema(
                 **surface,
                 content=_child_prompt(row),
@@ -468,7 +472,7 @@ class SubAgentService:
                     db=db, report_id=str(report.id),
                     completion_data=CompletionCreate(prompt=prompt),
                     current_user=user, organization=organization,
-                    background=True, trigger_source="sub_agent",
+                    background=True, trigger_source="sub_agent", started_via=started_via,
                 )
             except Exception as e:
                 logger.exception("sub-agent %s: could not start child", sub_agent_id)

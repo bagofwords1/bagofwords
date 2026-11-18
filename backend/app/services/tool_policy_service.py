@@ -218,10 +218,13 @@ class ToolPolicyService:
         if runtime_ctx.get("is_eval_run"):
             return "machine"
         head = runtime_ctx.get("head_completion")
+        # started_via: 'api_key' (an API-key prompt), or 'unattended' / 'api_key'
+        # on a machine turn started by an unattended run (wait wake, check-in,
+        # sub-agent, wave or message reply), so chains of turns inherit it.
         if head is not None and (
             getattr(head, "scheduled_prompt_id", None)
             or getattr(head, "webhook_id", None)
-            or getattr(head, "started_via", None) == "api_key"
+            or getattr(head, "started_via", None)
         ):
             return "machine"
         if runtime_ctx.get("platform"):

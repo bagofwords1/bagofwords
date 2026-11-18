@@ -24,6 +24,36 @@ from app.models.completion import Completion
 logger = logging.getLogger(__name__)
 
 
+async def unattended_origin(session, completion_id: Optional[str]) -> Optional[str]:
+    """The ``started_via`` mark for a turn started from ``completion_id``
+    (the system or head row of the turn that waited, planned the check-in or
+    delegated), or None when a person watched that turn.
+
+    The origin's own mark carries over (``'api_key'`` stays), so a chain of
+    machine turns inherits it; a scheduled, webhook or eval origin, or one
+    with a trigger the permission rules do not count as watched, gives
+    ``'unattended'``."""
+    from app.core.request_origin import UNATTENDED_STARTED
+    from app.services.tool_policy_service import ToolPolicyService
+
+    if not completion_id:
+        return None
+    row = await session.get(Completion, str(completion_id))
+    if row is None:
+        return None
+    head = row
+    if row.role != "user" and row.parent_id:
+        head = await session.get(Completion, str(row.parent_id)) or row
+    if head.started_via:
+        return head.started_via
+    if any(getattr(c, "scheduled_prompt_id", None) or getattr(c, "webhook_id", None) for c in (head, row)):
+        return UNATTENDED_STARTED
+    trigger = head.trigger_source
+    if trigger and trigger not in ToolPolicyService.WATCHED_TRIGGERS | ToolPolicyService.GRANTED_TRIGGERS:
+        return UNATTENDED_STARTED
+    return None
+
+
 async def run_machine_turn(
     session,
     *,
@@ -120,6 +150,10 @@ async def run_machine_turn(
         except Exception:
             pass
 
+    # The turn this one continues (parent_completion_id) decides whether a
+    # person is in the loop: a wake of a scheduled, webhook or API-key run
+    # stays unattended.
+    started_via = await unattended_origin(session, parent_completion_id)
     try:
         await service.create_completion(
             db=session,
@@ -131,6 +165,7 @@ async def run_machine_turn(
             organization=organization,
             background=False,
             trigger_source=trigger_source,
+            started_via=started_via,
         )
         event.status = "success"
         await session.commit()

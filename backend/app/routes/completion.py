@@ -471,6 +471,8 @@ async def respond_to_mcp_tool_confirmation(
     # older values map on (session = this report, user = always); a client
     # that only sends `remember` means always.
     raw_scope = body.get("permission_scope")
+    if raw_scope is not None and not isinstance(raw_scope, str):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
     scope = {"session": "report", "user": "always"}.get(raw_scope, raw_scope) if raw_scope else (
         "always" if remember else "once")
     if scope not in ("once", "report", "always"):
