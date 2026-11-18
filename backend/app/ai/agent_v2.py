@@ -4000,7 +4000,9 @@ class AgentV2:
         except Exception:
             pass
 
-    async def _collect_steering_messages(self, poll_db: bool = True) -> list[str]:
+    async def _collect_steering_messages(
+        self, applies_to_loop_index: int | None = None, poll_db: bool = True
+    ) -> list[str]:
         """Drain steering messages that arrived since the last checkpoint.
 
         Merges the in-process websocket fast path with a DB backstop (needed
@@ -4008,6 +4010,13 @@ class AgentV2:
         completion id, appends new texts to self._steering_texts (which
         _effective_user_message renders into every subsequent planner input),
         and acks over SSE so the UI can show "steering applied".
+
+        ``applies_to_loop_index`` is the first loop step that plans with the
+        new steers. It is stamped on the steering rows (with the pickup time)
+        and sent in the ack, so the chat renders each steer right above the
+        step that acted on it — live, after reload, and on share links.
+        ``None`` means no step will act on them (the step limit is reached):
+        nothing is stamped or acked, so they stay shown as pending.
         """
         fresh: dict[str, str] = dict(self._steering_pending)
         self._steering_pending.clear()
@@ -4046,16 +4055,56 @@ class AgentV2:
             new_texts.append(content)
             new_ids.append(cid)
 
-        if new_texts:
+        if new_texts and applies_to_loop_index is not None:
+            applied_at = datetime.utcnow()
+            data = {"count": len(new_texts), "messages": new_texts, "ids": new_ids}
+            # Send the position only when it was saved, so the live view and a
+            # reload (or the share link) place the steer the same way.
+            if await self._stamp_steering_applied(new_ids, applied_at, applies_to_loop_index):
+                data["loop_index"] = applies_to_loop_index
+                data["applied_at"] = applied_at.isoformat()
             try:
                 await self._emit_sse_event(SSEEvent(
                     event="completion.steering.applied",
                     completion_id=str(self.system_completion_id),
-                    data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
+                    data=data,
                 ))
             except Exception:
                 pass
         return new_texts
+
+    async def _stamp_steering_applied(
+        self, ids: list[str], applied_at, loop_index: int
+    ) -> bool:
+        """Persist where the agent picked these steers up; True when saved.
+        Best effort: a failure only costs the chat its precise placement (it
+        falls back to send time), never the run."""
+        if not ids:
+            return False
+        try:
+            from sqlalchemy import update as _update
+            # The run's write path: one shared session in single-writer mode,
+            # a short-lived one otherwise. A Core UPDATE fires no ORM listeners,
+            # so the bus does not re-announce these rows (the subscriber would
+            # skip them as seen anyway).
+            async with self._writes_session() as _stamp_session:
+                result = await _stamp_session.execute(
+                    _update(Completion)
+                    .where(
+                        Completion.id.in_(ids),
+                        Completion.message_type == 'steering',
+                        Completion.steering_applied_at.is_(None),
+                    )
+                    .values(steering_applied_at=applied_at, steering_loop_index=loop_index)
+                )
+                await _stamp_session.commit()
+            # 0 rows when the steer's own insert has not committed yet (the bus
+            # announces it at flush time): report it unsaved, so the live view
+            # does not place it differently from a reload.
+            return bool(result.rowcount)
+        except Exception:
+            logger.exception("steering: failed to stamp applied position")
+            return False
 
     def _render_steering_context(self) -> str | None:
         """Rendered <steering_updates> block for PlannerInput.steering_context.
@@ -6000,7 +6049,8 @@ class AgentV2:
                     # _effective_user_message().
                     _new_steers = []
                     try:
-                        _new_steers = await self._collect_steering_messages()
+                        # This iteration is the first to plan with them.
+                        _new_steers = await self._collect_steering_messages(applies_to_loop_index=loop_index)
                     except Exception:
                         pass
 
@@ -6428,7 +6478,11 @@ class AgentV2:
                         # set observation, break, outer loop continues).
                         if self._steering_interrupt.is_set():
                             self._steering_interrupt.clear()
-                            _steers = await self._collect_steering_messages()
+                            # This decision is cancelled; the re-plan in the
+                            # next iteration is the first step to act on them.
+                            _steers = await self._collect_steering_messages(
+                                applies_to_loop_index=loop_index + 1 if loop_index + 1 < step_limit else None
+                            )
                             if _steers:
                                 await _cancel_skeleton_block("steering")
                                 observation = {
@@ -7047,7 +7101,10 @@ class AgentV2:
                                 # final plan streamed. Don't finalize over it — pick
                                 # it up and give the planner another iteration.
                                 try:
-                                    _late_steers = await self._collect_steering_messages()
+                                    # Not finalized: the next iteration re-plans with them.
+                                    _late_steers = await self._collect_steering_messages(
+                                        applies_to_loop_index=loop_index + 1 if loop_index + 1 < step_limit else None
+                                    )
                                 except Exception:
                                     _late_steers = []
                                 if _late_steers:
