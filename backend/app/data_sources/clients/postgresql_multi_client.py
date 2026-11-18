@@ -14,7 +14,13 @@ from app.data_sources.clients.database_spec import parse_database_spec, select_d
 from app.data_sources.clients.discovery import IncompleteDiscoveryError, require_complete_discovery
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, unify_catalogs
-from app.data_sources.clients.postgresql_multi_engine import PgConn, get_engine, invalidate_engines
+from app.data_sources.clients.postgresql_multi_engine import (
+    PgConn,
+    TenantEngine,
+    get_engine,
+    invalidate_engines,
+    peek_engine,
+)
 from app.data_sources.clients.progress import (
     discovery_items,
     discovery_progress,
@@ -30,6 +36,8 @@ logger = logging.getLogger(__name__)
 ENGINE_TTL_SECONDS = 600
 DIALECT = "duckdb"
 UNREADABLE_TENANTS_KEY = "unreadable_tenants"
+INDEXED_TENANTS_KEY = "indexed_tenants"
+NO_READABLE_TABLES_REASON = "no readable tables (check USAGE/SELECT grants)"
 
 _DUCKDB_CATALOG_READERS = re.compile(
     r"^(query_table|query|duckdb_.*|pragma_.*|sql_auto_complete|json_execute_serialized_sql|"
@@ -38,6 +46,22 @@ _DUCKDB_CATALOG_READERS = re.compile(
 )
 
 _DISCOVERY_SQL = "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"
+
+_READABLE_TABLES_SQL = (
+    "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+    "WHERE table_schema NOT IN ('information_schema', 'pg_catalog'){schema_filter})"
+)
+
+_GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
+
+_EXACT_TYPES_SQL = """
+    SELECT c.table_schema, c.table_name, c.column_name, format_type(a.atttypid, NULL)
+    FROM information_schema.columns c
+    JOIN pg_catalog.pg_namespace n ON n.nspname = c.table_schema
+    JOIN pg_catalog.pg_class r ON r.relnamespace = n.oid AND r.relname = c.table_name
+    JOIN pg_catalog.pg_attribute a ON a.attrelid = r.oid AND a.attname = c.column_name
+    WHERE c.data_type IN ('ARRAY', 'USER-DEFINED')
+"""
 
 
 class PostgresqlMultiClient(DataSourceClient):
@@ -62,12 +86,15 @@ class PostgresqlMultiClient(DataSourceClient):
         self.discovery_database = discovery_database or "postgres"
         self.table_exclude_pattern = (table_exclude_pattern or "").strip() or None
         self._includes, self._excludes, _ = parse_database_spec(databases)
+        self._schemas = [s.strip() for s in schema.split(",") if s.strip()] if isinstance(schema, str) else []
         self._views: dict[str, list[str]] = {}
+        self._indexed_tenants: list[str] = []
         self._excluded_tenants: dict[str, list[str]] = {}
         self._unreadable: list[dict] = []
         self._unreadable_names: list[str] = []
         self._type_conflicts: list[dict] = []
         self._query_failures: list[str] = []
+        self._query_left_out: dict[str, list[str]] = {}
 
     def _tenant_client(self, database: str) -> PostgresqlClient:
         return PostgresqlClient(
@@ -116,16 +143,32 @@ class PostgresqlMultiClient(DataSourceClient):
         probe = client.test_connection()
         return fallback if probe.get("success") else str(probe.get("message") or fallback)
 
+    def _with_exact_types(self, client: PostgresqlClient, tables: list[Table]) -> list[Table]:
+        if not any(c.dtype in _GENERIC_TYPES for t in tables for c in t.columns or []):
+            return tables
+        with client.connect() as conn:
+            rows = conn.execute(text(_EXACT_TYPES_SQL)).fetchall()
+        exact = {(f"{schema}.{table}", column): dtype for schema, table, column, dtype in rows}
+        for table in tables:
+            for column in table.columns or []:
+                if column.dtype in _GENERIC_TYPES:
+                    column.dtype = exact.get((table.name, column.name), column.dtype)
+        return tables
+
     def _read_tenant(self, database: str, matcher) -> list[Table] | None:
         client = self._tenant_client(database)
         try:
-            tables = require_complete_discovery(client, client.get_tables())
+            tables = self._with_exact_types(client, require_complete_discovery(client, client.get_tables()))
         except (NotImplementedError, RecursionError):
             raise
         except (IncompleteDiscoveryError, SQLAlchemyError, RuntimeError) as exc:
             reason = self._unreadable_reason(client, str(exc))
             logger.warning("Could not read tenant database %s: %s", database, reason)
             self._unreadable.append({"name": database, "reason": reason})
+            return None
+        if not tables:
+            logger.warning("Tenant database %s has no readable tables", database)
+            self._unreadable.append({"name": database, "reason": NO_READABLE_TABLES_REASON})
             return None
         return [t for t in tables if self._keep_table(t, matcher)]
 
@@ -148,8 +191,10 @@ class PostgresqlMultiClient(DataSourceClient):
         catalog = unify_catalogs(per_tenant)
         self._type_conflicts = catalog.excluded
         self._unreadable_names = sorted(d["name"] for d in self._unreadable)
+        indexed = sorted(per_tenant)
         for table in catalog.tables:
             table.metadata_json[UNREADABLE_TENANTS_KEY] = list(self._unreadable_names)
+            table.metadata_json[INDEXED_TENANTS_KEY] = list(indexed)
         self._learn([(t.name, t.metadata_json) for t in catalog.tables], replace=True)
         invalidate_engines()
         return catalog.tables
@@ -158,9 +203,11 @@ class PostgresqlMultiClient(DataSourceClient):
         views = {} if replace else dict(self._views)
         excluded = {} if replace else dict(self._excluded_tenants)
         unreadable = set() if replace else set(self._unreadable_names)
+        indexed = set() if replace else set(self._indexed_tenants)
         for name, meta in entries:
             if not isinstance(name, str) or "." not in name or not isinstance(meta, dict):
                 continue
+            indexed.update(t for t in meta.get(INDEXED_TENANTS_KEY) or [] if isinstance(t, str) and self._in_spec(t))
             tenants = [t for t in meta.get("tenants") or [] if isinstance(t, str) and self._in_spec(t)]
             if not tenants:
                 continue
@@ -172,6 +219,7 @@ class PostgresqlMultiClient(DataSourceClient):
         self._views = views
         self._excluded_tenants = {k: v for k, v in excluded.items() if v}
         self._unreadable_names = sorted(unreadable)
+        self._indexed_tenants = sorted(indexed)
 
     def attach_table_metadata(self, tables: list[dict]) -> None:
         self._learn(
@@ -180,13 +228,10 @@ class PostgresqlMultiClient(DataSourceClient):
         )
 
     def index_stats(self) -> dict:
-        stats: dict = {}
-        if self._unreadable:
-            stats["unreadable_datasets"] = list(self._unreadable)
-            stats["unreadable_dataset_count"] = len(self._unreadable)
-        if self._type_conflicts:
-            stats["type_conflicts"] = list(self._type_conflicts)
-        return stats
+        entries = list(self._unreadable) + [_left_out_entry(e) for e in self._type_conflicts]
+        if not entries:
+            return {}
+        return {"unreadable_datasets": entries, "unreadable_dataset_count": len(entries)}
 
     def unindexed_table_prefixes(self) -> list[str]:
         return []
@@ -209,10 +254,30 @@ class PostgresqlMultiClient(DataSourceClient):
                 "Name every table as <schema>.<table>, for example public.orders; only indexed tables can be queried."
             )
 
+    def _engine_tenants(self) -> list[str]:
+        return sorted(set(self._indexed_tenants) | {t for members in self._views.values() for t in members})
+
+    def _connection_id(self) -> str:
+        return str(getattr(self, "_bow_connection_id", "") or "")
+
+    def _learn_engine(self, engine: TenantEngine) -> None:
+        self._query_failures = sorted(f["name"] for f in engine.failed_tenants)
+        left_out: dict[str, list[str]] = {}
+        for entry in list(engine.left_out):
+            if entry["view"] in self._views:
+                left_out.setdefault(entry["view"], []).append(entry["tenant"])
+        self._query_left_out = left_out
+
     def execute_query(self, sql: str) -> pd.DataFrame:
         self._check_table_refs(sql)
-        engine = get_engine(self._pg_conn(), self._views, ttl_seconds=ENGINE_TTL_SECONDS)
-        self._query_failures = sorted(f["name"] for f in engine.failed_tenants)
+        engine = get_engine(
+            self._pg_conn(),
+            self._views,
+            ttl_seconds=ENGINE_TTL_SECONDS,
+            tenants=self._engine_tenants(),
+            connection_id=self._connection_id(),
+        )
+        self._learn_engine(engine)
         cursor = engine.cursor()
         try:
             with track(self, cursor):
@@ -231,9 +296,9 @@ class PostgresqlMultiClient(DataSourceClient):
                     }
                 unreadable = []
                 for database in tenants:
-                    probe = self._tenant_client(database).test_connection()
-                    if not probe.get("success"):
-                        unreadable.append({"name": database, "reason": probe.get("message")})
+                    reason = self._probe_tenant(database)
+                    if reason:
+                        unreadable.append({"name": database, "reason": reason})
         except Exception as e:
             return {"success": False, "message": str(e)}
         if len(unreadable) == len(tenants):
@@ -245,6 +310,17 @@ class PostgresqlMultiClient(DataSourceClient):
             "success": True,
             "message": f"Successfully connected to PostgreSQL: {len(tenants)} databases match." + unreadable_note(unreadable),
         }
+
+    def _probe_tenant(self, database: str) -> str | None:
+        schema_filter = " AND table_schema = ANY(:schemas)" if self._schemas else ""
+        try:
+            with self._tenant_client(database).connect() as conn:
+                readable = conn.execute(
+                    text(_READABLE_TABLES_SQL.format(schema_filter=schema_filter)), {"schemas": self._schemas}
+                ).scalar()
+        except Exception as exc:
+            return str(exc)
+        return None if readable else NO_READABLE_TABLES_REASON
 
     def get_schema(self, table_id: str) -> Table:
         raise NotImplementedError("get_schema() is obsolete. Use get_tables() instead.")
@@ -266,10 +342,21 @@ class PostgresqlMultiClient(DataSourceClient):
                 cols = columns.get((table, tenant))
                 where = ", ".join(f"{table}.{c}" for c in cols) if cols else table
                 notes.append(f"{table} leaves out {tenant} (column type conflict on {where})")
+        for table, tenants in sorted(self._query_left_out.items()):
+            for tenant in sorted(tenants):
+                notes.append(f"{table} leaves out {tenant} (its table could not be read at query time)")
         return notes
+
+    def _peek_engine(self) -> None:
+        if not self._views:
+            return
+        engine = peek_engine(self._pg_conn(), tenants=self._engine_tenants(), connection_id=self._connection_id())
+        if engine is not None:
+            self._learn_engine(engine)
 
     @property
     def description(self) -> str:
+        self._peek_engine()
         tenants = sorted({t for members in self._views.values() for t in members})
         listed = f"({len(tenants)}): {format_name_list(tenants, 50)}" if tenants else "(none indexed yet)"
         text_ = (
@@ -301,3 +388,19 @@ class PostgresqlMultiClient(DataSourceClient):
             "```\n"
         )
         return text_
+
+
+def _left_out_entry(entry: dict) -> dict:
+    table = entry.get("table")
+    if entry.get("column"):
+        return {
+            "name": f"{table} ({entry.get('tenant')})",
+            "reason": (
+                f"column type conflict: {table}.{entry['column']} "
+                f"({entry.get('type')} vs {entry.get('expected_type')})"
+            ),
+        }
+    reason = f"dropped: {entry.get('reason')}"
+    if entry.get("with"):
+        reason += f" with {', '.join(entry['with'])}"
+    return {"name": table, "reason": reason}

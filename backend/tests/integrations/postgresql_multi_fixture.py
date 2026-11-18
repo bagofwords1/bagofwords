@@ -8,6 +8,8 @@ The tenants are chosen for the cases a naive unifier gets wrong:
 * `tenant_old` predates `orders.note`, so the unified view must read NULL there
 * `tenant_locked` exists and holds the same tables, but the reader role has no
   CONNECT privilege on it
+* `tenant_no_grants` can be connected to and holds the same tables, but the
+  reader role has no SELECT on any of them, so its catalog reads empty
 
 Row counts differ per tenant so a test that mixes two tenants up fails. User
 ids overlap between tenants, as separate id spaces do in production.
@@ -62,6 +64,8 @@ TENANT_ROWS: dict[str, dict[str, list[tuple]]] = {
 
 READABLE_TENANTS = ["tenant_a", "Tenant_A", "public", "tenant_old"]
 LOCKED_TENANT = "tenant_locked"
+GRANTLESS_TENANT = "tenant_no_grants"
+UNREADABLE_TENANTS = [LOCKED_TENANT, GRANTLESS_TENANT]
 
 
 def _docker_available() -> bool:
@@ -119,7 +123,9 @@ class MultiTenantServer:
             conn.close()
 
 
-def _seed_tenant(server: MultiTenantServer, name: str, rows: dict[str, list[tuple]]) -> None:
+def _seed_tenant(
+    server: MultiTenantServer, name: str, rows: dict[str, list[tuple]], *, grant: bool = True
+) -> None:
     has_note = all(len(row) == 4 for row in rows["orders"])
     conn = server.connect(name)
     try:
@@ -132,8 +138,9 @@ def _seed_tenant(server: MultiTenantServer, name: str, rows: dict[str, list[tupl
             cur.executemany("INSERT INTO public.users VALUES (%s, %s)", rows["users"])
             placeholders = ", ".join(["%s"] * len(rows["orders"][0]))
             cur.executemany(f"INSERT INTO public.orders VALUES ({placeholders})", rows["orders"])
-            cur.execute(f"GRANT USAGE ON SCHEMA public TO {READER_USER}")
-            cur.execute(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {READER_USER}")
+            if grant:
+                cur.execute(f"GRANT USAGE ON SCHEMA public TO {READER_USER}")
+                cur.execute(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {READER_USER}")
         conn.commit()
     finally:
         conn.close()
@@ -156,11 +163,12 @@ def running_multi_tenant_server() -> Iterator[MultiTenantServer]:
             with admin.cursor() as cur:
                 escaped = READER_PASSWORD.replace("'", "''")
                 cur.execute(f"CREATE ROLE {READER_USER} LOGIN PASSWORD '{escaped}'")
-                for name in TENANT_ROWS:
+                for name in [*TENANT_ROWS, GRANTLESS_TENANT]:
                     cur.execute(f"CREATE DATABASE {_quote_ident(name)}")
                 cur.execute(f"REVOKE CONNECT ON DATABASE {_quote_ident(LOCKED_TENANT)} FROM PUBLIC")
         finally:
             admin.close()
         for name, rows in TENANT_ROWS.items():
             _seed_tenant(server, name, rows)
+        _seed_tenant(server, GRANTLESS_TENANT, TENANT_ROWS["tenant_a"], grant=False)
         yield server

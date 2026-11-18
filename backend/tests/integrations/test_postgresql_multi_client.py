@@ -9,20 +9,24 @@ against the shared multi-tenant Postgres container.
 
 from __future__ import annotations
 
+import logging
 import re
 
 import pytest
 
 from app.ai.code_execution.sql_guard import dialect_for_client
 from app.ai.code_execution.table_scope import TableScopeViolation
+from app.data_sources.clients import postgresql_multi_engine as engine_module
 from app.data_sources.clients.postgresql_client import PostgresqlClient
 from app.data_sources.clients.postgresql_multi_client import PostgresqlMultiClient
 from app.data_sources.clients.postgresql_multi_engine import invalidate_engines
 from app.data_sources.clients.progress import IndexingCancelled
 from tests.integrations.postgresql_multi_fixture import (
+    GRANTLESS_TENANT,
     LOCKED_TENANT,
     READABLE_TENANTS,
     TENANT_ROWS,
+    UNREADABLE_TENANTS,
     _seed_tenant,
     requires_docker,
     running_multi_tenant_server,
@@ -76,7 +80,7 @@ def test_spec_exclusion_and_case_sensitivity(multi_tenant_server):
     for table in tables:
         assert table.metadata_json["tenants"] == ["tenant_a"]
     unread = [d["name"] for d in client.index_stats()["unreadable_datasets"]]
-    assert unread == [LOCKED_TENANT]
+    assert sorted(unread) == sorted(UNREADABLE_TENANTS)
 
 
 def test_unreadable_tenant_reported_in_index_stats(multi_tenant_server):
@@ -85,10 +89,11 @@ def test_unreadable_tenant_reported_in_index_stats(multi_tenant_server):
     tables = client.get_schemas()
     stats = client.index_stats()
 
-    assert [d["name"] for d in stats["unreadable_datasets"]] == [LOCKED_TENANT]
-    assert stats["unreadable_dataset_count"] == 1
+    assert sorted(d["name"] for d in stats["unreadable_datasets"]) == sorted(UNREADABLE_TENANTS)
+    assert stats["unreadable_dataset_count"] == len(UNREADABLE_TENANTS)
     assert all(d["reason"] for d in stats["unreadable_datasets"])
-    assert all(LOCKED_TENANT not in t.metadata_json["tenants"] for t in tables)
+    for tenant in UNREADABLE_TENANTS:
+        assert all(tenant not in t.metadata_json["tenants"] for t in tables)
     assert client.unindexed_table_prefixes() == []
 
 
@@ -100,8 +105,9 @@ def test_index_fails_when_no_database_matches(multi_tenant_server, spec):
     assert spec in str(raised.value)
 
 
-def test_index_fails_when_no_matching_tenant_is_readable(multi_tenant_server):
-    client = _client(multi_tenant_server, databases=LOCKED_TENANT)
+@pytest.mark.parametrize("tenant", UNREADABLE_TENANTS)
+def test_index_fails_when_no_matching_tenant_is_readable(multi_tenant_server, tenant):
+    client = _client(multi_tenant_server, databases=tenant)
 
     with pytest.raises(RuntimeError) as raised:
         client.get_schemas()
@@ -164,6 +170,7 @@ def test_description_names_join_rule_and_missing_tenants(multi_tenant_server):
 
     assert "tenant_db" in description
     assert LOCKED_TENANT in description
+    assert GRANTLESS_TENANT in description
     for tenant in READABLE_TENANTS:
         assert tenant in description
 
@@ -176,26 +183,175 @@ def test_fresh_client_description_names_tenants_unread_at_index(multi_tenant_ser
     assert LOCKED_TENANT in fresh.description
 
 
-def test_tenant_unreadable_at_query_time_is_named_in_description(multi_tenant_server):
-    late = "tenant_revoked_after_index"
-    multi_tenant_server.create_database(late)
-    _seed_tenant(multi_tenant_server, late, TENANT_ROWS["tenant_a"])
-    spec = f"{late}, tenant_a"
-    indexed = _client(multi_tenant_server, databases=spec).get_schemas()
-    admin = multi_tenant_server.connect("postgres")
+def _revoke_connect(server, database: str) -> None:
+    admin = server.connect("postgres")
     admin.autocommit = True
     try:
         with admin.cursor() as cur:
-            cur.execute(f'REVOKE CONNECT ON DATABASE "{late}" FROM PUBLIC')
+            cur.execute(f'REVOKE CONNECT ON DATABASE "{database}" FROM PUBLIC')
     finally:
         admin.close()
-    fresh = _client(multi_tenant_server, databases=spec)
-    fresh.attach_table_metadata(_as_stored(indexed))
 
-    df = fresh.execute_query("SELECT DISTINCT tenant_db FROM public.orders")
+
+def _count_builds(monkeypatch) -> list:
+    built: list = []
+    real_build = engine_module.build_engine
+
+    def counting(*args, **kwargs):
+        engine = real_build(*args, **kwargs)
+        built.append(engine)
+        return engine
+
+    monkeypatch.setattr(engine_module, "build_engine", counting)
+    return built
+
+
+def test_tenant_unreadable_at_query_time_is_logged_and_named_to_every_client(
+    multi_tenant_server, monkeypatch, caplog
+):
+    late = "revoked_after_index"
+    multi_tenant_server.create_database(late)
+    _seed_tenant(multi_tenant_server, late, TENANT_ROWS["tenant_a"])
+    spec = f"{late}, tenant_a"
+    stored = _as_stored(_client(multi_tenant_server, databases=spec).get_schemas())
+    _revoke_connect(multi_tenant_server, late)
+    invalidate_engines()
+    builds = _count_builds(monkeypatch)
+
+    waiting = _client(multi_tenant_server, databases=spec)
+    waiting.attach_table_metadata(stored)
+    assert not any(late in line and "tenant_a" not in line for line in waiting.description.splitlines())
+    assert builds == []
+
+    fresh = _client(multi_tenant_server, databases=spec)
+    fresh.attach_table_metadata(stored)
+    with caplog.at_level(logging.WARNING):
+        df = fresh.execute_query("SELECT DISTINCT tenant_db FROM public.orders")
 
     assert list(df["tenant_db"]) == ["tenant_a"]
+    assert any(late in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
     assert any(late in line and "tenant_a" not in line for line in fresh.description.splitlines())
+    assert any(late in line and "tenant_a" not in line for line in waiting.description.splitlines())
+    assert len(builds) == 1
+
+
+def test_tenant_missing_a_table_at_query_time_is_named_for_that_table(multi_tenant_server):
+    shrinking = "drops_users_after_index"
+    multi_tenant_server.create_database(shrinking)
+    _seed_tenant(multi_tenant_server, shrinking, TENANT_ROWS["tenant_a"])
+    spec = f"{shrinking}, public"
+    stored = _as_stored(_client(multi_tenant_server, databases=spec).get_schemas())
+    conn = multi_tenant_server.connect(shrinking)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE public.orders DROP CONSTRAINT orders_user_id_fkey")
+            cur.execute("DROP TABLE public.users")
+        conn.commit()
+    finally:
+        conn.close()
+    invalidate_engines()
+    client = _client(multi_tenant_server, databases=spec)
+    client.attach_table_metadata(stored)
+
+    users = client.execute_query("SELECT DISTINCT tenant_db FROM public.users")
+    orders = client.execute_query("SELECT DISTINCT tenant_db FROM public.orders")
+
+    assert list(users["tenant_db"]) == ["public"]
+    assert sorted(orders["tenant_db"]) == sorted([shrinking, "public"])
+    assert any(shrinking in line and "public.users" in line for line in client.description.splitlines())
+
+
+def test_agents_with_different_tables_share_one_engine_and_keep_their_own_scope(multi_tenant_server, monkeypatch):
+    stored = _as_stored(_client(multi_tenant_server).get_schemas())
+    invalidate_engines()
+    builds = _count_builds(monkeypatch)
+    orders_agent = _client(multi_tenant_server)
+    orders_agent.attach_table_metadata([t for t in stored if t["name"] == "public.orders"])
+    users_agent = _client(multi_tenant_server)
+    users_agent.attach_table_metadata([t for t in stored if t["name"] == "public.users"])
+
+    orders = orders_agent.execute_query("SELECT count(*) AS n FROM public.orders")
+    users = users_agent.execute_query("SELECT count(*) AS n FROM public.users")
+
+    assert int(orders["n"][0]) == sum(len(TENANT_ROWS[t]["orders"]) for t in READABLE_TENANTS)
+    assert int(users["n"][0]) == sum(len(TENANT_ROWS[t]["users"]) for t in READABLE_TENANTS)
+    assert len(builds) == 1
+    with pytest.raises(TableScopeViolation):
+        orders_agent.execute_query("SELECT count(*) FROM public.users")
+    with pytest.raises(TableScopeViolation):
+        users_agent.execute_query("SELECT count(*) FROM public.orders")
+
+
+def _create_tenant(server, name: str, statements: list[str]) -> None:
+    server.create_database(name)
+    conn = server.connect(name)
+    try:
+        with conn.cursor() as cur:
+            for statement in statements:
+                cur.execute(statement)
+            cur.execute(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {server.reader_user}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_agents_whose_tables_cover_different_tenants_share_one_engine(multi_tenant_server, monkeypatch):
+    _create_tenant(multi_tenant_server, "split_1", ["CREATE TABLE public.items (id int)",
+                                                   "CREATE TABLE public.extras (id int)"])
+    _create_tenant(multi_tenant_server, "split_2", ["CREATE TABLE public.items (id int)"])
+    stored = _as_stored(_client(multi_tenant_server, databases="split_*").get_schemas())
+    invalidate_engines()
+    builds = _count_builds(monkeypatch)
+
+    for table in ("public.items", "public.extras"):
+        agent = _client(multi_tenant_server, databases="split_*")
+        agent.attach_table_metadata([t for t in stored if t["name"] == table])
+        agent.execute_query(f"SELECT count(*) FROM {table}")
+
+    assert len(builds) == 1
+
+
+def test_two_connections_with_the_same_login_get_separate_engines(multi_tenant_server, monkeypatch):
+    stored = _as_stored(_client(multi_tenant_server).get_schemas())
+    invalidate_engines()
+    builds = _count_builds(monkeypatch)
+    for connection_id in ("conn-org-1", "conn-org-2", "conn-org-1"):
+        client = _client(multi_tenant_server)
+        client._bow_connection_id = connection_id
+        client.attach_table_metadata(stored)
+        client.execute_query("SELECT count(*) FROM public.users")
+
+    assert len(builds) == 2
+
+
+def test_left_out_tables_and_tenants_are_reported_in_index_stats(multi_tenant_server):
+    common = ["CREATE TABLE public.items (id int)"]
+    _create_tenant(multi_tenant_server, "drift_1", [*common, "CREATE TABLE public.tags (id int, labels int[])"])
+    _create_tenant(multi_tenant_server, "drift_2", [*common, "CREATE TABLE public.tags (id int, labels int[])"])
+    _create_tenant(multi_tenant_server, "drift_3", [
+        *common,
+        "CREATE TABLE public.tags (id int, labels date[])",
+        "CREATE TABLE public.audit (id int, tenant_db text)",
+        "CREATE TABLE public.people (id int)",
+        'CREATE TABLE public."People" (id int)',
+    ])
+    client = _client(multi_tenant_server, databases="drift_*")
+
+    tables = {t.name: t for t in client.get_schemas()}
+    entries = client.index_stats()["unreadable_datasets"]
+
+    assert tables["public.tags"].metadata_json["tenants"] == ["drift_1", "drift_2"]
+    assert not {"public.audit", "public.people", "public.People"} & set(tables)
+
+    def reported(*needles):
+        return [e for e in entries if all(n in f"{e['name']} {e['reason']}" for n in needles)]
+
+    assert reported("public.tags", "drift_3", "labels")
+    assert reported("public.audit")
+    assert reported("public.people")
+    assert reported("public.People")
+    assert all(e["reason"] for e in entries)
+    assert client.index_stats()["unreadable_dataset_count"] == len(entries)
 
 
 def test_description_leaves_out_raw_connection_errors(multi_tenant_server):
@@ -279,15 +435,19 @@ def test_connection_fails_when_no_database_matches(multi_tenant_server):
         assert spec in result["message"]
 
 
-def test_connection_fails_when_no_matching_database_is_readable(multi_tenant_server):
-    result = _client(multi_tenant_server, databases=LOCKED_TENANT).test_connection()
+@pytest.mark.parametrize("tenant", UNREADABLE_TENANTS)
+def test_connection_fails_when_no_matching_database_is_readable(multi_tenant_server, tenant):
+    result = _client(multi_tenant_server, databases=tenant).test_connection()
 
     assert result["success"] is False
-    assert LOCKED_TENANT in result["message"]
+    assert tenant in result["message"]
 
 
 def test_connection_succeeds_when_a_tenant_is_readable(multi_tenant_server):
     result = _client(multi_tenant_server).test_connection()
 
     assert result["success"] is True
-    assert LOCKED_TENANT in result["message"]
+    for tenant in UNREADABLE_TENANTS:
+        assert tenant in result["message"]
+    for tenant in READABLE_TENANTS:
+        assert f"{tenant}," not in result["message"].split("Not readable")[-1]
