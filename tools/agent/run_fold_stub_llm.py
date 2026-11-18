@@ -113,6 +113,10 @@ def _planner(body: dict):
             "interpreted_prompt": "Sum Invoice.Total across all invoices as one number.",
             "tables_by_source": TABLES,
             "visualization_type": "table"}}], None
+    # A question that asks for no citations gets an answer without markers, so
+    # the sources line's uncited-results path can be exercised.
+    if "without citations" in _all_text(body).lower():
+        return None, FINAL_ANSWER.format(cite_chart="", cite_table="", cite_total="")
     return None, FINAL_ANSWER.format(
         cite_chart=_cite(body, 0), cite_table=_cite(body, 1), cite_total=_cite(body, 2))
 

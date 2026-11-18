@@ -1,7 +1,8 @@
 <template>
 	<!-- The results an answer rests on, as one quiet line: the ones it cites,
-	     numbered as in the text, then any table the run produced and did not
-	     cite — so a result is never reachable only by opening the steps. -->
+	     numbered as in the text, then any table or chart the run produced and
+	     did not cite — so a result is never reachable only by opening the
+	     steps. -->
 	<div v-if="items.length" class="run-sources mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-start text-chat-3 text-ink-muted" data-testid="run-sources">
 		<button
 			v-for="item in items"
@@ -18,7 +19,7 @@
 			@blur="$emit('leave')"
 		>
 			<span v-if="item.number" class="citation-number" aria-hidden="true">{{ item.number }}</span>
-			<Icon v-else name="heroicons:table-cells" class="h-3 w-3 shrink-0" />
+			<Icon v-else :name="item.source.output.kind === 'chart' ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="h-3 w-3 shrink-0" />
 			<span class="min-w-0 truncate"><bdi>{{ titleOf(item) }}</bdi></span>
 		</button>
 	</div>

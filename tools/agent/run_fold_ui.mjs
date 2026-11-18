@@ -6,7 +6,7 @@
 //
 // Env: BOW_ORIGIN (default http://localhost:3000), BOW_EMAIL, BOW_PASSWORD,
 //      BOW_LOCALE (sets localStorage bow.locale, e.g. he), REPORT_ID (skip the
-//      run and capture an existing report), DARK=1, VIDEO=1 (record the
+//      run and capture an existing report), PROMPT (the question to send), DARK=1, VIDEO=1 (record the
 //      session to <out-dir>/video/*.webm).
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const [OUT = 'run-fold-shots', LABEL = 'after'] = process.argv.slice(2);
 const BASE = process.env.BOW_ORIGIN || 'http://localhost:3000';
-const PROMPT = 'What is our revenue by country?';
+const PROMPT = process.env.PROMPT || 'What is our revenue by country?';
 mkdirSync(OUT, { recursive: true });
 const log = (...a) => console.log('[run-fold]', ...a);
 const shot = (page, name) => page.screenshot({ path: `${OUT}/${LABEL}-${name}.png` });

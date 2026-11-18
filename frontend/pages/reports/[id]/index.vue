@@ -1851,16 +1851,17 @@ function answerMarkdown(m: ChatMessage, block: any): string {
 	return messageCitations.value.get(String(m.id))?.text.get(String(block.id)) ?? blockText(block)
 }
 // The sources row under a folded run's answer: what it cites, numbered, then
-// the tables this run made without citing them.
+// the tables and charts this run made without citing them.
 function runSources(m: ChatMessage): SourceItem[] {
 	const cited = messageCitations.value.get(String(m.id))?.cited || []
 	const items: SourceItem[] = cited.map((source, i) => ({ number: i + 1, source }))
-	// Uncited tables are listed only for a folded run, where they would
+	// Uncited results are listed only for a folded run, where they would
 	// otherwise sit behind the steps; an unfolded run still shows their cards.
+	// A single value is not listed: the answer states it.
 	if (!runFold(m)) return items
 	const own = new Set(visibleBlocks(m).map((b: any) => String(b.id)))
 	for (const source of citationSources.value) {
-		if (source.output.kind === 'table' && own.has(source.key) && !cited.includes(source)) {
+		if (source.output.kind !== 'number' && own.has(source.key) && !cited.includes(source)) {
 			items.push({ number: null, source })
 		}
 	}

@@ -687,7 +687,7 @@ function runSources(m: any): SourceItem[] {
     if (!runFold(m)) return items
     const own = new Set(timelineBlocks(m).map((b: any) => String(b.id)))
     for (const source of citationSources.value) {
-        if (source.output.kind === 'table' && own.has(source.key) && !cited.includes(source)) {
+        if (source.output.kind !== 'number' && own.has(source.key) && !cited.includes(source)) {
             items.push({ number: null, source })
         }
     }
