@@ -7497,5 +7497,52 @@
     "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen.",
     "privateChannel": "Privat kanal",
     "privateCount": "{n} privat kanal | {n} privata kanaler"
+  },
+  "agentClone": {
+    "menu": "Klona agent",
+    "titleFor": "Klona {name}",
+    "name": "Namn",
+    "description": "Beskrivning",
+    "defaultName": "Kopia av {name}",
+    "alwaysIncluded": "Alltid med:",
+    "always": {
+      "settings": "Inställningar",
+      "tables": "Tabeller",
+      "tools": "Verktyg",
+      "prompts": "Prompter",
+      "files": "Filer"
+    },
+    "parts": {
+      "instructions": "Instruktioner",
+      "access": "Åtkomst"
+    },
+    "choices": {
+      "copy": "Kopiera",
+      "link": "Dela",
+      "none": "Inget",
+      "sameAccess": "Samma personer",
+      "onlyMe": "Bara jag"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Egna kopior, redigeras separat",
+        "link": "Samma instruktioner; ändringar syns i båda",
+        "none": "Bara globala instruktioner"
+      },
+      "access": {
+        "same": "Samma personer och behörigheter",
+        "only_me": "Bara du, tills du delar den"
+      }
+    },
+    "footnote": "Sparade frågor, utvärderingar, listor, konversationer och dashboards klonas inte. Den nya agenten börjar i träning.",
+    "submit": "Klona",
+    "cloning": "Klonar…",
+    "nameTaken": "Det finns redan en agent med det namnet.",
+    "instructionsChanged": "Instruktionerna ändrades under kloningen. Försök igen.",
+    "linkBlocked": "De här instruktionerna används också av agenter eller mappar som du inte förvaltar, så de kan inte delas. Kopiera dem i stället, eller fråga någon som förvaltar dem.",
+    "linkPending": "De här instruktionerna har ändringar som väntar på godkännande, så de kan inte delas än. Godkänn eller avvisa ändringarna först, eller kopiera instruktionerna i stället.",
+    "notInFolder": "Du förvaltar inte mappen för {name}, så den nya agenten skapades på översta nivån.",
+    "done": "{name} skapades",
+    "failed": "Det gick inte att klona agenten"
   }
 }

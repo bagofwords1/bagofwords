@@ -7497,5 +7497,52 @@
     "loadFailed": "Impossibile caricare i canali di questo agente. Chiudi e riprova.",
     "privateChannel": "Canale privato",
     "privateCount": "{n} canale privato | {n} canali privati"
+  },
+  "agentClone": {
+    "menu": "Clona agente",
+    "titleFor": "Clona {name}",
+    "name": "Nome",
+    "description": "Descrizione",
+    "defaultName": "Copia di {name}",
+    "alwaysIncluded": "Sempre incluso:",
+    "always": {
+      "settings": "Impostazioni",
+      "tables": "Tabelle",
+      "tools": "Strumenti",
+      "prompts": "Prompt",
+      "files": "File"
+    },
+    "parts": {
+      "instructions": "Istruzioni",
+      "access": "Accesso"
+    },
+    "choices": {
+      "copy": "Copia",
+      "link": "Condividi",
+      "none": "Niente",
+      "sameAccess": "Stesse persone",
+      "onlyMe": "Solo io"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Copie proprie, modificate separatamente",
+        "link": "Stesse istruzioni; le modifiche valgono per entrambi",
+        "none": "Solo istruzioni globali"
+      },
+      "access": {
+        "same": "Stesse persone e permessi",
+        "only_me": "Solo tu, finché non lo condividi"
+      }
+    },
+    "footnote": "Query salvate, valutazioni, liste, conversazioni e dashboard non vengono clonate. Il nuovo agente parte in addestramento.",
+    "submit": "Clona",
+    "cloning": "Clonazione…",
+    "nameTaken": "Esiste già un agente con questo nome.",
+    "instructionsChanged": "Le istruzioni sono cambiate durante la clonazione. Riprova.",
+    "linkBlocked": "Queste istruzioni sono usate anche da agenti o cartelle che non gestisci, quindi non possono essere condivise. Copiale, oppure chiedi a chi le gestisce.",
+    "linkPending": "Queste istruzioni hanno modifiche in attesa di approvazione, quindi non possono ancora essere condivise. Approva o rifiuta prima quelle modifiche, oppure copia le istruzioni.",
+    "notInFolder": "Non gestisci la cartella di {name}, quindi il nuovo agente è stato creato al livello principale.",
+    "done": "{name} creato",
+    "failed": "Impossibile clonare l'agente"
   }
 }

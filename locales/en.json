@@ -8358,5 +8358,52 @@
     "loadFailed": "Couldn't load this agent's channels. Close and try again.",
     "privateChannel": "Private channel",
     "privateCount": "{n} private channel | {n} private channels"
+  },
+  "agentClone": {
+    "menu": "Clone agent",
+    "titleFor": "Clone {name}",
+    "name": "Name",
+    "description": "Description",
+    "defaultName": "Copy of {name}",
+    "alwaysIncluded": "Always included:",
+    "always": {
+      "settings": "Settings",
+      "tables": "Tables",
+      "tools": "Tools",
+      "prompts": "Prompts",
+      "files": "Files"
+    },
+    "parts": {
+      "instructions": "Instructions",
+      "access": "Access"
+    },
+    "choices": {
+      "copy": "Copy",
+      "link": "Share",
+      "none": "None",
+      "sameAccess": "Same people",
+      "onlyMe": "Only me"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Its own copies, edited separately",
+        "link": "Same instructions; edits show on both",
+        "none": "Global instructions only"
+      },
+      "access": {
+        "same": "Same people and permissions",
+        "only_me": "Only you, until you share it"
+      }
+    },
+    "footnote": "Saved queries, evals, lists, conversations and dashboards aren't cloned. The new agent starts in Training.",
+    "submit": "Clone",
+    "cloning": "Cloning…",
+    "nameTaken": "An agent with this name already exists.",
+    "instructionsChanged": "Instructions changed while cloning. Try again.",
+    "linkBlocked": "These instructions are also used by agents or folders you don't manage, so they can't be shared. Copy them instead, or ask someone who manages them.",
+    "linkPending": "These instructions have changes waiting for approval, so they can't be shared yet. Approve or reject those changes first, or copy the instructions instead.",
+    "notInFolder": "You don't manage the folder of {name}, so the new agent was created at the top level.",
+    "done": "Created {name}",
+    "failed": "Couldn't clone the agent"
   }
 }
