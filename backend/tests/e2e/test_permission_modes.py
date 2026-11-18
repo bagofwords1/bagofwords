@@ -379,6 +379,17 @@ def test_a_failed_report_mode_read_falls_back_to_ask_and_the_run_goes_on(env, te
     assert out.prompted and not out.ran
 
 
+def test_the_report_shows_its_agents_caps(env, test_client):
+    # The prompt box reads them for the banner and the picker.
+    url = f"/api/reports/{env.report_id}"
+    assert [ds["max_permission_mode"] for ds in test_client.get(url, headers=env.headers).json()["data_sources"]] \
+        == [None]
+    r = test_client.put(f"/api/data_sources/{env.ds_id}", headers=env.headers, json={"max_permission_mode": "auto"})
+    assert r.status_code == 200, r.text
+    assert [ds["max_permission_mode"] for ds in test_client.get(url, headers=env.headers).json()["data_sources"]] \
+        == ["auto"]
+
+
 def test_agent_cap_can_be_cleared(env, test_client):
     # The agent settings page saves "no cap" as "none".
     env.org_setting(allow_all_enabled=True)

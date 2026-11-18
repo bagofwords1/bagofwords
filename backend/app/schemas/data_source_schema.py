@@ -280,6 +280,9 @@ class DataSourceReportSchema(AgentIconTokenMixin):
     # (Development / Training) the same way the data source selector does.
     publish_status: str = "published"
     reliability_status: str = "training"
+    # The agent's cap on the run permission mode (ask | auto, None = no cap),
+    # so the prompt box shows the mode the run will really use.
+    max_permission_mode: Optional[str] = None
 
     # Connection info (multi-connection support) — slim, config-free view.
     connections: List[ConnectionReportEmbedded] = []
