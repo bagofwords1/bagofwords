@@ -45,7 +45,8 @@ NO_READABLE_TABLES_REASON = "no readable tables (check USAGE/SELECT grants)"
 
 _DUCKDB_CATALOG_READERS = re.compile(
     r"^(query_table|query|duckdb_.*|pragma_.*|sql_auto_complete|json_execute_serialized_sql|"
-    r"json_deserialize_sql|which_secret|glob)$",
+    r"json_deserialize_sql|which_secret|glob|pg_get_viewdef|pg_get_constraintdef|has_.*_privilege|"
+    r"pg_.*_is_visible|current_setting|getvariable)$",
     re.IGNORECASE,
 )
 

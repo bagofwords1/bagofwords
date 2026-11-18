@@ -38,6 +38,15 @@ REFUSED = [
     "SELECT * FROM glob('*')",
     "PRAGMA table_info('__t0001.public.orders')",
     "PRAGMA database_list",
+    "SELECT pg_get_viewdef('__t0001.public.orders')",
+    "SELECT pg_get_constraintdef(1)",
+    "SELECT has_table_privilege('__t0001.public.orders', 'select')",
+    "SELECT has_schema_privilege('__t0001.public', 'usage')",
+    "SELECT tenant_db FROM public.orders WHERE has_database_privilege('__t0001', 'connect')",
+    "SELECT pg_table_is_visible(1)",
+    "SELECT pg_type_is_visible(1)",
+    "SELECT current_setting('pg_pool_max_connections')",
+    "SELECT getvariable('anything')",
 ]
 
 _READERS = [
