@@ -5134,6 +5134,22 @@
     "madeWith": "Made with {brand}",
     "fork": "Fork"
   },
+  "sharedConversation": {
+    "loading": "Loading conversation…",
+    "signInTitle": "Sign in required",
+    "signInBody": "You need to sign in to view this conversation.",
+    "signIn": "Sign in",
+    "deniedTitle": "Access denied",
+    "deniedBody": "You don't have permission to view this conversation. Ask the owner to share it with you.",
+    "goHome": "Go home",
+    "notFoundTitle": "Conversation not found",
+    "notFoundBody": "This conversation may have been unshared or doesn't exist.",
+    "byAuthor": "by {name}",
+    "fork": "Fork",
+    "forking": "Forking…",
+    "loadOlder": "Load older messages",
+    "poweredBy": "Powered by {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Command rules require a remote shell tool.",
     "shell_rules.invalid": "Invalid command rules.",
