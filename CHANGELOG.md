@@ -1,5 +1,19 @@
 # Release Notes
 
+## Version 0.0.629 (November 18, 2026)
+- Added Clone agent in the agent menu: copies tables, tools, prompts and files, with instructions copied, shared or left out (#1807)
+- Added Import agent under Agents → New: rebuilds an agent from its export zip, with instructions imported as drafts (#1810)
+- Added Monitoring access to Auto runs for agent managers when the run could only reach agents they manage (#1811)
+- Added what changed, who handled it and a link to where it is fixed in review notifications, and a training-mode conversation prefilled from the item (#1809)
+- Added automatic saving of each Settings → General field, without a Save button; removing a framing site asks first (#1796)
+- Added project agents pre-selected on a new report opened from a project (#1806)
+- Changed a steered prompt to appear above the step that picked it up, on the report page, after a reload and on shared links (#1802)
+- Fixed every chat failing on Azure OpenAI with the default content filter; content-filter blocks now show a named error (#1803)
+- Fixed shared conversations not using the organization's language and direction (#1800)
+- Fixed the agent trace modal sliding off-screen when scrolling (#1812)
+- Fixed a schema change being silent for 7 days after an earlier one was handled (#1809)
+- Fixed sandbox step runs being slower from a repeated import (#1805)
+
 ## Version 0.0.628 (November 18, 2026)
 - Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
 
