@@ -17,7 +17,9 @@ the loop can show instructions reach the model unredacted.
     cd backend && uv run python ../tools/agent/pii_provider_exemption_setup.py
 
 Prints the ids as JSON. Flags: --base-url (http://localhost:8000),
---mock-url (http://127.0.0.1:9199). Env: BOW_EMAIL / BOW_PASSWORD
+--mock-url (http://127.0.0.1:9199), --tokens (the Default policy uses the
+"hide from the model" action for emails and, when a detector is available,
+names), --on-detector-error block|regex_only. Env: BOW_EMAIL / BOW_PASSWORD
 (default admin@example.com / Password123!), ANTHROPIC_KEY_LOOP (optional).
 """
 import argparse
@@ -29,6 +31,9 @@ import httpx
 p = argparse.ArgumentParser()
 p.add_argument("--base-url", default="http://localhost:8000")
 p.add_argument("--mock-url", default="http://127.0.0.1:9199")
+p.add_argument("--tokens", action="store_true",
+               help="Default policy hides emails (and names, with a detector) from the model only")
+p.add_argument("--on-detector-error", default="block", choices=["block", "regex_only"])
 a = p.parse_args()
 
 c = httpx.Client(base_url=a.base_url, timeout=60, trust_env=False)
@@ -48,6 +53,9 @@ for key, name, model_id in (
 ):
     if name in existing:
         ids[key] = existing[name]["id"]
+        # Keep an existing provider pointed at the mock in use.
+        c.put(f"/api/llm/providers/{ids[key]}", json={"credentials": {
+            "base_url": f"{a.mock_url}/{key}/v1", "api_key": "sk-mock"}}, headers=H).raise_for_status()
         continue
     r = c.post("/api/llm/providers", json={
         "name": name, "provider_type": "custom",
@@ -77,16 +85,26 @@ for m in models:
         c.post(f"/api/llm/models/{m['id']}/set_default", headers=H).raise_for_status()
         c.post(f"/api/llm/models/{m['id']}/set_default", params={"small": True}, headers=H)
 
+default_policy = {"name": "Default", "mode": "replace"}
+if a.tokens:
+    # Hide emails from the model only (people still see them), and do the same
+    # for names when this instance has a detector.
+    default_policy["builtin_overrides"] = {"email": {"action": "pseudonymize"}}
+    status = c.get("/api/organization/pii/builtin-rules", headers=H).json().get("detector") or {}
+    if status.get("available"):
+        default_policy["detector_overrides"] = {"PERSON": {"enabled": True, "action": "pseudonymize"}}
+        default_policy["on_detector_error"] = a.on_detector_error
 r = c.put("/api/organization/settings", json={"config": {"pii_protection": {
     "enabled": True,
     "custom_rules": [{"id": "emp", "name": "Employee ID", "patterns": [r"EMP-\d{4}"], "replacement": "[EMP]"}],
     "policies": {
-        "default": {"name": "Default", "mode": "replace"},
+        "default": default_policy,
         "strict": {"name": "Strict", "mode": "block"},
     },
     "provider_policies": {ids["strict"]: "strict"},
 }}}, headers=H)
-r.raise_for_status()
+if r.status_code >= 400:
+    raise SystemExit(f"saving PII settings failed: HTTP {r.status_code} {r.text[:300]}")
 
 INSTRUCTION = "When a question is about refunds, tell the user to contact billing-escalations@musicstore.example."
 have = c.get("/api/instructions", headers=H, params={"limit": 200})

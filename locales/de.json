@@ -1461,7 +1461,9 @@
     "compactionTurns": "{turns} Runden",
     "compactionLast": "Letzte Komprimierung: Verlauf ~{before} → ~{after} Tokens",
     "piiBlocked": "Der Schutz personenbezogener Daten hat diese Anfrage an {model} blockiert (Regel: {rules}).",
-    "piiBlockedNoModel": "Der Schutz personenbezogener Daten hat diese Anfrage blockiert (Regel: {rules})."
+    "piiBlockedNoModel": "Der Schutz personenbezogener Daten hat diese Anfrage blockiert (Regel: {rules}).",
+    "piiDetectorUnavailable": "Der Schutz personenbezogener Daten hat diese Anfrage an {model} blockiert: Der PII-Detektor ist nicht verfügbar.",
+    "piiDetectorUnavailableNoModel": "Der Schutz personenbezogener Daten hat diese Anfrage blockiert: Der PII-Detektor ist nicht verfügbar."
   },
   "tools": {
     "common": {
@@ -3980,7 +3982,27 @@
       "patternsShared": "Muster (für alle Richtlinien gemeinsam)",
       "testDescPolicy": "Fügen Sie Beispieltext ein, um zu sehen, wie die Richtlinie {policy} ihn schwärzt.",
       "testFailed": "Test fehlgeschlagen",
-      "providerCount": "{n} Anbieter | {n} Anbieter"
+      "providerCount": "{n} Anbieter | {n} Anbieter",
+      "actionPseudonymize": "Vor dem Modell verbergen",
+      "actionMask": "Teilweise maskieren",
+      "masksValue": "Behält die letzten 4 Zeichen",
+      "pseudonymizesValue": "Menschen sehen den Wert weiterhin",
+      "detectorTitle": "Namen, Orte und Organisationen",
+      "detectorDescPolicy": "Werden von einem Sprachmodell erkannt, nicht von einem Muster. Aus, bis Sie sie einschalten. Sie gelten für den Prompt des Nutzers und die Daten, nie für Anweisungen oder Schemas. Optionen der Richtlinie {policy}.",
+      "detectorUnavailable": "Die Erkennung von Namen, Orten und Organisationen benötigt einen PII-Detektor, und auf dieser Instanz ist keiner eingerichtet. Bitten Sie Ihren Administrator, das pii-Extra des Backends zu installieren oder einen Presidio-Dienst zu konfigurieren.",
+      "detectedByModel": "Von einem Sprachmodell erkannt",
+      "minScore": "Min. Konfidenz",
+      "detectorErrorLabel": "Wenn der Detektor nicht verfügbar ist",
+      "detectorErrorDesc": "Was mit einer Anfrage geschieht, wenn der Detektor sie nicht prüfen kann.",
+      "detectorErrorBlock": "Anfrage blockieren",
+      "detectorErrorRegexOnly": "Nur mit Musterregeln senden",
+      "testDetectorUnavailable": "Der PII-Detektor ist nicht verfügbar, daher würde dieser Text blockiert.",
+      "entities": {
+        "PERSON": "Personenname",
+        "LOCATION": "Ort",
+        "ORGANIZATION": "Organisation",
+        "NRP": "Nationalität, religiöse oder politische Gruppe"
+      }
     },
     "piiTab": "PII-Schutz",
     "frameAncestors": {

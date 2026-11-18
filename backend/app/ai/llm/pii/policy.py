@@ -37,7 +37,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from .builtin_rules import BUILTIN_PII_RULES
-from .redactor import VALID_MODES, PiiRedactor, _resolve_rules
+from .detectors.catalog import DEFAULT_MIN_SCORE, DETECTOR_ENTITIES, DETECTOR_PREFIX, detector_entity
+from .redactor import VALID_ACTIONS, VALID_MODES, DetectorRule, PiiRedactor, _resolve_rules, token_label
 
 DEFAULT_POLICY = "default"
 EXEMPT_POLICY = "exempt"
@@ -46,6 +47,8 @@ POLICY_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,47}$")
 MAX_POLICIES = 20
 RULE_OPTION_KEYS = ("enabled", "action", "replacement")
 BUILTIN_RULE_IDS = frozenset(spec["id"] for spec in BUILTIN_PII_RULES)
+DETECTOR_ENTITY_IDS = frozenset(e["id"] for e in DETECTOR_ENTITIES)
+DETECTOR_ERROR_MODES = ("block", "regex_only")
 
 
 def custom_rule_id(raw: Dict[str, Any]) -> str:
@@ -60,10 +63,30 @@ def _clean_options(raw: Any) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if isinstance(raw.get("enabled"), bool):
         out["enabled"] = raw["enabled"]
-    if raw.get("action") in ("replace", "block"):
+    if raw.get("action") in VALID_ACTIONS:
         out["action"] = raw["action"]
     if isinstance(raw.get("replacement"), str) and raw["replacement"]:
         out["replacement"] = raw["replacement"]
+    return out
+
+
+def _clean_detector_options(raw: Any) -> Dict[str, Any]:
+    """Options for one detector entity: the rule options plus ``min_score``."""
+    out = _clean_options(raw)
+    score = raw.get("min_score") if isinstance(raw, dict) else None
+    if isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= float(score) <= 1:
+        out["min_score"] = round(float(score), 2)
+    return out
+
+
+def _clean_detector_map(raw: Any) -> Dict[str, Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for entity, opts in raw.items():
+        cleaned = _clean_detector_options(opts)
+        if cleaned and str(entity) in DETECTOR_ENTITY_IDS:
+            out[str(entity)] = cleaned
     return out
 
 
@@ -88,6 +111,11 @@ def _clean_policy(raw: Any, *, fallback_name: str) -> Dict[str, Any]:
         "redact_context": bool(raw.get("redact_context", False)),
         "builtin_overrides": _clean_override_map(raw.get("builtin_overrides")),
         "custom_overrides": _clean_override_map(raw.get("custom_overrides")),
+        # Detector entities (names, locations…) are OFF unless turned on here.
+        "detector_overrides": _clean_detector_map(raw.get("detector_overrides")),
+        # When the detector cannot run: refuse the request, or send it with the
+        # pattern rules only.
+        "on_detector_error": raw.get("on_detector_error") if raw.get("on_detector_error") in DETECTOR_ERROR_MODES else "block",
     }
 
 
@@ -142,10 +170,15 @@ def normalize(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                 if isinstance(prov, str) and prov and isinstance(pol, str) and pol:
                     provider_policies[prov] = pol
     else:
-        # Single rule set: it becomes the Default policy, unchanged.
+        # Single rule set: it becomes the Default policy, unchanged. That
+        # includes its coverage: before policies, an enabled rule set redacted
+        # the whole prompt — instructions and schemas too — so it keeps doing
+        # so after the upgrade (``redact_context``) until an admin turns that
+        # off. Only policies created from here on default to prompt + data.
         policies[DEFAULT_POLICY] = _clean_policy(
             {
                 "name": "Default",
+                "redact_context": bool(raw.get("enabled", False)),
                 "mode": raw.get("mode"),
                 "builtin_overrides": raw.get("builtin_overrides"),
                 "custom_overrides": legacy_custom_overrides,
@@ -277,6 +310,25 @@ def policy_as_rule_set(cfg: Dict[str, Any], policy_id: str) -> Dict[str, Any]:
     }
 
 
+def _resolve_detector_rules(pol: Dict[str, Any]) -> List[DetectorRule]:
+    """The detector entities this policy turned on, with their options."""
+    rules: List[DetectorRule] = []
+    for spec in DETECTOR_ENTITIES:
+        opts = pol["detector_overrides"].get(spec["id"], {})
+        if not opts.get("enabled", False):
+            continue
+        rules.append(DetectorRule(
+            id=f"{DETECTOR_PREFIX}{spec['id']}",
+            name=spec["name"],
+            entity=spec["id"],
+            replacement=opts.get("replacement") or spec["replacement"],
+            action=opts.get("action") if opts.get("action") in VALID_ACTIONS else pol["mode"],
+            min_score=opts.get("min_score", DEFAULT_MIN_SCORE),
+            label=token_label(spec["id"]),
+        ))
+    return rules
+
+
 def compile_policy(cfg: Dict[str, Any], policy_id: str) -> Optional[PiiRedactor]:
     """The redactor for one policy, or None when it has no active rule."""
     if policy_id == EXEMPT_POLICY or policy_id not in cfg["policies"]:
@@ -284,11 +336,14 @@ def compile_policy(cfg: Dict[str, Any], policy_id: str) -> Optional[PiiRedactor]
     pol = cfg["policies"][policy_id]
     rule_set = policy_as_rule_set(cfg, policy_id)
     rules = _resolve_rules(rule_set, pol["mode"])
-    if not rules:
+    detector_rules = _resolve_detector_rules(pol)
+    if not rules and not detector_rules:
         return None
     return PiiRedactor(
         mode=pol["mode"],
         rules=rules,
+        detector_rules=detector_rules,
+        on_detector_error=pol["on_detector_error"],
         policy_id=policy_id,
         policy_name=pol["name"],
         redact_context=pol["redact_context"],
@@ -384,15 +439,25 @@ def validate_update(update: Dict[str, Any], existing: Optional[Dict[str, Any]] =
             names.add(key)
             if pol.get("mode") not in (None,) + VALID_MODES:
                 raise PolicyValidationError(f"Invalid mode for PII policy {pid!r}.")
-            for field_name in ("builtin_overrides", "custom_overrides"):
+            if pol.get("on_detector_error") not in (None,) + DETECTOR_ERROR_MODES:
+                raise PolicyValidationError(f"Invalid on_detector_error for PII policy {pid!r}.")
+            for field_name in ("builtin_overrides", "custom_overrides", "detector_overrides"):
                 overrides = pol.get(field_name) or {}
                 if not isinstance(overrides, dict):
                     raise PolicyValidationError(f"Invalid {field_name} for PII policy {pid!r}.")
-                for opts in overrides.values():
+                for rule_id, opts in overrides.items():
                     if not isinstance(opts, dict):
                         raise PolicyValidationError(f"Invalid rule options in PII policy {pid!r}.")
-                    if opts.get("action") not in (None, "replace", "block"):
+                    if opts.get("action") not in (None,) + VALID_ACTIONS:
                         raise PolicyValidationError(f"Invalid rule action in PII policy {pid!r}.")
+                    if field_name == "detector_overrides":
+                        if rule_id not in DETECTOR_ENTITY_IDS:
+                            raise PolicyValidationError(f"Unknown detector entity {rule_id!r} in PII policy {pid!r}.")
+                        score = opts.get("min_score")
+                        if score is not None and (
+                            isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 1
+                        ):
+                            raise PolicyValidationError(f"min_score must be between 0 and 1 in PII policy {pid!r}.")
                     rep = opts.get("replacement")
                     if rep is not None and (not isinstance(rep, str) or len(rep) > MAX_REPLACEMENT):
                         raise PolicyValidationError(f"Invalid replacement token in PII policy {pid!r}.")

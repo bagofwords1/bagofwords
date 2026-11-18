@@ -349,8 +349,12 @@ async def get_pii_builtin_rules(
     so admins can enable/disable each and override its replacement token."""
     from app.ee.license import has_feature
     from app.ai.llm.pii.builtin_rules import BUILTIN_PII_RULES
+    from app.ai.llm.pii.detectors import detector_status
     return {
         "licensed": has_feature("pii_protection"),
+        # Names / locations / organizations need a detector (Presidio); the
+        # page offers those rules only when one is available on this instance.
+        "detector": detector_status(),
         "rules": [
             {
                 "id": r["id"],
@@ -405,7 +409,10 @@ async def test_pii_redaction(
         return {"text": text, "matches": [], "blocked": False, "mode": "replace"}
 
     try:
-        redacted, result = redactor.apply(text)
+        # In a worker thread: a policy with detector rules runs a model (or an
+        # HTTP call) to scan the text.
+        import asyncio
+        redacted, result = await asyncio.to_thread(redactor.apply, text)
         return {
             "text": redacted,
             "matches": result.matches,
@@ -413,4 +420,8 @@ async def test_pii_redaction(
             "mode": redactor.mode,
         }
     except PiiPromptBlockedError as e:
-        return {"text": text, "matches": [{"name": n} for n in e.rule_names], "blocked": True, "mode": "block"}
+        from app.ai.llm.pii.redactor import PiiDetectorUnavailableError
+        return {
+            "text": text, "matches": [{"name": n} for n in e.rule_names], "blocked": True, "mode": "block",
+            "detector_unavailable": isinstance(e, PiiDetectorUnavailableError),
+        }

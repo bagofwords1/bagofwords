@@ -1461,7 +1461,9 @@
     "compactionTurns": "{turns} أدوار",
     "compactionLast": "آخر ضغط: السجل ~{before} ← ~{after} رمز",
     "piiBlocked": "حظرت حماية البيانات الشخصية هذا الطلب إلى {model} (القاعدة: {rules}).",
-    "piiBlockedNoModel": "حظرت حماية البيانات الشخصية هذا الطلب (القاعدة: {rules})."
+    "piiBlockedNoModel": "حظرت حماية البيانات الشخصية هذا الطلب (القاعدة: {rules}).",
+    "piiDetectorUnavailable": "حظرت حماية البيانات الشخصية هذا الطلب إلى {model}: كاشف البيانات الشخصية غير متاح.",
+    "piiDetectorUnavailableNoModel": "حظرت حماية البيانات الشخصية هذا الطلب: كاشف البيانات الشخصية غير متاح."
   },
   "tools": {
     "common": {
@@ -3980,7 +3982,27 @@
       "patternsShared": "الأنماط (مشتركة بين كل السياسات)",
       "testDescPolicy": "الصق نصًا تجريبيًا لمعاينة كيف تُخفيه السياسة {policy}.",
       "testFailed": "فشل الاختبار",
-      "providerCount": "{n} مزوّد | {n} مزوّدين"
+      "providerCount": "{n} مزوّد | {n} مزوّدين",
+      "actionPseudonymize": "إخفاء عن النموذج",
+      "actionMask": "حجب جزئي",
+      "masksValue": "يُبقي آخر 4 أحرف",
+      "pseudonymizesValue": "يظل الأشخاص يرون القيمة",
+      "detectorTitle": "الأسماء والأماكن والمؤسسات",
+      "detectorDescPolicy": "يكتشفها نموذج لغوي وليس نمطًا. تبقى معطّلة حتى تفعّلها. تُطبَّق على طلب المستخدم والبيانات، وليس على التعليمات أو المخططات أبدًا. الخيارات المعروضة للسياسة {policy}.",
+      "detectorUnavailable": "اكتشاف الأسماء والأماكن والمؤسسات يتطلب كاشفًا للبيانات الشخصية، ولا يوجد كاشف مُعدّ على هذا النظام. اطلب من المسؤول تثبيت إضافة pii في الخادم أو إعداد خدمة Presidio.",
+      "detectedByModel": "يكتشفه نموذج لغوي",
+      "minScore": "الحد الأدنى للثقة",
+      "detectorErrorLabel": "إذا كان الكاشف غير متاح",
+      "detectorErrorDesc": "ما يحدث للطلب عندما يتعذر على الكاشف فحصه.",
+      "detectorErrorBlock": "حظر الطلب",
+      "detectorErrorRegexOnly": "إرساله بقواعد الأنماط فقط",
+      "testDetectorUnavailable": "كاشف البيانات الشخصية غير متاح، ولذلك كان هذا النص سيُحظر.",
+      "entities": {
+        "PERSON": "اسم شخص",
+        "LOCATION": "مكان",
+        "ORGANIZATION": "مؤسسة",
+        "NRP": "الجنسية أو الجماعة الدينية أو السياسية"
+      }
     },
     "piiTab": "البيانات الشخصية",
     "frameAncestors": {

@@ -1,7 +1,6 @@
 # PII policies — per-provider policies, Presidio detection, restore in the UI
 
-Status: agreed design, 2026-11-18. Phase 1 built on
-`claude/stoic-meitner-fq7v0t` (loop: `docs/feedback-loops/pii-policies.md`).
+Status: agreed design, 2026-11-18. All four phases are built.
 Builds on the provider-exemption change. Enterprise only (`pii_protection`).
 
 **Scope of every rule (agreed 2026-11-18):** PII rules apply to the user's
@@ -47,21 +46,24 @@ No new tables.
 
 ```yaml
 enabled: true
-custom_rules:                     # shared list; built-in + Presidio rules come from code / catalog
-  - {id: emp, name: Employee ID, patterns: ['EMP-\d{4}']}
+custom_rules:                     # shared list; built-in and detector rules come from code
+  - {id: emp, name: Employee ID, patterns: ['EMP-\d{4}'], replacement: '[EMP]'}
 policies:
   default:
     name: Default
-    mode: replace                 # default action for rules without one
-    scope: [user, data]           # where Presidio runs; regex runs everywhere
+    mode: replace                 # default action for rules without one: replace | block
+    redact_context: false         # true: pattern rules also apply to instructions and schemas
+    builtin_overrides:            # per rule: enabled, action, replacement
+      email: {action: pseudonymize}
+      credit_card: {action: mask}
+    custom_overrides:
+      emp: {enabled: false}
+    detector_overrides:           # off unless enabled; per entity: action, replacement, min_score
+      PERSON: {enabled: true, min_score: 0.7}
     on_detector_error: block      # block | regex_only
-    rule_options:                 # open-ended per rule, so detector options need no schema change
-      email: {enabled: true, action: replace, replacement: '[EMAIL]'}
-      presidio.PERSON: {enabled: false}
   strict:
     name: Strict
     mode: block
-    rule_options: {presidio.PERSON: {enabled: true, min_score: 0.7}}
 provider_policies: {<provider_id>: strict, <provider_id>: exempt}
 display_policy: default
 ```
@@ -119,11 +121,10 @@ The chokepoint in `backend/app/ai/llm/llm.py` keeps its shape:
 |---|---|
 | `rules.py` | The rule list: built-in catalog + the org's custom rules + Presidio entities (when installed) |
 | `policy.py` | Policy schema; conversion from today's format; provider → policy lookup; compiled policy cache per (org, policy), cleared on save |
-| `detectors/` | `Detector.detect(text) -> list[Match(start, end, rule_id, score)]`. Implementations: `regex` (phase 1), `presidio_inproc` (phase 2), `presidio_http` (phase 4) |
+| `detectors/` | `Detector.detect(text, entities) -> spans`; registry, content cache, chunking. Implementations: `presidio_inproc`, `presidio_http` |
 | `context.py` | Phase 1. `pii_context()` marks context regions at prompt assembly; `split_segments` / `strip_markers` (fail-closed) |
-| `engine.py` | Phase 2. Collects matches by position, resolves overlaps, applies actions. Replaces today's rule-by-rule `re.sub` (kept in phase 1 so existing orgs get identical output) |
-| `vault.py` | Phase 3. Token ↔ value map per report: encrypted with the existing key, deleted with the report, never sent to a model |
-| `restore.py` | Phase 3. Restores tokens in streamed text (holds back a partial token at a chunk edge), tool arguments and titles |
+| `redactor.py` | The engine: block rules on the original text, pattern rules in order with position tracking, then detector spans; `mask` and `pseudonymize` |
+| `vault.py` | Per-call token ↔ value map; tokens are an HMAC of the value keyed per report, so nothing is stored. `StreamRestorer` holds back a partial token at a chunk edge |
 
 `loader.py` and `redactor.py` stay as the public entry points, so callers don't
 change.
@@ -172,80 +173,112 @@ blocking policy and a Presidio failure under `on_detector_error: block`.
    `regex_only`, which is audited.
 6. **Licensing:** Enterprise (`pii_protection`), including Presidio.
 
-## Phases
+## Phases (all built)
 
-### Phase 1 — named policies, prompt + data scope (built)
+Loop docs with observed results: `docs/feedback-loops/pii-policies.md`
+(phase 1) and `docs/feedback-loops/pii-detectors-and-tokens.md` (phases 2–4).
 
-Scope:
+### Phase 1 — named policies, prompt + data scope
 
-- `policy.py` and the conversion from today's format.
-- Context markers (`context.py`) at every prompt-assembly site, so only the
-  prompt and the data are redacted; `redact_context` per policy.
-- (Moved to phase 2: the position-based engine and the `detectors/` interface.
-  Phase 1 keeps the existing matching, so existing orgs get identical output.)
-- Provider → policy lookup at the chokepoint.
-- Saving and validation.
-- The `pii_blocked` typed error.
-- The audit actions above.
-- PII settings page with the policy picker and provider dropdowns.
-- LLM page badge.
-- Strings in all 10 catalogs.
+- `policy.py`: every stored shape normalizes to one config; a policy-aware
+  write replaces the stored policies, an older client's write lands on Default.
+- `context.py`: prompt builders mark platform context; only the prompt and the
+  data are redacted. `redact_context` per policy.
+- Provider → policy at the LLM chokepoint; `pii_blocked` error (no retry, no
+  fallback); audit; settings page; LLM page badge.
 
-Tests:
+**Upgrade rule.** Before policies, an enabled rule set redacted the whole
+prompt. A stored single rule set that is **enabled** therefore converts to a
+Default policy with `redact_context: true`: it keeps its coverage until an
+admin turns that off. Policies created later, and protection enabled for the
+first time, default to prompt + data.
 
-- Conversion: an existing org gets byte-identical redaction after upgrading.
-- Two providers on different policies receive different redaction.
-- Fallback across policies.
-- Deleting a policy reassigns its providers.
-- Overlap resolution.
-- A member gets 403.
-- The community build stays inert.
-- Loop: extend `tools/agent/pii_capture_llm.py` and the UI script to cover
-  three providers on Default / Strict / Exempt.
+**The text cannot mark itself.** User messages and tool results are
+interpolated into the same strings as the marked context, so the marker
+characters alone prove nothing. A region is `START content END hmac`, where the
+HMAC covers the exact content and is made with a key that lives only in the
+process's memory. A region without a valid HMAC — reserved characters typed by
+a user or returned by a tool, a replayed HMAC on other content, a region edited
+or truncated after marking — is scanned like any other text. Structured
+segments (carrying origin as metadata and flattening after redaction) would
+give the same guarantee, but every prompt in the app is assembled as one
+f-string in nine builders; the authenticated marker reaches the same property
+without rewriting them, and still fails closed.
 
-### Phase 2 — Presidio in-process
+### Phase 2 — detectors (Presidio in-process)
 
-Scope:
+- **Engine** (`redactor.py`): pattern rules still substitute one after another
+  in rule order — the previous behavior, proven by a differential test — while
+  the engine tracks positions, so detector spans found on the original text
+  survive the substitutions. A pattern rule wins over a detector span it
+  overlaps; among detector spans the longest wins, then the highest score.
+- **Detector interface** (`detectors/base.py`): `detect(text, entities) ->
+  spans`. Results are cached by content (the planner re-sends the whole
+  conversation every step) and long text is analyzed in chunks.
+- **In-process Presidio** (`detectors/presidio_inproc.py`): the optional `pii`
+  extra (`presidio-analyzer` + `en_core_web_sm`). The model loads on first use;
+  scanning runs in a worker thread.
+- **Per policy:** `detector_overrides` (entities are off until enabled; action,
+  replacement, `min_score`, default 0.7) and `on_detector_error`
+  (`block` default | `regex_only`, audited as
+  `pii_protection.detector_failed`, at most once a minute per org and policy).
+- **Scope:** a detector never runs on platform context, even when the policy
+  sets `redact_context`: a table or column called "Jordan" must reach the
+  model. Display masking is pattern rules only.
+- Turning a detector rule on is refused (400) when the instance has no
+  detector.
 
-- `engine.py` (position-based matching, moved from phase 1) and the
-  `detectors/` interface with `detectors/regex.py`.
-- Optional `pii` extra (`presidio-analyzer` + one model).
-- `detectors/presidio_inproc.py`: lazy load, run in a thread pool.
-- Presidio entities added to the rule list.
-- Per-policy `scope`, `min_score`, `on_detector_error`.
-- Scan time per call recorded in traces.
+**Model choice.** Measured with `tools/agent/pii_detector_eval.py` (synthetic
+BoW-style text; numbers in the loop doc):
 
-Before choosing the default model:
+| | English | Hebrew | False positives on analytics text | Speed | Memory |
+|---|---|---|---|---|---|
+| spaCy `en_core_web_sm` | good on names, weaker on places | none | high | ~12 ms | lowest |
+| spaCy `en_core_web_lg` | a little better | none | high | ~12 ms | ~1 GB |
+| GLiNER `gliner_multi_pii-v1` | best | good | low at 0.8 | ~120 ms CPU | ~1.8 GB |
 
-- Run a `presidio-research` evaluation on BoW-style prompts, English + Hebrew.
-- Compare spaCy `en_core_web_sm`, GLiNER `urchade/gliner_multi_pii-v1`, and a
-  transformers model.
-- Pick on measured precision and recall.
+- The in-process default is `en_core_web_sm`: small, no extra dependencies.
+- GLiNER cannot run in-process: its tokenizer needs a protobuf version that
+  conflicts with the backend's pinned one. It runs behind `pii.presidio_url`
+  (phase 4). It is the only option here that reads Hebrew.
+- The false positives on analytics text are why detectors never run on
+  context.
 
-### Phase 3 — pseudonymize + restore
+### Phase 3 — hide from the model, restore for people (`pseudonymize`)
 
-Scope:
+- A value reaches the model as a token such as `<EMAIL_3fa9c21d>`: an HMAC of
+  the value keyed per report. The same value always gets the same token in a
+  report, tokens from different reports can't be correlated, and parallel calls
+  agree without coordination.
+- **No stored vault.** The original plan stored token ↔ value per report. It
+  isn't needed: the conversation is stored with real values, so every call
+  re-derives the same tokens for what it sends and restores what the model
+  writes back in that same call (`vault.py`). There is no second copy of the
+  values at rest, nothing to delete with the report, no migration.
+- **Restore happens once, at the LLM chokepoint** (`llm.py`), so every provider
+  client is covered: streamed text (a token split across chunks is held until
+  complete), reasoning, streamed tool arguments (JSON-escaped), final tool
+  arguments, web-search queries.
+- Tools therefore run with real values. Their results, and the replayed tool
+  calls, are tokenized again on the way out.
+- The model is told once (appended to the system prompt when a token was
+  produced) to copy placeholders exactly.
+- **Display:** rules with this action do not mask the UI; anyone who can open
+  the report sees real values (decision 3).
+- `mask` (keep the last four characters) was added alongside.
 
-- `vault.py` and `restore.py`.
-- Numbered tokens (`<EMAIL_1>`), stable per report.
-- Tool arguments restored before execution.
-- Tool results redacted with the same vault.
-- A system prompt line asking the model to copy tokens verbatim.
-- Real values in the UI for anyone with access, public links included.
+### Phase 4 — Presidio as a service
 
-### Phase 4 — Presidio as a separate service (when needed)
-
-Scope:
-
-- `detectors/presidio_http.py` and `pii.presidio_url` in `bow-config`.
-- A container in compose and Helm.
-
-When to move:
-
-- model RAM × workers stops fitting (`start.sh` runs up to 4 workers), or
-- p95 scan time exceeds ~300 ms, or
-- a large model or GPU is needed, or
-- the install runs many replicas.
+- `detectors/presidio_http.py`: `POST {url}/analyze`, the official analyzer's
+  API. Any failure (unreachable, timeout, non-200, malformed body) is a
+  detector outage and follows the policy.
+- `pii.presidio_url` in bow-config or `BOW_PII_PRESIDIO_URL`; when set it wins
+  over the in-process detector.
+- Helm: `pii.presidio.enabled` (bundled official image) or `pii.presidio.url`.
+  docker-compose: a commented `presidio` service. Dockerfile:
+  `--build-arg INSTALL_PII_EXTRA=true` for the in-process option.
+- `tools/agent/presidio_service.py`: the same API serving spaCy or GLiNER, for
+  loops and as a reference for a multilingual deployment.
 
 ## Not in scope
 

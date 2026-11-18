@@ -8,6 +8,8 @@
 //       assign "In-VPC Llama" to Exempt from the PII page, then send the same
 //       chat message through Default / Exempt / Strict providers and report
 //       what the mock LLM (pii_capture_llm.py) received
+//   node tools/agent/pii_provider_exemption_ui.mjs ask <out.png> <model-id> "<question>"
+//       ask one question on one model and print the transcript the page shows
 //   node tools/agent/pii_provider_exemption_ui.mjs live <out-dir>
 //       ask a real data question on Claude Haiku 5.5 (Default policy); the
 //       backend's BOW_LLM_TRACE_FILE shows what reached Anthropic
@@ -22,9 +24,9 @@ import { dirname, join } from 'node:path';
 const requireFromFrontend = createRequire(new URL('../../frontend/package.json', import.meta.url));
 const { chromium } = requireFromFrontend('@playwright/test');
 
-const [mode, out, pagePath] = process.argv.slice(2);
-if (!['shot', 'flow', 'live'].includes(mode) || !out) {
-  console.error('usage: node pii_provider_exemption_ui.mjs shot <out.png> [path] | flow <out-dir> | live <out-dir>');
+const [mode, out, pagePath, askText] = process.argv.slice(2);
+if (!['shot', 'flow', 'live', 'ask'].includes(mode) || !out) {
+  console.error('usage: node pii_provider_exemption_ui.mjs shot <out.png> [path] | flow <out-dir> | live <out-dir> | ask <out.png> <model-id> "<question>"');
   process.exit(2);
 }
 const origin = process.env.BOW_ORIGIN || 'http://localhost:3000';
@@ -99,6 +101,19 @@ if (mode === 'shot') {
   await openPage(pagePath || '/settings/pii');
   await page.screenshot({ path: out, fullPage: true });
   console.log(`captured ${out}`);
+  await browser.close();
+  process.exit(0);
+}
+
+if (mode === 'ask') {
+  // Ask one question on one model, wait for the answer, screenshot the chat
+  // and print what the page shows (used by the token / detector loops).
+  mkdirSync(dirname(out), { recursive: true });
+  await ask(pagePath, askText);
+  await page.waitForTimeout(Number(process.env.ASK_WAIT_MS || 20000));
+  await page.screenshot({ path: out });
+  const text = await page.locator('.transcript-message').allInnerTexts().catch(() => []);
+  console.log(JSON.stringify({ url: page.url(), transcript: text.map((t) => t.replace(/\s+/g, ' ').trim()) }, null, 2));
   await browser.close();
   process.exit(0);
 }

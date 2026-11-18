@@ -3447,6 +3447,11 @@ function isRealCompletion(m: ChatMessage): boolean {
 // naming the model and the rules (never the values).
 function piiBlockedMessage(err: any): string | null {
   if (!err || typeof err !== 'object' || err.code !== 'pii_blocked') return null
+  if (err.detector_unavailable) {
+    return err.model
+      ? t('reportView.piiDetectorUnavailable', { model: err.model })
+      : t('reportView.piiDetectorUnavailableNoModel')
+  }
   const rules = Array.isArray(err.rules) ? err.rules.join(', ') : ''
   return err.model
     ? t('reportView.piiBlocked', { model: err.model, rules })

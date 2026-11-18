@@ -1461,7 +1461,9 @@
     "compactionTurns": "{turns} turni",
     "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token",
     "piiBlocked": "La protezione dei dati personali ha bloccato questa richiesta a {model} (regola: {rules}).",
-    "piiBlockedNoModel": "La protezione dei dati personali ha bloccato questa richiesta (regola: {rules})."
+    "piiBlockedNoModel": "La protezione dei dati personali ha bloccato questa richiesta (regola: {rules}).",
+    "piiDetectorUnavailable": "La protezione dei dati personali ha bloccato questa richiesta a {model}: il rilevatore di dati personali non è disponibile.",
+    "piiDetectorUnavailableNoModel": "La protezione dei dati personali ha bloccato questa richiesta: il rilevatore di dati personali non è disponibile."
   },
   "tools": {
     "common": {
@@ -3980,7 +3982,27 @@
       "patternsShared": "Pattern (condivisi da tutte le policy)",
       "testDescPolicy": "Incolla un testo di esempio per vedere come lo oscura la policy {policy}.",
       "testFailed": "Test non riuscito",
-      "providerCount": "{n} provider | {n} provider"
+      "providerCount": "{n} provider | {n} provider",
+      "actionPseudonymize": "Nascondi al modello",
+      "actionMask": "Maschera",
+      "masksValue": "Mantiene gli ultimi 4 caratteri",
+      "pseudonymizesValue": "Le persone vedono ancora il valore",
+      "detectorTitle": "Nomi, luoghi e organizzazioni",
+      "detectorDescPolicy": "Rilevati da un modello linguistico, non da un pattern. Disattivati finché non li attivi. Si applicano al prompt dell'utente e ai dati, mai alle istruzioni o agli schemi. Opzioni della policy {policy}.",
+      "detectorUnavailable": "Rilevare nomi, luoghi e organizzazioni richiede un rilevatore di dati personali, e su questa istanza non ne è configurato nessuno. Chiedi all'amministratore di installare l'extra pii del backend o di configurare un servizio Presidio.",
+      "detectedByModel": "Rilevato da un modello linguistico",
+      "minScore": "Confidenza min.",
+      "detectorErrorLabel": "Se il rilevatore non è disponibile",
+      "detectorErrorDesc": "Cosa succede a una richiesta quando il rilevatore non può controllarla.",
+      "detectorErrorBlock": "Blocca la richiesta",
+      "detectorErrorRegexOnly": "Inviala solo con le regole a pattern",
+      "testDetectorUnavailable": "Il rilevatore di dati personali non è disponibile, quindi questo testo verrebbe bloccato.",
+      "entities": {
+        "PERSON": "Nome di persona",
+        "LOCATION": "Luogo",
+        "ORGANIZATION": "Organizzazione",
+        "NRP": "Nazionalità, gruppo religioso o politico"
+      }
     },
     "piiTab": "Dati personali",
     "frameAncestors": {

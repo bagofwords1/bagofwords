@@ -1461,7 +1461,9 @@
     "compactionTurns": "{turns} échanges",
     "compactionLast": "Dernière compaction : historique ~{before} → ~{after} jetons",
     "piiBlocked": "La protection des données personnelles a bloqué cette requête vers {model} (règle : {rules}).",
-    "piiBlockedNoModel": "La protection des données personnelles a bloqué cette requête (règle : {rules})."
+    "piiBlockedNoModel": "La protection des données personnelles a bloqué cette requête (règle : {rules}).",
+    "piiDetectorUnavailable": "La protection des données personnelles a bloqué cette requête vers {model} : le détecteur de données personnelles est indisponible.",
+    "piiDetectorUnavailableNoModel": "La protection des données personnelles a bloqué cette requête : le détecteur de données personnelles est indisponible."
   },
   "tools": {
     "common": {
@@ -3980,7 +3982,27 @@
       "patternsShared": "Motifs (communs à toutes les politiques)",
       "testDescPolicy": "Collez un texte d'exemple pour voir comment la politique {policy} le masque.",
       "testFailed": "Le test a échoué",
-      "providerCount": "{n} fournisseur | {n} fournisseurs"
+      "providerCount": "{n} fournisseur | {n} fournisseurs",
+      "actionPseudonymize": "Masquer au modèle",
+      "actionMask": "Masquer partiellement",
+      "masksValue": "Conserve les 4 derniers caractères",
+      "pseudonymizesValue": "Les personnes voient toujours la valeur",
+      "detectorTitle": "Noms, lieux et organisations",
+      "detectorDescPolicy": "Détectés par un modèle de langage, pas par un motif. Désactivés tant que vous ne les activez pas. Ils s'appliquent au prompt de l'utilisateur et aux données, jamais aux instructions ni aux schémas. Options de la politique {policy}.",
+      "detectorUnavailable": "La détection des noms, lieux et organisations nécessite un détecteur de données personnelles, et aucun n'est configuré sur cette instance. Demandez à votre administrateur d'installer l'extra pii du backend ou de configurer un service Presidio.",
+      "detectedByModel": "Détecté par un modèle de langage",
+      "minScore": "Confiance min.",
+      "detectorErrorLabel": "Si le détecteur est indisponible",
+      "detectorErrorDesc": "Ce qu'il advient d'une requête lorsque le détecteur ne peut pas la vérifier.",
+      "detectorErrorBlock": "Bloquer la requête",
+      "detectorErrorRegexOnly": "L'envoyer avec les règles par motif uniquement",
+      "testDetectorUnavailable": "Le détecteur de données personnelles est indisponible : ce texte serait bloqué.",
+      "entities": {
+        "PERSON": "Nom de personne",
+        "LOCATION": "Lieu",
+        "ORGANIZATION": "Organisation",
+        "NRP": "Nationalité, groupe religieux ou politique"
+      }
     },
     "piiTab": "Données personnelles",
     "frameAncestors": {

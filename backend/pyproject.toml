@@ -160,6 +160,10 @@ dev = [
     "ty>=0.0.51,<0.1",
     "moto[s3]>=5.2.5,<5.3",
 ]
+pii = [
+    "en-core-web-sm",
+    "presidio-analyzer>=2.2.360,<3",
+]
 
 [tool.uv]
 # Security constraints for transitive dependencies (not directly imported).
@@ -200,6 +204,9 @@ constraint-dependencies = ["pyasn1>=0.6.5", "anyio>=4.14.2", "urllib3>=2.8.0", "
 # The connector only uses FileLock(path, timeout=, thread_local=), BaseFileLock,
 # Timeout and the context manager, which filelock 4 keeps.
 override-dependencies = ["cryptography>=50.0.0,<51", "filelock>=4.2.1,<5"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [build-system]
 requires = ["hatchling"]

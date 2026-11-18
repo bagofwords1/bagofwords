@@ -105,7 +105,7 @@ class PiiRule(BaseModel):
 
     @validator('action', pre=True, always=True)
     def validate_action(cls, v):
-        if v in (None, "replace", "block"):
+        if v in (None, "replace", "mask", "block", "pseudonymize"):
             return v
         return None
 
@@ -127,6 +127,12 @@ class PiiPolicyConfig(BaseModel):
     redact_context: bool = False
     builtin_overrides: Dict[str, Dict[str, Any]] = {}
     custom_overrides: Dict[str, Dict[str, Any]] = {}
+    # Detector entities (PERSON, LOCATION…): {enabled, action, replacement,
+    # min_score}. Off unless enabled here.
+    detector_overrides: Dict[str, Dict[str, Any]] = {}
+    # "block": refuse the request when the detector cannot run;
+    # "regex_only": send it with the pattern rules only (audited).
+    on_detector_error: str = "block"
 
 
 class PiiProtectionConfig(BaseModel):

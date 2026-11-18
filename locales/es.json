@@ -1602,7 +1602,9 @@
       }
     },
     "piiBlocked": "La protección de datos personales bloqueó esta solicitud a {model} (regla: {rules}).",
-    "piiBlockedNoModel": "La protección de datos personales bloqueó esta solicitud (regla: {rules})."
+    "piiBlockedNoModel": "La protección de datos personales bloqueó esta solicitud (regla: {rules}).",
+    "piiDetectorUnavailable": "La protección de datos personales bloqueó esta solicitud a {model}: el detector de datos personales no está disponible.",
+    "piiDetectorUnavailableNoModel": "La protección de datos personales bloqueó esta solicitud: el detector de datos personales no está disponible."
   },
   "tools": {
     "common": {
@@ -4503,7 +4505,27 @@
       "patternsShared": "Patrones (compartidos por todas las políticas)",
       "testDescPolicy": "Pega un texto de ejemplo para ver cómo lo oculta la política {policy}.",
       "testFailed": "La prueba falló",
-      "providerCount": "{n} proveedor | {n} proveedores"
+      "providerCount": "{n} proveedor | {n} proveedores",
+      "actionPseudonymize": "Ocultar al modelo",
+      "actionMask": "Enmascarar",
+      "masksValue": "Conserva los últimos 4 caracteres",
+      "pseudonymizesValue": "Las personas siguen viendo el valor",
+      "detectorTitle": "Nombres, lugares y organizaciones",
+      "detectorDescPolicy": "Los detecta un modelo de lenguaje, no un patrón. Están desactivados hasta que los actives. Se aplican al prompt del usuario y a los datos, nunca a las instrucciones ni a los esquemas. Opciones de la política {policy}.",
+      "detectorUnavailable": "Detectar nombres, lugares y organizaciones requiere un detector de datos personales, y esta instancia no tiene ninguno. Pide a tu administrador que instale el extra pii del backend o que configure un servicio Presidio.",
+      "detectedByModel": "Detectado por un modelo de lenguaje",
+      "minScore": "Confianza mín.",
+      "detectorErrorLabel": "Si el detector no está disponible",
+      "detectorErrorDesc": "Qué ocurre con una solicitud cuando el detector no puede revisarla.",
+      "detectorErrorBlock": "Bloquear la solicitud",
+      "detectorErrorRegexOnly": "Enviarla solo con las reglas de patrones",
+      "testDetectorUnavailable": "El detector de datos personales no está disponible, así que este texto se bloquearía.",
+      "entities": {
+        "PERSON": "Nombre de persona",
+        "LOCATION": "Lugar",
+        "ORGANIZATION": "Organización",
+        "NRP": "Nacionalidad, grupo religioso o político"
+      }
     },
     "piiTab": "Protección de datos",
     "adminPages": {
