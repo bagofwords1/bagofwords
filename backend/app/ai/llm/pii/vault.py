@@ -40,8 +40,10 @@ MODEL_HINT = (
     "your tool calls, code and SQL run, and before the user reads your answer. So use placeholders "
     "directly and copy them exactly, for example WHERE Email = '<EMAIL_3fa9c21d>'. A placeholder "
     "stands for the whole original text (a full name is one placeholder), so compare it with the whole "
-    "value, for example WHERE FirstName || ' ' || LastName = '<PERSON_8c1d02ab>'. Never ask the user "
-    "for the value behind a placeholder, never say a value is hidden or redacted, and never invent or "
+    "value, for example WHERE FirstName || ' ' || LastName = '<PERSON_8c1d02ab>'. The user sees the "
+    "real value wherever you write a placeholder, so answer normally, for example \"The email is "
+    "<EMAIL_3fa9c21d>.\" Never mention placeholders to the user, never say a value is hidden, "
+    "redacted or unavailable, never ask for the value behind a placeholder, and never invent or "
     "alter a placeholder."
 )
 

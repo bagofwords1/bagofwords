@@ -639,7 +639,9 @@ class PiiConfig(BaseModel):
     * otherwise → detector rules are unavailable.
     """
     presidio_url: Optional[str] = Field(default=None, description="Base URL of a Presidio analyzer service (BOW_PII_PRESIDIO_URL)")
-    presidio_timeout_seconds: float = 10.0
+    # Per request to the service. A transformer model on CPU can need far more
+    # than a spaCy one (BOW_PII_PRESIDIO_TIMEOUT_SECONDS).
+    presidio_timeout_seconds: float = Field(default=10.0, gt=0)
     presidio_language: str = "en"
     presidio_engine: str = "spacy"            # in-process only: "spacy" | "gliner"
     presidio_model: str = "en_core_web_sm"    # in-process only
@@ -654,6 +656,12 @@ class PiiConfig(BaseModel):
             values["presidio_url"] = url
         if isinstance(values.get("presidio_url"), str):
             values["presidio_url"] = values["presidio_url"].strip().rstrip("/") or None
+        timeout = os.environ.get("BOW_PII_PRESIDIO_TIMEOUT_SECONDS")
+        if timeout and "presidio_timeout_seconds" not in values:
+            try:
+                values["presidio_timeout_seconds"] = float(timeout)
+            except ValueError:
+                pass
         return values
 
 
