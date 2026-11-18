@@ -1,12 +1,13 @@
-"""Loads and caches a per-organization :class:`PiiRedactor`.
+"""Loads and caches an organization's compiled PII policies.
 
-The LLM chokepoint calls this to obtain the redactor for the model's
-organization. Two hard guarantees live here:
+The LLM chokepoint calls this to obtain the redactor for the provider it is
+about to call (the policy assigned to that provider, else Default); display
+surfaces get the display policy. Two hard guarantees live here:
 
 * **Enterprise gate.** If the instance is not licensed for ``pii_protection``,
   this always returns ``None`` — no config value can turn redaction on in a
   community build.
-* **Cheap steady state.** The compiled ruleset is cached per org with a short
+* **Cheap steady state.** The compiled policies are cached per org with a short
   TTL so redaction doesn't add a DB round-trip to every LLM call. Settings
   writes call :func:`invalidate` for instant reflection.
 """
@@ -21,12 +22,13 @@ from typing import Callable, Dict, Optional, Tuple
 from sqlalchemy.future import select
 
 from app.ee.license import has_feature
-from .redactor import PiiRedactor, build_redactor
+from .policy import CompiledPiiConfig, compile_config
+from .redactor import PiiRedactor
 
 logger = logging.getLogger(__name__)
 
-# org_id -> (expires_at_monotonic, redactor_or_None)
-_CACHE: Dict[str, Tuple[float, Optional[PiiRedactor]]] = {}
+# org_id -> (expires_at_monotonic, compiled_policies_or_None)
+_CACHE: Dict[str, Tuple[float, Optional[CompiledPiiConfig]]] = {}
 _CACHE_TTL_SECONDS = 10.0
 # org_ids whose cached None above is a failed load, not "do not redact"
 # (only load_redactor_for_org_checked reads it).
@@ -61,23 +63,30 @@ async def load_redactor_for_org(
     session_maker: Optional[Callable[[], "object"]],
     provider_id: Optional[str] = None,
 ) -> Optional[PiiRedactor]:
-    """Return the redactor for ``organization_id`` or None.
+    """Return the redactor to apply, or None.
+
+    With ``provider_id`` (the LLM provider a prompt is about to be sent to):
+    that provider's policy, else Default. Without it (display surfaces): the
+    display policy.
 
     None means "do not redact" — because the feature is unlicensed, disabled,
-    has no active rules, the org/session is unavailable, or ``provider_id``
-    (the LLM provider the prompt is about to be sent to) is one the org
-    exempted. Display surfaces pass no ``provider_id`` and get the org policy.
+    the policy has no active rule or is Exempt, or the org/session is
+    unavailable.
     """
-    redactor = await _load_for_org(organization_id, session_maker)
-    if redactor is not None and redactor.is_exempt(provider_id):
+    compiled = await load_policies_for_org(organization_id, session_maker)
+    if compiled is None:
         return None
-    return redactor
+    if provider_id is not None:
+        return compiled.for_provider(provider_id)
+    return compiled.for_display()
 
 
-async def _load_for_org(
+async def load_policies_for_org(
     organization_id: Optional[str],
     session_maker: Optional[Callable[[], "object"]],
-) -> Optional[PiiRedactor]:
+) -> Optional[CompiledPiiConfig]:
+    """The org's compiled policies (cached), or None when PII protection
+    cannot apply (unlicensed, no org, no session)."""
     # Enterprise gate first — never touches the DB on community instances.
     if not has_feature("pii_protection"):
         return None
@@ -115,7 +124,7 @@ async def load_redactor_for_org_checked(
     now = time.monotonic()
     cached = _CACHE.get(org_id)
     if cached is not None and cached[0] > now and org_id not in _FAILED:
-        return cached[1], True
+        return (cached[1].for_display() if cached[1] else None), True
     if org_id in _FAILED and _RETRY_AT.get(org_id, 0.0) > now:
         return None, False
     flight = _INFLIGHT.get(org_id)
@@ -124,22 +133,23 @@ async def load_redactor_for_org_checked(
         _INFLIGHT[org_id] = flight
         flight.add_done_callback(lambda f: _INFLIGHT.pop(org_id, None) if _INFLIGHT.get(org_id) is f else None)
     # Shielded: a caller cancelled while waiting does not cancel the others' load.
-    return await asyncio.shield(flight)
+    compiled, ok = await asyncio.shield(flight)
+    return (compiled.for_display() if compiled else None), ok
 
 
-async def _load_checked(org_id: str, session_maker: Callable[[], "object"]) -> Tuple[Optional[PiiRedactor], bool]:
-    redactor, ok = await _load(org_id, session_maker)
+async def _load_checked(org_id: str, session_maker: Callable[[], "object"]) -> Tuple[Optional[CompiledPiiConfig], bool]:
+    compiled, ok = await _load(org_id, session_maker)
     if ok:
         _RETRY_AT.pop(org_id, None)
     else:
         # From the end of the load: a read slower than the window still backs off.
         _RETRY_AT[org_id] = time.monotonic() + _FAILURE_BACKOFF_SECONDS
-    return redactor, ok
+    return compiled, ok
 
 
-async def _load(org_id: str, session_maker: Callable[[], "object"]) -> Tuple[Optional[PiiRedactor], bool]:
+async def _load(org_id: str, session_maker: Callable[[], "object"]) -> Tuple[Optional[CompiledPiiConfig], bool]:
     now = time.monotonic()
-    redactor: Optional[PiiRedactor] = None
+    compiled: Optional[CompiledPiiConfig] = None
     ok = True
     try:
         from app.models.organization_settings import OrganizationSettings
@@ -152,19 +162,18 @@ async def _load(org_id: str, session_maker: Callable[[], "object"]) -> Tuple[Opt
             )
             settings = result.scalar_one_or_none()
             if settings and isinstance(settings.config, dict):
-                pii_config = settings.config.get("pii_protection")
-                redactor = build_redactor(pii_config)
+                compiled = compile_config(settings.config.get("pii_protection"))
     except Exception as exc:  # pragma: no cover - defensive
         # Loading must never break inference. Cache a short "no redactor" so we
         # don't hammer the DB on every call while it's failing.
         logger.warning("PII redactor load failed for org %s: %s", org_id, exc, exc_info=True)
-        redactor = None
+        compiled = None
         ok = False
 
-    _CACHE[org_id] = (now + _CACHE_TTL_SECONDS, redactor)
+    _CACHE[org_id] = (now + _CACHE_TTL_SECONDS, compiled)
     if ok:
         _FAILED.discard(org_id)
     else:
         _FAILED.add(org_id)
-    return redactor, ok
+    return compiled, ok
 

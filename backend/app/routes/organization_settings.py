@@ -372,8 +372,8 @@ async def test_pii_redaction(
     organization: Organization = Depends(get_current_organization),
 ):
     """Dry-run the org's PII rules against sample text so admins can preview
-    redaction from the settings page. Enterprise-gated. Accepts an optional
-    ``config`` override to preview unsaved changes; otherwise uses stored config.
+    redaction from the settings page. Enterprise-gated. Previews the unsaved
+    ``config`` it is given, for ``policy_id`` (Default when omitted).
 
     Returns the redacted text and a non-sensitive per-rule match summary.
     """
@@ -397,8 +397,10 @@ async def test_pii_redaction(
             if err:
                 raise HTTPException(status_code=400, detail=f"Rule '{rule.get('name', '')}': {err}")
 
-    # Preview mode always treats the feature as enabled for the test.
-    redactor = build_redactor({**pii_config, "enabled": True})
+    # Preview mode always treats the feature as enabled for the test, and runs
+    # the policy being edited (Default when none is named).
+    policy_id = payload.get("policy_id") if isinstance(payload.get("policy_id"), str) else None
+    redactor = build_redactor({**pii_config, "enabled": True}, policy_id)
     if redactor is None:
         return {"text": text, "matches": [], "blocked": False, "mode": "replace"}
 

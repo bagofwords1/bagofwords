@@ -16,6 +16,7 @@ tests/e2e/conftest.py), so the "community" leg explicitly monkeypatches
 """
 
 import asyncio
+import json
 import types
 import uuid
 
@@ -442,23 +443,25 @@ def test_changing_exemptions_is_audited_with_the_providers(create_user, login_us
     client, H, _ = _admin(create_user, login_user, whoami)
     a = _create_custom_provider(client, H, "a")
     b = _create_custom_provider(client, H, "b")
+    action = "pii_protection.provider_policies_updated"
 
     def entries():
-        resp = client.get("/api/enterprise/audit",
-                          params={"action": "pii_protection.provider_exemptions_updated"}, headers=H)
+        resp = client.get("/api/enterprise/audit", params={"action": action}, headers=H)
         assert resp.status_code == 200, resp.text
-        return [i for i in resp.json()["items"] if i["action"] == "pii_protection.provider_exemptions_updated"]
+        return [i for i in resp.json()["items"] if i["action"] == action]
 
     assert _put_pii(client, H, enabled=True, exempt_provider_ids=[a]).status_code == 200
     assert _put_pii(client, H, enabled=True, exempt_provider_ids=[b]).status_code == 200
-    # A save that leaves the list unchanged adds no entry.
+    # A save that leaves the assignments unchanged adds no entry.
     assert _put_pii(client, H, enabled=True, mode="block", exempt_provider_ids=[b]).status_code == 200
 
-    logged = entries()
-    assert len(logged) == 2
-    details = [e["details"] for e in logged]
-    assert {"exempted_provider_ids": [a], "unexempted_provider_ids": []} in details
-    assert {"exempted_provider_ids": [b], "unexempted_provider_ids": [a]} in details
+    changes = [e["details"]["changes"] for e in entries()]
+    assert len(changes) == 2
+    assert [{"provider_id": a, "from": "default", "to": "exempt"}] in changes
+    assert sorted([{"provider_id": a, "from": "exempt", "to": "default"},
+                   {"provider_id": b, "from": "default", "to": "exempt"}], key=lambda c: c["provider_id"]) in [
+        sorted(c, key=lambda x: x["provider_id"]) for c in changes
+    ]
 
 
 @pytest.mark.e2e
@@ -477,3 +480,213 @@ def test_member_cannot_change_exemptions(create_user, login_user, whoami):
     assert resp.status_code == 403, resp.text
     cfg = client.get("/api/organization/settings", headers=H).json()["config"].get("pii_protection") or {}
     assert not cfg.get("exempt_provider_ids")
+
+
+# --- named policies ------------------------------------------------------------
+#
+# Policies are option sets over one shared rule list; each LLM provider is
+# assigned one (unassigned: Default; Exempt: nothing redacted). The tests write
+# config through the settings API and send prompts through the real LLM class,
+# stubbing only the provider client.
+
+def _policies_payload(strict_provider=None, exempt_provider=None):
+    return {
+        "enabled": True,
+        "custom_rules": [{"id": "emp", "name": "Employee ID", "patterns": [r"EMP-\d{4}"], "replacement": "[EMP]"}],
+        "policies": {
+            "default": {"name": "Default", "mode": "replace"},
+            "strict": {"name": "Strict", "mode": "block"},
+        },
+        "provider_policies": {
+            **({strict_provider: "strict"} if strict_provider else {}),
+            **({exempt_provider: "exempt"} if exempt_provider else {}),
+        },
+    }
+
+
+def _send_through(provider_id, text, *, drain_audit=False):
+    """Send ``text`` as the user turn through the real LLM for the provider's
+    model; return what the provider received, or the PII block raised."""
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.llm_model import LLMModel
+    from app.ai.llm.llm import LLM
+    from app.ai.llm.types import Message
+    from app.ee.audit import tool_audit
+
+    async def run():
+        async with async_session_maker() as session:
+            model = (await session.execute(
+                select(LLMModel).filter(LLMModel.provider_id == provider_id)
+            )).scalars().first()
+        llm = LLM(model, usage_session_maker=async_session_maker)
+        seen = {}
+
+        class StubClient:
+            async def inference_stream_v2(self, *, messages, system=None, **kwargs):
+                seen["system"] = system
+                seen["text"] = messages[-1].content
+                return
+                yield  # pragma: no cover
+
+        llm.client = StubClient()
+        try:
+            async for _ in llm.inference_stream_v2(
+                messages=[Message(role="user", content=text)], system="sys", should_record=False,
+            ):
+                pass
+            return seen
+        except Exception as exc:  # the PII block, returned for the assertions
+            return exc
+        finally:
+            if drain_audit:
+                await asyncio.sleep(0)
+                await tool_audit.drain_tool_audit_queue(timeout=30)
+                await tool_audit.stop_tool_audit_worker(timeout=30)
+
+    return asyncio.run(run())
+
+
+@pytest.mark.e2e
+def test_each_provider_receives_what_its_policy_says(create_user, login_user, whoami):
+    import app.ai.llm.pii.loader as loader
+    from app.ai.llm.pii.redactor import PiiPromptBlockedError
+    from app.ee import license as ee_license
+    ee_license._cached_license.features.append("audit_logs")
+
+    client, H, _ = _admin(create_user, login_user, whoami)
+    default_p = _create_custom_provider(client, H, "public api")
+    strict_p = _create_custom_provider(client, H, "strict api")
+    vpc_p = _create_custom_provider(client, H, "in-vpc model")
+    put = _put_pii(client, H, **_policies_payload(strict_provider=strict_p, exempt_provider=vpc_p))
+    assert put.status_code == 200, put.text
+    loader.invalidate()
+
+    text = "Ping jane.roe@contoso.com about EMP-1234"
+    got = _send_through(default_p, text)
+    assert "jane.roe@contoso.com" not in got["text"] and "[EMP]" in got["text"]
+
+    assert _send_through(vpc_p, text)["text"] == text
+
+    blocked = _send_through(strict_p, text, drain_audit=True)
+    assert isinstance(blocked, PiiPromptBlockedError)
+    assert blocked.policy_id == "strict" and blocked.model  # names the policy and the model
+    assert "Email address" in blocked.rule_names
+
+    logs = client.get("/api/enterprise/audit", params={"action": "pii_protection.prompt_blocked"}, headers=H)
+    assert logs.status_code == 200, logs.text
+    items = [i for i in logs.json()["items"] if i["action"] == "pii_protection.prompt_blocked"]
+    assert len(items) == 1
+    assert items[0]["details"]["policy_id"] == "strict"
+    assert "jane.roe@contoso.com" not in json.dumps(items[0])
+
+
+@pytest.mark.e2e
+def test_instructions_and_schema_reach_the_model_unredacted_but_the_prompt_does_not(create_user, login_user, whoami):
+    import app.ai.llm.pii.loader as loader
+    from app.ai.llm.pii.context import CONTEXT_END, CONTEXT_START, pii_context
+
+    client, H, _ = _admin(create_user, login_user, whoami)
+    p = _create_custom_provider(client, H, "public api")
+    assert _put_pii(client, H, **_policies_payload()).status_code == 200
+    loader.invalidate()
+
+    text = (
+        pii_context("<instructions>Escalations go to ops@corp.io</instructions>")
+        + pii_context('<schema><column name="Email" example="sample@corp.io"/></schema>')
+        + "<user_prompt>What did jane.roe@contoso.com order?</user_prompt>"
+    )
+    got = _send_through(p, text)["text"]
+    assert "Escalations go to ops@corp.io" in got
+    assert 'example="sample@corp.io"' in got
+    assert "jane.roe@contoso.com" not in got
+    assert CONTEXT_START not in got and CONTEXT_END not in got
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("state", ["disabled", "exempt", "community"])
+def test_context_markers_never_reach_a_provider(state, create_user, login_user, whoami, monkeypatch):
+    import app.ai.llm.pii.loader as loader
+    from app.ai.llm.pii.context import CONTEXT_END, CONTEXT_START, pii_context
+
+    client, H, _ = _admin(create_user, login_user, whoami)
+    p = _create_custom_provider(client, H, "public api")
+    payload = _policies_payload(exempt_provider=p if state == "exempt" else None)
+    payload["enabled"] = state != "disabled"
+    assert _put_pii(client, H, **payload).status_code == 200
+    if state == "community":
+        monkeypatch.setattr(loader, "has_feature", lambda feature: False)
+    loader.invalidate()
+
+    got = _send_through(p, pii_context("instructions") + " ask")["text"]
+    assert got == "instructions ask"
+    assert CONTEXT_START not in got and CONTEXT_END not in got
+
+
+@pytest.mark.e2e
+def test_deleting_a_policy_moves_its_providers_back_to_default(create_user, login_user, whoami):
+    client, H, _ = _admin(create_user, login_user, whoami)
+    p = _create_custom_provider(client, H, "strict api")
+    assert _put_pii(client, H, **_policies_payload(strict_provider=p)).status_code == 200
+
+    payload = _policies_payload()
+    del payload["policies"]["strict"]
+    payload["provider_policies"] = {p: "strict"}
+    # Assigning to a policy the same write deletes is refused...
+    assert _put_pii(client, H, **payload).status_code == 400
+    # ...deleting it without reassigning moves the provider back to Default.
+    del payload["provider_policies"]
+    saved = _put_pii(client, H, **payload)
+    assert saved.status_code == 200, saved.text
+    cfg = saved.json()["config"]["pii_protection"]
+    assert "strict" not in cfg["policies"]
+    assert p not in cfg["provider_policies"]
+
+
+@pytest.mark.e2e
+def test_policy_settings_round_trip_with_the_old_fields_mirrored(create_user, login_user, whoami):
+    client, H, _ = _admin(create_user, login_user, whoami)
+    p = _create_custom_provider(client, H, "in-vpc model")
+    assert _put_pii(client, H, **_policies_payload(exempt_provider=p)).status_code == 200
+    cfg = client.get("/api/organization/settings", headers=H).json()["config"]["pii_protection"]
+    assert set(cfg["policies"]) == {"default", "strict"}
+    assert cfg["policies"]["strict"]["mode"] == "block"
+    assert cfg["provider_policies"] == {p: "exempt"}
+    # Mirrors for clients that only know one rule set:
+    assert cfg["mode"] == "replace" and cfg["exempt_provider_ids"] == [p]
+    assert [r["id"] for r in cfg["custom_rules"]] == ["emp"]
+
+    # Such a client changing the default mode leaves the Strict policy intact.
+    legacy = _put_pii(client, H, mode="block")
+    assert legacy.status_code == 200, legacy.text
+    cfg = legacy.json()["config"]["pii_protection"]
+    assert cfg["policies"]["default"]["mode"] == "block"
+    assert cfg["policies"]["strict"]["name"] == "Strict"
+    assert cfg["provider_policies"] == {p: "exempt"}
+
+
+@pytest.mark.e2e
+def test_preview_runs_the_policy_being_edited(create_user, login_user, whoami):
+    client, H, _ = _admin(create_user, login_user, whoami)
+    cfg = _policies_payload()
+    body = {"text": "mail jane.roe@contoso.com", "config": cfg}
+    default = client.post("/api/organization/pii/test", json=body, headers=H)
+    assert default.status_code == 200 and default.json()["blocked"] is False
+    assert "jane.roe@contoso.com" not in default.json()["text"]
+    strict = client.post("/api/organization/pii/test", json={**body, "policy_id": "strict"}, headers=H)
+    assert strict.status_code == 200 and strict.json()["blocked"] is True
+
+
+@pytest.mark.e2e
+def test_member_cannot_change_policies(create_user, login_user, whoami):
+    client, H, org_id = _admin(create_user, login_user, whoami)
+    email = f"pii_member_{uuid.uuid4().hex[:8]}@acme.com"
+    invite = client.post(f"/api/organizations/{org_id}/members",
+                         json={"organization_id": org_id, "email": email, "role": "member"}, headers=H)
+    assert invite.status_code == 200, invite.text
+    create_user(email=email)
+    member_H = _headers(login_user(email, "test123"), org_id)
+    resp = _put_pii(client, member_H, **_policies_payload())
+    assert resp.status_code == 403, resp.text
+    cfg = client.get("/api/organization/settings", headers=H).json()["config"].get("pii_protection") or {}
+    assert set((cfg.get("policies") or {"default": {}})) == {"default"}

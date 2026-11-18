@@ -130,6 +130,21 @@ from .planner_state_v3 import PlannerStateV3
 from .prompt_builder_v3 import PromptBuilderV3
 
 
+def _pii_scoped_system(v3_input) -> str:
+    """The system prompt as sent to the LLM.
+
+    The chat system prompt is platform directives and org settings, so PII
+    rules leave it as is (app.ai.llm.pii.context). The sub-agent and knowledge
+    system prompts also carry text derived from the run (the parent's goal,
+    trigger conditions), so they stay in PII scope. Marked here, at the call,
+    so the built PlannerInputV3 itself stays marker-free."""
+    from app.ai.llm.pii.context import pii_context
+
+    if (v3_input.mode or "chat") in ("subagent", "knowledge"):
+        return v3_input.system
+    return pii_context(v3_input.system)
+
+
 def _dump_planner_input(v3_input) -> None:
     """Append the exact system / user / tools payload to BOW_PLANNER_DUMP_FILE.
 
@@ -147,13 +162,17 @@ def _dump_planner_input(v3_input) -> None:
         from datetime import datetime, timezone
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        from app.ai.llm.pii.context import strip_markers
+
         with open(path, "a") as fh:
-            fh.write(_json.dumps({
+            # PII context markers never reach a provider, so they are not part
+            # of the payload either.
+            fh.write(strip_markers(_json.dumps({
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "system": v3_input.system,
                 "messages": v3_input.messages,
                 "tools": v3_input.tools,
-            }, default=str) + "\n")
+            }, default=str, ensure_ascii=False)) + "\n")
     except Exception:
         pass
 
@@ -271,7 +290,7 @@ class PlannerV3:
             async for evt in self.llm.inference_stream_v2(
                 model_id=None,  # LLM facade resolves from self.llm.model
                 messages=messages,
-                system=v3_input.system,
+                system=_pii_scoped_system(v3_input),
                 tools=tools,
                 images=v3_input.images,
                 thinking=thinking,

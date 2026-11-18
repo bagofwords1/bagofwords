@@ -28,6 +28,7 @@ from app.ai.llm import trace as llm_trace
 from app.core.url_safety import check_admin_url
 from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
+from app.ai.llm.pii.context import strip_markers
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.ai.llm.header_injection import identity_header_resolver, static_provider_headers
@@ -109,6 +110,26 @@ def _parse_temperature(raw) -> Optional[float]:
 
 # Public Azure AI Foundry resources are always on this host suffix.
 _AZURE_FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+
+
+def _map_text_blocks(blocks: list, fn) -> list:
+    """Apply ``fn`` to every model-visible string in a list of content blocks:
+    'text' (text blocks) and 'content' (tool_result), including a tool_result
+    whose content is itself a list of blocks."""
+    out = []
+    for block in blocks:
+        if isinstance(block, dict):
+            nb = dict(block)
+            for key in ("text", "content"):
+                value = nb.get(key)
+                if isinstance(value, str):
+                    nb[key] = fn(value)
+                elif key == "content" and isinstance(value, list):
+                    nb[key] = _map_text_blocks(value, fn)
+            out.append(nb)
+        else:
+            out.append(block)
+    return out
 
 
 def _is_gemini_model_id(model_id: Optional[str]) -> bool:
@@ -721,12 +742,44 @@ class LLM:
         self._pii_loaded = True
         return self._pii_redactor
 
+    def _pii_blocked(self, err: PiiPromptBlockedError) -> PiiPromptBlockedError:
+        """Name the model on a block and audit it (best effort, never raises)."""
+        err.attach(model=self.model_id, policy_id=err.policy_id, policy_name=err.policy_name)
+        try:
+            from app.ai.llm.pii.audit import record_prompt_blocked
+
+            coro = record_prompt_blocked(
+                organization_id=getattr(self, "_organization_id", None),
+                provider_id=self._pii_provider_id(),
+                provider_type=getattr(self, "provider", None),
+                model_id=self.model_id,
+                error=err,
+            )
+            try:
+                asyncio.get_running_loop().create_task(coro)
+            except RuntimeError:
+                loop = getattr(self, "_loop", None)
+                loop = loop if (loop is not None and loop.is_running()) else _MAIN_LOOP
+                if loop is not None and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(coro, loop)
+                else:
+                    coro.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII block audit scheduling failed: %s", exc)
+        return err
+
     def _apply_pii(self, prompt: str, redactor: Optional[PiiRedactor], span) -> str:
         """Apply redaction to a prompt. Raises PiiPromptBlockedError in block
-        mode. Records a non-sensitive summary on the span."""
+        mode. Records a non-sensitive summary on the span.
+
+        Context markers (app.ai.llm.pii.context) are always stripped, whether
+        or not a policy applies: they never reach a provider."""
         if redactor is None or not redactor.active:
-            return prompt
-        redacted, result = redactor.apply(prompt)
+            return strip_markers(prompt)
+        try:
+            redacted, result = redactor.apply(prompt)
+        except PiiPromptBlockedError as err:
+            raise self._pii_blocked(err)
         if result.redacted:
             try:
                 span.set_attribute("llm.pii_redacted", True)
@@ -744,9 +797,11 @@ class LLM:
     def _apply_pii_v2(self, system, messages, redactor: Optional[PiiRedactor], span):
         """Redact the system prompt and every text-bearing block across the
         conversation for the native tool-use path. Returns (system, messages).
-        Raises PiiPromptBlockedError in block mode if anything matched."""
+        Raises PiiPromptBlockedError in block mode if anything matched.
+
+        Context markers are always stripped, whether or not a policy applies."""
         if redactor is None or not redactor.active:
-            return system, messages
+            return strip_markers(system), self._strip_message_markers(messages)
 
         all_matches: list = []
 
@@ -766,18 +821,7 @@ class LLM:
             if isinstance(content, str):
                 new_content = _redact_str(content)
             elif isinstance(content, list):
-                new_content = []
-                for block in content:
-                    if isinstance(block, dict):
-                        nb = dict(block)
-                        # Redact the two string fields that carry model-visible
-                        # text: 'text' (text blocks) and 'content' (tool_result).
-                        for key in ("text", "content"):
-                            if isinstance(nb.get(key), str):
-                                nb[key] = _redact_str(nb[key])
-                        new_content.append(nb)
-                    else:
-                        new_content.append(block)
+                new_content = _map_text_blocks(content, _redact_str)
             else:
                 new_messages.append(message)
                 continue
@@ -805,9 +849,26 @@ class LLM:
             )
             # Block wins: if any block-action rule matched anywhere, refuse.
             if blocked:
-                raise PiiPromptBlockedError(blocked)
+                raise self._pii_blocked(PiiPromptBlockedError(
+                    blocked, policy_id=redactor.policy_id, policy_name=redactor.policy_name
+                ))
 
         return new_system, new_messages
+
+    @staticmethod
+    def _strip_message_markers(messages):
+        """Messages with context markers removed from every text-bearing block
+        (no redaction policy applies to this call)."""
+        out = []
+        for message in messages or []:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                out.append(Message(role=message.role, content=strip_markers(content)))
+            elif isinstance(content, list):
+                out.append(Message(role=message.role, content=_map_text_blocks(content, strip_markers)))
+            else:
+                out.append(message)
+        return out
 
     def _effective_thinking(self, thinking: Optional[dict] = None) -> Optional[dict]:
         # Small-default is an execution policy, not merely a model selection.
@@ -1428,6 +1489,8 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_image_generation_support()
+            # The image prompt leaves for the provider like any other prompt.
+            prompt = self._apply_pii(prompt, await self._aget_pii_redactor(), span)
             try:
                 result = await self.client.generate_image(
                     model_id=self.model_id,

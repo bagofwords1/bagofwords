@@ -1,7 +1,14 @@
 # PII policies — per-provider policies, Presidio detection, restore in the UI
 
-Status: agreed design, 2026-11-18. Builds on BOW-152 (provider exemptions,
-shipped on `claude/stoic-meitner-fq7v0t`). Enterprise only (`pii_protection`).
+Status: agreed design, 2026-11-18. Phase 1 built on
+`claude/stoic-meitner-fq7v0t` (loop: `docs/feedback-loops/pii-policies.md`).
+Builds on BOW-152 (provider exemptions). Enterprise only (`pii_protection`).
+
+**Scope of every rule (agreed 2026-11-18):** PII rules apply to the user's
+prompt and the data the agent reads (query results, data rows, uploaded file
+text, the conversation). Instructions, schemas and other agent context reach
+the model as written, unless a policy turns on `redact_context`. This applies
+to regex rules as well as Presidio.
 
 ## Why
 
@@ -17,7 +24,7 @@ mix trusted models (self-hosted, in-VPC) with public APIs. They need:
 | Concept | What it is |
 |---|---|
 | **Rule** | One detector. Comes from one of three sources: **built-in** (regex in code), **custom** (regex the org defines), or **Presidio** (an entity such as `PERSON`, from Presidio's catalog). One shared list per org. |
-| **Policy** | A named set of options for every rule: enabled, action, replacement, minimum score. It also has a default action, a scope, and what to do if a detector fails. **Default** always exists. **Exempt** is built in and has no rules. |
+| **Policy** | A named set of options for every rule: enabled, action, replacement (phase 2: minimum score). It also has a default action, `redact_context` (also redact instructions and schemas; off by default), and (phase 2) what to do if a detector fails. **Default** always exists. **Exempt** is built in and has no rules. |
 | **Assignment** | Provider → policy. A provider with no assignment uses Default. |
 | **Action** | `replace` (fixed token), `mask` (`****1234`), `block` (refuse the call), `pseudonymize` (numbered token, restored afterwards). Stored as a string so more can be added. |
 | **Display policy** | The policy that masks what people see when values are not restored. Default. |
@@ -84,8 +91,12 @@ working.
 ```
 LLM call ─► policy = provider_policies[provider of this call] or Default
             (a fallback model is its own LLM instance → its own provider decides)
-        ─► split the prompt into segments: system/schema | user message | tool results / data rows
-        ─► detectors: regex on every segment; Presidio only on segments in policy.scope
+        ─► split the prompt into context (marked with pii_context at prompt assembly:
+           instructions, schemas, roster, skills, resources, saved-query definitions,
+           the chat system prompt) and everything else (prompt + data); unmarked text
+           is in scope, so a new prompt path fails closed
+        ─► detectors run on the prompt + data only (and on context too with redact_context);
+           markers are stripped from every outbound request, PII on or off
         ─► collect all matches by position; resolve overlaps:
            block wins, then the longest match, then the highest score
         ─► apply actions once: block → PiiPromptBlockedError | replace | mask | pseudonymize
@@ -109,7 +120,8 @@ The chokepoint in `backend/app/ai/llm/llm.py` keeps its shape:
 | `rules.py` | The rule list: built-in catalog + the org's custom rules + Presidio entities (when installed) |
 | `policy.py` | Policy schema; conversion from today's format; provider → policy lookup; compiled policy cache per (org, policy), cleared on save |
 | `detectors/` | `Detector.detect(text) -> list[Match(start, end, rule_id, score)]`. Implementations: `regex` (phase 1), `presidio_inproc` (phase 2), `presidio_http` (phase 4) |
-| `engine.py` | Collects matches by position, resolves overlaps, applies actions. Replaces today's rule-by-rule `re.sub` |
+| `context.py` | Phase 1. `pii_context()` marks context regions at prompt assembly; `split_segments` / `strip_markers` (fail-closed) |
+| `engine.py` | Phase 2. Collects matches by position, resolves overlaps, applies actions. Replaces today's rule-by-rule `re.sub` (kept in phase 1 so existing orgs get identical output) |
 | `vault.py` | Phase 3. Token ↔ value map per report: encrypted with the existing key, deleted with the report, never sent to a model |
 | `restore.py` | Phase 3. Restores tokens in streamed text (holds back a partial token at a chunk edge), tool arguments and titles |
 
@@ -162,14 +174,15 @@ blocking policy and a Presidio failure under `on_detector_error: block`.
 
 ## Phases
 
-### Phase 1 — named policies + position-based engine
+### Phase 1 — named policies, prompt + data scope (built)
 
 Scope:
 
 - `policy.py` and the conversion from today's format.
-- `engine.py`: collect matches by position, resolve overlaps, apply once.
-  Output must be identical to today's for every existing rule.
-- `detectors/regex.py`.
+- Context markers (`context.py`) at every prompt-assembly site, so only the
+  prompt and the data are redacted; `redact_context` per policy.
+- (Moved to phase 2: the position-based engine and the `detectors/` interface.
+  Phase 1 keeps the existing matching, so existing orgs get identical output.)
 - Provider → policy lookup at the chokepoint.
 - Saving and validation.
 - The `pii_blocked` typed error.
@@ -194,6 +207,8 @@ Tests:
 
 Scope:
 
+- `engine.py` (position-based matching, moved from phase 1) and the
+  `detectors/` interface with `detectors/regex.py`.
 - Optional `pii` extra (`presidio-analyzer` + one model).
 - `detectors/presidio_inproc.py`: lazy load, run in a thread pool.
 - Presidio entities added to the rule list.

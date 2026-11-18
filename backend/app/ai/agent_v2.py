@@ -6750,6 +6750,13 @@ class AgentV2:
                                     except Exception:
                                         pass
 
+                                # A PII block is a deterministic refusal by the org's
+                                # policy: the same prompt would be refused again, and
+                                # it is never fallback-eligible (another provider must
+                                # not receive what this one's policy refused). End
+                                # the turn now with the PII error.
+                                if llm_err_payload and llm_err_payload.get("code") == "pii_blocked":
+                                    invalid_retry_count = max_invalid_retries
                                 if invalid_retry_count >= max_invalid_retries:
                                     # Too many retries, treat as final error.
                                     # Also flip completion to error status with a
@@ -8406,7 +8413,8 @@ class AgentV2:
                             await self._handle_context_overflow(_loop_err_payload.get("provider_message"))
                         except Exception:
                             logger.warning("[agent] context overflow handling failed", exc_info=True)
-                    if loop_error_retry_count < max_loop_retries:
+                    # A PII block would be refused again: never retried.
+                    if loop_error_retry_count < max_loop_retries and _loop_err_payload.get("code") != "pii_blocked":
                         loop_error_retry_count += 1
                         try:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)
