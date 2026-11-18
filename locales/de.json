@@ -5262,6 +5262,7 @@
       "toastCreated": "Testfall erstellt",
       "toastDeleteFailed": "Testfall konnte nicht gelöscht werden",
       "saveFailed": "Testfall konnte nicht gespeichert werden",
+      "runFailed": "Testfall gespeichert, aber der Lauf konnte nicht gestartet werden",
       "emptyDescription": "Tests bewerten, wie deine Agenten auf Prompts und Regeln reagieren."
     },
     "filter": {

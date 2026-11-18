@@ -5927,7 +5927,8 @@
       "toastCreated": "Caso de prueba creado",
       "toastDeleteFailed": "No se pudo eliminar el caso de prueba",
       "emptyDescription": "Las pruebas evalúan cómo responden tus agentes a los prompts y las reglas.",
-      "saveFailed": "No se pudo guardar el caso de prueba"
+      "saveFailed": "No se pudo guardar el caso de prueba",
+      "runFailed": "El caso de prueba se guardó, pero la ejecución no pudo iniciarse"
     },
     "filter": {
       "allSuites": "Todas las suites",

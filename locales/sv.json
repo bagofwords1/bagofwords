@@ -5262,6 +5262,7 @@
       "toastCreated": "Testfallet skapades",
       "toastDeleteFailed": "Det gick inte att radera testfallet",
       "saveFailed": "Det gick inte att spara testfallet",
+      "runFailed": "Testfallet sparades, men körningen kunde inte starta",
       "emptyDescription": "Testerna utvärderar hur dina agenter svarar på prompter och regler."
     },
     "filter": {

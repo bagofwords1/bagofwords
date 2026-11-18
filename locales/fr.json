@@ -5262,6 +5262,7 @@
       "toastCreated": "Cas de test créé",
       "toastDeleteFailed": "Échec de la suppression du cas de test",
       "saveFailed": "Impossible d'enregistrer le cas de test",
+      "runFailed": "Cas de test enregistré, mais l'exécution n'a pas pu démarrer",
       "emptyDescription": "Les tests évaluent la façon dont vos agents répondent aux prompts et aux règles."
     },
     "filter": {
