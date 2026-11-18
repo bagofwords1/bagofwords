@@ -17,6 +17,7 @@ it with ``asyncio.to_thread``.
 """
 
 import logging
+import posixpath
 import re
 import shlex
 from typing import Any, Callable, Iterable, Optional
@@ -31,35 +32,40 @@ logger = logging.getLogger(__name__)
 # ── shell ───────────────────────────────────────────────────────────────────
 
 # Protected roots. A target is compared after trailing "/" and "/*" are
-# stripped, so "/etc/", "/home/*" and "~/*" all count; "*" alone too.
-_RM_ROOTS = {"/", "~", "$HOME", "${HOME}", ".", "..", "*",
-             "/home", "/root", "/etc", "/usr", "/var", "/boot", "/bin", "/lib", "/opt", "/srv"}
-_POWER_PROGRAMS = {"shutdown", "reboot", "halt", "poweroff"}
-_WRAPPERS = {"sudo", "doas", "command", "exec", "nohup", "env", "nice", "time", "timeout", "ionice", "stdbuf", "xargs"}
-# Wrapper options that take a value, so the value is not read as the program.
-_WRAPPER_VALUE_OPTS = {
-    "sudo": {"-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U", "-T",
-             "--user", "--group", "--close-from", "--chdir", "--host", "--prompt", "--role", "--type",
-             "--other-user", "--command-timeout"},
-    "doas": {"-u", "-C"},
-    "nice": {"-n"},
-    "ionice": {"-c", "-n", "-p"},
-    "timeout": {"-s", "-k", "--signal", "--kill-after"},
-    "env": {"-u", "-C", "--unset", "--chdir"},
-    "xargs": {"-n", "-P", "-I", "-L", "-d", "-s", "-E"},
-}
+# stripped and the path is normalized (see _protected_target), so "/etc/",
+# "/home/*", "~/*", "/etc/." and "/tmp/../etc" all count; "*" alone too.
+_RM_ROOTS = {"/", "~", ".", "..", "*",
+             "/home", "/root", "/etc", "/usr", "/var", "/boot", "/bin", "/sbin", "/lib", "/lib64", "/opt", "/srv"}
+# The home directory, as _protected_target spells it after expanding ~ and
+# $HOME: under /home, so "~/.." normalizes to /home and "~/../.." to /.
+_HOME = "/home/~"
 
+# Disk devices: a whole disk or one of its partitions.
+_DISK = r"/dev/(sd|hd|nvme|xvd|vd|disk|mmcblk)\w*"
 _SHELL_PATTERNS = [
     re.compile(r"\bmkfs(\.\w+)?\b"),
     re.compile(r"\bdd\b[^|;&]*\bof=/dev/(?!null\b|zero\b|stdout\b|stderr\b)"),
-    re.compile(r">\s*/dev/(sd|hd|nvme|xvd|vd|disk)\w*"),
+    re.compile(r">\s*" + _DISK),
+    # Disk tools, tee and truncate on a disk device, wherever it sits in their
+    # arguments; cp onto one (its last argument).
+    re.compile(r"\b(wipefs|blkdiscard|shred|sgdisk|sfdisk|parted|fdisk|tee|truncate)\b[^|;&\n]*\s['\"]?" + _DISK),
+    re.compile(r"\bcp\b[^|;&\n]*\s['\"]?" + _DISK + r"['\"]?\s*([|;&\n)]|$)"),
     re.compile(r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:"),          # :(){ :|:& };:
-    re.compile(r"\bsystemctl\s+(\S+\s+)*(reboot|poweroff|halt|kexec)\b"),
     re.compile(r"\bformat-volume\b", re.IGNORECASE),
     re.compile(r"\bclear-disk\b", re.IGNORECASE),
-    re.compile(r"^\s*format(\.com)?\s+[a-z]:", re.IGNORECASE),
+    # format c: anywhere (cmd /c format c:), not an option's value (-Format H:mm).
+    re.compile(r"(?<![\w-])format(\.com)?\s+[a-z]:", re.IGNORECASE),
     re.compile(r"\bremove-item\b(?=.*-recurse)(?=.*-force)[^|;]*\s['\"]?[a-z]:\\?['\"]?(\s|$)", re.IGNORECASE),
     re.compile(r"\b(rd|rmdir)\s+/s\s+/q\s+[a-z]:\\?(\s|$)", re.IGNORECASE),
+]
+# Shutting down or restarting: the words anywhere in a command, like mkfs, so
+# no program in front of them (ssh host, echo … | sh, docker exec, watch) hides
+# them. A command that only mentions one is refused too (accepted false
+# refusals, named in the PR: systemctl status reboot.target, grep -r reboot).
+_POWER_PATTERNS = [
+    re.compile(r"(?<![\w-])(shutdown|reboot|halt|poweroff)(?![\w-])", re.IGNORECASE),
+    re.compile(r"(?<![\w-])(tel)?init\s+[06](?!\w)"),
+    re.compile(r"\bsystemctl\s+(\S+\s+)*kexec\b"),
     re.compile(r"\bstop-computer\b|\brestart-computer\b", re.IGNORECASE),
 ]
 
@@ -133,31 +139,6 @@ def _nested_bodies(toks: list) -> list:
     return bodies
 
 
-def _program(tokens: list) -> tuple:
-    """(program basename, remaining tokens) after wrappers such as
-    ``sudo -u root``, ``timeout 10``, ``nice -n 5`` or ``env X=1``."""
-    i = 0
-    while i < len(tokens):
-        base = tokens[i].rsplit("/", 1)[-1]
-        if base not in _WRAPPERS:
-            return base, tokens[i + 1:]
-        i += 1
-        value_opts = _WRAPPER_VALUE_OPTS.get(base, set())
-        while i < len(tokens):
-            t = tokens[i]
-            if t in value_opts:
-                i += 2
-            elif t.startswith("-"):  # also --user=root style
-                i += 1
-            elif base == "env" and "=" in t:
-                i += 1
-            elif base == "timeout" and re.fullmatch(r"\d+(\.\d+)?[smhd]?", t):
-                i += 1
-            else:
-                break
-    return "", []
-
-
 def _is_recursive_force_rm(args: list) -> bool:
     flags, targets = set(), []
     for t in args:
@@ -177,10 +158,51 @@ def _is_recursive_force_rm(args: list) -> bool:
 
 
 def _protected_target(target: str) -> bool:
+    """Whether a path names a protected root: after "/*" and "/" endings are
+    stripped, ~ and $HOME expanded and the path normalized, it is one of
+    _RM_ROOTS or the home directory, or only ".." parts (../.., ./..)."""
     t = target
     while t.endswith("/*") or (t.endswith("/") and t != "/"):
         t = t[:-2] if t.endswith("/*") else t[:-1]
-    return (t or "/") in _RM_ROOTS
+    if not t:
+        return True
+    for home in ("${HOME}", "$HOME", "~"):
+        if t == home or t.startswith(home + "/"):
+            t = _HOME + t[len(home):]
+            break
+    t = posixpath.normpath(t)
+    t = re.sub(r"^/+", "/", t)  # normpath keeps a leading "//"
+    return t in _RM_ROOTS or t == _HOME or all(part == ".." for part in t.split("/"))
+
+
+def _is_recursive_tree_change(args: list) -> bool:
+    """chmod / chown / chgrp -R on a protected root."""
+    recursive, targets = False, []
+    for t in args:
+        if t == "--recursive" or (t.startswith("-") and not t.startswith("--") and "R" in t[1:]):
+            recursive = True
+        elif not t.startswith("-"):
+            targets.append(t)
+    return recursive and any(_protected_target(t) for t in targets)
+
+
+def _is_find_delete(args: list) -> bool:
+    """find <protected root> … -delete, or … -exec rm …. The working
+    directory alone is not a root here: ``find . -name x -delete`` deletes
+    only what it matches."""
+    roots = []
+    for t in args:
+        if t.startswith("-") or t in ("(", "!"):
+            break
+        roots.append(t)
+    if not any(_protected_target(t) and t not in (".", "./") for t in roots):
+        return False
+    rest = args[len(roots):]
+    if "-delete" in rest:
+        return True
+    return any(t in ("-exec", "-execdir", "-ok", "-okdir") and i + 1 < len(rest)
+               and rest[i + 1].rsplit("/", 1)[-1] in ("rm", "shred", "unlink")
+               for i, t in enumerate(rest))
 
 
 # Database command-line clients and the options that carry SQL to run.
@@ -209,12 +231,27 @@ def _db_client_sql(tokens: list) -> tuple:
             continue
         seen = True
         opts = _DB_CLIENT_SQL_OPTS[base]
+        letters = [o[1] for o in opts if len(o) == 2 and o[0] == "-"]
         for j in range(i + 1, len(tokens)):
             a = tokens[j]
             if a in opts and j + 1 < len(tokens):
                 sql.append(tokens[j + 1])
             elif "=" in a and a.split("=", 1)[0] in opts:
                 sql.append(a.split("=", 1)[1])
+            elif len(a) > 2 and a[0] == "-" and a[1] != "-":
+                # A short-option cluster: the rest of the token after an SQL
+                # option's letter is its SQL (-c"DROP …", -Xc"DROP …"); with
+                # nothing after it, the next token is (-Xc "DROP …"). Over-
+                # reading another option's value only adds text to check.
+                for letter in letters:
+                    k = a.find(letter, 1)
+                    if k < 0:
+                        continue
+                    rest = a[k + 1:].lstrip("=")
+                    if rest:
+                        sql.append(rest)
+                    elif j + 1 < len(tokens):
+                        sql.append(tokens[j + 1])
     return sql, seen
 
 
@@ -233,13 +270,18 @@ def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
     client_anywhere = any(_db_client_sql(_tokens(seg))[1] for seg in segments)
     for seg in segments:
         tokens = _tokens(seg)
-        prog, args = _program(tokens)
-        # rm anywhere in the segment, so no wrapper spelling can hide it.
+        # rm, find, chmod/chown/chgrp anywhere in the segment, so no wrapper
+        # spelling can hide them.
         for i, tok in enumerate(tokens):
-            if tok.rsplit("/", 1)[-1] == "rm" and _is_recursive_force_rm(tokens[i + 1:]):
+            name = tok.rsplit("/", 1)[-1]
+            if name == "rm" and _is_recursive_force_rm(tokens[i + 1:]):
                 return "recursive forced delete of a root, home or wildcard path"
-        if prog in _POWER_PROGRAMS or (prog in ("init", "telinit") and args[:1] in (["0"], ["6"])):
-            return "shuts down or restarts the server"
+            if (name == "find" and _is_find_delete(tokens[i + 1:])) or (
+                    name in ("chmod", "chown", "chgrp") and _is_recursive_tree_change(tokens[i + 1:])):
+                return "destructive system command"
+        for pat in _POWER_PATTERNS:
+            if pat.search(seg):
+                return "shuts down or restarts the server"
         for pat in _SHELL_PATTERNS:
             if pat.search(seg):
                 return "destructive system command"

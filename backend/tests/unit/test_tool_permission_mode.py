@@ -1,20 +1,53 @@
 """Pure rules behind the run permission mode and the built-in blocklist."""
 import re
-import time
+from types import SimpleNamespace
 
 import pytest
 import sqlglot
 
+from app.services import tool_blocklist
 from app.services import tool_permission_mode as pm
-from app.services.tool_blocklist import block_reason, shell_block_reason, sql_block_reason
+from app.services.tool_blocklist import (
+    REASON_DELETE as DELETE,
+    REASON_DROP as DROP,
+    REASON_TRUNCATE as TRUNCATE,
+    REASON_UNREADABLE as UNREADABLE,
+    block_reason,
+    shell_block_reason,
+    sql_block_reason,
+)
 
-# The refusal reasons, spelled out so a changed string fails here.
-DROP = "drops a database, schema or table"
-TRUNCATE = "truncates a table"
-DELETE = "deletes every row of a table (no WHERE)"
-UNREADABLE = "could not read SQL safely"
 # sqlglot's default dialect plus the four the blocklist reads with.
 FIVE_DIALECTS = ("", "tsql", "postgres", "mysql", "snowflake")
+
+
+@pytest.fixture
+def sql_reads(monkeypatch):
+    """Counts the work a check hands to sqlglot: the calls and bytes given to
+    its tokenizer and to the SQL guard's parser. Both spies delegate, so the
+    check behaves as without them. Work counts replace wall-clock bounds
+    (tests/AGENTS.md: no timing asserts)."""
+    reads = SimpleNamespace(tokenize_calls=0, tokenize_bytes=0, parse_calls=0, parse_bytes=0)
+    real_tokenize, real_parse = sqlglot.tokenize, tool_blocklist.parse_guard_sql
+
+    def tokenize(sql, *args, **kwargs):
+        reads.tokenize_calls += 1
+        reads.tokenize_bytes += len(sql.encode("utf-8", "surrogatepass"))
+        return real_tokenize(sql, *args, **kwargs)
+
+    def parse(sql, *args, **kwargs):
+        reads.parse_calls += 1
+        reads.parse_bytes += len(sql.encode("utf-8", "surrogatepass"))
+        return real_parse(sql, *args, **kwargs)
+
+    monkeypatch.setattr(tool_blocklist.sqlglot, "tokenize", tokenize)
+    monkeypatch.setattr(tool_blocklist, "parse_guard_sql", parse)
+    return reads
+
+
+# A check reads its text a bounded number of times in each of the five
+# dialects: the text itself, and at most one blanked copy (MySQL /*! bodies).
+_READS_PER_DIALECT = 2
 
 
 def _every_tokenizer_raises(text):
@@ -56,15 +89,72 @@ def test_destructive_shell_commands_are_blocked(command):
 
 @pytest.mark.parametrize("command", [
     "ls -la", "rm -rf ./build", "rm -rf /tmp/run-123", "rm old.log", "cat /etc/hostname",
-    "echo shutdown", "grep -r reboot /var/log", "df -h", "dd if=a.img of=b.img",
+    "df -h", "dd if=a.img of=b.img",
     "dd if=/dev/sda of=/dev/null bs=1M count=1", "Get-Date -Format H:mm", "systemctl status nginx",
-    "sudo -u postgres psql -c 'select 1'", "timeout 10 ls /", "rm -rf /tmp/build/", "env X=1 echo reboot",
+    "sudo -u postgres psql -c 'select 1'", "timeout 10 ls /", "rm -rf /tmp/build/",
     "rm -rf ./build/*", "rm -rf /var/tmp/cache/*", "su - postgres -c 'psql -l'", "bash -lc 'ls /home'",
     "psql -c \"select count(*) from orders\"", "grep -r 'drop table' /var/log/app.log",
     "psql -c \"DELETE FROM orders WHERE id = 3\"",
+    # Near misses of the rules below.
+    "rm -rf ../build", "psql -c\"select 1\"", "shred secret.txt", "cp a b", "chmod -R 755 ./build",
+    "find . -name x -delete", "git log --format c:%H", "systemctl status nginx --no-pager",
 ])
 def test_ordinary_shell_commands_are_not_blocked(command):
     assert shell_block_reason(command) is None
+
+
+@pytest.mark.parametrize("command", [
+    # SQL attached to a short option, alone or after other options in a cluster.
+    'psql -c"drop table x"', 'mysql -e"DROP DATABASE x"', 'sqlcmd -Q"DROP DATABASE x"',
+    'psql -X -c"drop table x"', 'psql -U u -c"drop table x"', 'psql -Xc"drop table x"',
+    'duckdb -c"drop table x"', 'clickhouse-client -q"DROP DATABASE x"', 'snowsql -q"drop database x"',
+])
+def test_sql_attached_to_a_db_client_option_is_refused(command):
+    assert shell_block_reason(command) == DROP
+
+
+@pytest.mark.parametrize("target", [
+    "/etc/.", "/bin/..", "~/.", "/home/user/..", "/./", "../..", "//etc", "/usr/./", "./..",
+    "/tmp/x/../../etc", "$HOME/.", "/sbin", "/lib64/", "~/../..",
+])
+def test_a_dotted_path_to_a_protected_root_is_refused(target):
+    assert shell_block_reason(f"rm -rf {target}") == "recursive forced delete of a root, home or wildcard path"
+
+
+@pytest.mark.parametrize("command", [
+    # Block devices written by disk tools, copies and tee.
+    "wipefs -a /dev/sda", "blkdiscard /dev/nvme0n1", "shred -n1 /dev/sdb", "sgdisk --zap-all /dev/sda",
+    "sfdisk /dev/vda < layout", "parted -s /dev/xvda mklabel gpt", "fdisk /dev/mmcblk0",
+    "cp zero.img /dev/sda", "cat x | tee /dev/sdb", "truncate -s 0 /dev/sdc", "dd if=x of=/dev/mmcblk0p1",
+    # Deletes and ownership changes on a protected root.
+    "find / -name '*.log' -delete", "find /etc -type f -exec rm -f {} +", "find ~ -delete",
+    "chmod -R 777 /", "chown -R nobody /etc", "sudo chmod --recursive 000 /usr/.", "chgrp -R x /home",
+    # A format behind cmd /c.
+    "cmd /c format c:", "cmd.exe /c \"format d: /q\"",
+])
+def test_disk_wipes_and_root_changes_are_refused(command):
+    assert shell_block_reason(command) == "destructive system command"
+
+
+@pytest.mark.parametrize("command", [
+    # Shutdown words anywhere in the command, behind any program.
+    "ssh host shutdown -h now", "echo shutdown | sh", "ssh host 'sudo reboot'", "halt", "poweroff",
+    "docker exec box /sbin/init 0", "systemctl poweroff", "Stop-Computer -Force", "Restart-Computer",
+    "SHUTDOWN /s /t 0", "watch -n 60 reboot",
+])
+def test_shutdown_words_are_refused_behind_any_program(command):
+    assert shell_block_reason(command) == "shuts down or restarts the server"
+
+
+@pytest.mark.parametrize("command", [
+    # Accepted false refusals (named in the PR): the shutdown and mkfs words
+    # are matched as text anywhere in a command, like the other destructive
+    # commands, so a command that only mentions one is refused too.
+    "systemctl status reboot.target", "grep mkfs /etc/fstab", "man mkfs", "echo shutdown",
+    "grep -r reboot /var/log", "env X=1 echo reboot", "fdisk -l /dev/sda",
+])
+def test_accepted_false_refusals_of_shell_text(command):
+    assert shell_block_reason(command)
 
 
 @pytest.mark.parametrize("sql", [
@@ -505,53 +595,20 @@ def test_accepted_false_refusals_beside_a_db_client(command):
     assert shell_block_reason(command)
 
 
-def test_nested_deletes_are_checked_in_linear_time():
-    # Accepted exception to tests/AGENTS.md rule 8: this reads the clock, but it
-    # asserts only a ratio of ratios taken in one process with a lenient bound.
-    # The baseline is the same five-dialect tokenizing the check itself does.
-    def text(k):
-        return "DELETE FROM t USING (" * k + "SELECT 1" + ") s WHERE 1" * k
+def _assert_reads_text_a_bounded_number_of_times(reads, text):
+    size = len(text.encode())
+    assert reads.tokenize_bytes <= _READS_PER_DIALECT * len(FIVE_DIALECTS) * size, (reads, size)
+    assert reads.parse_bytes <= _READS_PER_DIALECT * len(FIVE_DIALECTS) * size, (reads, size)
 
-    small, large = text(7000), text(28000)
-    assert (len(small.encode()), len(large.encode())) == (224_008, 896_008)
 
-    def baseline(t):
-        start = time.perf_counter()
-        for d in FIVE_DIALECTS:
-            sqlglot.tokenize(t, read=d)
-        return time.perf_counter() - start
-
-    def check(t):
-        start = time.perf_counter()
-        assert sql_block_reason(t, sql_context="sql") is None
-        return time.perf_counter() - start
-
-    base_small = baseline(small)
-    check_small = check(small)
-    base_large = baseline(large)
-    check_large = check(large)
-    assert check_large / check_small <= 2 * (base_large / base_small)
+@pytest.mark.parametrize("k", [7000, 28000])
+def test_nested_deletes_are_read_a_bounded_number_of_times(sql_reads, k):
+    text = "DELETE FROM t USING (" * k + "SELECT 1" + ") s WHERE 1" * k
+    assert sql_block_reason(text, sql_context="sql") is None
+    _assert_reads_text_a_bounded_number_of_times(sql_reads, text)
 
 
 # ── blocklist: EXEC rechecks, analysis caps and dynamic SQL ────────────────
-
-def _read_once(text):
-    """Seconds to read ``text`` once in each of the five dialects, as the
-    check itself does: tokenize, and parse up to the 200 KB parse limit. The
-    least work any check of the text does."""
-    from app.ai.code_execution.sql_parser import parse_guard_sql
-
-    parse = len(text.encode()) <= 200 * 1024
-    start = time.perf_counter()
-    for d in FIVE_DIALECTS:
-        sqlglot.tokenize(text, read=d)
-        if parse:
-            try:
-                parse_guard_sql(text, d)
-            except Exception:
-                pass
-    return time.perf_counter() - start
-
 
 def _many_literals(k):
     return "EXEC p " + ",".join("'drop%d'" % i for i in range(k))
@@ -561,47 +618,32 @@ def _many_literals(k):
     # 20,000 literals to recheck, past the 64 rechecks of one call: refused
     # before any of them is read.
     pytest.param(_many_literals(20_000), UNREADABLE, id="many-literals"),  # 228,896 bytes
+    pytest.param(_many_literals(4_000), UNREADABLE, id="4000-literals"),
     pytest.param("".join("EXEC p%d; " % i for i in range(2_000)), None, id="2000-exec-statements"),
     pytest.param("".join("EXEC p%d; " % i for i in range(8_000)), None, id="8000-exec-statements"),
 ])
-def test_many_exec_literals_cost_about_one_read_of_the_text(text, expect):
-    # Accepted exception to tests/AGENTS.md rule 8: this reads the clock, but it
-    # compares two timings taken in one process with a lenient bound. Each
-    # literal is rechecked alone (about 1.2 ms each), at most 64 per call, so
-    # the check costs about one read of the text whatever it holds.
-    base = _read_once(text)
-    start = time.perf_counter()
+def test_many_exec_literals_cost_about_one_read_of_the_text(sql_reads, text, expect):
+    # Each literal is rechecked alone, at most 64 per call, so the check reads
+    # about the text itself whatever it holds: no literal read past the
+    # bound, and no read of the whole text per literal.
     assert block_reason(tool_name="search_docs", arguments={"query": text}) == expect
-    assert time.perf_counter() - start <= 4 * base
+    _assert_reads_text_a_bounded_number_of_times(sql_reads, text)
+    # The text itself, plus at most 64 rechecks, in each dialect and copy.
+    assert sql_reads.tokenize_calls <= _READS_PER_DIALECT * len(FIVE_DIALECTS) * (1 + 64)
 
 
-def test_many_distinct_exec_literals_are_checked_in_linear_time():
-    # Same accepted exception as above: a ratio of ratios in one process.
-    small, large = _many_literals(4_000), _many_literals(16_000)
-    base_small, base_large = _read_once(small), _read_once(large)
-
-    def check(t):
-        start = time.perf_counter()
-        assert sql_block_reason(t) == UNREADABLE  # past the 64 rechecks of one call
-        return time.perf_counter() - start
-
-    check_small, check_large = check(small), check(large)
-    assert check_large / check_small <= 2 * (base_large / base_small)
-
-
-def test_literals_to_recheck_past_the_byte_allowance_are_refused_at_once():
-    # Same accepted exception as above (a timing ratio in one process). Five
-    # 197 KB literals to run, each holding a gate word (985,023 bytes in all):
-    # the rechecks of one call may read at most 1 MB, and these five plus their
-    # concatenation are about 2 MB, so the call is refused before any is read.
-    # Accepted false refusal (a cost bound, like D8).
+def test_literals_to_recheck_past_the_byte_allowance_are_refused_at_once(sql_reads):
+    # Five 197 KB literals to run, each holding a gate word (985,023 bytes in
+    # all): the rechecks of one call may read at most 1 MB, and these five plus
+    # their concatenation are about 2 MB, so the call is refused before any is
+    # read. Accepted false refusal (a cost bound, like D8).
     text = "sp_x " + ", ".join(
         "'" + "".join(f"select 1 as deleted{k}_{i}; " for i in range(12000))[:197_000] + "'" for k in range(5))
     assert len(text.encode()) == 985_023
-    base = _read_once(text)
-    start = time.perf_counter()
     assert block_reason(tool_name="mssql_query", arguments={"query": text}) == UNREADABLE
-    assert time.perf_counter() - start <= 2 * base
+    # Only the text itself was read: no literal was.
+    assert sql_reads.tokenize_bytes <= _READS_PER_DIALECT * len(FIVE_DIALECTS) * len(text.encode())
+    assert sql_reads.tokenize_calls <= _READS_PER_DIALECT * len(FIVE_DIALECTS)
     # Below the allowance the literals are read: one 197 KB literal passes.
     one = "sp_x '" + "".join(f"select 1 as deleted_{i}; " for i in range(12000))[:197_000] + "'"
     assert block_reason(tool_name="mssql_query", arguments={"query": one}) is None
@@ -1108,16 +1150,16 @@ def test_a_schema_nested_past_the_read_depth_reads_every_argument_as_sql():
                         input_schema=_deep_schema(20)) is None
 
 
-def test_a_long_schema_description_is_read_in_bounded_time():
-    # Accepted exception to tests/AGENTS.md rule 8 (reads the clock, lenient
-    # bound): the description regex was quadratic on MCP server text, about
-    # 11 s for 160 KB, holding the GIL.
-    for filler in ("statement " * 16_000, "run " * 40_000, "execute statements " * 8_000):
-        schema = {"type": "object", "properties": {"text": {"type": "string", "description": filler,
-                                                           "title": filler}}}
-        start = time.perf_counter()
-        block_reason(tool_name="lookup", arguments={"text": "select 1"}, input_schema=schema)
-        assert time.perf_counter() - start < 1.0, filler[:20]
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("filler", ["statement " * 64_000, "run " * 160_000, "execute statements " * 32_000])
+def test_a_long_schema_description_is_read_in_linear_time(filler):
+    # A hang guard, not a timing assert: the description regex was quadratic
+    # on MCP server text, about 11 s for 160 KB, so these 600+ KB texts would
+    # take minutes; a linear read takes well under a second.
+    schema = {"type": "object", "properties": {"text": {"type": "string", "description": filler,
+                                                       "title": filler}}}
+    expect = DELETE if "execute statements" in filler else None  # the parameter is described as SQL
+    assert block_reason(tool_name="lookup", arguments={"text": "DELETE FROM t"}, input_schema=schema) == expect
 
 
 @pytest.mark.parametrize("description,expect", [
