@@ -2,7 +2,7 @@
 
 Status: agreed design, 2026-11-18. Phase 1 built on
 `claude/stoic-meitner-fq7v0t` (loop: `docs/feedback-loops/pii-policies.md`).
-Builds on BOW-152 (provider exemptions). Enterprise only (`pii_protection`).
+Builds on the provider-exemption change. Enterprise only (`pii_protection`).
 
 **Scope of every rule (agreed 2026-11-18):** PII rules apply to the user's
 prompt and the data the agent reads (query results, data rows, uploaded file
@@ -82,7 +82,7 @@ working.
 - Policy ids are slugs.
 - `default` and `exempt` cannot be deleted or renamed.
 - Deleting a policy moves its providers back to Default.
-- Provider ids are checked against this org's live providers, as BOW-152
+- Provider ids are checked against this org's live providers, as the exemption change
   already does.
 - Rule options for unknown rules are dropped.
 
@@ -154,7 +154,7 @@ blocking policy and a Presidio failure under `on_detector_error: block`.
 | Action | When | Details |
 |---|---|---|
 | `pii_protection.policy_created` / `policy_updated` / `policy_deleted` | Policy edits | Which rules / options changed, never patterns |
-| `pii_protection.provider_policies_updated` | Assignments change | Replaces BOW-152's `provider_exemptions_updated` |
+| `pii_protection.provider_policies_updated` | Assignments change | Replaces the exemption change's `provider_exemptions_updated` |
 | `pii_protection.prompt_blocked` | A call is blocked | Rule ids and counts, provider, model; never values |
 | `pii_protection.detector_failed` | Presidio couldn't run | Policy, provider, outcome (blocked / fell back) |
 
@@ -250,6 +250,6 @@ When to move:
 ## Not in scope
 
 - Policies per agent or data source: one prompt mixes several agents' content
-  (see BOW-152).
+  (see the provider-exemption feedback loop).
 - Per-user policies.
 - Applying PII rules to stored data at rest.

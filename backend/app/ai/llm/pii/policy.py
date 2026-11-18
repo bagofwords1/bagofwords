@@ -23,7 +23,7 @@ Stored shape (``OrganizationSettings.config["pii_protection"]``)::
 
 Before named policies the config was one rule set: ``mode``,
 ``builtin_overrides``, per-rule ``enabled``/``action``/``replacement`` on each
-custom rule, and (BOW-152) ``exempt_provider_ids``. :func:`normalize` turns that
+custom rule, and (provider exemptions) ``exempt_provider_ids``. :func:`normalize` turns that
 into a ``default`` policy plus ``exempt`` assignments, and each policy compiles
 through the same resolver as before, so an org that never touches policies gets
 exactly the redaction it had.

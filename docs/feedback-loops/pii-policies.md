@@ -1,6 +1,6 @@
-# Feedback Loop — PII policies per LLM provider, scoped to the prompt and the data (BOW-199)
+# Feedback Loop — PII policies per LLM provider, scoped to the prompt and the data (phase 1)
 
-BOW-152 let an org exempt a provider from PII redaction. Phase 1 of BOW-198
+The provider-exemption change let an org exempt a provider from PII redaction. Phase 1 of the PII policies plan
 (design: `docs/design/pii-policies.md`) generalizes this to named policies.
 Each policy is a set of options over one shared rule list, and each LLM provider
 is assigned a policy: Default, a named one, or Exempt.
@@ -18,7 +18,7 @@ This loop validates four things:
 ## How it works (file:line)
 
 - **Policies:** `backend/app/ai/llm/pii/policy.py`.
-  - `normalize` turns any stored shape (single rule set, BOW-152
+  - `normalize` turns any stored shape (single rule set, the exemption change's
     `exempt_provider_ids`, named policies) into one canonical config.
   - `apply_update`: a policy-aware write replaces the stored policies; an older
     client's write lands on Default.
@@ -175,7 +175,7 @@ The model answered "the email came back redacted in the query output". It
 repeated the refund contact from the instruction, which the UI's display
 masking (Default policy) then showed as `[REDACTED_EMAIL]`. That is the agreed
 display behavior (decision 1). Restoring real values on screen is phase 3
-(BOW-201).
+(phase 3).
 
 **UI, observed:**
 - **Create, rename, assign, delete:** creating "Email only" (a copy of
@@ -192,13 +192,13 @@ display behavior (decision 1). Restoring real values on screen is phase 3
   `chat-blocked-he.png`
 - `live-haiku.png`
 
-**Before:** `media/pr/pii-provider-exemption/after.png` (the BOW-152 page).
+**Before:** `media/pr/pii-provider-exemption/after.png` (the provider-exemption page).
 
 ## Notes and regressions checked
 
 - **Matching engine unchanged.** Today's rule-by-rule engine is kept, so
   existing orgs get identical output by construction. The position-based engine
-  moves to phase 2 (BOW-200), where Presidio needs it.
+  moves to phase 2, where Presidio needs it.
 - **Encryption key.** `boot_stack.sh` does not pin `BOW_ENCRYPTION_KEY`, so a
   backend restart makes stored provider credentials undecryptable ("Failed to
   decrypt credentials"). Pin the key before restarting, or re-save each

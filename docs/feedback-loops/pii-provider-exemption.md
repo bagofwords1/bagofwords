@@ -1,4 +1,4 @@
-# Feedback Loop — "PII protection: allow a per-LLM-provider override of the org policy" (BOW-152)
+# Feedback Loop — "PII protection: allow a per-LLM-provider override of the org policy"
 
 PII protection was one policy per organization, applied to every model. An org
 running a trusted self-hosted or in-VPC model next to a public API could not say
