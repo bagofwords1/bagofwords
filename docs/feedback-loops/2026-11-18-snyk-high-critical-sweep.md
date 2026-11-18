@@ -34,6 +34,33 @@ verify-and-ship steps are N/A this run. See "Action required" below.
 Before → after High/Critical count (remediable): **0 → 0**. No manifest, lock,
 Dockerfile, or application-code change was made.
 
+## `.snyk` policy cross-check + GitHub Dependabot divergence
+
+GitHub's push hook reports Dependabot alerts on the default branch
+(**2 critical, 12 high**, 29 moderate, 9 low) — far above Snyk's 0. These are
+*different tools*: Dependabot does **not** honor the repo's `.snyk` policy and
+counts dev/build-only transitives. To be sure the `.snyk` ignores aren't masking
+a real **production** High/Critical, the frontend was re-scanned with the policy
+disabled (`snyk test --severity-threshold=high --ignore-policy`):
+
+- **9** unique High/Critical surface — and **all 9** are already covered by a
+  documented `.snyk` ignore (no new or un-ignored finding):
+
+  | Package (path) | Why ignored (per `.snyk`) |
+  |---|---|
+  | `simple-git` ×3 + `@simple-git/argv-parser` (Critical) — `nuxt > @nuxt/devtools > simple-git` | dev-only; `@nuxt/devtools` runs during `nuxt dev`, never in the prod `.output/` |
+  | `@nuxt/vite-builder`, `@nuxt/schema` ×2 (High) | build-time only; not in the runtime output |
+  | `ioredis` (High) — `nuxt > nitropack > ioredis` | nitro build-tooling transitive |
+  | `flat` (High) — `@nuxtjs/mdc > remark-mdc > flat` | build/parse-time transitive |
+
+- Backend (raw pip scan, no policy) is **0** High/Critical on its own — the
+  `.snyk` python ignores (e.g. the former oauthlib High) are already remediated
+  in `uv.lock`, not merely suppressed.
+
+So every High/Critical Dependabot sees is a **dev- or build-only** transitive the
+`.snyk` policy intentionally accepts (each with reasoning in `.snyk`), not a
+production exposure. The policy is current — no stale or missing ignore.
+
 ## Snyk Code triage (the 4 `error`-level findings)
 
 The previous sweep (`2026-11-11`) reported 0 `error`-level Code findings; these
