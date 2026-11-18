@@ -184,8 +184,14 @@ def remove_schema_only_revisions(url: str) -> None:
     try:
         with engine.begin() as conn:
             context = MigrationContext.configure(conn)
-            if set(context.get_current_heads()) & set(SCHEMA_ONLY_AFTER_DATA_MIGRATION):
-                return  # stamped: alembic's own downgrade undoes them
+            # Stamped at one of them or at any later revision (e.g. head, once
+            # a migration lands after the last listed one): alembic's own
+            # downgrade undoes them. Checking only the current heads here ran
+            # every downgrade twice on a head database whose head is not listed.
+            applied = {revision.revision for revision in
+                       script.iterate_revisions(context.get_current_heads(), "base")}
+            if applied & set(SCHEMA_ONLY_AFTER_DATA_MIGRATION):
+                return
             with Operations.context(context):
                 for revision in reversed(SCHEMA_ONLY_AFTER_DATA_MIGRATION):
                     script.get_revision(revision).module.downgrade()

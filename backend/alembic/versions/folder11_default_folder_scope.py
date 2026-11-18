@@ -14,4 +14,6 @@ def upgrade():
 
 
 def downgrade():
+    if "default_agent_folder_ids" not in {c["name"] for c in sa.inspect(op.get_bind()).get_columns("memberships")}:
+        return
     op.drop_column("memberships", "default_agent_folder_ids")
