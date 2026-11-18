@@ -3,10 +3,11 @@
  *
  * The chips are plain links rendered by the markdown renderer, so the
  * behaviour is delegated from a container the host puts the handlers on:
- * hover or keyboard focus previews the cited result, click opens it. Where
- * there is no hover (a touch screen) or nowhere to open a result (the shared
- * link passes no `open`), a click pins the preview instead; it stays until
- * the reader taps elsewhere or presses Escape.
+ * hover or keyboard focus previews the cited result, and a click — mouse,
+ * touch or Enter — opens it in the host's side pane. Only where there is no
+ * pane to open into (a phone layout, or the shared link, which passes no
+ * `open`) does a click pin the preview instead; it stays until the reader
+ * taps elsewhere or presses Escape.
  */
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { citationKeyFromHref, type CitationSource } from './useCitations'
@@ -117,7 +118,7 @@ export function useCitationChips<M>(opts: {
     const hit = opts.resolve(m, chip.key)
     if (!hit) return
     const showing = active.value?.source.key === hit.source.key
-    if (opts.open && (opts.canOpen?.() ?? true) && !noHover(e)) {
+    if (opts.open && (opts.canOpen?.() ?? true)) {
       hide()
       opts.open(hit.source)
     } else if (showing && active.value?.pinned) {
@@ -125,13 +126,6 @@ export function useCitationChips<M>(opts: {
     } else {
       show(hit.source, hit.number, chip.el, true)
     }
-  }
-
-  /** A pointer that cannot hover: the tap itself has to do the previewing. */
-  function noHover(e: MouseEvent): boolean {
-    const type = (e as PointerEvent).pointerType
-    if (type === 'touch' || type === 'pen') return true
-    return typeof window !== 'undefined' && !!window.matchMedia?.('(hover: none)').matches
   }
 
   // A pinned preview is dismissed by a press anywhere outside it and its chip.

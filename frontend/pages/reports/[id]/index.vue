@@ -579,7 +579,7 @@
 												:items="runSources(m)"
 												:translate="responseT"
 												:dir="responseDir"
-												@open="(item, el) => isMobile ? citationChips.pin(item.source, item.number, el) : openCitationSource(item.source)"
+												@open="(item, el) => isMobile ? citationChips.pin(item.source, item.number, el) : openSourceInPane(item.source)"
 												@preview="(item, el) => citationChips.preview(item.source, item.number, el)"
 												@leave="citationChips.hideSoon()"
 											/>
@@ -1870,6 +1870,12 @@ function runSources(m: ChatMessage): SourceItem[] {
 }
 function openCitationSource(source: CitationSource) {
 	openDataPanel({ toolExecution: source.toolExecution, title: source.output.title, visual: source.output.kind === 'chart' })
+}
+// A click on a footnote opens it in the side pane; the hover preview it was
+// showing would only sit on top of what the reader just asked to see.
+function openSourceInPane(source: CitationSource) {
+	citationChips.hide()
+	openCitationSource(source)
 }
 function openActiveCitation() {
 	const source = citationChips.active.value?.source
