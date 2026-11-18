@@ -1378,16 +1378,27 @@ function persistPermissionMode() {
     permissionSaveLoop = savePermissionModes().finally(() => { permissionSaveLoop = null })
 }
 
+// A save that hangs must not hold the composer: past this it counts as failed.
+const PERMISSION_SAVE_TIMEOUT_MS = 15000
+
 async function savePermissionModes(): Promise<boolean> {
     let saved = true
     do {
         permissionSavePending = false
         const wanted = permissionMode.value
-        const { error } = await useMyFetch(`/reports/${props.report_id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ permission_mode: wanted || '' })
-        })
+        let error: any = null
+        try {
+            const res = await useMyFetch(`/reports/${props.report_id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ permission_mode: wanted || '' }),
+                timeout: PERMISSION_SAVE_TIMEOUT_MS,
+            })
+            error = res.error
+        } catch (e) {
+            // A throw (no organization, a network fault) is a failed save too.
+            error = ref(e)
+        }
         saved = !error?.value
         if (saved) {
             confirmedPermissionMode = wanted
@@ -2029,8 +2040,12 @@ async function submit() {
     // mode, so wait for it; if it failed (its toast says so) send nothing.
     if (props.report_id && permissionSaveLoop) {
         isSubmitting.value = true
-        const saved = await permissionModeSettled()
-        isSubmitting.value = false
+        let saved = false
+        try {
+            saved = await permissionModeSettled()
+        } finally {
+            isSubmitting.value = false
+        }
         if (!saved || !canSubmit.value) return
     }
 
@@ -2329,10 +2344,16 @@ defineExpose({
         if (isSubmitting.value || isHydratingDataSources.value || hasFilesUploading.value
             || !selectedModel.value || !hasDataSourceOrFile.value) return null
         if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return null
+        // A mode switch still being saved: the run reads the stored mode.
+        if (!await permissionModeSettled()) return null
         if (!modelId) return { model_id: null }
         const known = models.value.some(m => String(m.id) === String(modelId))
         return { model_id: known ? modelId : modelIdForPayload.value }
     },
+    // A control outside the box that sends a prompt itself (starter and
+    // follow-up questions) waits for a mode switch still being saved; false
+    // if that save failed (its toast says so): send nothing then.
+    permissionModeSettled,
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
     submitPrompt: async (value: string) => {

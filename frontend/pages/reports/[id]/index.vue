@@ -5812,15 +5812,24 @@ async function rerunPrompt(m: ChatMessage) {
 	else onSubmitCompletion(payload)
 }
 
-function handleExampleClick(starter: string) {
-	if (starter) {
+// A starter or follow-up question is sent here, not through the box: wait for
+// a permission-mode switch still being saved (the run reads the stored mode),
+// and send nothing if that save failed (the box's toast says so).
+async function permissionModeSettled(): Promise<boolean> {
+	const settled = promptBoxRef.value?.permissionModeSettled
+	return settled ? await settled() : true
+}
+
+async function handleExampleClick(starter: string) {
+	if (starter && await permissionModeSettled()) {
 		onSubmitCompletion({ text: starter, mentions: [], mode: currentPromptMode.value });
 	}
 }
 
-function handleFollowUpClick(question: string) {
+async function handleFollowUpClick(question: string) {
 	if (isStreaming.value || isCompletionInProgress.value) return
-	if (question) {
+	if (question && await permissionModeSettled()) {
+		if (isStreaming.value || isCompletionInProgress.value) return
 		onSubmitCompletion({ text: question, mentions: [], mode: currentPromptMode.value });
 	}
 }
