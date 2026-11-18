@@ -15,15 +15,40 @@ DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 200_000
 
 LLM_MODEL_DETAILS = [
     {
+        # https://developers.openai.com/api/docs/models/gpt-6.2-sol
+        "name": "GPT-6.2 Sol",
+        "model_id": "gpt-6.2-sol",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6.2-astra
+        "name": "GPT-6.2 Astra",
+        "model_id": "gpt-6.2-astra",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 8.00,
+        "output_cost_per_million_tokens_usd": 40.00
+    },
+    {
         # https://developers.openai.com/api/docs/models/gpt-6-astra
         "name": "GPT-6 Astra",
         "model_id": "gpt-6-astra",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        # Selectable, but not the default: Astra is 5x Terra's input price and
-        # ~4x its output price, so switching every org's default on upgrade is
-        # a cost decision, not a catalog one.
         "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
@@ -33,8 +58,6 @@ LLM_MODEL_DETAILS = [
     },
     {
         # https://developers.openai.com/api/docs/models/gpt-6-sol
-        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra;
-        # GPT-6.1 Terra holds the provider default.
         "name": "GPT-6 Sol",
         "model_id": "gpt-6-sol",
         "provider_type": "openai",
@@ -68,14 +91,13 @@ LLM_MODEL_DETAILS = [
     {
         # https://openai.com/index/introducing-gpt-6-1-terra/
         # Successor to GPT-5.6 Terra at half its price: $1/$5, cached input
-        # $0.05 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES). Provider
-        # default, taking over from GPT-5.6 Terra at half the price.
+        # $0.05 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES).
         "name": "GPT-6.1 Terra",
         "model_id": "gpt-6.1-terra",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,

@@ -76,7 +76,7 @@ def test_llm_providers(create_llm_provider_and_models, get_models, get_default_m
     default_model = get_default_model(user_token, org_id)
     
     assert len(default_model) == 1
-    assert default_model[0]["model_id"] == "gpt-6.1-terra"
+    assert default_model[0]["model_id"] == "gpt-6.2-sol"
 
     #set_llm_provider_as_default(provider_id, user_token, org_id)
     #toggle_llm_active_status(default_model[0]["id"], True, user_token, org_id)
@@ -267,11 +267,14 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-6-astra"]["is_enabled"] is True
     assert by_model_id["gpt-6-astra"]["is_default"] is False
 
-    # GPT-6.1 Terra takes the default from GPT-5.6 Terra, which stays enabled;
+    # GPT-6.2 Sol takes the default while older models stay enabled;
     # GPT-6 Luna takes the small default from GPT-5.6 Luna.
     assert by_model_id["gpt-5.6-terra"]["is_enabled"] is True
     assert by_model_id["gpt-5.6-terra"]["is_default"] is False
-    assert by_model_id["gpt-6.1-terra"]["is_default"] is True
+    assert by_model_id["gpt-6.2-sol"]["is_default"] is True
+    assert by_model_id["gpt-6.1-terra"]["is_default"] is False
+    assert by_model_id["gpt-6.2-astra"]["is_enabled"] is True
+    assert by_model_id["gpt-6.2-astra"]["is_default"] is False
 
     assert by_model_id["gpt-6-sol"]["is_enabled"] is True
     assert by_model_id["gpt-6-sol"]["is_default"] is False

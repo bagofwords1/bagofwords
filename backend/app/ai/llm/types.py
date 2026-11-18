@@ -27,6 +27,9 @@ class LLMUsage:
     # attributable rather than merged into ordinary output.
     reasoning_tokens: int = 0
 
+    # OpenAI reports 30-minute and 12-hour writes inside cache_creation_tokens.
+    cache_write_12h_tokens: int = 0
+
     @property
     def total_tokens(self) -> int:
         return (self.prompt_tokens or 0) + (self.completion_tokens or 0)
@@ -213,6 +216,7 @@ class UsageEvent:
     cache_write_1h_tokens: int = 0
     reasoning_tokens: int = 0
     type: Literal["usage"] = "usage"
+    cache_write_12h_tokens: int = 0
 
 
 @dataclass
