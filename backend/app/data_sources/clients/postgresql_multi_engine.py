@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import weakref
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from time import monotonic
@@ -295,6 +296,8 @@ _cache_lock = threading.Lock()
 _build_locks: dict[_CacheKey, threading.Lock] = {}
 _building: dict[_CacheKey, object] = {}
 _forced_rebuilds: dict[_CacheKey, float] = {}
+_finished_builds: dict[_CacheKey, int] = {}
+_last_builds: dict[_CacheKey, weakref.ref] = {}
 
 
 def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKey:
@@ -331,11 +334,17 @@ def get_engine(
     key = _cache_key(conn, all_tenants, connection_id)
     with _cache_lock:
         build_lock = _build_locks.setdefault(key, threading.Lock())
+        seen_builds = _finished_builds.get(key, 0)
     with build_lock:
         token = object()
         with _cache_lock:
             _drop_expired(monotonic())
             cached = _cache.get(key)
+            if not cached and _finished_builds.get(key, 0) != seen_builds:
+                last = _last_builds.get(key)
+                last_engine = last() if last else None
+                if last_engine is not None:
+                    cached = (last_engine, 0.0)
             if not cached:
                 _building[key] = token
         if cached:
@@ -357,6 +366,8 @@ def get_engine(
         with _cache_lock:
             if _building.get(key) is token:
                 del _building[key]
+                _finished_builds[key] = _finished_builds.get(key, 0) + 1
+                _last_builds[key] = weakref.ref(engine)
                 if engine.attached:
                     engine.cache_key = key
                     _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
@@ -386,6 +397,6 @@ def evict_engine(engine: TenantEngine) -> bool:
 def invalidate_engines(connection_id: str | None = None) -> None:
     # Engines are dropped, not closed: queries still running on their cursors keep them alive.
     with _cache_lock:
-        for registry in (_cache, _build_locks, _building, _forced_rebuilds):
+        for registry in (_cache, _build_locks, _building, _forced_rebuilds, _finished_builds, _last_builds):
             for key in [k for k in registry if connection_id is None or k[0] == connection_id]:
                 del registry[key]

@@ -164,3 +164,32 @@ def test_a_retry_onto_a_newer_engine_does_not_use_up_the_rebuild_budget(monkeypa
     assert evict_engine(failed) is True
     assert get_engine(CONN, VIEWS, connection_id="c1") is current
 
+
+def test_callers_waiting_on_a_build_that_attached_nothing_reuse_its_result(monkeypatch):
+    builds: list = []
+    release = threading.Event()
+
+    def empty_build(conn, views, **kwargs):
+        builds.append(1)
+        release.wait(5)
+        return _StubEngine(attached=False)
+
+    monkeypatch.setattr(engine_module, "build_engine", empty_build)
+    results: list = []
+    callers = [
+        threading.Thread(target=lambda: results.append(get_engine(CONN, VIEWS, connection_id="c1")))
+        for _ in range(4)
+    ]
+    callers[0].start()
+    assert _wait_for(lambda: len(builds) == 1, timeout=5)
+    for t in callers[1:]:
+        t.start()
+    _wait_for(lambda: len(builds) > 1, timeout=0.5)
+    release.set()
+    for t in callers:
+        t.join()
+
+    assert len(builds) == 1
+    assert len({id(e) for e in results}) == 1
+    assert get_engine(CONN, VIEWS, connection_id="c1") is not results[0]
+    assert len(builds) == 2
