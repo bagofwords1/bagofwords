@@ -927,7 +927,11 @@ class CompletionService:
             span.add_event("system_completion_saved")
 
             # Mark image files with this completion_id (so they show attached to this message)
-            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
+            # A Rerun names its attachments (prompt.file_ids): it must not also
+            # claim uploads waiting in the composer for the next message.
+            from app.services.completion_attachments import names_its_attachments
+            if not names_its_attachments(completion_data.prompt):
+                await self._mark_images_with_completion(db, report.id, str(head_completion.id))
 
             # Store mentions associated with the user head completion (best-effort)
             try:
@@ -1620,21 +1624,18 @@ class CompletionService:
                 completion_id_to_user_feedback[fb.completion_id] = CompletionFeedbackSchema.from_orm(fb)
 
         # 6c) Batch-load files attached to these completions (via report_file_association)
-        from app.models.file import File
-        from app.models.report_file_association import report_file_association
         from app.schemas.file_schema import FileSchema
 
         completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in completion_ids}
         if completion_ids:
-            files_stmt = (
-                select(File, report_file_association.c.completion_id)
-                .join(report_file_association, File.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(completion_ids))
-            )
-            files_res = await db.execute(files_stmt)
-            for file, comp_id in files_res.all():
-                if comp_id:
-                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            for comp_id, comp_files in (await attached_files_by_completion(
+                db, completion_ids, completions=all_completions,
+            )).items():
+                completion_id_to_files.setdefault(comp_id, []).extend(
+                    FileSchema.from_orm(file) for file in comp_files
+                )
 
         # 6d) Batch-load instruction metadata for loaded_instructions references
         # Collect all instruction IDs stored in completion JSON across all system completions
@@ -2068,21 +2069,18 @@ class CompletionService:
                 })
 
         # Batch-load files attached to these completions (via report_file_association)
-        from app.models.file import File
-        from app.models.report_file_association import report_file_association
         from app.schemas.file_schema import FileSchema
 
         completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in ids}
         if ids:
-            files_stmt = (
-                select(File, report_file_association.c.completion_id)
-                .join(report_file_association, File.id == report_file_association.c.file_id)
-                .where(report_file_association.c.completion_id.in_(ids))
-            )
-            files_res = await db.execute(files_stmt)
-            for file, comp_id in files_res.all():
-                if comp_id:
-                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            for comp_id, comp_files in (await attached_files_by_completion(
+                db, ids, completions=all_completions,
+            )).items():
+                completion_id_to_files.setdefault(comp_id, []).extend(
+                    FileSchema.from_orm(file) for file in comp_files
+                )
 
         # Batch-load instruction metadata for loaded_instructions references
         _all_instruction_ids: set[str] = set()
@@ -2554,7 +2552,11 @@ class CompletionService:
             span.add_event("completions_saved")
 
             # Mark image files with this completion_id (so they show attached to this message)
-            await self._mark_images_with_completion(db, report.id, str(completion.id))
+            # A Rerun names its attachments (prompt.file_ids): it must not also
+            # claim uploads waiting in the composer for the next message.
+            from app.services.completion_attachments import names_its_attachments
+            if not names_its_attachments(completion_data.prompt):
+                await self._mark_images_with_completion(db, report.id, str(completion.id))
             _log("images_marked")
 
             # Store mentions associated with the user completion (best-effort, non-blocking)

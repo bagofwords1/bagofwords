@@ -10,7 +10,7 @@
         class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
         @click="toggleExpanded"
       >
-        <span v-if="status === 'running'" class="flex items-center gap-1">
+        <span v-if="isRunning" class="flex items-center gap-1">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
           <span class="tool-shimmer">{{ runningLabel }}</span>
         </span>
@@ -31,7 +31,7 @@
     <!-- MCP App: the interactive UI the server attached to this tool. Shown
          open, under the status line — it is the result, not a detail. -->
     <McpAppFrame
-      v-if="!isShell && mcpApp && appHost && props.toolExecution?.id && status !== 'running'"
+      v-if="!isShell && mcpApp && appHost && props.toolExecution?.id && !isRunning"
       :tool-execution-id="props.toolExecution.id"
       :status="status"
       :connection-name="resultJson.connection_name"
@@ -126,7 +126,7 @@
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="!isShell && isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
+      <div v-if="!isShell && isExpanded && !isRunning" class="mt-2 space-y-1.5">
         <!-- Command (input) -->
         <div v-if="command" class="group">
           <div
@@ -186,7 +186,7 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from 'vue'
 import RemoteShellTool from '~/components/tools/RemoteShellTool.vue'
-import { toolOutcome } from '~/utils/toolOutcome'
+import { isToolRunning, toolOutcome } from '~/utils/toolOutcome'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
@@ -217,6 +217,11 @@ const showPreview = ref(true)
 const showCommand = ref(true)
 
 const status = computed(() => props.toolExecution?.status || '')
+// Live stream says 'running'; a row loaded after reload says 'in_progress'.
+// Both mean the tool has not finished — without this, a reloaded tool that
+// is waiting for approval drew a finished-looking header until the next
+// keepalive flipped it to 'running'.
+const isRunning = computed(() => isToolRunning(status.value))
 
 // ── 'ask' policy: mid-run approval card ─────────────────────────────
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
@@ -235,7 +240,7 @@ const responding = ref(false)
 const showApprovalCard = computed(() =>
   !!confirmation.value?.confirmation_id &&
   !answered.value &&
-  status.value === 'running' &&
+  isRunning.value &&
   ['awaiting_confirmation', 'awaiting_approval'].includes(progressStage.value)
 )
 
@@ -508,7 +513,7 @@ const errorMessage = computed(() => resultJson.value.blocked_by_policy === 'ask'
   : resultJson.value.error_message || resultJson.value.error || '')
 
 function toggleExpanded() {
-  if (status.value !== 'running') {
+  if (!isRunning.value) {
     isExpanded.value = !isExpanded.value
   }
 }

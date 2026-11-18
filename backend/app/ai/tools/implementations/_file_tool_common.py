@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
     "documentum",
-    "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
+    "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem",
     "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages",
     # KMS Lighthouse: live only (no catalog), read with the caller's identity.
     "kms_lighthouse",
@@ -99,6 +99,21 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
     from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError
     from app.data_sources.clients.documentum_client import DocumentumHTTPError
     from app.data_sources.clients._graph_throttle import GraphThrottledError
+    from app.data_sources.clients._exchange_ews import ExchangeError
+    if isinstance(exc, ExchangeError) and exc.code == "Unauthorized":
+        name = connection_name or "Exchange Server"
+        return (
+            f"Windows authentication failed for '{name}'. Do NOT retry: repeated attempts with a "
+            "wrong password can lock the account. Tell the user to update this connection's "
+            "Windows credentials — for a user-required connection, their own — then continue "
+            "with the remaining sources."
+        )
+    if isinstance(exc, ExchangeError) and exc.code == "ErrorServerBusy":
+        name = connection_name or "Exchange Server"
+        return (
+            f"The Exchange server behind '{name}' is throttling requests right now. Do NOT retry "
+            "in a loop; tell the user it is temporarily busy and continue with the remaining sources."
+        )
     if isinstance(exc, GraphThrottledError):
         name = connection_name or "this source"
         wait = max(1, int(round(exc.retry_after)))

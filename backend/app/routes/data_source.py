@@ -16,7 +16,7 @@ from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate, DataSourceListItemSchema
 from app.schemas.table_prompt_schema import TablePromptsResponse
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
-from app.schemas.data_source_schema import DataSourceMembershipSchema
+from app.schemas.data_source_schema import DataSourceMembershipSchema, DataSourceInheritedAccess
 from app.errors.redact import redact_error
 from app.schemas.datasource_table_schema import (
     DataSourceTableSchema,
@@ -507,6 +507,20 @@ async def get_data_source_members(
 ):
     return await data_source_service.get_data_source_members(db, data_source_id, organization, current_user)
 
+@router.get("/data_sources/{data_source_id}/inherited_access", response_model=DataSourceInheritedAccess)
+@requires_resource_permission('data_source', 'view')
+async def get_data_source_inherited_access(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Principals that reach this agent through a folder or connection grant
+    rather than a grant on the agent (which is what /members lists)."""
+    from app.services.agent_inherited_access import inherited_agent_access
+    return await inherited_agent_access(db, organization, current_user, data_source_id)
+
+
 @router.post("/data_sources/{data_source_id}/members", response_model=DataSourceMembershipSchema)
 @requires_resource_permission('data_source', 'manage')
 async def add_data_source_member(
@@ -691,9 +705,10 @@ async def list_connection_files(
         from app.schemas.data_source_registry import get_entry
         _entry = get_entry(conn.type)
         nouns = list(_entry.catalog_nouns) if _entry.catalog_nouns else None
-        live = _entry.catalog_ownership == "per_user" and _entry.type in {
-            "outlook_mail", "gmail_mail", "teams_messages",
-        }
+        live = (
+            _entry.catalog_ownership == "per_user"
+            and _entry.type in {"outlook_mail", "gmail_mail", "teams_messages"}
+        ) or _entry.type == "exchange_onprem"
     except Exception:
         nouns, live = None, False
     try:

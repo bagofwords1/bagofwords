@@ -4301,6 +4301,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Name der Dokumentbibliothek oder * für alle sichtbaren Bibliotheken. Ein leeres Feld wählt die Standardbibliothek nur im Modus „Modernes REST“."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL des Exchange-Servers",
+      "urlDescription": "Adresse Ihres Exchange-Servers, z. B. https://mail.example.com. Der Pfad der Exchange Web Services (/EWS/Exchange.asmx) wird ergänzt, wenn Sie ihn weglassen.",
+      "sharedTitle": "Freigegebene Postfächer",
+      "sharedDescription": "Optional. Adressen freigegebener Postfächer oder Teampostfächer, durch Kommas getrennt, z. B. support@example.com, sales@example.com. Exchange entscheidet, wer welches Postfach öffnen darf: Jede Person sieht nur die Postfächer, auf die ihr Konto bereits Zugriff hat.",
+      "ownTitle": "Eigenes Postfach des Kontos einbeziehen",
+      "ownDescription": "Deaktivieren Sie dies bei der Anmeldung mit einem Dienstkonto, dessen eigenes Postfach nicht relevant ist. Das erste freigegebene Postfach wird dann zum Standard."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
@@ -7296,7 +7304,12 @@
     "updateFailed": "Berechtigungen konnten nicht aktualisiert werden",
     "addIncomplete": "Einige Mitgliedschaften oder Berechtigungen konnten nicht gespeichert werden. Liste prüfen und erneut versuchen.",
     "added": "Mitglieder hinzugefügt",
-    "addFailed": "Mitglieder konnten nicht hinzugefügt werden"
+    "addFailed": "Mitglieder konnten nicht hinzugefügt werden",
+    "inherited": "Geerbter Zugriff",
+    "inheritedHint": "Diese Personen und Gruppen erreichen den Agenten über einen Ordner oder eine Verbindung. Ändern Sie den Zugriff an der Quelle.",
+    "viaFolder": "Über Ordner {name}",
+    "viaConnection": "Über Verbindung {name}",
+    "inheritedHidden": "Andere haben möglicherweise Zugriff über einen Ordner oder eine Verbindung, die Sie nicht verwalten."
   },
   "productUpdates": {
     "checkbox": "Produkt-Updates an mich senden",

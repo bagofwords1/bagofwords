@@ -4301,6 +4301,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nom de la bibliothèque de documents, ou * pour toutes les bibliothèques visibles. Un champ vide sélectionne la bibliothèque par défaut uniquement en mode REST moderne."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL du serveur Exchange",
+      "urlDescription": "Adresse de votre serveur Exchange, par ex. https://mail.example.com. Le chemin Exchange Web Services (/EWS/Exchange.asmx) est ajouté si vous l'omettez.",
+      "sharedTitle": "Boîtes aux lettres partagées",
+      "sharedDescription": "Facultatif. Adresses des boîtes aux lettres partagées ou d'équipe à inclure, séparées par des virgules, par ex. support@example.com, sales@example.com. Exchange décide qui peut ouvrir chacune : chaque personne ne voit que les boîtes auxquelles son compte a déjà accès.",
+      "ownTitle": "Inclure la boîte aux lettres du compte",
+      "ownDescription": "Désactivez cette option si vous vous connectez avec un compte de service dont la boîte aux lettres n'est pas pertinente. La première boîte partagée devient alors la boîte par défaut."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
@@ -7296,7 +7304,12 @@
     "updateFailed": "Échec de la mise à jour des permissions",
     "addIncomplete": "Certaines adhésions ou permissions n’ont pas été enregistrées. Vérifiez la liste et réessayez.",
     "added": "Membres ajoutés",
-    "addFailed": "Échec de l’ajout des membres"
+    "addFailed": "Échec de l’ajout des membres",
+    "inherited": "Accès hérité",
+    "inheritedHint": "Ces personnes et groupes accèdent à cet agent via un dossier ou une connexion. Modifiez leur accès à la source.",
+    "viaFolder": "Via le dossier {name}",
+    "viaConnection": "Via la connexion {name}",
+    "inheritedHidden": "D'autres personnes peuvent avoir accès via un dossier ou une connexion que vous ne gérez pas."
   },
   "productUpdates": {
     "checkbox": "M'envoyer les nouveautés du produit",

@@ -38,8 +38,11 @@ def _ds(*conns, kind=None, id_="ds", name="DS"):
     ([_conn("onedrive", "user_required")], CONNECTOR),
     ([_conn("mcp", "user_required")], CONNECTOR),
     ([_conn("mcp", "system_only")], CONNECTOR),          # shared-key MCP: still a tool connector
+    ([_conn("exchange_onprem", "user_required")], CONNECTOR),  # each person's own mailbox
     # the org's curated sources
     ([_conn("google_drive", "system_only")], AGENT),     # service account = shared catalog
+    ([_conn("exchange_onprem", "system_only")], AGENT),  # service account = the org's team inbox
+    ([_conn("sharepoint_onprem", "user_required")], AGENT),  # per-user login, shared library
     ([_conn("onenote", "user_required")], AGENT),        # shared team notebook catalog
     ([_conn("sharepoint", "system_only")], AGENT),
     ([_conn("postgresql")], AGENT),
@@ -48,6 +51,8 @@ def _ds(*conns, kind=None, id_="ds", name="DS"):
     ([_conn("custom_api")], AGENT),
     # mixed: anything analysable makes it an agent
     ([_conn("postgresql"), _conn("gmail_mail", "user_required")], AGENT),
+    ([_conn("postgresql"), _conn("exchange_onprem", "user_required")], AGENT),
+    ([_conn("exchange_onprem", "user_required"), _conn("exchange_onprem", "system_only")], AGENT),
     ([], AGENT),
 ])
 def test_derived_kind_follows_whose_data_it_is(conns, expected):
@@ -62,6 +67,21 @@ def test_an_explicit_kind_always_wins(explicit):
 
 def test_an_unknown_stored_value_falls_back_to_the_derived_kind():
     assert data_source_kind(_ds(_conn("gmail_mail", "user_required"), kind="weird")) == CONNECTOR
+
+
+def test_personal_connector_types_are_declared_in_the_registry_not_by_form():
+    """A mailbox on a mail server uses the regular connection form, so the
+    sign-in-form rule cannot classify it; the registry flag does. The flag is
+    also what tells the connection form to offer it as a connector."""
+    from app.schemas.data_source_registry import REGISTRY, list_available_data_sources
+    from app.services.data_source_kind import connector_types
+
+    flagged = {t for t, e in REGISTRY.items() if e.personal_connector}
+    assert "exchange_onprem" in flagged and flagged <= connector_types()
+    for type_ in flagged:
+        assert REGISTRY[type_].ui_form == "data_source", "sign-in integrations are classified by their form"
+    served = {row["type"]: row.get("personal_connector") for row in list_available_data_sources()}
+    assert served["exchange_onprem"] is True and served["postgresql"] is False
 
 
 # ----------------------------------------------------------- run scope

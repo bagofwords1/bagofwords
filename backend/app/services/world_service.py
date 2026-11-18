@@ -43,7 +43,7 @@ class WorldService:
         if section in {"overview", "reports", "tasks"}:
             from app.routes.folders import list_folders
 
-            folders = (await list_folders(db, user, org))["folders"]
+            folders = (await list_folders(show_all=True, db=db, user=user, org=org))["folders"]
             for folder in folders:
                 self.node(
                     "folder", folder["id"], folder["name"], url=f"/agents/folders/{folder['id']}", expandable=True

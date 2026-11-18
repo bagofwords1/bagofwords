@@ -4301,6 +4301,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Название библиотеки документов или * для всех видимых библиотек. Пустое поле выбирает библиотеку по умолчанию только в режиме современного REST."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL сервера Exchange",
+      "urlDescription": "Адрес вашего сервера Exchange, например https://mail.example.com. Путь Exchange Web Services (/EWS/Exchange.asmx) добавляется, если его не указать.",
+      "sharedTitle": "Общие почтовые ящики",
+      "sharedDescription": "Необязательно. Адреса общих или командных почтовых ящиков через запятую, например support@example.com, sales@example.com. Exchange сам решает, кто может открыть каждый ящик: человек видит только те ящики, к которым у его учётной записи уже есть доступ.",
+      "ownTitle": "Включить собственный почтовый ящик учётной записи",
+      "ownDescription": "Отключите при входе под служебной учётной записью, чей собственный ящик не нужен. Тогда первым по умолчанию станет первый общий ящик."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
@@ -7296,7 +7304,12 @@
     "updateFailed": "Не удалось обновить разрешения",
     "addIncomplete": "Некоторые членства или разрешения не сохранены. Проверьте список и повторите попытку.",
     "added": "Участники добавлены",
-    "addFailed": "Не удалось добавить участников"
+    "addFailed": "Не удалось добавить участников",
+    "inherited": "Унаследованный доступ",
+    "inheritedHint": "Эти люди и группы получают доступ к агенту через папку или подключение. Изменить доступ можно в источнике.",
+    "viaFolder": "Через папку {name}",
+    "viaConnection": "Через подключение {name}",
+    "inheritedHidden": "У других может быть доступ через папку или подключение, которыми вы не управляете."
   },
   "productUpdates": {
     "checkbox": "Присылать мне новости продукта",

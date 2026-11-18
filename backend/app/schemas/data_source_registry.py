@@ -63,6 +63,9 @@ from app.schemas.data_sources.configs import (
     KmsLighthouseUserPassCredentials,
     KmsLighthouseTokenCredentials,
     SharePointOnpremKerberosCredentials,
+    ExchangeOnpremConfig,
+    ExchangeOnpremNtlmCredentials,
+    ExchangeOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
@@ -433,6 +436,14 @@ class DataSourceRegistryEntry(BaseModel):
     data_shape: str = "tables"          # tables | files | objects | tools
     catalog_ownership: str = "shared"   # shared | per_user | none
     ui_form: str = "data_source"        # data_source | integration | mcp | custom_api
+
+    # A source whose content is each person's own when they sign in themselves
+    # (a mailbox on a mail server), but which uses the regular connection form
+    # rather than the sign-in integration form. With per-user authentication it
+    # is a connector — offered in the prompt box, never picked by Auto, always
+    # run as that person; with a shared account it is an agent like any curated
+    # source. See app/services/data_source_kind.py.
+    personal_connector: bool = False
 
     # Optional (singular, plural) noun override for catalog items when the
     # data_shape default reads wrong — e.g. Power BI catalogs semantic-model
@@ -2494,6 +2505,32 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ui_form="integration",
         catalog_nouns=("message", "messages"),
     ),
+    "exchange_onprem": DataSourceRegistryEntry(
+        type="exchange_onprem",
+        category="services",
+        title="Exchange Server (on-prem)",
+        description="Read and search mail on your own Exchange server, including shared team mailboxes, using NTLM or Kerberos. No cloud tenant or app registration required.",
+        config_schema=ExchangeOnpremConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=ExchangeOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=ExchangeOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        # Mail vocabulary: the client declares the mail capabilities, so the
+        # agent gets list_emails / search_email / read_email. Messages reuse
+        # the file-payload transport internally, like the other mail sources.
+        client_path="app.data_sources.clients.exchange_onprem_client.ExchangeOnpremClient",
+        is_document_based=True,
+        data_shape="files",
+        # Nothing is indexed or copied: every list, search and read is live,
+        # with the connection's Windows identity.
+        catalog_ownership="none",
+        catalog_nouns=("message", "messages"),
+        # Each user signing in reads their own mailbox: a connector. A service
+        # account reading a team inbox is the org's curated source: an agent.
+        personal_connector=True,
+        requires_license="enterprise",
+        version="beta",
+    ),
     "teams_messages": DataSourceRegistryEntry(
         type="teams_messages",
         category="services",
@@ -3218,6 +3255,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "catalog_nouns": list(e.catalog_nouns) if e.catalog_nouns else None,
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
+            "personal_connector": e.personal_connector,
             "category": e.category,
             "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
         }

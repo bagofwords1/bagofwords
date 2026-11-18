@@ -890,6 +890,15 @@
         "degraded": "resumen de respaldo (sin resumen del modelo)",
         "cancel": "Cancelar",
         "dismiss": "Descartar"
+      },
+      "clear": {
+        "description": "Empieza un contexto nuevo: los turnos anteriores siguen visibles, pero el agente deja de verlos",
+        "usage": "/clear",
+        "pending": "Se borrará el contexto cuando el agente termine esta ejecución",
+        "running": "Borrando el contexto…",
+        "done": "Contexto borrado · el agente empieza de cero con tu próximo mensaje",
+        "nothing": "Todavía no hay nada que borrar",
+        "failed": "No se pudo borrar el contexto"
       }
     }
   },
@@ -1366,6 +1375,9 @@
     "stepRef": "→ Paso: {id}",
     "viewAgentTrace": "Ver traza del agente",
     "followUp": "Preguntas de seguimiento",
+    "rerun": "Volver a ejecutar",
+    "rerunTooltip": "Ejecutar este mensaje de nuevo como un mensaje nuevo",
+    "rerunQueuedTooltip": "Añadir a la cola: se ejecuta de nuevo después de la respuesta actual",
     "steered": "Dirigido",
     "steeringApplied": "Dirección aplicada",
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
@@ -1405,6 +1417,8 @@
     "compactingContext": "Compactando contexto…",
     "compactionTurns": "{turns} turnos",
     "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Contexto borrado",
+    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea",
     "runFold": {
       "workedFor": "Trabajó durante {duration}",
       "worked": "Trabajó",
@@ -4913,6 +4927,14 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nombre de la biblioteca de documentos, o * para todas las bibliotecas visibles. Dejarlo vacío selecciona la biblioteca predeterminada solo en el modo REST moderno."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL del servidor Exchange",
+      "urlDescription": "Dirección de tu servidor Exchange, p. ej. https://mail.example.com. La ruta de Exchange Web Services (/EWS/Exchange.asmx) se añade si la omites.",
+      "sharedTitle": "Buzones compartidos",
+      "sharedDescription": "Opcional. Direcciones de buzones compartidos o de equipo que se incluirán, separadas por comas, p. ej. support@example.com, sales@example.com. Exchange decide quién puede abrir cada uno: cada persona solo ve los buzones a los que su cuenta ya tiene acceso.",
+      "ownTitle": "Incluir el buzón propio de la cuenta",
+      "ownDescription": "Desactívalo al iniciar sesión con una cuenta de servicio cuyo buzón propio no es relevante. El primer buzón compartido pasa a ser el predeterminado."
+    },
     "athena": {
       "databaseDescription": "Un nombre de base de datos de Glue, o una lista separada por comas de nombres, patrones glob y exclusiones con !, para indexar varias, p. ej. *_db, !billing_db, analytics_history. Con varias, las tablas se llaman base_de_datos.tabla.",
       "tableExcludeTitle": "Patrón de exclusión de tablas",
@@ -7910,6 +7932,23 @@
     "modelDesc": "El modelo predeterminado de cada espectador sigue a su grupo y a la organización (y al enrutamiento automático si está activo). Si un espectador no puede usar un modelo, se usa su predeterminado.",
     "bubbleUsesAgents": "Los agentes de arriba"
   },
+  "dashboardDelete": {
+    "action": "Eliminar",
+    "title": "¿Eliminar este panel?",
+    "titleDoc": "¿Eliminar este documento?",
+    "titleSlides": "¿Eliminar esta presentación?",
+    "body": "Se eliminarán {title} y todas sus versiones. Las conversaciones en las que se creó se conservan.",
+    "publishedWarning": "Está publicado: su enlace dejará de funcionar para todos los que lo tengan.",
+    "sharedWarning": "Está compartido: todas las personas con quienes se comparte perderán el acceso.",
+    "scheduleWarning": "Su actualización programada se detiene y los suscriptores dejarán de recibir correos.",
+    "confirm": "Eliminar",
+    "deleted": "Se eliminó {title}",
+    "failed": "No se pudo eliminar",
+    "settingsTitle": "Eliminar este panel",
+    "settingsTitleDoc": "Eliminar este documento",
+    "settingsTitleSlides": "Eliminar esta presentación",
+    "settingsDesc": "Lo elimina junto con todas sus versiones para todos. Se te pedirá confirmación."
+  },
   "dashboardStart": {
     "title": "Aún no hay un panel aquí",
     "subtitle": "Crea uno en esta conversación o sigue con uno que puedas editar.",
@@ -8173,7 +8212,12 @@
     "updateFailed": "No se pudieron actualizar los permisos",
     "addIncomplete": "No se pudieron guardar algunas membresías o permisos. Revisa la lista y vuelve a intentarlo.",
     "added": "Miembros añadidos",
-    "addFailed": "No se pudieron añadir los miembros"
+    "addFailed": "No se pudieron añadir los miembros",
+    "inherited": "Acceso heredado",
+    "inheritedHint": "Estas personas y grupos acceden a este agente a través de una carpeta o conexión. Cambia su acceso en el origen.",
+    "viaFolder": "A través de la carpeta {name}",
+    "viaConnection": "A través de la conexión {name}",
+    "inheritedHidden": "Otras personas pueden tener acceso a través de una carpeta o conexión que no administras."
   },
   "productUpdates": {
     "checkbox": "Envíame novedades del producto",

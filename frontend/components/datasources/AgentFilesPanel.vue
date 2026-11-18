@@ -75,6 +75,7 @@ const cfg = (c: any) => c?.config || {}
 const baseOf = (c: any) => {
   const g = cfg(c)
   if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
+  if (c.type === 'exchange_onprem') return [g.ews_url, g.shared_mailboxes].filter(Boolean).join(' / ')
   if (c.type === 'documentum') return [g.rest_url, g.repository, g.root_path].filter(Boolean).join(' / ')
   if (c.type === 'azure_blob' && g.container) return `az://${g.account_name ? g.account_name + '/' : ''}${g.container}/${g.prefix || ''}`
   return g.bucket ? `${c.type === 'gcs' ? 'gs' : 's3'}://${g.bucket}/${g.prefix || ''}` : (g.root_path || '—')
@@ -83,7 +84,7 @@ const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).ma
 // Live per-user sources (mailboxes, Teams) keep no catalog at all: every list,
 // search and read goes to the provider with the user's own token. They carry
 // no index_mode, which used to fall through to "Indexed: contents".
-const LIVE_TYPES = ['outlook_mail', 'gmail_mail', 'teams_messages']
+const LIVE_TYPES = ['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages']
 const indexModeOf = (c: any) => LIVE_TYPES.includes(c.type) ? 'none'
   : (cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content'))
 const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: keywords', fulltext: 'Indexed: full text' } as any)[m] || m

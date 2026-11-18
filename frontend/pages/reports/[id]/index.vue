@@ -310,6 +310,19 @@
 												{{ copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy') }}
 											</button>
 										</UTooltip>
+										<!-- Rerun: same prompt as a new turn at the bottom (mentions, files, mode, model).
+										     While a run is active it goes to the queue instead of a parallel run. -->
+										<UTooltip v-if="canRerunPrompt(m)" :text="isRunBusy ? responseT('reportView.rerunQueuedTooltip') : responseT('reportView.rerunTooltip')" :popper="{ placement: 'bottom' }">
+											<button
+												type="button"
+												data-testid="user-message-rerun"
+												@click="rerunPrompt(m)"
+												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
+											>
+												<Icon name="heroicons-arrow-path-rounded-square" class="w-3 h-3" />
+												{{ responseT('reportView.rerun') }}
+											</button>
+										</UTooltip>
 										<span v-if="m.created_at" class="text-chat-3 text-ink-muted">{{ formatMessageDate(m.created_at) }}</span>
 									</div>
 								</div>
@@ -733,7 +746,7 @@
 						     context. State-derived — moves when the watermark advances,
 						     never interleaves with streaming content. -->
 						<div
-							v-if="compactionWatermarkId && m.id === compactionWatermarkId"
+							v-if="compactionWatermarkId && m.id === compactionWatermarkId && !clearCutoffIds.has(String(compactionWatermarkId))"
 							class="flex items-center gap-3 my-4"
 							data-testid="compaction-divider"
 						>
@@ -768,6 +781,22 @@
 								</template>
 							</UPopover>
 							<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
+						</div>
+
+						<!-- /clear boundary: the agent sees nothing above this line.
+						     State-derived, one per clear, anchored on a visible turn. -->
+						<div
+							v-if="clearAnchorIds.has(String(m.id))"
+							class="flex items-center gap-3 my-4"
+							data-testid="context-cleared-divider"
+							:title="responseT('reportView.contextClearedDividerHint')"
+						>
+							<div class="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+							<span class="flex items-center gap-1.5 text-chat-3 text-ink-muted uppercase tracking-wider">
+								<Icon name="heroicons:scissors" class="w-3 h-3" />
+								{{ responseT('reportView.contextClearedDivider') }}
+							</span>
+							<div class="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
 						</div>
 					</ResponseLanguageScope>
 					<li v-if="compactingNow" data-testid="compacting-indicator" class="flex items-center gap-2 my-3 text-xs text-ink-muted" role="status">
@@ -924,6 +953,7 @@
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
 					@contextCompacted="applyCompactionResult"
+					@contextCleared="applyClearResult"
 					:hasArtifacts="hasArtifacts"
 					:compact="isExcel"
 					:queuedPrompts="queuedPrompts"
@@ -1336,6 +1366,7 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import { isToolRunning } from '~/utils/toolOutcome'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 import { createStreamDeliveryTracker, isBufferedDelivery } from '~/utils/streamDelivery'
@@ -1407,7 +1438,7 @@ interface ChatMessage {
 	status?: ChatStatus
 	// LLM model id used for this completion (e.g. "claude-sonnet-4-6"); drives the avatar brand overlay
 	model?: string | null
-	prompt?: { content?: string; mentions?: Array<{ name: string; items: any[] }>; response_locale?: string; reasoning_effort?: string }
+	prompt?: { content?: string; mentions?: Array<{ name: string; items: any[] }>; response_locale?: string; reasoning_effort?: string; mode?: string; model_id?: string | null; file_ids?: string[] }
 	completion_blocks?: CompletionBlock[]
 	tool_calls?: ToolCall[]
 	created_at?: string
@@ -1591,14 +1622,19 @@ const inProgressHasFirstToken = computed(() =>
 // user hasn't answered yet. Switches the prompt box indicator from "Working"
 // to "Waiting for your confirmation"; flips back as soon as they respond.
 const { isConfirmationAnswered } = useToolConfirmations()
+// Same conditions the approval card renders on (a confirmation id, on a block
+// the timeline shows): the indicator must never ask for a confirmation the
+// user has no card to give. The backend's keepalive alone sets the stage
+// without a confirmation, and harness blocks render no card.
 const inProgressAwaitingInput = computed(() =>
 	messages.value.some(m =>
 		m.role === 'system' && m.status === 'in_progress' &&
-		(m.completion_blocks || []).some((b: any) => {
+		visibleBlocks(m).some((b: any) => {
 			const te = b.tool_execution
-			return te && !['success', 'error', 'stopped'].includes(te.status) &&
+			const cid = te?.confirmation?.confirmation_id
+			return te && !!cid && !['success', 'error', 'stopped'].includes(te.status) &&
 				['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
-				!isConfirmationAnswered(te.confirmation?.confirmation_id)
+				!isConfirmationAnswered(cid)
 		})
 	)
 )
@@ -2294,6 +2330,23 @@ function applyCompactionResult(result: any) {
 		after: result.history_tokens_after ?? result.last_tokens_after ?? null,
 		degraded: !!result.degraded,
 	}
+	compactionSummary.value = null
+}
+
+// /clear boundaries (oldest first) from the completions payload and /clear
+// responses. `completion_id` is the hard context cutoff; the divider renders
+// after `anchor_completion_id`, the newest visible turn at that moment.
+const clearBoundaries = ref<Array<{ completion_id: string, anchor_completion_id?: string | null, cleared_at?: string | null }>>([])
+const clearAnchorIds = computed(() => new Set(clearBoundaries.value.map(b => String(b.anchor_completion_id || b.completion_id))))
+// A watermark sitting exactly on a clear boundary is the clear itself, not a
+// compaction: only the "Context cleared" divider renders there.
+const clearCutoffIds = computed(() => new Set(clearBoundaries.value.map(b => String(b.completion_id))))
+
+function applyClearResult(result: any) {
+	if (!result) return
+	if (Array.isArray(result.clear_boundaries)) clearBoundaries.value = result.clear_boundaries
+	if (result.covers_until_completion_id) compactionWatermarkId.value = result.covers_until_completion_id
+	compactionInfo.value = null
 	compactionSummary.value = null
 }
 
@@ -4217,6 +4270,24 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (!incomingHasTE && existing.tool_execution) {
 						delete (merged as any).tool_execution
 					}
+					// A mid-run upsert replaces the whole tool_execution object. Keep
+					// the approval this client already received (from the live
+					// tool.confirmation event) while the same tool is still running
+					// and the server copy doesn't carry it — otherwise the card
+					// vanishes while the run keeps waiting on it. Not when the server
+					// says the approval is already answered (e.g. from another tab):
+					// then the card must go.
+					const prevTE = existing.tool_execution as any
+					const nextTE = (merged as any).tool_execution
+					if (incomingHasTE && prevTE?.confirmation && nextTE && !nextTE.confirmation &&
+						// Same tool: same id, or the client-made placeholder (temp id)
+						// that held the card until the real execution arrived.
+						(String(prevTE.id) === String(nextTE.id) || String(prevTE.id).startsWith('temp-')) &&
+						isToolRunning(nextTE.status) &&
+						(!nextTE.review_state || nextTE.review_state === 'pending')) {
+						nextTE.confirmation = prevTE.confirmation
+						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
+					}
 					Object.assign(existing, merged)
 				} else {
 					// Stamp client arrival time (naive-UTC, matching server
@@ -4666,9 +4737,32 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Confirmation request from create_artifact / edit_artifact
 			if (payload.tool_name) {
 				const lastBlock = resolveToolEventBlock(sysMessage, payload)
-				if (lastBlock?.tool_execution) {
-					;(lastBlock.tool_execution as any).confirmation = payload.payload
-					;(lastBlock.tool_execution as any).progress_stage = 'awaiting_confirmation'
+				if (lastBlock) {
+					// The confirmation can arrive before the block has a tool_execution
+					// (same race tool.started / tool.progress cover). Dropping it left the
+					// run waiting on a card that never rendered.
+					// resolveToolEventBlock falls back to the last block when no id
+					// matches. Only build the placeholder on the block the event
+					// names (or, for an event with no block id, a block still in
+					// progress), and never hang the approval on a tool that already
+					// finished: both would draw a card (and a spinner) on an
+					// unrelated row.
+					const te = lastBlock.tool_execution as any
+					const namesBlock = payload.block_id
+						? String(lastBlock.id) === String(payload.block_id)
+						: lastBlock.status === 'in_progress'
+					if (!te && namesBlock) {
+						lastBlock.tool_execution = {
+							id: payload.tool_execution_id || `temp-${Date.now()}`,
+							tool_name: payload.tool_name,
+							status: 'running'
+						}
+					}
+					const target = lastBlock.tool_execution as any
+					if (target && !['success', 'error', 'stopped'].includes(target.status)) {
+						target.confirmation = payload.payload
+						target.progress_stage = 'awaiting_confirmation'
+					}
 				}
 			}
 			break
@@ -5184,6 +5278,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
 		if (response?.compaction?.covers_until_completion_id) applyCompactionResult(response.compaction)
+		clearBoundaries.value = Array.isArray(response?.compaction?.clear_boundaries) ? response.compaction.clear_boundaries : []
         await nextTick()
         followScrollToBottom()
 		if (!skipEstimate) {
@@ -5853,7 +5948,7 @@ function pinDispatchedQueuedPrompts() {
 
 // Queue a prompt while a completion runs. The backend persists it as a
 // status='queued' user row; the dispatcher starts it when the run finishes.
-async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null }) {
+async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; file_ids?: string[] }) {
 	const text = data.text.trim()
 	if (!text) return
 	try {
@@ -5869,6 +5964,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 					reasoning_effort: data.reasoning_effort || null,
 					platform: isExcel.value ? 'excel' : null,
 					artifact_version_id: openVersion.value?.version_id || null,
+					file_ids: data.file_ids ?? undefined,
 				},
 				queue: true
 			})
@@ -5881,6 +5977,7 @@ async function onQueuePrompt(data: { text: string, mentions: any[]; mode?: strin
 				role: 'user',
 				status: (created.status || 'queued') as ChatStatus,
 				prompt: created.prompt,
+				files: created.files || [],
 				created_at: created.created_at,
 			})
 		}
@@ -5941,6 +6038,49 @@ async function onRemoveQueuedPrompt(queuedId: string) {
 function openTraceModal(completionId: string) {
 	selectedCompletionForTrace.value = completionId
 	showTraceModal.value = true
+}
+
+// A run is active (streamed here, resumed after refresh, or started elsewhere):
+// a new prompt goes to the queue, the same way the prompt box behaves.
+const isRunBusy = computed(() => isStreaming.value || isCompletionInProgress.value || hasInProgressCompletion.value)
+
+function canRerunPrompt(m: ChatMessage) {
+	return !!report.value && isReportOwner.value
+		&& m.status !== 'queued'
+		// A steering message was injected into a running turn: on its own it
+		// is not a prompt that can start one.
+		&& m.message_type !== 'steering'
+		&& !!(m.prompt?.content || '').trim()
+}
+
+// Rerun: send the same prompt again as a new turn at the bottom, with its
+// mentions, attached files, mode, model and reasoning effort.
+// It goes through the prompt box's send gates (prepareRerun), and falls back to
+// the box's model when the earlier one is no longer available to this user.
+let rerunPreparing = false
+async function rerunPrompt(m: ChatMessage) {
+	if (!canRerunPrompt(m) || rerunPreparing) return
+	const p = m.prompt || {}
+	rerunPreparing = true
+	let ready: { model_id: string | null } | null | undefined
+	try {
+		ready = await promptBoxRef.value?.prepareRerun?.(p.model_id)
+	} finally {
+		rerunPreparing = false
+	}
+	if (!ready) return
+	const files = (m.files || []).map(f => ({ id: f.id, filename: f.filename, content_type: f.content_type }))
+	const payload = {
+		text: p.content || '',
+		mentions: p.mentions || [],
+		mode: p.mode || currentPromptMode.value,
+		model_id: ready.model_id || undefined,
+		reasoning_effort: p.reasoning_effort || null,
+		files,
+		file_ids: files.map(f => String(f.id)),
+	}
+	if (isRunBusy.value) onQueuePrompt(payload)
+	else onSubmitCompletion(payload)
 }
 
 function handleExampleClick(starter: string) {
@@ -6012,7 +6152,7 @@ function createSystemPlaceholder(id: string, model?: string, effort?: string | n
 		created_at: new Date().toISOString().replace('Z', ''), completion_blocks: [] }
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[] }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; reasoning_effort?: string | null; files?: { id: string; filename: string; content_type: string }[]; file_ids?: string[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -6023,7 +6163,16 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,
 		role: 'user',
-		prompt: { content: text, mentions: data.mentions || [] },
+		// What was sent, so a Rerun of this bubble (before the server row
+		// replaces it) repeats the same mode, model, effort and attachments.
+		prompt: {
+			content: text,
+			mentions: data.mentions || [],
+			mode: data.mode || 'chat',
+			model_id: data.model_id || null,
+			reasoning_effort: data.reasoning_effort || undefined,
+			file_ids: data.file_ids ?? undefined,
+		},
 		files: data.files || [],
 		created_at: new Date().toISOString()
 	}
@@ -6054,6 +6203,10 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 			reasoning_effort: data.reasoning_effort || null,
 			platform: isExcel.value ? 'excel' : null,
 			artifact_version_id: openVersion.value?.version_id || null,
+			// Rerun: the earlier turn's attachments (report files) ride along. An
+			// empty list still marks a rerun, so it leaves images staged in the
+			// composer for the user's next message.
+			file_ids: data.file_ids ?? undefined,
 			platform_context: isExcel.value && excelSelection.value ? {
 				address: excelSelection.value.address,
 				sheetName: excelSelection.value.sheetName,
@@ -6113,7 +6266,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 				messages.value.push({ ...createSystemPlaceholder(busyId), system_completion_id: busyId })
 			}
 			if (created?.id && !messages.value.some(m => m.id === created.id)) {
-				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, created_at: created.created_at })
+				messages.value.push({ id: created.id, role: 'user', status: created.status || 'queued', prompt: created.prompt, files: created.files || [], created_at: created.created_at })
 			}
 			// The receipt identifies the server turn even when history refresh is
 			// slow or unavailable. Transfer busy-state ownership to its watcher.

@@ -69,6 +69,11 @@ class PromptSchema(BaseModel):
     widget_id: Optional[str] = None
     step_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
+    # Files already in this report to attach to this turn (Rerun of an earlier
+    # prompt re-sends its attachments). Ids not linked to the report are ignored.
+    # A list (even empty) means the turn names its attachments: it then does not
+    # claim images waiting in the composer. None: an ordinary send, which does.
+    file_ids: Optional[List[str]] = None
     # The dashboard version open in the conversation's editor (collab01):
     # the next edit builds on it, even when the conversation holds a newer
     # one. None: the newest, as before.
@@ -139,6 +144,10 @@ class CompactionStateSchema(BaseModel):
     degraded: bool = False
     last_tokens_before: Optional[int] = None
     last_tokens_after: Optional[int] = None
+    # /clear boundaries, oldest first: {completion_id (hard context cutoff),
+    # anchor_completion_id (the transcript divider renders after it),
+    # cleared_at}. Nothing at or before the newest one reaches the agent.
+    clear_boundaries: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class CompletionContextEstimateSchema(BaseModel):
