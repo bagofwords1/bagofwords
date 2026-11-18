@@ -5113,6 +5113,9 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "qlikCloud": {
+      "appFilterDescription": "Optional comma-separated app names or IDs within the selected spaces. Empty includes all matching apps. Use IDs for names containing commas."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "App Filter",
       "appFilterDescription": "Optional comma-separated app names or IDs, within the selected streams. Empty includes all matching apps. Use IDs for names containing commas.",
