@@ -1503,6 +1503,8 @@
       "bowSource": "BOW",
       "creating": "יוצר נתונים",
       "created": "הנתונים נוצרו",
+      "creatingTitled": "יוצר את ״{title}״…",
+      "createdTitled": "נוצר ״{title}״",
       "create": "יצירת נתונים",
       "generatingCode": "מייצר קוד",
       "generatedCode": "הקוד נוצר",

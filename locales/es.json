@@ -1503,6 +1503,8 @@
       "bowSource": "BOW",
       "creating": "Creando datos",
       "created": "Datos creados",
+      "creatingTitled": "Creando «{title}»…",
+      "createdTitled": "Creado «{title}»",
       "create": "Crear datos",
       "generatingCode": "Generando código",
       "generatedCode": "Código generado",

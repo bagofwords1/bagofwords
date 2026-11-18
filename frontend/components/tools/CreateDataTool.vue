@@ -7,9 +7,11 @@
       <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
       <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
       <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.createData.creating') }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.created') }}</span>
-      <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ t('tools.createData.creating') }}</span>
+      <!-- Named by what it makes, like the other tools: "Creating “Revenue by
+           country”…" (shimmering) → "Created “Revenue by country”". -->
+      <span v-if="status === 'running'" class="tool-shimmer"><bdi>{{ headerTitle ? t('tools.createData.creatingTitled', { title: headerTitle }) : t('tools.createData.creating') }}</bdi></span>
+      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300"><bdi>{{ headerTitle ? t('tools.createData.createdTitled', { title: headerTitle }) : t('tools.createData.created') }}</bdi></span>
+      <span v-else-if="status === 'stopped'" class="text-ink-muted"><bdi>{{ headerTitle ? t('tools.createData.creatingTitled', { title: headerTitle }) : t('tools.createData.creating') }}</bdi></span>
       <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.create') }}</span>
       <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.create') }}</span>
       <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
@@ -152,10 +154,9 @@
       </div>
     </Transition>
 
-    <!-- Results Preview - only show if not failed.
-         Small table results stay hidden until the user expands the tool via
-         the existing header chevron; charts and larger tables always render. -->
-    <div class="mt-2" v-if="hasPreview && !hidePreview && status !== 'error' && (!autoCollapsePreview || !createDataCollapsed)">
+    <!-- Results Preview - only show if not failed. Collapsed by default,
+         charts and tables alike: the header chevron reveals it. -->
+    <div class="mt-2" v-if="hasPreview && !hidePreview && status !== 'error' && !createDataCollapsed">
       <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" :can-expand="canExpand" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" @openDataPanel="$emit('openDataPanel', $event)" />
     </div>
   </div>
@@ -430,18 +431,11 @@ const groupedTables = computed<ToolTableGroup[]>(() =>
   groupToolTables((props.toolExecution as any)?.arguments_json, iconAgents.value)
 )
 
-// Hide the data preview by default for small table results (< 10 rows).
-// The agent describes these in its text answer, so the inline table is
-// redundant — the existing header chevron (createDataCollapsed) reveals it
-// when wanted. Charts and metric cards are visualizations and always render.
-const SMALL_RESULT_THRESHOLD = 10
-const resultDataModelType = computed(() => (props.toolExecution.result_json as any)?.data_model?.type || '')
-const isTableResult = computed(() => !resultDataModelType.value || resultDataModelType.value === 'table')
-const autoCollapsePreview = computed(() =>
-  isTableResult.value
-  && executionRowCount.value != null
-  && executionRowCount.value < SMALL_RESULT_THRESHOLD
-)
+// The header names what the call makes: the model's title from the moment
+// its arguments arrive, the stored step's title once it exists.
+const headerTitle = computed(() => String(
+  (props.toolExecution as any)?.created_step?.title || props.toolExecution.arguments_json?.title || '',
+).trim())
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
 function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }

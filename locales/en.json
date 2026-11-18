@@ -1529,6 +1529,8 @@
       "bowSource": "BOW",
       "creating": "Creating Data",
       "created": "Created Data",
+      "creatingTitled": "Creating “{title}”…",
+      "createdTitled": "Created “{title}”",
       "create": "Create Data",
       "generatingCode": "Generating Code",
       "generatedCode": "Generated Code",
