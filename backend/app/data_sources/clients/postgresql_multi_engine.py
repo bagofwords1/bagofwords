@@ -62,6 +62,32 @@ class TenantEngine:
     def close(self) -> None:
         self._con.close()
 
+    def vanished_tables(self, view_names: list[str]) -> list[tuple[str, str]]:
+        relations: dict[str, list[tuple[str, str]]] = {}
+        for name in sorted(set(view_names)):
+            for tenant in self._settled.get(name, ()):
+                if tenant in self._aliases:
+                    relations.setdefault(tenant, []).append((name, _qualified_pg_name(*_split_view_name(name))))
+        vanished = []
+        cur = self._con.cursor()
+        try:
+            for tenant, members in sorted(relations.items()):
+                names = ", ".join(_pg_literal(qualified) for _, qualified in members)
+                probe = f"SELECT n FROM unnest(ARRAY[{names}]::text[]) AS n WHERE to_regclass(n) IS NULL"
+                try:
+                    rows = cur.execute(
+                        f"SELECT * FROM postgres_query({_sql_literal(self._aliases[tenant])}, {_sql_literal(probe)})"
+                    ).fetchall()
+                except duckdb.Error as exc:
+                    logger.warning("Could not check tenant database %s for vanished tables: %s",
+                                   tenant, failure_category(exc))
+                    continue
+                gone = {row[0] for row in rows}
+                vanished.extend((name, tenant) for name, qualified in members if qualified in gone)
+        finally:
+            cur.close()
+        return vanished
+
     def ensure_views(self, views: dict[str, list[str]]) -> None:
         wanted = {name: tuple(sorted(set(members))) for name, members in views.items()}
         if all(self._settled.get(name) == members for name, members in wanted.items()):
@@ -178,6 +204,14 @@ def _sql_literal(value: str) -> str:
 
 def _ident(value: str) -> str:
     return '"' + value.replace('"', '""') + '"'
+
+
+def _pg_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _qualified_pg_name(schema: str, table: str) -> str:
+    return _ident(schema) + "." + _ident(table)
 
 
 def _libpq_value(value: str) -> str:

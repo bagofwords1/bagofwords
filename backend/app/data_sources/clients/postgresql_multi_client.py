@@ -324,6 +324,13 @@ class PostgresqlMultiClient(DataSourceClient):
                 engine.ensure_views(self._views)
             return engine
 
+    def _referenced_views(self, sql: str) -> list[str]:
+        by_key = {tuple(name.lower().split(".", 1)): name for name in self._views}
+        referenced = {
+            by_key[ref[-2:]] for ref in table_refs(sql, DIALECT) if len(ref) >= 2 and ref[-2:] in by_key
+        }
+        return sorted(referenced) or sorted(self._views)
+
     def _discard(self, engine: TenantEngine) -> bool:
         if self._connection_id():
             return evict_engine(engine)
@@ -361,11 +368,13 @@ class PostgresqlMultiClient(DataSourceClient):
         try:
             return self._run(engine, sql)
         except duckdb.Error as exc:
-            if not (_relation_vanished(exc) and self._discard(engine)):
+            vanished = engine.vanished_tables(self._referenced_views(sql)) if _relation_vanished(exc) else []
+            if not (vanished and self._discard(engine)):
                 raise self._without_connection_details(exc) from None
             logger.warning(
-                "Rebuilding the tenant engine of connection %s after a table vanished from a tenant database",
+                "Rebuilding the tenant engine of connection %s: %s",
                 self._connection_id() or "(unsaved)",
+                ", ".join(f"{view} is gone from {tenant}" for view, tenant in vanished),
             )
         del engine
         try:

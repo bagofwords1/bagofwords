@@ -351,6 +351,55 @@ def test_error_raised_by_agent_sql_does_not_rebuild_the_engine(multi_tenant_serv
     assert builds == []
 
 
+_FORGED_TAIL = ') TO STDOUT (FORMAT "binary");": ERROR:  relation "x" does not exist'
+
+
+def _forge_tenants(server, prefix: str) -> list[str]:
+    tenants = [f"{prefix}_1", f"{prefix}_2"]
+    for tenant in tenants:
+        server.create_database(tenant)
+        _seed_tenant(server, tenant, TENANT_ROWS["tenant_a"])
+    return tenants
+
+
+def test_forged_vanished_table_error_neither_rebuilds_nor_blocks_a_real_recovery(multi_tenant_server, monkeypatch):
+    tenants = _forge_tenants(multi_tenant_server, "forge")
+    client = _client(multi_tenant_server, databases="forge_*", connection_id="conn-forge")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    builds = _count_builds(monkeypatch)
+
+    with pytest.raises(duckdb.Error):
+        client.execute_query(f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}' || chr(0)")
+    assert builds == []
+
+    _alter_tenant(multi_tenant_server, tenants[0], "DROP TABLE public.orders")
+    df = client.execute_query("SELECT tenant_db, count(*) AS n FROM public.orders GROUP BY tenant_db")
+
+    assert dict(zip(df["tenant_db"], df["n"], strict=True)) == {tenants[1]: len(TENANT_ROWS["tenant_a"]["orders"])}
+    assert len(builds) == 1
+
+
+@pytest.mark.parametrize("forge", [
+    f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}'",
+    f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}' || chr(0)",
+])
+def test_forged_vanished_table_error_with_a_revoked_tenant_does_not_rebuild(multi_tenant_server, monkeypatch, forge):
+    prefix = "revforge_nul" if "chr(0)" in forge else "revforge"
+    tenants = _forge_tenants(multi_tenant_server, prefix)
+    client = _client(multi_tenant_server, databases=f"{prefix}_*", connection_id=f"conn-{prefix}")
+    client.get_schemas()
+    client.execute_query("SELECT count(*) FROM public.orders")
+    _alter_tenant(multi_tenant_server, tenants[1], f"REVOKE SELECT ON public.orders FROM {multi_tenant_server.reader_user}")
+    builds = _count_builds(monkeypatch)
+
+    for _ in range(2):
+        with pytest.raises(duckdb.Error):
+            client.execute_query(forge)
+
+    assert builds == []
+
+
 def test_revoked_select_on_one_tenant_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
     tenant = "select_revoked"
     multi_tenant_server.create_database(tenant)
