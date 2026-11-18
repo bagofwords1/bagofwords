@@ -50,7 +50,7 @@ NO_READABLE_TABLES_REASON = "no readable tables (check USAGE/SELECT grants)"
 _DUCKDB_CATALOG_READERS = re.compile(
     r"^(query_table|query|duckdb_.*|pragma_.*|sql_auto_complete|json_execute_serialized_sql|"
     r"json_deserialize_sql|which_secret|glob|pg_get_viewdef|pg_get_constraintdef|has_.*_privilege|"
-    r"pg_.*_is_visible|current_setting|getvariable)$",
+    r"pg_.*_is_visible|current_setting|getvariable|format_type)$",
     re.IGNORECASE,
 )
 
@@ -263,9 +263,16 @@ class PostgresqlMultiClient(DataSourceClient):
     def _check_table_refs(self, sql: str) -> None:
         refs = table_refs(sql, DIALECT)
         refuse_unchecked_reads(sql, DIALECT, extra_denied=_DUCKDB_CATALOG_READERS)
-        if any(isinstance(stmt, exp.Pragma) for stmt in parse_guard_sql(sql, DIALECT)):
+        statements = parse_guard_sql(sql, DIALECT)
+        if any(isinstance(stmt, exp.Pragma) for stmt in statements):
             raise TableScopeViolation(
                 "PRAGMA statements are not allowed: the unified tables are already described in the schema."
+            )
+        foreign_types = [t for stmt in statements for t in _catalog_qualified_types(stmt)]
+        if foreign_types:
+            raise TableScopeViolation(
+                f"Type(s) outside this connection's unified tables: {', '.join(dict.fromkeys(foreign_types))}. "
+                "Cast to built-in types only."
             )
         known = {tuple(name.lower().split(".", 1)) for name in self._views}
         outside = [
@@ -482,6 +489,18 @@ class PostgresqlMultiClient(DataSourceClient):
             "```\n"
         )
         return text_
+
+
+def _catalog_qualified_types(stmt: exp.Expression) -> list[str]:
+    names = []
+    for dtype in stmt.find_all(exp.DataType):
+        if dtype.this != exp.DataType.Type.USERDEFINED:
+            continue
+        name = str(dtype.args.get("kind") or "")
+        parts = name.split(".")
+        if len(parts) > 1 and parts[0].lower() != "memory":
+            names.append(name)
+    return names
 
 
 def _postgres_side(exc: duckdb.Error) -> bool:

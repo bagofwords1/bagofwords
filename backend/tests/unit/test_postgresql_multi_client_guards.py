@@ -47,6 +47,13 @@ REFUSED = [
     "SELECT pg_type_is_visible(1)",
     "SELECT current_setting('pg_pool_max_connections')",
     "SELECT getvariable('anything')",
+    "SELECT format_type(16, NULL)",
+    "SELECT enum_range(NULL::__t0004.public.secret_plan)",
+    "SELECT CAST(1 AS __t0001.public.secret_plan)",
+    "SELECT TRY_CAST(note AS __t0002.public.mood) FROM public.orders",
+    "SELECT NULL::__t0001.public.secret_plan[]",
+    "SELECT NULL::STRUCT(a __t0001.public.secret_plan)",
+    "SELECT NULL::public.secret_plan",
 ]
 
 _READERS = [
@@ -83,6 +90,9 @@ ALLOWED = [
     "SELECT * FROM public.orders WHERE note GLOB 'a*'",
     "SELECT histogram(id) FROM public.orders",
     "SELECT * FROM public.orders o, LATERAL generate_series(1, 3) g",
+    "SELECT CAST(total AS DECIMAL(10, 2)) FROM public.orders",
+    "SELECT 1::INTEGER[]",
+    "SELECT NULL::memory.main.mood",
 ]
 
 
