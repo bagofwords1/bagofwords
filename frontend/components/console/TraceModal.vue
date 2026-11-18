@@ -141,7 +141,14 @@
                                 <CheckinTraceCard v-for="c in checkinsForTurn(turn)" :key="c.id" :checkin="c" />
                             </div>
                         </div>
-                        <div v-if="!turns.length" class="text-xs text-ink-muted text-center py-8">No turns yet</div>
+                        <!-- Scoped agent manager: turns from the first one that
+                             reached an agent they don't manage are withheld. -->
+                        <div v-if="conversation?.hidden_turns" data-testid="trace-hidden-turns"
+                             class="flex items-start gap-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 px-3 py-2 text-xs text-ink-muted">
+                            <UIcon name="i-heroicons-eye-slash" class="w-4 h-4 flex-shrink-0 mt-px" />
+                            <span>{{ $t('traceModal.hiddenTurns', { count: conversation.hidden_turns }, conversation.hidden_turns) }}</span>
+                        </div>
+                        <div v-if="!turns.length && !conversation?.hidden_turns" class="text-xs text-ink-muted text-center py-8">No turns yet</div>
                     </div>
                 </div>
 
@@ -844,6 +851,7 @@ interface ConversationTraceResponse {
     total_llm_cost_usd?: number | null
     turns: ConversationTurn[]
     checkins?: CheckinTrace[]
+    hidden_turns?: number
 }
 
 interface Props {

@@ -1340,7 +1340,8 @@
       "copyTurn": "Copiar este turno como JSON",
       "copied": "JSON de la traza copiado al portapapeles",
       "failed": "No se pudo exportar la traza"
-    }
+    },
+    "hiddenTurns": "{count} turno posterior oculto: este o uno anterior usó un agente que no administras | {count} turnos posteriores ocultos: estos o uno anterior usaron un agente que no administras"
   },
   "reportView": {
     "tabChat": "Chat",

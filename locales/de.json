@@ -1261,7 +1261,8 @@
       "copyTurn": "Diesen Schritt als JSON kopieren",
       "copied": "Trace-JSON in die Zwischenablage kopiert",
       "failed": "Trace konnte nicht exportiert werden"
-    }
+    },
+    "hiddenTurns": "{count} späterer Schritt ausgeblendet: er oder ein früherer nutzte einen Agenten, den Sie nicht verwalten | {count} spätere Schritte ausgeblendet: sie oder ein früherer nutzten einen Agenten, den Sie nicht verwalten"
   },
   "reportView": {
     "tabChat": "Chat",

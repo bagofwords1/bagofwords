@@ -1261,7 +1261,8 @@
       "copyTurn": "Copia questo turno come JSON",
       "copied": "JSON della traccia copiato negli appunti",
       "failed": "Impossibile esportare la traccia"
-    }
+    },
+    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci"
   },
   "reportView": {
     "tabChat": "Chat",

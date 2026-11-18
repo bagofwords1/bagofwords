@@ -98,3 +98,16 @@ folder_execution_agents = Table(
     Column("agent_id", String(36), primary_key=True),
     Index("ix_folder_execution_agents_agent", "agent_id", "execution_id"),
 )
+
+
+# Every agent a run was GIVEN (its working set: Auto's resolved roster, a manual
+# selection, a folder branch, plus agents attached mid-run) — not only the ones
+# it queried. The run's context snapshots carry the schema of each of them, so
+# monitoring treats this as the run's exposure: a scoped agent manager may see a
+# run only when every agent here is one they manage. See folder_monitoring.
+execution_exposed_agents = Table(
+    "execution_exposed_agents", BaseSchema.metadata,
+    Column("execution_id", String(36), ForeignKey("agent_executions.id", ondelete="CASCADE"), primary_key=True),
+    Column("agent_id", String(36), primary_key=True),
+    Index("ix_execution_exposed_agents_agent", "agent_id", "execution_id"),
+)

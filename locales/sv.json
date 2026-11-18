@@ -1261,7 +1261,8 @@
       "copyTurn": "Kopiera denna tur som JSON",
       "copied": "Spårnings-JSON kopierad till urklipp",
       "failed": "Det gick inte att exportera spårningen"
-    }
+    },
+    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar"
   },
   "reportView": {
     "tabChat": "Chatt",
