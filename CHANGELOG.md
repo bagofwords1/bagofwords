@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.626 (November 18, 2026)
+- Added Slack as a data source: each user signs in with their own Slack account, and each agent reads only the channels picked for it (#1785)
+- Fixed "Save and Run" on an eval test case failing silently and creating duplicate test cases on retry (#1787)
+
 ## Version 0.0.625 (November 17, 2026)
 - Added Rerun on a chat message: sends the same prompt again with its mentions, attached images, mode and model (#1771)
 - Added `/clear` in the report prompt box: starts a fresh agent context while earlier turns stay visible (#1767)
