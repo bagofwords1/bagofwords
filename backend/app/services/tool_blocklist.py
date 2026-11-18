@@ -16,10 +16,10 @@ The check is pure and CPU-bound (sqlglot is pure Python), so async callers run
 it with ``asyncio.to_thread``.
 """
 
+import fnmatch
 import logging
 import posixpath
 import re
-import shlex
 from typing import Any, Callable, Iterable, Optional
 
 import sqlglot
@@ -40,29 +40,47 @@ _RM_ROOTS = {"/", "~", ".", "..", "*",
 # $HOME: under /home, so "~/.." normalizes to /home and "~/../.." to /.
 _HOME = "/home/~"
 
-# Disk devices: a whole disk or one of its partitions, a device-mapper, RAID
-# or loop device, and the /dev/disk/by-* links to them.
-_DISK = r"/dev/(sd|hd|nvme|xvd|vd|disk|mmcblk|mapper/|dm-|md|loop)\w*"
-# A token naming a disk device: alone, as an option's value (--device=/dev/sda,
-# --target-directory=…) or attached to a short option (-t/dev/sda).
-_DISK_TOKEN = re.compile(r"(?:--[\w-]+=|-[A-Za-z]*t)?" + _DISK)
-# Disk tools, formatting tools, tee and truncate: refused on a disk device
-# wherever it sits in their arguments. dd, cp and install: see _token_reason.
+# Device nodes. A write to any path under /dev is refused unless the node is
+# one of these harmless ones, so a disk needs no name here (sda, nvme0n1,
+# vg0/root, nbd0, a glob). The path is normalized first (see _dev_node).
+_HARMLESS_DEV = re.compile(
+    r"(null|zero|full|random|urandom|stdin|stdout|stderr|tty\w*|console|ptmx|log"
+    r"|(fd|pts|shm|mqueue|tcp|udp)(/\S*)?)(?![\w.-])")
+# dd keeps its own shorter list (of=/dev/shm/x was refused before, and still is).
+_HARMLESS_DD_TARGET = re.compile(r"(null|zero|stdout|stderr)(?![\w.-])")
+# What may stand before the path in a word naming a device: an option
+# (--device=/dev/sda, --target-directory=…) or a short option (-t/dev/sda).
+_DEVICE_OPTION = re.compile(r"(?:--[\w-]+=|-[A-Za-z]*t)?(?=/)")
+_GLOB_CHARS = frozenset("*?[")
+# A path longer than this with a glob in it is not matched: it counts as a hit.
+_MAX_GLOB_CHARS = 256
+# Disk tools, formatting tools, tee and truncate, and programs that write what
+# they fetch or copy to a path they are given (curl -o, wget -O, ddrescue,
+# sponge): refused on a device node wherever it sits in their arguments. dd,
+# cp and install: see _token_reason.
 _DISK_TOOLS = frozenset({"wipefs", "blkdiscard", "shred", "sgdisk", "sfdisk", "parted", "fdisk", "tee", "truncate",
-                         "mke2fs", "mkswap"})
+                         "mke2fs", "mkswap", "curl", "wget", "ddrescue", "sponge"})
 # fdisk / sfdisk only list partitions with these (fdisk -l /dev/sda).
 _DISK_LISTING = frozenset({"-l", "--list", "-x", "--list-details"})
-_DD_DISK_TARGET = re.compile(r"of=/dev/(?!null\b|zero\b|stdout\b|stderr\b)")
+# A redirect in a text, read without its quotes: > >> >| >& &> and the target.
+_REDIRECT_TARGET = re.compile(r">[>|&]?\s*[\"']?([^\s\"';&|<>()]+)")
+# A redirect inside one word: the operator and what follows it in the word.
+_REDIRECT_IN_WORD = re.compile(r">+[|&]?([^>]*)")
+# The end of a Windows drive argument: a space, the end, or what closes or
+# follows the command around it ((Remove-Item … C:\), { … C:\ }; …).
+_DRIVE_END = r"(?=[\s)};|&]|$)"
 _SHELL_PATTERNS = [
     re.compile(r"\bmkfs(\.\w+)?\b"),
-    re.compile(r">\s*" + _DISK),
     re.compile(r":\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:"),          # :(){ :|:& };:
     re.compile(r"\bformat-volume\b", re.IGNORECASE),
     re.compile(r"\bclear-disk\b", re.IGNORECASE),
     # format c: anywhere (cmd /c format c:), not an option's value (-Format H:mm).
     re.compile(r"(?<![\w-])format(\.com)?\s+[a-z]:", re.IGNORECASE),
-    re.compile(r"\bremove-item\b(?=.*-recurse)(?=.*-force)[^|;]*\s['\"]?[a-z]:\\?['\"]?(\s|$)", re.IGNORECASE),
-    re.compile(r"\b(rd|rmdir)\s+/s\s+/q\s+[a-z]:\\?(\s|$)", re.IGNORECASE),
+    # Remove-Item -Recurse -Force on a drive, in one statement: a quoted ; or |
+    # before the drive is one more path, not the statement's end.
+    re.compile(r"\bremove-item\b(?=.*-recurse)(?=.*-force)(?:\"[^\"]*\"|'[^']*'|[^|;\"'])*\s['\"]?[a-z]:\\?['\"]?"
+               + _DRIVE_END, re.IGNORECASE),
+    re.compile(r"\b(rd|rmdir)\s+/s\s+/q\s+[a-z]:\\?" + _DRIVE_END, re.IGNORECASE),
 ]
 # Shutting down or restarting: the words anywhere in a command, like mkfs, so
 # no program in front of them (ssh host, echo … | sh, docker exec, watch) hides
@@ -77,20 +95,24 @@ _POWER_PATTERNS = [
 ]
 
 
-_POWER_READERS = frozenset({"grep", "zgrep", "egrep", "fgrep", "journalctl", "last", "tail", "head", "cat", "less",
-                            "ls"})
-_SHELL_SYNTAX = re.compile(r"[|;&><$`()\n]")
+# Programs that only read and never run a command named in their arguments.
+# No pager (less +!cmd runs one); journalctl pages only on a terminal, and a
+# remote shell has none (ssh -T).
+_POWER_READERS = frozenset({"grep", "zgrep", "egrep", "fgrep", "journalctl", "last", "tail", "head", "cat", "ls"})
+_SHELL_SYNTAX = re.compile(r"[|;&><$`()]")
 
 
 def _reads_only(command: str) -> bool:
     """A lone read-only command (grep, last, tail, journalctl…) with no shell
     syntax: none of these runs its arguments, so a shutdown word in them is
-    only text. Anything with a pipe, separator, redirect, substitution or
-    second line is not."""
-    if _SHELL_SYNTAX.search(command):
+    only text. Anything with a pipe, separator, redirect or substitution is
+    not, and neither is a command holding any character that is not printable
+    (a line break of bash or PowerShell, another control or space character):
+    only plain words on one line are read as one command."""
+    if _SHELL_SYNTAX.search(command) or not all(c.isprintable() or c == "\t" for c in command):
         return False
-    views = _token_views(command)
-    return all(toks and _program(toks[0]) in _POWER_READERS for toks in views)
+    views = _token_views(command.strip())
+    return all(words and _program(words[0]) in _POWER_READERS for words, _ in views)
 
 
 def _program(token: str) -> str:
@@ -103,77 +125,295 @@ def _program(token: str) -> str:
     return name
 
 
-def _token_views(segment: str) -> list:
-    """The segment's words, as one or more token lists the rules check in
-    turn. shlex reads them as bash does, except that bash ignores an
-    unbalanced quote inside a # comment and shlex raises; then the rules check
-    every reading that could hide a command, so they can only over-match: the
-    words with comments dropped (if that parses), the raw words with their
-    quotes stripped, and the raw words. A segment with a backslash gets the
-    raw readings too: shlex drops it, a Windows path keeps it
-    (C:\\tools\\psql.exe)."""
-    views = []
-    try:
-        views.append(shlex.split(segment, posix=True))
-        if "\\" not in segment:
-            return views
-    except ValueError:
-        pass
-    try:
-        views.append(shlex.split(segment, comments=True, posix=True))
-    except ValueError:
-        pass
-    raw = segment.split()
-    views.append([w.replace('"', "").replace("'", "") for w in raw])
-    views.append(raw)
+# Every character a shell may end a line at: bash at \n; PowerShell (the shell
+# of a Windows remote server) at a lone \r too; the rest are the other Unicode
+# line boundaries. All are read as \n.
+_LINE_BREAKS = {ord(c): "\n" for c in "\r\v\f\x1c\x1d\x1e\x85\u2028\u2029"}
+_SEPARATOR_CHARS = frozenset(";&|\n")
+_RAW_SEPARATORS = re.compile(r"[;&|\n]+")
+_ANSI_C_ESCAPE = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}|.)", re.DOTALL)
+_ANSI_C_NAMED = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f",
+                 "v": "\v"}
+
+
+def _ansi_c(match: "re.Match") -> str:
+    """One escape of a $'…' string, as the character bash makes of it."""
+    esc = match.group(1)
+    if esc[0] in "xuU" and len(esc) > 1:
+        code = int(esc[1:], 16)
+    elif esc[0] in "01234567":
+        code = int(esc, 8)
+    else:
+        return _ANSI_C_NAMED.get(esc, esc)
+    return chr(code) if code <= 0x10FFFF else match.group(0)
+
+
+def _lex(text: str, comments: bool) -> tuple:
+    """A text's words as bash reads them: (words, separators, balanced).
+
+    Quotes, backslashes and $'…' are resolved, so a word is what the program
+    receives. ``separators[i]`` is True for a word that is an unquoted run of
+    ; & | or line breaks: only those end a simple command (a quoted or
+    escaped one is an ordinary word). An unquoted ( or ) is a word of its
+    own, never a separator: a substitution or subshell stays inside the
+    command around it. An unquoted redirect operator is a word of its own
+    too, with its descriptor number and the & or | that belongs to it (2>,
+    >>, <<<, &>, 2>&, >|): dd<x is dd, and the word after an operator is
+    its target. With ``comments``, an unquoted # at the start of a word
+    drops the rest of its line. Never raises: an unclosed quote runs to the
+    end of the text and ``balanced`` is False."""
+    words: list = []
+    seps: list = []
+    buf: list = []
+    in_word = False
+    balanced = True
+    i, n = 0, len(text)
+
+    def flush() -> None:
+        nonlocal in_word
+        if in_word:
+            words.append("".join(buf))
+            seps.append(False)
+            buf.clear()
+            in_word = False
+
+    while i < n:
+        c = text[i]
+        if c == "\\":
+            if i + 1 < n and text[i + 1] != "\n":
+                buf.append(text[i + 1])
+                in_word = True
+            i += 2
+        elif c == "'":
+            j = text.find("'", i + 1)
+            if j < 0:
+                balanced, j = False, n
+            buf.append(text[i + 1:j])
+            in_word = True
+            i = j + 1
+        elif c == '"':
+            in_word = True
+            i += 1
+            start = i
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and i + 1 < n and text[i + 1] in '\\"$`\n':
+                    buf.append(text[start:i])
+                    if text[i + 1] != "\n":
+                        buf.append(text[i + 1])
+                    i += 2
+                    start = i
+                else:
+                    i += 1
+            buf.append(text[start:i])
+            if i >= n:
+                balanced = False
+            i += 1
+        elif c == "$" and i + 1 < n and text[i + 1] == "'":
+            j = i + 2
+            while j < n and text[j] != "'":
+                j += 2 if text[j] == "\\" else 1
+            if j >= n:
+                balanced, j = False, n
+            buf.append(_ANSI_C_ESCAPE.sub(_ansi_c, text[i + 2:j]))
+            in_word = True
+            i = j + 1
+        elif c == "$" and i + 1 < n and text[i + 1] == '"':
+            i += 1  # $"…" is a double-quoted string
+        elif c in " \t":
+            flush()
+            i += 1
+        elif c in "<>" or (c == "&" and text[i + 1:i + 2] == ">"):
+            # A redirect operator, with the descriptor number before it and
+            # the & or | that belongs to it (2>, >>, <<<, &>, 2>&, >|).
+            if in_word and not "".join(buf).isdigit():
+                flush()
+            j = i + 1
+            while j < n and text[j] in "<>":
+                j += 1
+            if j < n and (text[j] == "&" or (text[j] == "|" and text[j - 1] == ">")):
+                j += 1
+            buf.append(text[i:j])
+            in_word = True
+            flush()
+            i = j
+        elif c in _SEPARATOR_CHARS:
+            flush()
+            j = i + 1
+            while j < n and text[j] in _SEPARATOR_CHARS:
+                j += 1
+            words.append(text[i:j])
+            seps.append(True)
+            i = j
+        elif c in "()":
+            flush()
+            words.append(c)
+            seps.append(False)
+            i += 1
+        elif c == "#" and comments and not in_word:
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+        else:
+            buf.append(c)
+            in_word = True
+            i += 1
+    flush()
+    return tuple(words), tuple(seps), balanced
+
+
+def _token_views(text: str, raw: bool = False) -> list:
+    """The text's readings: each is its words as (words, separators), and
+    the rules check each in turn. Every reading that could hide a command is
+    checked, so together they can only over-match:
+
+    - bash's reading, with # as an ordinary character (cmd.exe, a # inside a
+      here-document) and with # starting a comment;
+    - when a quote is left open: bash's words again, without separators;
+    - when a quote is left open, the text has a backslash (a POSIX reading
+      drops it, a Windows path keeps it: C:\\tools\\psql.exe) or the caller
+      asks (``raw``): the raw words with their quote characters stripped,
+      and the raw words.
+
+    A reading without separators (None) makes a rule that stops at one read
+    on. The raw readings come last."""
+    words, seps, balanced = _lex(text, comments=False)
+    views = [(words, seps)]
+    if "#" in text:
+        words, seps, closed = _lex(text, comments=True)
+        views.append((words, seps))
+        balanced = balanced and closed
+    views = list(dict.fromkeys(views))
+    if not balanced:
+        # Where the open quote really closes is not known, so neither is
+        # which separators are real: the same words are read without any.
+        views.extend([(words, None) for words, _ in views])
+    if raw or not balanced or "\\" in text:
+        words = tuple(text.split())
+        views.append((tuple(w.replace('"', "").replace("'", "") for w in words), None))
+        if words != views[-1][0]:
+            views.append((words, None))
     return views
 
 
-def _shell_segments(command: str, depth: int = 0, split: Optional[set] = None) -> list:
-    """The command, each simple segment between separators, and the body of
-    any ``sh -c '…'`` / backtick / ``$(…)`` inside it, so a blocked action
-    can't hide behind a separator or a nested shell. ``split`` collects the
-    texts the lexer split at a separator: their segments are read instead of
-    them by the rules that stop at a separator (cp, dd, the disk tools)."""
-    out = [command]
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()\n")
-        lexer.whitespace = " \t\r"
-        lexer.whitespace_split = True
-        lexer.commenters = ""
-        seg: list = []
-        parts = []
-        for tok in lexer:
-            if tok and all(c in ";&|()\n" for c in tok):
-                parts.append(" ".join(seg))
-                seg = []
-            else:
-                seg.append(tok)
-        parts.append(" ".join(seg))
-        out.extend(parts)
-        if len(parts) > 1 and split is not None:
-            split.add(command.strip())
-    except ValueError:
-        out.extend(re.split(r"[;&|\n]+", command))
-    nested = re.findall(r"`([^`]*)`", command) + re.findall(r"\$\(([^()]*)\)", command)
-    for seg in list(out):
-        for toks in _token_views(seg):
-            nested.extend(_nested_bodies(toks))
-    nested = [body for body in nested if body.strip()]
-    if nested and depth >= _MAX_SHELL_DEPTH:
-        raise _ShellTooDeep()  # a body this check would not read: refuse, never skip
-    for body in nested:
-        out.extend(_shell_segments(body, depth + 1, split))
-    return [s.strip() for s in out if s and s.strip()]
+def _joined_segments(words: tuple, seps: Optional[tuple]) -> list:
+    """The simple commands of one reading, each as a text of its words joined
+    by spaces. The words have lost one level of quotes, so reading a segment
+    again reads what a second shell would (ssh host "…", eval "…", echo "…" |
+    sh): one more over-matching reading. A raw reading is cut at every
+    separator character, quoted or not."""
+    if seps is None:
+        return _RAW_SEPARATORS.split(" ".join(words))
+    out, seg = [], []
+    for word, sep in zip(words, seps, strict=True):
+        if sep:
+            out.append(" ".join(seg))
+            seg = []
+        else:
+            seg.append(word)
+    out.append(" ".join(seg))
+    return out
+
+
+def _substitution_bodies(text: str) -> list:
+    """The body of every backtick pair and of every $( ), <( ) and >( ) in
+    the text, at any nesting, found without regard to quotes. Bodies nested
+    so deep that together they pass _MAX_SHELL_WORK are not collected: the
+    command is unreadable."""
+    bodies = re.findall(r"`([^`]*)`", text)
+    stack: list = []
+    total = 0
+    for i, c in enumerate(text):
+        if c == "(":
+            stack.append(i)
+        elif c == ")" and stack:
+            start = stack.pop()
+            if start and text[start - 1] in "$<>":
+                total += i - start
+                if total > _MAX_SHELL_WORK:
+                    raise _ShellUnreadable()
+                bodies.append(text[start + 1:i])
+    return bodies
 
 
 # Nested shell bodies are read this many levels deep; a deeper one is refused.
 _MAX_SHELL_DEPTH = 3
+# Text read for one command, in characters, across every segment, line and
+# nested body: 64 times the longest command. A command that needs more (only
+# deeply nested substitutions do) is refused, so the work stays linear.
+_MAX_SHELL_WORK = 64 * 16 * 1024
 REASON_SHELL_UNREADABLE = "could not read the command safely"
 
 
-class _ShellTooDeep(Exception):
-    pass
+class _ShellUnreadable(Exception):
+    """The command holds a body this check would not read: refuse, never skip."""
+
+
+class _ShellReading:
+    """Every text of a command the rules read, each once: the command, its
+    lines, the simple commands between separators, and the body of any
+    ``sh -c '…'``, backtick, ``$( )``, ``<( )`` or ``>( )`` inside them, so
+    a blocked action can't hide behind a separator, a line break, a quote
+    that only one shell reads, or a nested shell."""
+
+    def __init__(self) -> None:
+        self.texts: dict = {}   # text -> its readings, in the order found
+        self._raw: set = set()  # texts whose raw readings are wanted too
+        self._work = 0
+
+    def views(self, text: str) -> list:
+        raw = text in self._raw
+        if text not in self.texts or (raw and self.texts[text][-1][1] is not None):
+            self._work += len(text) + 1
+            if self._work > _MAX_SHELL_WORK:
+                raise _ShellUnreadable()
+            self.texts[text] = _token_views(text, raw)
+        return self.texts[text]
+
+    def read(self, roots: list) -> None:
+        # (text, depth, whether it is the body of a substitution)
+        queue = [(root.strip(), 0, False) for root in roots]
+        # A body is read once (its readings are kept), but its depth is the
+        # deepest it is found at: a segment with a level of quotes removed
+        # shows a body one level early, and that must not loosen the bound.
+        # No body is found deeper than _MAX_SHELL_DEPTH, so each is walked at
+        # most that many times more.
+        deepest: dict = {}
+        while queue:
+            next_queue = []
+            for root, depth, substituted in queue:
+                if not root or deepest.get((root, substituted), -1) >= depth:
+                    continue
+                deepest[(root, substituted)] = depth
+                # A line is read on its own too: nothing on an earlier line (a
+                # quote in a comment or a here-document) can hide it.
+                lines = [line.strip() for line in root.split("\n")] if "\n" in root else []
+                level = dict.fromkeys([root] + [line for line in lines if line])
+                for unit in list(level):
+                    segments: list = []
+                    for words, seps in self.views(unit):
+                        joined = _joined_segments(words, seps)
+                        if seps is not None:
+                            # A separator left in a segment was quoted: for
+                            # the shell that reads the unquoted text it is a
+                            # real one, but which reading is right is not
+                            # known here, so the raw words (which read on
+                            # past it) are checked as well.
+                            self._raw.update(s.strip() for s in joined if not _SEPARATOR_CHARS.isdisjoint(s))
+                        segments.extend(joined)
+                    level.update(dict.fromkeys(s.strip() for s in segments if s.strip()))
+                # The substitutions of a text are found at every nesting at
+                # once, so those inside a substitution's body are already
+                # queued beside it: they are no deeper level of shell.
+                substitutions = [] if substituted else _substitution_bodies(root)
+                shells: list = []
+                for text in level:
+                    for words, _ in self.views(text):
+                        shells.extend(_nested_bodies(words))
+                nested = [(body.strip(), kind) for bodies, kind in ((substitutions, True), (shells, False))
+                          for body in dict.fromkeys(bodies) if body.strip()]
+                if nested and depth >= _MAX_SHELL_DEPTH:
+                    raise _ShellUnreadable()
+                next_queue.extend((body, depth + 1, kind) for body, kind in nested)
+            queue = next_queue
 
 
 _SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "su", "runuser"}
@@ -202,6 +442,7 @@ def _nested_bodies(toks: list) -> list:
 
 _VARIABLE_WILDCARD = re.compile(r"\$(\w+|\{[^}]*\})(/+\*)+/*")
 _HOME_PREFIX = re.compile(r"~([\w.+-]*)(?=/|$)")
+_HOME_OR_PWD = re.compile(r"\$\{(HOME|PWD)[^}]*\}(?=/|$)")
 
 
 def _protected_target(target: str) -> bool:
@@ -222,22 +463,138 @@ def _protected_target(target: str) -> bool:
         # ~root is /root; ~ and any other ~user are a home directory.
         t = ("/root" if home.group(1) == "root" else _HOME) + t[home.end():]
     else:
-        for var in ("${HOME}", "$HOME"):
-            if t == var or t.startswith(var + "/"):
-                t = _HOME + t[len(var):]
-                break
-    t = posixpath.normpath(t)
-    t = re.sub(r"^/+", "/", t)  # normpath keeps a leading "//"
-    return t in _RM_ROOTS or t == _HOME or all(part == ".." for part in t.split("/"))
+        # $HOME is the home directory; $PWD is "." (the working directory).
+        # With an expansion operator (${HOME%/*}, ${HOME:?}) it is read as
+        # the directory itself, which can only over-match.
+        braced = _HOME_OR_PWD.match(t)
+        if braced:
+            t = (_HOME if braced.group(1) == "HOME" else ".") + t[braced.end():]
+        else:
+            for var, path in (("$HOME", _HOME), ("$PWD", ".")):
+                if t == var or t.startswith(var + "/"):
+                    t = path + t[len(var):]
+                    break
+    t = _absolute(t)
+    if t in _RM_ROOTS or t == _HOME or all(part == ".." for part in t.split("/")):
+        return True
+    # A glob that can name a protected directory (/et?, /[e]tc, /h*).
+    if t.startswith("/") and not _GLOB_CHARS.isdisjoint(t):
+        return len(t) > _MAX_GLOB_CHARS or any(fnmatch.fnmatchcase(root, t) for root in _GLOB_ROOTS)
+    return False
 
 
-_SEPARATOR_TOKEN = re.compile(r"[;&|()\n]+")
-_EXEC_ACTIONS = frozenset({"-exec", "-execdir", "-ok", "-okdir"})
+_GLOB_ROOTS = tuple(sorted(root for root in _RM_ROOTS if root.startswith("/") and root != "/"))
+# /proc/<pid>/root is the root directory under another name.
+_PROC_ROOT = re.compile(r"(/proc/[^/]+/root)+(?=/|$)")
+
+
+def _absolute(path: str) -> str:
+    """A path normalized: "." and ".." parts resolved, repeated slashes
+    collapsed, a leading /proc/<pid>/root dropped. A relative path stays
+    relative."""
+    path = re.sub(r"^/+", "/", posixpath.normpath(path))  # normpath keeps a leading "//"
+    proc_root = _PROC_ROOT.match(path)
+    return (path[proc_root.end():] or "/") if proc_root else path
+
+
+def _dev_node(path: str) -> Optional[str]:
+    """What a path names under /dev once normalized (//dev/sda, /dev/./sda,
+    /tmp/../dev/sda, /dev/shm/../sda are all "sda"; "" is /dev itself), or
+    None for a path outside /dev. A glob that can name /dev counts as it
+    (/d?v/sda)."""
+    if not path.startswith("/"):
+        return None
+    first, _, rest = _absolute(path).lstrip("/").partition("/")
+    if first != "dev" and (_GLOB_CHARS.isdisjoint(first) or len(first) > _MAX_GLOB_CHARS
+                           or not fnmatch.fnmatchcase("dev", first)):
+        return None
+    return rest
+
+
+def _device(path: str, harmless: "re.Pattern" = _HARMLESS_DEV) -> bool:
+    """Whether a path names a device node a write could destroy: anything
+    under /dev but a harmless node (/dev/null, /dev/stderr, /dev/shm/…)."""
+    node = _dev_node(path)
+    return bool(node) and not harmless.match(node)
+
+
+def _names_device(word: str) -> bool:
+    """A word naming a device node: its path alone, as an option's value or
+    attached to a short option (see _DEVICE_OPTION)."""
+    m = _DEVICE_OPTION.match(word)
+    return m is not None and _device(word[m.end():])
+
+
+def _dd_device(path: str) -> bool:
+    """dd's of= target under /dev, by dd's own short list of harmless nodes.
+    A harmless node counts only spelled plainly (/dev/null, not /dev/./null),
+    as before paths were normalized."""
+    node = _dev_node(path)
+    if node is None:
+        return False
+    return not (_HARMLESS_DD_TARGET.match(node) and path.startswith("/dev/") and _HARMLESS_DD_TARGET.match(path[5:]))
+
+
+def _redirects_to_device(text: str) -> bool:
+    """A redirect onto a device node anywhere in a text, read without its
+    quotes (echo x > /dev/sda, >| //dev/sda, >> "/dev/sda", &>/dev/vg0/root)."""
+    return any(_device(m.group(1)) for m in _REDIRECT_TARGET.finditer(text))
+
+
+# (The part before the first comma, and before the first "..", is matched
+# without commas or dots: one way to match, so an unclosed brace costs a
+# single pass.)
+_BRACE_LIST = re.compile(r"\{([^{},]*,[^{}]*)\}")
+_BRACE_PIECES = re.compile(r"[{},]+")
+_BRACE_RANGE = re.compile(r"\{[^{},\s.]*\.\.[^{},\s]*\}")
+# A word's brace lists are expanded up to this many words; a word with more is
+# read as its pieces instead (see _expand_braces).
+_MAX_BRACE_WORDS = 64
+
+
+def _expand_braces(words: tuple, seps: tuple) -> tuple:
+    """Words with their brace lists expanded as bash does ({rm,-rf,/etc} is
+    three words, /{etc,var} is /etc and /var). A word that would expand to
+    more than _MAX_BRACE_WORDS is split at its braces and commas instead:
+    every piece is then a word, which can only over-match."""
+    if not any("{" in w for w in words):
+        return words, seps
+    out_words, out_seps = [], []
+    for word, sep in zip(words, seps, strict=True):
+        if ".." in word and not sep:
+            word = _BRACE_RANGE.sub("*", word)  # {a..z} is read as a wildcard
+        forms = [word]
+        if not sep and _BRACE_LIST.search(word):
+            while True:
+                expanded = []
+                for form in forms:
+                    m = _BRACE_LIST.search(form)
+                    if m is None:
+                        expanded.append(form)
+                        continue
+                    if len(expanded) + m.group(1).count(",") >= _MAX_BRACE_WORDS:
+                        expanded = None
+                        break
+                    expanded.extend(form[:m.start()] + alt + form[m.end():] for alt in m.group(1).split(","))
+                if expanded is None:
+                    forms = [piece for piece in _BRACE_PIECES.split(word) if piece]
+                    break
+                if expanded == forms:
+                    break
+                forms = expanded
+        out_words.extend(forms)
+        out_seps.extend([sep] * len(forms))
+    return tuple(out_words), tuple(out_seps)
+
+
+# find's own directory is not a protected root for it (find . -name x -delete).
+_WORKING_DIRECTORY = frozenset({".", "$PWD", "${PWD}"})
+_EXEC_ACTIONS =frozenset({"-exec", "-execdir", "-ok", "-okdir"})
 _FIND_GLOBAL_OPTION = re.compile(r"-[HLP]|-O\d*|--")
 _DELETING_PROGRAMS = frozenset({"rm", "shred", "unlink"})
 # A redirect operator alone (its target is the next word), or with its target
 # attached (2>/dev/null, >log, 2>&1).
-_REDIRECT_ALONE = re.compile(r"\d*(>>?|<<?<?|>&|&>>?)")
+_REDIRECT_ALONE = re.compile(r"\d*(>>?|>\||<>|<<?<?|[<>]&|&>>?)")
 _REDIRECT_ATTACHED = re.compile(r"\d*(>|<|&>)")
 _CP_VALUE_OPTIONS = frozenset({"-t", "-S", "-m", "-o", "-g", "--target-directory", "--suffix", "--mode", "--owner",
                                "--group"})
@@ -269,39 +626,78 @@ def _cp_source(tokens: list, k: int, end: int) -> Optional[int]:
     return None
 
 
-def _token_reason(tokens: list, devices: bool = True) -> Optional[str]:
-    """rm, find, chmod/chown/chgrp, dd, cp/install and the disk tools
-    anywhere in a segment's words, so no wrapper spelling can hide them.
-    rm, find and chmod read the rest of the words; dd, cp and the disk tools
-    (only with ``devices``: not for a text whose segments are read instead)
-    the words up to the next separator. Facts about the words to the right
-    are gathered in one pass, so the work is linear ("rm rm rm …" included)."""
+_REASON_POWER = "shuts down or restarts the server"
+_ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+
+
+def _token_reason(words: tuple, seps: Optional[tuple], power: bool = True) -> Optional[str]:
+    """rm, find, chmod/chown/chgrp, dd, cp/install, the disk tools, init and
+    redirects anywhere in one reading of a text, so no wrapper spelling can
+    hide them. rm, find and chmod read the rest of the words; the others the
+    words up to the next separator (``seps``: an unquoted ; & | or line
+    break, never a quoted one or a parenthesis; None for a raw reading, which
+    has none and reads on). ``power`` is off for a lone read-only command,
+    whose shutdown words are text. Facts about the words to the right are
+    gathered in one pass, so the work is linear ("rm rm rm …" included)."""
+    lexed = seps is not None
+    tokens, seps = _expand_braces(words, seps if lexed else (False,) * len(words))
     n = len(tokens)
-    names = [_program(t) for t in tokens]
-    disk = [bool(_DISK_TOKEN.match(t)) for t in tokens]
+    # A word's program name; for an assignment (x=rm, alias del=rm) the
+    # program it names, which a later word may run ($x -rf /).
+    names = [_program(_ASSIGNMENT.sub("", t)) for t in tokens]
+    disk = [_names_device(t) for t in tokens]
     target = [not t.startswith("-") and _protected_target(t) for t in tokens]
     # Suffix facts: index i covers tokens[i:].
     r_flag, f_flag, no_preserve, tree_r, protected, delete, exec_rm = ([False] * (n + 1) for _ in range(7))
     # Prefix counts: tokens[:i].
     disks, dd_disk, listing, other, find_root, deleting = ([0] * (n + 1) for _ in range(6))
+    runlevel = [0] * (n + 1)
+    # Substitutions: for the ( of a $( ) and for every word of a backtick
+    # pair, the index of the word that closes it; -1 elsewhere.
+    group_end = [-1] * (n + 1)
+    open_parens: list = []
+    backtick_start = -1
     for i, t in enumerate(tokens):
+        if t == "(" and not seps[i]:
+            open_parens.append(i)
+        elif t == ")" and open_parens:
+            start = open_parens.pop()
+            if start and tokens[start - 1].endswith("$"):
+                group_end[start] = i
+        if t.count("`") % 2:
+            if backtick_start < 0:
+                backtick_start = i
+            else:
+                for k in range(backtick_start, i + 1):
+                    group_end[k] = i
+                backtick_start = -1
+        runlevel[i + 1] = runlevel[i] + (t in ("0", "6"))
+        if ">" in t and not seps[i]:
+            # A redirect: its target is the rest of the word, or the next word.
+            for m in _REDIRECT_IN_WORD.finditer(t):
+                to = m.group(1) or (tokens[i + 1] if m.end() == len(t) and i + 1 < n and not seps[i + 1] else "")
+                if _device(to):
+                    return "destructive system command"
         disks[i + 1] = disks[i] + disk[i]
-        dd_disk[i + 1] = dd_disk[i] + bool(_DD_DISK_TARGET.match(t))
+        dd_disk[i + 1] = dd_disk[i] + (t.startswith("of=") and _dd_device(t[3:]))
         listing[i + 1] = listing[i] + (t in _DISK_LISTING)
         other[i + 1] = other[i] + (not disk[i] and t not in _DISK_LISTING)
-        find_root[i + 1] = find_root[i] + (target[i] and t not in (".", "./"))
+        find_root[i + 1] = find_root[i] + (target[i] and t.rstrip("/") not in _WORKING_DIRECTORY)
         deleting[i + 1] = deleting[i] + (names[i] in _DELETING_PROGRAMS)
     next_sep, next_term, next_opt = [n] * (n + 1), [n] * (n + 1), [n] * (n + 1)
     for i in range(n - 1, -1, -1):
         t = tokens[i]
         short = t.startswith("-") and not t.startswith("--") and len(t) > 1
-        r_flag[i] = r_flag[i + 1] or t == "--recursive" or (short and ("r" in t or "R" in t))
-        f_flag[i] = f_flag[i + 1] or t == "--force" or (short and "f" in t)
-        no_preserve[i] = no_preserve[i + 1] or t == "--no-preserve-root"
-        tree_r[i] = tree_r[i + 1] or t == "--recursive" or (short and "R" in t)
+        # A long option may be cut short (GNU: --r, --recurs, --no-p).
+        cut = t if len(t) > 2 and t.startswith("--") else "\x00"
+        recursive = "--recursive".startswith(cut)
+        r_flag[i] = r_flag[i + 1] or recursive or (short and ("r" in t or "R" in t))
+        f_flag[i] = f_flag[i + 1] or "--force".startswith(cut) or (short and "f" in t)
+        no_preserve[i] = no_preserve[i + 1] or "--no-preserve-root".startswith(cut)
+        tree_r[i] = tree_r[i + 1] or recursive or (short and "R" in t)
         protected[i] = protected[i + 1] or target[i]
         delete[i] = delete[i + 1] or t == "-delete"
-        next_sep[i] = i if _SEPARATOR_TOKEN.fullmatch(t) else next_sep[i + 1]
+        next_sep[i] = i if seps[i] else next_sep[i + 1]
         next_term[i] = i if t in (";", "+") else next_term[i + 1]
         next_opt[i] = i if (t.startswith("-") or t in ("(", "!")) else next_opt[i + 1]
         exec_rm[i] = exec_rm[i + 1] or (
@@ -314,19 +710,30 @@ def _token_reason(tokens: list, devices: bool = True) -> Optional[str]:
         if name in ("chmod", "chown", "chgrp") and tree_r[a] and protected[a]:
             return "destructive system command"
         if name == "find":
-            j, skipped = a, 0
-            while j < n and (tokens[j] == "-D" or _FIND_GLOBAL_OPTION.fullmatch(tokens[j])):
-                j += 2 if tokens[j] == "-D" else 1
+            # The roots: the words before the first option, after the global
+            # options. A substitution among them is stepped over (its words
+            # are not find's: find $(echo -L) / -delete).
+            j, skipped, roots = a, 0, 0
+            while True:
+                while j < n and (tokens[j] == "-D" or _FIND_GLOBAL_OPTION.fullmatch(tokens[j])):
+                    j += 2 if tokens[j] == "-D" else 1
+                    skipped += 1
+                    if skipped > _MAX_OPTION_WORDS:
+                        return REASON_SHELL_UNREADABLE
+                j = min(j, n)
+                rest = next_opt[j]
+                roots += find_root[rest] - find_root[j]
+                if rest >= n or group_end[rest] < 0:
+                    break
+                j = group_end[rest] + 1
                 skipped += 1
                 if skipped > _MAX_OPTION_WORDS:
                     return REASON_SHELL_UNREADABLE
-            j = min(j, n)
-            rest = next_opt[j]
-            if find_root[rest] - find_root[j] > 0 and (delete[rest] or exec_rm[rest]):
+            if roots > 0 and (delete[rest] or exec_rm[rest]):
                 return "destructive system command"
-        if not devices:
-            continue
         end = next_sep[a]
+        if power and lexed and name in ("init", "telinit") and runlevel[end] - runlevel[a] > 0:
+            return _REASON_POWER  # init --no-wall 6: options between the two
         on_disks = disks[end] - disks[a]
         if name in _DISK_TOOLS and on_disks:
             if (name in ("fdisk", "sfdisk") and other[end] - other[a] == 0
@@ -372,10 +779,17 @@ def _db_client_sql(tokens: list) -> tuple:
             letters = {o[1] for o in opts if len(o) == 2 and o[0] == "-"}
             continue
         if seen:
+            option, has_value, value = a.partition("=")
+            # A long option may be cut short (--comm, --exec, --que).
+            if option not in opts and len(option) > 3 and option.startswith("--") and any(
+                    o.startswith(option) for o in opts):
+                option = next(o for o in sorted(opts) if o.startswith(option))
             if a in opts and j + 1 < len(tokens):
                 sql.append(tokens[j + 1])
-            elif "=" in a and a.split("=", 1)[0] in opts:
-                sql.append(a.split("=", 1)[1])
+            elif option in opts and has_value:
+                sql.append(value)
+            elif option in opts and j + 1 < len(tokens):
+                sql.append(tokens[j + 1])
             elif len(a) > 2 and a[0] == "-" and a[1] != "-":
                 # A short-option cluster: the rest of the token after an SQL
                 # option's letter is its SQL (-c"DROP …", -Xc"DROP …"); with
@@ -401,6 +815,9 @@ def shell_block_reason(command: str) -> Optional[str]:
 # The longest command read: execute_shell's schema allows 16384 characters;
 # counted here in UTF-8 bytes. A longer one is refused before any pattern.
 _MAX_SHELL_BYTES = 16 * 1024
+_IFS = re.compile(r"\$IFS(?![A-Za-z0-9_])|\$\{IFS[^}]*\}")
+_EMPTY_PARAMETER = re.compile(r"\$[0-9@*]|\$\{[0-9@*]\}")
+_WINDOWS_ESCAPES = re.compile(r"[`^]")
 
 
 def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
@@ -408,37 +825,68 @@ def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
         return None
     if _utf8_len(command) > _MAX_SHELL_BYTES:
         return REASON_SHELL_UNREADABLE
-    split: set = set()
-    try:
-        segments = _shell_segments(command, split=split)
-    except _ShellTooDeep:
-        return REASON_SHELL_UNREADABLE
-    views = {seg: _token_views(seg) for seg in segments}
-    client_anywhere = any(_db_client_sql(toks)[1] for seg in segments for toks in views[seg])
     power_words_are_text = _reads_only(command)
-    for seg in segments:
-        for tokens in views[seg]:
-            reason = _token_reason(tokens, devices=seg not in split)
+    text = command.translate(_LINE_BREAKS)
+    roots = [text]
+    if "$" in text:
+        # $IFS is a space and a positional parameter is empty in a command
+        # line (rm${IFS}-rf${IFS}/etc): that spelling is read as well.
+        expanded = _EMPTY_PARAMETER.sub("", _IFS.sub(" ", text))
+        if expanded != text:
+            roots.append(expanded)
+    if "`" in text or "^" in text:
+        # PowerShell's ` and cmd's ^ escape the next character inside a word
+        # (Stop-Comp`uter, shut^down): the text without them is read as well.
+        roots.append(_WINDOWS_ESCAPES.sub("", text))
+    reading = _ShellReading()
+    try:
+        reading.read(roots)
+    except _ShellUnreadable:
+        return REASON_SHELL_UNREADABLE
+    # Each unique reading (words) and each unique SQL text is checked once,
+    # whatever number of segments, lines and nested bodies hold it.
+    clients = {}
+    for views in reading.texts.values():
+        for words, _ in views:
+            if words not in clients:
+                clients[words] = _db_client_sql(words)
+    client_anywhere = any(seen for _, seen in clients.values())
+    read_views: set = set()
+    read_sql: set = set()
+
+    def sql_reason(sql: str, level: str) -> Optional[str]:
+        if (sql, level) in read_sql:
+            return None
+        read_sql.add((sql, level))
+        return _sql_reason(sql, level, budget)
+
+    for seg, views in reading.texts.items():
+        for view in views:
+            if view in read_views:
+                continue
+            read_views.add(view)
+            reason = _token_reason(*view, power=not power_words_are_text)
             if reason:
                 return reason
         if not power_words_are_text:
             for pat in _POWER_PATTERNS:
                 if pat.search(seg):
-                    return "shuts down or restarts the server"
+                    return _REASON_POWER
         for pat in _SHELL_PATTERNS:
             if pat.search(seg):
                 return "destructive system command"
+        if _redirects_to_device(seg):
+            return "destructive system command"
         # SQL run through a database client: psql -c "DROP …", mysql -e …,
         # and SQL piped into one (echo "DROP TABLE x" | psql).
-        for tokens in views[seg]:
-            client_sql, _ = _db_client_sql(tokens)
-            for text in client_sql:
-                reason = _sql_reason(text, "sql", budget)
+        for words, _ in views:
+            for sql in clients[words][0]:
+                reason = sql_reason(sql, "sql")
                 if reason:
                     return reason
             if client_anywhere:
-                for tok in tokens:
-                    reason = _sql_reason(tok, "shared", budget)
+                for word in words:
+                    reason = sql_reason(word, "shared")
                     if reason:
                         return reason
     return None

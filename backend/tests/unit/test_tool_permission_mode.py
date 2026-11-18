@@ -261,13 +261,280 @@ def test_the_read_only_exemptions_stay_narrow(command, reason):
     assert shell_block_reason(command) == reason
 
 
-@pytest.mark.parametrize("words", [
-    ["ls", ";", "cp", "a", "/dev/sda"], ["ls", "&&", "wipefs", "-a", "/dev/sda"], ["true", "|", "dd", "of=/dev/sda"],
+@pytest.mark.parametrize("command", [
+    "ls ; cp a /dev/sda", "ls && wipefs -a /dev/sda", "true | dd of=/dev/sda", "ls a b c ; ls ; tee /dev/sda",
 ])
-def test_a_program_with_nothing_to_its_right_never_hides_a_later_one(words):
-    # The word rules, on one reading of a segment: a first program with no
-    # device before the separator must not end the scan.
-    assert tool_blocklist._token_reason(words) == _DESTRUCTIVE
+def test_a_program_with_nothing_to_its_right_never_hides_a_later_one(command):
+    # A first program with no device before the separator must not end the scan.
+    assert shell_block_reason(command) == _DESTRUCTIVE
+
+
+# ── blocklist: one reading of a shell command ───────────────────────────────
+
+_EVERY_REFUSED_COMMAND = _DESTRUCTIVE_SHELL + _SQL_ATTACHED + _DISK_AND_ROOT + _SHUTDOWN_WORDS
+
+_SUBSTITUTION_BESIDE_A_DISK = [
+    "dd if=img bs=$(cat bs) of=/dev/sdb", "dd bs=$(blockdev --getss /dev/sdb) if=img of=/dev/sdb",
+    "truncate -s $(stat -c %s img) /dev/sdb", "shred -n $(nproc) /dev/sdb", "wipefs -a $(echo -f) /dev/sdb",
+    "sudo wipefs --all $(realpath /dev/disk/by-id/usb-X)", "sgdisk --zap-all $(realpath /dev/sdb)",
+    "parted $(echo /dev/sda) mklabel gpt", "cp img $(echo /dev/sda)", "cp $(ls img*) /dev/sda",
+    "tee -a $(echo log) /dev/sda < img", "echo x | tee >(cat) /dev/sda",
+    # The same behind backticks and a subshell.
+    "dd if=img bs=`cat bs` of=/dev/sdb", "shred -n `nproc` /dev/sdb", "cp `ls img*` /dev/sda",
+    "(cd /tmp && cp img /dev/sda)", "wipefs -a /dev/sdb $(true)",
+]
+
+
+@pytest.mark.parametrize("command", _SUBSTITUTION_BESIDE_A_DISK)
+def test_a_substitution_beside_a_disk_write_never_hides_it(command):
+    # ( ) are not statement separators: the tool and its device stay one segment.
+    assert shell_block_reason(command) == _DESTRUCTIVE
+
+
+_AROUND_A_SUBSTITUTION = ["x=$({})", "({})", "echo `{}`", "{} $(echo x)", "{} `echo x`", "echo $(true); {}",
+                          "( true ) && {}"]
+
+
+@pytest.mark.parametrize("shape,command", [
+    (shape, command) for shape in _AROUND_A_SUBSTITUTION for command in _EVERY_REFUSED_COMMAND
+    # Backticks do not nest: a command with its own would end the outer pair.
+    if not ("`" in shape and "`" in command)
+])
+def test_every_refused_command_is_still_refused_around_a_substitution(shape, command):
+    assert shell_block_reason(shape.replace("{}", command))
+
+
+# Every line break a shell may end a statement at: bash at \n; PowerShell (the
+# shell of a Windows remote server) also at a lone \r; the rest are the other
+# Unicode line boundaries.
+_LINE_BREAKS = ["\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", " ", " "]
+
+
+@pytest.mark.parametrize("command", [
+    "cat x\rStop-Computer", "ls\rRestart-Computer", "grep a b\rStop-Computer -Force", "cat x\rshutdown",
+    # Any character that is not printable ends the read-only reading too.
+    "cat x\x1bStop-Computer", "tail x reboot",
+])
+def test_a_line_break_never_gets_a_shutdown_past_the_read_only_exemption(command):
+    assert shell_block_reason(command) == _POWER
+
+
+@pytest.mark.parametrize("line_break", _LINE_BREAKS)
+@pytest.mark.parametrize("command", _EVERY_REFUSED_COMMAND)
+def test_every_refused_command_is_still_refused_after_any_line_break(line_break, command):
+    assert shell_block_reason("cat x" + line_break + command)
+    assert shell_block_reason(command + line_break + "cat x")
+
+
+@pytest.mark.parametrize("command", ['less "+!reboot" /etc/hosts', "less +!poweroff x", "less shutdown.log"])
+def test_a_pager_is_not_a_read_only_command(command):
+    # less runs a command from its arguments (+!cmd): no exemption for it.
+    assert shell_block_reason(command) == _POWER
+
+
+@pytest.mark.parametrize("command", [
+    # A quoted or escaped separator is a word, not the end of the command.
+    'tee "|" /dev/sda', 'shred ";" /dev/sda', 'wipefs -a "&" /dev/sda', "tee '|' /dev/sda", "tee \\| /dev/sda",
+    'cp x ";" /dev/sda', 'dd if=x ";" of=/dev/sda', 'tee "&&" /dev/sda', 'shred "\n" /dev/sda',
+    # Other spellings of the device path.
+    "dd if=x of=//dev/sda", "dd if=x of=/./dev/sda", "cp x //dev/sda", "tee /dev/./sda", "cat x | tee /dev//sda",
+    "dd if=x of=/tmp/../dev/sda", "wipefs -a /dev/shm/../sda", "cp x /dev/fd/../sda", "echo x > //dev/sda",
+    "echo x > /dev/./sda", "echo x > /dev/pts/../sda", 'echo x > "/dev/sda"', "echo x >'/dev/sda'",
+    # Redirect operators.
+    "cat img >| /dev/sda", "cat img >|/dev/sda", "cat img >>/dev/sda", "echo x>/dev/sda", "cat img &> /dev/sda",
+    "cat img 1> /dev/sda", "cat img &>>/dev/sda", "exec 3<>/dev/sda", "cat img >& /dev/sda",
+    # A redirect ends the word before it: dd<x is dd.
+    "dd<x of=/dev/sda", "tee</dev/null /dev/sda", "sh<<<'dd if=x of=/dev/sda'", "dd<x>/dev/sda",
+    "cp x>/dev/null /dev/sda", "shred</dev/null /dev/sda",
+    # Any device node that is not a harmless one, by glob too.
+    "wipefs -a /dev/vg0/root", "dd if=x of=/dev/nbd0", "cp img /dev/sd?", "cat img > /dev/zd0", "shred /dev/s*",
+    "cat img > /dev/block/8:0", "tee /dev/[s]da < img", "cp img /d?v/sda", "cp img /dev/{sda,sdb}",
+])
+def test_a_disk_write_is_refused_however_its_words_are_spelled(command):
+    assert shell_block_reason(command) == _DESTRUCTIVE
+
+
+@pytest.mark.parametrize("command", [
+    # $IFS is a space; an empty positional parameter is nothing.
+    "rm${IFS}-rf${IFS}/etc", "rm$IFS-rf$IFS/etc", "rm$IFS$9-rf$IFS$9/etc", "rm -rf${IFS}/",
+    # Brace lists, $'…' quoting and globs that name a protected root.
+    "{rm,-rf,/etc}", "rm -rf /{etc,var}", "rm -rf /{tmp/x,etc}", "rm -rf $'/etc'", "$'\\x72\\x6d' -rf /",
+    "rm -rf $'\\057etc'", "rm -rf /et?", "rm -rf /[e]tc", "rm -rf /h*", "rm -rf /va[r]/*",
+    # The working directory by its variable; a redirect glued to a word.
+    "rm -rf $PWD", "rm -rf ${PWD}/", 'rm -rf "$PWD/.."', "rm -rf />log", "rm<x -rf /",
+    # A quote in a comment or a here-document never hides the next line.
+    "# it's\nrm -rf / # it's", "cat <<EOF\nit's\nEOF\nrm -rf / # '", "# don't\nrm -rf /etc\n# don't",
+    # A body nested in more parentheses or quotes is still read.
+    'echo "$(echo "a"; rm -rf /; (true))"', 'echo "$(echo $(echo "x"; rm -rf /))"', "echo $( (rm -rf /) )",
+    "cat <(rm -rf /)",
+])
+def test_a_root_delete_is_refused_however_its_words_are_spelled(command):
+    assert shell_block_reason(command) == _RM_ROOT
+
+
+@pytest.mark.parametrize("command", [
+    # Harmless device nodes and redirects.
+    "ls 2>/dev/null", "make > /dev/null 2>&1", "make &>/dev/null", "echo x | tee /dev/stderr", "cp a /dev/shm/b",
+    "echo hi > /dev/tty", "cat a >| b", "echo x >> /dev/stdout", "ls /dev/sda", "lsblk /dev/sda",
+    "dd if=/dev/vg0/root of=img", "cp /dev/nbd0 img", "cat /dev/vg0/root | gzip > img.gz", "head -c 16 /dev/urandom",
+    "dd if=/dev/urandom of=/tmp/x bs=1 count=8", "echo x > /dev/fd/2", "cat x > /tmp/dev/sda",
+    # Quoted separators and braces beside nothing protected.
+    'echo "a;b" c', 'tee "|" log', "rm -rf /tmp/{a,b}", "awk '{print $1,$2}' f", "echo {a,b}",
+    # Globs and quoting that name no protected root.
+    "rm -rf ./*.pyc", "rm -rf /tmp/x*", "rm -rf $'/tmp/x'", "rm -rf /tmp/[ab]", "rm -rf build/*",
+    "rm -rf $PWD/build", "rm -rf ${PWD}/dist/", "find $PWD -name '*.pyc' -delete", "find ./ -name x -delete",
+    "wc -l<f", "ls>out.txt", "sort<a>b", "cat x 2>&1 >/dev/null",
+    # Nested parentheses are not nested shells.
+    "python3 -c \"print(len(str(int(float('1')))))\"", "echo $((1+(2*(3+(4)))))", "echo $(echo $(echo $(echo $(ls))))",
+    # Several lines, comments with quotes.
+    "# it's fine\nls -la # isn't it", "echo a\r\necho b", "cat <<EOF\nit's\nEOF\nls",
+])
+def test_ordinary_commands_near_the_new_readings_pass(command):
+    assert shell_block_reason(command) is None
+
+
+@pytest.mark.parametrize("command,reason", [
+    # A quoted separator beside Remove-Item is one more path to remove.
+    ('Remove-Item ";" -Recurse -Force C:\\', _DESTRUCTIVE), ("Remove-Item '|' -Recurse -Force C:\\", _DESTRUCTIVE),
+    ("(Remove-Item -Recurse -Force C:\\)", _DESTRUCTIVE),
+    # Options between init and the runlevel.
+    ("telinit --no-wall 0", _POWER), ("sudo init --no-wall 6", _POWER), ("ssh host telinit -t 5 0", _POWER),
+    # A substitution in front of find's roots.
+    ("find $(echo -L) / -delete", _DESTRUCTIVE), ("find `echo -H` /etc -exec rm {} +", _DESTRUCTIVE),
+    ("find $(echo -L) $(echo -O2) /var -delete", _DESTRUCTIVE),
+    # The root directory by its /proc name.
+    ("rm -rf /proc/self/root/etc", _RM_ROOT), ("rm -rf /proc/1/root/", _RM_ROOT),
+    ("dd if=x of=/proc/1/root/dev/sda", _DESTRUCTIVE), ("cat x > /proc/self/root/dev/sda", _DESTRUCTIVE),
+    ("chmod -R 777 /proc/self/root/proc/self/root/usr", _DESTRUCTIVE),
+    # Long options cut short, as GNU tools and database clients accept them.
+    ("rm --r --f /", _RM_ROOT), ("rm --recurs --forc /etc", _RM_ROOT), ("rm --no-p -r /tmp/x", _RM_ROOT),
+    ("chmod --rec 777 /etc", _DESTRUCTIVE), ('psql --comm "drop table x"', DROP),
+    ('mysql --exec="DROP DATABASE x"', DROP), ('clickhouse-client --que "DROP DATABASE x"', DROP),
+    # The program by a name given to it in the command.
+    ("x=rm; $x -rf /", _RM_ROOT), ("alias del=rm; del -rf /etc", _RM_ROOT), ("c=chmod; $c -R 777 /", _DESTRUCTIVE),
+    # $HOME and $PWD with an expansion operator; a brace range.
+    ('rm -rf "${HOME%/*}"', _RM_ROOT), ("rm -rf ${HOME:?}", _RM_ROOT), ("rm -rf ${PWD%/*}", _RM_ROOT),
+    ("rm -rf /{e..e}tc", _RM_ROOT), ("cp img /dev/sd{a..c}", _DESTRUCTIVE),
+    # A download or a copy written onto a device.
+    ("curl -o /dev/sda http://host/img", _DESTRUCTIVE), ("wget -O /dev/sda http://host/img", _DESTRUCTIVE),
+    ("curl -s http://host/img --output /dev/nvme0n1", _DESTRUCTIVE), ("ddrescue img /dev/sda", _DESTRUCTIVE),
+    ("zcat img.gz | sponge /dev/sda", _DESTRUCTIVE),
+    # PowerShell's and cmd's escape characters inside a word.
+    ("Stop-Comp`uter", _POWER), ("Restart-Comp`uter -Force", _POWER), ("cmd /c shut^down /s", _POWER),
+    ("Rem`ove-Item -Recurse -Force C:\\", _DESTRUCTIVE), ("For`mat-Volume -DriveLetter D", _DESTRUCTIVE),
+])
+def test_words_between_a_program_and_its_target_never_hide_it(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+@pytest.mark.parametrize("command,reason", [
+    # Two kinds of quote left open in a here-document pair up around the next
+    # line twice over; the line is still read on its own.
+    ("cat <<EOF\nit's \"q\nEOF\npsql -c \"drop table x\" # \"'", DROP),
+    ("cat <<EOF\nit's \"q\nEOF\nmysql -e \"DROP DATABASE shop\" # \"'", DROP),
+])
+def test_a_line_is_read_on_its_own_whatever_quotes_surround_it(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+@pytest.mark.parametrize("command", [
+    # Accepted false refusals (named in the PR): a quoted command with a
+    # separator in it is also read as raw words, which read on past it; dd's
+    # harmless targets count only spelled plainly.
+    "sh -c 'cp /dev/sda img; ls /dev/sdb'", "cp /dev/sda img; ls /dev/sdb # it's",
+    "c\\p /dev/sda img; ls /dev/sdb # it's", "'cp' /dev/sda img; ls /dev/sdb # don't",
+    "dd if=/dev/sda of=/dev/./null bs=1M count=1",
+])
+def test_accepted_false_refusals_of_the_raw_reading(command):
+    assert shell_block_reason(command) == _DESTRUCTIVE
+
+
+@pytest.mark.parametrize("command,reason", [
+    # Accepted false refusals (named in the PR).
+    # A write, or a writer's argument, on a device node off the harmless list.
+    ("echo x > /dev/kmsg", _DESTRUCTIVE), ("curl -T /dev/sda http://host/", _DESTRUCTIVE),
+    # rm, find and chmod read every later word, also past a separator.
+    ("rm -rf build; ls /etc", _RM_ROOT), ("rm -rf dist && cd ~", _RM_ROOT),
+    # A quoted text is read again with a level of quotes removed, and each line on its own.
+    ('git commit -m "note: rm -rf / is blocked"', _RM_ROOT), ("echo 'a\nrm -rf /\nb'", _RM_ROOT),
+    # A brace list over 64 words is read as its pieces: the / before it counts alone.
+    ("rm -rf /{" + ",".join(f"a{i}" for i in range(70)) + "}", _RM_ROOT),
+])
+def test_accepted_false_refusals_of_the_shell_readings(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+def test_a_long_brace_list_under_an_ordinary_directory_passes():
+    assert shell_block_reason("rm -rf /tmp/{" + ",".join(f"a{i}" for i in range(70)) + "}") is None
+
+
+@pytest.mark.parametrize("command", [
+    "Remove-Item -Recurse -Force build; dir C:\\", "find $(pwd) -name '*.pyc' -delete", "find `pwd` -name x -delete",
+    "git init", "telinit q", "git init -q repo && sleep 6", "cat /proc/self/root/etc/hostname",
+    "rm -rf /proc/self/root/tmp/x", "ls /proc/1/root/dev/sda",
+    "rm --verbose -rf /tmp/x", "rm --recursive --force ./build", "psql --csv -c 'select 1'",
+    'psql --comm "select 1"', "x=rm; echo $x", "EDITOR=vim git commit", "rm -rf ${HOME}/build",
+    "rm -rf ${HOME:-/tmp}/cache", "rm -rf /tmp/{1..3}", "echo {1..10}",
+    "curl -o /dev/null http://host/x", "curl -so /tmp/x http://host/x", "wget -O - http://host/x",
+    "wget -qO /dev/stdout http://host/x", "mount -o loop /dev/sda1 /mnt", "lsblk -o NAME /dev/sda",
+    "ls -o /dev/sda", "echo `date` > /tmp/log", "grep '^foo' f", "kill `cat app.pid`",
+])
+def test_near_misses_of_the_words_between_rule_pass(command):
+    assert shell_block_reason(command) is None
+
+
+def _nested_three_levels(n_parts):
+    import shlex
+
+    inner = "|".join(f"a{i}\\b" for i in range(n_parts))
+    command = inner
+    for _ in range(3):
+        command = f"sh -c {shlex.quote(command)}"
+    return command
+
+
+def test_a_nested_body_with_separators_is_read_once_per_segment(monkeypatch):
+    # Work counts, not a clock: every unique piece of the command is read by
+    # the word rules a bounded number of times, however deep it is nested and
+    # however many readings (quotes, backslashes) each level has.
+    n_parts = 16 * 1024 // 12
+    command = _nested_three_levels(n_parts)
+    while len(command.encode()) > 16 * 1024:
+        n_parts -= 50
+        command = _nested_three_levels(n_parts)
+    calls = {"words": 0, "sql": 0}
+    real_words, real_sql = tool_blocklist._token_reason, tool_blocklist._sql_reason
+
+    def words(*a, **k):
+        calls["words"] += 1
+        return real_words(*a, **k)
+
+    def sql(*a, **k):
+        calls["sql"] += 1
+        return real_sql(*a, **k)
+
+    monkeypatch.setattr(tool_blocklist, "_token_reason", words)
+    monkeypatch.setattr(tool_blocklist, "_sql_reason", sql)
+    assert shell_block_reason(command) is None
+    # Unique pieces: each of the n_parts segments in two readings (with and
+    # without its backslash), and a handful of whole texts per level.
+    assert calls["words"] <= 2 * n_parts + 128
+    assert calls["sql"] == 0  # no database client anywhere
+
+    calls["words"] = 0
+    assert shell_block_reason(command.replace("a7\\b", "psql")) is None
+    assert calls["sql"] <= 2 * n_parts + 128  # each unique word once, whatever number of texts hold it
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("command", [
+    "$(" * 5000 + ")" * 5000, "sh -c " * 2700, "a;" * 8000, "`a`" * 5000, "{a,b}" * 3000, "$'\\x41'" * 2000,
+    ">" * 16000, "> " * 8000, "x\n" * 8000, "# '\n" * 4000, "rm -rf {" + "a," * 7000 + "b}",
+    "rm -rf {" + "a," * 8000, "rm -rf {" + "." * 16000, "'\n" * 8000, "(" * 8000 + ")" * 8000, "x=rm " * 3200,
+])
+def test_pathological_shell_text_is_checked_in_bounded_work(command):
+    # Minutes if any reading were quadratic at the size cap; refused or passed, never hung.
+    assert shell_block_reason(command) in (None, "could not read the command safely", _DESTRUCTIVE, _RM_ROOT)
 
 
 def test_a_command_over_the_size_cap_is_unreadable_before_any_pattern(monkeypatch):
@@ -1142,7 +1409,7 @@ def _nest(command, shell, n):
     return command
 
 
-@pytest.mark.parametrize("n", [8, 9, 12])
+@pytest.mark.parametrize("n", [4, 5, 8, 9, 12])
 def test_shell_nested_past_the_read_depth_is_refused(n):
     assert shell_block_reason(_nest("rm -rf /", "sh", n))
     assert shell_block_reason(_nest("ls -la", "bash", n)) == "could not read the command safely"
@@ -1574,6 +1841,19 @@ def test_a_platform_run_is_unwatched_and_gets_no_report_grants_as_on_main(trigge
     # A scheduled run that answers on a platform is still a job.
     ctx["head_completion"] = SimpleNamespace(**{**blank, "scheduled_prompt_id": "s"})
     assert ToolPolicyService.is_machine_run(ctx) and not ToolPolicyService.is_interactive_run(ctx)
+
+
+@pytest.mark.parametrize("trigger", ["wait", "checkin", "sub_agent", "sub_agent_wave", "sub_agent_message"])
+def test_a_turn_started_by_a_platform_run_is_a_platform_run_too(trigger):
+    # Its head carries the 'channel' mark and no platform of its own: the same
+    # rules as the Slack/Teams/email turn that started it.
+    from app.services.tool_policy_service import ToolPolicyService
+
+    head = SimpleNamespace(webhook_id=None, trigger_source=trigger, scheduled_prompt_id=None, started_via="channel")
+    ctx = {"user": SimpleNamespace(id="u"), "head_completion": head}
+    assert not ToolPolicyService.is_interactive_run(ctx)
+    assert not ToolPolicyService.report_grants_apply(ctx)
+    assert not ToolPolicyService.is_machine_run(ctx)  # a person's run: the unattended 'allow' does not cover it
 
 
 def test_webhook_turn_counts_as_unattended():
