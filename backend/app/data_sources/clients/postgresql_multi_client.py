@@ -273,6 +273,8 @@ class PostgresqlMultiClient(DataSourceClient):
             raise TableScopeViolation(
                 "PRAGMA statements are not allowed: the unified tables are already described in the schema."
             )
+        if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+            raise TableScopeViolation("Run one SELECT (or WITH ... SELECT) query at a time; nothing else is allowed.")
         foreign_types = [t for stmt in statements for t in _catalog_qualified_types(stmt)]
         foreign_types += [t for stmt in statements for t in _json_structure_types(stmt)]
         if foreign_types:

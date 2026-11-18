@@ -63,6 +63,10 @@ REFUSED = [
     "SELECT json_transform(note, note) FROM public.orders",
     "SELECT json_transform('{}', '{not json')",
     "SELECT json_transform('{}', '\"INTEGER) FROM __t0001.public.orders --\"')",
+    "SET search_path = '__t0004.public'",
+    "SET search_path = '__t0004.public'; SELECT * FROM public.orders",
+    "SELECT * FROM public.orders; SELECT * FROM public.users",
+    "DESCRIBE public.orders",
 ]
 
 _READERS = [
@@ -104,6 +108,8 @@ ALLOWED = [
     "SELECT NULL::memory.main.mood",
     "SELECT json_transform(note, '{\"a\": \"INTEGER\", \"b\": [\"VARCHAR\"]}') FROM public.orders",
     "SELECT from_json(note, '\"memory.main.mood\"') FROM public.orders",
+    "SELECT * FROM public.orders UNION ALL SELECT * FROM public.orders",
+    "(SELECT 1)",
 ]
 
 
