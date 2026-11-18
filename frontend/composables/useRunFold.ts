@@ -7,7 +7,7 @@
  * memo so a streamed token does not recompute every run in the conversation.
  */
 import { ref } from 'vue'
-import { computeRunActivity, type RunActivity, type RunStep } from './useRunActivity'
+import { computeRunActivity, type RunActivity } from './useRunActivity'
 
 type FoldOptions = Parameters<typeof computeRunActivity>[1]
 
@@ -24,7 +24,7 @@ export function createRunActivityMemo() {
     const pd = b?.plan_decision
     const prose = hasText(b?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
     // While live, the row's status line reads the progress notes and titles.
-    const live = `${(b?.content || pd?.assistant || '').length}:${b?.tool_execution?.tool_name ?? ''}:${b?.tool_execution?.arguments_json?.title ?? ''}:${b?.tool_execution?.progress_stage ?? ''}`
+    const live = `${(b?.content || pd?.assistant || '').length}:${b?.tool_execution?.tool_name ?? ''}:${b?.tool_execution?.arguments_json?.title ?? ''}:${b?.tool_execution?.created_step?.title ?? ''}:${b?.tool_execution?.progress_stage ?? ''}`
     return `${b?.id}:${b?.status}:${b?.tool_execution?.status ?? ''}:${prose ? 1 : 0}:${pd?.analysis_complete ? 1 : 0}:${live}`
   }
   return function runActivityFor(
@@ -52,23 +52,25 @@ export function useRunFold<M>(opts: {
   keyFor: (m: M) => string
 }) {
   const expandedRuns = ref<Set<string>>(new Set())
-  const expandedRunSteps = ref<Set<string>>(new Set())
+  const collapsedRuns = ref<Set<string>>(new Set())
+  const expandedToolGroups = ref<Set<string>>(new Set())
 
-  const runFold = (m: M): RunActivity | undefined => opts.foldFor(m) || undefined
-  const isRunExpanded = (m: M): boolean => expandedRuns.value.has(opts.keyFor(m))
+  const runFold = (m: M): RunActivity | undefined => {
+    const activity = opts.foldFor(m)
+    // A finished text-only answer has no activity control to reopen its blocks.
+    return activity && (activity.live || activity.steps.length) ? activity : undefined
+  }
+  const isRunExpanded = (m: M): boolean => expandedRuns.value.has(opts.keyFor(m)) || (!!runFold(m)?.live && !collapsedRuns.value.has(opts.keyFor(m)))
   function toggleRun(m: M) {
     const next = new Set(expandedRuns.value)
     const key = opts.keyFor(m)
-    next.has(key) ? next.delete(key) : next.add(key)
+    const closing = isRunExpanded(m)
+    closing ? next.delete(key) : next.add(key)
+    const closed = new Set(collapsedRuns.value)
+    closing ? closed.add(key) : closed.delete(key)
+    collapsedRuns.value = closed
     expandedRuns.value = next
   }
-  const isRunStepExpanded = (stepId: string): boolean => expandedRunSteps.value.has(stepId)
-  function toggleRunStep(stepId: string) {
-    const next = new Set(expandedRunSteps.value)
-    next.has(stepId) ? next.delete(stepId) : next.add(stepId)
-    expandedRunSteps.value = next
-  }
-
   // Part of the answer shown while the steps are closed.
   const isRunAnswerBlock = (m: M, block: any): boolean => !!runFold(m)?.answerIds.includes(String(block.id))
   // Shown in full while folded: a card waiting on the user.
@@ -77,35 +79,34 @@ export function useRunFold<M>(opts: {
   function isRunBlockShown(m: M, block: any): boolean {
     return !runFold(m) || isRunExpanded(m) || isRunAnswerBlock(m, block) || isRunOpenBlock(m, block)
   }
-  // Part of the indented thread: everything before the answer while the steps
+  // Activity preceding the answer: everything before the answer while the steps
   // are open.
   function isRunActivityBlock(m: M, block: any): boolean {
     return !!runFold(m) && !isRunAnswerBlock(m, block) && (isRunExpanded(m) || isRunOpenBlock(m, block))
   }
-  function runStepHeaderFor(m: M, block: any): RunStep | undefined {
-    const fold = runFold(m)
-    return fold && isRunExpanded(m) ? fold.headerAt[String(block.id)] : undefined
+  const toolGroupFor = (m: M, block: any) => runFold(m)?.toolGroups.find(g => g.blockIds.includes(String(block.id)))
+  const toolGroupHeaderFor = (m: M, block: any) => {
+    const group = toolGroupFor(m, block)
+    return isRunExpanded(m) && group && group.blockIds.length > 1 && group.id === String(block.id) ? group : undefined
   }
-  // Later members of a step keep their reasoning and call in the step details.
-  function isRunStepDetail(m: M, block: any): boolean {
-    const step = runFold(m)?.stepOf[String(block.id)]
-    return !!step && step.id !== String(block.id)
+  const isGroupedTool = (m: M, block: any): boolean => (toolGroupFor(m, block)?.blockIds.length || 0) > 1
+  const isToolGroupExpanded = (id: string) => expandedToolGroups.value.has(id)
+  function toggleToolGroup(id: string) {
+    const next = new Set(expandedToolGroups.value)
+    next.has(id) ? next.delete(id) : next.add(id)
+    expandedToolGroups.value = next
   }
-  // A step's first member shows its reasoning in the chain (it precedes the
-  // step); later members' reasoning opens with the step.
+  // A group opens individual tool rows, each retaining its own collapsed state.
   function isRunReasoningShown(m: M, block: any): boolean {
     const fold = runFold(m)
     if (!fold) return true
-    if (!isRunExpanded(m)) return false
-    const step = fold.stepOf[String(block.id)]
-    return !step || step.id === String(block.id) || isRunStepExpanded(step.id)
+    if (fold.live && !fold.steps.length) return false
+    const group = toolGroupFor(m, block)
+    return isRunExpanded(m) && (!group || isToolGroupExpanded(group.id))
   }
   function isRunToolShown(m: M, block: any): boolean {
-    const fold = runFold(m)
-    if (!fold) return true
-    if (isRunOpenBlock(m, block) && !isRunExpanded(m)) return true
-    const step = fold.stepOf[String(block.id)]
-    return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
+    const group = toolGroupFor(m, block)
+    return !runFold(m) || isRunOpenBlock(m, block) || (isRunExpanded(m) && (!group || group.blockIds.length === 1 || isToolGroupExpanded(group.id)))
   }
   function runDeliverables(m: M): any[] {
     const fold = runFold(m)
@@ -116,18 +117,17 @@ export function useRunFold<M>(opts: {
 
   return {
     expandedRuns,
-    expandedRunSteps,
+    toolGroupHeaderFor,
+    isGroupedTool,
+    isToolGroupExpanded,
+    toggleToolGroup,
     runFold,
     isRunExpanded,
     toggleRun,
-    isRunStepExpanded,
-    toggleRunStep,
     isRunAnswerBlock,
     isRunOpenBlock,
     isRunBlockShown,
     isRunActivityBlock,
-    runStepHeaderFor,
-    isRunStepDetail,
     isRunReasoningShown,
     isRunToolShown,
     runDeliverables,

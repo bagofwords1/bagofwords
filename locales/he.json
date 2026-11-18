@@ -1419,6 +1419,16 @@
     "contextClearedDivider": "ההקשר נוקה",
     "contextClearedDividerHint": "הסוכן לא רואה שום דבר מעל הקו הזה",
     "runFold": {
+      "groups": {
+        "browser": "גלישה באינטרנט",
+        "search": "חיפוש",
+        "files": "קריאת קבצים",
+        "inspect": "בדיקת נתונים",
+        "data": "בוצעו {count} שאילתות",
+        "create": "יצירה ועדכון תוצאות",
+        "tools": "שימוש בכלים",
+        "results": "בוצעו {count} שאילתות"
+      },
       "workedFor": "עבד במשך {duration}",
       "worked": "עבד",
       "working": "עובד",
@@ -8404,5 +8414,9 @@
     "loadFailed": "לא ניתן לטעון את הערוצים של הסוכן. סגרו ונסו שוב.",
     "privateChannel": "ערוץ פרטי",
     "privateCount": "ערוץ פרטי אחד | {n} ערוצים פרטיים"
+  },
+  "markdownTable": {
+    "title": "טבלה",
+    "copyFailed": "לא ניתן להעתיק את הטבלה"
   }
 }

@@ -1,34 +1,20 @@
 <template>
-  <div class="mt-1">
-    <div
-      class="flex items-center text-chat-2"
-      :class="hasDetail ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
-      @click="hasDetail && (collapsed = !collapsed)"
-    >
-      <Icon
-        v-if="hasDetail"
-        :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 me-1 text-ink-muted rtl-flip"
-      />
-      <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500 dark:text-gray-400">
-        <Icon name="heroicons-code-bracket" class="w-3 h-3 me-1 text-ink-muted" />
-        Running Excel code…{{ description ? ' ' + description : '' }}
-      </span>
-      <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-        <span class="align-middle">{{ t('tools.writeOfficeJs.ran') }}</span>
-        <span v-if="description" class="ms-1.5 text-chat-2 text-ink-muted truncate max-w-[320px]">· {{ description }}</span>
-      </span>
-      <span v-else class="text-red-500 flex items-center">
-        <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
-        <span class="align-middle">{{ t('tools.writeOfficeJs.failed') }}</span>
-        <span v-if="isSyntaxError" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 flex-shrink-0">syntax</span>
-        <span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
-      </span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-command-line" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="isRunning">
+        Running Excel code…{{ description ? ' ' + description : '' }}</template>
+      <template v-else-if="succeeded">{{ t('tools.writeOfficeJs.ran') }}</template>
+      <template v-else>{{ t('tools.writeOfficeJs.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="isRunning"></template>
+      <template v-else-if="succeeded"><span v-if="description" class="ms-1.5 text-chat-2 text-ink-muted truncate max-w-[320px]">· {{ description }}</span></template>
+      <template v-else><span v-if="isSyntaxError" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 flex-shrink-0">syntax</span><span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span></template></div>
 
     <Transition name="fade">
-      <div v-if="!collapsed && hasDetail" class="mt-2 ms-4 text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && hasDetail" class="mt-2 ms-4 text-chat-2 text-gray-600 dark:text-gray-400">
         <pre v-if="code" class="code-block text-chat-2 text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded p-2 overflow-x-auto"><code>{{ code }}</code></pre>
         <div v-if="logs && logs.length" class="mt-2">
           <div class="text-chat-3 text-ink-muted mb-0.5">Logs ({{ logs.length }})</div>
@@ -40,10 +26,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref, watch } from 'vue'
@@ -97,18 +89,6 @@ watch(
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }

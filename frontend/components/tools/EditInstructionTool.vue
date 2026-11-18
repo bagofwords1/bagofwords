@@ -1,71 +1,31 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-ink-muted" />
-          {{ t('tools.editInstruction.editing') }}
-        </span>
-        <!-- Same row shape as ReadInstructionTool: chevron first, cube icon,
-             "Edit instruction · TITLE" — the two block kinds read as one
-             family in the transcript. -->
-        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
-          />
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
-          <span dir="auto" class="text-gray-700 dark:text-gray-300 truncate max-w-[300px]">
-            {{ t('tools.editInstruction.editLabel') }}<template v-if="headerTitle"> · {{ headerTitle }}</template>
-          </span>
-          <span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-chat-3 shrink-0">v{{ versionNumber }}</span>
-          <!-- Grouped card: this card stands for every edit call of one
-               (instruction, build) run; the count streams up in real time as
-               later calls land, like other actions' live counters. -->
-          <span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-chat-3 shrink-0">{{ t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span>
-          <!-- A status change is the edit's whole point more often than not
-               (no text, so no +/- counts) — name it in the header. -->
-          <span
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toggleExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.editInstruction.editing') }}</template>
+      <template v-else-if="isSuccess">{{ t('tools.editInstruction.editLabel') }}<template v-if="headerTitle"> · {{ headerTitle }}</template></template>
+      <template v-else-if="isRejected">{{ t('tools.editInstruction.rejected') }}</template>
+      <template v-else>{{ t('tools.editInstruction.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else-if="isSuccess"><span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-chat-3 shrink-0">v{{ versionNumber }}</span><span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-chat-3 shrink-0">{{ t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span><span
             v-if="statusChange"
             class="ms-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-chat-3 shrink-0"
             :class="statusChange === 'inactive'
               ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300'
               : 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'"
             data-testid="edit-instruction-status-chip"
-          >
-            <Icon name="heroicons-power" class="w-2.5 h-2.5" />
-            {{ statusChange === 'inactive' ? t('tools.editInstruction.turnOff') : t('tools.editInstruction.turnOn') }}
-          </span>
-          <span v-if="linesAdded > 0" class="ms-1.5 text-chat-3 text-green-600 shrink-0">+{{ linesAdded }}</span>
-          <span v-if="linesRemoved > 0" class="ms-0.5 text-chat-3 text-red-500 shrink-0">-{{ linesRemoved }}</span>
-        </span>
-        <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
-          />
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500 flex-shrink-0" />
-          <span>{{ t('tools.editInstruction.rejected') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-amber-600 dark:text-amber-500 text-chat-3">({{ prettyRejectedReason }})</span>
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 me-1 text-ink-muted flex-shrink-0 rtl-flip"
-          />
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1 text-red-500 flex-shrink-0" />
-          <span>{{ t('tools.editInstruction.failed') }}</span>
-        </span>
-      </div>
-    </Transition>
+          ><Icon name="heroicons-power" class="w-2.5 h-2.5" />
+            {{ statusChange === 'inactive' ? t('tools.editInstruction.turnOff') : t('tools.editInstruction.turnOn') }}</span><span v-if="linesAdded > 0" class="ms-1.5 text-chat-3 text-green-600 shrink-0">+{{ linesAdded }}</span><span v-if="linesRemoved > 0" class="ms-0.5 text-chat-3 text-red-500 shrink-0">-{{ linesRemoved }}</span></template>
+      <template v-else-if="isRejected"><span v-if="rejectedReason" class="ms-1.5 text-amber-600 dark:text-amber-500 text-chat-3">({{ prettyRejectedReason }})</span></template>
+      <template v-else></template></div>
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
+      <div v-if="toolHeaderExpanded && status !== 'running'" class="mt-2 space-y-2">
         <!-- ONE spinner until this card's FINAL presentation is known, then a
              single render. Anything shown earlier repaints later — verdicts
              land, hunks load, streamed calls mutate the data — and every
@@ -221,10 +181,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import DiffMatchPatch from 'diff-match-patch'
@@ -300,7 +266,6 @@ const reportAgentIds = computed<string[]>(() =>
   (props.dataSources || []).map((d: any) => String(d?.id || '')).filter(Boolean)
 )
 
-const isExpanded = ref(true)
 // Set once the reader clicks this card's header: from then on its open/closed
 // state is theirs, and nothing auto-collapses it out from under them.
 const userToggled = ref(false)
@@ -474,9 +439,6 @@ const isRejected = computed(() => {
 // already carries. It opens collapsed, and a card that fails mid-stream
 // collapses when the verdict lands rather than leaving a spent block open.
 const isUnsuccessful = computed(() => !!isRejected.value || status.value === 'error')
-watch(isUnsuccessful, (bad) => {
-  if (bad && !userToggled.value) isExpanded.value = false
-}, { immediate: true })
 
 // Extract from arguments_json (input) - these are the updates applied.
 // NOTE: there is deliberately no `updatedText` here. `arguments_json.text` is
@@ -743,8 +705,8 @@ const errorMessage = computed(() => {
   return ''
 })
 
-// Watch instructionId too — it lands after mount with result_json, so a single watch on isExpanded misses it.
-watch([isExpanded, instructionId], async ([expanded, id]) => {
+// Watch instructionId too — it lands after mount with result_json, so a single watch on the disclosure misses it.
+watch([toolHeaderExpanded, instructionId], async ([expanded, id]) => {
   if (props.readonly) return
   if (expanded && id && fetchedInstruction.value === null) {
     await fetchInstruction()
@@ -774,13 +736,9 @@ async function fetchInstruction() {
 }
 
 function toggleExpanded() {
-  if (status.value === 'running') return
   userToggled.value = true
-  isExpanded.value = !isExpanded.value
-  // A first fetch that failed (or ran before the id landed) left this null and
-  // the guard below never retried it — the body then rendered empty for the
-  // rest of the session. Reopening the card is the natural retry.
-  if (isExpanded.value && instructionId.value && fetchedInstruction.value === null) {
+  toolHeaderExpanded.value = !toolHeaderExpanded.value
+  if (toolHeaderExpanded.value && instructionId.value && fetchedInstruction.value === null) {
     fetchInstruction()
   }
 }
@@ -799,18 +757,6 @@ async function handleEdit() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;
 }

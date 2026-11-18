@@ -1445,6 +1445,16 @@
     "contextClearedDivider": "Context cleared",
     "contextClearedDividerHint": "The agent does not see anything above this line",
     "runFold": {
+      "groups": {
+        "browser": "Used the browser",
+        "search": "Searched",
+        "files": "Read files",
+        "inspect": "Inspected data",
+        "data": "Ran {count} queries",
+        "create": "Created and updated results",
+        "tools": "Used tools",
+        "results": "Ran {count} queries"
+      },
       "workedFor": "Worked for {duration}",
       "worked": "Worked",
       "working": "Working",
@@ -8413,5 +8423,9 @@
     "loadFailed": "Couldn't load this agent's channels. Close and try again.",
     "privateChannel": "Private channel",
     "privateCount": "{n} private channel | {n} private channels"
+  },
+  "markdownTable": {
+    "title": "Table",
+    "copyFailed": "Could not copy table"
   }
 }

@@ -6,11 +6,12 @@
 import { setCustomComponents } from 'markstream-vue'
 import ChatMermaidBlock from '~/components/markdown/ChatMermaidBlock.vue'
 import ChatLink from '~/components/markdown/ChatLink.vue'
+import ChatTable from '~/components/markdown/ChatTable.vue'
 
 let registered = false
 
 export default defineNuxtPlugin(() => {
   if (registered) return
   registered = true
-  setCustomComponents({ mermaid: ChatMermaidBlock, link: ChatLink })
+  setCustomComponents({ mermaid: ChatMermaidBlock, link: ChatLink, table: ChatTable })
 })

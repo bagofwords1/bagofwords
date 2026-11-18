@@ -1,55 +1,25 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-ink-muted" />
-          <span v-if="instructionText" dir="auto" class="truncate max-w-[300px]">{{ t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</span>
-          <span v-else>{{ t('tools.createInstruction.creating') }}</span>
-          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ category }}</span>
-          <Icon
-            v-if="instructionText"
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip"
-          />
-        </span>
-        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-cube" class="w-3 h-3 me-1.5 text-green-500" />
-          <span dir="auto" class="truncate max-w-[300px]">{{ truncatedText }}</span>
-          <span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ category }}</span>
-          <span v-if="lineCount > 0" class="ms-1.5 text-chat-3 text-green-600 shrink-0">+{{ lineCount }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip"
-          />
-        </span>
-        <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>{{ t('tools.createInstruction.rejected') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
-          />
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ t('tools.createInstruction.failed') }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
-          />
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">
+      <template v-if="instructionText">{{ t('tools.createInstruction.creatingPrefix', { text: truncatedText }) }}</template>
+      <template v-else>{{ t('tools.createInstruction.creating') }}</template></template>
+      <template v-else-if="isSuccess">{{ truncatedText }}</template>
+      <template v-else-if="isRejected">{{ t('tools.createInstruction.rejected') }}</template>
+      <template v-else>{{ t('tools.createInstruction.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"><span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ category }}</span></template>
+      <template v-else-if="isSuccess"><span v-if="category" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ category }}</span><span v-if="lineCount > 0" class="ms-1.5 text-chat-3 text-green-600 shrink-0">+{{ lineCount }}</span></template>
+      <template v-else-if="isRejected"><span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span></template>
+      <template v-else></template></div>
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded && (status !== 'running' || instructionText)" class="mt-2 space-y-2">
+      <div v-if="toolHeaderExpanded && (status !== 'running' || instructionText)" class="mt-2 space-y-2">
         <!-- Instruction card - similar to InstructionSuggestions -->
         <div class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 rounded-md p-3 transition-colors">
           <!-- Instruction text - click to edit -->
@@ -153,10 +123,16 @@
       :initial-type="'global'"
       @instruction-saved="handleInstructionSaved"
     />
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
@@ -526,18 +502,6 @@ function handleInstructionSaved(data: any) {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;
 }

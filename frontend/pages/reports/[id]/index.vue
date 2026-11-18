@@ -331,25 +331,27 @@
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
                                 <div class="flex w-full min-w-0 items-start gap-3" :dir="responseDir">
-                                    <div v-if="!isMobile" class="w-7 shrink-0" :class="{ 'completion-enter': m._animateEntry }">
-                                        <img :src="assistantLogoUrl" alt="" class="h-7 w-7 rounded object-contain" @error="assistantLogoFailed = true" />
+                                    <div v-if="!isMobile" class="w-6 shrink-0" :class="{ 'completion-enter': m._animateEntry }">
+                                        <img :src="assistantLogoUrl" alt="" class="h-6 w-6 rounded object-contain" @error="assistantLogoFailed = true" />
                                     </div>
                                     <div class="assistant-content min-w-0 flex-1 text-start" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
-                                        <div class="mb-1 flex min-h-5 items-center text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
+                                        <div class="mb-2 flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
                                             <bdi dir="ltr">{{ m.model ? responseModelName(m.model) : 'BoW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
                                         </div>
 									<!-- System message -->
 									<div>
-											<!-- Run fold: the run's activity sits behind this one row — live
-											     while it works, settled once the final message has arrived
-											     (useRunActivity.ts). -->
+											<RunActivityToggle v-if="runFold(m) && !runFold(m)!.live"
+                                                :expanded="isRunExpanded(m)" :duration="runFoldDuration(m)"
+                                                :translate="responseT" :has-steps="!!runFold(m)?.steps.length"
+                                                @toggle="toggleRun(m)" />
+                                            <!-- Initial thinking ends when visible text or a tool call arrives. -->
 											<RunActivityToggle
-												v-if="runFold(m)"
+												v-if="m.status === 'in_progress' && !runFold(m)?.steps.length && !visibleBlocks(m).some(blockHasMessage)"
 												:expanded="isRunExpanded(m)"
 												:duration="runFoldDuration(m)"
 												:translate="responseT"
-												:live="runFold(m)!.live"
-												:status="runFold(m)!.status"
+												:live="m.status === 'in_progress'"
+												:has-steps="!!runFold(m)?.steps.length"
 												@toggle="toggleRun(m)"
 											/>
 											<!-- Sub-agent waves launched by this turn: one group line per wave -->
@@ -385,7 +387,7 @@
 													</div>
 												</div>
 											</div>
-											<div v-if="isRunBlockShown(m, block)" :data-block-id="block.id" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
+											<div v-if="isRunBlockShown(m, block)" :data-block-id="block.id" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block), 'run-group-member': isGroupedTool(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
 											<!-- Live ticker for a run of low-signal tool steps: one line that
 											     morphs in place while the run works (crossfade between step
 											     labels), then settles into a compact summary; click expands
@@ -433,7 +435,7 @@
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
-											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning) && isRunReasoningShown(m, block)" class="thinking-box" :class="{ 'run-step-detail': isRunStepDetail(m, block) }">
+											<div v-if="!reasoningActivityGroup(m, block) && (block.plan_decision?.reasoning || block.reasoning) && isRunReasoningShown(m, block)" class="thinking-box">
 												<button type="button" class="thinking-header" :aria-expanded="!isReasoningCollapsed(block.id)" @click="toggleReasoning(block.id)">
 													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
 													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
@@ -475,28 +477,17 @@
 								/>
 											</div>
 
-											<!-- Step header of a folded run: consecutive same-purpose calls
-							     sit under one plain-language line; the calls themselves are
-							     the step's details. -->
-												<RunStepHeader
-													v-if="runStepHeaderFor(m, block)"
-													:step="runStepHeaderFor(m, block)!"
-													:expanded="isRunStepExpanded(runStepHeaderFor(m, block)!.id)"
-													:translate="responseT"
-													:dir="responseDir"
-													can-open
-													@toggle="toggleRunStep(runStepHeaderFor(m, block)!.id)"
-													@open="openRunStepOutput(block, runStepHeaderFor(m, block)!)"
-												/>
-
-							<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
+							<RunToolGroupRow v-if="toolGroupHeaderFor(m, block)" :group="toolGroupHeaderFor(m, block)!"
+                :expanded="isToolGroupExpanded(toolGroupHeaderFor(m, block)!.id)" :translate="responseT"
+                @toggle="toggleToolGroup(toolGroupHeaderFor(m, block)!.id)" />
+            <!-- 3. Tool execution (ALWAYS visible outside thinking) -->
+												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'ps-4': isGroupedTool(m, block) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
-														:hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
+														:initially-collapsed="!!runFold(m)"
 	                                                    :run-status="m.status"
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
@@ -637,7 +628,7 @@
 
 									</div>
 
-                                    <div v-if="showWaitingIndicator(m)" class="flex h-6 items-center text-ink-muted" role="status" :aria-label="$t('prompt.working')">
+                                    <div v-if="showWaitingIndicator(m) && runFold(m)?.steps.length" class="flex h-6 items-center text-ink" role="status" :aria-label="$t('prompt.working')">
                                         <span class="h-2.5 w-2.5 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
                                     </div>
 
@@ -947,6 +938,7 @@
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt, awaitingInput: inProgressAwaitingInput } : undefined"
 					:isStopping="false"
+                    :hide-working-indicator="hasInProgressCompletion"
 					:queryList="queryList"
 					:scheduledPrompts="scheduledPrompts"
 					:trainingInstructions="summaryInstructions"
@@ -1254,11 +1246,13 @@
 </template>
 
 <script setup lang="ts">
+import GenericTool from '~/components/tools/GenericTool.vue'
+import RunToolGroupRow from '~/components/RunToolGroupRow.vue'
 import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
-import { describeDataOutput, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { blockHasMessage, describeDataOutput, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
@@ -1759,16 +1753,16 @@ const runActivities = computed(() => {
 	return out
 })
 const {
+	toolGroupHeaderFor,
+	isGroupedTool,
+	isToolGroupExpanded,
+	toggleToolGroup,
 	runFold,
 	isRunExpanded,
 	toggleRun,
-	isRunStepExpanded,
-	toggleRunStep,
 	isRunAnswerBlock,
 	isRunBlockShown,
 	isRunActivityBlock,
-	runStepHeaderFor,
-	isRunStepDetail,
 	isRunReasoningShown,
 	isRunToolShown,
 	runDeliverables,
@@ -1779,18 +1773,9 @@ const {
 	// refetch that swaps the streaming placeholder row for the stored one.
 	keyFor: m => runKey(m),
 })
-// Elapsed time of the run: the server's figure once stamped, the client clock
-// on the live path, and the blocks' own span for rows that carry neither.
-// Ticks once a second while any run is live, so its row's timer advances.
-const runFoldNow = ref(Date.now())
-let runFoldClock: ReturnType<typeof setInterval> | null = null
-watch(() => [...runActivities.value.values()].some(a => a.live), (anyLive) => {
-	if (anyLive && !runFoldClock) runFoldClock = setInterval(() => { runFoldNow.value = Date.now() }, 1000)
-	if (!anyLive && runFoldClock) { clearInterval(runFoldClock); runFoldClock = null }
-}, { immediate: true })
-onBeforeUnmount(() => { if (runFoldClock) clearInterval(runFoldClock) })
+// Finished runs retain their server-reported duration.
 function runFoldDuration(m: ChatMessage): string {
-	if (runFold(m)?.live) void runFoldNow.value
+	if (m.status === 'in_progress') return ''
 	let ms: number | null | undefined = (typeof m.total_duration_ms === 'number' && m.total_duration_ms > 0)
 		? m.total_duration_ms
 		: clientRunMs.value.get(runKey(m))
@@ -1801,9 +1786,6 @@ function runFoldDuration(m: ChatMessage): string {
 	if (typeof ms !== 'number') ms = runFold(m)?.spanMs
 	if (typeof ms !== 'number' || ms < 0) return ''
 	return formatRunDuration(Math.max(1000, ms))
-}
-function openRunStepOutput(block: any, step: RunStep) {
-	openDataPanel({ toolExecution: block.tool_execution, title: step.output?.title, visual: step.output?.kind === 'chart' })
 }
 // ---------------------------------------------------------------------------
 // Citations: `{{cite:<id>}}` markers in an answer become numbered chips that
@@ -3670,7 +3652,7 @@ function getToolComponent(toolName: string) {
 		case 'clarify':
 			return ClarifyTool
 		default:
-			return null
+			return GenericTool
 	}
 }
 
@@ -3703,6 +3685,8 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 // tool is waiting without emitting text. Terminal states remove it immediately.
 function showWaitingIndicator(message: ChatMessage): boolean {
     if (message.role !== 'system' || message.status !== 'in_progress' || message.sigkill) return false
+    const blocks = visibleBlocks(message)
+    if (blockHasMessage(blocks[blocks.length - 1])) return false
     // A visible running tool supplies its own progress indicator.
     return !visibleBlocks(message).some(block =>
         block.tool_execution?.status === 'running'
@@ -7023,22 +7007,20 @@ onMounted(async () => {
     --response-block-gap: 8px;
 }
 
-/* Folded run, opened: the chain reads as one indented thread above the
-   conclusion; a step's calls indent once more under its line. */
+/* Activity stays compact; the answer keeps the larger separation. */
 .response-block.run-activity {
-    padding-inline-start: 12px;
-    border-inline-start: 1px solid rgb(var(--bow-line-rgb));
+    --response-block-gap: 6px;
 }
-/* One unbroken rule down the thread: siblings space with padding, not margin,
-   and a call still tucked inside a closed step takes no room at all. */
-.response-block.run-activity ~ .response-block.run-activity {
-    margin-block-start: 0 !important;
+.response-block.run-activity .tool-execution-container {
+    margin-block-start: 0;
 }
-.response-block.run-activity ~ .response-block.run-activity:has(> .response-block-body:not([style*="display: none"]) > :is(.thinking-box, .block-content, .run-step, .tool-execution-container, .tool-preview)) {
-    padding-block-start: 10px;
+/* Group members use a tighter rhythm than separate transcript messages. */
+.response-block.run-group-member + .response-block.run-group-member {
+    --response-block-gap: 2px;
 }
-.run-step-detail {
-    padding-inline-start: 18px;
+/* Activity and the answer share one left edge. */
+.response-block.run-activity + .response-block:not(.run-activity) {
+    margin-block-start: 20px;
 }
 .tool-preview > :deep(*) {
     margin-block: 0;
@@ -7053,62 +7035,17 @@ onMounted(async () => {
 /* Minimal typography akin to CompletionMessageComponent; append-only text
    entrance timing. */
 .markdown-wrapper :deep(.markdown-content) {
-	@apply leading-relaxed;
-	font-size: 13px;
-	--typewriter-fade-duration: 180ms;
-	/* Markstream otherwise paints bullets pale gray and counters slate. */
-	--list-item-marker: currentColor;
-	--list-item-counter-marker: currentColor;
-	--stream-update-fade-duration: 180ms;
-	--typewriter-fade-ease: ease-out;
-	--stream-update-fade-ease: ease-out;
-	contain: content;
+    font-size: var(--bow-chat-font-size);
+    line-height: var(--bow-chat-line-height);
+    --typewriter-fade-duration: 180ms;
+    --stream-update-fade-duration: 180ms;
+    --typewriter-fade-ease: ease-out;
+    --stream-update-fade-ease: ease-out;
+    --list-item-marker: currentColor;
+    --list-item-counter-marker: currentColor;
+    contain: content;
 
-	/* Markstream wraps every paragraph in its own node-content, so each
-	   paragraph is a last child. Space sibling blocks at the slot level. */
-	p {
-		margin-bottom: 0;
-		unicode-bidi: plaintext;
-	}
-	p:last-child {
-		margin-bottom: 0;
-	}
-    > .node-slot {
-        margin-block: 0;
-    }
-    > .node-slot + .node-slot {
-        margin-block-start: 10px;
-    }
-    > .node-slot + .node-slot[data-node-type="table"],
-    > .node-slot[data-node-type="table"] + .node-slot {
-        margin-block-start: 16px;
-    }
-    .table-node-wrapper, .table-node {
-        margin-block: 0;
-    }
-
-	:where(h1, h2, h3, h4, h5, h6) {
-		@apply font-bold mb-4 mt-6;
-		unicode-bidi: plaintext;
-	}
-
-	h1 { @apply text-2xl; }
-	h2 { @apply text-xl; }
-	h3 { @apply text-lg; }
-
-	/* Marker gutter lives on each <li> (assets/css/rtl.css rule 7), so it
-	   follows the item's own direction. */
-	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
-	ul { @apply list-disc; }
-	ol { @apply list-decimal; }
-	/* Override both margins from the renderer's my-2. Keep compact rows,
-	   including nested lists, without adding space around the whole list. */
-	li { margin-block: 0; unicode-bidi: plaintext; }
-	li + li { margin-block-start: 0.285714em; }
-	li > p:only-child,
-	li > p:last-child { margin-bottom: 0; }
-
-	/* Code blocks (fenced with ```) — always LTR regardless of surrounding direction */
+    /* Code blocks (fenced with ```) — always LTR regardless of surrounding direction */
 	pre {
 		@apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto;
 		white-space: pre-wrap;
@@ -7122,7 +7059,7 @@ onMounted(async () => {
 		background: none;
 		padding: 0;
 		border-radius: 0;
-		font-size: 13px;
+		font-size: var(--bow-chat-font-size-2);
 		line-height: 1.5;
 		display: block;
 		white-space: pre-wrap;
@@ -7131,7 +7068,7 @@ onMounted(async () => {
 	/* Inline code (single backticks) */
 	code {
 		@apply bg-gray-100 px-1.5 py-0.5 rounded font-mono;
-		font-size: 12px;
+		font-size: var(--bow-chat-font-size-2);
 		color: #374151;
 		unicode-bidi: isolate;
 		direction: ltr;
@@ -7165,8 +7102,6 @@ onMounted(async () => {
 		opacity: 1;
 	}
 	blockquote { @apply border-s-4 border-gray-200 ps-4 italic my-4; unicode-bidi: plaintext; }
-	table { @apply w-full border-collapse; margin-block: 0; unicode-bidi: plaintext; }
-	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 
 	/* useMarkdownAutoDir stamps an explicit dir (dominant-direction estimate)
 	   on these blocks; once stamped, isolate replaces plaintext so the stamped
@@ -7211,15 +7146,6 @@ onMounted(async () => {
 }
 :global(.dark .markdown-wrapper .markdown-content blockquote) {
 	border-color: #4b5563;
-}
-:global(.dark .markdown-wrapper .markdown-content table th),
-:global(.dark .markdown-wrapper .markdown-content table td) {
-	background-color: #111827;
-	border-color: #374151;
-	color: #e5e7eb;
-}
-:global(.dark .markdown-wrapper .markdown-content table th) {
-	background-color: #1f2937;
 }
 
 

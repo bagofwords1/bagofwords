@@ -120,26 +120,26 @@
 
                             <!-- System message (left-aligned) -->
                             <template v-else>
-                                <div class="hidden md:block w-[28px] me-2 flex-shrink-0">
-                                    <div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
+                                <div class="hidden md:block w-6 me-2 flex-shrink-0">
+                                    <div class="h-6 w-6 flex items-center justify-center text-xs rounded bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
                                     </div>
                                 </div>
                                 <div class="flex-1 min-w-0 md:ms-4" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
                                     <div>
                                         <!-- Run fold: a finished run's activity sits behind this one
                                              row above its final message (useRunActivity.ts). -->
-                                        <RunActivityToggle
-                                            v-if="runFold(m)"
+                                        <RunActivityToggle class="mb-3"
+                                            v-if="runFold(m) && (!runFold(m)!.live || !!runFold(m)?.steps.length || !timelineBlocks(m).some(blockHasMessage))"
                                             :expanded="isRunExpanded(m)"
                                             :duration="runFoldDuration(m)"
                                             :translate="t"
                                             :live="runFold(m)!.live"
-                                            :status="runFold(m)!.status"
+                                            :has-steps="!!runFold(m)?.steps.length"
                                             @toggle="toggleRun(m)"
                                         />
                                         <!-- Render each completion block -->
                                         <template v-for="block in timelineBlocks(m)" :key="block.id">
-                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
+                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block), 'run-group-member': isGroupedTool(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -155,7 +155,7 @@
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
-                                            <div v-if="(block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped') && isRunReasoningShown(m, block)" class="thinking-box" :class="{ 'run-step-detail': isRunStepDetail(m, block) }">
+                                            <div v-if="(block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped') && isRunReasoningShown(m, block)" class="thinking-box">
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
                                                     <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
                                                     <span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
@@ -194,25 +194,17 @@
                                                 />
                                             </div>
 
-                                            <!-- Step header of a folded run: same-purpose calls sit under one
-                                                 plain-language line; the calls are the step's details. -->
-                                            <RunStepHeader
-                                                v-if="runStepHeaderFor(m, block)"
-                                                class="my-1.5"
-                                                :step="runStepHeaderFor(m, block)"
-                                                :expanded="isRunStepExpanded(runStepHeaderFor(m, block).id)"
-                                                :translate="t"
-                                                @toggle="toggleRunStep(runStepHeaderFor(m, block).id)"
-                                            />
-
-                                            <!-- 3. Tool execution -->
-                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'run-step-detail': !!runFold(m) }">
+                                            <RunToolGroupRow v-if="toolGroupHeaderFor(m, block)" :group="toolGroupHeaderFor(m, block)!"
+                :expanded="isToolGroupExpanded(toolGroupHeaderFor(m, block)!.id)" :translate="t"
+                @toggle="toggleToolGroup(toolGroupHeaderFor(m, block)!.id)" />
+            <!-- 3. Tool execution -->
+                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'ps-4': isGroupedTool(m, block) }">
                                                 <component
                                                     v-if="shouldUseToolComponent(block.tool_execution)"
                                                     :is="getToolComponent(block.tool_execution.tool_name)"
                                                     :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
                                                     :tool-execution="block.tool_execution"
-                                                    :hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
+                                                    :initially-collapsed="!!runFold(m)"
                                                     :readonly="true"
                                                 />
                                                 <!-- Fallback to generic expandable tool display -->
@@ -330,10 +322,12 @@
 </template>
 
 <script setup lang="ts">
+import GenericTool from '~/components/tools/GenericTool.vue'
+import RunToolGroupRow from '~/components/RunToolGroupRow.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
-import { describeDataOutput, type RunActivity } from '~/composables/useRunActivity'
+import { blockHasMessage, describeDataOutput, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { citeText, collectSources, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
@@ -635,16 +629,16 @@ function _runActivityFor(m: any): RunActivity | null {
     return runActivityMemo(String(m.id), timelineBlocks(m), { runStatus: m.status })
 }
 const {
+    toolGroupHeaderFor,
+    isGroupedTool,
+    isToolGroupExpanded,
+    toggleToolGroup,
     runFold,
     isRunExpanded,
     toggleRun,
-    isRunStepExpanded,
-    toggleRunStep,
     isRunAnswerBlock,
     isRunBlockShown,
     isRunActivityBlock,
-    runStepHeaderFor,
-    isRunStepDetail,
     isRunReasoningShown,
     isRunToolShown,
     runDeliverables,
@@ -1004,7 +998,7 @@ function getToolComponent(toolName: string) {
         // a public link would publish workspace state the sharer never chose to
         // share. The fallback below names them instead of drawing nothing.
         default:
-            return null
+            return GenericTool
     }
 }
 
@@ -1192,19 +1186,9 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-/* Folded run, opened: the chain reads as one indented thread above the
-   conclusion; a step's calls indent once more under its line. */
-.run-activity {
-    padding-inline-start: 12px;
-    padding-block: 3px;
-    border-inline-start: 1px solid rgb(var(--bow-line-rgb));
-}
-.run-activity:has(+ :not(.run-activity)) {
-    margin-block-end: 12px;
-}
-.run-step-detail {
-    padding-inline-start: 18px;
-}
+.run-activity { padding-block: 3px; }
+.run-activity.run-group-member:not(:has(.run-step)) { padding-block: 1px; }
+.run-activity:has(+ :not(.run-activity)) { margin-block-end: 12px; }
 
 /* Thinking box - collapsible reasoning */
 .thinking-box {
@@ -1281,32 +1265,8 @@ onUnmounted(() => {
 .markdown-wrapper :deep(.markdown-content) {
     font-size: var(--bow-chat-font-size);
     line-height: var(--bow-chat-line-height);
-
-    p {
-        margin-bottom: 1em;
-        unicode-bidi: plaintext;
-    }
-    p:last-child {
-        margin-bottom: 0;
-    }
-
-    :where(h1, h2, h3, h4, h5, h6) {
-        @apply font-bold mb-4 mt-6;
-        unicode-bidi: plaintext;
-    }
-
-    h1 { @apply text-2xl; }
-    h2 { @apply text-xl; }
-    h3 { @apply text-lg; }
-
-    /* Marker gutter lives on each <li> (assets/css/rtl.css rule 7), so it
-	   follows the item's own direction. */
-	ul, ol { @apply mb-4; unicode-bidi: plaintext; }
-    ul { @apply list-disc; }
-    ol { @apply list-decimal; }
-    li { @apply mb-1.5; unicode-bidi: plaintext; }
-    li > p:only-child,
-    li > p:last-child { margin-bottom: 0; }
+    --list-item-marker: currentColor;
+    --list-item-counter-marker: currentColor;
 
     /* Code blocks (fenced with ```) — always LTR regardless of surrounding direction */
     pre {
@@ -1330,7 +1290,7 @@ onUnmounted(() => {
     /* Inline code (single backticks) */
     code {
         @apply bg-gray-100 px-1.5 py-0.5 rounded font-mono;
-        font-size: 12px;
+        font-size: var(--bow-chat-font-size-2);
         color: #374151;
         unicode-bidi: isolate;
         direction: ltr;
@@ -1346,8 +1306,6 @@ onUnmounted(() => {
        rule on the left edge under RTL — one pre-existing nit, kept identical
        rather than fixed on one side only. */
     blockquote { @apply border-s-4 border-gray-200 ps-4 italic my-4; unicode-bidi: plaintext; }
-    table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
-    table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
 
     /* useMarkdownAutoDir stamps an explicit dir (dominant-direction estimate)
        on these blocks; once stamped, isolate replaces plaintext so the stamped

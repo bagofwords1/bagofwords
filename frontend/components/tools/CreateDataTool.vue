@@ -1,20 +1,21 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Main Header: Creating Data (always collapsible) -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCreateData">
-      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-      <!-- Named by what it makes, like the other tools: "Creating “Revenue by
-           country”…" (shimmering) → "Created “Revenue by country”". -->
-      <span v-if="status === 'running'" class="tool-shimmer"><bdi>{{ headerTitle ? t('tools.createData.creatingTitled', { title: headerTitle }) : t('tools.createData.creating') }}</bdi></span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300"><bdi>{{ headerTitle ? t('tools.createData.createdTitled', { title: headerTitle }) : t('tools.createData.created') }}</bdi></span>
-      <span v-else-if="status === 'stopped'" class="text-ink-muted"><bdi>{{ headerTitle ? t('tools.createData.creatingTitled', { title: headerTitle }) : t('tools.createData.creating') }}</bdi></span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.create') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.create') }}</span>
-      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-chart-bar" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded; if (!toolHeaderExpanded) codeCollapsed = true">
+      <template #label>{{ headerLabel }}</template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+
+
+    <!-- Stopped/Error message below header -->
+
+    <div v-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
+      {{ lastErrorMessage }}
+    </div>
+
+    <!-- Collapsible content -->
+    <Transition name="fade">
+      <div v-if="toolHeaderExpanded" class="mt-2 space-y-2 text-chat-3 text-ink-muted">
       <Transition name="fade-in" appear>
         <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
@@ -36,24 +37,8 @@
           </template>
         </span>
       </Transition>
-      <span v-if="status === 'running' && slotWait" class="ms-1.5 text-ink-muted" data-testid="waiting-for-slot-header">
-        · <span class="tool-shimmer">{{ slotWaitLabel }}</span>
-      </span>
-      <span v-else-if="status === 'running' && liveStageKey" class="ms-1.5 text-ink-muted">
-        · <span class="tool-shimmer">{{ t(`tools.createData.${liveStageKey}`) }}</span>
-      </span>
-      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-    </div>
 
-    <!-- Stopped/Error message below header -->
-
-    <div v-if="status === 'error' && lastErrorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
-      {{ lastErrorMessage }}
-    </div>
-
-    <!-- Collapsible content -->
-    <Transition name="fade">
-      <div v-if="!createDataCollapsed" class="mt-2 ms-4 space-y-2">
+        <span v-if="formatDuration" class="nums ms-2">{{ formatDuration }}</span>
 
         <!-- Failed attempts (persisted in result_json.errors, survive refresh).
              `failedAttempts` resolves empty without `view_code` because the
@@ -81,20 +66,18 @@
              `view_code`: the server sends no code, so leaving the header would
              render a row that expands to nothing. -->
         <div v-if="canViewCode">
-          <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleCode">
+          <button type="button" :aria-expanded="!codeCollapsed" class="flex items-center gap-1 rounded text-chat-3 text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500" @click.stop="codeCollapsed = !codeCollapsed">
             <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-if="status === 'error' && !codeContent" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-ink-muted" />
-            <Icon v-else-if="codeGenDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300 dark:text-gray-600" />
             <span v-if="isCodeGenerating && status !== 'stopped'" class="tool-shimmer">{{ t('tools.createData.generatingCode') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.generatedCode') }}</span>
+            <span v-else class="text-ink-muted">{{ t('tools.createData.generatedCode') }}</span>
             <span v-if="failedAttempts.length > 0 && !isCodeGenerating" class="ms-1.5 text-ink-muted">{{ t('tools.common.attemptSuffix', { n: failedAttempts.length + 1 }) }}</span>
             <span v-if="isCodeGenerating && currentAttempt > 1" class="ms-1.5 text-ink-muted">{{ t('tools.common.attemptSuffix', { n: currentAttempt }) }}</span>
-            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ms-2 rtl-flip" />
-          </div>
+            <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 shrink-0 rtl-flip" aria-hidden="true" />
+          </button>
           <Transition name="fade">
-            <div v-if="!codeCollapsed && codeContent" class="mt-1 ms-4">
+            <div v-if="!codeCollapsed && codeContent" class="mt-1">
               <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-chat-2 max-h-42 overflow-y-auto relative">
                 <button
                   class="absolute top-2 end-2 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-800 dark:hover:text-gray-200"
@@ -116,12 +99,10 @@
             <Spinner v-if="isExecuting && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="executionFailed && !isRetrying" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
-            <Icon v-else-if="executionDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-            <Icon v-else name="heroicons-minus" class="w-3 h-3 me-1.5 text-gray-300 dark:text-gray-600" />
             <span v-if="isExecuting && status !== 'stopped' && slotWait" class="tool-shimmer" data-testid="waiting-for-slot">{{ slotWaitLabel }}</span>
             <span v-else-if="isExecuting && status !== 'stopped'" class="tool-shimmer">{{ t('tools.createData.executing') }}</span>
-            <span v-else-if="executionFailed" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.executionFailed') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.executionSucceeded') }}</span>
+            <span v-else-if="executionFailed" class="text-ink-muted">{{ t('tools.createData.executionFailed') }}</span>
+            <span v-else class="text-ink-muted">{{ t('tools.createData.executionSucceeded') }}</span>
             <span v-if="executionDone && executionRowCount != null" class="ms-1.5 text-ink-muted">· {{ t('tools.common.rows', { n: executionRowCount }) }}</span>
             <span v-if="executionDone && formatExecutionDuration" class="ms-1.5 text-ink-muted">· {{ formatExecutionDuration }}</span>
           </div>
@@ -143,10 +124,9 @@
             <Spinner v-if="isVisualizing && status !== 'stopped'" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
             <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-            <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
             <span v-if="isVisualizing && status !== 'stopped'" class="tool-shimmer">{{ t('tools.createData.visualizing') }}</span>
-            <span v-else-if="vizError" class="text-gray-700 dark:text-gray-300">{{ t('tools.createData.visualizing') }}</span>
-            <span v-else class="text-gray-700 dark:text-gray-300">{{ chartTypeLabel }}</span>
+            <span v-else-if="vizError" class="text-ink-muted">{{ t('tools.createData.visualizing') }}</span>
+            <span v-else class="text-ink-muted">{{ chartTypeLabel }}</span>
             <span v-if="vizSummary && !vizError" class="ms-1.5 text-ink-muted">· {{ vizSummary }}</span>
           </div>
           <div v-if="vizError" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">{{ vizError }}</div>
@@ -156,23 +136,19 @@
 
     <!-- Results Preview - only show if not failed. Collapsed by default,
          charts and tables alike: the header chevron reveals it. -->
-    <div class="mt-2" v-if="hasPreview && !hidePreview && status !== 'error' && !createDataCollapsed">
+    <div class="mt-2" v-if="hasPreview && !hidePreview && status !== 'error' && toolHeaderExpanded">
       <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" :can-expand="canExpand" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" @openDataPanel="$emit('openDataPanel', $event)" />
     </div>
+  
+    </div>
   </div>
-  <QueryCodeEditorModal
-    :visible="showEditor"
-    :query-id="createdQueryId"
-    :initial-code="codeContent || ''"
-    :title="dataTitle"
-    :step-id="initialStepId"
-    :tool-execution-id="props.toolExecution?.id || null"
-    @close="showEditor = false"
-    @stepCreated="onModalSaved"
-  />
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { useCachedTableNames } from '~/composables/useFastTable'
@@ -232,10 +208,10 @@ const canViewCode = useCanViewCode()
 const canRunCustomCode = useCanRunCustomCode()
 
 const codeCollapsed = ref(true)
-const createDataCollapsed = ref(true) // Collapsed by default
 const attemptCodeExpanded = reactive<Record<number, boolean>>({})
 const dataTitle = computed(() => props.toolExecution.arguments_json?.title || 'Data')
 const status = computed(() => props.toolExecution.status)
+const isToolRunning = computed(() => ['running', 'pending', 'queued', 'in_progress'].includes(status.value))
 const progressStage = computed(() => (props.toolExecution as any).progress_stage || '')
 
 // Code content: prefer final result, fall back to streamed progress code
@@ -281,22 +257,8 @@ const hasPreview = computed(() => {
   return !!(hasObject || hasViz || hasQuery || hasRows)
 })
 
-// Compact i18n key for the live progress stage shown inline in the header.
-// Maps backend progress_stage to one of three coarse labels.
-const liveStageKey = computed<string>(() => {
-  const stage = progressStage.value
-  if (!stage) return ''
-  if (stage === 'generating_code') return 'generatingCode'
-  if (stage === 'executing_code' || stage === 'waiting_for_slot' || stage === 'retry') return 'executing'
-  if (['formatting_widget', 'inferring_visualization', 'visualization_inferred', 'series_configured'].includes(stage)) {
-    return 'visualizing'
-  }
-  return ''
-})
-
 // Stage-based state
 const isCodeGenerating = computed(() => progressStage.value === 'generating_code')
-const codeGenDone = computed(() => !!codeContent.value && !isCodeGenerating.value)
 const isExecuting = computed(() => progressStage.value === 'executing_code' || progressStage.value === 'waiting_for_slot')
 // The connection is at its concurrent-query limit and this query waits its turn.
 const slotWait = computed(() => progressStage.value === 'waiting_for_slot' ? ((props.toolExecution as any).progress_slot || {}) : null)
@@ -437,8 +399,13 @@ const headerTitle = computed(() => String(
   (props.toolExecution as any)?.created_step?.title || props.toolExecution.arguments_json?.title || '',
 ).trim())
 
-function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
-function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }
+const headerLabel = computed(() => {
+  const title = headerTitle.value
+  if (status.value === 'success') return title ? t('tools.createData.createdTitled', { title }) : t('tools.createData.created')
+  if (status.value === 'error' || status.value === 'failed') return title ? t('reportView.runFold.steps.dataFailed', { title }) : t('tools.createData.create')
+  return title ? t('tools.createData.creatingTitled', { title }) : t('tools.createData.creating')
+})
+
 function toggleAttemptCode(idx: number) { attemptCodeExpanded[idx] = !attemptCodeExpanded[idx] }
 function onAddWidget(payload: { widget?: any, step?: any }) { emit('addWidget', payload) }
 

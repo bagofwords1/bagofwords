@@ -1264,6 +1264,18 @@
     }
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Använde webbläsaren",
+        "search": "Sökte",
+        "files": "Läste filer",
+        "inspect": "Granskade data",
+        "data": "Körde {count} frågor",
+        "create": "Skapade och uppdaterade resultat",
+        "tools": "Använde verktyg",
+        "results": "Körde {count} frågor"
+      }
+    },
     "tabChat": "Chatt",
     "tabSummary": "Sammanfattning",
     "tabDashboard": "Instrumentpanel",
@@ -7497,5 +7509,9 @@
     "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen.",
     "privateChannel": "Privat kanal",
     "privateCount": "{n} privat kanal | {n} privata kanaler"
+  },
+  "markdownTable": {
+    "title": "Tabell",
+    "copyFailed": "Det gick inte att kopiera tabellen"
   }
 }

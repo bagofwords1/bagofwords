@@ -1419,6 +1419,16 @@
     "contextClearedDivider": "Contexto borrado",
     "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea",
     "runFold": {
+      "groups": {
+        "browser": "Usó el navegador",
+        "search": "Buscó",
+        "files": "Leyó archivos",
+        "inspect": "Inspeccionó datos",
+        "data": "Ejecutó {count} consultas",
+        "create": "Creó y actualizó resultados",
+        "tools": "Usó herramientas",
+        "results": "Ejecutó {count} consultas"
+      },
       "workedFor": "Trabajó durante {duration}",
       "worked": "Trabajó",
       "working": "Trabajando",
@@ -8384,5 +8394,9 @@
     "loadFailed": "No se pudieron cargar los canales de este agente. Cierra e inténtalo de nuevo.",
     "privateChannel": "Canal privado",
     "privateCount": "{n} canal privado | {n} canales privados"
+  },
+  "markdownTable": {
+    "title": "Tabla",
+    "copyFailed": "No se pudo copiar la tabla"
   }
 }

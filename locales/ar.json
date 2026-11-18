@@ -1264,6 +1264,18 @@
     }
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "استخدام المتصفح",
+        "search": "البحث",
+        "files": "قراءة الملفات",
+        "inspect": "فحص البيانات",
+        "data": "تنفيذ {count} استعلامات",
+        "create": "إنشاء النتائج وتحديثها",
+        "tools": "استخدام الأدوات",
+        "results": "تنفيذ {count} استعلامات"
+      }
+    },
     "tabChat": "محادثة",
     "tabSummary": "ملخص",
     "tabDashboard": "لوحة تحكم",
@@ -7497,5 +7509,9 @@
     "loadFailed": "تعذّر تحميل قنوات هذا الوكيل. أغلق وحاول مرة أخرى.",
     "privateChannel": "قناة خاصة",
     "privateCount": "قناة خاصة واحدة | {n} قنوات خاصة"
+  },
+  "markdownTable": {
+    "title": "جدول",
+    "copyFailed": "تعذر نسخ الجدول"
   }
 }

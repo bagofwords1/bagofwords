@@ -1264,6 +1264,18 @@
     }
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Navegou na web",
+        "search": "Pesquisou",
+        "files": "Leu arquivos",
+        "inspect": "Inspecionou dados",
+        "data": "Executou {count} consultas",
+        "create": "Criou e atualizou resultados",
+        "tools": "Usou ferramentas",
+        "results": "Executou {count} consultas"
+      }
+    },
     "tabChat": "Chat",
     "tabSummary": "Resumo",
     "tabDashboard": "Painel",
@@ -7497,5 +7509,9 @@
     "loadFailed": "Não foi possível carregar os canais deste agente. Feche e tente novamente.",
     "privateChannel": "Canal privado",
     "privateCount": "{n} canal privado | {n} canais privados"
+  },
+  "markdownTable": {
+    "title": "Tabela",
+    "copyFailed": "Não foi possível copiar a tabela"
   }
 }

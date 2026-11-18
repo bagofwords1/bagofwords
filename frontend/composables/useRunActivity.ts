@@ -48,7 +48,7 @@ function isBlockFailed(block: any): boolean {
     || FAILED_STATUSES.has(String(block?.status || ''))
 }
 
-function blockHasMessage(block: any): boolean {
+export function blockHasMessage(block: any): boolean {
   const pd = block?.plan_decision
   const hasText = (v: any) => typeof v === 'string' && v.trim() !== ''
   return hasText(block?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
@@ -251,6 +251,7 @@ export interface RunActivity {
    */
   answerIds: string[]
   steps: RunStep[]
+  toolGroups: RunToolGroup[]
   /** blockId -> the step its tool call belongs to */
   stepOf: Record<string, RunStep>
   /** blockId of each step's first member -> step (header render anchor) */
@@ -516,6 +517,9 @@ export function computeRunActivity(
     finalBlockId: final ? String(final.id) : '',
     answerIds,
     steps,
+    // Progress notes and final prose stream through the same field. Only
+    // settle the summary when completion is confirmed, never between calls.
+    toolGroups: computeRunToolGroups(list, opts?.breakBefore, !live),
     stepOf,
     headerAt,
     deliverableIds: Array.from(latest.values()),
@@ -539,4 +543,64 @@ function liveStatus(folded: any[]): string {
     }
   }
   return ''
+}
+
+export interface RunToolGroup {
+  id: string
+  blockIds: string[]
+  categories: string[]
+  counts: Record<string, number>
+  settled: boolean
+  failed?: boolean
+  current: { name: string; title: string; status: string }
+  icon: string
+  running: boolean
+}
+
+function toolCategory(name: string): string {
+  if (/browser|web_fetch/.test(name)) return 'browser'
+  if (/search|grep/.test(name)) return 'search'
+  if (/read_file|list_files/.test(name)) return 'files'
+  if (/inspect|describe|list_tables/.test(name)) return 'inspect'
+  if (name === 'create_data') return 'data'
+  if (/execute_sql|execute_code|create_and_execute_code/.test(name)) return 'data'
+  if (/create_|edit_|write_|generate_/.test(name)) return 'create'
+  return 'tools'
+}
+const GROUP_ICONS: Record<string, string> = {
+  browser: 'heroicons-globe-alt', search: 'heroicons-magnifying-glass',
+  files: 'heroicons-book-open', inspect: 'heroicons-table-cells',
+  results: 'heroicons-chart-bar', data: 'heroicons-chart-bar', create: 'heroicons-pencil-square', tools: 'heroicons-wrench-screwdriver',
+}
+
+/** Consecutive calls share a stable row; commentary and steering start a new group. */
+export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) => boolean, settled = true): RunToolGroup[] {
+  const groups: RunToolGroup[] = []
+  let group: RunToolGroup | undefined
+  for (const block of blocks) {
+    if (blockHasMessage(block) || breakBefore?.(block)) group = undefined
+    const te = block.tool_execution
+    if (!te) { group = undefined; continue }
+    const category = toolCategory(String(te.tool_name || ''))
+    if (!group) {
+      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
+      groups.push(group)
+    }
+    group.blockIds.push(String(block.id))
+    group.counts[category] = (group.counts[category] || 0) + 1
+    if (!group.categories.includes(category)) group.categories.push(category)
+    const running = RUNNING_STATUSES.has(String(te.status || ''))
+    // Prefer the latest running call; otherwise follow the latest completed call.
+    if (running || !group.running) {
+      group.icon = GROUP_ICONS[category]
+      group.current = {
+        name: String(te.tool_name || ''),
+        title: String(te.created_step?.title || te.arguments_json?.title || '').trim(),
+        status: String(te.status || ''),
+      }
+    }
+    group.failed ||= !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+    group.running ||= running
+  }
+  return groups
 }

@@ -1,24 +1,18 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleDetails">
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-chart-bar" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">
           Reading {{ queryCount > 1 ? `${queryCount} queries` : `query "${queryTitle}"` }}…
-        </span>
-        <span v-else class="flex items-center" :class="hasErrors ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'">
-          <Icon v-if="hasErrors" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
-          <Icon v-else name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <span class="align-middle">{{ statusLabel }}</span>
-        </span>
-      </div>
-    </Transition>
+        </template>
+      <template v-else>{{ statusLabel }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- Widget Previews (collapsed by default, one per result) -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed && isSuccess" class="space-y-2">
+      <div v-if="toolHeaderExpanded && isSuccess" class="space-y-2">
         <div v-for="(result, idx) in successResults" :key="idx">
           <ToolWidgetPreview
             v-if="hasResultData(result)"
@@ -36,13 +30,19 @@
     </Transition>
 
     <!-- Global errors -->
-    <div v-if="hasErrors && !detailsCollapsed" class="ms-4 mt-2 text-chat-2 text-red-500">
+    <div v-if="hasErrors && toolHeaderExpanded" class="ms-4 mt-2 text-chat-2 text-red-500">
       <div v-for="(err, idx) in globalErrors" :key="idx">{{ err }}</div>
+    </div>
+  
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -195,18 +195,6 @@ function toggleDetails() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
