@@ -3138,9 +3138,20 @@ class DataSourceService:
         # keeps both the client set and the model's context off dead
         # connections. If every connection is inactive we return no clients;
         # the data source then drops out downstream (AgentV2 `_has_client`).
+        #
+        # Tool-provider connections (MCP / custom API / remote server) are
+        # built whatever the flag says. Their clients never reach generated
+        # code (codegen_clients drops them), and their tools are called
+        # through execute_mcp, which ignores the flag. Skipping them left the
+        # agent with no client, and AgentV2 then dropped it, taking its tools
+        # out of the run, but only when another agent DID build a client. So
+        # the same agent worked alone and vanished beside a SQL or file agent.
+        # A connection that really cannot be set up still fails its build
+        # below, which keeps the agent out as before.
+        from app.services.connection_tool_gateway import TOOL_CONNECTION_TYPES
         active_connections = [
             conn for conn in data_source.connections
-            if getattr(conn, "is_active", True)
+            if getattr(conn, "is_active", True) or conn.type in TOOL_CONNECTION_TYPES
         ]
 
         clients: Dict[str, Any] = {}
