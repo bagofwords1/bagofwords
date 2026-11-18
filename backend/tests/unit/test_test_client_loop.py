@@ -74,19 +74,18 @@ async def ownerless(name: str, spawn: bool = False):
 
 @app.get("/stubborn/{name}")
 async def stubborn(name: str):
-    """Spawn a task that swallows cancellation for half a second."""
+    """Spawn a task that swallows its first cancellation and ends at the
+    next. The request's cleanup cancels it once, so it always holds the
+    cleanup up to its bound, however slowly the loop runs; a later sweep or
+    the loop's stop ends it."""
 
     async def body():
         TASKS[name] = asyncio.current_task()
-        give_up_at = None
-        while True:
-            try:
-                await asyncio.sleep(3600 if give_up_at is None else 0.01)
-            except asyncio.CancelledError:
-                if give_up_at is None:
-                    give_up_at = time.monotonic() + 0.5
-            if give_up_at is not None and time.monotonic() > give_up_at:
-                return
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            pass
+        await asyncio.sleep(3600)
 
     asyncio.get_running_loop().create_task(body())
     await asyncio.sleep(0)
@@ -113,20 +112,25 @@ LINGER_CANCELLED = {}
 
 
 @app.get("/linger/{name}")
-async def linger(name: str):
+async def linger(name: str, ends_at_cancel: int = 0):
     """Spawn a task that swallows every cancellation until the test lets it
     go, so whoever stops its loop is held up. ``LINGER_CANCELLED[name]`` is
-    set at its first cancellation."""
+    set at its first cancellation. With ``ends_at_cancel``, it also ends at
+    that cancellation."""
     release = LINGERING[name] = threading.Event()
     cancelled = LINGER_CANCELLED[name] = threading.Event()
 
     async def body():
         TASKS[name] = asyncio.current_task()
+        cancels = 0
         while not release.is_set():
             try:
                 await asyncio.sleep(0.01)
             except asyncio.CancelledError:
                 cancelled.set()
+                cancels += 1
+                if cancels == ends_at_cancel:
+                    return
 
     asyncio.get_running_loop().create_task(body())
     await asyncio.sleep(0)
@@ -576,6 +580,90 @@ def test_an_interrupted_boundary_cancel_still_stops_the_loop(client, loop, monke
     loop.stop()  # a later stop does not wait on anything
 
 
+def test_an_interrupted_connection_release_still_stops_the_loop(client, loop, monkeypatch):
+    """A KeyboardInterrupt (or pytest-timeout's signal-method failure) in the
+    test thread while the stop releases the loop's pooled connections: ``stop``
+    re-raises it, and only once the loop and its thread are gone, so no loop
+    outlives the engine dispose that follows."""
+    import _thread
+
+    from app.settings import database
+
+    assert threading.current_thread() is threading.main_thread()
+    before = _portal_threads()
+    assert client.get("/loop").status_code == 200
+    started = _portal_threads() - before
+    assert len(started) == 1
+
+    async def interrupted_release():
+        _thread.interrupt_main()  # raised in the test thread once this returns
+
+    monkeypatch.setattr(database, "release_test_connections", interrupted_release)
+    try:
+        loop.stop()
+    except KeyboardInterrupt:
+        # Looked at while the interrupt is still unwinding, as in a real run
+        # (where pytest keeps its traceback for the report): once that is
+        # dropped, GC would close a portal the stop left open.
+        alive = [t for t in started if t.is_alive()]
+    else:
+        pytest.fail("stop did not re-raise the interrupt")
+    assert alive == []
+    assert loop.portal is None
+    assert not loop._stopping
+
+
+def test_full_stop_also_ends_a_loop_started_while_the_old_one_stopped(
+    client, loop, monkeypatch
+):
+    """A request that enters while the full stop is still shutting the old
+    loop down starts a new loop. The stop must wait for that request and end
+    its loop too, not return with a loop running and a request in flight."""
+    from app.settings import database
+
+    real_release = database.release_test_connections
+    releasing, go = threading.Event(), threading.Event()
+    releases = []
+
+    async def held_release():
+        releases.append(asyncio.get_running_loop())
+        if len(releases) == 1:  # the old loop's: hold its stop up
+            releasing.set()
+            while not go.is_set():
+                await asyncio.sleep(0.01)
+        await real_release()
+
+    monkeypatch.setattr(database, "release_test_connections", held_release)
+    assert client.get("/loop").status_code == 200
+    old = loop.portal
+
+    def stop_and_look():
+        loop.stop()
+        return loop.portal, loop.in_flight
+
+    stopper, stopped = _in_thread(stop_and_look)
+    started, gate = _gate("b")
+    try:
+        assert releasing.wait(5)  # the old loop is detached and stopping
+        before = _portal_threads()
+        requester, result = _in_thread(lambda: client.get("/hold/b"))
+        assert started.wait(5)  # b is in flight on a new loop
+        new = loop.portal
+        assert new is not None and new is not old
+        new_threads = _portal_threads() - before
+        go.set()
+        gate.set()
+        stopper.join(10)
+        requester.join(10)
+    finally:
+        go.set()
+        gate.set()
+    assert not stopper.is_alive() and "error" not in stopped
+    assert stopped["value"] == (None, 0)  # nothing running when stop returned
+    assert len(new_threads) == 1 and not any(t.is_alive() for t in new_threads)
+    assert "error" not in result and result["value"].status_code == 200
+
+
 def test_first_stop_waits_only_so_long_for_a_loop_another_thread_is_stopping(
     client, loop, monkeypatch
 ):
@@ -687,16 +775,19 @@ def test_a_cleanup_cut_off_by_a_boundary_stop_is_logged(
     import logging
 
     caplog.set_level(logging.WARNING)
+    # The request's cleanup keeps sweeping until the boundary gives up on it,
+    # however slowly either runs.
+    monkeypatch.setattr(client_mod, "_CANCEL_BOUND_SECONDS", 60.0)
     monkeypatch.setattr(client_mod, "_BOUNDARY_WAIT_SECONDS", 0.2)
     monkeypatch.setattr(client_mod, "_BOUNDARY_CANCEL_SECONDS", 0.2)
-    thread, result = _in_thread(lambda: client.get("/linger/c"))
+    # Its task survives the cleanup's cancellation and ends at the boundary's.
+    thread, result = _in_thread(lambda: client.get("/linger/c?ends_at_cancel=2"))
     deadline = time.monotonic() + 5
     while "c" not in LINGER_CANCELLED:
         assert time.monotonic() < deadline
         time.sleep(0.01)
     assert LINGER_CANCELLED["c"].wait(5)  # the request's cleanup is sweeping
 
-    threading.Timer(0.5, LINGERING["c"].set).start()  # lets the loop finish stopping
     loop.stop()
     thread.join(5)
     assert not thread.is_alive()
@@ -841,24 +932,69 @@ def test_teardown_hook_keeps_the_first_stop_failure_when_the_second_fails_too(mo
     assert "first stop failed" in "\n".join(getattr(raised.value, "__notes__", []))
 
 
-def test_teardown_hook_runs_finalizers_even_if_its_first_stop_fails(monkeypatch):
-    from tests import conftest
+_FIRST_STOP_FAILS = '''
+import asyncio
+import signal
+import threading
+from pathlib import Path
 
-    calls = []
+import pytest
+from fastapi import FastAPI
 
-    def flaky_stop(if_idle=False):
-        calls.append(if_idle)
-        if if_idle:
-            raise RuntimeError("first stop failed")
+from app.settings import database
+from tests.fixtures.client import _PersistentLoopTestClient
 
-    # Patched only inside, since the real hook runs before monkeypatch's undo.
-    with monkeypatch.context() as patch:
-        patch.setattr(client_mod, "stop_test_loop", flaky_stop)
-        hook = conftest.pytest_runtest_teardown(_fake_item(), None)
-        next(hook)  # the finalizers run here
-        with pytest.raises(RuntimeError, match="first stop failed"):
-            hook.send(None)
-    assert calls == [True, False]
+app = FastAPI()
+
+
+@app.get("/loop")
+async def loop_id():
+    return {}
+
+
+@pytest.fixture
+def request_in_teardown():
+    yield
+    # Runs after the failed first stop: starts a loop the second stop must end.
+    _PersistentLoopTestClient(app).get("/loop")
+    Path("finalized").write_text("yes")
+
+
+@pytest.mark.timeout(600, method="signal")
+def test_body(request_in_teardown, monkeypatch):
+    # pytest-timeout's handler must be the one the signal below reaches.
+    assert signal.getsignal(signal.SIGALRM) not in (signal.SIG_DFL, signal.SIG_IGN, None)
+    main = threading.main_thread().ident
+
+    async def release_that_times_out():
+        # The first stop is waiting on this: time the test out there, as
+        # pytest-timeout's signal method would, and stay until cancelled.
+        signal.pthread_kill(main, signal.SIGALRM)
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(database, "release_test_connections", release_that_times_out)
+    _PersistentLoopTestClient(app).get("/loop")
+'''
+
+
+def test_a_failed_first_stop_still_runs_the_finalizers_and_ends_the_loop(pytester):
+    """A real pytest run through the root conftest's hooks: the stop before
+    the finalizers fails (the test times out while that stop releases the
+    loop's connections). The finalizers still run, the loop one of them
+    starts is ended by the stop after them, no loop is left running, and the
+    failure is reported as the test's teardown error."""
+    assert threading.current_thread() is threading.main_thread()
+    pytester.makeconftest(
+        "from tests.conftest import pytest_runtest_setup, pytest_runtest_teardown\n"
+    )
+    pytester.makepyfile(test_first_stop_fails=_FIRST_STOP_FAILS)
+    before = _portal_threads()
+    result = pytester.runpytest_inprocess("-p", "no:randomly", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1, errors=1)
+    result.stdout.fnmatch_lines(["*ERROR at teardown of test_body*", "*Timeout*"])
+    assert (pytester.path / "finalized").read_text() == "yes"
+    assert client_mod._LOOP.portal is None
+    assert not any(t.is_alive() for t in _portal_threads() - before)
 
 
 def _fake_item():

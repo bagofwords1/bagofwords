@@ -237,22 +237,28 @@ class _TestLoop:
         """Release the loop's pooled connections on the loop, then stop it the
         normal way (asyncio.Runner cancels and awaits what is left, closes async
         generators and joins the default executor). With ``interrupted`` (the
-        exception that is unwinding the stop), the portal cancels the calls
-        still running on it instead of waiting for them."""
+        exception that is unwinding the stop), or when the release itself is
+        interrupted (that exception is re-raised once the loop is gone), the
+        portal cancels the calls still running on it instead of waiting for
+        them."""
         if cm is None:
             return
         from app.settings.database import release_test_connections
 
         try:
+            exit_args = (None, None, None)
+            if interrupted is not None:
+                exit_args = (type(interrupted), interrupted, interrupted.__traceback__)
             try:
                 portal.call(release_test_connections)
             except Exception as exc:  # the loop is going away regardless
                 self.stats.add("cleanup_errors")
                 print(f"Warning: release_test_connections failed: {exc!r}", file=sys.stderr)
-            if interrupted is None:
-                cm.__exit__(None, None, None)
-            else:
-                cm.__exit__(type(interrupted), interrupted, interrupted.__traceback__)
+            except BaseException as exc:
+                exit_args = (type(exc), exc, exc.__traceback__)
+                raise
+            finally:
+                cm.__exit__(*exit_args)
         finally:
             with self._cond:
                 self._stopping.discard(stopped)
@@ -293,14 +299,21 @@ class _TestLoop:
         (the stop before a test's finalizers, one of which may be what lets
         such a stop finish) it waits for those at most
         _BOUNDARY_WAIT_SECONDS; the full stop after the finalizers waits for
-        them in any case."""
-        try:
-            self._stop(if_idle)
-        finally:
-            self._wait_for_detached_stops(_BOUNDARY_WAIT_SECONDS if if_idle else None)
-
-    def _stop(self, if_idle):
+        them in any case. If a request started a new loop meanwhile (while a
+        loop was stopping), the full stop waits for it and stops that loop
+        too, the same way and within the same bound, so it returns only with
+        no loop running."""
         deadline = time.monotonic() + _BOUNDARY_WAIT_SECONDS
+        while True:
+            try:
+                self._stop(if_idle, deadline)
+            finally:
+                self._wait_for_detached_stops(_BOUNDARY_WAIT_SECONDS if if_idle else None)
+            with self._cond:
+                if if_idle or self._portal is None:
+                    return
+
+    def _stop(self, if_idle, deadline):
         while True:
             with self._detaching() as detach:
                 with self._cond:

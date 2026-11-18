@@ -409,6 +409,10 @@ def no_default_skills(request, monkeypatch):
     monkeypatch.setattr(skill_catalog_service, "list_default_skills", lambda: [])
     yield
 
+# ``pytester``: runs pytest in-process, so a test can check this conftest's
+# hooks against a real run (tests/unit/test_test_client_loop.py).
+pytest_plugins = ["pytester"]
+
 from tests.fixtures.client import test_client
 from tests.fixtures.object_storage import object_store
 from tests.fixtures.user import create_user
