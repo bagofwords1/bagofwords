@@ -4759,7 +4759,8 @@
     "connection.slack_channels_not_slack": "Kanalval är bara tillgängligt för Slack-anslutningar.",
     "connection.slack_channels_too_many": "Högst {max} kanaler per agent.",
     "connection.slack_channels_not_ids": "Det här är inte Slack-kanal-id:n: {ids}",
-    "connection.slack_channels_unavailable": "Slack svarade inte: {detail}"
+    "connection.slack_channels_unavailable": "Slack svarade inte: {detail}",
+    "review_item.not_found": "Granskningsobjektet hittades inte"
   },
   "email": {
     "dashboardShare": {

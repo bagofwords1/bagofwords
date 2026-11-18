@@ -7238,13 +7238,9 @@ class DataSourceService:
         # loop. Keyed by table name; value is a stable signature of the columns.
         # Captured for active tables only — the agent only "uses" active tables,
         # so an inactive table's schema drift isn't worth a re-eval.
-        pre_schema_sig = {
-            t.name: self._column_signature(t.columns)
-            for t in existing_rows
-            if getattr(t, "is_active", False)
-        }
-        # The columns themselves (copied: the rows are updated in place below),
-        # so the notification can say WHAT changed, not just which tables.
+        # The columns themselves are kept (copied: the rows are updated in place
+        # below) so the notification can say WHAT changed, not just which
+        # tables; the change-detection signature is derived from them.
         pre_schema_cols = {
             t.name: copy.deepcopy(list(t.columns or []))
             for t in existing_rows
@@ -7253,11 +7249,13 @@ class DataSourceService:
         # Every table name the agent knew before, active or not — a table not
         # in here after the sync is new on the connection.
         pre_all_names = {t.name for t in existing_rows}
+        # Tables refresh_schema already pruned (snapshotted by the caller as a
+        # fresh list, so no second copy is needed).
         for name, cols in (prior_active_tables or {}).items():
-            if name not in pre_schema_sig:
-                pre_schema_sig[name] = self._column_signature(cols)
-                pre_schema_cols[name] = copy.deepcopy(list(cols or []))
+            if name not in pre_schema_cols:
+                pre_schema_cols[name] = list(cols or [])
                 pre_all_names.add(name)
+        pre_schema_sig = {name: self._column_signature(cols) for name, cols in pre_schema_cols.items()}
         # Unlinked rows (connection_table_id is NULL) keyed by name. These are
         # legacy name-keyed rows from the old save_or_update_tables path. We adopt
         # them below instead of creating a duplicate linked row, which both

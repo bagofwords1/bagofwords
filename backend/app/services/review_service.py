@@ -313,7 +313,10 @@ class ReviewService:
                 subject=subject,
                 group_key=item.group_key,
                 source_id=str(item.id),
-                resurface_after_hours=24 * 7,
+                # A schema change is a new event each time (the item only bumps
+                # while open), so a recipient's ✕ on the previous change must not
+                # hide the next one; recurring conditions keep a week's quiet.
+                resurface_after_hours=0 if item.type == TYPE_SCHEMA_CHANGED else 24 * 7,
             )
         except Exception as e:  # noqa: BLE001
             logger.exception("review: notification fan-out failed: %s", e)
@@ -337,7 +340,7 @@ class ReviewService:
         now = datetime.utcnow()
         for it in rows:
             it.status = STATUS_RESOLVED
-            it.resolution_json = {"how": HANDLED_CONDITION_CLEARED, "by": None, "at": now.isoformat()}
+            it.resolution_json = {**(it.resolution_json or {}), "how": HANDLED_CONDITION_CLEARED, "by": None, "at": now.isoformat()}
             if verified:
                 it.verified_at = now
         if rows:
@@ -382,7 +385,7 @@ class ReviewService:
             it.status = STATUS_RESOLVED
             it.verified_at = now
             it.resolved_by_user_id = str(by_user_id) if by_user_id else it.resolved_by_user_id
-            it.resolution_json = {"how": how, "by": str(by_user_id) if by_user_id else None, "at": now.isoformat()}
+            it.resolution_json = {**(it.resolution_json or {}), "how": how, "by": str(by_user_id) if by_user_id else None, "at": now.isoformat()}
         if rows:
             await self._sync_notifications(db, rows, RESOLUTION_RESOLVED, how=how, by_user_id=by_user_id)
             await db.commit()
@@ -518,7 +521,8 @@ class ReviewService:
             return None
         item.status = STATUS_DISMISSED
         item.dismissed_by_user_id = str(user.id)
-        item.resolution_json = {"how": HANDLED_MARKED, "by": str(user.id), "at": datetime.utcnow().isoformat()}
+        # Merged, so a prior run's record (action, ref, outcome) is kept.
+        item.resolution_json = {**(item.resolution_json or {}), "how": HANDLED_MARKED, "by": str(user.id), "at": datetime.utcnow().isoformat()}
         # The Review feed is a shared team queue: once someone marks the item as
         # handled, the other managers' notifications show it as handled too.
         await self._sync_notifications(db, [item], RESOLUTION_DISMISSED, how=HANDLED_MARKED, by_user_id=str(user.id))
@@ -576,6 +580,27 @@ class ReviewService:
                 v = v.get("content") or v.get("text") or ""
             return " ".join(str(v or "").split())[:TRAINING_CONTEXT_CHARS]
 
+        async def _questions(completions) -> Dict[str, str]:
+            """The user's question behind each completion, in at most one extra
+            query: a user (head) completion carries it in its own prompt, an
+            assistant completion in its parent's."""
+            out_q: Dict[str, str] = {}
+            need_parent: Dict[str, str] = {}
+            for c in completions:
+                q = _text(c.prompt) if (c.role or "") == "user" else ""
+                if q:
+                    out_q[str(c.id)] = q
+                elif c.parent_id:
+                    need_parent[str(c.id)] = str(c.parent_id)
+            if need_parent:
+                parents = {str(p.id): p for p in (await db.execute(
+                    select(Completion).where(Completion.id.in_(set(need_parent.values())))
+                )).scalars().all()}
+                for cid, pid in need_parent.items():
+                    if pid in parents:
+                        out_q[cid] = _text(parents[pid].prompt)
+            return out_q
+
         examples: List[Dict[str, Any]] = []
         seen: set = set()
         if item.type == TYPE_LOW_CONFIDENCE:
@@ -587,15 +612,12 @@ class ReviewService:
                             Completion.created_at >= since, Completion.created_at <= until + timedelta(minutes=5)))
                 .order_by(Completion.created_at.desc()).limit(limit * 4)
             )).scalars().all()
+            # The judge scores the head (user) completion, so the question is
+            # its own prompt; a scored reply falls back to its parent.
+            rows = [c for c in rows if await _can_see(c.report_id)]
+            asked = await _questions(rows)
             for c in rows:
-                if not await _can_see(c.report_id):
-                    continue
-                # The judge scores the head (user) completion, so the question
-                # is its own prompt; fall back to the parent for a scored reply.
-                q = _text(c.prompt)
-                if not q and c.parent_id:
-                    parent = await db.get(Completion, str(c.parent_id))
-                    q = _text(parent.prompt) if parent is not None else ""
+                q = asked.get(str(c.id), "")
                 if q and q not in seen:
                     seen.add(q)
                     examples.append({"question": q, "score": c.response_score, "report_id": str(c.report_id)})
@@ -608,19 +630,25 @@ class ReviewService:
                 conds.append(ToolExecution.duration_ms > SLOW_QUERY_MS)
                 order = ToolExecution.duration_ms.desc()
             else:
-                conds.append(ToolExecution.success.is_(False))
+                # Finished with an error only: a run still in progress (or one
+                # that never finished) has success=False too, but no failure.
+                conds.append(ToolExecution.status == "error")
                 order = ToolExecution.created_at.desc()
             rows = (await db.execute(
-                select(ToolExecution, AgentExecution.report_id)
+                select(ToolExecution, AgentExecution.report_id, AgentExecution.completion_id)
                 .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
                 .join(assoc, assoc.c.report_id == AgentExecution.report_id)
                 .where(and_(*conds)).order_by(order).limit(limit * 4)
             )).all()
-            for te, report_id in rows:
-                if not await _can_see(report_id):
-                    continue
+            rows = [r for r in rows if await _can_see(r[1])]
+            # create_data carries the question in its arguments; run_query /
+            # read_query only carry ids, so fall back to the turn's question.
+            turn_ids = {str(r[2]) for r in rows if r[2]}
+            turns = (await db.execute(select(Completion).where(Completion.id.in_(turn_ids)))).scalars().all() if turn_ids else []
+            asked = await _questions(turns)
+            for te, report_id, completion_id in rows:
                 args = te.arguments_json or {}
-                ex = {"question": _text(args.get("user_prompt") or args.get("title")),
+                ex = {"question": _text(args.get("user_prompt") or args.get("title")) or asked.get(str(completion_id), ""),
                       "title": _text(args.get("title")), "report_id": str(report_id)}
                 if item.type == TYPE_SLOW_QUERY:
                     ex["seconds"] = int((te.duration_ms or 0) // 1000)

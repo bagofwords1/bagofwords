@@ -80,6 +80,7 @@ class ErrorCode(str, Enum):
 
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
+    REVIEW_ITEM_NOT_FOUND = "review_item.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     DASHBOARD_NOT_PUBLISHED = "dashboard.not_published"

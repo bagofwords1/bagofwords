@@ -5,7 +5,7 @@ Visibility and actions are gated to users with ``manage`` on the item's agent
 """
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from app.core.auth import current_user
 from app.dependencies import get_async_db, get_current_organization
 from app.models.organization import Organization
 from app.models.user import User
+from app.errors import AppError, ErrorCode
 from app.services.review_service import review_service
 
 router = APIRouter(tags=["review"])
@@ -108,7 +109,7 @@ async def review_training_context(
 ):
     ctx = await review_service.training_context(db, organization, current_user, item_id)
     if ctx is None:
-        raise HTTPException(status_code=404, detail="Review item not found")
+        raise AppError.not_found(ErrorCode.REVIEW_ITEM_NOT_FOUND, "Review item not found")
     return ctx
 
 

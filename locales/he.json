@@ -5359,7 +5359,8 @@
     "connection.slack_channels_not_slack": "בחירת ערוצים זמינה רק בחיבורי Slack.",
     "connection.slack_channels_too_many": "לכל היותר {max} ערוצים לסוכן.",
     "connection.slack_channels_not_ids": "אלה אינם מזהי ערוצים של Slack: {ids}",
-    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}"
+    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}",
+    "review_item.not_found": "פריט הסקירה לא נמצא"
   },
   "email": {
     "dashboardShare": {

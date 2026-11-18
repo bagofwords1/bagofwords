@@ -4759,7 +4759,8 @@
     "connection.slack_channels_not_slack": "Выбор каналов доступен только для подключений Slack.",
     "connection.slack_channels_too_many": "Не более {max} каналов на агента.",
     "connection.slack_channels_not_ids": "Это не идентификаторы каналов Slack: {ids}",
-    "connection.slack_channels_unavailable": "Slack не ответил: {detail}"
+    "connection.slack_channels_unavailable": "Slack не ответил: {detail}",
+    "review_item.not_found": "Элемент проверки не найден"
   },
   "email": {
     "dashboardShare": {

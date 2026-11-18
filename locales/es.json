@@ -5359,7 +5359,8 @@
     "connection.slack_channels_not_slack": "La selección de canales solo está disponible para conexiones de Slack.",
     "connection.slack_channels_too_many": "Como máximo {max} canales por agente.",
     "connection.slack_channels_not_ids": "Estos no son identificadores de canales de Slack: {ids}",
-    "connection.slack_channels_unavailable": "Slack no respondió: {detail}"
+    "connection.slack_channels_unavailable": "Slack no respondió: {detail}",
+    "review_item.not_found": "No se encontró el elemento de revisión"
   },
   "email": {
     "dashboardShare": {

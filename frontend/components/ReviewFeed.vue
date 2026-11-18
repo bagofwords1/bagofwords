@@ -377,7 +377,6 @@ const fetchItems = async () => {
     if (showResolved.value) q.status = 'open,in_progress,snoozed,resolved,dismissed'
     const { data } = await useMyFetch<any>('/api/review', { method: 'GET', query: q })
     items.value = data.value?.items || []
-    emit('count', openCount.value)
   } catch (e) { /* noop */ } finally { loading.value = false }
   await focusItem()
 }

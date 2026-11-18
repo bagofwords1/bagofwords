@@ -268,6 +268,24 @@ async def emit_instruction_suggestions_for_build(db, organization_id: str, build
 SCHEMA_HISTORY_MAX = 10   # earlier changes kept on the active item, newest first
 
 
+async def _reliability_check(db, organization_id: str, data_source_id: str) -> Optional[dict]:
+    try:
+        from app.models.organization import Organization
+        from app.models.data_source import DataSource
+        from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
+        from app.services.agent_reliability_service import AgentReliabilityService
+        org = await db.get(Organization, str(organization_id))
+        ds = await db.get(DataSource, str(data_source_id))
+        if org is None or ds is None:
+            return None
+        if not await AgentReliabilityService().will_check(db, org, ds, TRIGGER_TABLE_CHANGE):
+            return None
+        return {"started_at": datetime.utcnow().isoformat()}
+    except Exception as e:  # noqa: BLE001 — never block the notification
+        logger.warning("review: reliability check lookup failed: %s", e)
+        return None
+
+
 async def emit_schema_changed(db, organization_id: str, data_source_id: str, *,
                               summary: Optional[str] = None, agent_name: Optional[str] = None,
                               connection_name: Optional[str] = None,
@@ -334,9 +352,10 @@ async def emit_schema_changed(db, organization_id: str, data_source_id: str, *,
         "connection": {"id": connection_id, "name": connection_name} if (connection_id or connection_name) else None,
         "diff": diff,
         "history": history,
-        # The same sync started the agent-reliability loop (evals → training);
-        # the inbox points the admin at the agent's evals view for its outcome.
-        "reliability_check": {"started_at": datetime.utcnow().isoformat()},
+        # Set only when the agent-reliability loop the same sync schedules will
+        # actually evaluate something; the inbox then points the admin at the
+        # agent's evals view for its outcome ("View checks").
+        "reliability_check": await _reliability_check(db, organization_id, data_source_id),
         "i18n": i18n,
     }
     await review_service.emit(

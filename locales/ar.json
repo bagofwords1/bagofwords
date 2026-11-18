@@ -4759,7 +4759,8 @@
     "connection.slack_channels_not_slack": "اختيار القنوات متاح فقط لاتصالات Slack.",
     "connection.slack_channels_too_many": "بحد أقصى {max} قناة لكل وكيل.",
     "connection.slack_channels_not_ids": "هذه ليست معرّفات قنوات Slack: {ids}",
-    "connection.slack_channels_unavailable": "لم يستجب Slack: {detail}"
+    "connection.slack_channels_unavailable": "لم يستجب Slack: {detail}",
+    "review_item.not_found": "عنصر المراجعة غير موجود"
   },
   "email": {
     "dashboardShare": {

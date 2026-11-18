@@ -146,7 +146,8 @@ def test_schema_change_notification_carries_names_diff_and_links(
         assert p["removed"] == len(diff["removed_tables"])
         assert p["modified"] == len(diff["changed"])
         assert p["total"] == diff["total"]
-        assert s["reliability_check"]["started_at"]
+        # The seeded agent has no evals, so the loop will skip: no "View checks".
+        assert s["reliability_check"] is None
 
 
 def test_consecutive_schema_changes_are_kept_as_history(
@@ -357,12 +358,19 @@ async def _seed_runs(org_id, ds_id, user_id):
             ae = AgentExecution(completion_id=a.id, report_id=rep.id, organization_id=org_id, is_eval_run=is_eval)
             db.add(ae)
             await db.flush()
-            db.add(ToolExecution(agent_execution_id=ae.id, tool_name="create_data", success=True,
+            db.add(ToolExecution(agent_execution_id=ae.id, tool_name="create_data", success=True, status="success",
                                  duration_ms=125_000, arguments_json={"user_prompt": "eval question" if is_eval else "All orders ever"}))
             if not is_eval:
-                db.add(ToolExecution(agent_execution_id=ae.id, tool_name="create_data", success=False,
+                db.add(ToolExecution(agent_execution_id=ae.id, tool_name="create_data", success=False, status="error",
                                      duration_ms=900, error_message="column region does not exist",
                                      arguments_json={"user_prompt": "Churn by region"}))
+                # run_query only carries ids: its question is the turn's own.
+                db.add(ToolExecution(agent_execution_id=ae.id, tool_name="run_query", success=True, status="success",
+                                     duration_ms=95_000, arguments_json={"query_id": str(uuid.uuid4())}))
+                # Still running (success is False until it finishes): not a failure.
+                db.add(ToolExecution(agent_execution_id=ae.id, tool_name="create_data", success=False,
+                                     status="in_progress", duration_ms=None,
+                                     arguments_json={"user_prompt": "Still running"}))
         await db.commit()
 
 
@@ -398,10 +406,13 @@ def test_training_context_returns_the_examples_behind_an_item(test_client, two_a
     assert low[0]["score"] == 2
 
     slow = ctx(TYPE_SLOW_QUERY)
-    assert [(e["question"], e["seconds"]) for e in slow] == [("All orders ever", 125)], "eval runs are excluded"
+    assert [(e["question"], e["seconds"]) for e in slow] == [
+        ("All orders ever", 125), ("Revenue by region last quarter?", 95),
+    ], "eval runs are excluded; run_query falls back to the turn's question"
 
     err = ctx(TYPE_QUERY_ERROR)
-    assert [(e["question"], e["error"]) for e in err] == [("Churn by region", "column region does not exist")]
+    assert [(e["question"], e["error"]) for e in err] == [("Churn by region", "column region does not exist")], \
+        "an in-progress run is not a failed query"
 
 
 def test_training_context_is_hidden_from_users_who_cannot_see_the_item(test_client, two_admins, create_user, login_user):
@@ -417,6 +428,7 @@ def test_training_context_is_hidden_from_users_who_cannot_see_the_item(test_clie
     member = login_user(email, "Test1234!")
     r = test_client.get(f"/api/review/{item_id}/training-context", headers=_h(member, org_id))
     assert r.status_code == 404
+    assert r.json()["error_code"] == "review_item.not_found"
 
 
 def test_a_new_schema_change_after_handled_opens_a_new_item(
@@ -474,3 +486,50 @@ def test_cleared_handled_row_does_not_silence_the_next_schema_change(
     [n] = _for(_inbox(test_client, token, org_id), type="schema_changed", agent_id=ds_id)
     assert not n["read"] and not n["resolved"]
     assert n["subject"]["diff"]["changed"][0]["removed_cols"] == ["coupon"]
+
+
+def test_a_personal_dismiss_does_not_hide_the_next_change_on_an_open_item(
+    test_client, two_admins, no_reliability_loop, monkeypatch,
+):
+    """✕ on the notification while the item is still open, then another change
+    bumps the same item: the recipient is told about it again."""
+    org_id, token, _ = two_admins
+    cid, ds_id = asyncio.run(_seed_agent(org_id, "Open agent", "Open conn"))
+    base = [table("orders", ("id", "int"), ("coupon", "text")),
+            table("customers", ("id", "int"), ("region", "varchar")), table("legacy", ("id", "int"))]
+
+    def change(schema):
+        async def discover(self, **kwargs):
+            return schema
+        monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
+        asyncio.run(_refresh(cid))
+
+    change(base[:2])
+    [n] = _for(_inbox(test_client, token, org_id), type="schema_changed", agent_id=ds_id)
+    assert test_client.post(f"/api/notifications/{n['id']}/dismiss", headers=_h(token, org_id)).status_code == 200
+    assert not _for(_inbox(test_client, token, org_id), type="schema_changed", agent_id=ds_id)
+
+    change([table("orders", ("id", "int")), base[1]])
+    [again] = _for(_inbox(test_client, token, org_id), type="schema_changed", agent_id=ds_id)
+    assert not again["read"]
+    assert again["subject"]["diff"]["changed"][0]["removed_cols"] == ["coupon"]
+    assert len(again["subject"]["history"]) == 1, "same open item, previous change kept as history"
+
+
+def test_view_checks_is_offered_only_when_a_check_will_run(
+    test_client, two_admins, no_reliability_loop, monkeypatch,
+):
+    from app.services.agent_reliability_service import AgentReliabilityService
+
+    async def will(self, db, organization, data_source, trigger):
+        return True
+    monkeypatch.setattr(AgentReliabilityService, "will_check", will)
+    org_id, token, _ = two_admins
+    cid, ds_id = asyncio.run(_seed_agent(org_id, "Checks agent", "Checks conn"))
+
+    async def discover(self, **kwargs):
+        return [table("orders", ("id", "int")), table("customers", ("id", "int"), ("region", "varchar"))]
+    monkeypatch.setattr(SqliteClient, "aget_schemas", discover)
+    asyncio.run(_refresh(cid))
+    [n] = _for(_inbox(test_client, token, org_id), type="schema_changed", agent_id=ds_id)
+    assert n["subject"]["reliability_check"]["started_at"]
