@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "Можно указать не более {max} сайтов.",
     "connection.query_not_found": "Запрос не найден в этом подключении.",
     "connection.query_finished": "Этот запрос уже завершён ({status}).",
-    "connection.query_not_killable": "Этот запрос нельзя остановить из BOW: его клиент сам ограничивает время выполнения."
+    "connection.query_not_killable": "Этот запрос нельзя остановить из BOW: его клиент сам ограничивает время выполнения.",
+    "connection.slack_channels_not_slack": "Выбор каналов доступен только для подключений Slack.",
+    "connection.slack_channels_too_many": "Не более {max} каналов на агента.",
+    "connection.slack_channels_not_ids": "Это не идентификаторы каналов Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack не ответил: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -7449,6 +7453,8 @@
     "summaryAllNoDms": "Читает все каналы, без личных сообщений",
     "summarySome": "Читает {names}",
     "summarySomeWithDms": "Читает {names} и личные сообщения",
-    "loadFailed": "Не удалось загрузить каналы этого агента. Закройте и попробуйте снова."
+    "loadFailed": "Не удалось загрузить каналы этого агента. Закройте и попробуйте снова.",
+    "privateChannel": "Приватный канал",
+    "privateCount": "{n} приватный канал | {n} приватных канала"
   }
 }

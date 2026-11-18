@@ -5199,7 +5199,11 @@
     "frame_ancestors.too_many": "אפשר להוסיף עד {max} אתרים.",
     "connection.query_not_found": "השאילתה לא נמצאה בחיבור הזה.",
     "connection.query_finished": "השאילתה כבר הסתיימה ({status}).",
-    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו."
+    "connection.query_not_killable": "לא ניתן לעצור את השאילתה מ-BOW: הלקוח שלה אוכף מגבלת זמן משלו.",
+    "connection.slack_channels_not_slack": "בחירת ערוצים זמינה רק בחיבורי Slack.",
+    "connection.slack_channels_too_many": "לכל היותר {max} ערוצים לסוכן.",
+    "connection.slack_channels_not_ids": "אלה אינם מזהי ערוצים של Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack לא ענה: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -8301,6 +8305,8 @@
     "summaryAllNoDms": "קורא את כל הערוצים, בלי הודעות פרטיות",
     "summarySome": "קורא את {names}",
     "summarySomeWithDms": "קורא את {names} והודעות פרטיות",
-    "loadFailed": "לא ניתן לטעון את הערוצים של הסוכן. סגרו ונסו שוב."
+    "loadFailed": "לא ניתן לטעון את הערוצים של הסוכן. סגרו ונסו שוב.",
+    "privateChannel": "ערוץ פרטי",
+    "privateCount": "ערוץ פרטי אחד | {n} ערוצים פרטיים"
   }
 }

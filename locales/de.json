@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "Sie können höchstens {max} Websites angeben.",
     "connection.query_not_found": "Abfrage auf dieser Verbindung nicht gefunden.",
     "connection.query_finished": "Diese Abfrage ist bereits beendet ({status}).",
-    "connection.query_not_killable": "Diese Abfrage kann nicht aus BOW gestoppt werden: Ihr Client setzt ein eigenes Zeitlimit durch."
+    "connection.query_not_killable": "Diese Abfrage kann nicht aus BOW gestoppt werden: Ihr Client setzt ein eigenes Zeitlimit durch.",
+    "connection.slack_channels_not_slack": "Die Kanalauswahl ist nur für Slack-Verbindungen verfügbar.",
+    "connection.slack_channels_too_many": "Höchstens {max} Kanäle pro Agent.",
+    "connection.slack_channels_not_ids": "Das sind keine Slack-Kanal-IDs: {ids}",
+    "connection.slack_channels_unavailable": "Slack hat nicht geantwortet: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -7449,6 +7453,8 @@
     "summaryAllNoDms": "Liest alle Kanäle, keine Direktnachrichten",
     "summarySome": "Liest {names}",
     "summarySomeWithDms": "Liest {names} und Direktnachrichten",
-    "loadFailed": "Die Kanäle dieses Agenten konnten nicht geladen werden. Schließe und versuche es erneut."
+    "loadFailed": "Die Kanäle dieses Agenten konnten nicht geladen werden. Schließe und versuche es erneut.",
+    "privateChannel": "Privater Kanal",
+    "privateCount": "{n} privater Kanal | {n} private Kanäle"
   }
 }

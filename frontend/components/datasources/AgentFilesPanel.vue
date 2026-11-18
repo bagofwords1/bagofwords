@@ -142,8 +142,14 @@ function slackScopeSummary(conn: any) {
   const channels = s?.allowed_channels || []
   const dms = s?.include_direct_messages !== false
   if (!channels.length) return dms ? t('slackChannels.summaryAll') : t('slackChannels.summaryAllNoDms')
+  // Private channels come back unnamed (the viewer may not be in them):
+  // they are counted, never named.
+  const named = channels.filter((c: any) => !c.is_private && c.name).map((c: any) => '#' + c.name)
+  const hidden = channels.length - named.length
   // Isolate the LTR channel list so "#general" keeps its "#" in RTL locales.
-  const names = '\u2066' + channels.map((c: any) => '#' + (c.name || c.id)).join(', ') + '\u2069'
+  const parts = named.length ? ['\u2066' + named.join(', ') + '\u2069'] : []
+  if (hidden) parts.push(t('slackChannels.privateCount', { n: hidden }, hidden))
+  const names = parts.join(', ')
   return dms ? t('slackChannels.summarySomeWithDms', { names }) : t('slackChannels.summarySome', { names })
 }
 function openChannels(conn: any) { channelsConn.value = conn; channelsOpen.value = true }

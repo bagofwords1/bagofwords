@@ -57,7 +57,8 @@ def test_thread_card_is_titled_after_the_slack_conversation():
 def test_allowed_channels_are_formatted_for_the_note():
     from app.data_sources.clients.slack_messages_client import format_allowed_channels, parse_allowed_channels
 
-    assert format_allowed_channels(parse_allowed_channels("#Support, C0SALES001")) == "#support, C0SALES001"
+    # Ids only: a name never scopes (it would follow a rename).
+    assert format_allowed_channels(parse_allowed_channels("#Support, C0SALES001 G0PRIVATE1")) == "C0SALES001, G0PRIVATE1"
 
 
 def test_message_rows_carry_their_link_and_the_tool_surfaces_hints():

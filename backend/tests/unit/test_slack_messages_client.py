@@ -82,6 +82,15 @@ class FakeSlack:
         return sum(1 for m, _ in self.calls if m == method)
 
 
+@pytest.fixture(autouse=True)
+def _fresh_user_name_cache():
+    """User names are cached per process; each test starts from Slack."""
+    import app.data_sources.clients.slack_messages_client as mod
+    mod._user_name_cache.clear()
+    yield
+    mod._user_name_cache.clear()
+
+
 def _client(fake: FakeSlack, **kwargs) -> SlackMessagesClient:
     kwargs.setdefault("sleep", lambda s: fake.calls.append(("sleep", {"s": s})))
     return SlackMessagesClient(access_token="xoxp-user", transport=httpx.MockTransport(fake.handler), **kwargs)
@@ -109,10 +118,17 @@ def test_ids_round_trip_and_reject_foreign_ids():
             parse_slack_id(bad)
 
 
-def test_allowed_channels_parse_names_and_ids():
-    assert parse_allowed_channels("#Support, escalations  C0SALES001") == ["support", "escalations", "C0SALES001"]
-    assert parse_allowed_channels(["#a", "a"]) == ["a"]
+def test_allowed_channels_are_channel_ids_only():
+    # A name never scopes: it would follow whichever channel holds it.
+    assert parse_allowed_channels("#Support, escalations  C0SALES001") == ["C0SALES001"]
+    assert parse_allowed_channels(["G0PRIVATE1", "G0PRIVATE1", "D0DIRECT01"]) == ["G0PRIVATE1"]
     assert parse_allowed_channels(None) == []
+
+
+def test_a_scope_with_no_channel_id_reads_nothing_rather_than_everything():
+    fake = FakeSlack()
+    rows = _client(fake, allowed_channels="#support", include_direct_messages=False).list_conversations()
+    assert rows == []
 
 
 # ----------------------------------------------------------- conversations
@@ -143,12 +159,12 @@ def test_dms_can_be_turned_off():
 
 def test_allowed_channels_narrow_channels_and_dms_follow_their_own_switch():
     fake = FakeSlack()
-    with_dms = _client(fake, allowed_channels="#support, G0PRIVATE1, #not-a-member").list_conversations()
+    with_dms = _client(fake, allowed_channels="C0SUPPORT1, G0PRIVATE1, C0NOTMEMB1").list_conversations()
     assert fake.calls[0][1]["types"] == "public_channel,private_channel,im,mpim"
     assert [r["channel_id"] for r in with_dms] == ["C0SUPPORT1", "G0PRIVATE1", "D0DIRECT01", "C0MPIM0001"]
 
     fake = FakeSlack()
-    client = _client(fake, allowed_channels="#support, G0PRIVATE1, #not-a-member", include_direct_messages=False)
+    client = _client(fake, allowed_channels="C0SUPPORT1, G0PRIVATE1, C0NOTMEMB1", include_direct_messages=False)
     rows = client.list_conversations()
     assert fake.calls[0][1]["types"] == "public_channel,private_channel"
     assert [r["channel_id"] for r in rows] == ["C0SUPPORT1", "G0PRIVATE1"]
@@ -273,7 +289,7 @@ def test_list_without_conversation_fans_out_over_allowed_channels_only():
         "ok": True, "has_more": False,
         "messages": [_msg("1700000100.000100" if q["channel"] == "C0SUPPORT1" else "1700000200.000100",
                           text=q["channel"])]}
-    out = _client(fake, allowed_channels="#support", include_direct_messages=False).list_messages()
+    out = _client(fake, allowed_channels="C0SUPPORT1", include_direct_messages=False).list_messages()
     channels = {q["channel"] for m, q in fake.calls if m == "conversations.history"}
     assert channels == {"C0SUPPORT1"}
     assert [i["preview"] for i in out["items"]] == ["C0SUPPORT1"]
@@ -312,7 +328,7 @@ def test_search_drops_matches_outside_the_allowed_channels():
                     _match("D0DIRECT01", "1700000250.000100", name="U0DANA0001"),
                     _match("C0SUPPORT1", "1700000200.000100")],
         "paging": {"page": 1, "pages": 1}}}
-    out = _client(fake, allowed_channels="support", include_direct_messages=False).search_messages("churn")
+    out = _client(fake, allowed_channels="C0SUPPORT1", include_direct_messages=False).search_messages("churn")
     q = next(q for m, q in fake.calls if m == "search.messages")
     # One allowed channel: Slack scopes the search itself.
     assert q["query"] == "churn in:#support"
@@ -346,7 +362,8 @@ def test_search_filters_the_exact_window_and_widens_the_day_bounds():
         "paging": {"pages": 1}}}
     out = _client(fake).search_messages("churn", sent_after="2023-11-14T12:00:00Z")
     q = next(q for m, q in fake.calls if m == "search.messages")
-    assert q["query"] == "churn after:2023-11-13"
+    # Two days of pad: Slack may read the date in the user's own timezone.
+    assert q["query"] == "churn after:2023-11-12"
     assert [i["id"] for i in out["items"]] == ["slack:C0SUPPORT1/1700000000.000100"]
 
 
@@ -741,6 +758,7 @@ def test_a_renamed_channel_stays_in_scope_because_the_scope_is_by_id():
                                                     "response_metadata": {"next_cursor": ""}}
     by_id = _client(fake, allowed_channels=["C0SUPPORT1"], include_direct_messages=False).list_conversations()
     assert [r["name"] for r in by_id] == ["#customer-care"]
+    # A name, even the old one, never scopes (and never widens to everything).
     by_old_name = _client(fake, allowed_channels="#support", include_direct_messages=False).list_conversations()
     assert by_old_name == []
 
@@ -821,3 +839,107 @@ def test_oauth_requests_exactly_the_scopes_the_client_checks():
     from app.services.connection_oauth_service import get_oauth_params
 
     assert get_oauth_params(_conn())["scopes"].split(",") == [*REQUIRED_SCOPES, *DM_SCOPES]
+
+
+# ------------------------------------------------------- second review round
+
+
+def test_a_dm_partner_is_named_only_when_that_dm_is_used():
+    fake = FakeSlack()
+    fake.routes["conversations.history"] = lambda q: {"ok": True, "has_more": False, "messages": [
+        _msg("1700000100.000100", user="U0OMER0001")]}
+    client = _client(fake)
+    client.list_messages(conversation="#support")
+    # Omer posted; Dana is only a DM partner and that DM wasn't touched.
+    assert [q["user"] for m, q in fake.calls if m == "users.info"] == ["U0OMER0001"]
+    assert client.resolve_conversation("slack:D0DIRECT01")["name"] == "DM with Dana"
+
+
+def test_user_names_are_shared_across_clients():
+    fake = FakeSlack()
+    _client(fake).list_conversations()
+    first = fake.count("users.info")
+    _client(fake).list_conversations()  # the next tool call builds a new client
+    assert first == 1 and fake.count("users.info") == first
+
+
+def test_a_failed_name_lookup_is_not_cached_for_other_clients():
+    fake = FakeSlack()
+    fake.routes["users.info"] = lambda q: {"ok": False, "error": "ratelimited"}
+    rows = _client(fake).list_conversations()
+    assert next(r for r in rows if r["channel_id"] == "D0DIRECT01")["name"] == "DM with U0DANA0001"
+    fake.routes["users.info"] = lambda q: {"ok": True, "user": {"profile": {"display_name": "Dana"}}}
+    rows = _client(fake).list_conversations()
+    assert next(r for r in rows if r["channel_id"] == "D0DIRECT01")["name"] == "DM with Dana"
+
+
+def test_an_upper_case_channel_name_is_not_taken_for_an_id():
+    fake = FakeSlack()
+    channels = CHANNELS + [{"id": "C0CUST0001", "name": "customers", "is_channel": True}]
+    fake.routes["users.conversations"] = lambda q: {"ok": True, "channels": channels,
+                                                    "response_metadata": {"next_cursor": ""}}
+    client = _client(fake)
+    assert client.resolve_conversation("CUSTOMERS")["channel_id"] == "C0CUST0001"
+    assert client.resolve_conversation("C0CUST0001")["channel_id"] == "C0CUST0001"
+
+
+def test_one_conversation_pages_share_one_frozen_window():
+    """New messages between page 1 and page 2 can't shift the offset."""
+    fake = FakeSlack()
+    latest_seen = []
+
+    def history(q):
+        latest_seen.append(q.get("latest"))
+        return {"ok": True, "has_more": False, "messages": [
+            _msg(f"17000001{n:02d}.000100", text=f"m{n}") for n in range(30, 0, -1)]}
+
+    fake.routes["conversations.history"] = history
+    first = _client(fake).list_messages(conversation="#support", max_results=10)
+    second = _client(fake).list_messages(conversation="#support", max_results=10, cursor=first["next_cursor"])
+    assert len({b for b in latest_seen}) == 1 and latest_seen[0]
+    assert not {i["id"] for i in first["items"]} & {i["id"] for i in second["items"]}
+
+
+def test_fanout_expands_the_newest_threads_the_same_way_on_every_page():
+    import app.data_sources.clients.slack_messages_client as mod
+
+    fake = FakeSlack()
+
+    def history(q):
+        base = {"C0SUPPORT1": 1, "C0SALES001": 2, "G0PRIVATE1": 3}[q["channel"]]
+        return {"ok": True, "has_more": False, "messages": [
+            _msg(f"170000{base}{n:03d}.000100", thread_ts=f"170000{base}{n:03d}.000100", reply_count=1,
+                 text=f"{q['channel']}-{n}") for n in range(12)]}
+
+    fake.routes["conversations.history"] = history
+    fake.routes["conversations.replies"] = lambda q: {"ok": True, "has_more": False, "messages": [
+        _msg(q["ts"], thread_ts=q["ts"], reply_count=1),
+        _msg(q["ts"].replace(".000100", ".000200"), thread_ts=q["ts"], text="reply")]}
+
+    def run():
+        f = _client(fake, include_direct_messages=False).list_messages(max_results=7)
+        rows = list(f["items"])
+        while f["next_cursor"]:
+            f = _client(fake, include_direct_messages=False).list_messages(max_results=7, cursor=f["next_cursor"])
+            rows += f["items"]
+        return [r["id"] for r in rows]
+
+    a, b = run(), run()
+    assert a == b and len(a) == len(set(a))
+    expanded = {q["ts"] for m, q in fake.calls if m == "conversations.replies"}
+    # The newest threads overall (all in G0PRIVATE1, base 3), not a worker race.
+    assert len(expanded) == mod._FANOUT_THREAD_EXPANSIONS
+    assert all(ts.startswith("1700003") for ts in expanded)
+
+
+def test_a_locally_filtered_search_with_more_pages_keeps_its_cursor():
+    """No in-scope match in the pages walked is not "no match": the cursor
+    comes back and the search is not swapped for a broadened one."""
+    fake = FakeSlack()
+    fake.routes["search.messages"] = lambda q: {"ok": True, "messages": {
+        "matches": [_match("C0SALES001", f"17000{int(q['page']):03d}0.000100", name="sales")],
+        "paging": {"pages": 50}}}
+    out = _client(fake, allowed_channels=["C0SUPPORT1"]).search_messages("refund policy")
+    assert out["items"] == [] and out["next_cursor"]
+    assert "broadened_query" not in out
+    assert [q["query"] for m, q in fake.calls if m == "search.messages"] == ["refund policy"] * 3

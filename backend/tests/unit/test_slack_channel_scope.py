@@ -17,8 +17,9 @@ from app.services.slack_channel_scope import (
     normalize_scope,
 )
 
-SUPPORT = {"id": "C0SUPPORT1", "name": "support"}
-SALES = {"id": "C0SALES001", "name": "sales"}
+SUPPORT = {"id": "C0SUPPORT1", "name": "support", "is_private": False}
+SALES = {"id": "C0SALES001", "name": "sales", "is_private": False}
+LAYOFFS = {"id": "G0LAYOFF01", "name": "layoffs-q1", "is_private": True}
 
 
 def test_no_choice_means_every_channel_and_dms():
@@ -30,7 +31,9 @@ def test_no_choice_means_every_channel_and_dms():
 def test_normalize_drops_junk_and_duplicates():
     scope = normalize_scope({"allowed_channels": [SUPPORT, {"id": ""}, "C0SALES001", SUPPORT, {"id": "C0X", "name": "#ops"}],
                              "include_direct_messages": False})
-    assert scope == {"allowed_channels": [SUPPORT, {"id": "C0SALES001", "name": ""}, {"id": "C0X", "name": "ops"}],
+    # Privacy never recorded counts as private: its name is then never shown.
+    assert scope == {"allowed_channels": [SUPPORT, {"id": "C0SALES001", "name": "", "is_private": True},
+                                          {"id": "C0X", "name": "ops", "is_private": True}],
                      "include_direct_messages": False}
 
 
@@ -61,6 +64,19 @@ def test_the_planner_note_names_the_channels():
     assert "and the user's DMs" in describe_scope({"allowed_channels": [SUPPORT], "include_direct_messages": True})
     assert describe_scope({"allowed_channels": [], "include_direct_messages": False}) == (
         "This agent reads the user's Slack channels but not their DMs.")
+
+
+def test_a_private_channel_is_counted_never_named():
+    """A manager's private channel must not reach users who aren't in it —
+    not through the planner note, not through the scope read."""
+    from app.services.slack_channel_scope import redact_private_names
+
+    note = describe_scope({"allowed_channels": [SUPPORT, LAYOFFS], "include_direct_messages": False})
+    assert "layoffs" not in note
+    assert note == ("This agent reads only these Slack channels: #support, 1 private channel. "
+                    "Other channels are not readable here.")
+    shown = redact_private_names({"allowed_channels": [SUPPORT, LAYOFFS], "include_direct_messages": False})
+    assert shown["allowed_channels"] == [SUPPORT, {**LAYOFFS, "name": ""}]
 
 
 # ------------------------------------------------- wiring into the chat tools

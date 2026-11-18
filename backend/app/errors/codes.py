@@ -205,3 +205,7 @@ class ErrorCode(str, Enum):
     # Connections
     CONNECTION_CONFIG_INVALID = "connection.config_invalid"
     CONNECTION_ATHENA_MODE_SWITCH = "connection.athena_mode_switch"
+    SLACK_CHANNELS_NOT_SLACK = "connection.slack_channels_not_slack"
+    SLACK_CHANNELS_TOO_MANY = "connection.slack_channels_too_many"
+    SLACK_CHANNELS_NOT_IDS = "connection.slack_channels_not_ids"
+    SLACK_CHANNELS_UNAVAILABLE = "connection.slack_channels_unavailable"

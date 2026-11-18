@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "يمكنك إضافة {max} موقعًا كحد أقصى.",
     "connection.query_not_found": "الاستعلام غير موجود على هذا الاتصال.",
     "connection.query_finished": "انتهى هذا الاستعلام بالفعل ({status}).",
-    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به."
+    "connection.query_not_killable": "لا يمكن إيقاف هذا الاستعلام من BOW: يفرض عميله مهلة خاصة به.",
+    "connection.slack_channels_not_slack": "اختيار القنوات متاح فقط لاتصالات Slack.",
+    "connection.slack_channels_too_many": "بحد أقصى {max} قناة لكل وكيل.",
+    "connection.slack_channels_not_ids": "هذه ليست معرّفات قنوات Slack: {ids}",
+    "connection.slack_channels_unavailable": "لم يستجب Slack: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -7449,6 +7453,8 @@
     "summaryAllNoDms": "يقرأ كل القنوات دون الرسائل المباشرة",
     "summarySome": "يقرأ {names}",
     "summarySomeWithDms": "يقرأ {names} والرسائل المباشرة",
-    "loadFailed": "تعذّر تحميل قنوات هذا الوكيل. أغلق وحاول مرة أخرى."
+    "loadFailed": "تعذّر تحميل قنوات هذا الوكيل. أغلق وحاول مرة أخرى.",
+    "privateChannel": "قناة خاصة",
+    "privateCount": "قناة خاصة واحدة | {n} قنوات خاصة"
   }
 }

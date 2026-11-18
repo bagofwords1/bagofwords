@@ -11,11 +11,12 @@ class DataSourceConnectionSetting(BaseSchema):
     ONE agent reads through it, without a second connection (and a second
     sign-in per user). Today it carries the Slack channel scope:
 
-        {"allowed_channels": [{"id": "C0123ABCD", "name": "support"}, ...],
+        {"allowed_channels": [{"id": "C0123ABCD", "name": "support", "is_private": false}, ...],
          "include_direct_messages": true}
 
     Channels are kept by Slack's stable id (a rename never breaks the scope);
-    the name is only for display. No row, or an empty ``allowed_channels``,
+    the name is only for display, and a private channel's name is never shown
+    to viewers (see ``slack_channel_scope.redact_private_names``). No row, or an empty ``allowed_channels``,
     means every channel the signed-in user belongs to. The scope only ever
     narrows: the user's own Slack membership still decides what is visible.
     """

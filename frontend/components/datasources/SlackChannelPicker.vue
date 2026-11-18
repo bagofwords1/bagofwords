@@ -88,6 +88,7 @@ const props = defineProps<{ dsId: string; connectionId: string }>()
 const emit = defineEmits<{ (e: 'saved', scope: any): void }>()
 const { t } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 
 const loading = ref(true)
 // The current choice couldn't be read: never fall back to "all channels",
@@ -127,10 +128,16 @@ async function load() {
     const mine: Channel[] = conv.channels || []
     const mineIds = new Set(mine.map(c => c.id))
     // Keep channels another manager chose that this person isn't in, so a
-    // save here doesn't silently drop them.
+    // save here doesn't silently drop them. A private one comes back
+    // unnamed: its name is for its members only.
     const others: Channel[] = (scope.allowed_channels || [])
       .filter((c: any) => !mineIds.has(c.id))
-      .map((c: any) => ({ id: c.id, name: c.name || c.id, notMine: true }))
+      .map((c: any) => ({
+        id: c.id,
+        name: c.name || (c.is_private ? t('slackChannels.privateChannel') : c.id),
+        is_private: c.is_private !== false,
+        notMine: true,
+      }))
     channels.value = [...mine, ...others]
     selectedIds.value = (scope.allowed_channels || []).map((c: any) => c.id)
     includeDms.value = scope.include_direct_messages !== false
@@ -143,14 +150,14 @@ async function load() {
 async function save() {
   saving.value = true
   try {
-    const byId = new Map(channels.value.map(c => [c.id, c]))
-    const allowed = mode.value === 'all' ? [] : selectedIds.value.map(id => ({ id, name: byId.get(id)?.name || '' }))
+    // Ids only: the server reads each channel's name and privacy from Slack.
+    const allowed = mode.value === 'all' ? [] : selectedIds.value.map(id => ({ id }))
     const { data, error } = await useMyFetch(`${base.value}/channel-scope`, {
       method: 'PUT',
       body: { allowed_channels: allowed, include_direct_messages: includeDms.value },
     })
     if (error.value) {
-      toast.add({ title: t('slackChannels.saveFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
+      toast.add({ title: t('slackChannels.saveFailed'), description: getErrorMessage(error.value), color: 'red' })
       return
     }
     toast.add({ title: t('slackChannels.saved'), color: 'green' })

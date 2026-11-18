@@ -29,8 +29,10 @@ MAX_CHANNELS = 200
 
 
 def normalize_scope(raw: Optional[dict]) -> Dict[str, Any]:
-    """``{"allowed_channels": [{"id", "name"}], "include_direct_messages": bool}``
-    with defaults filled and junk dropped."""
+    """``{"allowed_channels": [{"id", "name", "is_private"}],
+    "include_direct_messages": bool}`` with defaults filled and junk dropped.
+    A channel whose privacy was never recorded counts as private, so its
+    name is never shown to someone who may not be in it."""
     raw = raw or {}
     channels: List[Dict[str, str]] = []
     seen = set()
@@ -41,7 +43,9 @@ def normalize_scope(raw: Optional[dict]) -> Dict[str, Any]:
         if not cid or cid in seen:
             continue
         seen.add(cid)
-        channels.append({"id": cid, "name": str(item.get("name") or "").strip().lstrip("#")})
+        is_private = item.get("is_private")
+        channels.append({"id": cid, "name": str(item.get("name") or "").strip().lstrip("#"),
+                         "is_private": True if is_private is None else bool(is_private)})
     include_dms = raw.get("include_direct_messages")
     return {
         "allowed_channels": channels[:MAX_CHANNELS],
@@ -133,16 +137,35 @@ def client_overrides(scope: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def redact_private_names(scope: Dict[str, Any]) -> Dict[str, Any]:
+    """The scope with private channels' names blanked. A manager's choice is
+    shown to everyone who can see the agent, and a private channel's name is
+    itself private to its members; a viewer's own Slack listing (the picker)
+    names the private channels THEY are in."""
+    return {
+        **scope,
+        "allowed_channels": [
+            {**c, "name": ""} if c.get("is_private", True) else dict(c)
+            for c in scope.get("allowed_channels") or []
+        ],
+    }
+
+
 def describe_scope(scope: Dict[str, Any]) -> Optional[str]:
     """One line for the planner context, or None when the agent reads all of
-    the user's Slack."""
+    the user's Slack. Private channels are counted, never named: the run's
+    user may not be a member (list_chat_messages names the ones they are in)."""
     channels = scope.get("allowed_channels") or []
     dms = scope.get("include_direct_messages", True)
     if not channels and dms:
         return None
     if not channels:
         return "This agent reads the user's Slack channels but not their DMs."
-    names = ", ".join(f"#{c['name']}" if c.get("name") else c["id"] for c in channels)
+    parts = [f"#{c['name']}" for c in channels if not c.get("is_private", True) and c.get("name")]
+    hidden = len(channels) - len(parts)
+    if hidden:
+        parts.append(f"{hidden} private channel{'s' if hidden != 1 else ''}")
+    names = ", ".join(parts)
     tail = " and the user's DMs" if dms else ""
     return (f"This agent reads only these Slack channels{tail}: {names}. "
             "Other channels are not readable here.")

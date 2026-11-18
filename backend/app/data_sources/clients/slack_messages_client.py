@@ -191,21 +191,19 @@ def parse_slack_id(value: str) -> Dict[str, Optional[str]]:
 
 
 def parse_allowed_channels(value: Any) -> List[str]:
-    """``"#support, escalations C0123ABCD"`` → ``["support", "escalations", "C0123ABCD"]``.
+    """The agent's channel scope as Slack channel ids (``["C0123ABCD", …]``).
 
-    Names are matched case-insensitively without the leading ``#``; ids keep
-    their case. Accepts a list too (schema forms may send either).
+    Ids only: a scope never follows a channel NAME, so a rename (or a new
+    channel taking an old name) can't move it. Anything that isn't a channel
+    id is dropped. Accepts a list or a comma/space separated string.
     """
     if not value:
         return []
     items = value if isinstance(value, (list, tuple)) else re.split(r"[,\s]+", str(value))
     out: List[str] = []
     for item in items:
-        token = str(item or "").strip().lstrip("#").strip()
-        if not token:
-            continue
-        token = token if _CHANNEL_ID_RE.match(token) else token.lower()
-        if token not in out:
+        token = str(item or "").strip()
+        if SCOPE_CHANNEL_ID_RE.match(token) and token not in out:
             out.append(token)
     return out
 
@@ -233,8 +231,34 @@ _HE_STOPWORDS = frozenset("למה מה איך מי מתי איפה האם של �
 
 
 def format_allowed_channels(allowed: List[str]) -> str:
-    """``["support", "C0123ABCD"]`` → ``"#support, C0123ABCD"``."""
-    return ", ".join(a if _CHANNEL_ID_RE.match(a) else f"#{a}" for a in allowed)
+    """``["C0123ABCD", "C0456EFGH"]`` → ``"C0123ABCD, C0456EFGH"``."""
+    return ", ".join(allowed)
+
+
+# Display names of Slack users, shared by every client in the process: each
+# tool call builds a fresh client, and naming a busy user's DM partners one
+# users.info call at a time (Tier 4, ~100/min) on every call ran into 429s.
+# Slack user ids are unique, so the cache is keyed by id; only successful
+# lookups are kept, for an hour.
+_USER_NAME_TTL = 3600.0
+_USER_NAME_MAX = 50_000
+_user_name_cache: Dict[str, Tuple[float, str]] = {}
+_user_name_cache_lock = threading.Lock()
+
+
+def _cached_user_name(user_id: str) -> Optional[str]:
+    with _user_name_cache_lock:
+        hit = _user_name_cache.get(user_id)
+        if hit and time.monotonic() - hit[0] < _USER_NAME_TTL:
+            return hit[1]
+    return None
+
+
+def _remember_user_name(user_id: str, name: str) -> None:
+    with _user_name_cache_lock:
+        if len(_user_name_cache) >= _USER_NAME_MAX:
+            _user_name_cache.clear()
+        _user_name_cache[user_id] = (time.monotonic(), name)
 
 
 class SlackMessagesClient(DataSourceClient):
@@ -258,6 +282,9 @@ class SlackMessagesClient(DataSourceClient):
         super().__init__()
         self.access_token = (access_token or "").strip() or None
         self.allowed = parse_allowed_channels(allowed_channels)
+        # A scope that was given but holds no channel id (a stale or
+        # malformed value) narrows to nothing rather than widening to all.
+        self.scoped = bool(self.allowed) or bool(str(allowed_channels or "").strip("[]() ,'\""))
         # Channels and DMs are scoped independently: the channel list narrows
         # channels only, and DMs follow their own switch (an agent can read
         # #support plus the user's DMs, or #support alone).
@@ -278,7 +305,7 @@ class SlackMessagesClient(DataSourceClient):
 
     @property
     def description(self) -> str:
-        scope = f" (channels: {format_allowed_channels(self.allowed)})" if self.allowed else ""
+        scope = f" (channels: {format_allowed_channels(self.allowed) or 'none'})" if self.scoped else ""
         return "Slack channels" + (" and DMs" if self.include_dms else "") + \
             " the signed-in user can see" + scope
 
@@ -356,14 +383,17 @@ class SlackMessagesClient(DataSourceClient):
         with self._users_lock:
             if user_id in self._users:
                 return self._users[user_id]
-        name = None
-        try:
-            user = self._call("users.info", user=user_id).get("user") or {}
-            prof = user.get("profile") or {}
-            name = (prof.get("display_name") or prof.get("real_name")
-                    or user.get("real_name") or user.get("name"))
-        except SlackApiError as exc:
-            logger.info("slack: users.info %s unavailable: %s", user_id, exc.error)
+        name = _cached_user_name(user_id)
+        if name is None:
+            try:
+                user = self._call("users.info", user=user_id).get("user") or {}
+                prof = user.get("profile") or {}
+                name = (prof.get("display_name") or prof.get("real_name")
+                        or user.get("real_name") or user.get("name"))
+                if name:
+                    _remember_user_name(user_id, name)
+            except SlackApiError as exc:
+                logger.info("slack: users.info %s unavailable: %s", user_id, exc.error)
         with self._users_lock:
             self._users[user_id] = name or user_id
         return self._users[user_id]
@@ -393,15 +423,21 @@ class SlackMessagesClient(DataSourceClient):
     def _is_allowed(self, ch: dict) -> bool:
         if ch.get("is_im") or ch.get("is_mpim"):
             return self.include_dms
-        if not self.allowed:
+        if not self.scoped:
             return True
-        return ch.get("id") in self.allowed or str(ch.get("name") or "").lower() in self.allowed
+        return ch.get("id") in self.allowed
 
     def _conv_row(self, ch: dict) -> dict:
         cid = ch["id"]
+        dm_user = None
         if ch.get("is_im"):
-            other = self._user_name(ch.get("user")) or "someone"
-            name, kind = f"DM with {other}", "direct message"
+            # Named lazily (see _named): only the DMs a call actually uses
+            # cost a users.info lookup, not every DM the user ever opened.
+            dm_user = ch.get("user") or None
+            known = self._known_user_name(dm_user)
+            name, kind = f"DM with {known or dm_user or 'someone'}", "direct message"
+            if known or not dm_user:
+                dm_user = None
         elif ch.get("is_mpim"):
             # mpdm-alice--bob--carol-1 → Group DM: alice, bob, carol
             handles = re.sub(r"^mpdm-|-\d+$", "", str(ch.get("name") or "")).split("--")
@@ -417,13 +453,45 @@ class SlackMessagesClient(DataSourceClient):
             "kind": kind,
             "last_activity": ts_to_iso(ch.get("updated") / 1000) if isinstance(ch.get("updated"), (int, float)) else None,
             "web_url": f"{self._workspace_url()}archives/{cid}",
+            "_dm_user": dm_user,
         }
 
+    def _known_user_name(self, user_id: Optional[str]) -> Optional[str]:
+        """A user's name if already known (this client or the shared cache),
+        without calling Slack."""
+        if not user_id:
+            return None
+        with self._users_lock:
+            if user_id in self._users and self._users[user_id] != user_id:
+                return self._users[user_id]
+        return _cached_user_name(user_id)
+
+    def _named(self, rows: List[dict]) -> List[dict]:
+        """Give the DMs among ``rows`` their partner's name (in place), in one
+        parallel batch. Called only for conversations a call actually shows."""
+        pending = [r for r in rows if r.get("_dm_user")]
+        if not pending:
+            return rows
+        self._prefetch_users(r["_dm_user"] for r in pending)
+        for r in pending:
+            uid = r.get("_dm_user")
+            if uid:
+                r["name"] = f"DM with {self._user_name(uid) or uid}"
+                r["_dm_user"] = None
+        return rows
+
     def list_conversations(self) -> List[dict]:
+        """Every conversation the user is a member of, DMs named — the
+        ``list_conversations=true`` listing. See :meth:`_all_conversations`."""
+        return [{k: v for k, v in r.items() if k != "_dm_user"}
+                for r in self._named(self._all_conversations())]
+
+    def _all_conversations(self) -> List[dict]:
         """Every conversation the user is a member of (``users.conversations``
         returns memberships only — never every public channel), narrowed by
         the agent's channel scope. Rows: ``{id, name, kind, channel,
-        last_activity, web_url}``. One walk per client instance."""
+        last_activity, web_url}``; a DM's name may still be its partner's id
+        until :meth:`_named` runs on it. One walk per client instance."""
         if not self.access_token:
             return []
         with self._conv_lock:
@@ -434,9 +502,6 @@ class SlackMessagesClient(DataSourceClient):
             for _ in range(_MAX_CONVERSATION_PAGES):
                 data = self._call("users.conversations", types=self._types(),
                                   exclude_archived="true", limit=_PAGE_SIZE, cursor=cursor)
-                # Name every DM partner on the page in parallel (users.info is
-                # Tier 4) — one at a time this took seconds for a busy user.
-                self._prefetch_users(ch.get("user") for ch in data.get("channels") or [] if ch.get("is_im"))
                 for ch in data.get("channels") or []:
                     if ch.get("id") and self._is_allowed(ch):
                         rows.append(self._conv_row(ch))
@@ -447,7 +512,7 @@ class SlackMessagesClient(DataSourceClient):
             return rows
 
     def _conversation_by_channel(self, channel_id: str) -> Optional[dict]:
-        for row in self.list_conversations():
+        for row in self._all_conversations():
             if row["channel_id"] == channel_id:
                 return row
         return None
@@ -455,8 +520,8 @@ class SlackMessagesClient(DataSourceClient):
     def _require_conversation(self, channel_id: str) -> dict:
         row = self._conversation_by_channel(channel_id)
         if row:
-            return row
-        if self.allowed:
+            return self._named([row])[0]
+        if self.scoped:
             raise ValueError("That Slack conversation is not one of the channels this agent reads.")
         raise ValueError("That Slack conversation is not one this user is a member of.")
 
@@ -465,9 +530,9 @@ class SlackMessagesClient(DataSourceClient):
         norm = str(text or "").strip().lstrip("#").strip().lower()
         if not norm:
             return None
-        for row in self.list_conversations():
+        for row in self._all_conversations():
             if (row.get("channel") or "").lower() == norm or row["name"].lower().lstrip("#") == norm:
-                return row
+                return self._named([row])[0]
         return None
 
     def resolve_conversation(self, conversation: str) -> dict:
@@ -477,17 +542,27 @@ class SlackMessagesClient(DataSourceClient):
         if want.startswith("slack:"):
             return self._require_conversation(parse_slack_id(want)["channel_id"])
         if _CHANNEL_ID_RE.match(want):
-            return self._require_conversation(want)
-        rows = self.list_conversations()
+            # An id-shaped string may also be a channel NAME in capitals
+            # ("GENERAL", "CUSTOMERS"): when no conversation has that id,
+            # fall through to the name match below.
+            row = self._conversation_by_channel(want)
+            if row:
+                return self._named([row])[0]
+        rows = self._all_conversations()
         norm = want.lstrip("#").strip().lower()
+        if norm.startswith("dm with") or norm.startswith("group dm"):
+            # Naming a DM by its partner: only then are all DMs named.
+            self._named(rows)
         exact = [r for r in rows if r["name"].lower().lstrip("#") == norm
                  or (r.get("channel") or "").lower() == norm]
         if len(exact) == 1:
-            return exact[0]
+            return self._named(exact)[0]
         loose = exact or [r for r in rows if norm and norm in r["name"].lower()]
         if len(loose) == 1:
-            return loose[0]
-        names = ", ".join(r["name"] for r in rows[:60]) or "(none)"
+            return self._named(loose)[0]
+        if _CHANNEL_ID_RE.match(want) and not loose:
+            return self._require_conversation(want)  # says why: not a member / outside the scope
+        names = ", ".join(r["name"] for r in self._named(rows[:60])) or "(none)"
         reason = "matches several conversations" if loose else "was not found"
         raise ValueError(
             f"Conversation {conversation!r} {reason}. Conversations available here: {names}"
@@ -645,30 +720,30 @@ class SlackMessagesClient(DataSourceClient):
         after = parse_mail_datetime(sent_after)
         before = parse_mail_datetime(sent_before)
         state = decode_cursor(cursor)
+        # The window's upper bound is frozen at the first page and carried in
+        # the cursor, so messages arriving meanwhile can't shift the paging
+        # (repeating or skipping rows on page 2) — one conversation or many.
+        frozen = str(state.get("t") or f"{time.time():.6f}")
+        frozen_at = datetime.fromtimestamp(float(frozen), tz=timezone.utc)
+        before = frozen_at if before is None or before > frozen_at else before
 
         if conversation:
             conv = self.resolve_conversation(conversation)
             rows, resume = self._history_walk(conv, after, before, from_user, n, state, _MAX_PAGES)
-            return {"items": rows, "next_cursor": encode_cursor(resume) if resume else None,
+            return {"items": rows, "next_cursor": encode_cursor({**resume, "t": frozen}) if resume else None,
                     "folder": self._folder(conv)}
 
         # No conversation: the newest messages across conversations (bounded).
-        # The window's upper bound is frozen at the first page and carried in
-        # the cursor, so messages arriving meanwhile can't shift the offset
-        # (repeating or skipping rows on page 2).
-        frozen = str(state.get("t") or f"{time.time():.6f}")
-        frozen_at = datetime.fromtimestamp(float(frozen), tz=timezone.utc)
-        before = frozen_at if before is None or before > frozen_at else before
-        convs = self.list_conversations()
+        convs = self._all_conversations()
         if not convs:
             return {"items": [], "next_cursor": None, "folder": None}
-        scanned = convs[:_FANOUT_CONVERSATIONS]
-        with self._expansions_lock:
-            self._expansions_left = min(self._expansions_left, _FANOUT_THREAD_EXPANSIONS)
+        scanned = self._named(convs[:_FANOUT_CONVERSATIONS])
 
         def one(conv):
+            # Top-level messages only, every sender: which threads get their
+            # replies is decided below, once, over all conversations.
             try:
-                return self._history_walk(conv, after, before, from_user, _FANOUT_PAGE, {}, 1)
+                return self._history_walk(conv, after, before, None, _FANOUT_PAGE, {}, 1, expand_threads=False)
             except Exception as exc:
                 logger.warning("slack: listing %s failed: %s", conv["id"], exc)
                 return [], None
@@ -677,16 +752,69 @@ class SlackMessagesClient(DataSourceClient):
             results = list(pool.map(one, scanned))
         merged: List[dict] = []
         partial: List[str] = []
+        by_conv: Dict[str, dict] = {}
         for conv, (rows, resume) in zip(scanned, results):
+            by_conv[conv["id"]] = conv
             merged.extend(rows)
             if resume:
                 partial.append(conv["name"])
         partial.extend(c["name"] for c in convs[_FANOUT_CONVERSATIONS:])
-        merged.sort(key=lambda r: r.get("modified_at") or "", reverse=True)
+        merged.extend(self._fanout_replies(merged, by_conv, after, before))
+        if from_user:
+            merged = [r for r in merged if from_user.lower() in (r["sender"] or "").lower()]
+        # Newest first, ties by id: the same input always gives the same
+        # order, so an offset into it means the same rows on every page.
+        merged.sort(key=lambda r: (r.get("modified_at") or "", r["id"]), reverse=True)
         skip = int(state.get("o") or 0)
         page = merged[skip: skip + n]
         nxt = encode_cursor({"o": skip + n, "t": frozen}) if len(merged) > skip + n else None
         return {"items": page, "next_cursor": nxt, "folder": None, "partial": partial}
+
+    def _fanout_replies(self, rows: List[dict], by_conv: Dict[str, dict],
+                        after: Optional[datetime], before: Optional[datetime]) -> List[dict]:
+        """Replies of the newest threads across a fan-out listing.
+
+        The threads are chosen deterministically — the
+        ``_FANOUT_THREAD_EXPANSIONS`` newest threaded posts over every
+        scanned conversation, not whichever worker gets there first — so
+        each page of the listing is built from the same rows. A reply also
+        sent to the channel is then dropped as a top-level row (it is listed
+        under its root)."""
+        roots = sorted(
+            (r for r in rows if r.get("reply_count") and not r.get("is_reply")),
+            key=lambda r: (r.get("modified_at") or "", r["id"]), reverse=True,
+        )[:_FANOUT_THREAD_EXPANSIONS]
+        if not roots:
+            return []
+
+        def one(root: dict) -> Tuple[dict, List[dict]]:
+            cid, ts = root["id"].split(":", 1)[1].split("/", 1)
+            try:
+                msgs = self._thread(cid, ts, max_pages=1)
+            except Exception as exc:  # replies are context; never fail the listing
+                logger.info("slack: replies of %s/%s unavailable: %s", cid, ts, exc)
+                return root, []
+            return root, [m for m in msgs if str(m.get("ts")) != ts]
+
+        with ThreadPoolExecutor(max_workers=_FANOUT_WORKERS) as pool:
+            fetched = list(pool.map(one, roots))
+        expanded = {root["id"].rsplit("/", 1)[1] for root, _ in fetched}
+        # Drop top-level copies of replies ("also send to channel").
+        rows[:] = [r for r in rows if not (
+            r.get("is_reply") and (m := _THREAD_TS_RE.search(r.get("web_url") or "")) and m.group(1) in expanded)]
+        out: List[dict] = []
+        for root, replies in fetched:
+            conv = by_conv.get(root["conversation_id"])
+            if conv is None:
+                continue
+            for r in replies:
+                if not self._is_user_message(r):
+                    continue
+                when = parse_mail_datetime(ts_to_iso(r.get("ts")))
+                if (after and when and when < after) or (before and when and when >= before):
+                    continue
+                out.append(self._row(r, conv))
+        return out
 
     @staticmethod
     def _folder(conv: dict) -> dict:
@@ -702,9 +830,9 @@ class SlackMessagesClient(DataSourceClient):
         in scope too (a DM can't be named with ``in:#``), or when the list is
         too long for one query. Names are read live from the channel ids, so a
         renamed channel still matches."""
-        if not self.allowed or self.include_dms:
+        if not self.scoped or self.include_dms:
             return []
-        rows = [r for r in self.list_conversations() if r.get("kind") in ("channel", "private channel")]
+        rows = [r for r in self._all_conversations() if r.get("kind") in ("channel", "private channel")]
         if not rows or len(rows) > _MAX_IN_FILTERS:
             return []
         return [r["channel"] for r in rows if r.get("channel")]
@@ -717,12 +845,14 @@ class SlackMessagesClient(DataSourceClient):
                 parts.append(f"in:#{conv['channel']}")
         elif scoped:
             parts.extend(f"in:#{name}" for name in self._scoped_channel_names())
-        # Slack's after:/before: are day-granular and exclusive; widen by a
-        # day and filter exactly on each match's ts.
+        # Slack's after:/before: are day-granular, exclusive, and may be read
+        # in the searching user's own timezone (UTC-12 … UTC+14), so a
+        # one-day pad on the UTC date can still cut off the edge of the
+        # window. Widen by two days and filter exactly on each match's ts.
         if after:
-            parts.append(f"after:{(after - timedelta(days=1)).date().isoformat()}")
+            parts.append(f"after:{(after - timedelta(days=2)).date().isoformat()}")
         if before:
-            parts.append(f"before:{(before + timedelta(days=1)).date().isoformat()}")
+            parts.append(f"before:{(before + timedelta(days=2)).date().isoformat()}")
         return " ".join(parts)
 
     def search_messages(
@@ -757,21 +887,27 @@ class SlackMessagesClient(DataSourceClient):
         after = parse_mail_datetime(sent_after)
         before = parse_mail_datetime(sent_before)
         conv = self.resolve_conversation(conversation) if conversation else None
-        visible = {r["channel_id"]: r for r in self.list_conversations()}
+        visible = {r["channel_id"]: r for r in self._all_conversations()}
         flt = (visible, conv, after, before, from_user)
 
         result = self._search_walk(q, conv, after, before, n, decode_cursor(cursor), flt)
-        if not result["items"] and not cursor and conv is None and len(self._scoped_channel_names()) > 1:
+        # An empty first pass that still has a cursor is NOT "no match": in-scope
+        # matches can rank past the pages walked when the scope is applied
+        # here rather than by Slack. Return the cursor so the caller keeps
+        # paging, instead of replacing it with a broadened, cursor-less search.
+        nothing = not result["items"] and not cursor and not result["next_cursor"]
+        if nothing and conv is None and len(self._scoped_channel_names()) > 1:
             # Several in:#x filters in one query: if Slack reads them as AND
             # rather than OR, nothing comes back — search everything and keep
             # the allowed channels by id instead.
             result = self._search_walk(q, conv, after, before, n, {}, flt, scoped=False)
-        if not result["items"] and not cursor:
+            nothing = not result["items"] and not result["next_cursor"]
+        if nothing:
             terms = slack_broadened_terms(q)
             if terms:
                 result = self._search_any(terms, conv, after, before, n, flt)
                 result["broadened_query"] = " OR ".join(terms)
-        if not result["items"] and not cursor:
+        if nothing and not result["items"]:
             named = self._conversation_named(q)
             if named is not None:
                 # Searching for a channel's NAME finds messages that mention
@@ -785,6 +921,12 @@ class SlackMessagesClient(DataSourceClient):
                 )
         self._annotate_hits(result["items"])
         return result
+
+    def _name_match_conversations(self, matches: List[dict], flt: tuple) -> None:
+        """Name, in one batch, the DMs a page of search matches falls in."""
+        visible = flt[0]
+        ids = {(mt.get("channel") or {}).get("id") for mt in matches}
+        self._named([visible[c] for c in ids if c in visible])
 
     def _match_row(self, mt: dict, flt: tuple) -> Optional[dict]:
         """A search match as a message row, or None when the agent's
@@ -824,7 +966,7 @@ class SlackMessagesClient(DataSourceClient):
         full_q = state.get("q") or self._search_query(q, conv, after, before, scoped=scoped)
         # Scope applied HERE (not sent to Slack as in:#x): walk only a few
         # pages — most of a workspace-wide page would be thrown away.
-        filtering = conv is None and (bool(self.allowed) or not self.include_dms) and "in:#" not in full_q
+        filtering = conv is None and (self.scoped or not self.include_dms) and "in:#" not in full_q
         max_pages = _MAX_FILTERED_SEARCH_PAGES if filtering else _MAX_SEARCH_PAGES
         page = int(state.get("p") or 1)
         skip = int(state.get("o") or 0)
@@ -837,6 +979,7 @@ class SlackMessagesClient(DataSourceClient):
 
         for _ in range(max_pages):
             matches, pages = self._search_page(full_q, page)
+            self._name_match_conversations(matches[skip:], flt)
             for i in range(skip, len(matches)):
                 row = self._match_row(matches[i], flt)
                 if row is None:
@@ -858,6 +1001,7 @@ class SlackMessagesClient(DataSourceClient):
         rank = 0
         for term in terms:
             matches, _pages = self._search_page(self._search_query(term, conv, after, before), 1)
+            self._name_match_conversations(matches, flt)
             for mt in matches:
                 row = self._match_row(mt, flt)
                 if row is None:
@@ -1059,7 +1203,7 @@ class SlackMessagesClient(DataSourceClient):
                     "Scopes, then sign in again."
                 )}
         try:
-            convs = self.list_conversations()
+            convs = self._all_conversations()
         except Exception as e:
             return {"success": False, "message": f"Signed in as {who}, but Slack is unreadable: {e}"}
         return {"success": True, "message": f"Connected as {who} · {len(convs)} conversation(s)"}

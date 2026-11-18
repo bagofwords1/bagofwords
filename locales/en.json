@@ -5259,7 +5259,11 @@
     "frame_ancestors.too_many": "You can list at most {max} sites.",
     "connection.query_not_found": "Query not found on this connection.",
     "connection.query_finished": "This query has already finished ({status}).",
-    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit."
+    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit.",
+    "connection.slack_channels_not_slack": "Channel selection is only available for Slack connections.",
+    "connection.slack_channels_too_many": "At most {max} channels per agent.",
+    "connection.slack_channels_not_ids": "These aren't Slack channel ids: {ids}",
+    "connection.slack_channels_unavailable": "Slack didn't answer: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -8310,6 +8314,8 @@
     "summaryAllNoDms": "Reads all channels, no DMs",
     "summarySome": "Reads {names}",
     "summarySomeWithDms": "Reads {names} and DMs",
-    "loadFailed": "Couldn't load this agent's channels. Close and try again."
+    "loadFailed": "Couldn't load this agent's channels. Close and try again.",
+    "privateChannel": "Private channel",
+    "privateCount": "{n} private channel | {n} private channels"
   }
 }

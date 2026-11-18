@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser.",
     "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
     "connection.query_finished": "Frågan är redan avslutad ({status}).",
-    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns."
+    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns.",
+    "connection.slack_channels_not_slack": "Kanalval är bara tillgängligt för Slack-anslutningar.",
+    "connection.slack_channels_too_many": "Högst {max} kanaler per agent.",
+    "connection.slack_channels_not_ids": "Det här är inte Slack-kanal-id:n: {ids}",
+    "connection.slack_channels_unavailable": "Slack svarade inte: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -7449,6 +7453,8 @@
     "summaryAllNoDms": "Läser alla kanaler, inga direktmeddelanden",
     "summarySome": "Läser {names}",
     "summarySomeWithDms": "Läser {names} och direktmeddelanden",
-    "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen."
+    "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen.",
+    "privateChannel": "Privat kanal",
+    "privateCount": "{n} privat kanal | {n} privata kanaler"
   }
 }

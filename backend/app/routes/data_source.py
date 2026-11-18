@@ -697,6 +697,8 @@ async def _agent_scope_kwargs(db: AsyncSession, data_source_id: str, conn) -> di
 
 class SlackChannelRef(BaseModel):
     id: str
+    # Ignored on save: the name and privacy are read from Slack (see
+    # put_channel_scope), never taken from the request.
     name: str = ""
 
 
@@ -706,8 +708,35 @@ class SlackChannelScope(BaseModel):
 
 
 def _require_slack(conn) -> None:
+    from app.errors import AppError, ErrorCode
     if getattr(conn, "type", None) != "slack_messages":
-        raise HTTPException(status_code=400, detail="Channel selection is only available for Slack connections")
+        raise AppError.bad_request(
+            ErrorCode.SLACK_CHANNELS_NOT_SLACK, "Channel selection is only available for Slack connections")
+
+
+async def _callers_slack_channels(db: AsyncSession, conn, user) -> Optional[List[dict]]:
+    """The caller's own Slack channels, live: ``[{id, name, is_private}]``,
+    or None when they haven't signed in with Slack. DMs are left out."""
+    import asyncio
+    from app.errors import AppError, ErrorCode
+    from app.services.connection_service import ConnectionService
+    try:
+        client = await ConnectionService().construct_client(
+            db, conn, user, config_overrides={"include_direct_messages": False})
+    except Exception:
+        return None
+    if not getattr(client, "access_token", None):
+        return None
+    try:
+        rows = await asyncio.to_thread(client.list_conversations)
+    except Exception as e:
+        raise AppError(ErrorCode.SLACK_CHANNELS_UNAVAILABLE, f"Slack didn't answer: {redact_error(e)}",
+                       status_code=502, params={"detail": redact_error(e)})
+    return [
+        {"id": r["channel_id"], "name": r.get("channel") or r["name"].lstrip("#"),
+         "is_private": r.get("kind") == "private channel"}
+        for r in rows if r.get("kind") in ("channel", "private channel")
+    ]
 
 
 @router.get("/data_sources/{data_source_id}/connections/{connection_id}/channel-scope")
@@ -720,11 +749,12 @@ async def get_channel_scope(
     current_user: User = Depends(current_user),
 ):
     """Which Slack channels this agent reads (empty = all of the user's), and
-    whether it also reads the user's DMs."""
-    from app.services.slack_channel_scope import get_scope
+    whether it also reads the user's DMs. Private channels come back without
+    their name: whoever can view the agent sees this, member of them or not."""
+    from app.services.slack_channel_scope import get_scope, redact_private_names
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
     _require_slack(conn)
-    return await get_scope(db, data_source_id, connection_id)
+    return redact_private_names(await get_scope(db, data_source_id, connection_id))
 
 
 @router.put("/data_sources/{data_source_id}/connections/{connection_id}/channel-scope")
@@ -739,18 +769,37 @@ async def put_channel_scope(
 ):
     """Set the agent's Slack channels (by Slack channel id — a rename never
     breaks it) and DM choice. It only narrows: each user still reads only the
-    channels they belong to."""
-    from app.services.slack_channel_scope import MAX_CHANNELS, set_scope
+    channels they belong to.
+
+    Each channel's name and whether it is private come from the saving
+    manager's own Slack, never from the request; a channel they aren't in
+    keeps what was recorded when it was chosen, and one never seen counts
+    as private (its name is then never shown)."""
+    from app.errors import AppError, ErrorCode
+    from app.services.slack_channel_scope import MAX_CHANNELS, get_scope, redact_private_names, set_scope
+    from app.data_sources.clients.slack_messages_client import SCOPE_CHANNEL_ID_RE
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
     _require_slack(conn)
     if len(body.allowed_channels) > MAX_CHANNELS:
-        raise HTTPException(status_code=400, detail=f"At most {MAX_CHANNELS} channels per agent")
-    from app.data_sources.clients.slack_messages_client import SCOPE_CHANNEL_ID_RE
+        raise AppError.bad_request(
+            ErrorCode.SLACK_CHANNELS_TOO_MANY, f"At most {MAX_CHANNELS} channels per agent", max=MAX_CHANNELS)
     bad = [c.id for c in body.allowed_channels if not SCOPE_CHANNEL_ID_RE.match(c.id or "")]
     if bad:
         # Ids only: a name would match by name and break on a rename.
-        raise HTTPException(status_code=400, detail=f"Not Slack channel ids: {', '.join(bad[:5])}")
-    return await set_scope(db, data_source_id, connection_id, body.model_dump())
+        raise AppError.bad_request(
+            ErrorCode.SLACK_CHANNELS_NOT_IDS, f"Not Slack channel ids: {', '.join(bad[:5])}",
+            ids=", ".join(bad[:5]))
+    live = {}
+    if body.allowed_channels:
+        live = {c["id"]: c for c in (await _callers_slack_channels(db, conn, current_user) or [])}
+    before = {c["id"]: c for c in (await get_scope(db, data_source_id, connection_id))["allowed_channels"]}
+    channels = [
+        live.get(c.id) or before.get(c.id) or {"id": c.id, "name": "", "is_private": True}
+        for c in body.allowed_channels
+    ]
+    saved = await set_scope(db, data_source_id, connection_id, {
+        "allowed_channels": channels, "include_direct_messages": body.include_direct_messages})
+    return redact_private_names(saved)
 
 
 @router.get("/data_sources/{data_source_id}/connections/{connection_id}/conversations")
@@ -766,28 +815,12 @@ async def list_connection_conversations(
     every channel they belong to (not narrowed by the agent's current choice,
     so a choice can be widened again). DMs are not listed: they are one
     switch, not a per-conversation choice."""
-    from app.services.connection_service import ConnectionService
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
     _require_slack(conn)
-    try:
-        client = await ConnectionService().construct_client(
-            db, conn, current_user, config_overrides={"include_direct_messages": False})
-    except Exception as e:
-        return {"connect_required": True, "reason": str(e), "channels": []}
-    if not getattr(client, "access_token", None):
+    channels = await _callers_slack_channels(db, conn, current_user)
+    if channels is None:
         return {"connect_required": True, "reason": "Sign in with Slack to choose channels.", "channels": []}
-    import asyncio
-    try:
-        rows = await asyncio.to_thread(client.list_conversations)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e))
-    channels = sorted(
-        ({"id": r["channel_id"], "name": r.get("channel") or r["name"].lstrip("#"),
-          "is_private": r.get("kind") == "private channel"}
-         for r in rows if r.get("kind") in ("channel", "private channel")),
-        key=lambda c: c["name"].lower(),
-    )
-    return {"connect_required": False, "channels": channels}
+    return {"connect_required": False, "channels": sorted(channels, key=lambda c: c["name"].lower())}
 
 
 @router.get("/data_sources/{data_source_id}/connections/{connection_id}/files")

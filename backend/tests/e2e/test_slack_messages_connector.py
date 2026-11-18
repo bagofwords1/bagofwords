@@ -117,14 +117,16 @@ def test_an_agent_reads_only_its_chosen_channels(test_client, org, monkeypatch):
     assert test_client.get(_scope_url(ds, conn), headers=org["headers"]).json() == {
         "allowed_channels": [], "include_direct_messages": True}
 
-    r = test_client.put(_scope_url(ds, conn), headers=org["headers"], json={
-        "allowed_channels": [{"id": "C0SUPPORT1", "name": "support"}], "include_direct_messages": False})
-    assert r.status_code == 200, r.text
-    assert test_client.get(_scope_url(ds, conn), headers=org["headers"]).json() == {
-        "allowed_channels": [{"id": "C0SUPPORT1", "name": "support"}], "include_direct_messages": False}
-
     fake = _fake_with_history()
     _signed_in(monkeypatch, fake)
+    r = test_client.put(_scope_url(ds, conn), headers=org["headers"], json={
+        "allowed_channels": [{"id": "C0SUPPORT1"}], "include_direct_messages": False})
+    assert r.status_code == 200, r.text
+    # The name and privacy are read from the manager's Slack.
+    assert test_client.get(_scope_url(ds, conn), headers=org["headers"]).json() == {
+        "allowed_channels": [{"id": "C0SUPPORT1", "name": "support", "is_private": False}],
+        "include_direct_messages": False}
+    fake.calls.clear()
     body = test_client.get(
         f"/api/data_sources/{ds['id']}/connections/{conn['id']}/files", headers=org["headers"],
     ).json()
@@ -248,6 +250,8 @@ def test_the_channel_choice_takes_ids_only(test_client, org):
     r = test_client.put(_scope_url(ds, conn), headers=org["headers"], json={
         "allowed_channels": [{"id": "general", "name": "general"}]})
     assert r.status_code == 400 and "general" in r.text
+    # A typed error: the picker shows it in the user's language.
+    assert r.json()["error_code"] == "connection.slack_channels_not_ids"
     assert test_client.get(_scope_url(ds, conn), headers=org["headers"]).json()["allowed_channels"] == []
 
 
@@ -291,3 +295,58 @@ def test_concurrent_first_saves_of_a_scope_do_not_fail(test_client, org):
             return await get_scope(c, ds["id"], conn["id"])
     scope = asyncio.run(both())
     assert len(scope["allowed_channels"]) == 1
+
+
+@pytest.mark.e2e
+def test_a_private_channel_name_is_never_shown_to_viewers(test_client, org, monkeypatch):
+    """Whoever can view the agent reads its channel choice — a private
+    channel's name is for its members, so it comes back unnamed. A name in
+    the request is never trusted: Slack says what each channel is called."""
+    conn, ds = _slack_agent(test_client, org["headers"])
+    _signed_in(monkeypatch, _fake_with_history())
+    r = test_client.put(_scope_url(ds, conn), headers=org["headers"], json={
+        "allowed_channels": [{"id": "C0SUPPORT1", "name": "renamed-by-hand"}, {"id": "G0PRIVATE1"}]})
+    assert r.status_code == 200, r.text
+    expected = [{"id": "C0SUPPORT1", "name": "support", "is_private": False},
+                {"id": "G0PRIVATE1", "name": "", "is_private": True}]
+    assert r.json()["allowed_channels"] == expected
+    assert test_client.get(_scope_url(ds, conn), headers=org["headers"]).json()["allowed_channels"] == expected
+
+
+@pytest.mark.e2e
+def test_a_channel_the_saver_cannot_see_is_kept_private(test_client, org):
+    """Saved without Slack (not signed in): nothing is known about the
+    channel, so it counts as private and stays unnamed."""
+    conn, ds = _slack_agent(test_client, org["headers"])
+    r = test_client.put(_scope_url(ds, conn), headers=org["headers"], json={
+        "allowed_channels": [{"id": "C0SUPPORT1", "name": "support"}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["allowed_channels"] == [{"id": "C0SUPPORT1", "name": "", "is_private": True}]
+
+
+@pytest.mark.e2e
+def test_clients_handed_to_generated_code_carry_the_agents_channels(test_client, org, monkeypatch):
+    """construct_clients builds the clients a run hands to generated code
+    (create_data / inspect_data's ds_clients). Its Slack client must be as
+    narrow as the chat tools' one, or code could search every channel."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import DataSourceService
+
+    conn, ds = _slack_agent(test_client, org["headers"])
+    test_client.put(_scope_url(ds, conn), headers=org["headers"], json={
+        "allowed_channels": [{"id": "C0SUPPORT1"}], "include_direct_messages": False})
+
+    async def creds(self, db, connection, data_source=None, current_user=None, **kw):
+        return {"access_token": "xoxp-user"}
+    monkeypatch.setattr(DataSourceService, "resolve_credentials_for_connection", creds)
+
+    async def build():
+        async with async_session_maker() as db:
+            agent = await db.get(DataSource, ds["id"])
+            return await DataSourceService().construct_clients(db, agent, None)
+    clients = asyncio.run(build())
+    slack = next(c for c in clients.values() if c.__class__.__name__ == "SlackMessagesClient")
+    assert slack.allowed == ["C0SUPPORT1"] and slack.include_dms is False

@@ -53,11 +53,28 @@ This means a search hit can be read without any lookup state.
     `resolve_run_agents`) cannot reopen a scope the user picked.
   - The scope only narrows what the user's own Slack membership allows. It is a
     focus setting, not a grant.
+  - It applies to every client built for the agent: the chat tools, browse
+    and attach, and `DataSourceService.construct_clients` (the clients a run
+    hands to generated code), so no path reads past it.
+  - **Private channel names stay private.** Each channel's name and privacy
+    are read from the saving manager's own Slack, never from the request.
+    Anyone who can view the agent reads its choice, so a private channel
+    comes back unnamed and the planner note counts private channels without
+    naming them. A channel whose privacy is unknown counts as private.
 - **Search with a scope:**
   - With ≤10 channels and DMs off, the scope is sent to Slack as `in:#a in:#b`.
     This was verified live: Slack ORs repeated `in:` filters.
   - Otherwise, or if that comes back empty, the search runs workspace-wide and
-    is filtered by channel id.
+    is filtered by channel id. When the pages walked hold no in-scope match
+    but more pages exist, the cursor is returned (the result says
+    INCOMPLETE). It is not replaced by a word-by-word search.
+- **Paging is stable.** Both listings (one conversation, or the fan-out over
+  many) freeze the window's upper bound in the cursor. The fan-out expands
+  the newest threads over all scanned conversations, chosen
+  deterministically, so every page is built from the same rows.
+- **DM partners are named lazily.** Only the DMs a call actually shows cost a
+  `users.info` lookup, and names are cached for an hour across clients in
+  the process (a busy user's 400 DMs no longer hit 429 on every call).
 
 ## Setting up the Slack app (admin, once per workspace)
 
@@ -168,6 +185,13 @@ Screenshots (seeded channel names only; customer-named channels removed):
   still finds them.
 - **`users.conversations` is capped at 2,000 conversations** and excludes
   archived channels.
+- **Each page of a fan-out listing re-reads** the scanned conversations
+  (about 20 `conversations.history` calls and up to 10 `conversations.replies`
+  calls). The pages are consistent, but each page costs the full fan-out.
+  Passing `conversation` pages through one channel cheaply.
+- **Search date filters are padded by two days** on each side, because Slack
+  may read `after:` / `before:` in the user's own timezone. Each match is then
+  filtered exactly by its timestamp.
 - **`search.messages` is a legacy method** (Slack recommends
   `assistant.search.context`). Moving would be a change to that one function.
 - **Enterprise Grid** (several workspaces) has not been tested.
