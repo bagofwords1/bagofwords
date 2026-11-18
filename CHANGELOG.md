@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.628 (November 18, 2026)
+- Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
+
 ## Version 0.0.627 (November 18, 2026)
 - Added keyless BigQuery connections that use the server's Google identity instead of a service-account key (#1794) — enable with `BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true`
 
