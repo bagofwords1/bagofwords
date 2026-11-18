@@ -8395,7 +8395,7 @@
         "only_me": "Only you, until you share it"
       }
     },
-    "footnote": "Saved queries, evals, lists, conversations and dashboards aren't cloned. The new agent starts in Training.",
+    "footnote": "Saved queries, evals, lists, conversations and dashboards aren't cloned. The new agent starts in Training (in development if this one is).",
     "submit": "Clone",
     "cloning": "Cloning…",
     "nameTaken": "An agent with this name already exists.",

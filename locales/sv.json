@@ -7534,7 +7534,7 @@
         "only_me": "Bara du, tills du delar den"
       }
     },
-    "footnote": "Sparade frågor, utvärderingar, listor, konversationer och dashboards klonas inte. Den nya agenten börjar i träning.",
+    "footnote": "Sparade frågor, utvärderingar, listor, konversationer och dashboards klonas inte. Den nya agenten börjar i träning (i utveckling om den här är det).",
     "submit": "Klona",
     "cloning": "Klonar…",
     "nameTaken": "Det finns redan en agent med det namnet.",

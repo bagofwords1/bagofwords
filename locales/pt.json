@@ -7534,7 +7534,7 @@
         "only_me": "Só você, até compartilhar"
       }
     },
-    "footnote": "Consultas salvas, avaliações, listas, conversas e dashboards não são clonados. O novo agente começa em treinamento.",
+    "footnote": "Consultas salvas, avaliações, listas, conversas e dashboards não são clonados. O novo agente começa em treinamento (em desenvolvimento, se este estiver).",
     "submit": "Clonar",
     "cloning": "Clonando…",
     "nameTaken": "Já existe um agente com este nome.",

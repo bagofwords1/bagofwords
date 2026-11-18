@@ -7534,7 +7534,7 @@
         "only_me": "Nur du, bis du ihn teilst"
       }
     },
-    "footnote": "Gespeicherte Abfragen, Evals, Listen, Unterhaltungen und Dashboards werden nicht geklont. Der neue Agent startet im Training.",
+    "footnote": "Gespeicherte Abfragen, Evals, Listen, Unterhaltungen und Dashboards werden nicht geklont. Der neue Agent startet im Training (in Entwicklung, wenn dieser es ist).",
     "submit": "Klonen",
     "cloning": "Wird geklont…",
     "nameTaken": "Ein Agent mit diesem Namen existiert bereits.",

@@ -144,7 +144,8 @@ async function submit() {
   try {
     const { data, error } = await useMyFetch<any>(`/api/data_sources/${props.agent.id}/clone`, {
       method: 'POST',
-      body: { name: name.value.trim(), description: description.value, ...choice },
+      // Empty = no description (NULL), not an empty string.
+      body: { name: name.value.trim(), description: description.value.trim() || null, ...choice },
     })
     if (error.value) {
       const status = (error.value as any)?.statusCode ?? (error.value as any)?.status

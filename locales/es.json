@@ -8366,7 +8366,7 @@
         "only_me": "Solo tú, hasta que lo compartas"
       }
     },
-    "footnote": "Las consultas guardadas, las evaluaciones, las listas, las conversaciones y los dashboards no se clonan. El agente nuevo empieza en Entrenamiento.",
+    "footnote": "Las consultas guardadas, las evaluaciones, las listas, las conversaciones y los dashboards no se clonan. El agente nuevo empieza en Entrenamiento (en desarrollo si este lo está).",
     "submit": "Clonar",
     "cloning": "Clonando…",
     "nameTaken": "Ya existe un agente con este nombre.",

@@ -411,3 +411,43 @@ def test_linking_an_instruction_in_a_folder_you_dont_manage_is_refused(test_clie
     assert r.json()["detail"]["code"] == "instructions_unmanaged"
     assert w["plain_instr"]["title"] in str(r.json())
     assert _clone(test_client, w, {"instructions": "copy"}, actor="manager").status_code == 201
+
+
+def test_a_link_version_takes_the_rows_current_labels(test_client, with_instructions):
+    """Labels live on the row (editing them makes no version): the link's
+    new version records the labels the instruction has now, as a copy does."""
+    from app.dependencies import async_session_maker
+    from app.models.instruction_version import InstructionVersion
+
+    w = with_instructions
+    h = _h(w["admin"]["token"], w["org_id"])
+    label = test_client.post("/api/instructions/labels", json={"name": f"Ops {uuid.uuid4().hex[:4]}"}, headers=h)
+    assert label.status_code == 200, label.text
+    before = _get(test_client, w, w["plain_instr"]["id"])["current_version_id"]
+    r = test_client.put("/api/instructions/bulk", json={"ids": [w["plain_instr"]["id"]],
+                                                        "add_label_ids": [label.json()["id"]]}, headers=h)
+    assert r.status_code == 200, r.text
+
+    async def _labels(version_id):
+        async with async_session_maker() as db:
+            return (await db.get(InstructionVersion, version_id)).label_ids or []
+    assert label.json()["id"] not in asyncio.run(_labels(before))
+
+    _clone(test_client, w, {"instructions": "link"})
+    after = _get(test_client, w, w["plain_instr"]["id"])["current_version_id"]
+    assert after != before
+    assert asyncio.run(_labels(after)) == [label.json()["id"]]
+
+
+def test_a_copy_that_mentions_the_source_mentions_the_clone(test_client, with_instructions):
+    w = with_instructions
+    name = w["agent"]["name"]
+    text = f"For @{name} revenue, use net amounts {uuid.uuid4().hex[:4]}"
+    _instr(test_client, w, text, [w["agent"]["id"]])
+    clone = _clone(test_client, w, {"instructions": "copy"}).json()["data_source"]
+    copies = [i for i in _list(test_client, w, clone["id"]).values() if "use net amounts" in i["text"]]
+    assert [c["text"] for c in copies] == [text.replace(f"@{name}", f'@"{clone["name"]}"')]
+    # The version holds the same text as the row.
+    v = test_client.get(f"/api/instructions/{copies[0]['id']}/versions/{_get(test_client, w, copies[0]['id'])['current_version_id']}",
+                        headers=_h(w["admin"]["token"], w["org_id"]))
+    assert v.json()["text"] == copies[0]["text"]

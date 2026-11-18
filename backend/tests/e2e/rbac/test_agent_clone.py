@@ -155,6 +155,32 @@ def test_a_taken_name_is_a_conflict_and_creates_nothing(test_client, world):
     assert _agent_ids(test_client, world) == before
 
 
+def test_a_name_taken_at_insert_time_is_still_a_conflict(test_client, world, monkeypatch):
+    """The early name check can lose a race; the insert's unique clash is
+    then the 409, and nothing is created."""
+    import app.services.agent_clone_service as svc
+
+    async def _no_check(*a, **kw):
+        return None
+    monkeypatch.setattr(svc, "_check_name", _no_check)
+    before = _agent_ids(test_client, world)
+    r = _clone(test_client, world, {"name": world["agent"]["name"]})
+    assert r.status_code == 409, r.text
+    assert "already exists" in r.text
+    assert _agent_ids(test_client, world) == before
+
+
+@pytest.mark.parametrize("sent,expected", [("", None), (None, None), ("For finance", "For finance"),
+                                           ("<omitted>", "Sales questions")])
+def test_the_description_is_what_the_dialog_sent(test_client, world, sent, expected):
+    r = test_client.put(f"/api/data_sources/{world['agent']['id']}", json={"description": "Sales questions"},
+                        headers=_h(world["admin"]["token"], world["org_id"]))
+    assert r.status_code == 200, r.text
+    body = {} if sent == "<omitted>" else {"description": sent}
+    clone = _clone(test_client, world, body).json()["data_source"]
+    assert clone["description"] == expected
+
+
 def test_the_license_agent_cap_applies_to_a_clone(test_client, world):
     """Same cap as creating an agent (DataSourceService.enforce_agent_cap)."""
     from tests.e2e.test_license_limits import _license

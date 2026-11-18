@@ -7534,7 +7534,7 @@
         "only_me": "Vous seul, jusqu'au partage"
       }
     },
-    "footnote": "Les requêtes enregistrées, les évaluations, les listes, les conversations et les tableaux de bord ne sont pas clonés. Le nouvel agent démarre en entraînement.",
+    "footnote": "Les requêtes enregistrées, les évaluations, les listes, les conversations et les tableaux de bord ne sont pas clonés. Le nouvel agent démarre en entraînement (en développement si celui-ci l'est).",
     "submit": "Cloner",
     "cloning": "Clonage…",
     "nameTaken": "Un agent porte déjà ce nom.",

@@ -257,6 +257,12 @@ def _name_taken(name: str) -> HTTPException:
     )
 
 
+def _is_name_clash(e: IntegrityError) -> bool:
+    msg = str(getattr(e, "orig", e))
+    # Postgres names the constraint; SQLite names the columns.
+    return "uq_data_sources_org_name" in msg or "data_sources.organization_id, data_sources.name" in msg
+
+
 async def _check_name(db, organization, name: str) -> None:
     taken = (await db.execute(
         select(DataSource.id).where(DataSource.organization_id == str(organization.id), DataSource.name == name)
@@ -298,7 +304,8 @@ async def _create_agent(ctx: CloneContext) -> None:
         # "Only me" must not let the folder's members in either.
         inherits_folder_access=bool(s.inherits_folder_access) if same_people else False,
         kind=s.kind,
-        description=o.description if o.description is not None else s.description,
+        # Sent: what the dialog says (empty = none). Left out: the source's.
+        description=(o.description or None) if "description" in o.model_fields_set else s.description,
         context=s.context,
         summary=s.summary,
         icon=s.icon,
@@ -321,8 +328,12 @@ async def _create_agent(ctx: CloneContext) -> None:
     try:
         async with ctx.db.begin_nested():
             await ctx.db.flush()
-    except IntegrityError:
-        raise _name_taken(o.name)
+    except IntegrityError as e:
+        # Only the (organization, name) clash is a taken name; any other
+        # integrity error is a real failure and must not hide behind it.
+        if _is_name_clash(e):
+            raise _name_taken(o.name)
+        raise
     ctx.clone = clone
     if s.connections:
         await ctx.db.execute(insert(domain_connection),

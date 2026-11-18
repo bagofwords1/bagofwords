@@ -175,14 +175,14 @@ async def check_no_pending_changes(db, organization, items: List[Item]) -> None:
 
 def _version_row(instruction_id: str, number: int, v: InstructionVersion, *, user_id: str,
                  data_source_ids: List[str], references_json, label_ids,
-                 folder_ids: List[str], scope_mode: str) -> InstructionVersion:
+                 folder_ids: List[str], scope_mode: str, text: str = None) -> InstructionVersion:
     """A version with ``v``'s content and the given agents/folders/references/
     labels. The hash is computed from the very fields stored (the same keys
     InstructionVersionService hashes), so they can't drift."""
     from app.services.instruction_version_service import InstructionVersionService
 
     data = {
-        "text": v.text, "title": v.title, "description": v.description,
+        "text": v.text if text is None else text, "title": v.title, "description": v.description,
         "structured_data": v.structured_data, "formatted_content": v.formatted_content,
         "status": v.status, "load_mode": v.load_mode or "always",
         "applicable_modes": v.applicable_modes, "applicable_channels": v.applicable_channels,
@@ -336,9 +336,13 @@ async def clone_instructions(ctx) -> None:
         assoc, labels = [], []
         for inst, v in items:
             new_id = ctx.instruction_map[str(inst.id)]
+            # A copy is the clone's own: "@<source>" in it means the clone,
+            # as in the clone's copied prompts.
+            from app.services.agent_clone_service import remap_mention_text
+            text = remap_mention_text(v.text, ctx)
             # The version is the content: the row mirrors it, as after a promote.
             db.add(Instruction(
-                id=new_id, text=v.text, title=v.title, description=v.description,
+                id=new_id, text=text, title=v.title, description=v.description,
                 structured_data=v.structured_data, formatted_content=v.formatted_content,
                 status=v.status, category=_version_category(v) if v.category_ids else inst.category,
                 kind=inst.kind, load_mode=v.load_mode or "always",
@@ -357,7 +361,7 @@ async def clone_instructions(ctx) -> None:
                                             column_name=r.get("column_name"), display_text=r.get("display_text")))
             version = _version_row(new_id, 1, v, user_id=user_id, data_source_ids=[ctx.clone_id],
                                    references_json=refs or None, label_ids=label_ids or None,
-                                   folder_ids=[], scope_mode=_scope_mode(inst, v))
+                                   folder_ids=[], scope_mode=_scope_mode(inst, v), text=text)
             version.id = str(uuid.uuid4())
             db.add(version)
             current.append({"id": new_id, "current_version_id": version.id})
@@ -396,7 +400,7 @@ async def clone_instructions(ctx) -> None:
             version = _version_row(
                 iid, (last.get(iid) or 0) + 1, v, user_id=user_id,
                 data_source_ids=sorted(set(agents.get(iid, [])) | {ctx.clone_id}),
-                references_json=(list(v.references_json or []) + added) or None, label_ids=v.label_ids,
+                references_json=(list(v.references_json or []) + added) or None, label_ids=row_labels.get(iid) or None,
                 # Its folders as they are live (the version promote reads to
                 # sync folder links), so promoting it moves nothing.
                 folder_ids=folders.get(iid, []), scope_mode=_scope_mode(inst, v),

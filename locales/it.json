@@ -7534,7 +7534,7 @@
         "only_me": "Solo tu, finché non lo condividi"
       }
     },
-    "footnote": "Query salvate, valutazioni, liste, conversazioni e dashboard non vengono clonate. Il nuovo agente parte in addestramento.",
+    "footnote": "Query salvate, valutazioni, liste, conversazioni e dashboard non vengono clonate. Il nuovo agente parte in addestramento (in sviluppo se lo è questo).",
     "submit": "Clona",
     "cloning": "Clonazione…",
     "nameTaken": "Esiste già un agente con questo nome.",
