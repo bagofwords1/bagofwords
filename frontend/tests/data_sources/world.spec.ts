@@ -26,12 +26,14 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
 
     // The toggle lives in AI settings and saves on change (no Save button).
     await page.goto('/settings/ai_settings')
-    await page.getByTestId('ai-settings-search').locator('input').fill('World view')
+    await page.getByTestId('ai-settings-search').fill('World view')
     const saved = page.waitForResponse(r => r.url().endsWith('/organization/settings') && r.request().method() === 'PUT')
     await page.getByTestId('ai-setting-show_world').getByRole('switch').click()
     expect((await saved).ok()).toBeTruthy()
 
     // Client-side navigation, no reload: the shared settings cache is updated.
+    // Settings pages show the admin nav, so leave it before opening Agents.
+    await page.getByRole('button', { name: 'Back to app' }).click()
     await page.getByRole('link', { name: 'Agents' }).first().click()
     await page.getByTestId('open-world').click()
     await expect(page.getByTestId('open-world')).toHaveAttribute('aria-current', 'page')
