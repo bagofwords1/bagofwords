@@ -137,7 +137,7 @@
                                         />
                                         <!-- Render each completion block -->
                                         <template v-for="block in timelineBlocks(m)" :key="block.id">
-                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
+                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -331,7 +331,8 @@
 import { ref, computed, onMounted, onUnmounted, nextTick, provide } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
-import { computeRunActivity, describeDataOutput, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { describeDataOutput, type RunActivity } from '~/composables/useRunActivity'
+import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { citeText, collectSources, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
@@ -627,84 +628,31 @@ function isBlockFolded(m: any, block: any): boolean {
 // "Worked for 10s · View steps" row. Memoized like the grouping above. A
 // shared link always opens collapsed.
 // ---------------------------------------------------------------------------
-const expandedRuns = ref<Set<string>>(new Set())
-const expandedRunSteps = ref<Set<string>>(new Set())
-const _runCache = new Map<string, { key: string; activity: RunActivity | null }>()
-
+const runActivityMemo = createRunActivityMemo()
 function _runActivityFor(m: any): RunActivity | null {
-    const blocks = timelineBlocks(m)
-    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}:${!!b.plan_decision?.analysis_complete}`).join(",")}`
-    const hit = _runCache.get(String(m.id))
-    if (hit && hit.key === key) return hit.activity
-    const activity = computeRunActivity(blocks, { runStatus: m.status })
-    _runCache.set(String(m.id), { key, activity })
-    return activity
+    return runActivityMemo(String(m.id), timelineBlocks(m), { runStatus: m.status })
 }
-function runFold(m: any): RunActivity | null {
-    return _runActivityFor(m)
-}
-function isRunExpanded(m: any): boolean {
-    return expandedRuns.value.has(String(m.id))
-}
-function toggleRun(m: any) {
-    const next = new Set(expandedRuns.value)
-    const key = String(m.id)
-    next.has(key) ? next.delete(key) : next.add(key)
-    expandedRuns.value = next
-}
-function isRunStepExpanded(stepId: string): boolean {
-    return expandedRunSteps.value.has(stepId)
-}
-function toggleRunStep(stepId: string) {
-    const next = new Set(expandedRunSteps.value)
-    next.has(stepId) ? next.delete(stepId) : next.add(stepId)
-    expandedRunSteps.value = next
-}
-// A create_data call that produced a chart: never folded, kept in place.
-function isRunInlineBlock(m: any, block: any): boolean {
-    return !!runFold(m)?.inlineIds.includes(String(block.id))
-}
-function isRunBlockShown(m: any, block: any): boolean {
-    const fold = runFold(m)
-    return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id) || isRunInlineBlock(m, block)
-}
-function isRunActivityBlock(m: any, block: any): boolean {
-    const fold = runFold(m)
-    return !!fold && fold.finalBlockId !== String(block.id) && isRunExpanded(m)
-}
-// With the steps closed an inline chart shows its card only, not the
-// progress sentence that introduced it.
-function isRunProseShown(m: any, block: any): boolean {
-    const fold = runFold(m)
-    return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
-}
-function runStepHeaderFor(m: any, block: any): RunStep | undefined {
-    const fold = runFold(m)
-    return fold && isRunExpanded(m) ? fold.headerAt[String(block.id)] : undefined
-}
-function isRunStepDetail(m: any, block: any): boolean {
-    const step = runFold(m)?.stepOf[String(block.id)]
-    return !!step && step.id !== String(block.id)
-}
-function isRunReasoningShown(m: any, block: any): boolean {
-    const fold = runFold(m)
-    if (!fold) return true
-    if (!isRunExpanded(m)) return false
-    const step = fold.stepOf[String(block.id)]
-    return !step || step.id === String(block.id) || isRunStepExpanded(step.id)
-}
-function isRunToolShown(m: any, block: any): boolean {
-    const fold = runFold(m)
-    if (!fold || isRunInlineBlock(m, block)) return true
-    const step = fold.stepOf[String(block.id)]
-    return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
-}
-function runDeliverables(m: any): any[] {
-    const fold = runFold(m)
-    if (!fold?.deliverableIds.length) return []
-    const byId = new Map(timelineBlocks(m).map((b: any) => [String(b.id), b]))
-    return fold.deliverableIds.map(id => byId.get(id)).filter(Boolean)
-}
+const {
+    runFold,
+    isRunExpanded,
+    toggleRun,
+    isRunStepExpanded,
+    toggleRunStep,
+    isRunInlineBlock,
+    isRunAnswerBlock,
+    isRunBlockShown,
+    isRunActivityBlock,
+    isRunProseShown,
+    runStepHeaderFor,
+    isRunStepDetail,
+    isRunReasoningShown,
+    isRunToolShown,
+    runDeliverables,
+} = useRunFold<any>({
+    foldFor: m => _runActivityFor(m),
+    blocksFor: m => timelineBlocks(m),
+    keyFor: m => String(m.id),
+})
 // ---------------------------------------------------------------------------
 // Citations — same grammar and chips as the report view (useCitations). A
 // shared link has no panel to open a result in, so a chip previews on hover

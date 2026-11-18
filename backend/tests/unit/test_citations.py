@@ -127,3 +127,65 @@ def test_chat_channels_are_asked_to_cite(platform):
         external_platform=platform,
     ))
     assert cited_ids(built.system)
+
+
+# --- surfaces that leave the product as plain text ----------------------------
+
+def test_scheduled_run_summary_carries_no_raw_marker():
+    """The scheduled-run email/notification renders `last_content` as plain
+    markdown: it must never show a `{{cite:…}}` marker."""
+    from types import SimpleNamespace
+    from app.services.scheduled_prompt_service import ScheduledPromptService
+
+    vid = str(uuid.uuid4())
+    block = SimpleNamespace(content=f"Revenue grew 12%. {{{{cite:{vid[:8]}}}}}", tool_execution=None)
+    response = SimpleNamespace(completions=[SimpleNamespace(role="system", completion_blocks=[block])])
+    summary = ScheduledPromptService._build_execution_summary(None, response)
+    assert summary["last_content"] == "Revenue grew 12%."
+
+
+# --- chat channels ------------------------------------------------------------
+
+@pytest.mark.parametrize("text,org_locale,expected", [
+    ("ההכנסות גדלו.", None, "תוצאה"),
+    ("Los ingresos crecieron.", "es", "Resultado"),
+    ("Revenue grew.", None, "Result"),
+])
+def test_untitled_footnote_label_follows_the_answer_language(text, org_locale, expected):
+    from app.ai.citations import fallback_source_label
+
+    vid = str(uuid.uuid4())
+    label = fallback_source_label(text, org_locale)
+    assert label == expected
+    out = footnote_citations(f"{text} {{{{cite:{vid}}}}}", {vid: ""}, fallback_label=label)
+    assert out.endswith(f"[1] {expected}")
+
+
+class _FailingSession:
+    """Stands in for a caller's session: any use of it is a bug."""
+
+    async def execute(self, *a, **k):  # pragma: no cover - must not be called
+        raise AssertionError("channel_text must not query the caller's session")
+
+
+@pytest.mark.asyncio
+async def test_channel_lookup_failure_falls_back_without_touching_the_callers_session(monkeypatch):
+    """A failed source lookup must not poison the caller's session (the Slack
+    send loop keeps using it for the chart and later blocks)."""
+    import app.dependencies as deps
+    from app.ai.citations import channel_text
+
+    def broken_session_maker():
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(deps, "async_session_maker", broken_session_maker)
+    vid = str(uuid.uuid4())
+    out = await channel_text(_FailingSession(), "report-1", f"Revenue grew. {{{{cite:{vid}}}}}")
+    assert out == "Revenue grew."
+
+
+@pytest.mark.asyncio
+async def test_text_without_markers_needs_no_lookup():
+    from app.ai.citations import channel_text
+
+    assert await channel_text(_FailingSession(), "report-1", "Plain {{viz:abc}} text.") == "Plain {{viz:abc}} text."

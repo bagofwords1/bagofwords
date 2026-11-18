@@ -72,7 +72,21 @@ def match_citation(raw: str, candidates: Iterable[str]) -> Optional[str]:
     return hits[0] if len(hits) == 1 else None
 
 
-def footnote_citations(text: Optional[str], sources: Dict[str, str]) -> Optional[str]:
+# Footnote label for a source without a title, per locale.
+_FALLBACK_LABELS = {"en": "Result", "es": "Resultado", "he": "תוצאה"}
+
+
+def fallback_source_label(text: Optional[str], org_locale: Optional[str] = None) -> str:
+    """The untitled-source label in the answer's language: its script decides
+    (Hebrew answers get Hebrew), otherwise the org locale, then English."""
+    from app.services.teams_status_strings import status_locale
+
+    return _FALLBACK_LABELS.get(status_locale(strip_citations(text), org_locale)) or _FALLBACK_LABELS["en"]
+
+
+def footnote_citations(
+    text: Optional[str], sources: Dict[str, str], fallback_label: str = "Result"
+) -> Optional[str]:
     """Rewrite markers for a surface that renders plain text.
 
     ``sources`` maps a visualization id to its title. Each cited source gets a
@@ -95,7 +109,7 @@ def footnote_citations(text: Optional[str], sources: Dict[str, str]) -> Optional
     if not numbers:
         return body
     lines = [
-        f"[{number}] {(sources.get(source_id) or '').strip() or 'Result'}"
+        f"[{number}] {(sources.get(source_id) or '').strip() or fallback_label}"
         for source_id, number in numbers.items()
     ]
     return body.rstrip() + "\n\n" + "\n".join(lines)
@@ -115,13 +129,42 @@ async def report_citation_sources(db, report_id: Optional[str], text: Optional[s
     return {str(row[0]): (row[1] or "") for row in rows}
 
 
+async def _report_org_locale(db, report_id: Optional[str]) -> Optional[str]:
+    """The report's org locale, or None."""
+    if not report_id:
+        return None
+    from app.dependencies import _locale_from_org
+    from app.models.organization import Organization
+    from app.models.report import Report
+
+    org = (await db.execute(
+        select(Organization).join(Report, Report.organization_id == Organization.id)
+        .where(Report.id == str(report_id))
+    )).scalar_one_or_none()
+    return _locale_from_org(org) if org is not None else None
+
+
 async def channel_text(db, report_id: Optional[str], text: Optional[str]) -> Optional[str]:
     """An answer as a chat channel should receive it: citations as footnotes.
-    Never raises — a lookup failure falls back to the text without markers."""
-    if not text or "{{" not in text:
-        return text
+
+    The lookup runs in its own session, never the caller's: a failed query
+    must not leave the caller's session in a failed transaction for the rest
+    of its send loop. ``db`` is kept for the call signature. Never raises —
+    a lookup failure falls back to the text without markers.
+    """
+    if not text or "{{" not in text or not cited_ids(text):
+        return strip_citations(text)
+    sources: Dict[str, str] = {}
+    org_locale: Optional[str] = None
     try:
-        sources = await report_citation_sources(db, report_id, text)
+        from app.dependencies import async_session_maker
+
+        async with async_session_maker() as own_db:
+            sources = await report_citation_sources(own_db, report_id, text)
+            try:
+                org_locale = await _report_org_locale(own_db, report_id)
+            except Exception:
+                org_locale = None
     except Exception:
         sources = {}
-    return footnote_citations(text, sources)
+    return footnote_citations(text, sources, fallback_label=fallback_source_label(text, org_locale))

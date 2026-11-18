@@ -1,19 +1,24 @@
 <template>
 	<Teleport to="body">
+		<!-- Stays mounted (v-show) so the result cards below survive between
+		     hovers: each card hydrates once, not on every hover of its chip. -->
 		<div
-			v-if="source && anchor"
+			v-show="visible"
 			ref="rootEl"
 			class="citation-preview fixed z-popover w-[420px] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg border border-line bg-surface-elevated text-start shadow-lg"
 			:style="style"
-			role="tooltip"
-			data-testid="citation-preview"
+			:role="visible ? 'tooltip' : undefined"
+			:data-testid="visible ? 'citation-preview' : undefined"
 			@mouseenter="$emit('enter')"
 			@mouseleave="$emit('leave')"
 		>
 			<!-- The result's own card, compact: the same chart, grid, code and tabs
-			     the reader gets in the transcript and the side panel. -->
+			     the reader gets in the transcript and the side panel. Kept alive
+			     per source, so a second hover reuses the hydrated card. -->
+			<KeepAlive :max="8">
 			<ToolWidgetPreview
-				v-if="useResultCard"
+				v-if="visible && source && useResultCard"
+				:key="source.key"
 				:tool-execution="source.toolExecution"
 				compact
 				readonly
@@ -25,11 +30,12 @@
 					<span v-if="number" class="citation-number me-2 shrink-0" aria-hidden="true">{{ number }}</span>
 				</template>
 			</ToolWidgetPreview>
+			</KeepAlive>
 
 			<!-- Without a stored result to hand that card (a single value, or a
 			     shared link, which carries preview rows only): a light stand-in
 			     with the same tabs. -->
-			<template v-else>
+			<template v-if="visible && source && !useResultCard">
 			<div class="flex items-center gap-2 px-3 pt-2.5" :class="tabs.length > 1 ? 'pb-1.5' : 'pb-2'">
 				<span v-if="number" class="citation-number shrink-0" aria-hidden="true">{{ number }}</span>
 				<span class="min-w-0 flex-1 truncate text-xs font-medium text-ink"><bdi>{{ title }}</bdi></span>
@@ -140,6 +146,7 @@ const MAX_ROWS = 5
 const MAX_COLUMNS = 4
 const CHART_TYPES = new Set(['pie_chart', 'line_chart', 'bar_chart', 'area_chart', 'heatmap', 'scatter_plot', 'map', 'candlestick', 'treemap', 'radar_chart'])
 
+const visible = computed(() => !!(props.source && props.anchor))
 const te = computed<any>(() => props.source?.toolExecution || null)
 // A single value reads better as the value itself than as a one-cell grid.
 const useResultCard = computed(() => props.source?.output.kind !== 'number'

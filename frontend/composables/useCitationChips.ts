@@ -39,7 +39,8 @@ export function useCitationChips<M>(opts: {
   }
 
   function chipOf(e: Event): { el: HTMLElement; key: string } | null {
-    const el = (e.target as HTMLElement | null)?.closest?.('a') as HTMLElement | null
+    // Only a rendered chip (ChatLink), never an ordinary link in the answer.
+    const el = (e.target as HTMLElement | null)?.closest?.('a.citation-chip') as HTMLElement | null
     const key = el ? citationKeyFromHref(el.getAttribute('href')) : ''
     return el && key ? { el, key } : null
   }

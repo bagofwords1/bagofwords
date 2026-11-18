@@ -134,6 +134,10 @@ assert.equal(stripCitations(`A. ${cite(uuid(1))} B.${cite(uuid(9))}`), 'A. B.')
 
 // Only chip links carry a source key.
 assert.equal(citationKeyFromHref('https://example.com/x'), '')
-assert.equal(citationKeyFromHref(`http://localhost:3000/reports/1#cite-${s1.key}`), s1.key)
+assert.equal(citationKeyFromHref(`#cite-${s1.key}`), s1.key)
+// An ordinary link that merely contains `#cite-` is not a chip (ChatLink uses startsWith too).
+assert.equal(citationKeyFromHref(`http://localhost:3000/reports/1#cite-${s1.key}`), '')
+assert.equal(citationKeyFromHref('https://docs.example.com/page#cite-ref-2'), '')
+assert.equal(citationKeyFromHref('#cite-%E0%A4%A'), '%E0%A4%A')
 
 console.log('useCitations: all assertions passed')

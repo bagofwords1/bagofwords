@@ -361,8 +361,8 @@
 										/>
 										<!-- Render each completion block - unified structure -->
 										<template v-for="(block, blockIndex) in visibleBlocks(m)" :key="block.id">
-											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="runFold(m)?.finalBlockId === String(block.id) ? '' : undefined">
-											<!-- Steering messages interleave into the block stream at the
+											<!-- Steering messages (outside the run fold: the user's own words
+											     are never hidden behind "View steps") interleave into the block stream at the
 											     moment they arrived: before the first block that started
 											     after them. -->
 											<div v-for="s in steersBeforeBlock(m, blockIndex)" :key="'steer-' + s.id" class="flex justify-end my-2" :data-message-id="s.id">
@@ -382,6 +382,7 @@
 													</div>
 												</div>
 											</div>
+											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
 											<!-- Live ticker for a run of low-signal tool steps: one line that
 											     morphs in place while the run works (crossfade between step
 											     labels), then settles into a compact summary; click expands
@@ -1254,7 +1255,8 @@ import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
-import { computeRunActivity, describeDataOutput, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { describeDataOutput, type RunActivity, type RunStep } from '~/composables/useRunActivity'
+import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
@@ -1714,9 +1716,10 @@ const blockGroupings = computed(() => {
 		// steps instead (runActivities) — one grammar per run, never both.
 		if (runActivities.value.has(String(m.id))) continue
 		const blocks = visibleBlocks(m)
+		const indexOf = new Map(blocks.map((b: any, i: number) => [b, i]))
 		out.set(String(m.id), computeBlockGroups(blocks, {
 			executionStatus: m.status,
-			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
+			breakBefore: (b: any) => steersBeforeBlock(m, indexOf.get(b) ?? -1).length > 0,
 		}))
 	}
 	return out
@@ -1728,96 +1731,51 @@ const blockGroupings = computed(() => {
 // (policy in useRunActivity). Nothing is persisted: a reopened report starts
 // collapsed, which is the state a reader wants for a finished run.
 // ---------------------------------------------------------------------------
+// Memoized per message (useRunFold): a streamed token that only lengthens an
+// answer reuses the fold instead of recomputing every run in the report.
+const runActivityFor = createRunActivityMemo()
 const runActivities = computed(() => {
 	const out = new Map<string, RunActivity>()
 	for (const m of messages.value) {
 		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
 		const blocks = visibleBlocks(m)
-		const activity = computeRunActivity(blocks, {
+		// Steering boundaries, by block index (no indexOf per block).
+		const steerBreaks = new Set<string>()
+		blocks.forEach((b: any, i: number) => { if (steersBeforeBlock(m, i).length) steerBreaks.add(String(b.id)) })
+		const superseded = blocks.filter((b: any) => isEditRunFolded(m, b)).map((b: any) => String(b.id))
+		const activity = runActivityFor(String(m.id), blocks, {
 			runStatus: m.status,
-			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
-			isSuperseded: (b: any) => isEditRunFolded(m, b),
+			breakBefore: (b: any) => steerBreaks.has(String(b.id)),
+			isSuperseded: (b: any) => superseded.includes(String(b.id)),
+			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}`,
 		})
 		if (activity) out.set(String(m.id), activity)
 	}
 	return out
 })
-const expandedRuns = ref<Set<string>>(new Set())
-const expandedRunSteps = ref<Set<string>>(new Set())
-
-function runFold(m: ChatMessage): RunActivity | undefined {
-	return runActivities.value.get(String(m.id))
-}
-// Keyed by the server completion id so the open/closed state survives the
-// refetch that swaps the streaming placeholder row for the stored one.
-function isRunExpanded(m: ChatMessage): boolean {
-	return expandedRuns.value.has(runKey(m))
-}
-function toggleRun(m: ChatMessage) {
-	const next = new Set(expandedRuns.value)
-	const key = runKey(m)
-	next.has(key) ? next.delete(key) : next.add(key)
-	expandedRuns.value = next
-}
-function isRunStepExpanded(stepId: string): boolean {
-	return expandedRunSteps.value.has(stepId)
-}
-function toggleRunStep(stepId: string) {
-	const next = new Set(expandedRunSteps.value)
-	next.has(stepId) ? next.delete(stepId) : next.add(stepId)
-	expandedRunSteps.value = next
-}
-// A create_data call that produced a chart: never folded, card kept in place.
-function isRunInlineBlock(m: ChatMessage, block: any): boolean {
-	return !!runFold(m)?.inlineIds.includes(String(block.id))
-}
-// The final message and inline charts always render; the rest only while open.
-function isRunBlockShown(m: ChatMessage, block: any): boolean {
-	const fold = runFold(m)
-	return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id) || isRunInlineBlock(m, block)
-}
-// Part of the indented thread: everything before the conclusion while the
-// steps are open. A chart shown while they are closed stands on its own.
-function isRunActivityBlock(m: ChatMessage, block: any): boolean {
-	const fold = runFold(m)
-	return !!fold && fold.finalBlockId !== String(block.id) && isRunExpanded(m)
-}
-// Progress prose belongs to the chain: with the steps closed, an inline chart
-// shows its card only, not the sentence that introduced it.
-function isRunProseShown(m: ChatMessage, block: any): boolean {
-	const fold = runFold(m)
-	return !fold || isRunExpanded(m) || fold.finalBlockId === String(block.id)
-}
-function runStepHeaderFor(m: ChatMessage, block: any): RunStep | undefined {
-	const fold = runFold(m)
-	return fold && isRunExpanded(m) ? fold.headerAt[String(block.id)] : undefined
-}
-// Later members of a step keep their reasoning and call in the step details.
-function isRunStepDetail(m: ChatMessage, block: any): boolean {
-	const step = runFold(m)?.stepOf[String(block.id)]
-	return !!step && step.id !== String(block.id)
-}
-// A step's first member shows its reasoning in the chain (it precedes the
-// step); later members' reasoning opens with the step.
-function isRunReasoningShown(m: ChatMessage, block: any): boolean {
-	const fold = runFold(m)
-	if (!fold) return true
-	if (!isRunExpanded(m)) return false
-	const step = fold.stepOf[String(block.id)]
-	return !step || step.id === String(block.id) || isRunStepExpanded(step.id)
-}
-function isRunToolShown(m: ChatMessage, block: any): boolean {
-	const fold = runFold(m)
-	if (!fold || isRunInlineBlock(m, block)) return true
-	const step = fold.stepOf[String(block.id)]
-	return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
-}
-function runDeliverables(m: ChatMessage): any[] {
-	const fold = runFold(m)
-	if (!fold?.deliverableIds.length) return []
-	const byId = new Map(visibleBlocks(m).map((b: any) => [String(b.id), b]))
-	return fold.deliverableIds.map(id => byId.get(id)).filter(Boolean)
-}
+const {
+	runFold,
+	isRunExpanded,
+	toggleRun,
+	isRunStepExpanded,
+	toggleRunStep,
+	isRunInlineBlock,
+	isRunAnswerBlock,
+	isRunBlockShown,
+	isRunActivityBlock,
+	isRunProseShown,
+	runStepHeaderFor,
+	isRunStepDetail,
+	isRunReasoningShown,
+	isRunToolShown,
+	runDeliverables,
+} = useRunFold<ChatMessage>({
+	foldFor: m => runActivities.value.get(String(m.id)),
+	blocksFor: m => visibleBlocks(m),
+	// Keyed by the server completion id so the open/closed state survives the
+	// refetch that swaps the streaming placeholder row for the stored one.
+	keyFor: m => runKey(m),
+})
 // Elapsed time of the run: the server's figure once stamped, the client clock
 // on the live path, and the blocks' own span for rows that carry neither.
 function runFoldDuration(m: ChatMessage): string {
@@ -1841,28 +1799,53 @@ function openRunStepOutput(block: any, step: RunStep) {
 // any create_data result loaded in this conversation, so a follow-up can cite
 // an earlier turn's table.
 // ---------------------------------------------------------------------------
-const citationSources = computed<CitationSource[]>(() =>
-	collectSources(
-		messages.value.flatMap(m => (m.role === 'system' ? visibleBlocks(m) : [])),
-		describeDataOutput,
-	)
-)
+// Memoized per block and per message: a streamed token re-runs the rewrite
+// for the one message it lands in, and no result is re-described.
+const _sourceCache = new Map<string, { key: string; source: CitationSource | null }>()
+const citationSources = computed<CitationSource[]>(() => {
+	const out: CitationSource[] = []
+	for (const m of messages.value) {
+		if (m.role !== 'system') continue
+		for (const b of visibleBlocks(m)) {
+			const te = b.tool_execution
+			if (te?.tool_name !== 'create_data') continue
+			const key = `${te.id}:${te.status}:${te.created_step_id ?? ''}:${te.result_json ? 1 : 0}`
+			let hit = _sourceCache.get(String(b.id))
+			if (!hit || hit.key !== key) {
+				hit = { key, source: collectSources([b], describeDataOutput)[0] || null }
+				_sourceCache.set(String(b.id), hit)
+			}
+			if (hit.source) out.push(hit.source)
+		}
+	}
+	return out
+})
 const blockText = (b: any): string => b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || ''
+type MessageCitations = { text: Map<string, string>; cited: CitationSource[] }
+const _citationCache = new Map<string, { key: string; value: MessageCitations | null }>()
 // Per message: each block's prose with its markers rewritten, and the sources
 // cited, numbered in order of first mention across the message.
 const messageCitations = computed(() => {
-	const out = new Map<string, { text: Map<string, string>; cited: CitationSource[] }>()
+	const out = new Map<string, MessageCitations>()
 	const sources = citationSources.value
+	const sourcesKey = sources.map(s => s.key).join(',')
 	for (const m of messages.value) {
 		if (m.role !== 'system') continue
+		const blocks = visibleBlocks(m)
+		const streamingRun = m.status === 'in_progress'
+		const key = `${sourcesKey}|${m.status}|${blocks.map((b: any) => `${b.id}:${isBlockFinalized(b) ? 1 : 0}:${blockText(b)}`).join('\u0000')}`
+		const hit = _citationCache.get(String(m.id))
+		if (hit && hit.key === key) { if (hit.value) out.set(String(m.id), hit.value); continue }
 		const text = new Map<string, string>()
 		const cited: CitationSource[] = []
-		for (const b of visibleBlocks(m)) {
+		for (const b of blocks) {
 			const raw = blockText(b)
 			if (!raw.includes('{')) continue
-			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && m.status === 'in_progress' }).markdown)
+			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && streamingRun }).markdown)
 		}
-		if (text.size) out.set(String(m.id), { text, cited })
+		const value = text.size ? { text, cited } : null
+		_citationCache.set(String(m.id), { key, value })
+		if (value) out.set(String(m.id), value)
 	}
 	return out
 })

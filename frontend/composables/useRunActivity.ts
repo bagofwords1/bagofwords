@@ -231,6 +231,13 @@ export interface RunStep {
 
 export interface RunActivity {
   finalBlockId: string
+  /**
+   * Blocks shown as the answer while folded: the final block, preceded by the
+   * prose-only block right before it when the final block also carries a tool
+   * call. A run that writes its analysis and then ends on a short "Building
+   * the dashboard now…" deliverable call keeps the analysis on screen.
+   */
+  answerIds: string[]
   steps: RunStep[]
   /** blockId -> the step its tool call belongs to */
   stepOf: Record<string, RunStep>
@@ -382,7 +389,11 @@ export function isInlineChart(block: any): boolean {
   return te?.tool_name === 'create_data' && !isBlockFailed(block) && describeDataOutput(te).kind === 'chart'
 }
 
-/** The block that carries the run's conclusion, or null while there is none. */
+/**
+ * The block that ends the run's conclusion, or null while there is none. When
+ * it also carries a tool call, the prose block right before it is part of the
+ * answer too (`RunActivity.answerIds`).
+ */
 export function findFinalBlock(blocks: any[], runStatus?: string): any | null {
   const last = (blocks || [])[blocks.length - 1]
   if (!last || !blockHasMessage(last)) return null
@@ -473,8 +484,15 @@ export function computeRunActivity(
     ? finalStart - Math.min(...starts)
     : null
 
+  const answerIds = [String(final.id)]
+  const lead = before[before.length - 1]
+  if (final.tool_execution && lead && !lead.tool_execution && blockHasMessage(lead) && !opts?.breakBefore?.(final)) {
+    answerIds.unshift(String(lead.id))
+  }
+
   return {
     finalBlockId: String(final.id),
+    answerIds,
     steps,
     stepOf,
     headerAt,

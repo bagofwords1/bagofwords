@@ -130,7 +130,10 @@ export function citeText(
 
 /** The source key a chip link points at, or '' for any other href. */
 export function citationKeyFromHref(href: string | null | undefined): string {
+  // Only a chip's own href, which starts with the prefix (as ChatLink checks):
+  // an ordinary link that merely contains `#cite-` must keep navigating.
   const h = String(href || '')
-  const at = h.indexOf(CITATION_HREF_PREFIX)
-  return at >= 0 ? decodeURIComponent(h.slice(at + CITATION_HREF_PREFIX.length)) : ''
+  if (!h.startsWith(CITATION_HREF_PREFIX)) return ''
+  const raw = h.slice(CITATION_HREF_PREFIX.length)
+  try { return decodeURIComponent(raw) } catch { return raw }
 }

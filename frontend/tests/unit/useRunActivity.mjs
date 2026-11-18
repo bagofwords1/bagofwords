@@ -277,3 +277,22 @@ console.log('useRunActivity: all assertions passed')
 }
 
 console.log('useRunActivity: shared-link payload assertions passed')
+
+// --- the answer shown while folded --------------------------------------------
+
+// A run that writes its analysis and ends on a short deliverable call keeps the
+// analysis on screen with it, not behind the fold.
+{
+  const analysis = prose('## Revenue\nThe USA leads with $523.')
+  const build = tool('create_artifact', { title: 'Dashboard' }, { block: { content: 'Building the dashboard now…' } })
+  const blocks = [tool('inspect_data', invoice), analysis, build]
+  const fold = computeRunActivity(blocks, { runStatus: 'success' })
+  assert.equal(fold?.finalBlockId, build.id)
+  assert.deepEqual(fold?.answerIds, [analysis.id, build.id])
+}
+// A prose-only final block is the whole answer; earlier prose stays folded.
+{
+  const note = prose('Looking at invoices')
+  const blocks = [note, tool('inspect_data', invoice), final()]
+  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success' })?.answerIds, [blocks[2].id])
+}
