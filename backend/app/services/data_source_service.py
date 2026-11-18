@@ -3291,16 +3291,17 @@ class DataSourceService:
         is client_keys.former_client_keys' rule: never one another live
         source carries or used to carry.
         """
-        from app.models.former_names import former_names
+        from app.models.former_names import former_bare_connections, former_names, names_of
         from app.services.client_keys import FAST_SUFFIX, FORMER_KEYS_ATTR, former_client_keys
 
         try:
             source_formers = former_names(data_source)
             connections = [
-                (conn.name, former_names(conn), f"{data_source.name}:{conn.name}{FAST_SUFFIX}" in clients)
+                (conn.name, former_names(conn), f"{data_source.name}:{conn.name}{FAST_SUFFIX}" in clients,
+                 str(conn.id))
                 for conn in active_connections
             ]
-            if not source_formers and not any(formers for _, formers, _ in connections):
+            if not source_formers and not any(c[1] for c in connections):
                 return
             others = (await db.execute(
                 select(DataSource.name, DataSource.previous_names).where(
@@ -3311,8 +3312,8 @@ class DataSourceService:
             )).all()
             old_keys = former_client_keys(
                 data_source.name, source_formers, connections,
-                [(name, [f for f in (formers or []) if f != name] if isinstance(formers, list) else [])
-                 for name, formers in others],
+                [(name, names_of(formers, name)) for name, formers in others],
+                bare_owners=former_bare_connections(data_source),
             )
             by_current: Dict[str, list] = {}
             for old, current in old_keys.items():
