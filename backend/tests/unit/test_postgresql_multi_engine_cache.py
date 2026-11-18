@@ -141,3 +141,26 @@ def test_forced_rebuilds_are_counted_per_connection(monkeypatch, clock):
 
     assert evict_engine(first) is True
     assert evict_engine(other) is True
+
+
+def test_callers_failing_on_the_same_engine_all_move_to_one_rebuild(monkeypatch, clock):
+    built = _counting_build(monkeypatch)
+    failed = get_engine(CONN, VIEWS, connection_id="c1")
+
+    retries = [evict_engine(failed) for _ in range(3)]
+    rebuilt = {id(get_engine(CONN, VIEWS, connection_id="c1")) for _ in range(3)}
+
+    assert retries == [True, True, True]
+    assert len(rebuilt) == 1
+    assert len(built) == 2
+
+
+def test_a_retry_onto_a_newer_engine_does_not_use_up_the_rebuild_budget(monkeypatch, clock):
+    _counting_build(monkeypatch)
+    failed = get_engine(CONN, VIEWS, connection_id="c1")
+    assert evict_engine(failed) is True
+    current = get_engine(CONN, VIEWS, connection_id="c1")
+
+    assert evict_engine(failed) is True
+    assert get_engine(CONN, VIEWS, connection_id="c1") is current
+

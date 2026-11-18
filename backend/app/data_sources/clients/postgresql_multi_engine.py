@@ -373,11 +373,13 @@ def evict_engine(engine: TenantEngine) -> bool:
         return False
     now = monotonic()
     with _cache_lock:
+        cached = _cache.get(key)
+        if key in _building or cached is None or cached[0] is not engine:
+            return True
         if not forced_rebuild_allowed(_forced_rebuilds.get(key), now):
             return False
         _forced_rebuilds[key] = now
-        if key in _cache and _cache[key][0] is engine:
-            del _cache[key]
+        del _cache[key]
     return True
 
 
