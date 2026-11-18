@@ -29,6 +29,7 @@ ERROR_CODES = (
     "model_not_found",
     "provider_error",
     "network",
+    "pii_blocked",
     "unknown",
 )
 
@@ -196,9 +197,31 @@ class LLMError:
     provider_message: str = ""  # actual provider error text — verbatim, never abstracted away
     request_id: Optional[str] = None
     raw_tail: str = ""
+    # pii_blocked only: the matched rule names (never values) and the policy,
+    # so the UI can say which rule refused the request in the user's language.
+    rules: Optional[list] = None
+    policy: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        if self.rules is None:
+            d.pop("rules")
+        if self.policy is None:
+            d.pop("policy")
+        return d
+
+
+def _pii_block_in_chain(exc: BaseException):
+    from app.ai.llm.pii.redactor import PiiPromptBlockedError
+
+    seen = 0
+    cur: Optional[BaseException] = exc
+    while cur is not None and seen < 8:
+        if isinstance(cur, PiiPromptBlockedError):
+            return cur
+        cur = cur.__cause__ or cur.__context__
+        seen += 1
+    return None
 
 
 def classify(
@@ -214,6 +237,29 @@ def classify(
     """
     raw = str(exc)
     raw_tail = raw[-400:] if len(raw) > 400 else raw
+
+    # Our own refusal, before anything was sent: the org's PII policy blocked
+    # the prompt. Neither retryable nor fallback-eligible — the same prompt is
+    # refused again, and another provider must not receive what this one's
+    # policy refused. Checked first, by type (also through __cause__), so no
+    # wording in the message can route it elsewhere.
+    blocked = _pii_block_in_chain(exc)
+    if blocked is not None:
+        # The sentence already names model and rules, so it is the summary and
+        # provider_message stays empty: "summary: provider_message" renderings
+        # (chat bubble, stored completion message) show it once.
+        return LLMError(
+            code="pii_blocked",
+            provider=provider,
+            model=getattr(blocked, "model", None) or model,
+            status=None,
+            summary=str(blocked),
+            provider_message="",
+            request_id=None,
+            raw_tail="",
+            rules=list(getattr(blocked, "rule_names", []) or []),
+            policy=getattr(blocked, "policy_name", None),
+        )
 
     status = _extract_status(exc, raw)
     cls_name = type(exc).__name__.lower()

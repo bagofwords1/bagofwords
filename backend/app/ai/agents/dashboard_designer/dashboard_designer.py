@@ -1,3 +1,4 @@
+from app.ai.llm.pii.context import pii_context
 from app.ai.llm import LLM
 from partialjson.json_parser import JSONParser
 from app.models.llm_model import LLMModel
@@ -82,7 +83,7 @@ class DashboardDesigner:
 
         **General Organization Instructions**:
         **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
-        {instructions_context}
+        {pii_context(instructions_context)}
 
         **Context Provided**:
 

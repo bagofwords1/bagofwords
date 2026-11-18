@@ -1,4 +1,4 @@
-from pydantic import BaseModel, validator, Field
+from pydantic import BaseModel, validator, Field, model_validator
 from typing import Dict, Any, Optional, Union, List
 import json
 from datetime import datetime
@@ -110,28 +110,59 @@ class PiiRule(BaseModel):
         return None
 
 
-class PiiProtectionConfig(BaseModel):
-    """Org-level configuration for redacting PII from prompts before they are
-    sent to any LLM provider. Enterprise-gated (``pii_protection`` feature) —
-    when the instance is unlicensed the redactor is a no-op regardless of this
-    config, so nothing here can turn the feature on in a community build.
+class PiiRuleOptions(BaseModel):
+    """One policy's options for one rule. A missing field keeps the rule's
+    default: enabled, the policy's mode, the rule's own token."""
+    enabled: Optional[bool] = None
+    action: Optional[str] = None
+    replacement: Optional[str] = None
 
-    Only overrides + custom rules live here; the built-in rule catalogue lives
-    in ``app.ai.llm.pii.builtin_rules`` so patterns can be improved in code
-    without a migration.
-    """
-    enabled: bool = False  # master switch (still requires an enterprise license)
-    mode: str = "replace"  # "replace" (swap with token) | "block" (refuse the call)
-    # Per-builtin overrides keyed by rule id -> {"enabled": bool, "replacement": str}
+
+class PiiPolicyConfig(BaseModel):
+    """A named set of options over the shared rule list."""
+    name: str = "Default"
+    mode: str = "replace"  # default action for rules without their own
+    # False: instructions, schemas and other platform context are left as they
+    # are; only the user's prompt and the data are redacted.
+    redact_context: bool = False
     builtin_overrides: Dict[str, Dict[str, Any]] = {}
-    # Fully user-defined rules
-    custom_rules: List[PiiRule] = []
+    custom_overrides: Dict[str, Dict[str, Any]] = {}
 
-    @validator('mode', pre=True, always=True)
-    def validate_mode(cls, v):
-        if v not in ("replace", "block"):
-            return "replace"
-        return v
+
+class PiiProtectionConfig(BaseModel):
+    """Org-level PII protection for prompts sent to LLM providers.
+    Enterprise-gated (``pii_protection``): when the instance is unlicensed the
+    redactor is a no-op regardless of this config.
+
+    * ``custom_rules`` is one shared rule list (patterns live in one place);
+      the built-in catalogue lives in ``app.ai.llm.pii.builtin_rules``.
+    * ``policies`` holds named option sets over those rules; ``default`` always
+      exists. ``provider_policies`` assigns a policy (or ``exempt``) to an LLM
+      provider; unassigned providers use ``default``.
+    * ``mode``, ``builtin_overrides``, each custom rule's ``enabled`` /
+      ``action`` / ``replacement`` and ``exempt_provider_ids`` are the
+      pre-policy fields, mirrored from the Default policy so older clients keep
+      reading (and writing) what they expect.
+
+    Any stored shape is normalized by ``app.ai.llm.pii.policy.normalize``.
+    """
+    enabled: bool = False
+    mode: str = "replace"
+    builtin_overrides: Dict[str, Dict[str, Any]] = {}
+    custom_rules: List[PiiRule] = []
+    exempt_provider_ids: List[str] = []
+    policies: Dict[str, PiiPolicyConfig] = {}
+    provider_policies: Dict[str, str] = {}
+    display_policy: str = "default"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, values):
+        from app.ai.llm.pii.policy import legacy_view, normalize
+        if isinstance(values, BaseModel):
+            values = values.model_dump()
+        cfg = normalize(values if isinstance(values, dict) else {})
+        return {**cfg, **legacy_view(cfg)}
 
 
 # Microsoft Graph /me fields that are readable with the default-granted

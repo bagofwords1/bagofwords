@@ -13,37 +13,104 @@
             <SettingsLoading v-if="loading" />
 
             <div v-else>
-                <!-- Master switch + default action -->
+                <!-- Master switch -->
                 <SettingsSection>
                     <SettingsRow :label="$t('settings.pii.masterLabel')" :description="$t('settings.pii.masterDesc')">
                         <UToggle v-model="pii.enabled" @update:model-value="save" />
                     </SettingsRow>
-
-                    <fieldset class="mt-6" :disabled="!pii.enabled" :class="{ 'opacity-50': !pii.enabled }">
-                        <legend class="text-sm font-medium text-ink mb-3">{{ $t('settings.pii.modeLabel') }}</legend>
-                        <div class="grid gap-3 sm:grid-cols-2">
-                            <label
-                                v-for="opt in modeOptions"
-                                :key="opt.value"
-                                :class="[
-                                    'flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors',
-                                    pii.mode === opt.value
-                                        ? 'border-blue-500 bg-blue-50/60 dark:border-blue-400 dark:bg-blue-950/30'
-                                        : 'border-line hover:border-line-strong'
-                                ]"
-                            >
-                                <input type="radio" :value="opt.value" v-model="pii.mode" class="mt-0.5 accent-blue-600" @change="save" />
-                                <span class="min-w-0">
-                                    <span class="block text-sm font-medium text-ink">{{ opt.label }}</span>
-                                    <span class="block mt-0.5 text-xs text-ink-muted leading-relaxed">{{ opt.description }}</span>
-                                </span>
-                            </label>
-                        </div>
-                    </fieldset>
                 </SettingsSection>
 
-                <!-- Built-in rules -->
-                <SettingsSection :title="$t('settings.pii.builtinTitle')" :description="$t('settings.pii.builtinDesc')">
+                <!-- Which policy each LLM provider uses -->
+                <SettingsSection :title="$t('settings.pii.providersTitle')" :description="$t('settings.pii.providersDesc')">
+                    <div data-testid="pii-provider-policies" :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
+                        <div v-if="providers.length === 0" class="rounded-lg border border-dashed border-line">
+                            <SettingsEmpty icon="i-heroicons-cpu-chip" :title="$t('settings.pii.noProviders')" compact />
+                        </div>
+                        <div v-else class="bow-table-card divide-y divide-line-subtle">
+                            <div v-for="provider in providers" :key="provider.id" data-testid="pii-provider-row"
+                                 class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <LLMProviderIcon :provider="provider.provider_type" :icon="true" class="w-5 h-5 shrink-0" />
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-medium text-ink truncate">{{ provider.name }}</div>
+                                        <div class="text-xs text-ink-muted">{{ providerSummary(provider.id) }}</div>
+                                    </div>
+                                </div>
+                                <USelect
+                                    :model-value="providerPolicy(provider.id)"
+                                    :options="policyOptions"
+                                    :aria-label="$t('settings.pii.providerPolicyFor', { name: provider.name })"
+                                    data-testid="pii-provider-policy"
+                                    size="sm" class="w-64 shrink-0"
+                                    @update:model-value="setProviderPolicy(provider.id, $event); save()" />
+                            </div>
+                        </div>
+                    </div>
+                </SettingsSection>
+
+                <!-- Policies: pick one, then edit its options below -->
+                <SettingsSection :title="$t('settings.pii.policiesTitle')" :description="$t('settings.pii.policiesDesc')">
+                    <template #actions>
+                        <UButton size="sm" color="gray" icon="i-heroicons-plus" :disabled="!pii.enabled"
+                                 data-testid="pii-new-policy" @click="addPolicy">{{ $t('settings.pii.newPolicy') }}</UButton>
+                    </template>
+
+                    <div :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
+                        <div class="flex flex-wrap gap-2" role="group" :aria-label="$t('settings.pii.policiesTitle')" data-testid="pii-policy-picker">
+                            <UButton v-for="(policy, id) in pii.policies" :key="id" size="sm"
+                                     :color="id === selected ? 'primary' : 'gray'"
+                                     :variant="id === selected ? 'soft' : 'ghost'"
+                                     :aria-pressed="id === selected"
+                                     :data-testid="`pii-policy-${id}`"
+                                     @click="selected = String(id)">
+                                {{ policyLabel(String(id)) }}
+                                <span class="text-2xs text-ink-muted nums">{{ $t('settings.pii.providerCount', { n: providerCount(String(id)) }, providerCount(String(id))) }}</span>
+                            </UButton>
+                        </div>
+
+                        <div class="mt-5 rounded-lg border border-line p-4 space-y-5" data-testid="pii-policy-editor">
+                            <div v-if="selected !== 'default'" class="flex items-end gap-3">
+                                <div class="flex-1">
+                                    <label class="block mb-1 text-xs font-medium text-ink-muted" for="pii-policy-name">{{ $t('settings.pii.policyName') }}</label>
+                                    <UInput id="pii-policy-name" v-model="current.name" size="sm" maxlength="60"
+                                            data-testid="pii-policy-name" @blur="save" />
+                                </div>
+                                <UButton color="red" variant="ghost" size="sm" icon="i-heroicons-trash"
+                                         data-testid="pii-delete-policy" @click="removePolicy">{{ $t('settings.pii.deletePolicy') }}</UButton>
+                            </div>
+                            <p v-else class="text-xs text-ink-muted">{{ $t('settings.pii.defaultPolicyNote') }}</p>
+
+                            <fieldset>
+                                <legend class="text-sm font-medium text-ink mb-3">{{ $t('settings.pii.modeLabel') }}</legend>
+                                <div class="grid gap-3 sm:grid-cols-2">
+                                    <label
+                                        v-for="opt in modeOptions"
+                                        :key="opt.value"
+                                        :class="[
+                                            'flex items-start gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors',
+                                            current.mode === opt.value
+                                                ? 'border-blue-500 bg-blue-50/60 dark:border-blue-400 dark:bg-blue-950/30'
+                                                : 'border-line hover:border-line-strong'
+                                        ]"
+                                    >
+                                        <input type="radio" :value="opt.value" v-model="current.mode" class="mt-0.5 accent-blue-600" @change="save" />
+                                        <span class="min-w-0">
+                                            <span class="block text-sm font-medium text-ink">{{ opt.label }}</span>
+                                            <span class="block mt-0.5 text-xs text-ink-muted leading-relaxed">{{ opt.description }}</span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </fieldset>
+
+                            <SettingsRow :label="$t('settings.pii.redactContextLabel')" :description="$t('settings.pii.redactContextDesc')">
+                                <UToggle v-model="current.redact_context" data-testid="pii-redact-context" @update:model-value="save" />
+                            </SettingsRow>
+                        </div>
+                    </div>
+                </SettingsSection>
+
+                <!-- Built-in rules (options of the selected policy) -->
+                <SettingsSection :title="$t('settings.pii.builtinTitle')" :description="$t('settings.pii.builtinDescPolicy', { policy: policyLabel(selected) })">
                     <div :class="['bow-table-card divide-y divide-line-subtle', { 'opacity-50 pointer-events-none': !pii.enabled }]">
                         <div v-for="rule in builtinRules" :key="rule.id" class="flex items-center justify-between gap-4 px-5 py-3">
                             <div class="min-w-0">
@@ -52,13 +119,13 @@
                             </div>
                             <div class="flex items-center gap-3 shrink-0">
                                 <USelect
-                                    :model-value="builtinAction(rule.id)"
-                                    @update:model-value="setBuiltinAction(rule.id, $event); save()"
+                                    :model-value="ruleAction('builtin', rule.id)"
+                                    @update:model-value="setRuleOption('builtin', rule.id, 'action', $event); save()"
                                     :options="actionOptions" size="sm" class="w-28" />
                                 <UInput
-                                    v-if="builtinAction(rule.id) === 'replace'"
-                                    :model-value="builtinReplacement(rule.id)"
-                                    @update:model-value="setBuiltinReplacement(rule.id, $event)"
+                                    v-if="ruleAction('builtin', rule.id) === 'replace'"
+                                    :model-value="ruleReplacement('builtin', rule.id, rule.replacement)"
+                                    @update:model-value="setRuleOption('builtin', rule.id, 'replacement', $event)"
                                     @blur="save"
                                     size="sm" class="w-44" input-class="font-mono text-xs" :placeholder="rule.replacement" />
                                 <span v-else class="w-44 text-xs text-red-600 dark:text-red-400 flex items-center justify-end gap-1">
@@ -66,15 +133,15 @@
                                     {{ $t('settings.pii.blocksRequest') }}
                                 </span>
                                 <UToggle
-                                    :model-value="builtinEnabled(rule.id)"
-                                    @update:model-value="setBuiltinEnabled(rule.id, $event); save()" />
+                                    :model-value="ruleEnabled('builtin', rule.id)"
+                                    @update:model-value="setRuleOption('builtin', rule.id, 'enabled', $event); save()" />
                             </div>
                         </div>
                     </div>
                 </SettingsSection>
 
-                <!-- Custom rules -->
-                <SettingsSection :title="$t('settings.pii.customTitle')" :description="$t('settings.pii.customDesc')">
+                <!-- Custom rules: patterns shared, options per policy -->
+                <SettingsSection :title="$t('settings.pii.customTitle')" :description="$t('settings.pii.customDescShared')">
                     <template #actions>
                         <UButton size="sm" color="gray" icon="i-heroicons-plus" :disabled="!pii.enabled" @click="addRule">{{ $t('settings.pii.addRule') }}</UButton>
                     </template>
@@ -88,7 +155,8 @@
                              class="rounded-lg border border-line p-4 space-y-4 [&+&]:mt-3">
                             <div class="flex items-center justify-between gap-3">
                                 <div class="flex items-center gap-3 flex-1">
-                                    <UToggle v-model="rule.enabled" @update:model-value="save" />
+                                    <UToggle :model-value="ruleEnabled('custom', rule.id)"
+                                             @update:model-value="setRuleOption('custom', rule.id, 'enabled', $event); save()" />
                                     <UInput v-model="rule.name" :placeholder="$t('settings.pii.ruleNamePlaceholder')"
                                             size="sm" class="flex-1" @blur="save" />
                                 </div>
@@ -98,15 +166,17 @@
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
-                                    <label class="block mb-1 text-xs font-medium text-ink-muted">{{ $t('settings.pii.action') }}</label>
+                                    <label class="block mb-1 text-xs font-medium text-ink-muted">{{ $t('settings.pii.actionInPolicy', { policy: policyLabel(selected) }) }}</label>
                                     <USelect
-                                        :model-value="customAction(rule)"
-                                        @update:model-value="rule.action = $event; save()"
+                                        :model-value="ruleAction('custom', rule.id)"
+                                        @update:model-value="setRuleOption('custom', rule.id, 'action', $event); save()"
                                         :options="actionOptions" size="sm" />
                                 </div>
-                                <div v-if="customAction(rule) === 'replace'">
+                                <div v-if="ruleAction('custom', rule.id) === 'replace'">
                                     <label class="block mb-1 text-xs font-medium text-ink-muted">{{ $t('settings.pii.replacement') }}</label>
-                                    <UInput v-model="rule.replacement" size="sm" input-class="font-mono text-xs" placeholder="[REDACTED]" @blur="save" />
+                                    <UInput :model-value="ruleReplacement('custom', rule.id, rule.replacement)"
+                                            @update:model-value="setRuleOption('custom', rule.id, 'replacement', $event)"
+                                            size="sm" input-class="font-mono text-xs" :placeholder="rule.replacement" @blur="save" />
                                 </div>
                                 <div v-else class="flex items-end">
                                     <span class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1 pb-2">
@@ -117,7 +187,7 @@
                             </div>
 
                             <div>
-                                <label class="block text-xs font-medium text-ink-muted">{{ $t('settings.pii.patterns') }}</label>
+                                <label class="block text-xs font-medium text-ink-muted">{{ $t('settings.pii.patternsShared') }}</label>
                                 <div v-for="(pat, pi) in rule.patterns" :key="pi" class="flex items-center gap-2 mt-1.5">
                                     <UInput v-model="rule.patterns[pi]" size="sm"
                                             class="flex-1" input-class="font-mono text-xs" :placeholder="$t('settings.pii.patternPlaceholder')" @blur="save" />
@@ -131,8 +201,8 @@
                     </div>
                 </SettingsSection>
 
-                <!-- Live test -->
-                <SettingsSection :title="$t('settings.pii.testTitle')" :description="$t('settings.pii.testDesc')">
+                <!-- Live test (the selected policy) -->
+                <SettingsSection :title="$t('settings.pii.testTitle')" :description="$t('settings.pii.testDescPolicy', { policy: policyLabel(selected) })">
                     <UTextarea v-model="testInput" :rows="4" :placeholder="$t('settings.pii.testPlaceholder')" textarea-class="font-mono text-xs" />
                     <div class="mt-3">
                         <UButton size="sm" color="gray" icon="i-heroicons-play" :loading="testing" @click="runTest">
@@ -166,6 +236,7 @@ import SettingsSection from '~/components/settings/SettingsSection.vue'
 import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
+import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
@@ -173,19 +244,45 @@ const { t } = useI18n()
 const toast = useToast()
 const { hasFeature } = useEnterprise()
 
+const DEFAULT = 'default'
+const EXEMPT = 'exempt'
+
 const loading = ref(true)
 const testing = ref(false)
 const testDone = ref(false)
 const testInput = ref('')
 const testResult = ref<{ text: string; matches: any[]; blocked: boolean }>({ text: '', matches: [], blocked: false })
 
-interface CustomRule { id: string; name: string; patterns: string[]; replacement: string; enabled: boolean; action?: string | null }
-const pii = reactive<{ enabled: boolean; mode: string; builtin_overrides: Record<string, any>; custom_rules: CustomRule[] }>({
-    enabled: false,
-    mode: 'replace',
-    builtin_overrides: {},
-    custom_rules: [],
+type Kind = 'builtin' | 'custom'
+interface RuleOptions { enabled?: boolean; action?: string; replacement?: string }
+interface Policy {
+    name: string
+    mode: string
+    redact_context: boolean
+    builtin_overrides: Record<string, RuleOptions>
+    custom_overrides: Record<string, RuleOptions>
+}
+interface CustomRule { id: string; name: string; patterns: string[]; replacement: string }
+
+const emptyPolicy = (name: string): Policy => ({
+    name, mode: 'replace', redact_context: false, builtin_overrides: {}, custom_overrides: {},
 })
+
+const pii = reactive<{
+    enabled: boolean
+    custom_rules: CustomRule[]
+    policies: Record<string, Policy>
+    provider_policies: Record<string, string>
+}>({
+    enabled: false,
+    custom_rules: [],
+    policies: { [DEFAULT]: emptyPolicy('Default') },
+    provider_policies: {},
+})
+const selected = ref<string>(DEFAULT)
+const current = computed<Policy>(() => pii.policies[selected.value] || pii.policies[DEFAULT])
+const providers = ref<Array<{ id: string; name: string; provider_type: string }>>([])
+const providersLoaded = ref(false)
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
 
 const modeOptions = computed(() => [
@@ -202,70 +299,142 @@ const matchLabel = computed(() =>
     (testResult.value.matches || []).map((m: any) => m.name + (m.count ? ` (${m.count})` : '')).join(', ')
 )
 
-// --- built-in override helpers (effective enable/replacement/action) ---
-const builtinEnabled = (id: string) => pii.builtin_overrides[id]?.enabled ?? true
-const builtinReplacement = (id: string) => {
-    const ov = pii.builtin_overrides[id]?.replacement
-    if (ov) return ov
-    const def = builtinRules.value.find(r => r.id === id)
-    return def?.replacement || ''
+// --- policies ---
+const policyLabel = (id: string) =>
+    id === DEFAULT ? t('settings.pii.defaultPolicy') : (pii.policies[id]?.name || id)
+
+const policyOptions = computed(() => [
+    ...Object.keys(pii.policies).map(id => ({ label: policyLabel(id), value: id })),
+    { label: t('settings.pii.exemptOption'), value: EXEMPT },
+])
+
+const providerPolicy = (providerId: string) => {
+    const p = pii.provider_policies[providerId]
+    return p && (p === EXEMPT || pii.policies[p]) ? p : DEFAULT
 }
-// Effective action = per-rule override, else the workspace default (pii.mode).
-const builtinAction = (id: string) => pii.builtin_overrides[id]?.action || pii.mode
-const customAction = (rule: CustomRule) => rule.action || pii.mode
-const setBuiltinEnabled = (id: string, val: boolean) => {
-    pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), enabled: val }
+const setProviderPolicy = (providerId: string, policyId: string) => {
+    const next = { ...pii.provider_policies }
+    if (!policyId || policyId === DEFAULT) delete next[providerId]
+    else next[providerId] = policyId
+    pii.provider_policies = next
 }
-const setBuiltinReplacement = (id: string, val: string) => {
-    pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), replacement: val }
+const providerSummary = (providerId: string) => {
+    const p = providerPolicy(providerId)
+    return p === EXEMPT
+        ? t('settings.pii.providerExempt')
+        : t('settings.pii.providerUsesPolicy', { policy: policyLabel(p) })
 }
-const setBuiltinAction = (id: string, val: string) => {
-    pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), action: val }
+const providerCount = (policyId: string) =>
+    providers.value.filter(p => providerPolicy(p.id) === policyId).length
+
+const addPolicy = () => {
+    let n = Object.keys(pii.policies).length
+    let id = `policy-${n}`
+    while (pii.policies[id]) id = `policy-${++n}`
+    // A new policy starts as a copy of Default.
+    const base = JSON.parse(JSON.stringify(pii.policies[DEFAULT])) as Policy
+    pii.policies = { ...pii.policies, [id]: { ...base, name: t('settings.pii.newPolicyName', { n }) } }
+    selected.value = id
+    save()
+}
+const removePolicy = () => {
+    const id = selected.value
+    if (id === DEFAULT) return
+    if (!window.confirm(t('settings.pii.deletePolicyConfirm', { policy: policyLabel(id) }))) return
+    const { [id]: _removed, ...rest } = pii.policies
+    pii.policies = rest
+    // Its providers go back to Default.
+    pii.provider_policies = Object.fromEntries(
+        Object.entries(pii.provider_policies).filter(([, p]) => p !== id)
+    )
+    selected.value = DEFAULT
+    save()
 }
 
-// --- custom rule editing ---
+// --- per-policy rule options (missing = rule default) ---
+const overridesOf = (kind: Kind) =>
+    kind === 'builtin' ? current.value.builtin_overrides : current.value.custom_overrides
+const ruleEnabled = (kind: Kind, id: string) => overridesOf(kind)[id]?.enabled ?? true
+const ruleAction = (kind: Kind, id: string) => overridesOf(kind)[id]?.action || current.value.mode
+const ruleReplacement = (kind: Kind, id: string, fallback: string) => overridesOf(kind)[id]?.replacement || fallback
+const setRuleOption = (kind: Kind, id: string, key: keyof RuleOptions, val: any) => {
+    const map = overridesOf(kind)
+    map[id] = { ...(map[id] || {}), [key]: val }
+}
+
+// --- custom rules (shared patterns) ---
 const addRule = () => {
     pii.custom_rules.push({
         id: `custom-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        name: '', patterns: [''], replacement: '[REDACTED]', enabled: true, action: pii.mode,
+        name: '', patterns: [''], replacement: '[REDACTED]',
     })
 }
-const removeRule = (i: number) => { pii.custom_rules.splice(i, 1); save() }
+const removeRule = (i: number) => {
+    const [rule] = pii.custom_rules.splice(i, 1)
+    if (rule) for (const p of Object.values(pii.policies)) delete p.custom_overrides[rule.id]
+    save()
+}
 const removePattern = (rule: CustomRule, i: number) => {
     rule.patterns.splice(i, 1)
     if (rule.patterns.length === 0) rule.patterns.push('')
     save()
 }
 
-const buildConfig = () => ({
-    enabled: pii.enabled,
-    mode: pii.mode,
-    builtin_overrides: pii.builtin_overrides,
-    custom_rules: pii.custom_rules
+const buildConfig = () => {
+    const rules = pii.custom_rules
         .map(r => ({ ...r, patterns: r.patterns.map(p => p.trim()).filter(Boolean) }))
-        .filter(r => r.name.trim() || r.patterns.length),
-})
+        .filter(r => r.name.trim() || r.patterns.length)
+    const ids = new Set(rules.map(r => r.id))
+    const policies: Record<string, Policy> = {}
+    for (const [id, p] of Object.entries(pii.policies)) {
+        policies[id] = {
+            ...p,
+            name: id === DEFAULT ? 'Default' : (p.name || '').trim() || policyLabel(id),
+            custom_overrides: Object.fromEntries(Object.entries(p.custom_overrides).filter(([rid]) => ids.has(rid))),
+        }
+    }
+    const config: Record<string, any> = { enabled: pii.enabled, custom_rules: rules, policies }
+    // Without the provider list the assignments are not resent, so a failed
+    // load can never wipe them.
+    if (providersLoaded.value) config.provider_policies = pii.provider_policies
+    return config
+}
 
 const load = async () => {
     loading.value = true
     try {
-        const [settingsRes, rulesRes] = await Promise.all([
+        const [settingsRes, rulesRes, providersRes] = await Promise.all([
             useMyFetch('/api/organization/settings'),
             useMyFetch('/api/organization/pii/builtin-rules'),
+            useMyFetch('/api/llm/providers'),
         ])
         const cfg = (settingsRes.data.value as any)?.config?.pii_protection
         if (cfg) {
             pii.enabled = !!cfg.enabled
-            pii.mode = cfg.mode || 'replace'
-            pii.builtin_overrides = cfg.builtin_overrides || {}
             pii.custom_rules = (cfg.custom_rules || []).map((r: any) => ({
                 id: r.id || `custom-${Math.random()}`,
                 name: r.name || '',
                 patterns: r.patterns && r.patterns.length ? [...r.patterns] : [''],
                 replacement: r.replacement || '[REDACTED]',
-                enabled: r.enabled !== false,
-                action: r.action || null,
             }))
+            const policies: Record<string, Policy> = {}
+            for (const [id, p] of Object.entries<any>(cfg.policies || {})) {
+                policies[id] = {
+                    name: p.name || id,
+                    mode: p.mode || 'replace',
+                    redact_context: !!p.redact_context,
+                    builtin_overrides: p.builtin_overrides || {},
+                    custom_overrides: p.custom_overrides || {},
+                }
+            }
+            if (!policies[DEFAULT]) policies[DEFAULT] = emptyPolicy('Default')
+            pii.policies = policies
+            pii.provider_policies = { ...(cfg.provider_policies || {}) }
+        }
+        if (providersRes.status.value === 'success') {
+            providers.value = ((providersRes.data.value as any[]) || [])
+                .map(p => ({ id: String(p.id), name: p.name, provider_type: p.provider_type }))
+            providersLoaded.value = true
         }
         builtinRules.value = (rulesRes.data.value as any)?.rules || []
     } finally {
@@ -274,9 +443,13 @@ const load = async () => {
 }
 
 let saving = false
+let saveQueued = false
 const save = async () => {
-    if (saving) return
+    // A change made while a save is in flight is saved right after it, so a
+    // quick second edit is never lost.
+    if (saving) { saveQueued = true; return }
     saving = true
+    saveQueued = false
     try {
         const res = await useMyFetch('/api/organization/settings', {
             method: 'PUT',
@@ -292,6 +465,7 @@ const save = async () => {
         toast.add({ title: t('settings.pii.saveError'), description: e.message, color: 'red', timeout: 5000, icon: 'i-heroicons-exclamation-circle' })
     } finally {
         saving = false
+        if (saveQueued) save()
     }
 }
 
@@ -302,16 +476,16 @@ const runTest = async () => {
         const res = await useMyFetch('/api/organization/pii/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: testInput.value, config: buildConfig() }),
+            body: JSON.stringify({ text: testInput.value, config: buildConfig(), policy_id: selected.value }),
         })
         if (res.status.value !== 'success') {
-            const detail = (res.error?.value as any)?.data?.detail || 'Test failed'
+            const detail = (res.error?.value as any)?.data?.detail || t('settings.pii.testFailed')
             throw new Error(detail)
         }
         testResult.value = res.data.value as any
         testDone.value = true
     } catch (e: any) {
-        toast.add({ title: 'Test failed', description: e.message, color: 'red', timeout: 5000, icon: 'i-heroicons-exclamation-circle' })
+        toast.add({ title: t('settings.pii.testFailed'), description: e.message, color: 'red', timeout: 5000, icon: 'i-heroicons-exclamation-circle' })
     } finally {
         testing.value = false
     }

@@ -14,10 +14,12 @@
 - Added folders reserved for one organization's file connections — `security.organization_file_roots`
 - Added a numbered citation on the answer's claims that previews, and opens, the result behind it; chat channels get the same as `[1]` footnotes (#1770)
 - Added GPT-6.2 Sol and Astra to the OpenAI models; Sol is the new managed OpenAI default — $2/$10 per million tokens, up from Terra's $1/$5 (#1820)
+- Added named PII protection policies assigned per LLM provider, with an Exempt option, under Settings → PII Protection (#1821) — Enterprise
 - Changed a steered prompt to appear above the step that picked it up, on the report page, after a reload and on shared links (#1802)
 - Changed, on multi-organization deployments only: creating an organization needs an instance administrator, a personal API key works only in its own organization, an existing account joins another organization by invite, a sign-up domain is assigned by an instance administrator, and a first sign-in links to an existing account by email only from a trusted provider — `trust_email_for_linking`
 - Changed `security.block_private_outbound` to also cover Cosmos DB, Couchbase, Iceberg, Azure Blob and Kubernetes endpoints and SQL Server failover hosts
 - Changed a run's steps, charts included, to sit behind one row above the answer, live while it works and settled once it ends (#1770)
+- Changed PII protection to redact only the user's prompt and the data; instructions, schemas and other agent context reach the model as written, image-generation prompts are now redacted, and a blocked request ends the turn without retrying (#1821)
 - Fixed every chat failing on Azure OpenAI with the default content filter; content-filter blocks now show a named error (#1803)
 - Fixed MCP and custom API agents losing their tools when a SQL or file agent shares the report (#1815)
 - Fixed Qlik Cloud tables showing no columns after indexing (#1818)

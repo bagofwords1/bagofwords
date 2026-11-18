@@ -728,8 +728,10 @@
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 shrink-0" />
 										{{ responseT('reportView.generationStopped') }}
 									</div>
-									<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2">
-										{{ getMessageError(m) || 'An error occurred' }}
+									<!-- dir="auto": an error can be in the UI language (e.g. a PII block)
+									     while the transcript follows the question's language. -->
+									<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2" dir="auto">
+										{{ getMessageError(m) || t('reportView.anErrorOccurred') }}
 									</div>
 								</div>
                                 </div>
@@ -3441,7 +3443,19 @@ function isRealCompletion(m: ChatMessage): boolean {
     return uuidRe.test(cid)
 }
 
+// A request refused by the org's PII policy: say so in the reader's language,
+// naming the model and the rules (never the values).
+function piiBlockedMessage(err: any): string | null {
+  if (!err || typeof err !== 'object' || err.code !== 'pii_blocked') return null
+  const rules = Array.isArray(err.rules) ? err.rules.join(', ') : ''
+  return err.model
+    ? t('reportView.piiBlocked', { model: err.model, rules })
+    : t('reportView.piiBlockedNoModel', { rules })
+}
+
 function getMessageError(m: any): string | null {
+  const pii = piiBlockedMessage(m?.completion?.error)
+  if (pii) return pii
   if (typeof m?.error_message === 'string' && m.error_message.trim()) return m.error_message.trim()
   try {
     const content = m?.completion?.content
@@ -5031,6 +5045,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				if (completionStatus === 'error') {
 					const errPayload = payload?.error || {}
 					const errMsg: string = (typeof errPayload === 'string' ? errPayload : null)
+						|| piiBlockedMessage(errPayload)
 						|| errPayload.message
 						|| (errPayload.summary && errPayload.provider_message ? `${errPayload.summary}: ${errPayload.provider_message}` : (errPayload.summary || errPayload.provider_message))
 						|| sysMessage.error_message
@@ -5093,9 +5108,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				const summary = String(err.summary || `${err.provider || 'LLM provider'} call failed`)
 				const providerMessage = String(err.provider_message || '')
 				if (!sysMessage.error_message) {
-					sysMessage.error_message = providerMessage
+					sysMessage.error_message = piiBlockedMessage(err) || (providerMessage
 						? (summary && summary !== providerMessage ? `${summary}: ${providerMessage}` : providerMessage)
-						: summary
+						: summary)
 				}
 			} catch (e) {
 				console.warn('llm.error handler failed', e)

@@ -4,7 +4,7 @@
 settings could not be read" (it never breaks inference). Display surfaces that
 would rather show nothing than show raw values use
 ``load_redactor_for_org_checked``, which tells the two apart. The licence gate
-(``has_feature``) and the ruleset build (``build_redactor``) are the loader's
+(``has_feature``) and the ruleset build (``compile_config``) are the loader's
 boundaries patched here; the settings row is real.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import pytest
 
 import app.ai.llm.pii.loader as loader
-from app.ai.llm.pii.redactor import build_redactor
+from app.ai.llm.pii.policy import compile_config
 from app.dependencies import async_session_maker
 from app.models.organization import Organization
 from app.models.organization_settings import OrganizationSettings
@@ -54,7 +54,7 @@ def _broken(_config):
 @pytest.mark.asyncio
 async def test_a_failed_load_is_reported_and_the_old_loader_is_unchanged(licensed, monkeypatch):
     org = await _org_with_pii()
-    monkeypatch.setattr(loader, "build_redactor", _broken)
+    monkeypatch.setattr(loader, "compile_config", _broken)
     assert await loader.load_redactor_for_org(org, async_session_maker) is None  # never raises
     assert await loader.load_redactor_for_org_checked(org, async_session_maker) == (None, False)
 
@@ -62,9 +62,9 @@ async def test_a_failed_load_is_reported_and_the_old_loader_is_unchanged(license
 @pytest.mark.asyncio
 async def test_a_cached_failure_is_retried_by_the_checked_loader(licensed, monkeypatch):
     org = await _org_with_pii()
-    monkeypatch.setattr(loader, "build_redactor", _broken)
+    monkeypatch.setattr(loader, "compile_config", _broken)
     assert await loader.load_redactor_for_org(org, async_session_maker) is None  # caches the failure
-    monkeypatch.setattr(loader, "build_redactor", build_redactor)               # the settings read recovers
+    monkeypatch.setattr(loader, "compile_config", compile_config)               # the settings read recovers
     redactor, ok = await loader.load_redactor_for_org_checked(org, async_session_maker)
     assert ok is True and redactor is not None and EMAIL not in redactor.redact_display(f"mail {EMAIL}")
     # Once loaded, both loaders share it.
@@ -121,7 +121,7 @@ async def test_an_unreadable_org_is_retried_at_most_once_per_backoff_window_and_
         builds.append(config)
         raise RuntimeError("ruleset failed to compile")
 
-    monkeypatch.setattr(loader, "build_redactor", broken)
+    monkeypatch.setattr(loader, "compile_config", broken)
     for _ in range(5):  # a tool line, lookups, 250 ms polls: within one second
         assert (await load_redaction(org)).ok is False
         clock[0] += 0.2
@@ -129,7 +129,7 @@ async def test_an_unreadable_org_is_retried_at_most_once_per_backoff_window_and_
     logged = warnings_logged()
     assert len(logged) == 1 and isinstance(logged[0].exc_info[1], RuntimeError)  # the cause is recorded
     clock[0] += 0.5  # the window has passed
-    monkeypatch.setattr(loader, "build_redactor", build_redactor)  # the settings read recovers
+    monkeypatch.setattr(loader, "compile_config", compile_config)  # the settings read recovers
     recovered = await load_redaction(org)
     assert recovered.ok is True and EMAIL not in recovered.redact(f"mail {EMAIL}")
 
@@ -145,7 +145,7 @@ async def test_the_backoff_window_starts_when_a_slow_failed_load_ends(licensed, 
         clock[0] += 3.0  # the failing read took 3 s (a database timeout): longer than the window
         raise RuntimeError("ruleset failed to compile")
 
-    monkeypatch.setattr(loader, "build_redactor", slow_broken)
+    monkeypatch.setattr(loader, "compile_config", slow_broken)
     for _ in range(3):  # back to back, no time passing between them
         assert await loader.load_redactor_for_org_checked(org, async_session_maker) == (None, False)
     assert len(builds) == 1
@@ -156,7 +156,7 @@ async def test_concurrent_callers_share_one_load_and_one_warning(licensed, monke
     import asyncio
 
     org = await _org_with_pii()
-    monkeypatch.setattr(loader, "build_redactor", _broken)
+    monkeypatch.setattr(loader, "compile_config", _broken)
     opened, release = [], asyncio.Event()
 
     @contextlib.asynccontextmanager

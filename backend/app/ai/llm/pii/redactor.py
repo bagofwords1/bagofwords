@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from .builtin_rules import BUILTIN_PII_RULES
+from .context import has_markers, split_segments, strip_markers
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +35,37 @@ VALID_MODES = ("replace", "block")
 
 
 class PiiPromptBlockedError(Exception):
-    """Raised in ``block`` mode when a prompt contains PII and must not be sent."""
+    """Raised in ``block`` mode when a prompt contains PII and must not be sent.
 
-    def __init__(self, rule_names: List[str]):
+    Carries the matched rule names (never the values) and, once the LLM
+    chokepoint has seen it, the model and policy, so the user is told which
+    request was refused and why."""
+
+    def __init__(
+        self,
+        rule_names: List[str],
+        *,
+        model: Optional[str] = None,
+        policy_id: Optional[str] = None,
+        policy_name: Optional[str] = None,
+    ):
         self.rule_names = rule_names
-        joined = ", ".join(rule_names) if rule_names else "PII"
-        super().__init__(
-            f"Prompt blocked by PII protection: detected {joined}."
-        )
+        self.model = model
+        self.policy_id = policy_id
+        self.policy_name = policy_name
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        joined = ", ".join(self.rule_names) if self.rule_names else "PII"
+        target = f" to {self.model}" if self.model else ""
+        return f"PII protection blocked this request{target} (rule: {joined})."
+
+    def attach(self, *, model: Optional[str], policy_id: Optional[str], policy_name: Optional[str]) -> "PiiPromptBlockedError":
+        self.model = model
+        self.policy_id = policy_id
+        self.policy_name = policy_name
+        self.args = (self._message(),)
+        return self
 
 
 @dataclass
@@ -92,17 +116,57 @@ def _compile_patterns(patterns: List[str], *, rule_id: str) -> List[re.Pattern]:
 
 
 class PiiRedactor:
-    """Compiled, reusable redactor for one organization's ruleset."""
+    """Compiled, reusable redactor for one PII policy."""
 
-    def __init__(self, mode: str, rules: List[CompiledRule]):
+    def __init__(
+        self,
+        mode: str,
+        rules: List[CompiledRule],
+        *,
+        policy_id: str = "default",
+        policy_name: str = "Default",
+        redact_context: bool = False,
+    ):
         self.mode = mode if mode in VALID_MODES else "replace"
         self.rules = rules
+        self.policy_id = policy_id
+        self.policy_name = policy_name
+        # False (default): regions marked with app.ai.llm.pii.context.pii_context
+        # — instructions, schemas, platform context — are left as they are, and
+        # only the prompt and the data are redacted.
+        self.redact_context = redact_context
 
     @property
     def active(self) -> bool:
         return bool(self.rules)
 
     def scan(self, text: str) -> RedactionResult:
+        """Redact ``text`` and strip its context markers.
+
+        Regions marked as context are passed through unless the policy also
+        redacts context; everything else is scanned with :meth:`_scan_plain`.
+        Matches are summed per rule across regions."""
+        if not text or not self.rules:
+            return RedactionResult(text=strip_markers(text), matches=[])
+        if self.redact_context or not has_markers(text):
+            return self._scan_plain(strip_markers(text))
+        out: List[str] = []
+        totals: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        for is_context, segment in split_segments(text):
+            if is_context:
+                out.append(segment)
+                continue
+            result = self._scan_plain(segment)
+            out.append(result.text)
+            for m in result.matches:
+                key = (m["id"], m["action"])
+                if key in totals:
+                    totals[key]["count"] += m["count"]
+                else:
+                    totals[key] = dict(m)
+        return RedactionResult(text="".join(out), matches=list(totals.values()))
+
+    def _scan_plain(self, text: str) -> RedactionResult:
         """Detect + redact in two phases so per-rule actions compose correctly:
 
         1. **block** rules are checked against the *original* text (no mutation),
@@ -213,9 +277,9 @@ class PiiRedactor:
         """
         result = self.scan(prompt)
         if result.blocked_rules:
-            raise PiiPromptBlockedError(result.blocked_rules)
-        if not result.redacted:
-            return prompt, result
+            raise PiiPromptBlockedError(
+                result.blocked_rules, policy_id=self.policy_id, policy_name=self.policy_name
+            )
         return result.text, result
 
 
@@ -260,21 +324,21 @@ def _resolve_rules(pii_config: Dict[str, Any], default_mode: str) -> List[Compil
     return rules
 
 
-def build_redactor(pii_config: Optional[Dict[str, Any]]) -> Optional[PiiRedactor]:
-    """Build a redactor from an org's ``pii_protection`` config dict.
+def build_redactor(
+    pii_config: Optional[Dict[str, Any]], policy_id: Optional[str] = None
+) -> Optional[PiiRedactor]:
+    """Build the redactor for one policy of an org's ``pii_protection`` config
+    (the Default policy when ``policy_id`` is omitted).
 
-    Returns None when protection is disabled or no rule is active, so callers
-    can cheaply skip the whole path. Enterprise licensing is enforced by the
-    caller (the redactor is only built for licensed instances).
+    Returns None when protection is disabled, the policy is Exempt or unknown,
+    or it has no active rule, so callers can cheaply skip the whole path.
+    Enterprise licensing is enforced by the caller.
     """
+    from .policy import DEFAULT_POLICY, compile_policy, normalize
+
     if not pii_config or not isinstance(pii_config, dict):
         return None
-    if not pii_config.get("enabled"):
+    cfg = normalize(pii_config)
+    if not cfg["enabled"]:
         return None
-    mode = pii_config.get("mode", "replace")
-    if mode not in VALID_MODES:
-        mode = "replace"
-    rules = _resolve_rules(pii_config, mode)
-    if not rules:
-        return None
-    return PiiRedactor(mode=mode, rules=rules)
+    return compile_policy(cfg, policy_id or DEFAULT_POLICY)

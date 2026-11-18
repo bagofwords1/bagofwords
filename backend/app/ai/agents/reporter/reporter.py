@@ -1,3 +1,4 @@
+from app.ai.llm.pii.context import pii_context
 from typing import Optional, Callable
 
 import asyncio
@@ -147,9 +148,9 @@ class Reporter:
     def _chat_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions, user_message=""):
         data_blocks = ""
         if schemas_context:
-            data_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {schemas_context}\n"
+            data_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {pii_context(schemas_context)}\n"
         if instructions_context:
-            data_blocks += f"\n        Business context / instructions:\n        {instructions_context}\n"
+            data_blocks += f"\n        Business context / instructions:\n        {pii_context(instructions_context)}\n"
 
         grounding_rule = (
             "- When a suggestion IS a data question, ground it in the available data above — reference "
@@ -223,9 +224,9 @@ class Reporter:
     def _training_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions, user_message=""):
         context_blocks = ""
         if instructions_context:
-            context_blocks += f"\n        Current agent instructions:\n        {instructions_context}\n"
+            context_blocks += f"\n        Current agent instructions:\n        {pii_context(instructions_context)}\n"
         if schemas_context:
-            context_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {schemas_context}\n"
+            context_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {pii_context(schemas_context)}\n"
 
         # Same split as the chat variant: stable task + context in the system
         # half, the growing conversation in the user half.

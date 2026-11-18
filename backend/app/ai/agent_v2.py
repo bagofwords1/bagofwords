@@ -475,7 +475,7 @@ MAX_OVERFLOW_COMPACTIONS = 3
 
 # Classified LLM error codes for which re-running the planner on the same model
 # cannot help: the identical prompt is rejected identically every time.
-_PLANNER_NO_RETRY_CODES = ("content_filter",)
+_PLANNER_NO_RETRY_CODES = ("content_filter", "pii_blocked")
 
 
 def _planner_retry_is_pointless(llm_err_payload: Optional[dict]) -> bool:
@@ -484,6 +484,9 @@ def _planner_retry_is_pointless(llm_err_payload: Optional[dict]) -> bool:
     A provider content filter (e.g. Azure Prompt Shields flagging the prompt as
     a jailbreak) blocks the same request on every attempt; retrying
     only delays the error and hides its cause behind a generic retry notice.
+    A PII block is the same kind of refusal: the org's policy for this provider
+    would refuse the identical prompt again, and it is never fallback-eligible
+    (another provider must not receive what this one's policy refused).
     """
     return bool(llm_err_payload) and llm_err_payload.get("code") in _PLANNER_NO_RETRY_CODES
 
@@ -8515,7 +8518,8 @@ class AgentV2:
                             await self._handle_context_overflow(_loop_err_payload.get("provider_message"))
                         except Exception:
                             logger.warning("[agent] context overflow handling failed", exc_info=True)
-                    if loop_error_retry_count < max_loop_retries:
+                    # A PII block would be refused again: never retried.
+                    if loop_error_retry_count < max_loop_retries and _loop_err_payload.get("code") != "pii_blocked":
                         loop_error_retry_count += 1
                         try:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)

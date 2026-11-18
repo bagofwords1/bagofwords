@@ -18,6 +18,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from app.ai.llm.pii.context import CONTEXT_END as _CTX_CLOSE, CONTEXT_START as _CTX_OPEN, pii_context
 from app.ai.llm.types import Message, ToolSpec
 from app.ai.context.parts import TextPart as _TextPart
 from app.ai.prompt_language import language_directive_body, reply_language_reminder
@@ -41,6 +42,10 @@ RESPONSE_PRESENTATION_RULE = (
 )
 
 logger = logging.getLogger(__name__)
+
+# PII scope (app.ai.llm.pii.context): of the planner's context attributes, only
+# uploaded file text is data; the others are platform context left as is.
+_PII_DATA_ATTRS = frozenset({"files_context"})
 
 
 def _tool_specs_from_catalog(catalog: Optional[List[ToolDescriptor]]) -> List[ToolSpec]:
@@ -159,7 +164,7 @@ class PromptBuilderV3:
         if hint:
             ask = f"{ask}\n{hint}"
         if "<folder_routing>" in (getattr(planner_input, "agents_roster", None) or ""):
-            ask = (planner_input.instructions or "") + "\n" + ask
+            ask = pii_context(planner_input.instructions or "") + "\n" + ask
             ask += ("\nFor agent selection, first consult the <instruction> text above. If a rule names "
                     "an agent for this task, search for the exact agent name and use its matching ID.")
         if getattr(planner_input, "memory_hint", None):
@@ -907,7 +912,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 parts.append(block)
         parts.append("<context>")
         parts.append(f"  <platform>{planner_input.external_platform or 'default'}</platform>")
-        parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
+        parts.append(f"  {pii_context(PromptBuilder._format_platform_context(planner_input))}")
         for attr in (
             "project_context", "instructions", "agents_roster", "schemas_combined",
             "files_context", "resources_combined", "tools_context",
@@ -916,7 +921,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 continue  # Folder instructions accompany the user request in the transcript.
             val = getattr(planner_input, attr, None)
             if val:
-                parts.append(f"  {val}")
+                # Uploaded file text is data and stays in PII scope; the rest is
+                # platform context the PII rules leave as is.
+                parts.append(f"  {val if attr in _PII_DATA_ATTRS else pii_context(val)}")
         # Mentions, saved entities and prior steps (with their guidance) are
         # derived from THIS turn's ask and do not change between iterations,
         # so they belong in the cacheable prefix — and they must be here at
@@ -931,10 +938,10 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(f"  {planner_input.app_activity_context}")
         disabled = PromptBuilderV3._format_disabled_tools(planner_input)
         if disabled:
-            parts.append(f"  {disabled}")
+            parts.append(f"  {pii_context(disabled)}")
         visibility = PromptBuilderV3._data_visibility_block(planner_input)
         if visibility:
-            parts.append(f"  {visibility}")
+            parts.append(f"  {pii_context(visibility)}")
         parts.append("</context>")
         return "\n".join(parts)
 
@@ -1014,11 +1021,11 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             f"  {planner_input.mentions_context if planner_input.mentions_context else '<mentions>No mentions for this turn</mentions>'}"
         )
         parts.append(
-            f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
+            f"  {pii_context(planner_input.entities_context) if planner_input.entities_context else '<entities>No entities matched</entities>'}"
         )
         if planner_input.entities_context and "<entity " in planner_input.entities_context:
             parts.append(
-                "  <entities_guidance>Entities are saved, reviewed queries — the preferred way to "
+                "  " + _CTX_OPEN + "<entities_guidance>Entities are saved, reviewed queries — the preferred way to "
                 "answer an ask they cover. Match on the QUESTION, not the wording: an ask that is "
                 "the entity's question narrowed to a specific value of one of its <parameters> "
                 "(a genre, a year, a region, a customer) IS a match. For a match call "
@@ -1026,7 +1033,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "params={name: value} where name is the param's name= attribute exactly (not a "
                 "column name); omitted parameters keep their defaults. Do not write new code for "
                 "data an entity already provides; reach for create_data only when no entity fits "
-                "or its rows must be transformed or combined with other data.</entities_guidance>"
+                "or its rows must be transformed or combined with other data.</entities_guidance>" + _CTX_CLOSE
             )
         if getattr(planner_input, "available_steps_context", None):
             parts.append(f"  {planner_input.available_steps_context}")
@@ -1182,24 +1189,24 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(images_context)
         parts.append("<context>")
         parts.append(f"  <platform>{platform}</platform>")
-        parts.append(f"  {PromptBuilder._format_platform_context(planner_input)}")
+        parts.append(f"  {pii_context(PromptBuilder._format_platform_context(planner_input))}")
         # Project (folder) framing goes before org instructions so project-local
         # guidance and sibling awareness precede everything they should shape.
         if getattr(planner_input, "project_context", None):
-            parts.append(f"  {planner_input.project_context}")
+            parts.append(f"  {pii_context(planner_input.project_context)}")
         if planner_input.instructions:
-            parts.append(f"  {planner_input.instructions}")
+            parts.append(f"  {pii_context(planner_input.instructions)}")
         visibility = PromptBuilderV3._data_visibility_block(planner_input)
         if visibility:
-            parts.append(f"  {visibility}")
+            parts.append(f"  {pii_context(visibility)}")
         # Agent roster (thin index of ALL attached agents) is rendered just
         # before the schema block. When present, schemas_combined holds full
         # schema only for the focused agents; the roster tells the model which
         # other agents exist and how to load them (search_agents).
         if getattr(planner_input, "agents_roster", None):
-            parts.append(f"  {planner_input.agents_roster}")
+            parts.append(f"  {pii_context(planner_input.agents_roster)}")
         if getattr(planner_input, "schemas_combined", None):
-            parts.append(f"  {planner_input.schemas_combined}")
+            parts.append(f"  {pii_context(planner_input.schemas_combined)}")
             # Just-in-time guidance: only rendered when a cached (materialized)
             # table is actually present in the loaded schema — the system
             # prompt carries no cached-tables text (see _build_system).
@@ -1217,9 +1224,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if getattr(planner_input, "files_context", None):
             parts.append(f"  {planner_input.files_context}")
         if getattr(planner_input, "resources_combined", None):
-            parts.append(f"  {planner_input.resources_combined}")
+            parts.append(f"  {pii_context(planner_input.resources_combined)}")
         if getattr(planner_input, "tools_context", None):
-            parts.append(f"  {planner_input.tools_context}")
+            parts.append(f"  {pii_context(planner_input.tools_context)}")
         parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
@@ -1229,7 +1236,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(f"  {planner_input.app_activity_context}")
         disabled = PromptBuilderV3._format_disabled_tools(planner_input)
         if disabled:
-            parts.append(f"  {disabled}")
+            parts.append(f"  {pii_context(disabled)}")
         parts.append(
             f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
         )
@@ -1465,9 +1472,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             )
         parts.append("<context>")
         if planner_input.instructions:
-            parts.append(f"  {planner_input.instructions}")
+            parts.append(f"  {pii_context(planner_input.instructions)}")
         if getattr(planner_input, "schemas_combined", None):
-            parts.append(f"  {planner_input.schemas_combined}")
+            parts.append(f"  {pii_context(planner_input.schemas_combined)}")
         parts.append(
             f"  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}"
         )
