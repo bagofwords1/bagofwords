@@ -63,6 +63,8 @@ _READABLE_TABLES_SQL = (
 
 _GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
 
+_CONNECT_FAILURE = re.compile(r"(?:IO Error: )?Unable to connect to Postgres\b")
+
 _VANISHED_RELATION = re.compile(
     r'Failed to prepare COPY "COPY \(.*\) TO STDOUT \(FORMAT "binary"\);": ERROR:\s+relation "[^"]*" does not exist',
     re.DOTALL,
@@ -354,7 +356,10 @@ class PostgresqlMultiClient(DataSourceClient):
     def _without_connection_details(self, exc: duckdb.Error) -> duckdb.Error:
         if not _postgres_side(exc):
             return exc
-        text_ = self._redacted(str(exc))
+        if _CONNECT_FAILURE.match(str(exc)):
+            text_ = self._redacted(str(exc))
+        else:
+            text_ = f"A tenant database read failed: {failure_category(exc)}"
         if text_ == str(exc):
             return exc
         try:

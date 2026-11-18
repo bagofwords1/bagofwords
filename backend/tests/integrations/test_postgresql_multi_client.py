@@ -400,6 +400,19 @@ def test_forged_vanished_table_error_with_a_revoked_tenant_does_not_rebuild(mult
     assert builds == []
 
 
+def test_tenant_read_error_does_not_reveal_whether_a_word_is_the_login_or_host(multi_tenant_server):
+    client = _client(multi_tenant_server, connection_id="conn-oracle")
+    client.get_schemas()
+    messages = {}
+    for word in ("alice", multi_tenant_server.reader_user, multi_tenant_server.host, "bob"):
+        with pytest.raises(duckdb.Error) as raised:
+            client.execute_query(f"SELECT * FROM public.orders WHERE note = 'x {word} y' || chr(0)")
+        messages[word] = str(raised.value).replace(word, "<word>")
+
+    assert len(set(messages.values())) == 1, messages
+    assert "<redacted>" not in next(iter(messages.values()))
+
+
 def test_revoked_select_on_one_tenant_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
     tenant = "select_revoked"
     multi_tenant_server.create_database(tenant)

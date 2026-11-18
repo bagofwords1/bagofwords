@@ -200,7 +200,7 @@ def test_query_error_reaches_the_agent_without_server_or_login(monkeypatch, erro
         _client().execute_query("SELECT * FROM public.orders")
 
     text = str(raised.value)
-    assert "password authentication failed" in text
+    assert "authentication failed" in text
     assert "unreachable.invalid" not in text
     assert "6543" not in text
     assert '"reader"' not in text
@@ -275,3 +275,4 @@ def test_connection_error_type_that_cannot_be_rebuilt_is_still_redacted(monkeypa
         _client().execute_query("SELECT * FROM public.orders")
 
     assert "unreachable.invalid" not in str(raised.value)
+
