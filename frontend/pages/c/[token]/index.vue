@@ -1199,7 +1199,8 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     cursor: pointer;
-    font-size: 12px;
+    font-size: var(--bow-chat-font-size);
+    line-height: var(--bow-chat-line-height);
     font-weight: 400;
     color: #6b7280;
     user-select: none;
