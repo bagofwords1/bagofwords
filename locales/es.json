@@ -4928,6 +4928,9 @@
       "tableExcludeTitle": "Patrón de exclusión de tablas",
       "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
     },
+    "qlikCloud": {
+      "appFilterDescription": "Nombres o IDs de aplicaciones separados por comas dentro de los espacios seleccionados (opcional). Vacío incluye todas las aplicaciones coincidentes. Usa IDs para nombres que contengan comas."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro de aplicaciones",
       "appFilterDescription": "Nombres o ID de aplicaciones separados por comas, dentro de los streams seleccionados. Vacío incluye todas las aplicaciones coincidentes. Use ID para nombres con comas.",

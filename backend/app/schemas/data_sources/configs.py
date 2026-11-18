@@ -4132,6 +4132,22 @@ class QlikSenseConfig(BaseModel):
         json_schema_extra={"ui:type": "string"},
     )
 
+    app_filter: Optional[str] = Field(
+        None,
+        title="App Filter",
+        description="Optional comma-separated app names or IDs within the selected spaces. Use IDs for names containing commas.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.qlikOnPrem.appFilterTitle",
+                           "ui:descriptionKey": "data.qlikCloud.appFilterDescription"},
+    )
+    max_concurrency: int = Field(
+        4, ge=1, le=4,
+        title="Concurrent Apps",
+        description="Maximum apps opened at once during indexing (1–4). Choose 1 for large apps.",
+        json_schema_extra={"ui:type": "select", "ui:options": [1, 2, 3, 4],
+                           "ui:titleKey": "data.qlikOnPrem.concurrencyTitle",
+                           "ui:descriptionKey": "data.qlikOnPrem.concurrencyDescription"},
+    )
+
 
 # Qlik Sense Enterprise on Windows (on-prem)
 class QlikSenseOnPremCertCredentials(BaseModel):

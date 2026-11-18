@@ -4351,6 +4351,9 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "qlikCloud": {
+      "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n i valda utrymmen. Tomt inkluderar alla matchande appar. Använd ID:n för namn som innehåller kommatecken."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Appfilter",
       "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n inom valda strömmar. Tomt inkluderar alla matchande appar. Använd ID:n för namn med kommatecken.",

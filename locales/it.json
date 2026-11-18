@@ -4351,6 +4351,9 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "qlikCloud": {
+      "appFilterDescription": "Nomi o ID delle app separati da virgole negli spazi selezionati (facoltativo). Se vuoto, include tutte le app corrispondenti. Usa gli ID per nomi contenenti virgole."
+    },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro applicazioni",
       "appFilterDescription": "Nomi o ID delle applicazioni separati da virgole, nei flussi selezionati. Vuoto include tutte le applicazioni corrispondenti. Usa gli ID per i nomi con virgole.",
