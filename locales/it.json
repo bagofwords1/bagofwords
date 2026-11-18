@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
     "connection.query_not_found": "Query non trovata su questa connessione.",
     "connection.query_finished": "Questa query è già terminata ({status}).",
-    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo."
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo.",
+    "connection.slack_channels_not_slack": "La selezione dei canali è disponibile solo per le connessioni Slack.",
+    "connection.slack_channels_too_many": "Al massimo {max} canali per agente.",
+    "connection.slack_channels_not_ids": "Questi non sono ID di canali Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack non ha risposto: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -7428,5 +7432,30 @@
       "stale": "Il processo che eseguiva questa query non risponde più; il suo posto è stato liberato.",
       "busy": "Nessun posto si è liberato in tempo: la connessione era al limite di query simultanee."
     }
+  },
+  "slackChannels": {
+    "button": "Canali",
+    "title": "Canali Slack di questo agente",
+    "subtitle": "Scegli quali canali Slack legge questo agente.",
+    "allChannels": "Tutti i miei canali",
+    "allChannelsHint": "Ogni canale di cui ciascuna persona è membro.",
+    "selectedChannels": "Solo i canali selezionati",
+    "connectRequired": "Accedi con Slack su questa connessione per scegliere i canali.",
+    "searchPlaceholder": "Cerca canali",
+    "notYourChannel": "non nel tuo Slack",
+    "noMatch": "Nessun canale corrispondente.",
+    "selectedCount": "{n} selezionati",
+    "includeDms": "Includi i messaggi diretti",
+    "includeDmsHint": "Legge anche i messaggi diretti e di gruppo di ciascuna persona.",
+    "membershipNote": "Ogni persona continua a vedere solo i canali di cui è membro.",
+    "saveFailed": "Impossibile salvare i canali",
+    "saved": "Canali salvati",
+    "summaryAll": "Legge tutti i canali e i messaggi diretti",
+    "summaryAllNoDms": "Legge tutti i canali, senza messaggi diretti",
+    "summarySome": "Legge {names}",
+    "summarySomeWithDms": "Legge {names} e i messaggi diretti",
+    "loadFailed": "Impossibile caricare i canali di questo agente. Chiudi e riprova.",
+    "privateChannel": "Canale privato",
+    "privateCount": "{n} canale privato | {n} canali privati"
   }
 }

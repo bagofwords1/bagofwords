@@ -5259,7 +5259,11 @@
     "frame_ancestors.too_many": "You can list at most {max} sites.",
     "connection.query_not_found": "Query not found on this connection.",
     "connection.query_finished": "This query has already finished ({status}).",
-    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit."
+    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit.",
+    "connection.slack_channels_not_slack": "Channel selection is only available for Slack connections.",
+    "connection.slack_channels_too_many": "At most {max} channels per agent.",
+    "connection.slack_channels_not_ids": "These aren't Slack channel ids: {ids}",
+    "connection.slack_channels_unavailable": "Slack didn't answer: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -8289,5 +8293,30 @@
       "stale": "The worker running this query stopped responding; its slot was released.",
       "busy": "No slot opened in time: the connection was at its concurrent-query limit."
     }
+  },
+  "slackChannels": {
+    "button": "Channels",
+    "title": "Slack channels for this agent",
+    "subtitle": "Choose which Slack channels this agent reads.",
+    "allChannels": "All my channels",
+    "allChannelsHint": "Every channel each person belongs to.",
+    "selectedChannels": "Only selected channels",
+    "connectRequired": "Sign in with Slack on this connection to choose channels.",
+    "searchPlaceholder": "Search channels",
+    "notYourChannel": "not in your Slack",
+    "noMatch": "No channels match.",
+    "selectedCount": "{n} selected",
+    "includeDms": "Include direct messages",
+    "includeDmsHint": "Also read each person's DMs and group DMs.",
+    "membershipNote": "Each person still sees only the channels they belong to.",
+    "saveFailed": "Couldn't save the channels",
+    "saved": "Channels saved",
+    "summaryAll": "Reads all channels and DMs",
+    "summaryAllNoDms": "Reads all channels, no DMs",
+    "summarySome": "Reads {names}",
+    "summarySomeWithDms": "Reads {names} and DMs",
+    "loadFailed": "Couldn't load this agent's channels. Close and try again.",
+    "privateChannel": "Private channel",
+    "privateCount": "{n} private channel | {n} private channels"
   }
 }

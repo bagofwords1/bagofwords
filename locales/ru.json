@@ -4599,7 +4599,11 @@
     "frame_ancestors.too_many": "Можно указать не более {max} сайтов.",
     "connection.query_not_found": "Запрос не найден в этом подключении.",
     "connection.query_finished": "Этот запрос уже завершён ({status}).",
-    "connection.query_not_killable": "Этот запрос нельзя остановить из BOW: его клиент сам ограничивает время выполнения."
+    "connection.query_not_killable": "Этот запрос нельзя остановить из BOW: его клиент сам ограничивает время выполнения.",
+    "connection.slack_channels_not_slack": "Выбор каналов доступен только для подключений Slack.",
+    "connection.slack_channels_too_many": "Не более {max} каналов на агента.",
+    "connection.slack_channels_not_ids": "Это не идентификаторы каналов Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack не ответил: {detail}"
   },
   "email": {
     "dashboardShare": {
@@ -7428,5 +7432,30 @@
       "stale": "Процесс, выполнявший запрос, перестал отвечать; его место освобождено.",
       "busy": "Место не освободилось вовремя: подключение было на пределе одновременных запросов."
     }
+  },
+  "slackChannels": {
+    "button": "Каналы",
+    "title": "Каналы Slack для этого агента",
+    "subtitle": "Выберите, какие каналы Slack читает этот агент.",
+    "allChannels": "Все мои каналы",
+    "allChannelsHint": "Все каналы, в которых состоит каждый человек.",
+    "selectedChannels": "Только выбранные каналы",
+    "connectRequired": "Войдите через Slack в этом подключении, чтобы выбрать каналы.",
+    "searchPlaceholder": "Поиск каналов",
+    "notYourChannel": "не в вашем Slack",
+    "noMatch": "Нет подходящих каналов.",
+    "selectedCount": "Выбрано: {n}",
+    "includeDms": "Включить личные сообщения",
+    "includeDmsHint": "Также читать личные и групповые сообщения каждого человека.",
+    "membershipNote": "Каждый по-прежнему видит только каналы, в которых состоит.",
+    "saveFailed": "Не удалось сохранить каналы",
+    "saved": "Каналы сохранены",
+    "summaryAll": "Читает все каналы и личные сообщения",
+    "summaryAllNoDms": "Читает все каналы, без личных сообщений",
+    "summarySome": "Читает {names}",
+    "summarySomeWithDms": "Читает {names} и личные сообщения",
+    "loadFailed": "Не удалось загрузить каналы этого агента. Закройте и попробуйте снова.",
+    "privateChannel": "Приватный канал",
+    "privateCount": "{n} приватный канал | {n} приватных канала"
   }
 }

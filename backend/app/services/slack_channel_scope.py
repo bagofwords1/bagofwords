@@ -1,0 +1,208 @@
+"""Per-agent Slack channel scope.
+
+A ``slack_messages`` connection is shared by every agent linked to it; each
+agent may narrow it to the channels it is about (and choose whether it also
+reads the user's DMs). The choice lives in ``data_source_connection_settings``.
+
+When a report runs with several agents that carry the same Slack connection,
+the agent reads the UNION of their scopes — exactly like attaching several
+agents to a report widens what it can read. An agent with no channel choice
+contributes every channel, so the union is then unrestricted.
+
+The scope only ever narrows what the signed-in user's own Slack membership
+already allows; it is a focus setting, not a grant.
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, Iterable, List, Optional
+
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.data_source_connection_setting import DataSourceConnectionSetting
+
+SLACK_TYPE = "slack_messages"
+#: Most channels one agent may pick (keeps the in:#x search scoping and the
+#: settings row small; an agent "about" more than this is better unscoped).
+MAX_CHANNELS = 200
+
+
+def normalize_scope(raw: Optional[dict]) -> Dict[str, Any]:
+    """``{"allowed_channels": [{"id", "name", "is_private"}],
+    "include_direct_messages": bool}`` with defaults filled and junk dropped.
+    A channel whose privacy was never recorded counts as private, so its
+    name is never shown to someone who may not be in it."""
+    raw = raw or {}
+    channels: List[Dict[str, str]] = []
+    seen = set()
+    for item in raw.get("allowed_channels") or []:
+        if isinstance(item, str):
+            item = {"id": item, "name": ""}
+        cid = str((item or {}).get("id") or "").strip()
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        is_private = item.get("is_private")
+        channels.append({"id": cid, "name": str(item.get("name") or "").strip().lstrip("#"),
+                         "is_private": True if is_private is None else bool(is_private)})
+    include_dms = raw.get("include_direct_messages")
+    return {
+        "allowed_channels": channels[:MAX_CHANNELS],
+        "include_direct_messages": True if include_dms is None else bool(include_dms),
+    }
+
+
+async def get_scope(db: AsyncSession, data_source_id: str, connection_id: str) -> Dict[str, Any]:
+    row = (await db.execute(
+        select(DataSourceConnectionSetting).where(
+            DataSourceConnectionSetting.data_source_id == str(data_source_id),
+            DataSourceConnectionSetting.connection_id == str(connection_id),
+        )
+    )).scalar_one_or_none()
+    return normalize_scope(row.settings if row is not None else None)
+
+
+async def set_scope(db: AsyncSession, data_source_id: str, connection_id: str, scope: dict) -> Dict[str, Any]:
+    scope = normalize_scope(scope)
+    row = (await db.execute(
+        select(DataSourceConnectionSetting).where(
+            DataSourceConnectionSetting.data_source_id == str(data_source_id),
+            DataSourceConnectionSetting.connection_id == str(connection_id),
+        )
+    )).scalar_one_or_none()
+    if row is None:
+        db.add(DataSourceConnectionSetting(
+            data_source_id=str(data_source_id), connection_id=str(connection_id), settings=scope,
+        ))
+        try:
+            await db.commit()
+            return scope
+        except IntegrityError:
+            # A concurrent first save (two managers, a double click) inserted
+            # the row first: last write wins, as an update.
+            await db.rollback()
+            row = (await db.execute(
+                select(DataSourceConnectionSetting).where(
+                    DataSourceConnectionSetting.data_source_id == str(data_source_id),
+                    DataSourceConnectionSetting.connection_id == str(connection_id),
+                )
+            )).scalar_one()
+    row.settings = {**(row.settings or {}), **scope}
+    await db.commit()
+    return scope
+
+
+def combine_scopes(scopes: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """Union of several agents' scopes. Any agent without a channel choice
+    makes the union unrestricted; DMs are in when any agent includes them."""
+    scopes = [normalize_scope(s) for s in scopes]
+    if not scopes:
+        return normalize_scope(None)
+    include_dms = any(s["include_direct_messages"] for s in scopes)
+    if any(not s["allowed_channels"] for s in scopes):
+        return {"allowed_channels": [], "include_direct_messages": include_dms}
+    merged: List[Dict[str, str]] = []
+    seen = set()
+    for s in scopes:
+        for ch in s["allowed_channels"]:
+            if ch["id"] not in seen:
+                seen.add(ch["id"])
+                merged.append(ch)
+    return {"allowed_channels": merged, "include_direct_messages": include_dms}
+
+
+async def scope_for_agents(db: AsyncSession, connection_id: str, data_source_ids: Iterable[str]) -> Dict[str, Any]:
+    ids = [str(i) for i in data_source_ids if i]
+    if not ids:
+        return normalize_scope(None)
+    rows = (await db.execute(
+        select(DataSourceConnectionSetting).where(
+            DataSourceConnectionSetting.connection_id == str(connection_id),
+            DataSourceConnectionSetting.data_source_id.in_(ids),
+        )
+    )).scalars().all()
+    by_ds = {str(r.data_source_id): r.settings for r in rows}
+    return combine_scopes(by_ds.get(i) for i in ids)
+
+
+def client_overrides(scope: Dict[str, Any]) -> Dict[str, Any]:
+    """``construct_client`` config overrides that apply a scope to the client.
+    The channel list is passed only when it narrows (an empty list would also
+    be merged, and mean the same as none)."""
+    out: Dict[str, Any] = {"include_direct_messages": bool(scope.get("include_direct_messages", True))}
+    ids = [c["id"] for c in scope.get("allowed_channels") or []]
+    if ids:
+        out["allowed_channels"] = ids
+    return out
+
+
+def redact_private_names(scope: Dict[str, Any]) -> Dict[str, Any]:
+    """The scope with private channels' names blanked. A manager's choice is
+    shown to everyone who can see the agent, and a private channel's name is
+    itself private to its members; a viewer's own Slack listing (the picker)
+    names the private channels THEY are in."""
+    return {
+        **scope,
+        "allowed_channels": [
+            {**c, "name": ""} if c.get("is_private", True) else dict(c)
+            for c in scope.get("allowed_channels") or []
+        ],
+    }
+
+
+def describe_scope(scope: Dict[str, Any]) -> Optional[str]:
+    """One line for the planner context, or None when the agent reads all of
+    the user's Slack. Private channels are counted, never named: the run's
+    user may not be a member (list_chat_messages names the ones they are in)."""
+    channels = scope.get("allowed_channels") or []
+    dms = scope.get("include_direct_messages", True)
+    if not channels and dms:
+        return None
+    if not channels:
+        return "This agent reads the user's Slack channels but not their DMs."
+    parts = [f"#{c['name']}" for c in channels if not c.get("is_private", True) and c.get("name")]
+    hidden = len(channels) - len(parts)
+    if hidden:
+        parts.append(f"{hidden} private channel{'s' if hidden != 1 else ''}")
+    names = ", ".join(parts)
+    tail = " and the user's DMs" if dms else ""
+    return (f"This agent reads only these Slack channels{tail}: {names}. "
+            "Other channels are not readable here.")
+
+
+async def agents_on_connection(db: AsyncSession, connection_id: str) -> List[str]:
+    """Ids of every agent linked to the connection."""
+    from app.models.domain_connection import domain_connection
+
+    rows = (await db.execute(
+        select(domain_connection.c.data_source_id).where(domain_connection.c.connection_id == str(connection_id))
+    )).all()
+    return [str(r[0]) for r in rows]
+
+
+async def run_scope(
+    db: AsyncSession,
+    connection_id: str,
+    run_agent_ids: Optional[Iterable[str]],
+    pinned_ids: Iterable[str] = (),
+) -> Dict[str, Any]:
+    """THE scope a Slack client gets for one run — every entry point (chat
+    tools, file references, the planner note) calls this, so they agree.
+
+    - Candidates: the run's agents that carry this connection; with no run
+      context (no report, or none of its agents carry it), every agent linked
+      to the connection — so a call outside a report is never wider than what
+      the agents on the connection allow.
+    - Agents the report pins win over ones that joined the run by themselves
+      (a personal connector), so they can't reopen a scope the user picked.
+    - The scopes of the remaining agents combine as a union.
+    """
+    on_conn = await agents_on_connection(db, connection_id)
+    on_set = set(on_conn)
+    candidates = [str(i) for i in (run_agent_ids or []) if str(i) in on_set]
+    if not candidates:
+        candidates = on_conn
+    pinned = {str(i) for i in pinned_ids or ()}
+    chosen = [i for i in candidates if i in pinned] or candidates
+    return await scope_for_agents(db, connection_id, chosen)
