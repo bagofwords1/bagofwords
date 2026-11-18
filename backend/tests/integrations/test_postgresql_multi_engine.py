@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from decimal import Decimal
 
 import duckdb
@@ -28,6 +29,7 @@ from tests.integrations.postgresql_multi_fixture import (
     LOCKED_TENANT,
     READABLE_TENANTS,
     TENANT_ROWS,
+    _seed_tenant,
     requires_docker,
     running_multi_tenant_server,
 )
@@ -65,6 +67,7 @@ def _build(server, tenants=READABLE_TENANTS, *, conn=None, views=None, statement
         memory_limit="512MB",
         threads=2,
         pg_connection_limit=2,
+        pg_idle_timeout_ms=60_000,
     )
 
 
@@ -254,6 +257,7 @@ def test_concurrent_queries_stay_within_connection_cap_per_tenant(multi_tenant_s
         memory_limit="512MB",
         threads=4,
         pg_connection_limit=cap,
+        pg_idle_timeout_ms=60_000,
     )
     settings = dict(built.cursor().execute(
         "SELECT name, value FROM duckdb_settings() WHERE name IN ('pg_pool_max_connections', 'pg_pool_acquire_mode')"
@@ -292,6 +296,64 @@ def test_concurrent_queries_stay_within_connection_cap_per_tenant(multi_tenant_s
     assert errors == []
     assert set(peak) == set(READABLE_TENANTS)
     assert max(peak.values()) <= cap, peak
+
+
+def _reader_connections(server, databases: list[str]) -> int:
+    rows = server.query(
+        "postgres",
+        f"SELECT datname FROM pg_stat_activity WHERE usename = '{server.reader_user}'",
+    )
+    return sum(1 for (datname,) in rows if datname in databases)
+
+
+def _wait_for(predicate, timeout=15.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.1)
+    return False
+
+
+def test_idle_tenant_connections_are_released_and_reopened_on_demand(multi_tenant_server):
+    tenants = [f"idle_release_{n}" for n in range(3)]
+    for tenant in tenants:
+        multi_tenant_server.create_database(tenant)
+        _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["tenant_old"])
+    cap = 2
+    built = build_engine(
+        _reader(multi_tenant_server),
+        {"public.orders": tenants},
+        statement_timeout_ms=60_000,
+        memory_limit="512MB",
+        threads=2,
+        pg_connection_limit=cap,
+        pg_idle_timeout_ms=1_000,
+    )
+    try:
+        built.cursor().execute("SELECT count(*) FROM public.orders").fetchall()
+        assert 0 < _reader_connections(multi_tenant_server, tenants) <= cap * len(tenants)
+
+        assert _wait_for(lambda: _reader_connections(multi_tenant_server, tenants) == 0)
+
+        count = built.cursor().execute("SELECT count(*) FROM public.orders").fetchone()[0]
+        assert count == len(tenants) * len(TENANT_ROWS["tenant_old"]["orders"])
+    finally:
+        built.close()
+
+
+def test_cached_engine_releases_idle_connections_on_the_default_timeout(multi_tenant_server, monkeypatch):
+    tenants = [f"idle_cached_{n}" for n in range(2)]
+    for tenant in tenants:
+        multi_tenant_server.create_database(tenant)
+        _seed_tenant(multi_tenant_server, tenant, TENANT_ROWS["public"])
+    monkeypatch.setattr(engine_module, "DEFAULT_PG_IDLE_TIMEOUT_MS", 1_000)
+
+    cached = get_engine(_reader(multi_tenant_server), {"public.users": tenants}, connection_id="idle-cached")
+    cached.cursor().execute("SELECT count(*) FROM public.users").fetchall()
+
+    assert _reader_connections(multi_tenant_server, tenants) > 0
+    assert _wait_for(lambda: _reader_connections(multi_tenant_server, tenants) == 0)
 
 
 def test_password_not_in_error_text(multi_tenant_server):

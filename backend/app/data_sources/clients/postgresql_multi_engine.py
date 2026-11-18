@@ -14,6 +14,7 @@ DEFAULT_STATEMENT_TIMEOUT_MS = 300_000
 DEFAULT_MEMORY_LIMIT = "2GB"
 DEFAULT_THREADS = 4
 DEFAULT_PG_CONNECTION_LIMIT = 4
+DEFAULT_PG_IDLE_TIMEOUT_MS = 5_000
 DEGRADED_ENGINE_TTL_SECONDS = 30
 EXTENSION_DIR_ENV = "BOW_DUCKDB_EXTENSION_DIR"
 
@@ -192,6 +193,7 @@ def build_engine(
     memory_limit: str,
     threads: int,
     pg_connection_limit: int,
+    pg_idle_timeout_ms: int,
     tenants: list[str] | None = None,
 ) -> TenantEngine:
     con = duckdb.connect()
@@ -201,6 +203,8 @@ def build_engine(
         con.execute(f"SET threads = {int(threads)}")
         con.execute(f"SET pg_pool_max_connections = {int(pg_connection_limit)}")
         con.execute("SET pg_pool_acquire_mode = 'wait'")
+        con.execute(f"SET pg_pool_idle_timeout_millis = {int(pg_idle_timeout_ms)}")
+        con.execute("SET pg_pool_enable_reaper_thread = true")
         _create_secret(con, conn)
 
         failures: dict[str, str] = {}
@@ -293,6 +297,7 @@ def get_engine(
             memory_limit=DEFAULT_MEMORY_LIMIT,
             threads=DEFAULT_THREADS,
             pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
+            pg_idle_timeout_ms=DEFAULT_PG_IDLE_TIMEOUT_MS,
             tenants=all_tenants,
         )
         with _cache_lock:
