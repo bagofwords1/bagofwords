@@ -96,6 +96,12 @@ class Db2Client(DataSourceClient):
         Also what `connection_service._invalidate_engine_pool` disposes when the
         connection is edited or deleted.
         """
+        return self._sa_url.render_as_string(hide_password=False)
+
+    @property
+    def _sa_url(self) -> URL:
+        """What the engine is built from: the object, so no field is re-parsed
+        out of the rendered string (see clients/_sa_url.py)."""
         return URL.create(
             db2_dialect.DRIVERNAME,
             username=self.user or None,
@@ -103,7 +109,7 @@ class Db2Client(DataSourceClient):
             host=self.host,
             port=self.port,
             database=self.database or None,
-        ).render_as_string(hide_password=False)
+        )
 
     def _ca_file(self) -> str:
         """The CLI driver reads the server CA from a file; write the PEM once."""
@@ -143,7 +149,7 @@ class Db2Client(DataSourceClient):
         self._require_driver()
         conn = None
         try:
-            engine = get_engine(self.db2_uri, connect_args=self._connect_args())
+            engine = get_engine(self._sa_url, connect_args=self._connect_args())
             conn = engine.connect()
             if self._detected is None:
                 self._detect(conn)

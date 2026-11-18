@@ -15,6 +15,10 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 from app.data_sources.routines import build_routine_tables, postgres_variants, with_routines
+from app.data_sources.clients._sa_url import (
+    POSTGRES_DENIED_OPTIONS, POSTGRES_PATH_OPTIONS, build_url, connect_with_legacy_decoding,
+    effective_url, render, split_database_options,
+)
 
 
 class PostgresqlClient(DataSourceClient):
@@ -69,21 +73,38 @@ class PostgresqlClient(DataSourceClient):
         return [f"{column} NOT IN ({quoted})"]
 
     @cached_property
-    def pg_uri(self):
-        uri = (
-            f"postgresql://{self.user}:{self.password}@"
-            f"{self.host}:{self.port}/{self.database}"
+    def _sa_url(self):
+        # "mydb?options=-csearch_path%3Dx": libpq options after the name keep
+        # working, minus the ones that redirect the connection or read files.
+        database, options = split_database_options(
+            self.database, kind="PostgreSQL", host=self.host,
+            denied=POSTGRES_DENIED_OPTIONS, path_options=POSTGRES_PATH_OPTIONS,
+        )
+        return build_url(
+            "postgresql",
+            username=self.user,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=database,
+            query=options,
         )
 
-        return uri
+    @property
+    def pg_uri(self):
+        """Identity string (pool key, dialect detection) of the URL the
+        engine is built from."""
+        return render(effective_url(self._sa_url))
 
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a Postgres db."""
         conn = None
         try:
-            engine = get_engine(self.pg_uri, connect_args={"sslmode": self.sslmode})
-            conn = engine.connect()
+            conn = connect_with_legacy_decoding(
+                self._sa_url,
+                lambda url: get_engine(url, connect_args={"sslmode": self.sslmode}).connect(),
+            )
             # Set search_path if schemas are provided
             if self._schemas:
                 search_path = ", ".join(self._schemas)

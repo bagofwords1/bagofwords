@@ -598,6 +598,24 @@ class DataSourceService:
 
         return connections_list
 
+    async def _org_member_user_ids(self, db: AsyncSession, organization: Organization, user_ids, tolerate=frozenset()):
+        """``user_ids`` checked against the organization.
+
+        Every id must belong to the organization (404 otherwise). Ids in
+        ``tolerate`` that do not are left out of the result instead.
+        """
+        if not user_ids:
+            return user_ids
+        from app.services.rbac_service import principals_in_org
+        valid = await principals_in_org(db, str(organization.id), PRINCIPAL_TYPE_USER, user_ids)
+        kept = []
+        for uid in user_ids:
+            if str(uid) in valid:
+                kept.append(uid)
+            elif str(uid) not in tolerate:
+                raise HTTPException(status_code=404, detail="User not found")
+        return kept
+
     async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str], permissions: Optional[List[str]] = None):
         """
         Create memberships for a list of user IDs.
@@ -702,7 +720,9 @@ class DataSourceService:
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
         kind = data_source_dict.pop("kind", None)
-        member_user_ids = data_source_dict.pop("member_user_ids", [])
+        member_user_ids = await self._org_member_user_ids(
+            db, organization, data_source_dict.pop("member_user_ids", [])
+        )
         member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
@@ -1374,7 +1394,12 @@ class DataSourceService:
 
         # Serialize primary_instruction if present
         primary_instruction_data = None
-        if data_source.primary_instruction_id and data_source.primary_instruction:
+        if (
+            data_source.primary_instruction_id
+            and data_source.primary_instruction
+            # Never serialise an instruction of another organization.
+            and str(data_source.primary_instruction.organization_id) == str(data_source.organization_id)
+        ):
             try:
                 pi = data_source.primary_instruction
                 refs = []
@@ -2868,7 +2893,8 @@ class DataSourceService:
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(conn.type, params)
-        return ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        return bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
 
     @staticmethod
     def is_execution_live(ds) -> bool:
@@ -3185,7 +3211,8 @@ class DataSourceService:
                 allowed = filter_client_parameters(ClientClass, params)
 
                 await _acheck_connection_destination(conn.type, params)
-                client = ClientClass(**allowed)
+                from app.data_sources.clients._duckdb_lockdown import bind_organization
+                client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
                 await self._attach_table_scope(db, client, data_source, conn)
@@ -3653,6 +3680,12 @@ class DataSourceService:
                     )
                 )
                 existing_member_ids = {str(r) for r in existing_result.scalars().all()}
+                # New members must belong to this organization. An id that is
+                # already on the list but has since left the organization (the
+                # form re-sends the whole list) is dropped, not refused.
+                member_user_ids = await self._org_member_user_ids(
+                    db, organization, member_user_ids, tolerate=existing_member_ids
+                )
                 newly_added_member_ids = [
                     str(uid) for uid in member_user_ids
                     if str(uid) not in existing_member_ids and str(uid) != str(current_user.id)
@@ -3669,7 +3702,20 @@ class DataSourceService:
         
         # Handle primary_instruction_id explicitly (allow None to clear it)
         if 'primary_instruction_id' in update_data:
-            data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+            _primary_id = update_data.pop('primary_instruction_id')
+            if _primary_id is not None:
+                # The primary instruction must be one of this organization's.
+                from app.models.instruction import Instruction
+                from app.errors import ErrorCode
+                _owned = (await db.execute(
+                    select(Instruction.id).where(
+                        Instruction.id == str(_primary_id),
+                        Instruction.organization_id == organization.id,
+                    )
+                )).scalar_one_or_none()
+                if _owned is None:
+                    raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+            data_source_db.primary_instruction_id = _primary_id
 
         # Agent/connector: "auto" clears the explicit choice (derived again).
         if 'kind' in update_data:
@@ -5273,7 +5319,8 @@ class DataSourceService:
         }
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(connection.type, params)
-        return ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        return bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
 
     async def get_user_data_source_schema(
         self,
@@ -6645,6 +6692,11 @@ class DataSourceService:
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization)
 
+        # The principal must belong to this organization.
+        if member.principal_type in (PRINCIPAL_TYPE_USER, "group"):
+            from app.services.rbac_service import assert_principal_in_org
+            await assert_principal_in_org(db, str(organization.id), member.principal_type, member.principal_id)
+
         # Check if membership already exists (legacy table)
         existing = await db.execute(
             select(DataSourceMembership).filter(
@@ -6907,7 +6959,9 @@ class DataSourceService:
         # Extract domain-specific fields
         name = data_source_dict.get("name")
         is_public = data_source_dict.get("is_public", False)
-        member_user_ids = data_source_dict.pop("member_user_ids", [])
+        member_user_ids = await self._org_member_user_ids(
+            db, organization, data_source_dict.pop("member_user_ids", [])
+        )
         generate_summary = data_source_dict.pop("generate_summary", False)
         generate_conversation_starters = data_source_dict.pop("generate_conversation_starters", False)
         generate_ai_rules = data_source_dict.pop("generate_ai_rules", False)

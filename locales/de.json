@@ -514,6 +514,7 @@
     "collapseSidebar": "Seitenleiste einklappen",
     "resizeSidebar": "Seitenleiste in der Größe ändern",
     "switchOrganization": "Organisation wechseln",
+    "createOrganization": "Organisation erstellen",
     "version": "Version",
     "loggedInAs": "Angemeldet als {name}",
     "prompts": "Prompts",
@@ -4802,7 +4803,19 @@
     "agent_import.invalid_bundle": "Diese Datei ist kein gültiges Agenten-Exportpaket.",
     "agent_import.name_taken": "Ein Agent namens „{name}“ existiert bereits.",
     "agent_import.no_connection": "Ordne mindestens eine Verbindung zu, um den Agenten zu importieren.",
-    "agent_import.failed": "Der Agent konnte nicht importiert werden."
+    "agent_import.failed": "Der Agent konnte nicht importiert werden.",
+    "account_link_required": "Es gibt bereits ein Konto mit dieser E-Mail-Adresse. Bitten Sie Ihren Administrator, es zu verknüpfen.",
+    "invite_link_required": "Diese Anmeldemethode kann Ihre Einladung nicht annehmen. Verwenden Sie den Einladungslink aus Ihrer E-Mail oder wenden Sie sich an Ihren Administrator.",
+    "integration.connected_elsewhere": "Dieses Konto ist bereits mit einer anderen Organisation in dieser Installation verbunden. Trennen Sie es zuerst dort.",
+    "organization.multiple_not_enabled": "Diese Installation erlaubt nur eine Organisation.",
+    "organization.create_instance_admin_required": "Nur ein Instanzadministrator kann eine Organisation erstellen.",
+    "organization.create_license_required": "Für eine weitere Organisation ist eine Enterprise-Lizenz erforderlich.",
+    "organization.name_required": "Geben Sie einen Namen für die Organisation ein.",
+    "organization.name_too_long": "Der Name der Organisation darf höchstens {max} Zeichen lang sein.",
+    "organization.name_taken": "Es gibt bereits eine Organisation mit dem Namen „{name}“.",
+    "organization.signup_domains_instance_admin_required": "Nur ein Instanzadministrator kann einer Organisation Registrierungsdomains zuweisen.",
+    "organization.signup_domain_claimed": "Die Domain {domain} ist bereits einer anderen Organisation zugewiesen.",
+    "organization.member_instance_admin": "Dieses Konto gehört einem Instanzadministrator. Nur ein Instanzadministrator kann es einer Organisation hinzufügen."
   },
   "email": {
     "dashboardShare": {
@@ -7761,5 +7774,25 @@
   "markdownTable": {
     "title": "Tabelle",
     "copyFailed": "Tabelle konnte nicht kopiert werden"
+  },
+  "createOrganization": {
+    "title": "Organisation erstellen",
+    "description": "Eine eigene Organisation mit eigenen Mitgliedern, Daten und Einstellungen.",
+    "nameLabel": "Name",
+    "namePlaceholder": "z. B. Finanzen",
+    "nameRequired": "Geben Sie einen Namen ein.",
+    "adminEmailLabel": "E-Mail des ersten Administrators",
+    "optional": "Optional",
+    "adminEmailPlaceholder": "name{'@'}firma.de",
+    "adminEmailHint": "Wir senden dieser Person eine Einladung, als Administrator beizutreten. Sie werden ebenfalls Administrator.",
+    "adminEmailInvalid": "Geben Sie eine gültige E-Mail-Adresse ein.",
+    "submit": "Organisation erstellen",
+    "created": "Organisation „{name}“ erstellt",
+    "switching": "Wechsel zur neuen Organisation…",
+    "inviteSent": "Eine Einladung wurde an {email} gesendet.",
+    "inviteNoSmtp": "E-Mail ist nicht eingerichtet, daher wurde keine Einladung an {email} gesendet. Kopieren Sie den Einladungslink auf der Seite „Mitglieder“.",
+    "inviteNotSent": "Die Einladung an {email} konnte nicht gesendet werden. Laden Sie die Person auf der Seite „Mitglieder“ erneut ein.",
+    "adminAdded": "{email} wurde als Administrator hinzugefügt.",
+    "failed": "Die Organisation konnte nicht erstellt werden."
   }
 }

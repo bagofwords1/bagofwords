@@ -157,6 +157,18 @@ class ErrorCode(str, Enum):
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
     INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
+    INTEGRATION_CONNECTED_ELSEWHERE = "integration.connected_elsewhere"
+
+    # Organizations
+    ORGANIZATION_MULTIPLE_NOT_ENABLED = "organization.multiple_not_enabled"
+    ORGANIZATION_CREATE_INSTANCE_ADMIN_REQUIRED = "organization.create_instance_admin_required"
+    ORGANIZATION_CREATE_LICENSE_REQUIRED = "organization.create_license_required"
+    ORGANIZATION_NAME_REQUIRED = "organization.name_required"
+    ORGANIZATION_NAME_TOO_LONG = "organization.name_too_long"
+    ORGANIZATION_NAME_TAKEN = "organization.name_taken"
+    ORGANIZATION_SIGNUP_DOMAINS_INSTANCE_ADMIN_REQUIRED = "organization.signup_domains_instance_admin_required"
+    ORGANIZATION_SIGNUP_DOMAIN_CLAIMED = "organization.signup_domain_claimed"
+    ORGANIZATION_MEMBER_INSTANCE_ADMIN = "organization.member_instance_admin"
 
     # User memory
     MEMORY_DISABLED = "memory.disabled"

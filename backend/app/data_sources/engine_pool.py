@@ -47,7 +47,7 @@ import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
 
 import sqlalchemy
 import sqlalchemy.event
@@ -154,7 +154,7 @@ def _key(uri: str, connect_args: Optional[Dict[str, Any]], key_extra: Optional[s
 
 
 def get_engine(
-    uri: str,
+    uri: "Union[str, sqlalchemy.engine.URL]",
     connect_args: Optional[Dict[str, Any]] = None,
     *,
     key_extra: Optional[str] = None,
@@ -175,6 +175,13 @@ def get_engine(
     must put what varies into ``key_extra``, or it gets an engine built with
     somebody else's hook.
     """
+    # A client may pass a URL object so no field is re-parsed out of a string
+    # (see clients/_sa_url.py). The engine is built from the object; the
+    # rendered form stays the cache identity, which is what dispose_for_uri
+    # is handed.
+    url = uri
+    if not isinstance(uri, str):
+        uri = uri.render_as_string(hide_password=False)
     bucket = _ephemeral_engines.get()
     if bucket is not None:
         kwargs = {
@@ -183,7 +190,7 @@ def get_engine(
         kwargs["poolclass"] = sqlalchemy.pool.NullPool
         if connect_args:
             kwargs["connect_args"] = connect_args
-        eng = sqlalchemy.create_engine(uri, **kwargs)
+        eng = sqlalchemy.create_engine(url, **kwargs)
         if on_connect is not None:
             sqlalchemy.event.listen(eng, "connect", on_connect)
         bucket.append(eng)
@@ -214,7 +221,7 @@ def get_engine(
     kwargs.update(engine_kwargs)
     if connect_args:
         kwargs["connect_args"] = connect_args
-    eng = sqlalchemy.create_engine(uri, **kwargs)
+    eng = sqlalchemy.create_engine(url, **kwargs)
     if on_connect is not None:
         # Before the engine is published, so no connection can be opened
         # without it.

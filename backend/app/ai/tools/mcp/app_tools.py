@@ -38,6 +38,7 @@ async def _build_viewer_context(
             select(Membership).where(
                 Membership.user_id == user.id,
                 Membership.organization_id == organization.id,
+                Membership.deleted_at.is_(None),
             )
         )
         membership = result.scalars().first()

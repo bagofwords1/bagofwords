@@ -7,10 +7,17 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
+from contextlib import contextmanager
+import decimal
+
+# The driver verticapy itself is built on. verticapy keeps ONE current
+# connection per process and stores connection details in a file; this client
+# opens its own connection per call instead, so two connections can never
+# run on each other's session and nothing is written to disk.
 try:
-    import verticapy as vp
+    import vertica_python
 except ImportError:
-    vp = None
+    vertica_python = None
 
 
 class VerticaClient(DataSourceClient):
@@ -21,8 +28,8 @@ class VerticaClient(DataSourceClient):
     sql_literal_style = "doubled"
 
     def __init__(self, host, port, database, user, password, schema="public", **kwargs):
-        if vp is None:
-            raise ImportError("verticapy is required for Vertica connections. Please install it with: pip install verticapy")
+        if vertica_python is None:
+            raise ImportError("vertica-python is required for Vertica connections. Please install it with: pip install verticapy")
         
         self.host = host
         self.port = port
@@ -43,36 +50,56 @@ class VerticaClient(DataSourceClient):
             "password": self.password
         }
 
+    @contextmanager
     def connect(self):
-        """Establish connection to Vertica using verticapy."""
+        """Yield a connection of this client's own, closed on exit."""
         try:
-            if not self._connected:
-                # Create new connection in verticapy
-                vp.new_connection(
-                    self.connection_params,
-                    name=self._connection_name
-                )
-                # Set this connection as active
-                vp.connect(self._connection_name)
-                self._connected = True
-            return self._connection_name
+            conn = vertica_python.connect(
+                host=self.host,
+                port=int(self.port),
+                database=self.database,
+                user=self.user,
+                password=self.password,
+                # What verticapy set on the connections it opened.
+                unicode_error="ignore",
+                session_label="BagOfWords",
+            )
         except IndexingCancelled:
             raise
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Vertica: {e}")
+        try:
+            yield conn
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _query_df(self, sql: str) -> pd.DataFrame:
+        """Run one query on a connection of its own.
+
+        Same shape as before: the statement is read as a relation (so it must
+        be a query) and NUMERIC values come back as floats.
+        """
+        statement = str(sql).strip()
+        while statement.endswith(";"):
+            statement = statement[:-1].rstrip()
+        with self.connect() as conn:
+            cur = conn.cursor()
+            cur.execute(f"SELECT * FROM (\n{statement}\n) VERTICAPY_SUBTABLE")
+            rows = cur.fetchall()
+            columns = [d[0] for d in (cur.description or [])]
+        data = [
+            [float(v) if isinstance(v, decimal.Decimal) else v for v in row]
+            for row in rows
+        ]
+        return pd.DataFrame(data, columns=columns)
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
         try:
-            # Connect to Vertica
-            self.connect()
-            
-            # Execute query using verticapy vDataFrame
-            result = vp.vDataFrame(sql)
-            
-            # Convert to pandas DataFrame
-            df = result.to_pandas()
-            return df
+            return self._query_df(sql)
         except Exception as e:
             print(f"Error executing SQL: {e}")
             raise
@@ -89,7 +116,6 @@ class VerticaClient(DataSourceClient):
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column comments. May fail on some Vertica configurations."""
         discovery_phase('reading_columns')
-        self.connect()
 
         # Query with column comments (Vertica supports comments in v_catalog.comments)
         query = f"""
@@ -136,8 +162,7 @@ class VerticaClient(DataSourceClient):
         ORDER BY table_name, column_name;
         """
 
-        result_df = vp.vDataFrame(query)
-        result = result_df.to_pandas()
+        result = self._query_df(query)
 
         tables = {}
         for _, row in discovery_items(result.iterrows(), 'columns', total=len(result), label=lambda pair: str(pair[1]['table_name']) + '.' + str(pair[1]['column_name'])):
@@ -168,8 +193,6 @@ class VerticaClient(DataSourceClient):
         """Get tables without comments (original query - always works)."""
         discovery_phase('metadata_fallback')
         try:
-            self.connect()
-
             query = f"""
             SELECT
                 t.table_schema,
@@ -198,8 +221,7 @@ class VerticaClient(DataSourceClient):
             ORDER BY table_name, column_name;
             """
 
-            result_df = vp.vDataFrame(query)
-            result = result_df.to_pandas()
+            result = self._query_df(query)
 
             tables = {}
             for _, row in discovery_items(result.iterrows(), 'columns', total=len(result), label=lambda pair: str(pair[1]['table_name']) + '.' + str(pair[1]['column_name'])):
@@ -238,11 +260,7 @@ class VerticaClient(DataSourceClient):
     def test_connection(self):
         """Test connection to Vertica and return status information."""
         try:
-            self.connect()
-            
-            # Test with a simple query
-            test_df = vp.vDataFrame("SELECT 1 as test")
-            test_result = test_df.to_pandas()
+            test_result = self._query_df("SELECT 1 as test")
             
             if not test_result.empty:
                 return {

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator, model_validator
 from pydantic.alias_generators import to_camel
 import os
@@ -89,15 +89,50 @@ class OTELConfig(BaseModel):
                 headers[key.strip()] = value.strip()
         return headers
 
+def _parse_email_list(value: Any) -> List[str]:
+    """Comma-separated string or list -> lowercased, de-duplicated emails."""
+    if value is None:
+        return []
+    items = value.split(",") if isinstance(value, str) else list(value)
+    out: List[str] = []
+    for item in items:
+        email = str(item or "").strip().lower()
+        if email and email not in out:
+            out.append(email)
+    return out
+
+
 class AuthConfig(BaseModel):
     # local_only | sso_only | hybrid
     mode: str = "hybrid"
+    # Instance administrators ("superadmins"), by email. Matched
+    # case-insensitively. When the list is non-empty it is authoritative:
+    # accounts on it are instance administrators and every other account is
+    # not; it is applied at startup and at each sign-in. Empty (default)
+    # leaves the stored value of every account untouched.
+    # Env: BOW_SUPERUSER_EMAILS (comma-separated). When that variable is set
+    # to a non-empty value it replaces this list.
+    superuser_emails: List[str] = Field(default_factory=list, validate_default=True)
+
+    @field_validator("superuser_emails", mode="before")
+    @classmethod
+    def _resolve_superuser_emails(cls, v):
+        from_env = _parse_email_list(os.environ.get("BOW_SUPERUSER_EMAILS"))
+        return from_env or _parse_email_list(v)
 
 
 class GoogleOAuth(BaseModel):
     enabled: bool = False
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
+    # Whether a first sign-in through this provider may be linked to an existing
+    # account that has the same email (and claim that email's pending invites).
+    # None (default) = automatic: always on a single-organization deployment;
+    # with features.allow_multiple_organizations, only while this is the single
+    # enabled sign-in provider, the token does not mark the email as
+    # unverified, and the issuer is not a multi-tenant Microsoft endpoint.
+    # true = always trust this provider's email; false = never link by email.
+    trust_email_for_linking: Optional[bool] = None
 
 
 def brand_for_issuer(issuer: Optional[str]) -> str:
@@ -111,6 +146,48 @@ def brand_for_issuer(issuer: Optional[str]) -> str:
     if "accounts.google.com" in issuer:
         return "google"
     return "custom"
+
+
+class OIDCOrgMapping(BaseModel):
+    """One operator-owned rule: members of an identity-provider group belong to
+    an organization with a built-in role."""
+    model_config = ConfigDict(extra="forbid")
+
+    # Value of the provider's group claim (an Entra group object id), or the
+    # group's display name when the provider resolves names.
+    group: str
+    # Organization id, or the organization's exact name.
+    organization: str
+    role: str = "member"
+
+    @field_validator("group", "organization", "role", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("group", "organization")
+    @classmethod
+    def _not_empty(cls, v, info):
+        if not v:
+            raise ValueError(f"org_mapping: '{info.field_name}' must not be empty")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def _known_role(cls, v):
+        role = (v or "").lower()
+        if role not in ORG_MAPPING_ROLES:
+            raise ValueError(
+                f"org_mapping: unknown role '{v}' (expected one of: {', '.join(ORG_MAPPING_ROLES)})"
+            )
+        return role
+
+
+# Built-in roles a mapping may grant, lowest to highest.
+ORG_MAPPING_ROLES = ("member", "admin")
+# memberships.directory_provider is 64 characters; the marker is this prefix
+# followed by the provider name.
+ORG_MAPPING_MARKER_PREFIX = "oidc_org_mapping:"
 
 
 class OIDCProvider(BaseModel):
@@ -135,6 +212,48 @@ class OIDCProvider(BaseModel):
     sync_groups: bool = False
     group_claim: str = "groups"              # claim name in id_token
     resolve_group_names: bool = False        # call Graph API to get display names (Entra returns UUIDs)
+    # Operator-owned placement of people into organizations by identity-provider
+    # group, evaluated at every sign-in through this provider. Each entry is
+    # {group, organization, role} or the compact "<group>:<organization>:<role>"
+    # (split on the last two colons, so only the group may contain one).
+    # Empty (default) = no placement, behaviour unchanged.
+    org_mapping: List[OIDCOrgMapping] = []
+
+    @field_validator("org_mapping", mode="before")
+    @classmethod
+    def _parse_org_mapping(cls, v):
+        if v is None:
+            return []
+        if not isinstance(v, list):
+            raise ValueError("org_mapping must be a list")
+        parsed = []
+        for entry in v:
+            if isinstance(entry, str):
+                parts = entry.rsplit(":", 2)
+                if len(parts) != 3:
+                    raise ValueError(
+                        f"org_mapping entry '{entry}' must be '<group>:<organization>:<role>'"
+                    )
+                entry = {"group": parts[0], "organization": parts[1], "role": parts[2]}
+            parsed.append(entry)
+        return parsed
+
+    @model_validator(mode="after")
+    def _org_mapping_marker_fits(self):
+        if self.org_mapping and len(ORG_MAPPING_MARKER_PREFIX + self.name) > 64:
+            raise ValueError(
+                f"OIDC provider name '{self.name}' is too long to use org_mapping "
+                f"(max {64 - len(ORG_MAPPING_MARKER_PREFIX)} characters)"
+            )
+        return self
+    # Whether a first sign-in through this provider may be linked to an existing
+    # account that has the same email (and claim that email's pending invites).
+    # None (default) = automatic: always on a single-organization deployment;
+    # with features.allow_multiple_organizations, only while this is the single
+    # enabled sign-in provider, the token does not mark the email as
+    # unverified, and the issuer is not a multi-tenant Microsoft endpoint.
+    # true = always trust this provider's email; false = never link by email.
+    trust_email_for_linking: Optional[bool] = None
 
     def brand(self) -> str:
         """Which identity provider is behind this entry.
@@ -395,6 +514,17 @@ class DataEncryptionConfig(BaseModel):
         return True if v is None else v
 
 
+# "off": any session-level hook makes SQLAlchemy do part of its per-statement
+# preparation twice, measured at roughly 10-15 microseconds per ORM statement;
+# the e2e suite turns the guard on (tests/e2e/conftest.py).
+ORG_SCOPE_GUARD_DEFAULT = "off"
+
+
+def _org_scope_guard_default() -> str:
+    value = (os.getenv("BOW_ORG_SCOPE_GUARD") or "").strip().lower()
+    return value if value in ("off", "warn", "enforce") else ORG_SCOPE_GUARD_DEFAULT
+
+
 class SecurityConfig(BaseModel):
     # When true, admin-configured outbound URLs (git remotes, LLM base_url,
     # audit-stream endpoints) must resolve to public addresses. Off by default
@@ -407,6 +537,68 @@ class SecurityConfig(BaseModel):
     # working and only refuses system dirs (/, /etc, /proc, /root, /usr, …)
     # and the app's own dirs — see network_dir_client.check_network_dir_root.
     network_dir_allowed_roots: Optional[List[str]] = None
+    # Slack Events API (HTTP) requests are verified against the platform's
+    # signing secret. An Events API platform stored WITHOUT a signing secret
+    # (older rows) is still served unsigned when it is the only Slack platform
+    # for its workspace, with a warning in the log. Set true to refuse every
+    # unsigned Slack HTTP event; add the signing secret to the integration
+    # first. Socket Mode platforms are never served over HTTP either way.
+    slack_require_signed_events: bool = False
+    # File-based connectors (duckdb, csv, qvd, pbix, sqlite) run SQL inside
+    # the API process. By default a connection can only read the files or URI
+    # prefixes it was configured with, cannot write, load extensions or attach
+    # other databases, and its configured local paths may not point at the
+    # app's own files or system/secret locations (see
+    # data_sources/clients/_duckdb_lockdown.py).
+    # Optional strict allowlist for those local paths, e.g. ["/data", "/mnt"]:
+    # when set, a path must ALSO be inside one listed root. Unset (default)
+    # keeps existing installs working: only the app's own files and
+    # system/secret locations are refused.
+    file_connector_allowed_roots: Optional[List[str]] = None
+    # Per-organization roots for local paths, assigned by the operator:
+    #   organization_file_roots: {"<organization id>": ["/mnt/deptA"], ...}
+    # A listed root is reserved: only the organizations it is listed for may
+    # point a network_dir root or a file-connector path (sqlite, duckdb, csv,
+    # qvd, pbix) inside it, and an organization with an entry may only use
+    # its own roots (realpath, on top of every rule above). Organizations
+    # without an entry keep today's behaviour everywhere outside the listed
+    # roots; the default empty map changes nothing.
+    organization_file_roots: Dict[str, List[str]] = Field(default_factory=dict)
+
+    @field_validator("organization_file_roots", mode="before")
+    @classmethod
+    def _validate_organization_file_roots(cls, v):
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("organization_file_roots must map an organization id to a list of directories")
+        out = {}
+        for org_id, roots in v.items():
+            if not str(org_id).strip():
+                raise ValueError("organization_file_roots: empty organization id")
+            if isinstance(roots, str) or not isinstance(roots, (list, tuple)):
+                raise ValueError(f"organization_file_roots[{org_id}] must be a list of directories")
+            for root in roots:
+                if not isinstance(root, str) or not os.path.isabs(root):
+                    raise ValueError(f"organization_file_roots[{org_id}]: {root!r} is not an absolute path")
+            out[str(org_id).strip()] = list(roots)
+        return out
+    # UNSAFE. Restores the old behaviour: no path policy, no session lock, no
+    # read-only check for csv/qvd/pbix, SQLite opened read-write. Anyone who
+    # can query such a connection can then read and write any file the app
+    # user can. Only for a single-tenant install that depends on it (e.g. a
+    # .duckdb file whose views read files elsewhere) while it migrates.
+    # Env: BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS (true/1/yes/on).
+    unsafe_allow_unrestricted_file_connectors: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_UNSAFE_ALLOW_UNRESTRICTED_FILE_CONNECTORS") or "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+    # Uploaded Office documents are converted to PDF by LibreOffice inside a
+    # confined process (no network, read access to the LibreOffice install
+    # only; app/data_sources/clients/_soffice_worker.py). Set false only if
+    # conversions stop working on a host with an unusual LibreOffice layout;
+    # the scrubbed environment and locked-down profile still apply.
+    office_convert_confinement: bool = True
     # Python 3.13 validates outbound TLS chains in OpenSSL's strict X.509 mode,
     # which rejects any CA-issued certificate lacking an Authority Key
     # Identifier ("certificate verify failed: Missing Authority Key
@@ -445,6 +637,25 @@ class SecurityConfig(BaseModel):
             if os.getenv("BOW_TRUSTED_PROXIES") is not None else None
         )
     )
+    # Organization-scope query guard (app/core/org_scope_guard.py). Inside a
+    # request served for an organization it inspects ORM reads, updates and
+    # deletes of organization-scoped tables and reports any that carry no
+    # organization criterion. "off" (default) registers no hook; "warn" logs
+    # each distinct finding once and changes nothing else; "enforce" raises
+    # instead of logging (not yet recommended: review the warnings first).
+    # Env: BOW_ORG_SCOPE_GUARD. An unknown value falls back to the default.
+    org_scope_guard: Literal["off", "warn", "enforce"] = Field(
+        default_factory=lambda: _org_scope_guard_default()
+    )
+
+    @field_validator("org_scope_guard", mode="before")
+    @classmethod
+    def _org_scope_guard_when_unset(cls, v):
+        # An unresolved ${ENV} placeholder arrives as None; a typo must not
+        # take the instance down for a diagnostic feature.
+        if isinstance(v, str) and v.strip().lower() in ("off", "warn", "enforce"):
+            return v.strip().lower()
+        return _org_scope_guard_default()
 
 
 class McpAppsConfig(BaseModel):

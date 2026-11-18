@@ -514,6 +514,7 @@
     "collapseSidebar": "Recolher barra lateral",
     "resizeSidebar": "Redimensionar barra lateral",
     "switchOrganization": "Alternar organização",
+    "createOrganization": "Criar organização",
     "version": "Versão",
     "loggedInAs": "Conectado como {name}",
     "prompts": "Prompts",
@@ -4802,7 +4803,19 @@
     "agent_import.invalid_bundle": "Este arquivo não é um pacote de exportação de agente válido.",
     "agent_import.name_taken": "Já existe um agente chamado “{name}”.",
     "agent_import.no_connection": "Mapeie pelo menos uma conexão para importar o agente.",
-    "agent_import.failed": "Não foi possível importar o agente."
+    "agent_import.failed": "Não foi possível importar o agente.",
+    "account_link_required": "Já existe uma conta com este e-mail. Peça ao seu administrador para vinculá-la.",
+    "invite_link_required": "Este método de login não pode aceitar seu convite. Use o link de convite enviado por e-mail ou fale com seu administrador.",
+    "integration.connected_elsewhere": "Esta conta já está conectada a outra organização nesta instalação. Desconecte-a lá primeiro.",
+    "organization.multiple_not_enabled": "Esta implantação permite apenas uma organização.",
+    "organization.create_instance_admin_required": "Só um administrador da instância pode criar uma organização.",
+    "organization.create_license_required": "Criar outra organização requer uma licença Enterprise.",
+    "organization.name_required": "Informe um nome para a organização.",
+    "organization.name_too_long": "O nome da organização pode ter no máximo {max} caracteres.",
+    "organization.name_taken": "Já existe uma organização chamada “{name}”.",
+    "organization.signup_domains_instance_admin_required": "Só um administrador da instância pode atribuir domínios de registo a uma organização.",
+    "organization.signup_domain_claimed": "O domínio {domain} já está atribuído a outra organização.",
+    "organization.member_instance_admin": "Esta conta é de um administrador da instância. Apenas um administrador da instância pode adicioná-la a uma organização."
   },
   "email": {
     "dashboardShare": {
@@ -7761,5 +7774,25 @@
   "markdownTable": {
     "title": "Tabela",
     "copyFailed": "Não foi possível copiar a tabela"
+  },
+  "createOrganization": {
+    "title": "Criar organização",
+    "description": "Uma organização separada, com seus próprios membros, dados e configurações.",
+    "nameLabel": "Nome",
+    "namePlaceholder": "ex.: Finanças",
+    "nameRequired": "Informe um nome.",
+    "adminEmailLabel": "E-mail do primeiro administrador",
+    "optional": "Opcional",
+    "adminEmailPlaceholder": "nome{'@'}empresa.com",
+    "adminEmailHint": "Enviaremos a essa pessoa um convite para entrar como administrador. Você também será administrador.",
+    "adminEmailInvalid": "Informe um endereço de e-mail válido.",
+    "submit": "Criar organização",
+    "created": "Organização “{name}” criada",
+    "switching": "Alternando para ela…",
+    "inviteSent": "Um convite foi enviado para {email}.",
+    "inviteNoSmtp": "O e-mail não está configurado, então nenhum convite foi enviado para {email}. Copie o link de convite na página Membros.",
+    "inviteNotSent": "Não foi possível enviar o convite para {email}. Convide a pessoa novamente na página Membros.",
+    "adminAdded": "{email} foi adicionado como administrador.",
+    "failed": "Não foi possível criar a organização."
   }
 }

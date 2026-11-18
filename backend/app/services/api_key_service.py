@@ -129,6 +129,23 @@ class ApiKeyService:
         
         Returns None if the key is invalid, expired, or deleted.
         """
+        user, _key = await self.get_user_and_key_by_api_key(db, api_key)
+        return user
+
+    async def get_user_and_key_by_api_key(
+        self,
+        db: AsyncSession,
+        api_key: str,
+    ) -> tuple[Optional[User], Optional[ApiKey]]:
+        """Validate an API key and return ``(user, key row)``.
+
+        ``(None, None)`` if the key is invalid, expired, or deleted. The key
+        row tells the caller which organization the key was created in.
+        """
+        resolved = await self._resolve_api_key(db, api_key)
+        return resolved if resolved is not None else (None, None)
+
+    async def _resolve_api_key(self, db: AsyncSession, api_key: str):
         if not api_key or not api_key.startswith("bow_"):
             return None
         
@@ -185,7 +202,7 @@ class ApiKeyService:
         api_key_obj.last_used_at = datetime.utcnow()
         await db.commit()
 
-        return user
+        return user, api_key_obj
 
     async def get_organization_by_api_key(
         self,

@@ -76,7 +76,7 @@ SETTLED_HUNK_KEY = "__settled__"
 VOIDED_HUNK_KEY = "__voided__"
 
 
-async def _resolve_reference_data_source(db, data_source_id):
+async def _resolve_reference_data_source(db, data_source_id, organization_id):
     """Display fields for the agent an instruction reference points at.
 
     Returns None when the agent is gone. Loads every connection in the
@@ -94,7 +94,7 @@ async def _resolve_reference_data_source(db, data_source_id):
         .select_from(DataSource)
         .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
         .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
-        .where(DataSource.id == data_source_id)
+        .where(DataSource.id == data_source_id, DataSource.organization_id == organization_id)
         .order_by(Connection.created_at, Connection.id)
     )
     found = rows.all()
@@ -5752,6 +5752,7 @@ class InstructionService:
             primary_result = await db.execute(
                 select(DataSourceModel).where(
                     DataSourceModel.primary_instruction_id == str(instruction.id),
+                    DataSourceModel.organization_id == instruction.organization_id,
                     DataSourceModel.deleted_at.is_(None),
                 )
             )
@@ -5780,14 +5781,18 @@ class InstructionService:
                 ref_data = {k: v for k, v in ref_data.items() if not k.startswith('_')}
                 
                 # Fetch and add the referenced object
-                referenced_obj = await self.reference_service._fetch_referenced_object(db, ref.object_type, ref.object_id)
+                referenced_obj = await self.reference_service._fetch_referenced_object(
+                    db, ref.object_type, ref.object_id, instruction.organization_id
+                )
                 if referenced_obj:
                     if ref.object_type == "metadata_resource":
                         from app.schemas.metadata_resource_schema import MetadataResourceSchema
                         ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for metadata resources
-                        ds_info = await _resolve_reference_data_source(db, referenced_obj.data_source_id)
+                        ds_info = await _resolve_reference_data_source(
+                            db, referenced_obj.data_source_id, instruction.organization_id
+                        )
                         if ds_info:
                             ref_data.update(ds_info)
                             ref_data["data_source_id"] = referenced_obj.data_source_id
@@ -5797,7 +5802,9 @@ class InstructionService:
                         ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for datasource tables
-                        ds_info = await _resolve_reference_data_source(db, referenced_obj.datasource_id)
+                        ds_info = await _resolve_reference_data_source(
+                            db, referenced_obj.datasource_id, instruction.organization_id
+                        )
                         if ds_info:
                             ref_data.update(ds_info)
                             ref_data["data_source_id"] = referenced_obj.datasource_id

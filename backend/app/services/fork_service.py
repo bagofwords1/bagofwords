@@ -257,7 +257,10 @@ class ForkService:
 
         from app.models.membership import Membership
         membership_result = await db.execute(
-            select(Membership.organization_id).where(Membership.user_id == user.id)
+            select(Membership.organization_id).where(
+                Membership.user_id == user.id,
+                Membership.deleted_at.is_(None),
+            )
         )
         user_org_ids = {str(row[0]) for row in membership_result.all()}
         if str(report.organization_id) not in user_org_ids:
@@ -323,8 +326,14 @@ class ForkService:
         report_id: str,
         user: User,
         title: Optional[str] = None,
+        organization=None,
     ) -> Report:
-        """Fork a report, creating a new report with duplicated assets."""
+        """Fork a report, creating a new report with duplicated assets.
+
+        ``organization`` is the organization the request acts in (the one its
+        permission was checked against); the fork is created in the report's
+        organization, so the two must be the same.
+        """
         # 1. Load original report with all relationships
         result = await db.execute(
             select(Report)
@@ -340,6 +349,8 @@ class ForkService:
         )
         original = result.unique().scalar_one_or_none()
         if not original:
+            raise HTTPException(status_code=404, detail="Report not found")
+        if organization is not None and str(original.organization_id) != str(organization.id):
             raise HTTPException(status_code=404, detail="Report not found")
 
         # Must be published, have conversation sharing enabled, or live in a

@@ -514,6 +514,7 @@
     "collapseSidebar": "Fäll ihop sidopanel",
     "resizeSidebar": "Ändra storlek på sidopanel",
     "switchOrganization": "Byt organisation",
+    "createOrganization": "Skapa organisation",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",
     "prompts": "Prompter",
@@ -4802,7 +4803,19 @@
     "agent_import.invalid_bundle": "Filen är inte ett giltigt exportpaket för en agent.",
     "agent_import.name_taken": "Det finns redan en agent som heter ”{name}”.",
     "agent_import.no_connection": "Mappa minst en anslutning för att importera agenten.",
-    "agent_import.failed": "Agenten kunde inte importeras."
+    "agent_import.failed": "Agenten kunde inte importeras.",
+    "account_link_required": "Det finns redan ett konto med den här e-postadressen. Be administratören att länka det.",
+    "invite_link_required": "Den här inloggningsmetoden kan inte godkänna din inbjudan. Använd inbjudningslänken i ditt e-postmeddelande eller kontakta administratören.",
+    "integration.connected_elsewhere": "Det här kontot är redan anslutet till en annan organisation i den här installationen. Koppla från det där först.",
+    "organization.multiple_not_enabled": "Den här installationen tillåter bara en organisation.",
+    "organization.create_instance_admin_required": "Endast en instansadministratör kan skapa en organisation.",
+    "organization.create_license_required": "Att skapa ytterligare en organisation kräver en Enterprise-licens.",
+    "organization.name_required": "Ange ett namn på organisationen.",
+    "organization.name_too_long": "Organisationens namn får vara högst {max} tecken.",
+    "organization.name_taken": "Det finns redan en organisation med namnet ”{name}”.",
+    "organization.signup_domains_instance_admin_required": "Endast en instansadministratör kan tilldela registreringsdomäner till en organisation.",
+    "organization.signup_domain_claimed": "Domänen {domain} är redan tilldelad en annan organisation.",
+    "organization.member_instance_admin": "Det här kontot tillhör en instansadministratör. Endast en instansadministratör kan lägga till det i en organisation."
   },
   "email": {
     "dashboardShare": {
@@ -7761,5 +7774,25 @@
   "markdownTable": {
     "title": "Tabell",
     "copyFailed": "Det gick inte att kopiera tabellen"
+  },
+  "createOrganization": {
+    "title": "Skapa organisation",
+    "description": "En separat organisation med egna medlemmar, data och inställningar.",
+    "nameLabel": "Namn",
+    "namePlaceholder": "t.ex. Ekonomi",
+    "nameRequired": "Ange ett namn.",
+    "adminEmailLabel": "Första administratörens e-post",
+    "optional": "Valfritt",
+    "adminEmailPlaceholder": "namn{'@'}foretag.se",
+    "adminEmailHint": "Vi skickar en inbjudan till den här personen att gå med som administratör. Du blir också administratör.",
+    "adminEmailInvalid": "Ange en giltig e-postadress.",
+    "submit": "Skapa organisation",
+    "created": "Organisationen ”{name}” har skapats",
+    "switching": "Byter till den…",
+    "inviteSent": "En inbjudan har skickats till {email}.",
+    "inviteNoSmtp": "E-post är inte konfigurerad, så ingen inbjudan skickades till {email}. Kopiera inbjudningslänken från sidan Medlemmar.",
+    "inviteNotSent": "Inbjudan till {email} kunde inte skickas. Bjud in personen igen från sidan Medlemmar.",
+    "adminAdded": "{email} har lagts till som administratör.",
+    "failed": "Det gick inte att skapa organisationen."
   }
 }

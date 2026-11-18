@@ -92,10 +92,16 @@ export function useAdminNav() {
     return true
   }
 
-  // Hidden until the app settings say the instance is single-organization,
-  // so a multi-org instance never shows it to an org admin, even briefly.
+  // The server says who may open instance-wide pages (whoami
+  // `is_instance_settings_admin`): an instance superuser, or anyone on an
+  // instance that has, and can only have, one organization. Hidden until that
+  // answer is in, so an org admin on a multi-org instance never sees the
+  // entry, even briefly. A session payload without the field (older backend)
+  // falls back to the previous rule.
   const instanceAdminAllowed = () => {
-    if ((currentUser.value as { is_superuser?: boolean } | null)?.is_superuser) return true
+    const user = currentUser.value as { is_superuser?: boolean; is_instance_settings_admin?: boolean } | null
+    if (user?.is_superuser) return true
+    if (typeof user?.is_instance_settings_admin === 'boolean') return user.is_instance_settings_admin
     return appSettings.value?.features?.allow_multiple_organizations === false
   }
 

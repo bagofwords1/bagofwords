@@ -9,7 +9,6 @@ import io
 import ast
 import logging
 import tempfile
-import subprocess
 from pathlib import Path
 from contextlib import redirect_stdout
 from typing import Dict, Any, List, Tuple, Optional
@@ -354,26 +353,18 @@ class PptxPreviewService:
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
 
-            # LibreOffice convert to PDF
-            try:
-                result = subprocess.run(
-                    [
-                        'soffice',
-                        '--headless',
-                        '--convert-to', 'pdf',
-                        '--outdir', str(tmp_path),
-                        str(pptx_path),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=60,
-                )
-                if result.returncode != 0:
-                    raise RuntimeError(f"LibreOffice conversion failed: {result.stderr}")
-            except FileNotFoundError:
+            # LibreOffice convert to PDF, through the confined converter every
+            # other document conversion uses (_office_convert).
+            from app.data_sources.clients._office_convert import office_to_pdf_bytes, soffice_available
+
+            if not soffice_available():
                 raise RuntimeError(
                     "LibreOffice not found. Install with: apt-get install libreoffice-impress"
                 )
+            pdf_bytes = office_to_pdf_bytes(Path(pptx_path).read_bytes(), "deck.pptx", timeout=60)
+            if not pdf_bytes:
+                raise RuntimeError("LibreOffice conversion failed: no PDF was produced")
+            (tmp_path / "deck.pdf").write_bytes(pdf_bytes)
 
             # Find the generated PDF
             pdf_files = list(tmp_path.glob("*.pdf"))

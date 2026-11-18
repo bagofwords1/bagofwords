@@ -14,13 +14,34 @@ from app.dependencies import get_current_organization
 from app.core.permissions_decorator import requires_permission
 from app.schemas.user_schema import UserSchema
 from app.ee.audit.service import audit_service
+from app.settings.config import settings
 
 router = APIRouter(tags=["organizations"], dependencies=[Depends(ensure_path_organization_matches)])
 organization_service = OrganizationService()
 
 @router.post("/organizations", response_model=OrganizationSchema)
-async def create_organization(organization: OrganizationCreate, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
-    return await organization_service.create_organization(db, organization, current_user)
+async def create_organization(organization: OrganizationCreate, request: Request, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
+    result = await organization_service.create_organization(db, organization, current_user)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=result.id,
+            action="organization.created",
+            user_id=current_user.id,
+            resource_type="organization",
+            resource_id=result.id,
+            details={
+                "name": result.name,
+                **({
+                    "first_admin_email": str(organization.first_admin_email),
+                    "first_admin_invite_status": result.first_admin_invite_status,
+                } if organization.first_admin_email else {}),
+            },
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.post("/organizations/{organization_id}/members", response_model=MembershipSchema, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
@@ -108,6 +129,17 @@ async def force_member_sign_out(
     )
     if membership is None or not membership.user_id:
         raise HTTPException(status_code=404, detail="Member not found")
+
+    # Sessions are per account, not per organization: revoking them signs the
+    # person out everywhere. When they also belong to another organization,
+    # that is an instance-level action, not one organization's to take.
+    if settings.bow_config.features.allow_multiple_organizations and not current_user.is_superuser:
+        from app.core.user_lifecycle import has_live_membership_elsewhere
+        if await has_live_membership_elsewhere(db, str(membership.user_id), str(organization.id)):
+            raise HTTPException(
+                status_code=403,
+                detail="This member also belongs to another organization; only an instance administrator can sign them out",
+            )
 
     await revoke_user_sessions(db, membership.user_id)
 

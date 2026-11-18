@@ -581,6 +581,7 @@
     "collapseSidebar": "כיווץ סרגל הצד",
     "resizeSidebar": "שינוי רוחב סרגל הצד",
     "switchOrganization": "החלפת ארגון",
+    "createOrganization": "יצירת ארגון",
     "version": "גרסה",
     "loggedInAs": "מחובר/ת בתור {name}",
     "prompts": "פרומפטים",
@@ -5455,7 +5456,19 @@
     "agent_import.invalid_bundle": "קובץ זה אינו חבילת ייצוא סוכן תקינה.",
     "agent_import.name_taken": "כבר קיים סוכן בשם „{name}”.",
     "agent_import.no_connection": "יש למפות לפחות חיבור אחד כדי לייבא את הסוכן.",
-    "agent_import.failed": "לא ניתן היה לייבא את הסוכן."
+    "agent_import.failed": "לא ניתן היה לייבא את הסוכן.",
+    "account_link_required": "כבר קיים חשבון עם כתובת האימייל הזו. יש לפנות למנהל המערכת כדי לקשר אותו.",
+    "invite_link_required": "שיטת ההתחברות הזו אינה יכולה לקבל את ההזמנה שלך. יש להשתמש בקישור ההזמנה שנשלח באימייל או לפנות למנהל המערכת.",
+    "integration.connected_elsewhere": "החשבון הזה כבר מחובר לארגון אחר בהתקנה הזו. יש לנתק אותו שם תחילה.",
+    "organization.multiple_not_enabled": "ההתקנה הזו מאפשרת ארגון אחד בלבד.",
+    "organization.create_instance_admin_required": "רק מנהל המופע יכול ליצור ארגון.",
+    "organization.create_license_required": "יצירת ארגון נוסף דורשת רישיון Enterprise.",
+    "organization.name_required": "יש להזין שם לארגון.",
+    "organization.name_too_long": "שם הארגון יכול להכיל עד {max} תווים.",
+    "organization.name_taken": "כבר קיים ארגון בשם ״{name}״.",
+    "organization.signup_domains_instance_admin_required": "רק מנהל המופע יכול לשייך דומיינים להרשמה לארגון.",
+    "organization.signup_domain_claimed": "הדומיין {domain} כבר משויך לארגון אחר.",
+    "organization.member_instance_admin": "חשבון זה שייך למנהל מערכת. רק מנהל מערכת יכול להוסיף אותו לארגון."
   },
   "email": {
     "dashboardShare": {
@@ -8666,5 +8679,25 @@
   "markdownTable": {
     "title": "טבלה",
     "copyFailed": "לא ניתן להעתיק את הטבלה"
+  },
+  "createOrganization": {
+    "title": "יצירת ארגון",
+    "description": "ארגון נפרד עם חברים, נתונים והגדרות משלו.",
+    "nameLabel": "שם",
+    "namePlaceholder": "לדוגמה: כספים",
+    "nameRequired": "יש להזין שם.",
+    "adminEmailLabel": "אימייל של המנהל הראשון",
+    "optional": "אופציונלי",
+    "adminEmailPlaceholder": "name{'@'}company.com",
+    "adminEmailHint": "נשלח לאדם הזה הזמנה להצטרף כמנהל. גם אתם תהיו מנהלים בארגון.",
+    "adminEmailInvalid": "יש להזין כתובת אימייל תקינה.",
+    "submit": "יצירת ארגון",
+    "created": "הארגון ״{name}״ נוצר",
+    "switching": "עוברים אליו…",
+    "inviteSent": "נשלחה הזמנה אל {email}.",
+    "inviteNoSmtp": "דואר אלקטרוני אינו מוגדר, ולכן לא נשלחה הזמנה אל {email}. אפשר להעתיק את קישור ההזמנה מעמוד החברים.",
+    "inviteNotSent": "לא ניתן היה לשלוח את ההזמנה אל {email}. אפשר להזמין שוב מעמוד החברים.",
+    "adminAdded": "{email} נוסף כמנהל.",
+    "failed": "לא ניתן היה ליצור את הארגון."
   }
 }

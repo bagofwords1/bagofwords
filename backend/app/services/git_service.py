@@ -36,7 +36,7 @@ from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.instruction import Instruction
 from app.errors.redact import redact_error
-from app.services.git_hardening import persist_learned_hosts, ssh_command, with_https_auth
+from app.services.git_hardening import clone_protection_env, persist_learned_hosts, ssh_command, with_https_auth
 from app.schemas.git_repository_schema import (
     GitRepositoryCreate,
     GitRepositoryUpdate,
@@ -100,6 +100,15 @@ class GitService:
             env[f"GIT_CONFIG_VALUE_{n}"] = f"{host}:{port}:{ip_txt}"
             env["GIT_CONFIG_COUNT"] = str(n + 1)
         return env
+
+    @staticmethod
+    def _clone_env(env: Dict[str, str], repo_url: str) -> Dict[str, str]:
+        """Environment for a clone: ``env`` (from ``_git_env`` / ``_pat_env``)
+        plus the protections a repository we do not control needs — links
+        checked out as plain files, no hooks, no submodules, no remote
+        helpers. The server's own git configuration, proxy and CA settings
+        keep applying (see git_hardening.CLONE_PROTECTIONS)."""
+        return clone_protection_env(env)
 
     async def _verify_data_source(
         self, db: AsyncSession, data_source_id: str, organization: Organization
@@ -738,7 +747,9 @@ class GitService:
                     clone_dir,
                     branch=target_branch,
                     depth=1,
-                    env=self._pat_env(https_url, pat, repository.access_token_username),
+                    env=self._clone_env(
+                        self._pat_env(https_url, pat, repository.access_token_username), https_url
+                    ),
                     multi_options=["--single-branch", "--no-tags"]
                 )
             elif repository.has_ssh_key:
@@ -755,7 +766,7 @@ class GitService:
 
                     os.chmod(ssh_key_path, 0o600)
 
-                    git_env = self._git_env(repository.repo_url)
+                    git_env = self._clone_env(self._git_env(repository.repo_url), repository.repo_url)
                     git_env["GIT_SSH_COMMAND"] = ssh_command(ssh_key_path)
 
                     repo = git.Repo.clone_from(
@@ -776,7 +787,7 @@ class GitService:
                     clone_dir,
                     branch=target_branch,
                     depth=1,
-                    env=self._git_env(repository.repo_url),
+                    env=self._clone_env(self._git_env(repository.repo_url), repository.repo_url),
                     multi_options=["--single-branch", "--no-tags"]
                 )
 
@@ -1039,7 +1050,9 @@ class GitService:
             https_url = self._https_url(repository.repo_url)
             return git.Repo.clone_from(
                 https_url, clone_dir, branch=target_branch,
-                env=self._pat_env(https_url, pat, repository.access_token_username),
+                env=self._clone_env(
+                    self._pat_env(https_url, pat, repository.access_token_username), https_url
+                ),
             )
         elif repository.has_ssh_key:
             ssh_dir = tempfile.mkdtemp()
@@ -1054,7 +1067,7 @@ class GitService:
 
                 os.chmod(ssh_key_path, 0o600)
 
-                git_env = self._git_env(repository.repo_url)
+                git_env = self._clone_env(self._git_env(repository.repo_url), repository.repo_url)
                 git_env["GIT_SSH_COMMAND"] = ssh_command(ssh_key_path)
 
                 return git.Repo.clone_from(

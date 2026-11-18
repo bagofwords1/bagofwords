@@ -614,3 +614,10 @@ def create_async_session_factory():
     engine = create_async_database_engine()
     async_session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     return async_session
+
+
+# Organization-scope query guard: registers a Session hook unless
+# security.org_scope_guard is "off" (see app/core/org_scope_guard.py).
+from app.core.org_scope_guard import install as _install_org_scope_guard  # noqa: E402
+
+_install_org_scope_guard()

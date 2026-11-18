@@ -316,7 +316,7 @@ class InboxService:
 
     # ---- read --------------------------------------------------------------
     async def list_for_user(
-        self, db: AsyncSession, user, *,
+        self, db: AsyncSession, user, organization, *,
         source: Optional[str] = None,
         unread: Optional[bool] = None,
         include_dismissed: bool = False,
@@ -324,6 +324,7 @@ class InboxService:
     ) -> Dict[str, Any]:
         clauses = [
             Notification.user_id == str(user.id),
+            Notification.organization_id == str(organization.id),
             Notification.deleted_at.is_(None),
         ]
         if not include_dismissed:
@@ -424,13 +425,15 @@ class InboxService:
             await db.flush()
         return len(rows)
 
-    async def dismiss_resolved(self, db: AsyncSession, user) -> int:
+    async def dismiss_resolved(self, db: AsyncSession, user, organization) -> int:
         """Clear every handled notification from this user's inbox at once
         ("Clear handled"). Personal, like the per-row ✕: other recipients and
-        the Review item are untouched."""
+        the Review item are untouched. Scoped to one organization: a person in
+        several has a separate inbox in each."""
         rows = (await db.execute(
             select(Notification).where(and_(
                 Notification.user_id == str(user.id),
+                Notification.organization_id == str(organization.id),
                 Notification.deleted_at.is_(None),
                 Notification.dismissed_at.is_(None),
                 Notification.resolved_at.isnot(None),
@@ -444,10 +447,11 @@ class InboxService:
             await db.commit()
         return len(rows)
 
-    async def count_unread(self, db: AsyncSession, user) -> Dict[str, int]:
+    async def count_unread(self, db: AsyncSession, user, organization) -> Dict[str, int]:
         n = (await db.execute(
             select(func.count(Notification.id)).where(and_(
                 Notification.user_id == str(user.id),
+                Notification.organization_id == str(organization.id),
                 Notification.deleted_at.is_(None),
                 Notification.dismissed_at.is_(None),
                 Notification.read_at.is_(None),
@@ -455,26 +459,30 @@ class InboxService:
         )).scalar_one()
         return {"unread": int(n or 0)}
 
-    async def _get_own(self, db, user, notification_id) -> Optional[Notification]:
+    async def _get_own(self, db, user, organization, notification_id) -> Optional[Notification]:
+        # A notification belongs to one recipient in one organization; a
+        # person in several organizations has a separate inbox in each.
         return (await db.execute(
             select(Notification).where(and_(
                 Notification.id == str(notification_id),
                 Notification.user_id == str(user.id),
+                Notification.organization_id == str(organization.id),
                 Notification.deleted_at.is_(None),
             ))
         )).scalar_one_or_none()
 
-    async def mark_read(self, db, user, notification_id, read: bool = True) -> Optional[Notification]:
-        n = await self._get_own(db, user, notification_id)
+    async def mark_read(self, db, user, organization, notification_id, read: bool = True) -> Optional[Notification]:
+        n = await self._get_own(db, user, organization, notification_id)
         if n is None:
             return None
         n.read_at = datetime.utcnow() if read else None
         await db.commit(); await db.refresh(n)
         return n
 
-    async def mark_all_read(self, db, user, source: Optional[str] = None) -> int:
+    async def mark_all_read(self, db, user, organization, source: Optional[str] = None) -> int:
         clauses = [
             Notification.user_id == str(user.id),
+            Notification.organization_id == str(organization.id),
             Notification.deleted_at.is_(None),
             Notification.dismissed_at.is_(None),
             Notification.read_at.is_(None),
@@ -489,8 +497,8 @@ class InboxService:
             await db.commit()
         return len(rows)
 
-    async def dismiss(self, db, user, notification_id) -> Optional[Notification]:
-        n = await self._get_own(db, user, notification_id)
+    async def dismiss(self, db, user, organization, notification_id) -> Optional[Notification]:
+        n = await self._get_own(db, user, organization, notification_id)
         if n is None:
             return None
         n.dismissed_at = datetime.utcnow()

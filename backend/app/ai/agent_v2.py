@@ -1388,6 +1388,7 @@ class AgentV2:
                 select(Membership.note, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
+                    Membership.deleted_at.is_(None),
                 )
             )
             row = result.first()

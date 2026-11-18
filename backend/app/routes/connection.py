@@ -150,8 +150,8 @@ async def _user_can_access_connection(
     from app.core.permission_resolver import user_can_access_data_source
     org_id = str(connection.organization_id) if getattr(connection, 'organization_id', None) else None
     for ds in (connection.data_sources or []):
-        if getattr(ds, "is_public", False):
-            return True
+        # Public data sources are open to members of the owning organization
+        # only; user_can_access_data_source enforces that binding.
         if org_id and await user_can_access_data_source(db, str(user.id), org_id, ds):
             return True
     return False

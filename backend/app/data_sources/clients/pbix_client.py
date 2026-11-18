@@ -18,6 +18,7 @@ import pandas as pd
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients.pbix_common import (
     PBIX_MAX_BYTES,
     extract_pbix_model,
@@ -112,7 +113,7 @@ class PBIXClient(DataSourceClient):
         for pattern in self.patterns:
             matched = glob.glob(pattern, recursive=True)
             files.extend([f for f in matched if f.lower().endswith(".pbix")])
-        return sorted(set(files))
+        return lockdown.filter_files(sorted(set(files)), "pbix", lockdown.organization_of(self))
 
     @staticmethod
     def _cache_key(filepath: str) -> tuple[str, Path]:
@@ -295,6 +296,7 @@ class PBIXClient(DataSourceClient):
             views = self._view_names(
                 {f: sorted(m.keys()) for f, (_, m) in per_file_manifest.items()}
             )
+            parquets: list[str] = []
             for filepath, (cache_dir, manifest) in per_file_manifest.items():
                 for tname, fname in manifest.items():
                     ppath = cache_dir / fname
@@ -305,7 +307,10 @@ class PBIXClient(DataSourceClient):
                     con.execute(
                         f'CREATE VIEW "{view}" AS SELECT * FROM read_parquet(\'{parquet_sql}\')'
                     )
+                    parquets.append(str(ppath))
 
+            # From here the session reads this connection's caches only.
+            lockdown.lock_connection(con, paths=parquets)
             logger.info(
                 "pbix.connect.done",
                 extra={
@@ -328,8 +333,10 @@ class PBIXClient(DataSourceClient):
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("pbix.query.start", extra={"pbix_sql": sql})
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
+                lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(
                 "pbix.query.done",

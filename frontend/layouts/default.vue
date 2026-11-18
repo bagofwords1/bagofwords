@@ -103,15 +103,17 @@
             <!-- Workspace header. With a single org this is just a link home
                  (the only desktop path to '/'). With several, it doubles as the
                  org switcher and carries 'Home' as its first item so that path
-                 isn't lost. Users with one org see no switcher affordance. -->
-            <UDropdown v-if="hasMultipleOrgs" :items="organizationDropdownItems"
+                 isn't lost. Users with one org see no switcher affordance,
+                 unless they may create another organization: the menu is
+                 where "Create organization" lives. -->
+            <UDropdown v-if="showOrganizationMenu" :items="organizationDropdownItems"
               :popper="{ placement: isCollapsed ? 'right-start' : 'bottom-start' }" class="min-w-0"
               :ui="{ width: 'w-56', item: { size: 'text-sm', padding: 'px-2 py-1.5' } }">
               <template #item="{ item }">
                 <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="w-4 h-4 shrink-0 rounded object-contain" />
                 <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
                 <span v-else class="w-4 h-4 shrink-0"></span>
-                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+                <span class="truncate text-gray-700 dark:text-gray-200" :data-testid="item.testId || undefined">{{ item.label }}</span>
                 <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-ink-muted" />
               </template>
               <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
@@ -645,6 +647,7 @@
   <McpModal v-if="showMcpModal" v-model="showMcpModal" />
 
   <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
+  <OrganizationCreateOrganizationModal v-if="canCreateOrganization" v-model="showCreateOrganizationModal" />
 
   <ChangelogModal v-model="showChangelogModal" />
 
@@ -1772,6 +1775,13 @@
   // link home and nothing hints that switching exists.
   const hasMultipleOrgs = computed<boolean>(() => userOrganizations.value.length > 1)
 
+  // Instance administrators on a licensed multi-organization deployment (the
+  // server decides and enforces; this only shows the entry point). They get
+  // the menu even with a single organization, or nobody could add the second.
+  const canCreateOrganization = computed<boolean>(() => (currentUser.value as any)?.can_create_organization === true)
+  const showOrganizationMenu = computed<boolean>(() => hasMultipleOrgs.value || canCreateOrganization.value)
+  const showCreateOrganizationModal = ref(false)
+
   const organizationDropdownItems = computed(() => {
     // whoami returns the orgs unordered (no ORDER BY on the membership join), so
     // sort here — otherwise the rows of a primary header control can reshuffle
@@ -1797,6 +1807,12 @@
         disabled: org.id === organization.value?.id,
         click: () => setOrganization(org.id),
       })),
+      ...(canCreateOrganization.value ? [[{
+        label: t('nav.createOrganization'),
+        icon: 'i-heroicons-plus',
+        testId: 'create-organization-menu-item',
+        click: () => { showCreateOrganizationModal.value = true },
+      }]] : []),
     ]
   })
 

@@ -70,7 +70,7 @@ async def test_list_orders_newest_first_regardless_of_severity():
                       created_at=now))
         await db.commit()
 
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         titles = [i["title"] for i in res["items"]]
         # Newest-first: the fresh info row wins over the stale warning.
         assert titles == ["fresh-info", "old-warning"], titles
@@ -96,11 +96,11 @@ async def test_list_survives_a_poison_row_and_matches_count(monkeypatch):
         monkeypatch.setattr(inbox_mod, "to_dict", boom)
 
         # Must not raise, and must still return both rows (poison as placeholder).
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         assert len(res["items"]) == 2, res["items"]
 
         # The list's unread count stays consistent with the badge's count.
-        count = await inbox_service.count_unread(db, user)
+        count = await inbox_service.count_unread(db, user, org)
         assert res["unread"] == count["unread"] == 2
 
 
@@ -112,7 +112,7 @@ async def test_list_handles_null_created_at():
         db.add(_notif(org, user, title="dated", created_at=datetime.utcnow()))
         await db.commit()
 
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         assert len(res["items"]) == 2
         assert res["unread"] == 2
 
@@ -131,7 +131,7 @@ async def test_list_returns_the_actor_name():
         db.add(_notif(org, user, title="system", created_at=datetime.utcnow() - timedelta(minutes=1)))
         await db.commit()
 
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         by_title = {i["title"]: i for i in res["items"]}
         assert by_title["shared"]["actor"] == {"id": str(actor.id), "name": "Dana Sharer"}
         assert by_title["system"]["actor"] is None
@@ -148,7 +148,7 @@ async def test_resolved_rows_sort_below_open_ones():
         db.add(_notif(org, user, title="open-old", created_at=now - timedelta(hours=5)))
         await db.commit()
 
-        res = await inbox_service.list_for_user(db, user)
+        res = await inbox_service.list_for_user(db, user, org)
         assert [i["title"] for i in res["items"]] == ["open-old", "resolved-fresh"]
         assert res["items"][1]["resolved"] is True
         assert res["items"][1]["resolution"] == "resolved"
@@ -167,5 +167,5 @@ async def test_handled_rows_drop_out_of_the_list_after_the_visible_window():
         db.add(_notif(org, user, title="open-old", created_at=old))
         await db.commit()
 
-        titles = {i["title"] for i in (await inbox_service.list_for_user(db, user))["items"]}
+        titles = {i["title"] for i in (await inbox_service.list_for_user(db, user, org))["items"]}
         assert titles == {"handled-recently", "open-old"}

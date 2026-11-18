@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from collections import defaultdict
+from app.core.git_file_walker import repo_glob
 from typing import Dict, List, Tuple
 
 
@@ -62,7 +63,7 @@ class SQLXResourceExtractor:
 
     def _parse_sqlx_files(self) -> None:
         """Discover and parse all `.sqlx` files under the project directory."""
-        sqlx_files = list(self.project_dir.glob("**/*.sqlx"))
+        sqlx_files = repo_glob(self.project_dir, "**/*.sqlx")
 
         for sqlx_file in sqlx_files:
             try:

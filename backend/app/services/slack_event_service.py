@@ -10,7 +10,7 @@ handoff — so the two transports stay thin shims.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,14 +35,112 @@ processed_events: set = set()
 _assistant_threads: set = set()
 
 
-async def find_platform_by_team_id(db: AsyncSession, team_id: str) -> Optional[ExternalPlatform]:
-    """Find the Slack platform for a workspace team id."""
+def _routing_order(platform: ExternalPlatform):
+    """Deterministic preference between platforms: active first, then oldest."""
+    created = getattr(platform, "created_at", None)
+    return (
+        0 if platform.is_active else 1,
+        created.isoformat() if created is not None else "",
+        str(platform.id),
+    )
+
+
+async def find_platforms_by_team_id(db: AsyncSession, team_id: str) -> List[ExternalPlatform]:
+    """Every Slack platform connected to a workspace, in every organization.
+
+    A workspace can host several Slack apps (one per organization), so the
+    team id alone does not identify a platform. Active platforms come first.
+    """
     stmt = select(ExternalPlatform).where(ExternalPlatform.platform_type == "slack")
     result = await db.execute(stmt)
-    for platform in result.scalars().all():
-        if (platform.platform_config or {}).get("team_id") == team_id:
-            return platform
+    matches = [
+        platform for platform in result.scalars().all()
+        if (platform.platform_config or {}).get("team_id") == team_id
+    ]
+    return sorted(matches, key=_routing_order)
+
+
+async def find_platform_by_team_id(db: AsyncSession, team_id: str) -> Optional[ExternalPlatform]:
+    """The Slack platform for a workspace, only when the workspace identifies
+    exactly one. With several candidates the caller must disambiguate by app
+    id / signature (see ``resolve_slack_candidates``)."""
+    matches = await find_platforms_by_team_id(db, team_id)
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        logger.warning(
+            "SLACK: %d platforms share team_id %s; the team id alone cannot route this event",
+            len(matches), team_id,
+        )
     return None
+
+
+async def resolve_slack_candidates(
+    db: AsyncSession, team_id: Optional[str], api_app_id: Optional[str]
+) -> List[ExternalPlatform]:
+    """Platforms an inbound Events API request may belong to, best first.
+
+    The request is only attributed to a candidate once its signature verifies
+    against that candidate's signing secret (done by the route), so this only
+    narrows the search: platforms known to be a *different* Slack app are
+    dropped, and platforms whose stored app id matches come first. Platforms
+    connected before the app id was recorded stay in the list and are
+    settled by the signature.
+    """
+    if not team_id:
+        return []
+    matches = await find_platforms_by_team_id(db, team_id)
+    if len(matches) <= 1:
+        return matches
+
+    logger.warning(
+        "SLACK: %d platforms share team_id %s (organizations: %s); routing by app id",
+        len(matches), team_id,
+        ", ".join(sorted({str(p.organization_id) for p in matches})),
+    )
+
+    def stored_app_id(platform: ExternalPlatform) -> Optional[str]:
+        return (platform.platform_config or {}).get("app_id")
+
+    if api_app_id:
+        exact = [p for p in matches if stored_app_id(p) == api_app_id]
+        unknown = [p for p in matches if not stored_app_id(p)]
+        return exact + unknown
+    return matches
+
+
+async def _load_slack_platform(db: AsyncSession, platform_id: str) -> Optional[ExternalPlatform]:
+    stmt = select(ExternalPlatform).where(
+        ExternalPlatform.id == str(platform_id),
+        ExternalPlatform.platform_type == "slack",
+    )
+    result = await db.execute(stmt)
+    return result.scalars().first()
+
+
+async def _remember_app_id(db: AsyncSession, platform: ExternalPlatform, api_app_id: Optional[str]) -> None:
+    """Record the Slack app id on a platform that predates it.
+
+    Only called once the transport has authenticated the event for this
+    platform, so the id is trustworthy. Best-effort.
+    """
+    if not api_app_id:
+        return
+    config = platform.platform_config or {}
+    stored = config.get("app_id")
+    if stored == api_app_id:
+        return
+    if stored:
+        logger.warning(
+            "SLACK: platform %s is recorded as app %s but received an event for app %s",
+            platform.id, stored, api_app_id,
+        )
+        return
+    try:
+        platform.platform_config = {**config, "app_id": api_app_id}
+        await db.commit()
+    except Exception as e:  # noqa: BLE001
+        logger.debug("SLACK: could not record app id: %s", e)
 
 
 async def _suggested_prompts_for_org(db: AsyncSession, organization_id: str) -> list:
@@ -95,21 +193,36 @@ def is_assistant_thread(channel_id: Optional[str], thread_ts: Optional[str]) -> 
     return bool(channel_id and thread_ts and f"{channel_id}:{thread_ts}" in _assistant_threads)
 
 
-async def handle_slack_event(db: AsyncSession, event_data: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_slack_event(
+    db: AsyncSession,
+    event_data: Dict[str, Any],
+    platform_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """Process one parsed Slack ``event_callback`` payload.
+
+    ``platform_id`` is the platform the transport authenticated the event
+    for: the Socket Mode listener's own platform, or the one whose signing
+    secret verified the webhook. When given it is authoritative — the event
+    is never re-attributed by workspace id, which several organizations can
+    share. Without it the workspace must identify exactly one platform.
 
     Returns a small status dict; never raises for routine skips. The caller
     (webhook route / socket client) has already acked transport-level
     concerns (URL challenge, envelope ack, signature).
     """
     team_id = event_data.get("team_id")
-    if not team_id:
-        return {"ok": False, "error": "No team_id in event"}
-
-    platform = await find_platform_by_team_id(db, team_id)
+    if platform_id:
+        platform = await _load_slack_platform(db, platform_id)
+    else:
+        if not team_id:
+            return {"ok": False, "error": "No team_id in event"}
+        platform = await find_platform_by_team_id(db, team_id)
     if not platform or not platform.is_active:
         logger.info("SLACK: no active platform for team_id %s", team_id)
         return {"ok": True, "skipped": "no_platform"}
+
+    if platform_id:
+        await _remember_app_id(db, platform, event_data.get("api_app_id"))
 
     if event_data.get("type") != "event_callback":
         return {"ok": True, "skipped": "not_event_callback"}

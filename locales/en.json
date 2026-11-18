@@ -598,6 +598,7 @@
     "collapseSidebar": "Collapse sidebar",
     "resizeSidebar": "Resize sidebar",
     "switchOrganization": "Switch organization",
+    "createOrganization": "Create organization",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
     "prompts": "Prompts",
@@ -5515,7 +5516,19 @@
     "agent_import.invalid_bundle": "This file is not a valid agent export bundle.",
     "agent_import.name_taken": "An agent named “{name}” already exists.",
     "agent_import.no_connection": "Map at least one connection to import the agent.",
-    "agent_import.failed": "The agent could not be imported."
+    "agent_import.failed": "The agent could not be imported.",
+    "account_link_required": "An account with this email already exists. Ask your administrator to link it.",
+    "invite_link_required": "This sign-in method cannot accept your invitation. Use the invite link from your email, or ask your administrator.",
+    "integration.connected_elsewhere": "This account is already connected to another organization on this deployment. Disconnect it there first.",
+    "organization.multiple_not_enabled": "This deployment allows only one organization.",
+    "organization.create_instance_admin_required": "Only an instance administrator can create an organization.",
+    "organization.create_license_required": "Creating another organization requires an enterprise license.",
+    "organization.name_required": "Enter a name for the organization.",
+    "organization.name_too_long": "The organization name can be at most {max} characters.",
+    "organization.name_taken": "An organization named “{name}” already exists.",
+    "organization.signup_domains_instance_admin_required": "Only an instance administrator can assign sign-up domains to an organization.",
+    "organization.signup_domain_claimed": "The domain {domain} is already assigned to another organization.",
+    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization."
   },
   "email": {
     "dashboardShare": {
@@ -8675,5 +8688,25 @@
   "markdownTable": {
     "title": "Table",
     "copyFailed": "Could not copy table"
+  },
+  "createOrganization": {
+    "title": "Create organization",
+    "description": "A separate organization with its own members, data and settings.",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g. Finance",
+    "nameRequired": "Enter a name.",
+    "adminEmailLabel": "First admin email",
+    "optional": "Optional",
+    "adminEmailPlaceholder": "name{'@'}company.com",
+    "adminEmailHint": "We'll send this person an invite to join as an admin. You'll be an admin too.",
+    "adminEmailInvalid": "Enter a valid email address.",
+    "submit": "Create organization",
+    "created": "Organization “{name}” created",
+    "switching": "Switching to it…",
+    "inviteSent": "An invite was sent to {email}.",
+    "inviteNoSmtp": "Email is not set up, so no invite was sent to {email}. Copy the invite link from the Members page.",
+    "inviteNotSent": "The invite to {email} could not be sent. Invite them again from the Members page.",
+    "adminAdded": "{email} was added as an admin.",
+    "failed": "Could not create the organization."
   }
 }

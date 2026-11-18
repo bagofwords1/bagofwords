@@ -514,6 +514,7 @@
     "collapseSidebar": "Comprimi barra laterale",
     "resizeSidebar": "Ridimensiona barra laterale",
     "switchOrganization": "Cambia organizzazione",
+    "createOrganization": "Crea organizzazione",
     "version": "Versione",
     "loggedInAs": "Connesso come {name}",
     "prompts": "Prompt",
@@ -4802,7 +4803,19 @@
     "agent_import.invalid_bundle": "Questo file non è un pacchetto di esportazione agente valido.",
     "agent_import.name_taken": "Esiste già un agente chiamato “{name}”.",
     "agent_import.no_connection": "Associa almeno una connessione per importare l’agente.",
-    "agent_import.failed": "Impossibile importare l’agente."
+    "agent_import.failed": "Impossibile importare l’agente.",
+    "account_link_required": "Esiste già un account con questa email. Chiedi al tuo amministratore di collegarlo.",
+    "invite_link_required": "Questo metodo di accesso non può accettare il tuo invito. Usa il link di invito ricevuto via email o contatta il tuo amministratore.",
+    "integration.connected_elsewhere": "Questo account è già collegato a un'altra organizzazione in questa installazione. Scollegalo prima lì.",
+    "organization.multiple_not_enabled": "Questa installazione consente una sola organizzazione.",
+    "organization.create_instance_admin_required": "Solo un amministratore dell'istanza può creare un'organizzazione.",
+    "organization.create_license_required": "Per creare un'altra organizzazione serve una licenza Enterprise.",
+    "organization.name_required": "Inserisci un nome per l'organizzazione.",
+    "organization.name_too_long": "Il nome dell'organizzazione può contenere al massimo {max} caratteri.",
+    "organization.name_taken": "Esiste già un'organizzazione chiamata «{name}».",
+    "organization.signup_domains_instance_admin_required": "Solo un amministratore dell'istanza può assegnare domini di registrazione a un'organizzazione.",
+    "organization.signup_domain_claimed": "Il dominio {domain} è già assegnato a un'altra organizzazione.",
+    "organization.member_instance_admin": "Questo account appartiene a un amministratore dell'istanza. Solo un amministratore dell'istanza può aggiungerlo a un'organizzazione."
   },
   "email": {
     "dashboardShare": {
@@ -7761,5 +7774,25 @@
   "markdownTable": {
     "title": "Tabella",
     "copyFailed": "Impossibile copiare la tabella"
+  },
+  "createOrganization": {
+    "title": "Crea organizzazione",
+    "description": "Un'organizzazione separata, con membri, dati e impostazioni propri.",
+    "nameLabel": "Nome",
+    "namePlaceholder": "es. Finanza",
+    "nameRequired": "Inserisci un nome.",
+    "adminEmailLabel": "Email del primo amministratore",
+    "optional": "Facoltativo",
+    "adminEmailPlaceholder": "nome{'@'}azienda.it",
+    "adminEmailHint": "Invieremo a questa persona un invito a unirsi come amministratore. Anche tu sarai amministratore.",
+    "adminEmailInvalid": "Inserisci un indirizzo email valido.",
+    "submit": "Crea organizzazione",
+    "created": "Organizzazione «{name}» creata",
+    "switching": "Passaggio in corso…",
+    "inviteSent": "È stato inviato un invito a {email}.",
+    "inviteNoSmtp": "L'email non è configurata, quindi non è stato inviato alcun invito a {email}. Copia il link di invito dalla pagina Membri.",
+    "inviteNotSent": "Non è stato possibile inviare l'invito a {email}. Invita di nuovo la persona dalla pagina Membri.",
+    "adminAdded": "{email} è stato aggiunto come amministratore.",
+    "failed": "Impossibile creare l'organizzazione."
   }
 }

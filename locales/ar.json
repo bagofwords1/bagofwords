@@ -514,6 +514,7 @@
     "collapseSidebar": "طيّ الشريط الجانبي",
     "resizeSidebar": "تغيير حجم الشريط الجانبي",
     "switchOrganization": "تبديل المؤسسة",
+    "createOrganization": "إنشاء مؤسسة",
     "version": "الإصدار",
     "loggedInAs": "تم تسجيل الدخول باسم {name}",
     "prompts": "المطالبات",
@@ -4802,7 +4803,19 @@
     "agent_import.invalid_bundle": "هذا الملف ليس حزمة تصدير وكيل صالحة.",
     "agent_import.name_taken": "يوجد وكيل باسم «{name}» بالفعل.",
     "agent_import.no_connection": "اربط اتصالًا واحدًا على الأقل لاستيراد الوكيل.",
-    "agent_import.failed": "تعذر استيراد الوكيل."
+    "agent_import.failed": "تعذر استيراد الوكيل.",
+    "account_link_required": "يوجد حساب بهذا البريد الإلكتروني بالفعل. اطلب من المسؤول ربطه.",
+    "invite_link_required": "لا يمكن لطريقة تسجيل الدخول هذه قبول دعوتك. استخدم رابط الدعوة المرسل إلى بريدك الإلكتروني أو تواصل مع المسؤول.",
+    "integration.connected_elsewhere": "هذا الحساب متصل بالفعل بمؤسسة أخرى في هذا النظام. افصله هناك أولاً.",
+    "organization.multiple_not_enabled": "هذا النشر يسمح بمؤسسة واحدة فقط.",
+    "organization.create_instance_admin_required": "لا يمكن إنشاء مؤسسة إلا لمسؤول المثيل.",
+    "organization.create_license_required": "إنشاء مؤسسة أخرى يتطلب ترخيص Enterprise.",
+    "organization.name_required": "أدخل اسمًا للمؤسسة.",
+    "organization.name_too_long": "يمكن أن يتكون اسم المؤسسة من {max} حرفًا على الأكثر.",
+    "organization.name_taken": "توجد مؤسسة باسم «{name}» بالفعل.",
+    "organization.signup_domains_instance_admin_required": "لا يمكن تعيين نطاقات التسجيل لمؤسسة إلا لمسؤول المثيل.",
+    "organization.signup_domain_claimed": "النطاق {domain} معيّن بالفعل لمؤسسة أخرى.",
+    "organization.member_instance_admin": "هذا الحساب لمسؤول النظام. لا يمكن إضافته إلى مؤسسة إلا من قِبل مسؤول النظام."
   },
   "email": {
     "dashboardShare": {
@@ -7761,5 +7774,25 @@
   "markdownTable": {
     "title": "جدول",
     "copyFailed": "تعذر نسخ الجدول"
+  },
+  "createOrganization": {
+    "title": "إنشاء مؤسسة",
+    "description": "مؤسسة مستقلة لها أعضاؤها وبياناتها وإعداداتها الخاصة.",
+    "nameLabel": "الاسم",
+    "namePlaceholder": "مثال: المالية",
+    "nameRequired": "أدخل اسمًا.",
+    "adminEmailLabel": "البريد الإلكتروني للمسؤول الأول",
+    "optional": "اختياري",
+    "adminEmailPlaceholder": "name{'@'}company.com",
+    "adminEmailHint": "سنرسل إلى هذا الشخص دعوة للانضمام بصفة مسؤول. ستكون أنت أيضًا مسؤولًا.",
+    "adminEmailInvalid": "أدخل عنوان بريد إلكتروني صالحًا.",
+    "submit": "إنشاء المؤسسة",
+    "created": "تم إنشاء المؤسسة «{name}»",
+    "switching": "جارٍ الانتقال إليها…",
+    "inviteSent": "تم إرسال دعوة إلى {email}.",
+    "inviteNoSmtp": "البريد الإلكتروني غير مُعَدّ، لذلك لم تُرسل دعوة إلى {email}. انسخ رابط الدعوة من صفحة الأعضاء.",
+    "inviteNotSent": "تعذّر إرسال الدعوة إلى {email}. أعد دعوته من صفحة الأعضاء.",
+    "adminAdded": "تمت إضافة {email} بصفة مسؤول.",
+    "failed": "تعذّر إنشاء المؤسسة."
   }
 }
