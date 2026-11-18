@@ -58,6 +58,14 @@ def test_switching_method_keeps_only_what_the_new_method_owns(ds_type, old_schem
 
 
 @pytest.mark.parametrize("ds_type,old_schema,new,new_schema", SWITCHES)
-def test_a_connection_that_names_no_method_keeps_everything(ds_type, old_schema, new, new_schema):
+def test_a_connection_that_names_no_method_keeps_its_fields(ds_type, old_schema, new, new_schema):
+    """Without a saved method only a deployment-identity marker goes: that
+    method must be chosen by name, where the operator's switch is checked."""
+    options = REGISTRY[ds_type].credentials_auth
+    system = [v for v in options.by_auth.values() if "system" in (v.scopes or [])]
+    ungated = {f for v in system if not v.requires_security_flag for f in v.schema.model_fields}
     saved = {name: "x" for name in {*old_schema.model_fields, *new_schema.model_fields}}
-    assert credentials_for_auth_method(ds_type, None, saved) == saved
+
+    kept = credentials_for_auth_method(ds_type, None, saved)
+
+    assert {k: v for k, v in saved.items() if k in ungated or k.startswith("oauth_")} == kept

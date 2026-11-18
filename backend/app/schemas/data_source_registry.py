@@ -3559,18 +3559,21 @@ def credentials_for_auth_method(
     answer, so keep only what that method (or no method in particular) owns.
 
     Conservative on purpose: nothing is removed unless the connector opted in
-    (`AuthOptions.exclusive_methods`), the connection names its method, and
-    that method is a known system-scope variant that declares its fields (a
+    (`AuthOptions.exclusive_methods`) and the selected method is a known
+    system-scope variant that declares its fields (a
     schema accepting extras keeps everything). Only fields declared by another
     system-scope variant are dropped; `oauth_*` sign-in overrides are shared
     and always kept.
 
-    A connection without `auth_type` keeps everything: it predates the method
-    picker or was created through the API, and its fields — not the
-    registry's default method — are what it actually connects with.
+    A connection without `auth_type` predates the method picker or was
+    created through the API; its fields, not the registry's default method,
+    are what it connects with, so they are kept — except the fields of a
+    method that borrows the deployment's own identity
+    (`requires_security_flag`). That method has to be chosen by name, where
+    the operator's switch is checked; a stray marker must not select it.
     """
     creds = dict(credentials or {})
-    if not ds_type or not auth_type:
+    if not ds_type:
         return creds
     try:
         options = get_entry(ds_type).credentials_auth
@@ -3578,6 +3581,14 @@ def credentials_for_auth_method(
         return creds
     if not options.exclusive_methods:
         return creds
+    if not auth_type:
+        gated: set[str] = set()
+        ungated: set[str] = set()
+        for variant in options.by_auth.values():
+            if "system" in (variant.scopes or []):
+                (gated if variant.requires_security_flag else ungated).update(variant.schema.model_fields)
+        drop = gated - ungated
+        return {k: v for k, v in creds.items() if k not in drop or k.startswith("oauth_")}
     selected = options.by_auth.get(auth_type)
     if selected is None or "system" not in (selected.scopes or []):
         return creds

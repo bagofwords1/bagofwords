@@ -284,7 +284,7 @@ def test_switching_back_to_a_key_drops_the_keyless_marker(auth_type):
 
 def test_connectors_that_did_not_opt_in_keep_every_stored_field():
     stored = {"user": "u", "password": "p", "private_key_pem": "k", "use_kerberos": True, "anything": 1}
-    for ds_type, auth in (("snowflake", "keypair"), ("MSSQL", "userpass"), ("postgresql", None), ("no_such_type", "x")):
+    for ds_type, auth in (("custom_api", "bearer"), ("remote_ssh", "key"), ("postgresql", None), ("no_such_type", "x")):
         assert credentials_for_auth_method(ds_type, auth, stored) == stored
 
 
