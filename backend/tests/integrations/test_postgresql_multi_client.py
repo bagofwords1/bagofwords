@@ -441,6 +441,22 @@ def test_client_without_a_connection_keeps_its_engine_to_itself(multi_tenant_ser
     assert _wait_for(lambda: _reader_connections(multi_tenant_server, tenants) == 0, timeout=5)
 
 
+def test_tenant_whose_catalog_read_is_incomplete_gets_a_readable_reason(multi_tenant_server, monkeypatch):
+    real = PostgresqlClient.get_tables
+
+    def partial(self, progress_callback=None):
+        if self.database == "tenant_old":
+            raise RuntimeError("catalog listing stopped part-way")
+        return real(self, progress_callback=progress_callback)
+
+    monkeypatch.setattr(PostgresqlClient, "get_tables", partial)
+    client = _client(multi_tenant_server)
+    client.get_schemas()
+
+    reasons = {d["name"]: d["reason"] for d in client.index_stats()["unreadable_datasets"]}
+    assert "incomplete" in reasons["tenant_old"]
+
+
 def test_agents_with_different_tables_share_one_engine_and_keep_their_own_scope(multi_tenant_server, monkeypatch):
     stored = _as_stored(_client(multi_tenant_server).get_schemas())
     invalidate_engines()

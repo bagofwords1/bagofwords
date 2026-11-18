@@ -161,7 +161,7 @@ class PostgresqlMultiClient(DataSourceClient):
     def _unreadable_reason(self, client: PostgresqlClient, error: Exception) -> str:
         probe = client.test_connection()
         if probe.get("success"):
-            return failure_category(error)
+            return failure_category(error, default="discovery incomplete")
         return failure_category(str(probe.get("message") or ""), default="connection failed")
 
     def _with_exact_types(self, client: PostgresqlClient, tables: list[Table]) -> list[Table]:
