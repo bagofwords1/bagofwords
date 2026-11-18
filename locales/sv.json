@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Visa Värld i Agenter"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Sök filer…",
@@ -3489,6 +3488,10 @@
         "allow_access_requests": {
           "name": "Tillåt åtkomstbegäranden",
           "description": "Låt medlemmar be en instrumentpanels redigerare om visningsåtkomst från sidan utan åtkomst. När det är av visar sidan bara ägaren och inga nya begäranden kan skickas; redan skickade begäranden går fortfarande att besvara."
+        },
+        "show_world": {
+          "name": "Världsvy",
+          "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
         }
       }
     },

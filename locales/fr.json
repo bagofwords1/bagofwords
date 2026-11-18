@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Afficher Monde dans Agents"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Rechercher des fichiers…",
@@ -3489,6 +3488,10 @@
         "allow_access_requests": {
           "name": "Autoriser les demandes d'accès",
           "description": "Permet aux membres de demander l'accès en lecture aux éditeurs d'un tableau de bord depuis la page sans accès. Désactivé, la page indique seulement le propriétaire et aucune nouvelle demande ne peut être envoyée ; les demandes déjà envoyées restent traitables."
+        },
+        "show_world": {
+          "name": "Vue Monde",
+          "description": "Affiche sur la page Agents un interrupteur qui ouvre Monde : une carte des agents, des connaissances, des sources et du travail qui relient votre organisation. Chaque utilisateur ne voit que ce à quoi il a accès."
         }
       }
     },

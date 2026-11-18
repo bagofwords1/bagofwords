@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Mostra Mondo in Agenti"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Cerca file…",
@@ -3489,6 +3488,10 @@
         "allow_access_requests": {
           "name": "Consenti richieste di accesso",
           "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
+        },
+        "show_world": {
+          "name": "Vista Mondo",
+          "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
         }
       }
     },

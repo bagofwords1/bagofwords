@@ -46,7 +46,8 @@ async def world(
     config = await db.scalar(
         select(OrganizationSettings.config).where(OrganizationSettings.organization_id == organization.id)
     )
-    if (config or {}).get("general", {}).get("show_world") is not True:
+    entry = (config or {}).get("show_world")
+    if not (isinstance(entry, dict) and entry.get("value") is True):
         raise HTTPException(404)
     ids = {"agent": agent_id, "folder": folder_id, "report": report_id}
     if section in ids and not ids[section]:

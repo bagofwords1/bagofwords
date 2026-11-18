@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Show World in Agents"
+    "stopLoading": "Stop loading"
   },
   "folderRemoval": {
     "danger": "Danger zone",
@@ -3982,6 +3981,10 @@
         "allow_access_requests": {
           "name": "Allow access requests",
           "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."
+        },
+        "show_world": {
+          "name": "World view",
+          "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
         }
       }
     },
