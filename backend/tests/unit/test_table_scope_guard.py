@@ -130,6 +130,25 @@ def test_dialect_features_over_active_tables_still_run(sql, dialect):
     check_table_scope(sql, dialect, SCOPE)
 
 
+POSTGRES_ROW_FUNCTIONS = [
+    "json_to_record(o.j) AS r(a int)",
+    "jsonb_to_record(o.j) AS r(a int)",
+    "json_populate_record(null::sales.orders, o.j) r",
+    "jsonb_populate_record(null::sales.orders, o.j) r",
+    "jsonb_path_query(o.j, '$.items[*]') r",
+    "json_object_keys(o.j) k",
+    "jsonb_object_keys(o.j) k",
+    "generate_subscripts(o.arr, 1) s",
+    "json_to_recordset(o.j) AS r(a int)",
+]
+
+
+@pytest.mark.parametrize("join", ["{src}, LATERAL {fn}", "{src} LEFT JOIN LATERAL {fn} ON true", "{src}, {fn}"])
+@pytest.mark.parametrize("fn", POSTGRES_ROW_FUNCTIONS)
+def test_postgres_row_functions_over_an_active_table_still_run(fn, join):
+    check_table_scope("SELECT * FROM " + join.format(src="sales.orders o", fn=fn), "postgres", SCOPE)
+
+
 @pytest.mark.parametrize("dialect", ["snowflake", "postgres", "mysql"])
 @pytest.mark.parametrize("sql", [
     "SHOW TABLES",

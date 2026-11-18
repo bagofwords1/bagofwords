@@ -130,7 +130,9 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "jsonb_to_recordset", "json_populate_recordset", "jsonb_populate_recordset",
     "json_table", "openjson", "string_split", "generate_array",
     "generate_date_array", "generate_timestamp_array", "json_tuple", "stack",
-    "regexp_matches",
+    "regexp_matches", "json_to_record", "jsonb_to_record", "json_populate_record",
+    "jsonb_populate_record", "jsonb_path_query", "json_object_keys",
+    "jsonb_object_keys", "generate_subscripts",
 })
 
 # Functions that read a table named in a string, run SQL held in a string, or
