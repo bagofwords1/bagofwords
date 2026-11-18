@@ -493,6 +493,26 @@ class AuditConfig(BaseModel):
     platform_stream: AuditPlatformStream = AuditPlatformStream()
 
 
+class SystemLogsConfig(BaseModel):
+    """Settings → System logs: the server's own log lines, kept as files.
+
+    Every worker process appends to its own files in ``directory``. Point it at
+    storage every replica shares (the Docker image's ``logs`` volume, or a
+    ReadWriteMany volume on Kubernetes) so the page shows every instance's
+    lines. A relative path is resolved against the backend's working directory.
+    """
+    # Env: BOW_SYSTEM_LOGS_DIR.
+    directory: str = Field(default_factory=lambda: os.getenv("BOW_SYSTEM_LOGS_DIR", "logs/system"))
+    # Files whose newest line is older than this are deleted. Env: BOW_SYSTEM_LOGS_RETENTION_DAYS.
+    retention_days: int = Field(
+        default_factory=lambda: int(os.getenv("BOW_SYSTEM_LOGS_RETENTION_DAYS", "7")), ge=1,
+    )
+    # Above this total the oldest files are deleted first. Env: BOW_SYSTEM_LOGS_MAX_SIZE_MB.
+    max_size_mb: int = Field(
+        default_factory=lambda: int(os.getenv("BOW_SYSTEM_LOGS_MAX_SIZE_MB", "1024")), ge=16,
+    )
+
+
 def _storage_env(name: str, default: str = "") -> str:
     return os.getenv(f"BOW_STORAGE_{name}", default).strip()
 
@@ -637,6 +657,7 @@ class BowConfig(BaseModel):
     i18n: I18nConfig = I18nConfig()
     security: SecurityConfig = SecurityConfig()
     audit: AuditConfig = AuditConfig()
+    system_logs: SystemLogsConfig = Field(default_factory=SystemLogsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     mcp_apps: McpAppsConfig = Field(default_factory=McpAppsConfig)
 

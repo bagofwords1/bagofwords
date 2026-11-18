@@ -311,6 +311,13 @@
         }
       }
     },
+    "systemLogs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": { "type": "string", "minLength": 1 }
+      }
+    },
     "podSecurityContext": { "type": "object", "additionalProperties": true },
     "containerSecurityContext": { "type": "object", "additionalProperties": true },
     "lifecycle": { "type": "object", "additionalProperties": true },
