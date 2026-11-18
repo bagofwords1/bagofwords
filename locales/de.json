@@ -4494,6 +4494,22 @@
     "madeWith": "Erstellt mit {brand}",
     "fork": "Kopie erstellen"
   },
+  "sharedConversation": {
+    "loading": "Unterhaltung wird geladen…",
+    "signInTitle": "Anmeldung erforderlich",
+    "signInBody": "Melde dich an, um diese Unterhaltung zu sehen.",
+    "signIn": "Anmelden",
+    "deniedTitle": "Zugriff verweigert",
+    "deniedBody": "Du hast keine Berechtigung, diese Unterhaltung zu sehen. Bitte den Besitzer, sie mit dir zu teilen.",
+    "goHome": "Zur Startseite",
+    "notFoundTitle": "Unterhaltung nicht gefunden",
+    "notFoundBody": "Diese Unterhaltung wird möglicherweise nicht mehr geteilt oder existiert nicht.",
+    "byAuthor": "von {name}",
+    "fork": "Abzweigen",
+    "forking": "Wird abgezweigt…",
+    "loadOlder": "Ältere Nachrichten laden",
+    "poweredBy": "Bereitgestellt von {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Befehlsregeln erfordern ein Remote-Shell-Werkzeug.",
     "shell_rules.invalid": "Ungültige Befehlsregeln.",

@@ -5076,6 +5076,22 @@
     "madeWith": "נוצר באמצעות {brand}",
     "fork": "יצירת עותק"
   },
+  "sharedConversation": {
+    "loading": "השיחה נטענת…",
+    "signInTitle": "נדרשת התחברות",
+    "signInBody": "יש להתחבר כדי לצפות בשיחה הזו.",
+    "signIn": "התחברות",
+    "deniedTitle": "אין הרשאה",
+    "deniedBody": "אין לך הרשאה לצפות בשיחה הזו. אפשר לבקש מהבעלים לשתף אותה.",
+    "goHome": "לדף הבית",
+    "notFoundTitle": "השיחה לא נמצאה",
+    "notFoundBody": "ייתכן שהשיתוף של השיחה בוטל או שהיא אינה קיימת.",
+    "byAuthor": "מאת {name}",
+    "fork": "יצירת עותק",
+    "forking": "יצירת עותק…",
+    "loadOlder": "טעינת הודעות קודמות",
+    "poweredBy": "מופעל על ידי {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "כללי פקודות דורשים כלי מעטפת מרוחק.",
     "shell_rules.invalid": "כללי פקודות לא תקינים.",

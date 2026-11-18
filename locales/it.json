@@ -4494,6 +4494,22 @@
     "madeWith": "Realizzato con {brand}",
     "fork": "Crea copia"
   },
+  "sharedConversation": {
+    "loading": "Caricamento conversazione…",
+    "signInTitle": "Accesso richiesto",
+    "signInBody": "Devi accedere per visualizzare questa conversazione.",
+    "signIn": "Accedi",
+    "deniedTitle": "Accesso negato",
+    "deniedBody": "Non hai l'autorizzazione per visualizzare questa conversazione. Chiedi al proprietario di condividerla con te.",
+    "goHome": "Vai alla home",
+    "notFoundTitle": "Conversazione non trovata",
+    "notFoundBody": "Questa conversazione potrebbe non essere più condivisa o non esistere.",
+    "byAuthor": "di {name}",
+    "fork": "Duplica",
+    "forking": "Duplicazione…",
+    "loadOlder": "Carica messaggi precedenti",
+    "poweredBy": "Con tecnologia {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Le regole dei comandi richiedono uno strumento shell remoto.",
     "shell_rules.invalid": "Regole dei comandi non valide.",

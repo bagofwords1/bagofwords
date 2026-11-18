@@ -4494,6 +4494,22 @@
     "madeWith": "Créé avec {brand}",
     "fork": "Créer une copie"
   },
+  "sharedConversation": {
+    "loading": "Chargement de la conversation…",
+    "signInTitle": "Connexion requise",
+    "signInBody": "Vous devez vous connecter pour voir cette conversation.",
+    "signIn": "Se connecter",
+    "deniedTitle": "Accès refusé",
+    "deniedBody": "Vous n'avez pas l'autorisation de voir cette conversation. Demandez au propriétaire de la partager avec vous.",
+    "goHome": "Accueil",
+    "notFoundTitle": "Conversation introuvable",
+    "notFoundBody": "Cette conversation n'est peut-être plus partagée ou n'existe pas.",
+    "byAuthor": "par {name}",
+    "fork": "Dupliquer",
+    "forking": "Duplication…",
+    "loadOlder": "Charger les messages précédents",
+    "poweredBy": "Propulsé par {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Les règles de commande nécessitent un outil shell distant.",
     "shell_rules.invalid": "Règles de commande non valides.",

@@ -5076,6 +5076,22 @@
     "madeWith": "Hecho con {brand}",
     "fork": "Crear copia"
   },
+  "sharedConversation": {
+    "loading": "Cargando conversación…",
+    "signInTitle": "Inicio de sesión requerido",
+    "signInBody": "Debes iniciar sesión para ver esta conversación.",
+    "signIn": "Iniciar sesión",
+    "deniedTitle": "Acceso denegado",
+    "deniedBody": "No tienes permiso para ver esta conversación. Pide al propietario que la comparta contigo.",
+    "goHome": "Ir al inicio",
+    "notFoundTitle": "Conversación no encontrada",
+    "notFoundBody": "Es posible que esta conversación ya no se comparta o que no exista.",
+    "byAuthor": "por {name}",
+    "fork": "Bifurcar",
+    "forking": "Bifurcando…",
+    "loadOlder": "Cargar mensajes anteriores",
+    "poweredBy": "Con la tecnología de {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Las reglas de comandos requieren una herramienta de shell remota.",
     "shell_rules.invalid": "Reglas de comandos no válidas.",

@@ -4494,6 +4494,22 @@
     "madeWith": "Skapad med {brand}",
     "fork": "Skapa kopia"
   },
+  "sharedConversation": {
+    "loading": "Laddar konversation…",
+    "signInTitle": "Inloggning krävs",
+    "signInBody": "Du måste logga in för att se den här konversationen.",
+    "signIn": "Logga in",
+    "deniedTitle": "Åtkomst nekad",
+    "deniedBody": "Du har inte behörighet att se den här konversationen. Be ägaren att dela den med dig.",
+    "goHome": "Till startsidan",
+    "notFoundTitle": "Konversationen hittades inte",
+    "notFoundBody": "Konversationen kan ha slutat delas eller finns inte.",
+    "byAuthor": "av {name}",
+    "fork": "Förgrena",
+    "forking": "Förgrenar…",
+    "loadOlder": "Läs in äldre meddelanden",
+    "poweredBy": "Drivs av {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Kommandoregler kräver ett fjärrskalverktyg.",
     "shell_rules.invalid": "Ogiltiga kommandoregler.",

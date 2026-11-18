@@ -3,7 +3,7 @@
         <!-- Loading state -->
         <div v-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400">
             <Spinner class="w-5 h-5 me-2" />
-            <span class="text-sm">Loading conversation…</span>
+            <span class="text-sm">{{ $t('sharedConversation.loading') }}</span>
         </div>
 
         <!-- Access error state -->
@@ -11,20 +11,20 @@
             <div class="text-center max-w-md mx-auto px-6">
                 <Icon :name="accessError === 'login' ? 'heroicons:lock-closed' : 'heroicons:shield-exclamation'" class="w-12 h-12 text-ink-muted mx-auto mb-4" />
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-                    {{ accessError === 'login' ? 'Sign in required' : 'Access denied' }}
+                    {{ accessError === 'login' ? $t('sharedConversation.signInTitle') : $t('sharedConversation.deniedTitle') }}
                 </h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
                     {{ accessError === 'login'
-                        ? 'You need to sign in to view this conversation.'
-                        : 'You don\'t have permission to view this conversation. Ask the owner to share it with you.' }}
+                        ? $t('sharedConversation.signInBody')
+                        : $t('sharedConversation.deniedBody') }}
                 </p>
                 <a v-if="accessError === 'login'" :href="`/users/sign-in?redirect=/c/${$route.params.token}`"
                     class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">
-                    Sign in
+                    {{ $t('sharedConversation.signIn') }}
                 </a>
                 <a v-else href="/"
                     class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
-                    Go home
+                    {{ $t('sharedConversation.goHome') }}
                 </a>
             </div>
         </div>
@@ -33,8 +33,8 @@
         <div v-else-if="error" class="flex-1 flex items-center justify-center">
             <div class="text-center">
                 <Icon name="heroicons:exclamation-circle" class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-                <h1 class="text-lg font-medium text-gray-700 dark:text-gray-300">Conversation not found</h1>
-                <p class="text-sm text-ink-muted mt-1">This conversation may have been unshared or doesn't exist.</p>
+                <h1 class="text-lg font-medium text-gray-700 dark:text-gray-300">{{ $t('sharedConversation.notFoundTitle') }}</h1>
+                <p class="text-sm text-ink-muted mt-1">{{ $t('sharedConversation.notFoundBody') }}</p>
             </div>
         </div>
 
@@ -44,8 +44,8 @@
             <header class="flex-none border-b border-gray-100 dark:border-gray-800 py-5 px-4 bg-white dark:bg-gray-900 z-10">
                 <div class="max-w-chat mx-auto flex items-start justify-between">
                     <div>
-                        <h1 v-text-dir class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || 'Untitled' }}</h1>
-                        <p class="text-xs text-ink-muted mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
+                        <h1 v-text-dir class="text-base font-medium text-gray-900 dark:text-white">{{ conversation.title || $t('reportView.untitled') }}</h1>
+                        <p class="text-xs text-ink-muted mt-1">{{ $t('sharedConversation.byAuthor', { name: conversation.user_name }) }} · {{ formatDate(conversation.created_at) }}</p>
                     </div>
                     <!-- Fork button -->
                     <button
@@ -55,7 +55,7 @@
                         class="flex items-center gap-1 text-xs text-ink-muted hover:text-gray-600 transition-colors disabled:opacity-50 mt-1"
                     >
                         <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
-                        <span>{{ isForking ? 'Forking...' : 'Fork' }}</span>
+                        <span>{{ isForking ? $t('sharedConversation.forking') : $t('sharedConversation.fork') }}</span>
                     </button>
                 </div>
             </header>
@@ -69,7 +69,7 @@
                 <!-- Loading more indicator -->
                 <div v-if="isLoadingMore" class="flex justify-center py-3 mb-4">
                     <Spinner class="w-4 h-4 text-ink-muted" />
-                    <span class="text-xs text-ink-muted ms-2">Loading older messages…</span>
+                    <span class="text-xs text-ink-muted ms-2">{{ $t('reportView.loadingOlderMessages') }}</span>
                 </div>
 
                 <!-- Load more button (shown when there's more to load) -->
@@ -78,21 +78,21 @@
                         @click="loadPreviousCompletions"
                         class="text-xs text-ink-muted hover:text-gray-600 transition-colors"
                     >
-                        ↑ Load older messages
+                        ↑ {{ $t('sharedConversation.loadOlder') }}
                     </button>
                 </div>
 
                 <ul class="max-w-chat mx-auto space-y-4">
-                    <li v-for="m in visibleCompletions" :key="m.id" class="text-gray-700 dark:text-gray-300 text-chat" :dir="m.role === 'user' ? undefined : messageDirs.get(String(m.id))">
+                    <ResponseLanguageScope v-for="m in visibleCompletions" :key="m.id" :locale="m.prompt?.response_locale" :question-dir="replyDirHints.get(String(m.id))" :blocks="m.completion_blocks" v-slot="{ t: responseT, dir: responseDir }" class="text-gray-700 dark:text-gray-300 text-chat">
                         <!-- Scheduled prompt indicator -->
                         <div v-if="m.scheduled_prompt_id && m.role === 'user'" class="mb-2">
                             <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900">
                                 <Icon name="heroicons-clock" class="w-3.5 h-3.5" />
-                                <span class="font-medium text-gray-500 dark:text-gray-400">Scheduled run</span>
+                                <span class="font-medium text-gray-500 dark:text-gray-400">{{ $t('reportView.scheduledRun') }}</span>
                                 <span class="text-gray-300 dark:text-gray-600">{{ formatDateTime(m.created_at) }}</span>
                             </div>
                         </div>
-                        <div v-else class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
+                        <div v-else class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'" :dir="m.role === 'user' ? undefined : responseDir">
                             <!-- User message (right-aligned bubble) -->
                             <template v-if="m.role === 'user'">
                                 <div class="flex items-start gap-2 max-w-xl w-full mb-4">
@@ -138,7 +138,7 @@
                                                 />
                                             </Transition>
                                             <!-- Keep prose visible when only this verification step is collapsed. -->
-                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
                                                 <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block)">
@@ -147,7 +147,7 @@
                                                 <div class="thinking-header" @click="toggleReasoning(block.id)">
                                                     <Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-ink-muted rtl-flip" />
                                                     <span v-if="hasCompletedContent(block) || block.tool_execution" class="ms-1">
-                                                        {{ getThoughtProcessLabel(block) }}
+                                                        {{ getThoughtProcessLabel(block, responseT) }}
                                                     </span>
                                                     <span v-else class="ms-1">
                                                         <div class="dots" />
@@ -165,14 +165,14 @@
                                                             />
                                                         </template>
                                                         <template v-else-if="block.status === 'stopped'">
-                                                            <div class="text-ink-muted italic">Generation was stopped before completion.</div>
+                                                            <div class="text-ink-muted italic">{{ responseT('reportView.generationStoppedBefore') }}</div>
                                                         </template>
                                                     </div>
                                                 </Transition>
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
                                                 <MarkdownRender
                                                     :content="block.content || block.plan_decision?.assistant || ''"
                                                     :final="true"
@@ -183,7 +183,7 @@
                                             </div>
 
                                             <!-- 3. Tool execution -->
-                                            <div v-if="block.tool_execution" class="tool-execution-container">
+                                            <div v-if="block.tool_execution" class="tool-execution-container text-start" :dir="responseDir">
                                                 <component
                                                     v-if="shouldUseToolComponent(block.tool_execution)"
                                                     :is="getToolComponent(block.tool_execution.tool_name)"
@@ -204,19 +204,19 @@
                                                         </span>
                                                         <div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ms-2 mt-1 text-xs text-ink-muted bg-gray-50 dark:bg-gray-900 p-2 rounded">
                                                             <div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-                                                            <div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+                                                            <div v-if="block.tool_execution.duration_ms">{{ responseT('reportView.duration', { ms: block.tool_execution.duration_ms }) }}</div>
                                                         </div>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             <!-- Tool widget preview (readonly) -->
-                                            <div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+                                            <div class="tool-preview mt-1 text-start" :dir="responseDir" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
                                                 <ToolWidgetPreview :tool-execution="block.tool_execution" :readonly="true" />
                                             </div>
 
                                             <!-- 4. Final answer -->
-                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
+                                            <div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
                                                 <MarkdownRender
                                                     :content="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''"
                                                     :final="true"
@@ -243,23 +243,23 @@
                                     <!-- Status messages -->
                                     <div v-if="m.status === 'stopped'" class="text-xs text-gray-500 dark:text-gray-400 mt-2 italic">
                                         <Icon name="heroicons-stop-circle" class="w-4 h-4 inline me-1" />
-                                        Generation stopped
+                                        {{ responseT('reportView.generationStopped') }}
                                     </div>
                                     <div v-else-if="m.status === 'error'" class="text-xs text-gray-500 dark:text-gray-400">
                                         <Icon name="heroicons-x-mark" class="w-4 h-4 inline me-1 text-red-500" />
-                                        <span class="italic">An error occurred</span>
+                                        <span class="italic">{{ responseT('reportView.anErrorOccurred') }}</span>
                                     </div>
                                 </div>
                             </template>
                         </div>
-                    </li>
+                    </ResponseLanguageScope>
                 </ul>
             </div>
 
             <!-- Footer -->
             <footer class="flex-none border-t border-gray-100 dark:border-gray-800 py-2 text-center bg-white dark:bg-gray-900 z-10">
                 <a href="https://bagofwords.com" target="_blank" class="text-2xs text-gray-300 dark:text-gray-600 hover:text-ink-muted transition-colors">
-                    Powered by BOW
+                    {{ $t('sharedConversation.poweredBy', { brand: 'BOW' }) }}
                 </a>
             </footer>
         </template>
@@ -353,7 +353,8 @@ import ListConnectionsTool from '~/components/tools/ListConnectionsTool.vue'
 import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
-import { decideMessageDir, dominantTextDir, localeTextDir, type TextDir } from '~/utils/textDirection'
+import { dominantTextDir, localeTextDir, type TextDir } from '~/utils/textDirection'
+import ResponseLanguageScope from '~/components/report/ResponseLanguageScope.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
@@ -423,11 +424,29 @@ const visibleCompletions = computed<any[]>(() =>
 // Prompt bubbles take the direction of their own words (a nested
 // `dir="auto"` pair resolves LTR — see docs/design/i18n.md "Content
 // direction"); each reply's question direction is the prior its message
-// direction starts from (messageDirs below).
+// direction starts from (ResponseLanguageScope).
 function promptDir(text?: string | null): TextDir | 'auto' {
     return dominantTextDir((text || '').replace(/@\S+/g, ' ')) || 'auto'
 }
 const { locale: uiLocale } = useI18n({ useScope: 'global' })
+
+// This page renders with `layout: false`, so layouts/default.vue — where the
+// org locale is applied — never runs here, and an anonymous viewer has no
+// session to ask for it. /api/c/{token} returns the sharing org's locale
+// instead. A personal choice (`bow.locale`) still wins. Applied for this page
+// view only: going through $setLocale would persist the org's language as the
+// viewer's own choice.
+async function applySharedLocale(code?: string | null) {
+    if (!code || code === uiLocale.value) return
+    let personal: string | null = null
+    try { personal = localStorage.getItem('bow.locale') } catch {}
+    if (personal) return
+    const { $loadLocaleMessages } = useNuxtApp() as any
+    if (typeof $loadLocaleMessages !== 'function' || !(await $loadLocaleMessages(code))) return
+    uiLocale.value = code
+    document.documentElement.setAttribute('lang', code)
+    document.documentElement.setAttribute('dir', localeTextDir(code))
+}
 const replyDirHints = computed(() => {
     const hints = new Map<string, TextDir>()
     let last: TextDir | null = null
@@ -442,27 +461,12 @@ const replyDirHints = computed(() => {
     return hints
 })
 
-// One direction per reply (decideMessageDir): its saved response language,
-// else its question's direction, unless its prose is plainly the other
-// script. The reply's row, markdown blocks, tables, lists and tool cards all
-// take it, so a reply split by tool calls never ends up half LTR.
-const messageDirs = computed(() => {
-    const dirs = new Map<string, TextDir>()
-    const fallback = localeTextDir(String(uiLocale.value || 'en'))
-    for (const m of visibleCompletions.value) {
-        if (m.role === 'user') continue
-        const saved = (m.prompt as any)?.response_locale
-        dirs.set(String(m.id), decideMessageDir({
-            texts: (m.completion_blocks || [])
-                .filter((b: any) => b && b.phase !== 'knowledge_harness' && b.status !== 'error')
-                .map((b: any) => b.content || b.plan_decision?.final_answer || b.plan_decision?.assistant || ''),
-            saved: saved ? localeTextDir(saved) : null,
-            question: replyDirHints.value.get(String(m.id)) ?? null,
-            fallback,
-        }))
-    }
-    return dirs
-})
+// One direction per reply comes from ResponseLanguageScope (the same
+// component the report page wraps each message in): its saved response
+// language, else its question's direction (replyDirHints), unless its prose is
+// plainly the other script. The reply's row, markdown blocks, tool cards and
+// widget previews all take it, so a reply split by tool calls never ends up
+// half LTR; its labels follow the reply's language through `responseT`.
 
 // ---------------------------------------------------------------------------
 // The knowledge harness (the post-analysis reflection sub-loop) runs as its own
@@ -603,8 +607,10 @@ function hasCompletedContent(block: any): boolean {
     return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
-function getThoughtProcessLabel(block: any): string {
-    if (block.status === 'stopped') return 'Thought Process'
+// `t` is the reply's own translator (ResponseLanguageScope), so the label
+// reads in the reply's language like the rest of its row.
+function getThoughtProcessLabel(block: any, t: (key: string, values?: any) => string): string {
+    if (block.status === 'stopped') return t('reportView.thoughtProcess')
 
     // Measured reasoning: the planner's plus the tool's code generation, which
     // streams into this same block.
@@ -612,7 +618,7 @@ function getThoughtProcessLabel(block: any): string {
     const measured = [pm?.thinking_ms, block.tool_execution?.sub_timings_json?.codegen_reasoning_ms]
         .filter((ms: any) => typeof ms === 'number' && isFinite(ms) && ms >= 0)
     if (measured.length) {
-        return `Thought for ${Math.round(measured.reduce((a: number, b: number) => a + b, 0) / 1000)}s`
+        return t('reportView.thoughtForSeconds', { seconds: Math.round(measured.reduce((a: number, b: number) => a + b, 0) / 1000) })
     }
 
     if (block.started_at && block.completed_at) {
@@ -620,12 +626,12 @@ function getThoughtProcessLabel(block: any): string {
         const endTime = new Date(block.completed_at).getTime()
         const durationMs = endTime - startTime
         const durationSeconds = Math.round(durationMs / 1000)
-        if (durationSeconds > 1800) return 'Stopped'
-        return `Thought for ${durationSeconds}s`
+        if (durationSeconds > 1800) return t('reportView.stopped')
+        return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
     }
 
     // The tool's own duration is not reasoning time; it already shows on the tool row.
-    return 'Thought Process'
+    return t('reportView.thoughtProcess')
 }
 
 function getToolComponent(toolName: string) {
@@ -860,6 +866,7 @@ async function loadConversation() {
             return
         }
 
+        await applySharedLocale((data.value as any).locale)
         conversation.value = data.value
         hasMore.value = (data.value as any).has_more || false
         nextBefore.value = (data.value as any).next_before || null
