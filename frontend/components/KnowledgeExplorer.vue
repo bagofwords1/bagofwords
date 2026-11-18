@@ -149,7 +149,11 @@
           </template>
         </div>
 
-        <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <!-- Every drop target (top-level folders, the "Agents" root header,
+             instruction folders) sits near the top, so a drag that starts low
+             in a long list scrolls the tree when it nears an edge. -->
+        <div v-show="!pendingView && !searchResults" ref="treeScroll" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5"
+          @dragover.capture="treeAutoScroll.onDragOver" @dragenter.capture="treeAutoScroll.onDragOver" @dragleave="treeAutoScroll.onDragLeave" @drop.capture="treeAutoScroll.stop">
           <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" v-bind="rootDropzoneAttrs(GLOBAL_SCOPE)" :count="globalCount" :addable="canAddInstrFor()" :folderable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate({ global: true })" @folder="newDirectory(GLOBAL_SCOPE)">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-sm text-ink-muted" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
@@ -1633,6 +1637,10 @@ const startDragCase = (scope: string, caseId: string, e: DragEvent) => {
   try { e.dataTransfer?.setData('text/plain', caseId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
 }
 const endDrag = () => { drag.value = null; dropTarget.value = null }
+// Auto-scroll the tree for both drag kinds: instruction/folder/case drags
+// (drag above) and agent drags (owned by AgentFolders).
+const treeScroll = ref<HTMLElement | null>(null)
+const treeAutoScroll = useDragAutoScroll(treeScroll, { active: () => !!drag.value || !!folderExplorer.value?.dragged })
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
 const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
   const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
@@ -4438,7 +4446,10 @@ const DirNode = defineComponent({
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
         dropTarget.value = dropKey
       }
+      // An agent drag (no `drag` here) passes through untouched: the agent row
+      // around this folder is itself a drop zone for the agent tree.
       const onDragleave = (e: DragEvent) => {
+        if (!drag.value) return
         e.stopPropagation()
         // Ignore moves between this folder's own descendants (prevents flicker);
         // only clear when the cursor actually leaves the folder subtree.
@@ -4447,7 +4458,7 @@ const DirNode = defineComponent({
         if (rt && ct?.contains?.(rt)) return
         if (dropTarget.value === dropKey) dropTarget.value = null
       }
-      const onDrop = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
+      const onDrop = (e: DragEvent) => { if (!drag.value) return; e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
       const header = createElement('div', {
         draggable: props.canManage ? 'true' : undefined,
         class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0 cursor-pointer', dropActive ? treeDropTarget : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
@@ -4501,6 +4512,7 @@ const SuiteNode = defineComponent({
         },
         onDragleave: () => { if (dropTarget.value === key()) dropTarget.value = null },
         onDrop: (e: DragEvent) => {
+          if (!drag.value) return // agent drag: let the agent tree take it
           e.preventDefault(); e.stopPropagation()
           const d = drag.value
           dropTarget.value = null
