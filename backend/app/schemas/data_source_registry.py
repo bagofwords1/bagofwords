@@ -371,7 +371,7 @@ class AuthOptions(BaseModel):
     default: str
     by_auth: Dict[str, AuthVariant]
     # When the admin switches auth method, drop the stored fields that belong
-    # only to the method being left (see `credentials_after_auth_switch`).
+    # only to the method being left (see `credentials_for_auth_method`).
     # Needed wherever two methods would contradict each other if both were
     # present in the saved credentials. Opt-in per connector.
     exclusive_methods: bool = False
@@ -776,6 +776,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Query SAP BusinessObjects universes (the on-prem semantic layer) via the /biprws RESTful Web Service SDK. Auto-discovers universes and their dimensions and measures; security applies per signed-in user.",
         config_schema=BusinessObjectsConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="userpass",
             by_auth={
                 "userpass": AuthVariant(
@@ -816,6 +817,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud-based data warehousing platform that supports SQL queries.",
         config_schema=SnowflakeConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="userpass",
             by_auth={
                 "userpass": AuthVariant(
@@ -913,7 +915,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Salesforce",
         description="Cloud-based CRM platform for sales, service, marketing, and more.",
         config_schema=SalesforceConfig,
-        credentials_auth=AuthOptions(default="jwt", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="jwt", by_auth={
             "jwt": AuthVariant(title="Connected App (JWT Bearer)", schema=SalesforceJWTCredentials, scopes=["system"]),
             # Same Connected App, no certificate and no username: the org sets
             # a Run As user on the app, so the caller supplies key + secret
@@ -970,7 +972,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Priority ERP",
         description="Priority Software ERP (cloud and on-premise). Query orders, customers, parts, invoices and custom forms via the OData REST API.",
         config_schema=PriorityErpConfig,
-        credentials_auth=AuthOptions(default="pat", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="pat", by_auth={
             # PAT is Priority's own recommendation for server-to-server clients
             # and is the only mode available in BOTH cloud and on-prem. The
             # `user` scope is bring-your-own-token: in Priority Cloud there is
@@ -996,7 +998,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Microsoft Configuration Manager (SCCM)",
         description="Microsoft Configuration Manager (SCCM / MECM / ConfigMgr). Query devices, collections, hardware and software inventory, applications, deployments and software update compliance via the AdminService REST API. Read-only.",
         config_schema=MecmConfig,
-        credentials_auth=AuthOptions(default="ntlm", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="ntlm", by_auth={
             # The SMS Provider only speaks Windows auth. NTLM also offers the
             # user scope: each person's own CM security scopes then filter what
             # they see (bring-your-own Windows credentials).
@@ -1038,7 +1040,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="AppDynamics",
         description="APM platform (Cisco / Splunk AppDynamics). Query applications, tiers, the service map, business transactions, metrics, events and health-rule violations via the Controller REST API.",
         config_schema=AppDynamicsConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="userpass", by_auth={
             # Basic auth with the account-qualified login (user@account) — the
             # default for locked-down on-prem controllers that cannot issue an
             # API client. Per-user scope = bring-your-own credentials.
@@ -1072,7 +1074,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Zabbix",
         description="Open-source monitoring platform. Query hosts, metrics, triggers, active problems, events, and metric history via the JSON-RPC API.",
         config_schema=ZabbixConfig,
-        credentials_auth=AuthOptions(default="token", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="token", by_auth={
             # API token (Bearer) — recommended, incl. SSO orgs (SSO users still
             # mint a personal token). Per-user scope = bring-your-own token.
             "token": AuthVariant(title="API Token", schema=ZabbixTokenCredentials, scopes=["system", "user"]),
@@ -1112,7 +1114,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Check Point Management",
         description="Investigate firewall policy and gateway incidents with read-only hosts, networks, groups, services, access and NAT rulebases, gateways, sessions and logs via the Management API. Simulator-verified; customer validation required.",
         config_schema=CheckPointConfig,
-        credentials_auth=AuthOptions(default="api_key", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="api_key", by_auth={
             "api_key": AuthVariant(title="API key", schema=CheckPointApiKeyCredentials, scopes=["system", "user"]),
             "userpass": AuthVariant(title="Username / Password", schema=CheckPointUserPassCredentials, scopes=["system", "user"]),
         }),
@@ -1149,7 +1151,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Cisco ACI (APIC)",
         description="Investigate data center fabric incidents with read-only fabric nodes, faults, events, audit log, interfaces, vPC, BGP/IS-IS/OSPF adjacencies, endpoints, tenants, EPGs, contracts, firmware and health via the APIC REST API. Simulator-verified; customer validation required.",
         config_schema=CiscoApicConfig,
-        credentials_auth=AuthOptions(default="certificate", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="certificate", by_auth={
             # Signature auth is for local service users; one shared identity.
             "certificate": AuthVariant(title="Certificate (signed requests)", schema=CiscoApicCertificateCredentials, scopes=["system"]),
             "userpass": AuthVariant(title="Username / Password", schema=CiscoApicPasswordCredentials, scopes=["system", "user"]),
@@ -1242,7 +1244,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="DX NetOps Spectrum",
         description="Broadcom DX NetOps Spectrum (CA Spectrum) network fault management: device and interface inventory, current alarms with root-cause/symptom links, event history and topology (connectivity, associations) via the OneClick Web Services API — for network RCA.",
         config_schema=SpectrumConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="userpass", by_auth={
             # Basic auth with a LOCAL Spectrum user works on every supported
             # version (also with SAML/SSO on); bearer tokens are minted by an
             # admin in OneClick → Token Configuration from 24.3.10. Both are
@@ -1263,6 +1265,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Search & observability engine. Investigate logs and metrics across indices, patterns, and data streams with the query DSL, aggregations, SQL, or ES|QL — and, with a Kibana URL configured, replay the team's Kibana dashboards and saved searches for incident RCA.",
         config_schema=ElasticsearchConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="apikey",
             by_auth={
                 # API key (Bearer-style ApiKey header) — recommended for ES 8.x.
@@ -1285,6 +1288,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Log & observability platform. Investigate events across indexes and sourcetypes with SPL — search, stats, and timechart over machine data.",
         config_schema=SplunkConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="token",
             by_auth={
                 # Splunk authentication token (Bearer) — recommended, incl. Splunk Cloud.
@@ -1301,7 +1305,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Microsoft SQL Server",
         description="MSSQL is Microsoft's relational database for managing and analyzing data.",
         config_schema=MssqlConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(default="userpass", exclusive_methods=True, by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"]),
             # Windows Integrated auth: the app's own Kerberos identity (keytab /
             # default ccache). System-scope only — one service principal per connection.
@@ -1328,7 +1332,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Trino",
         description="Trino is a distributed SQL query engine for big data analytics. Federates many catalogs behind one SQL endpoint.",
         config_schema=TrinoConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"]),
             "token": AuthVariant(title="Access token (JWT)", schema=TrinoTokenCredentials, scopes=["system", "user"]),
         }),
@@ -1343,7 +1347,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Starburst",
         description="Starburst Galaxy and Starburst Enterprise: the Trino-based query engine that federates lakehouse, warehouse and operational databases under one SQL endpoint.",
         config_schema=StarburstConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=TrinoCredentials, scopes=["system", "user"]),
             "token": AuthVariant(title="Access token (JWT)", schema=TrinoTokenCredentials, scopes=["system", "user"]),
         }),
@@ -1397,7 +1401,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Apache Druid",
         description="Real-time analytics database queried via the Broker/Router SQL API.",
         config_schema=DruidConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"]),
             "token": AuthVariant(title="API Token (Bearer)", schema=DruidTokenCredentials, scopes=["system","user"]),
             "basic_token": AuthVariant(title="API Token (Basic)", schema=DruidBasicTokenCredentials, scopes=["system","user"]),
@@ -1454,6 +1458,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # that matters for in-AWS deployments (instance profile / EKS IRSA), where
         # no secret should be stored at all.
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="aws_keys",
             by_auth={
                 "aws_keys": AuthVariant(
@@ -1501,7 +1506,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="AWS Redshift",
         description="Fully managed, petabyte-scale data warehouse service in the cloud for analytics and business intelligence.",
         config_schema=AwsRedshiftConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=AwsRedshiftUserPassCredentials, scopes=["system","user"]),
             "iam": AuthVariant(title="AWS Keys (IAM)", schema=AwsRedshiftIAMCredentials, scopes=["system", "user"]),
             "arn": AuthVariant(title="Assume Role (ARN)", schema=AwsRedshiftAssumeRoleCredentials, scopes=["system", "user"]),
@@ -1562,6 +1567,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=IcebergConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="oauth2",
             by_auth={
                 "oauth2": AuthVariant(title="OAuth2 Client Credentials", schema=IcebergOAuthCredentials, scopes=["system"]),
@@ -1580,6 +1586,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Lakehouse query engine and semantic layer (Dremio Software or Dremio Cloud), queried read-only with SQL.",
         config_schema=DremioConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="token",
             by_auth={
                 "token": AuthVariant(title="Personal Access Token", schema=DremioTokenCredentials, scopes=["system", "user"]),
@@ -1595,6 +1602,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Hadoop SQL engines over HiveServer2 — Apache Hive, Apache Impala or Spark Thrift Server — queried read-only.",
         config_schema=HiveConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="none",
             by_auth={
                 "none": AuthVariant(title="No Authentication", schema=HiveNoAuthCredentials, scopes=["system"]),
@@ -1610,6 +1618,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Key-value and document tables on AWS, queried read-only with PartiQL.",
         config_schema=DynamoDBConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="aws_keys",
             by_auth={
                 "aws_keys": AuthVariant(title="AWS Access Key", schema=S3KeyCredentials, scopes=["system"]),
@@ -1626,6 +1635,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Globally distributed document database (NoSQL API), queried read-only with Cosmos SQL.",
         config_schema=CosmosDBConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="account_key",
             by_auth={
                 "account_key": AuthVariant(title="Account Key", schema=CosmosDBKeyCredentials, scopes=["system"]),
@@ -1671,6 +1681,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         config_schema=Neo4jConfig,
         credentials_auth=AuthOptions(
             default="userpass",
+            exclusive_methods=True,
             by_auth={
                 # Native or LDAP users (LDAP is checked by the server).
                 "userpass": AuthVariant(
@@ -1723,6 +1734,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Search and analytics engine. Query indices with the native query DSL, aggregations, or SQL.",
         config_schema=OpenSearchConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="userpass",
             by_auth={
                 "userpass": AuthVariant(
@@ -1768,6 +1780,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Time-series metrics database. Query metrics and alerts with PromQL; each metric is discovered as a table.",
         config_schema=PrometheusConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="none",
             by_auth={
                 "none": AuthVariant(
@@ -1797,6 +1810,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Distributed tracing backend. Investigate traces and spans across services with the Query API — search by service, operation, tags, latency, and errors.",
         config_schema=JaegerConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="none",
             by_auth={
                 "none": AuthVariant(
@@ -2039,6 +2053,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # keys, keys + STS assume-role, or boto3's default chain. GCS / Azure
         # providers would slot in here as additional variants later.
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="aws_keys",
             by_auth={
                 "aws_keys": AuthVariant(
@@ -2113,6 +2128,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=AzureBlobConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="connection_string",
             by_auth={
                 "connection_string": AuthVariant(
@@ -2218,6 +2234,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=QlikSenseConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="api_key",
             by_auth={
                 "api_key": AuthVariant(
@@ -2275,6 +2292,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=DocumentumConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="userpass",
             by_auth={
                 # Repository user/password (HTTP Basic). Per user, this is the
@@ -2334,7 +2352,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="SharePoint Server (on-prem)",
         description="Read and search SharePoint Server document libraries using NTLM or Kerberos. No Microsoft Graph or Entra app required.",
         config_schema=SharePointOnpremConfig,
-        credentials_auth=AuthOptions(default="ntlm", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="ntlm", by_auth={
             "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
             "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
         }),
@@ -2544,7 +2562,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Exchange Server (on-prem)",
         description="Read and search mail on your own Exchange server, including shared team mailboxes, using NTLM or Kerberos. No cloud tenant or app registration required.",
         config_schema=ExchangeOnpremConfig,
-        credentials_auth=AuthOptions(default="ntlm", by_auth={
+        credentials_auth=AuthOptions(exclusive_methods=True, default="ntlm", by_auth={
             "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=ExchangeOnpremNtlmCredentials, scopes=["system", "user"]),
             "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=ExchangeOnpremKerberosCredentials, scopes=["system"]),
         }),
@@ -2807,6 +2825,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Query Infor d/EPM OLAP cubes via MDX over the XMLA Provider. Works with on-premise Infor OLAP / Infor BI (25.x).",
         config_schema=InforOlapConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="userpass",
             by_auth={
                 "userpass": AuthVariant(
@@ -2834,6 +2853,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         config_schema=InforEpmConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="ion_oauth",
             by_auth={
                 "ion_oauth": AuthVariant(
@@ -2882,6 +2902,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Connect to a Model Context Protocol server to access external tools for discovery, knowledge, and data ingestion.",
         config_schema=MCPConfig,
         credentials_auth=AuthOptions(
+            exclusive_methods=True,
             default="none",
             by_auth={
                 "none": AuthVariant(
@@ -3538,13 +3559,18 @@ def credentials_for_auth_method(
     answer, so keep only what that method (or no method in particular) owns.
 
     Conservative on purpose: nothing is removed unless the connector opted in
-    (`AuthOptions.exclusive_methods`) and the selected method is a known
-    system-scope variant that declares its fields (a schema accepting extras
-    keeps everything). Only fields declared by another system-scope variant
-    are dropped; `oauth_*` sign-in overrides are shared and always kept.
+    (`AuthOptions.exclusive_methods`), the connection names its method, and
+    that method is a known system-scope variant that declares its fields (a
+    schema accepting extras keeps everything). Only fields declared by another
+    system-scope variant are dropped; `oauth_*` sign-in overrides are shared
+    and always kept.
+
+    A connection without `auth_type` keeps everything: it predates the method
+    picker or was created through the API, and its fields — not the
+    registry's default method — are what it actually connects with.
     """
     creds = dict(credentials or {})
-    if not ds_type:
+    if not ds_type or not auth_type:
         return creds
     try:
         options = get_entry(ds_type).credentials_auth
@@ -3552,7 +3578,7 @@ def credentials_for_auth_method(
         return creds
     if not options.exclusive_methods:
         return creds
-    selected = options.by_auth.get(auth_type or options.default)
+    selected = options.by_auth.get(auth_type)
     if selected is None or "system" not in (selected.scopes or []):
         return creds
     if (getattr(selected.schema, "model_config", None) or {}).get("extra") == "allow":
