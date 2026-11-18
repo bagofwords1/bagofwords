@@ -39,6 +39,27 @@ from app.ai.llm.types import (
 )
 
 
+def _filtered_categories(content_filters: Any) -> list[str]:
+    """Categories Azure marked ``filtered`` in a response's ``content_filters``.
+
+    Azure adds ``content_filters`` (a list of ``{"content_filter_results":
+    {"jailbreak": {"detected": true, "filtered": true}, ...}}``) to a response
+    its filter cut. The SDK may hand it over as plain dicts or as objects.
+    """
+    def _get(obj: Any, key: str) -> Any:
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    found: list[str] = []
+    for entry in content_filters or []:
+        results = _get(entry, "content_filter_results")
+        if results is not None and not isinstance(results, dict):
+            results = results.model_dump() if hasattr(results, "model_dump") else vars(results)
+        for name, result in (results or {}).items():
+            if _get(result, "filtered") and name not in found:
+                found.append(name)
+    return found
+
+
 class OpenAIResponsesClient(LLMClient):
     """
     OpenAI Responses API client.
@@ -430,6 +451,8 @@ class OpenAIResponsesClient(LLMClient):
         completion_tokens = 0
         cache_read_tokens = 0
         stop_reason = "end_turn"
+        raw_stop_reason: Optional[str] = None
+        filter_categories: list[str] = []
 
         stream = await self.async_client.responses.create(**request_kwargs)
         async for event in stream:
@@ -527,17 +550,32 @@ class OpenAIResponsesClient(LLMClient):
                     stop_reason = "tool_use"
                     yield ToolUseCompleteEvent(id=pending["call_id"], name=pending["name"], input=parsed)
 
-            elif etype == "response.completed":
+            # A stream ends with response.completed, or with response.incomplete
+            # when it was cut short. Azure OpenAI ends a prompt its content
+            # filter blocked (e.g. Prompt Shields' jailbreak detector) with
+            # HTTP 200, a canned "I'm sorry, but I cannot assist with that
+            # request." text delta, then response.incomplete carrying
+            # incomplete_details.reason == "content_filter". Reading only
+            # response.completed turned that into a successful answer.
+            elif etype in ("response.completed", "response.incomplete"):
                 response = getattr(event, "response", None)
                 usage = getattr(response, "usage", None) if response else None
                 prompt_tokens, completion_tokens, cache_read_tokens = self._extract_usage(usage)
                 output_details = getattr(usage, "output_tokens_details", None)
                 reasoning_tokens = int(getattr(output_details, "reasoning_tokens", 0) or 0)
                 status = getattr(response, "status", None) if response else None
-                if status == "incomplete":
-                    stop_reason = "max_tokens"
+                if status == "incomplete" or etype == "response.incomplete":
+                    details = getattr(response, "incomplete_details", None) if response else None
+                    reason = details.get("reason") if isinstance(details, dict) else getattr(details, "reason", None)
+                    raw_stop_reason = reason or "incomplete"
+                    stop_reason = "other" if reason == "content_filter" else "max_tokens"
+                    if reason == "content_filter":
+                        filter_categories = _filtered_categories(
+                            getattr(response, "content_filters", None) if response else None
+                        )
 
-        yield MessageStopEvent(stop_reason=stop_reason)
+        yield MessageStopEvent(stop_reason=stop_reason, raw_stop_reason=raw_stop_reason,
+                               content_filter_categories=filter_categories)
         yield UsageEvent(
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,

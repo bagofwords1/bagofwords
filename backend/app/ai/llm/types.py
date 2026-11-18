@@ -195,6 +195,9 @@ class MessageStopEvent:
     """
     stop_reason: Literal["end_turn", "tool_use", "max_tokens", "stop_sequence", "other"] = "other"
     raw_stop_reason: Optional[str] = None
+    # When a provider content filter ended the message: the filter categories
+    # it reported as filtered (e.g. ["jailbreak"]), so the error can name them.
+    content_filter_categories: list[str] = field(default_factory=list)
     type: Literal["message_stop"] = "message_stop"
 
 

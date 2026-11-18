@@ -255,6 +255,7 @@ class PlannerV3:
         record_counters: dict[str, _RecordCounter] = {}  # tool_use_id -> submit_<list> progress
         stop_reason: Optional[str] = None
         raw_stop_reason: Optional[str] = None
+        content_filter_categories: list[str] = []
         # Stream forensics: how many events of each type the adapter surfaced.
         # A stream can legally end with nothing but a stop + usage (provider
         # refusals, stop reasons or content-block types the adapter doesn't
@@ -454,6 +455,7 @@ class PlannerV3:
                 if isinstance(evt, MessageStopEvent):
                     stop_reason = evt.stop_reason
                     raw_stop_reason = getattr(evt, "raw_stop_reason", None) or evt.stop_reason
+                    content_filter_categories = list(getattr(evt, "content_filter_categories", None) or [])
                     continue
 
                 if isinstance(evt, UsageEvent):
@@ -517,6 +519,38 @@ class PlannerV3:
             cache_read_tokens=final_cache_read_tokens,
             cache_creation_tokens=final_cache_creation_tokens,
         )
+
+        # The provider's safety filter cut the response (OpenAI / Azure
+        # finish_reason "content_filter", normalized to "other" upstream).
+        # Whatever text or partial tool calls came before the cut are not a
+        # valid turn, and finalizing them as "success" hides the cause from the
+        # user. Surface it as a classified content_filter LLM error:
+        # the agent fails the turn at once, naming the filter.
+        if final_decision.error is None and (raw_stop_reason or "").strip().lower() == "content_filter":
+            from app.ai.llm.errors import LLMError
+            _model = getattr(self.llm, "model", None)
+            _llm_error = LLMError(
+                code="content_filter",
+                provider=getattr(getattr(_model, "provider", None), "provider_type", None) or "unknown",
+                model=getattr(_model, "model_id", None),
+                summary=(
+                    f"The model provider's content filter blocked this turn ({', '.join(content_filter_categories)})"
+                    if content_filter_categories
+                    else "The model provider's content filter blocked this turn"
+                ),
+                provider_message="finish_reason=content_filter",
+            ).to_dict()
+            final_decision.analysis_complete = False
+            final_decision.error = PlannerError(
+                code="stream_error",
+                message="The model provider's content filter blocked this turn (finish_reason=content_filter)",
+                details={
+                    "llm_error": _llm_error,
+                    "stop_reason": stop_reason,
+                    "raw_stop_reason": raw_stop_reason,
+                    "content_filter_categories": content_filter_categories,
+                },
+            )
 
         # A stream that produced NO semantic output — no text, no reasoning,
         # no tool call, no web search — is never a valid planner turn, whatever

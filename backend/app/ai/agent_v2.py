@@ -473,6 +473,21 @@ _CONTEXT_OVERFLOW_PATTERNS = (
 MAX_OVERFLOW_COMPACTIONS = 3
 
 
+# Classified LLM error codes for which re-running the planner on the same model
+# cannot help: the identical prompt is rejected identically every time.
+_PLANNER_NO_RETRY_CODES = ("content_filter",)
+
+
+def _planner_retry_is_pointless(llm_err_payload: Optional[dict]) -> bool:
+    """True when a planner LLM error must end the turn instead of retrying.
+
+    A provider content filter (e.g. Azure Prompt Shields flagging the prompt as
+    a jailbreak) blocks the same request on every attempt; retrying
+    only delays the error and hides its cause behind a generic retry notice.
+    """
+    return bool(llm_err_payload) and llm_err_payload.get("code") in _PLANNER_NO_RETRY_CODES
+
+
 def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
     """Next trim-budget factor after a context_length rejection.
 
@@ -6803,6 +6818,12 @@ class AgentV2:
                                         ))
                                     except Exception:
                                         pass
+
+                                # Deterministic rejections (a provider content
+                                # filter) repeat on every re-run: fail the turn
+                                # now, with the cause named, not after two more.
+                                if _planner_retry_is_pointless(llm_err_payload):
+                                    invalid_retry_count = max_invalid_retries
 
                                 if invalid_retry_count >= max_invalid_retries:
                                     # Too many retries, treat as final error.
