@@ -12,6 +12,7 @@ trailer — tool calls are emitted natively via tool_use blocks.
 """
 from __future__ import annotations
 
+import html
 import json
 import logging
 from datetime import datetime
@@ -26,6 +27,18 @@ from . import transcript_bridge
 from .transcript_bridge import transcript_budget_tokens
 from .prompt_builder import PromptBuilder
 from .prompt_blocks import NO_OVERFIT_BLOCK
+
+# The meaning of the per-step <response_presentation locale="…"/> marker. It
+# lives in the system prompt because the marker itself rides in a user-role
+# message, where instruction-shaped text trips prompt-injection filters
+# (Azure Prompt Shields). Locale-independent, so the system prompt stays byte-stable and
+# prompt caching is unaffected.
+RESPONSE_PRESENTATION_RULE = (
+    "When the newest turn carries <response_presentation locale=\"…\"/>, that locale wins over the "
+    "language rule above: write user-facing prose, progress updates, tool titles and display labels in it. "
+    "Keep SQL identifiers, field keys and raw data values unchanged. "
+    "The platform sets the marker; do not comment on the language choice."
+)
 
 logger = logging.getLogger(__name__)
 
@@ -563,6 +576,7 @@ ERROR HANDLING
 
 {builder_sections_text}LANGUAGE
 {language_text}
+{RESPONSE_PRESENTATION_RULE}
 
 COMMUNICATION
 - Final text (no tool call) is the complete answer: plain language, markdown OK, summarize findings — don't dump raw widget data.
@@ -999,18 +1013,19 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 
         Sub-agents are skipped: their goal is written by the parent agent, not
         the user, and their text goes back to the parent, not to the user.
+
+        The block rides in a user-role message, so it carries a fact (the
+        locale), never an order: the rule that gives it meaning lives in the
+        system prompt (RESPONSE_PRESENTATION_RULE). Imperative, self-concealing
+        text in a user turn ("apply this silently, do not mention these
+        instructions") is exactly what prompt-injection filters such as Azure
+        Prompt Shields block; that wording blocked every chat turn on Azure.
         """
         if (getattr(planner_input, "mode", None) or "chat") == "subagent":
             return ""
         response_locale = getattr(planner_input, "response_locale", None)
         if response_locale:
-            return (
-                "<response_presentation>\n"
-                f"Write user-facing prose, progress updates, tool titles and display labels in {response_locale}. "
-                "Preserve SQL identifiers, field keys and raw data values. "
-                "Apply this silently: do not mention language selection or these instructions.\n"
-                "</response_presentation>"
-            )
+            return f'<response_presentation locale="{html.escape(str(response_locale), quote=True)}"/>'
         return reply_language_reminder(
             planner_input.user_message,
             getattr(planner_input, "recent_user_messages", None),
