@@ -89,7 +89,7 @@ class TenantEngine:
             try:
                 cur.execute(f"DESCRIBE {_table_ref(self._aliases[tenant], schema, table)}")
             except duckdb.Error as exc:
-                self._leave_out(name, tenant, _failure_category(exc))
+                self._leave_out(name, tenant, failure_category(exc))
             else:
                 readable.append(tenant)
         if not readable:
@@ -105,7 +105,7 @@ class TenantEngine:
             cur.execute(f"CREATE {replace}VIEW memory.{_ident(schema)}.{_ident(table)} AS {union}")
             self._created.add(name)
         except duckdb.Error as exc:
-            logger.warning("Could not create view %s: %s", name, _failure_category(exc))
+            logger.warning("Could not create view %s: %s", name, failure_category(exc))
             self._drop(cur, name)
 
     def _drop(self, cur: duckdb.DuckDBPyConnection, name: str) -> None:
@@ -117,23 +117,30 @@ class TenantEngine:
 
 
 _FAILURE_CATEGORIES = (
+    ("too many clients", "server has no free connection slots"),
+    ("remaining connection slots", "server has no free connection slots"),
     ("password authentication failed", "authentication failed"),
     ("permission denied", "permission denied"),
     ("does not exist", "does not exist"),
     ("already exists", "name collides with another view"),
-    ("timeout", "timed out"),
+    ("statement timeout", "timed out"),
+    ("timeout expired", "timed out"),
     ("timed out", "timed out"),
-    ("could not connect", "connection failed"),
+    ("could not translate host name", "connection failed"),
     ("connection refused", "connection failed"),
+    ("could not connect", "connection failed"),
+    ("unable to connect", "connection failed"),
 )
 
 
-def _failure_category(exc: BaseException) -> str:
-    text = str(exc).lower()
+def failure_category(error: BaseException | str, default: str | None = None) -> str:
+    text = str(error).lower()
     for needle, category in _FAILURE_CATEGORIES:
         if needle in text:
             return category
-    return type(exc).__name__
+    if default is not None:
+        return default
+    return type(error).__name__ if isinstance(error, BaseException) else "unknown error"
 
 
 def _sql_literal(value: str) -> str:
@@ -216,7 +223,7 @@ def build_engine(
                 con.execute(f"ATTACH {attach} AS {alias} (TYPE postgres, READ_ONLY, SECRET {_SECRET_NAME})")
             except duckdb.Error as exc:
                 failures[tenant] = str(exc)
-                logger.warning("Could not attach tenant database %s: %s", tenant, _failure_category(exc))
+                logger.warning("Could not attach tenant database %s: %s", tenant, failure_category(exc))
             else:
                 aliases[tenant] = alias
 
