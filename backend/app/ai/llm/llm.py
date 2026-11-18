@@ -879,6 +879,7 @@ class LLM:
                 cache_creation_tokens=usage.cache_creation_tokens,
                 cache_write_5m_tokens=usage.cache_write_5m_tokens,
                 cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                cache_write_12h_tokens=usage.cache_write_12h_tokens,
                 reasoning_tokens=usage.reasoning_tokens,
                 should_record=should_record,
             )
@@ -887,6 +888,7 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=usage.cache_read_tokens,
                 cache_creation_tokens=usage.cache_creation_tokens,
+                cache_write_12h_tokens=usage.cache_write_12h_tokens,
                 scope=usage_scope,
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
@@ -1050,12 +1052,16 @@ class LLM:
                     cache_creation_tokens=usage.cache_creation_tokens,
                     cache_write_5m_tokens=usage.cache_write_5m_tokens,
                     cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                    cache_write_12h_tokens=usage.cache_write_12h_tokens,
                     reasoning_tokens=usage.reasoning_tokens,
                     should_record=should_record,
                 )
                 await self._record_usage_limit_async(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    cache_read_tokens=usage.cache_read_tokens,
+                    cache_creation_tokens=usage.cache_creation_tokens,
+                    cache_write_12h_tokens=usage.cache_write_12h_tokens,
                     scope=usage_scope,
                     scope_ref_id=usage_scope_ref_id,
                     should_record=should_record,
@@ -1117,6 +1123,7 @@ class LLM:
             cache_creation_tokens = 0
             cache_write_5m_tokens = 0
             cache_write_1h_tokens = 0
+            cache_write_12h_tokens = 0
             reasoning_tokens = 0
             stream_start = time.monotonic()
             ttft_recorded = False
@@ -1198,6 +1205,7 @@ class LLM:
                                 span.set_attribute(
                                     "llm.cache_creation_tokens", cache_creation_tokens
                                 )
+                                cache_write_12h_tokens = evt.cache_write_12h_tokens
                             if getattr(evt, "cache_write_5m_tokens", 0) or getattr(evt, "cache_write_1h_tokens", 0):
                                 cache_write_5m_tokens = evt.cache_write_5m_tokens
                                 cache_write_1h_tokens = evt.cache_write_1h_tokens
@@ -1265,6 +1273,7 @@ class LLM:
                 cache_creation_tokens=cache_creation_tokens,
                 cache_write_5m_tokens=cache_write_5m_tokens,
                 cache_write_1h_tokens=cache_write_1h_tokens,
+                cache_write_12h_tokens=cache_write_12h_tokens,
                 reasoning_tokens=reasoning_tokens,
                 should_record=should_record,
             )
@@ -1273,6 +1282,7 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                cache_write_12h_tokens=cache_write_12h_tokens,
                 scope=usage_scope,
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
@@ -1626,6 +1636,7 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
     ) -> int:
         """Dollar cost of this call, in micro-USD, for the spend quota.
 
@@ -1640,9 +1651,10 @@ class LLM:
                 cache_read_tokens or 0,
                 cache_creation_tokens or 0,
                 self.provider,
+                cache_write_12h_tokens=cache_write_12h_tokens,
             )
             output_cost = LLMUsageRecorderService._calc_output_cost(
-                self.model, completion_tokens or 0
+                self.model, completion_tokens or 0, prompt_tokens or 0
             )
         except Exception:
             return 0
@@ -1684,6 +1696,7 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         scope: Optional[str],
         scope_ref_id: Optional[str],
         should_record: bool,
@@ -1722,6 +1735,7 @@ class LLM:
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_12h_tokens=cache_write_12h_tokens,
         )
         if cost_micro > 0:
             context.add_cost(cost_micro, metadata)
@@ -1733,6 +1747,7 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         scope: Optional[str],
         scope_ref_id: Optional[str],
         should_record: bool,
@@ -1765,6 +1780,7 @@ class LLM:
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_12h_tokens=cache_write_12h_tokens,
         )
         if cost_micro > 0:
             context.add_cost(cost_micro, metadata)
@@ -1780,6 +1796,7 @@ class LLM:
         cache_creation_tokens: int = 0,
         cache_write_5m_tokens: int = 0,
         cache_write_1h_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         reasoning_tokens: int = 0,
         should_record: bool,
     ):
@@ -1829,6 +1846,7 @@ class LLM:
                             cache_creation_tokens=cache_creation_tokens or 0,
                             cache_write_5m_tokens=cache_write_5m_tokens or 0,
                             cache_write_1h_tokens=cache_write_1h_tokens or 0,
+                            cache_write_12h_tokens=cache_write_12h_tokens or 0,
                             reasoning_tokens=reasoning_tokens or 0,
                             organization_id=attribution.get("organization_id"),
                             user_id=attribution.get("user_id"),
