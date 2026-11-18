@@ -3007,10 +3007,12 @@
       "defaultRoleShort": "Standardrolle"
     },
     "organizationName": "Organisationsname",
+    "organizationNameRequired": "Der Organisationsname darf nicht leer sein.",
     "organizationIcon": "Organisationssymbol",
     "uploadIcon": "Symbol hochladen",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Name des KI-Analysten",
+    "aiAnalystNameRequired": "Der Name des KI-Analysten darf nicht leer sein.",
     "showCredit": "„Made with BOW“-Hinweis anzeigen",
     "language": {
       "title": "Sprache",
@@ -3835,7 +3837,9 @@
       "readOnly": "Auf einer Instanz mit mehreren Organisationen kann nur ein Instanzadministrator diese Liste ändern.",
       "duplicate": "Diese Website ist bereits in der Liste.",
       "invalidFormat": "Geben Sie eine Adresse ein, die mit https:// beginnt, ohne Pfad. Zum Beispiel: https://portal.example.com",
-      "publicNote": "Diese Adressen sind für alle sichtbar: Browser erhalten sie mit jeder Seite."
+      "publicNote": "Diese Adressen sind für alle sichtbar: Browser erhalten sie mit jeder Seite.",
+      "confirmRemoveTitle": "Diese Website entfernen?",
+      "confirmRemoveBody": "{site} kann BOW dann nicht mehr anzeigen. Seiten dort, die BOW anzeigen, funktionieren sofort nicht mehr."
     }
   },
   "data": {

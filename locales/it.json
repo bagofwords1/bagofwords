@@ -3007,10 +3007,12 @@
       "defaultRoleShort": "Ruolo predefinito"
     },
     "organizationName": "Nome dell'organizzazione",
+    "organizationNameRequired": "Il nome dell'organizzazione non può essere vuoto.",
     "organizationIcon": "Icona dell'organizzazione",
     "uploadIcon": "Carica icona",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nome dell'analista IA",
+    "aiAnalystNameRequired": "Il nome dell'analista IA non può essere vuoto.",
     "showCredit": "Mostra credito \"Made with BOW\"",
     "language": {
       "title": "Lingua",
@@ -3835,7 +3837,9 @@
       "readOnly": "In un'istanza con più organizzazioni, solo un amministratore dell'istanza può modificare questo elenco.",
       "duplicate": "Questo sito è già nell'elenco.",
       "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com",
-      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina."
+      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina.",
+      "confirmRemoveTitle": "Rimuovere questo sito?",
+      "confirmRemoveBody": "{site} non potrà più mostrare BOW. Le pagine di quel sito che mostrano BOW smetteranno subito di funzionare."
     }
   },
   "data": {

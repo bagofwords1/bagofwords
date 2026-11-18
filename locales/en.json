@@ -3393,10 +3393,12 @@
       "colLastLogin": "Last login"
     },
     "organizationName": "Organization name",
+    "organizationNameRequired": "Organization name can't be empty.",
     "organizationIcon": "Organization icon",
     "uploadIcon": "Upload Icon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI analyst name",
+    "aiAnalystNameRequired": "AI analyst name can't be empty.",
     "showCredit": "Show \"Made with BOW\" credit",
     "language": {
       "title": "Language",
@@ -4455,7 +4457,9 @@
       "readOnly": "Only an instance administrator can change this list on an instance with several organizations.",
       "duplicate": "This site is already in the list.",
       "invalidFormat": "Enter an address that starts with https://, without a path. For example: https://portal.example.com",
-      "publicNote": "Anyone can see these addresses: browsers receive them with every page."
+      "publicNote": "Anyone can see these addresses: browsers receive them with every page.",
+      "confirmRemoveTitle": "Remove this site?",
+      "confirmRemoveBody": "{site} will no longer be able to show BOW. Pages there that show BOW stop working right away."
     }
   },
   "data": {

@@ -3330,10 +3330,12 @@
       "colLastLogin": "כניסה אחרונה"
     },
     "organizationName": "שם הארגון",
+    "organizationNameRequired": "שם הארגון לא יכול להיות ריק.",
     "organizationIcon": "אייקון הארגון",
     "uploadIcon": "העלאת אייקון",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "שם האנליסט",
+    "aiAnalystNameRequired": "שם אנליסט ה-AI לא יכול להיות ריק.",
     "showCredit": "הצגת קרדיט \"Made with BOW\"",
     "workspacePlaceholder": "שם סביבת העבודה",
     "changeIcon": "שינוי סמל",
@@ -4393,7 +4395,9 @@
       "readOnly": "בשרת עם כמה ארגונים, רק מנהל השרת יכול לשנות את הרשימה.",
       "duplicate": "האתר כבר נמצא ברשימה.",
       "invalidFormat": "יש להזין כתובת שמתחילה ב-https://, בלי נתיב. לדוגמה: https://portal.example.com",
-      "publicNote": "הכתובות האלה גלויות לכל אחד: הדפדפן מקבל אותן עם כל עמוד."
+      "publicNote": "הכתובות האלה גלויות לכל אחד: הדפדפן מקבל אותן עם כל עמוד.",
+      "confirmRemoveTitle": "להסיר את האתר?",
+      "confirmRemoveBody": "{site} לא יוכל יותר להציג את BOW. דפים באתר הזה שמציגים את BOW יפסיקו לעבוד מיד."
     }
   },
   "data": {
