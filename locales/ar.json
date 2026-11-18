@@ -1383,6 +1383,18 @@
     "hiddenTurns": "{count} دور لاحق مخفي: استخدم هو أو دور سابق وكيلًا لا تديره | {count} أدوار لاحقة مخفية: استخدمت هي أو دور سابق وكيلًا لا تديره"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "استخدام المتصفح",
+        "search": "البحث",
+        "files": "قراءة الملفات",
+        "inspect": "فحص البيانات",
+        "data": "تنفيذ {count} استعلامات",
+        "create": "إنشاء النتائج وتحديثها",
+        "tools": "استخدام الأدوات",
+        "results": "تنفيذ {count} استعلامات"
+      }
+    },
     "tabChat": "محادثة",
     "tabSummary": "ملخص",
     "tabDashboard": "لوحة تحكم",
@@ -7745,5 +7757,9 @@
     "chipInstructions": "{n} تعليمات",
     "chipEvals": "{n} تقييمات",
     "chipQueries": "{n} استعلامات"
+  },
+  "markdownTable": {
+    "title": "جدول",
+    "copyFailed": "تعذر نسخ الجدول"
   }
 }

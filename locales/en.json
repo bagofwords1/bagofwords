@@ -1562,7 +1562,70 @@
     "compactionTurns": "{turns} turns",
     "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
     "contextClearedDivider": "Context cleared",
-    "contextClearedDividerHint": "The agent does not see anything above this line"
+    "contextClearedDividerHint": "The agent does not see anything above this line",
+    "runFold": {
+      "groups": {
+        "browser": "Used the browser",
+        "search": "Searched",
+        "files": "Read files",
+        "inspect": "Inspected data",
+        "data": "Ran {count} queries",
+        "create": "Created and updated results",
+        "tools": "Used tools",
+        "results": "Ran {count} queries"
+      },
+      "workedFor": "Worked for {duration}",
+      "worked": "Worked",
+      "working": "Working",
+      "workingFor": "Working for {duration}",
+      "viewSteps": "View steps",
+      "hideSteps": "Hide steps",
+      "checks": "{count} checks",
+      "actions": "{count} actions",
+      "openTable": "Open table",
+      "openChart": "Open chart",
+      "steps": {
+        "inspectedTable": "Checked the {name} table",
+        "inspectedTables": "Checked {count} tables",
+        "lookedForTables": "Looked for tables matching {name}",
+        "inspectedEntity": "Checked {name}",
+        "inspectedData": "Checked the data",
+        "createdTable": "Created the table “{title}”",
+        "createdTableUntitled": "Created a table",
+        "createdChart": "Created the chart “{title}”",
+        "createdChartUntitled": "Created a chart",
+        "calculated": "Calculated {title}:",
+        "calculatedUntitled": "Calculated a value:",
+        "dataFailed": "Could not create “{title}”",
+        "dataFailedUntitled": "Could not create the data",
+        "preparedData": "Prepared “{title}”",
+        "preparedDataUntitled": "Prepared the data",
+        "creatingData": "Creating “{title}”…",
+        "creatingDataUntitled": "Creating the data…",
+        "searched": "Searched for information",
+        "read": "Read reference material",
+        "lookedUp": "Looked up details",
+        "usedTool": "Used a connected tool",
+        "browsed": "Browsed a page",
+        "created": "Created an item",
+        "updated": "Made an update",
+        "ran": "Ran {tool}"
+      }
+    },
+    "citations": {
+      "untitled": "Untitled result",
+      "openSource": "Open {title}",
+      "moreRows": "+{count} more rows",
+      "moreColumns": "+{count} more columns",
+      "noPreview": "No preview available",
+      "chipLabel": "Source {number}: {title}",
+      "chipLabelUntitled": "Source {number}",
+      "tabs": {
+        "chart": "Chart",
+        "data": "Data",
+        "code": "Code"
+      }
+    }
   },
   "tools": {
     "common": {
@@ -1595,6 +1658,8 @@
       "bowSource": "BOW",
       "creating": "Creating Data",
       "created": "Created Data",
+      "creatingTitled": "Creating “{title}”…",
+      "createdTitled": "Created “{title}”",
       "create": "Create Data",
       "generatingCode": "Generating Code",
       "generatedCode": "Generated Code",
@@ -8606,5 +8671,9 @@
     "chipInstructions": "{n} instructions",
     "chipEvals": "{n} evals",
     "chipQueries": "{n} queries"
+  },
+  "markdownTable": {
+    "title": "Table",
+    "copyFailed": "Could not copy table"
   }
 }

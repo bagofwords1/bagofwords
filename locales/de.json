@@ -1383,6 +1383,18 @@
     "hiddenTurns": "{count} späterer Schritt ausgeblendet: er oder ein früherer nutzte einen Agenten, den Sie nicht verwalten | {count} spätere Schritte ausgeblendet: sie oder ein früherer nutzten einen Agenten, den Sie nicht verwalten"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Browser verwendet",
+        "search": "Gesucht",
+        "files": "Dateien gelesen",
+        "inspect": "Daten geprüft",
+        "data": "{count} Abfragen ausgeführt",
+        "create": "Ergebnisse erstellt und aktualisiert",
+        "tools": "Werkzeuge verwendet",
+        "results": "{count} Abfragen ausgeführt"
+      }
+    },
     "tabChat": "Chat",
     "tabSummary": "Zusammenfassung",
     "tabDashboard": "Dashboard",
@@ -7745,5 +7757,9 @@
     "chipInstructions": "{n} Anweisungen",
     "chipEvals": "{n} Evaluierungen",
     "chipQueries": "{n} Abfragen"
+  },
+  "markdownTable": {
+    "title": "Tabelle",
+    "copyFailed": "Tabelle konnte nicht kopiert werden"
   }
 }

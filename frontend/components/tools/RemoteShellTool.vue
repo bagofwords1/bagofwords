@@ -1,17 +1,10 @@
 <template>
   <div class="min-w-0 text-chat-2" data-testid="remote-shell-tool">
-    <UButton variant="ghost" color="gray" size="sm" :padded="false" :ui="headerUi"
-      class="no-press flex w-full min-w-0 justify-start text-start" :aria-expanded="expanded" @click="expanded = !expanded">
-      <span class="flex min-w-0 items-center gap-1 text-gray-600 dark:text-gray-400">
-        <Icon name="heroicons-command-line" class="w-3 h-3 me-1 shrink-0 text-ink-muted" data-testid="shell-icon" />
-        <span dir="ltr" class="truncate text-start min-w-0" :title="args.command">{{ args.command || t('tools.shell.command') }}</span>
-        <span class="ms-1 shrink-0" :class="{ 'text-amber-600 dark:text-amber-500': ['failed', 'execution_timed_out'].includes(outcome) }">{{ t(`tools.shell.${outcome}`) }}</span>
-        <span v-if="duration" class="ms-1 shrink-0 nums text-ink-muted">{{ duration }}</span>
-        <Spinner v-if="outcome === 'running'" class="w-3 h-3 ms-1 shrink-0 text-ink-muted" />
-        <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 shrink-0 text-ink-muted rtl-flip" />
-      </span>
-    </UButton>
+    <ToolCallHeader icon="heroicons-command-line" :label="args.command || t('tools.shell.command')"
+      :running="outcome === 'running'" :error="['failed', 'execution_timed_out'].includes(outcome)"
+      :expanded="expanded" @toggle="expanded = !expanded" />
     <div v-if="expanded" class="mt-2 space-y-2 rounded-lg border border-line bg-surface-subtle p-3 text-chat-2" data-testid="shell-details">
+      <div class="text-ink-muted">{{ t(`tools.shell.${outcome}`) }}<span v-if="duration" class="ms-2 nums">{{ duration }}</span></div>
       <dl class="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-ink-muted">
         <dt>{{ t('tools.shell.server') }}</dt><dd class="min-w-0 break-words" dir="ltr">{{ target.server || connectionName || '—' }}<template v-if="target.port">:{{ target.port }}</template></dd>
         <dt>{{ t('tools.shell.directory') }}</dt><dd class="min-w-0 break-words font-mono" dir="ltr">{{ args.working_directory || '—' }}</dd>
@@ -35,9 +28,9 @@
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { computed, ref } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
 import { toolOutcome } from '~/utils/toolOutcome'
 const props = defineProps<{
   args: Record<string, any>
@@ -50,17 +43,6 @@ const props = defineProps<{
   approvalLabel?: string
   confirmationTarget?: Record<string, any>
 }>()
-// Inherit the wrapper's chat typography, just like the data-tool headers.
-// Keep its custom token outside UButton's class merger, which treats it as a
-// text color and drops it when the button also specifies a text color.
-const headerUi = {
-  strategy: 'override' as const,
-  font: 'font-normal',
-  rounded: '',
-  size: { sm: '' },
-  gap: { sm: '' },
-  color: { gray: { ghost: 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500 dark:focus-visible:ring-primary-400' } },
-}
 const { t } = useResponseI18n()
 const expanded = ref(false)
 const outcome = computed(() => toolOutcome(props.result, props.status, props.progressStage, props.runStatus))

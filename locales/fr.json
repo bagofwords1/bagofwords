@@ -1383,6 +1383,18 @@
     "hiddenTurns": "{count} tour suivant masqué : lui ou un tour précédent a utilisé un agent que vous ne gérez pas | {count} tours suivants masqués : eux ou un tour précédent ont utilisé un agent que vous ne gérez pas"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Navigation web",
+        "search": "Recherche",
+        "files": "Lecture de fichiers",
+        "inspect": "Inspection des données",
+        "data": "{count} requêtes exécutées",
+        "create": "Création et mise à jour des résultats",
+        "tools": "Utilisation des outils",
+        "results": "{count} requêtes exécutées"
+      }
+    },
     "tabChat": "Conversation",
     "tabSummary": "Résumé",
     "tabDashboard": "Tableau de bord",
@@ -7745,5 +7757,9 @@
     "chipInstructions": "{n} instructions",
     "chipEvals": "{n} évaluations",
     "chipQueries": "{n} requêtes"
+  },
+  "markdownTable": {
+    "title": "Tableau",
+    "copyFailed": "Impossible de copier le tableau"
   }
 }

@@ -1536,7 +1536,70 @@
     "compactionTurns": "{turns} תורות",
     "compactionLast": "דחיסה אחרונה: היסטוריה ~{before} ← ~{after} טוקנים",
     "contextClearedDivider": "ההקשר נוקה",
-    "contextClearedDividerHint": "הסוכן לא רואה שום דבר מעל הקו הזה"
+    "contextClearedDividerHint": "הסוכן לא רואה שום דבר מעל הקו הזה",
+    "runFold": {
+      "groups": {
+        "browser": "גלישה באינטרנט",
+        "search": "חיפוש",
+        "files": "קריאת קבצים",
+        "inspect": "בדיקת נתונים",
+        "data": "בוצעו {count} שאילתות",
+        "create": "יצירה ועדכון תוצאות",
+        "tools": "שימוש בכלים",
+        "results": "בוצעו {count} שאילתות"
+      },
+      "workedFor": "עבד במשך {duration}",
+      "worked": "עבד",
+      "working": "עובד",
+      "workingFor": "עובד כבר {duration}",
+      "viewSteps": "הצגת השלבים",
+      "hideSteps": "הסתרת השלבים",
+      "checks": "{count} בדיקות",
+      "actions": "{count} פעולות",
+      "openTable": "פתיחת הטבלה",
+      "openChart": "פתיחת התרשים",
+      "steps": {
+        "inspectedTable": "בדק את הטבלה {name}",
+        "inspectedTables": "בדק {count} טבלאות",
+        "lookedForTables": "חיפש טבלאות התואמות ל-{name}",
+        "inspectedEntity": "בדק את {name}",
+        "inspectedData": "בדק את הנתונים",
+        "createdTable": "יצר את הטבלה ״{title}״",
+        "createdTableUntitled": "יצר טבלה",
+        "createdChart": "יצר את התרשים ״{title}״",
+        "createdChartUntitled": "יצר תרשים",
+        "calculated": "חישב את {title}:",
+        "calculatedUntitled": "חישב ערך:",
+        "dataFailed": "לא ניתן היה ליצור את ״{title}״",
+        "dataFailedUntitled": "לא ניתן היה ליצור את הנתונים",
+        "preparedData": "הכין את ״{title}״",
+        "preparedDataUntitled": "הכין את הנתונים",
+        "creatingData": "יוצר את ״{title}״…",
+        "creatingDataUntitled": "יוצר את הנתונים…",
+        "searched": "חיפש מידע",
+        "read": "קרא חומר עזר",
+        "lookedUp": "איתר פרטים",
+        "usedTool": "השתמש בכלי מחובר",
+        "browsed": "גלש בדף",
+        "created": "יצר פריט",
+        "updated": "ביצע עדכון",
+        "ran": "הריץ את {tool}"
+      }
+    },
+    "citations": {
+      "untitled": "תוצאה ללא שם",
+      "openSource": "פתיחת {title}",
+      "moreRows": "+{count} שורות נוספות",
+      "moreColumns": "+{count} עמודות נוספות",
+      "noPreview": "אין תצוגה מקדימה",
+      "chipLabel": "מקור {number}: {title}",
+      "chipLabelUntitled": "מקור {number}",
+      "tabs": {
+        "chart": "תרשים",
+        "data": "נתונים",
+        "code": "קוד"
+      }
+    }
   },
   "tools": {
     "common": {
@@ -1569,6 +1632,8 @@
       "bowSource": "BOW",
       "creating": "יוצר נתונים",
       "created": "הנתונים נוצרו",
+      "creatingTitled": "יוצר את ״{title}״…",
+      "createdTitled": "נוצר ״{title}״",
       "create": "יצירת נתונים",
       "generatingCode": "מייצר קוד",
       "generatedCode": "הקוד נוצר",
@@ -8597,5 +8662,9 @@
     "chipInstructions": "{n} הנחיות",
     "chipEvals": "{n} בדיקות איכות",
     "chipQueries": "{n} שאילתות"
+  },
+  "markdownTable": {
+    "title": "טבלה",
+    "copyFailed": "לא ניתן להעתיק את הטבלה"
   }
 }

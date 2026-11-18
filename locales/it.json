@@ -1383,6 +1383,18 @@
     "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Navigazione web",
+        "search": "Ricerca",
+        "files": "Lettura di file",
+        "inspect": "Analisi dei dati",
+        "data": "{count} query eseguite",
+        "create": "Creazione e aggiornamento dei risultati",
+        "tools": "Utilizzo degli strumenti",
+        "results": "{count} query eseguite"
+      }
+    },
     "tabChat": "Chat",
     "tabSummary": "Riepilogo",
     "tabDashboard": "Dashboard",
@@ -7745,5 +7757,9 @@
     "chipInstructions": "{n} istruzioni",
     "chipEvals": "{n} valutazioni",
     "chipQueries": "{n} query"
+  },
+  "markdownTable": {
+    "title": "Tabella",
+    "copyFailed": "Impossibile copiare la tabella"
   }
 }

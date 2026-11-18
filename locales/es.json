@@ -1536,7 +1536,70 @@
     "compactionTurns": "{turns} turnos",
     "compactionLast": "Última compactación: historial ~{before} → ~{after} tokens",
     "contextClearedDivider": "Contexto borrado",
-    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea"
+    "contextClearedDividerHint": "El agente no ve nada de lo que hay por encima de esta línea",
+    "runFold": {
+      "groups": {
+        "browser": "Usó el navegador",
+        "search": "Buscó",
+        "files": "Leyó archivos",
+        "inspect": "Inspeccionó datos",
+        "data": "Ejecutó {count} consultas",
+        "create": "Creó y actualizó resultados",
+        "tools": "Usó herramientas",
+        "results": "Ejecutó {count} consultas"
+      },
+      "workedFor": "Trabajó durante {duration}",
+      "worked": "Trabajó",
+      "working": "Trabajando",
+      "workingFor": "Trabajando durante {duration}",
+      "viewSteps": "Ver pasos",
+      "hideSteps": "Ocultar pasos",
+      "checks": "{count} comprobaciones",
+      "actions": "{count} acciones",
+      "openTable": "Abrir tabla",
+      "openChart": "Abrir gráfico",
+      "steps": {
+        "inspectedTable": "Revisó la tabla {name}",
+        "inspectedTables": "Revisó {count} tablas",
+        "lookedForTables": "Buscó tablas que coincidan con {name}",
+        "inspectedEntity": "Revisó {name}",
+        "inspectedData": "Revisó los datos",
+        "createdTable": "Creó la tabla «{title}»",
+        "createdTableUntitled": "Creó una tabla",
+        "createdChart": "Creó el gráfico «{title}»",
+        "createdChartUntitled": "Creó un gráfico",
+        "calculated": "Calculó {title}:",
+        "calculatedUntitled": "Calculó un valor:",
+        "dataFailed": "No se pudo crear «{title}»",
+        "dataFailedUntitled": "No se pudieron crear los datos",
+        "preparedData": "Preparó «{title}»",
+        "preparedDataUntitled": "Preparó los datos",
+        "creatingData": "Creando «{title}»…",
+        "creatingDataUntitled": "Creando los datos…",
+        "searched": "Buscó información",
+        "read": "Leyó material de referencia",
+        "lookedUp": "Consultó detalles",
+        "usedTool": "Usó una herramienta conectada",
+        "browsed": "Navegó una página",
+        "created": "Creó un elemento",
+        "updated": "Hizo una actualización",
+        "ran": "Ejecutó {tool}"
+      }
+    },
+    "citations": {
+      "untitled": "Resultado sin título",
+      "openSource": "Abrir {title}",
+      "moreRows": "+{count} filas más",
+      "moreColumns": "+{count} columnas más",
+      "noPreview": "Vista previa no disponible",
+      "chipLabel": "Fuente {number}: {title}",
+      "chipLabelUntitled": "Fuente {number}",
+      "tabs": {
+        "chart": "Gráfico",
+        "data": "Datos",
+        "code": "Código"
+      }
+    }
   },
   "tools": {
     "common": {
@@ -1569,6 +1632,8 @@
       "bowSource": "BOW",
       "creating": "Creando datos",
       "created": "Datos creados",
+      "creatingTitled": "Creando «{title}»…",
+      "createdTitled": "Creado «{title}»",
       "create": "Crear datos",
       "generatingCode": "Generando código",
       "generatedCode": "Código generado",
@@ -8577,5 +8642,9 @@
     "chipInstructions": "{n} instrucciones",
     "chipEvals": "{n} evaluaciones",
     "chipQueries": "{n} consultas"
+  },
+  "markdownTable": {
+    "title": "Tabla",
+    "copyFailed": "No se pudo copiar la tabla"
   }
 }

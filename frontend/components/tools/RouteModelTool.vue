@@ -1,32 +1,27 @@
 <template>
-  <div class="mt-1">
-    <div class="mb-2 flex items-center text-chat-2 text-gray-700 dark:text-gray-300">
-      <Icon
-        :name="status === 'running' ? 'heroicons-arrow-path' : 'heroicons-arrows-right-left'"
-        class="w-3 h-3 me-1 text-ink-muted flex-shrink-0"
-        :class="{ 'animate-spin': status === 'running' }"
-      />
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status !== 'running' && routed">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}{{ modelName }}</template>
+      <template v-else>{{ label }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
       <template v-if="status !== 'running' && routed">
-        <span class="align-middle me-1">{{ isFallback ? t('tools.routeModel.fellBackTo') : t('tools.routeModel.routedTo') }}</span>
-        <LLMProviderIcon v-if="providerType || modelName" :provider="providerType || 'custom'" :model="modelName" :icon="true" class="w-3.5 h-3.5 me-1 flex-shrink-0" />
-        <span class="font-medium align-middle">{{ modelName }}</span>
-        <!-- Upfront pick by a decision model: confidence, with the top
-             probabilities and which decision model chose on hover. -->
-        <UTooltip v-if="isDecision && confidencePct !== null" :text="decisionTooltip" :popper="{ placement: 'top' }">
-          <span class="align-middle ms-1 text-ink-muted cursor-help" data-testid="route-decision-confidence">
-            · {{ t('tools.routeModel.decisionMatch', { pct: confidencePct }) }}
-          </span>
-        </UTooltip>
-        <span v-if="isFallback && fromModel" class="align-middle ms-1 text-ink-muted" data-testid="fallback-switch-reason">
-          — {{ t('tools.routeModel.fallbackReason', { from: fromModel }) }}
-        </span>
-      </template>
-      <span v-else class="align-middle">{{ label }}</span>
+      <template v-if="isDecision && confidencePct !== null"><span class="align-middle ms-1 text-ink-muted cursor-help" data-testid="route-decision-confidence">
+            · {{ t('tools.routeModel.decisionMatch', { pct: confidencePct }) }}</span></template><span v-if="isFallback && fromModel" class="align-middle ms-1 text-ink-muted" data-testid="fallback-switch-reason">
+          — {{ t('tools.routeModel.fallbackReason', { from: fromModel }) }}</span></template>
+      <template v-else></template></div>
+  
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'

@@ -120,7 +120,7 @@
                                     </div>
                                     <div v-if="block.reasoning" v-text-dir.align class="text-2xs text-ink-muted mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
                                     <div v-if="block.content" class="mt-1.5 text-xs text-gray-700 dark:text-gray-300 markdown-wrapper">
-                                        <MarkdownRender :content="block.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                        <MarkdownRender :content="stripCitations(block.content)" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                     </div>
                                     <div v-if="block.tool_execution" class="mt-2 min-w-0 overflow-x-auto" @click.stop="onChatBlockClick(turn, block)">
                                         <component
@@ -642,6 +642,7 @@
 
 <script setup lang="ts">
 import { MarkdownRender } from 'markstream-vue'
+import { stripCitations } from '~/composables/useCitations'
 import RenderTable from '../RenderTable.vue'
 import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'

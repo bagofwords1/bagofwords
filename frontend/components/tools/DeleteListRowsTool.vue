@@ -9,35 +9,17 @@
   - Cancelled / timed out / nothing matched / failed: a one-line header.
 -->
 <template>
-  <div class="mt-1" data-testid="delete-list-rows-tool">
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="phase === 'finding'" class="tool-shimmer flex items-center min-w-0">
-          <Icon name="heroicons-trash" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
-          <span class="truncate" dir="auto">{{ t('tools.deleteListRows.finding', { name: listName }) }}</span>
-        </span>
-        <span v-else-if="phase === 'confirm'" class="flex items-center text-gray-700 dark:text-gray-300">
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.deleteListRows.waiting') : t('tools.deleteListRows.confirm') }}</span>
-        </span>
-        <span v-else-if="phase === 'deleting'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ t('tools.deleteListRows.deleting') }}</span>
-        </span>
-        <span v-else-if="phase === 'done'" class="text-gray-700 dark:text-gray-300 flex items-center" data-testid="delete-list-rows-done">
-          <Icon name="heroicons-trash" class="w-3 h-3 me-1 text-emerald-500" />
-          <span dir="auto">{{ t('tools.deleteListRows.deleted', { n: output.deleted, name: listName }, Number(output.deleted || 0)) }}</span>
-        </span>
-        <span v-else-if="phase === 'cancelled'" class="text-gray-700 dark:text-gray-300 flex items-center" data-testid="delete-list-rows-cancelled">
-          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? t('tools.deleteListRows.timedOut') : t('tools.deleteListRows.cancelled') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ outputStatus === 'no_match' ? t('tools.deleteListRows.noMatch') : t('tools.deleteListRows.failed') }}</span>
-        </span>
-      </div>
-    </Transition>
+  <div class="min-w-0" data-testid="delete-list-rows-tool">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="phase === 'finding'">{{ t('tools.deleteListRows.finding', { name: listName }) }}</template>
+      <template v-else-if="phase === 'confirm'">{{ readonly ? t('tools.deleteListRows.waiting') : t('tools.deleteListRows.confirm') }}</template>
+      <template v-else-if="phase === 'deleting'">{{ t('tools.deleteListRows.deleting') }}</template>
+      <template v-else-if="phase === 'done'">{{ t('tools.deleteListRows.deleted', { n: output.deleted, name: listName }, Number(output.deleted || 0)) }}</template>
+      <template v-else-if="phase === 'cancelled'">{{ outputStatus === 'timed_out' ? t('tools.deleteListRows.timedOut') : t('tools.deleteListRows.cancelled') }}</template>
+      <template v-else>{{ outputStatus === 'no_match' ? t('tools.deleteListRows.noMatch') : t('tools.deleteListRows.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (phase === 'confirm')" class="tool-call-details w-full min-w-0 mt-2">
 
     <div v-if="phase === 'failed' && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">{{ message }}</div>
 
@@ -136,10 +118,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
@@ -234,13 +222,6 @@ async function respond(approved: boolean) {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

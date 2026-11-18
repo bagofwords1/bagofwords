@@ -4,34 +4,14 @@
       :progress-stage="progressStage" :run-status="runStatus" :duration="duration"
       :connection-name="resultJson.connection_name" :approval-label="approvalOutcomeLabel"
       :confirmation-target="confirmation?.arguments?._execution_target" />
-    <!-- Status header -->
-    <Transition v-if="!isShell" name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="isRunning" class="flex items-center gap-1">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ runningLabel }}</span>
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <DataSourceIcon v-if="connectionIcon" :type="connectionIcon.type" :connector-key="connectionIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <McpIcon v-else-if="isMcpFamily" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ doneLabel }}</span>
-          <span v-if="duration" class="text-ink-muted ms-1">{{ duration }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
-          />
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader v-if="!isShell" :tool-execution="toolExecution" icon="heroicons-server-stack"
+      :label="isRunning ? runningLabel : doneLabel" :running="isRunning"
+      :expanded="isExpanded" @toggle="toggleExpanded" />
 
     <!-- MCP App: the interactive UI the server attached to this tool. Shown
          open, under the status line — it is the result, not a detail. -->
     <McpAppFrame
-      v-if="!isShell && mcpApp && appHost && props.toolExecution?.id && !isRunning"
+      v-if="!isShell && isExpanded && mcpApp && appHost && props.toolExecution?.id && !isRunning"
       :tool-execution-id="props.toolExecution.id"
       :status="status"
       :connection-name="resultJson.connection_name"
@@ -184,6 +164,7 @@
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { computed, inject, ref, watch } from 'vue'
 import RemoteShellTool from '~/components/tools/RemoteShellTool.vue'
 import { isToolRunning, toolOutcome } from '~/utils/toolOutcome'
@@ -191,7 +172,6 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon } from '~/composables/useToolConnectionIcon'
 import McpIcon from '~/components/icons/McpIcon.vue'
 import McpAppFrame from '~/components/tools/McpAppFrame.vue'
-import Spinner from '~/components/Spinner.vue'
 const { t } = useResponseI18n()
 
 interface ToolExecution {
@@ -513,25 +493,11 @@ const errorMessage = computed(() => resultJson.value.blocked_by_policy === 'ask'
   : resultJson.value.error_message || resultJson.value.error || '')
 
 function toggleExpanded() {
-  if (!isRunning.value) {
-    isExpanded.value = !isExpanded.value
-  }
+  isExpanded.value = !isExpanded.value
 }
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-  font-weight: 400;
-  opacity: 1;
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;
 }

@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
 import { computed } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import AuthenticatedImage from '~/components/AuthenticatedImage.vue'
 
 const props = defineProps<{
@@ -20,30 +22,12 @@ const error = computed(() => rj.value.error_message || '')
 </script>
 
 <template>
-  <div class="mt-1 text-chat-2">
-    <!-- Running: spinner + shimmer -->
-    <span v-if="status === 'running'" class="flex items-center text-gray-500 dark:text-gray-400">
-      <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-      <span class="tool-shimmer">Generating image: {{ title }}…</span>
-    </span>
-
-    <!-- Success: header + inline image -->
-    <template v-else-if="fileId">
-      <div class="flex items-center gap-1 text-gray-600 dark:text-gray-300 mb-1.5">
-        <Icon name="heroicons:photo" class="w-3.5 h-3.5 text-ink-muted" />
-        <span class="font-medium truncate">{{ title }}</span>
-      </div>
-      <AuthenticatedImage
-        :file-id="fileId"
-        :alt="title"
-        img-class="max-h-80 w-auto object-contain rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm"
-      />
-    </template>
-
-    <!-- Error -->
-    <div v-else-if="error" class="flex items-center gap-1 text-red-600 dark:text-red-400">
-      <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
-      <span>{{ error }}</span>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-photo" :label="title" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded" />
+    <div v-if="toolHeaderExpanded" class="mt-2 min-w-0 text-chat-2">
+      
+      <AuthenticatedImage v-if="fileId" :file-id="fileId" :alt="title" img-class="max-h-96 w-auto object-contain rounded-lg border border-line" />
+      <div v-if="error" class="text-ink-muted break-words">{{ error }}</div>
     </div>
   </div>
 </template>

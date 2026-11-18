@@ -1,19 +1,13 @@
 <template>
-  <div class="mt-1">
-    <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.editEval.editing') }}
-      </span>
-      <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1 text-purple-400" />
-        <span class="align-middle">{{ t('tools.editEval.edited') }}</span>
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">{{ message || t('tools.editEval.failed') }}</span>
-      </span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-clipboard-document-check" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.editEval.editing') }}</template>
+      <template v-else-if="success">{{ t('tools.editEval.edited') }}</template>
+      <template v-else>{{ t('tools.editEval.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <p v-if="message" class="mb-2 text-chat-3 text-ink-muted break-words">{{ message }}</p>
 
     <div v-if="success" class="text-chat-2 text-gray-600 dark:text-gray-400">
       <div class="flex items-center py-1 px-1 rounded">
@@ -30,10 +24,16 @@
         {{ t('tools.editEval.changed', { fields: changedFields.join(', ') }) }}
       </div>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 
@@ -60,14 +60,5 @@ const changedFields = computed<string[]>(() => Array.isArray(result.value?.chang
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

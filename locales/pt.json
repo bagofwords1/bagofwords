@@ -1383,6 +1383,18 @@
     "hiddenTurns": "{count} turno posterior oculto: ele ou um anterior usou um agente que você não gerencia | {count} turnos posteriores ocultos: eles ou um anterior usaram um agente que você não gerencia"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Navegou na web",
+        "search": "Pesquisou",
+        "files": "Leu arquivos",
+        "inspect": "Inspecionou dados",
+        "data": "Executou {count} consultas",
+        "create": "Criou e atualizou resultados",
+        "tools": "Usou ferramentas",
+        "results": "Executou {count} consultas"
+      }
+    },
     "tabChat": "Chat",
     "tabSummary": "Resumo",
     "tabDashboard": "Painel",
@@ -7745,5 +7757,9 @@
     "chipInstructions": "{n} instruções",
     "chipEvals": "{n} avaliações",
     "chipQueries": "{n} consultas"
+  },
+  "markdownTable": {
+    "title": "Tabela",
+    "copyFailed": "Não foi possível copiar a tabela"
   }
 }
