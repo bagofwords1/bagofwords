@@ -276,3 +276,17 @@ def test_connection_error_type_that_cannot_be_rebuilt_is_still_redacted(monkeypa
 
     assert "unreachable.invalid" not in str(raised.value)
 
+
+def test_unknown_type_error_names_no_tenant_type(monkeypatch):
+    import app.data_sources.clients.postgresql_multi_client as module
+
+    error = duckdb.CatalogException(
+        'Catalog Error: Type with name secret_pla does not exist!\nDid you mean "__t0004.public.secret_plan"?'
+    )
+    monkeypatch.setattr(module, "get_engine", lambda *a, **k: _FailingEngine(error))
+
+    with pytest.raises(duckdb.CatalogException) as raised:
+        _client().execute_query("SELECT NULL::secret_pla")
+
+    assert "__t0004" not in str(raised.value)
+    assert "secret_plan" not in str(raised.value)

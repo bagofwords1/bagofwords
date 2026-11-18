@@ -64,6 +64,7 @@ _READABLE_TABLES_SQL = (
 _GENERIC_TYPES = ("ARRAY", "USER-DEFINED")
 
 _CONNECT_FAILURE = re.compile(r"(?:IO Error: )?Unable to connect to Postgres\b")
+_UNKNOWN_TYPE = re.compile(r"Type with name .* does not exist", re.DOTALL)
 
 _VANISHED_RELATION = re.compile(
     r'Failed to prepare COPY "COPY \(.*\) TO STDOUT \(FORMAT "binary"\);": ERROR:\s+relation "[^"]*" does not exist',
@@ -354,6 +355,10 @@ class PostgresqlMultiClient(DataSourceClient):
             cursor.close()
 
     def _without_connection_details(self, exc: duckdb.Error) -> duckdb.Error:
+        if isinstance(exc, duckdb.CatalogException) and _UNKNOWN_TYPE.search(str(exc)):
+            return duckdb.CatalogException(
+                "Catalog Error: that type does not exist here. Cast to a built-in DuckDB type."
+            )
         if not _postgres_side(exc):
             return exc
         if _CONNECT_FAILURE.match(str(exc)):
