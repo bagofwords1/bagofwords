@@ -171,8 +171,12 @@ def display_policy(connection, tool_name, admin, personal):
     return resolve_effective_policy(admin, personal)
 
 
-async def resolve_shell_confirmation(db, row, *, approved, remember, user_id, rule, report_id=None):
-    """Commit the first decision and its remembered rule in one transaction."""
+async def resolve_shell_confirmation(db, row, *, approved, remember, user_id, rule, report_id=None, scope=None):
+    """Commit the first decision and its remembered rule in one transaction.
+
+    ``scope`` is how far the answer reaches (once | report | always), stored on
+    the row so a run polling it from another worker reads the same scope as
+    the same-worker fast path."""
     from datetime import datetime
 
     from sqlalchemy import or_, update
@@ -189,6 +193,7 @@ async def resolve_shell_confirmation(db, row, *, approved, remember, user_id, ru
         .values(
             status=ToolConfirmation.STATUS_APPROVED if approved else ToolConfirmation.STATUS_DENIED,
             remember=remember,
+            scope=scope,
             resolved_by_user_id=str(user_id),
             resolved_at=datetime.utcnow(),
         )

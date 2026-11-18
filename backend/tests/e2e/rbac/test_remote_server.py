@@ -377,6 +377,71 @@ def test_shell_approval_persists_scoped_rules_without_sharing_between_users(
     assert test_client.get(f"{tools_url}/{shell['id']}/my_shell_rules", headers=member_headers).json() == []
 
 
+@pytest.mark.parametrize("approved", [True, False])
+@pytest.mark.parametrize("permission_scope,mandatory,expected", [
+    ("once", False, "once"),
+    ("session", False, "report"),
+    ("user", False, "always"),
+    # Mandatory approval answers once, whatever button the client sent.
+    ("session", True, "once"),
+    ("user", True, "once"),
+])
+def test_a_shell_answer_reaches_the_run_with_the_scope_that_applies(
+    permission_scope, mandatory, expected, approved,
+    ssh_driver, create_user, login_user, whoami, create_connection, create_domain_from_connection,
+    create_report, test_client,
+):
+    """The run waiting on a shell card reads the scope the answer really has,
+    from the row, so a run on another worker is told the same as one on this
+    worker: a 'for this report' answer is not 'always', and a mandatory-approval
+    answer is once-only."""
+    import asyncio
+    from uuid import uuid4
+
+    from app.dependencies import async_session_maker
+    from app.services.tool_confirmation_service import ToolConfirmationService
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    info = whoami(token)
+    org = info["organizations"][0]["id"]
+    headers = {"Authorization": "Bearer " + token, "X-Organization-Id": org}
+    conn = create_connection(
+        name="Scope target", type="remote_ssh",
+        config={"host": "127.0.0.1", "host_public_key": "ssh-ed25519 YWJj", "auth_type": "password",
+                "enable_shell": True},
+        credentials={"username": "reader", "password": "fixture-secret"},
+        user_token=token, org_id=org,
+    )
+    agent = create_domain_from_connection(name="Scope agent", connection_id=conn["id"], user_token=token, org_id=org)
+    report = create_report(user_token=token, org_id=org)
+    shell = next(t for t in test_client.get(f"/api/data_sources/{agent['id']}/tools", headers=headers).json()
+                 if t["name"] == "execute_shell")
+    cid, completion_id = str(uuid4()), str(uuid4())
+
+    async def pending():
+        async with async_session_maker() as db:
+            await ToolConfirmationService().create(
+                db, confirmation_id=cid, organization_id=org, report_id=report["id"],
+                system_completion_id=completion_id, user_id=info["id"], connection_id=conn["id"],
+                connection_tool_id=shell["id"], tool_name="execute_shell",
+                arguments={"command": "uptime", "working_directory": "/srv",
+                           "_execution_target": {"shell_permissions": True, "mandatory_approval": mandatory}},
+            )
+
+    asyncio.run(pending())
+    result = test_client.post(
+        f"/api/completions/{completion_id}/mcp_tool_confirmations/{cid}", headers=headers,
+        json={"approved": approved, "remember": permission_scope != "once", "permission_scope": permission_scope},
+    )
+    assert result.status_code == 200, result.text
+
+    decision = asyncio.run(ToolConfirmationService().poll_decision(cid))
+    assert decision is not None
+    assert decision["approved"] is approved
+    assert decision["scope"] == expected
+
+
 @pytest.fixture
 def shell_box(ssh_driver, create_user, login_user, whoami, create_connection, create_domain_from_connection,
               create_report, test_client, monkeypatch):

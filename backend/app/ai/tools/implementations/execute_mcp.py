@@ -1614,10 +1614,12 @@ Do not use when:
                     "denied": "Execution was denied.",
                 }[outcome]
                 remembered = bool(response and response.get("remember"))
-                if remembered:
-                    guidance = "The user saved 'always deny' for this tool — do not retry it."
-                elif (response or {}).get("scope") == "report":
+                # The scope first: a shell "for this report" rule also sets
+                # remember, but it does not reach beyond this report.
+                if (response or {}).get("scope") == "report":
                     guidance = "The user denied this tool for this report — do not retry it here."
+                elif remembered:
+                    guidance = "The user saved 'always deny' for this tool — do not retry it."
                 else:
                     # Deny once / timeout is scoped to this turn: a later
                     # explicit user request should retry (and re-prompt).

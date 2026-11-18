@@ -510,9 +510,11 @@ async def respond_to_mcp_tool_confirmation(
     shell_handled = bool(shell_target.get("shell_permissions"))
     if shell_handled:
         from app.services.remote_shell_policy import resolve_shell_confirmation
+        # The scope that really applies: mandatory approval forces once.
+        scope = {"once": "once", "session": "report", "user": "always"}[shell_scope]
         row = await resolve_shell_confirmation(db, row, approved=approved, remember=remember,
             user_id=current_user.id, rule=shell_rule,
-            report_id=row.report_id if shell_scope == "session" else None)
+            report_id=row.report_id if shell_scope == "session" else None, scope=scope)
         if row.is_pending or row.status == ToolConfirmation.STATUS_EXPIRED:
             raise HTTPException(status_code=410, detail="Confirmation expired")
         approved, remember = row.approved, bool(row.remember)
