@@ -173,6 +173,15 @@
             <span class="flex-1 text-start truncate">{{ $t('agentsPage.skills') }}</span>
             <span v-if="skillCount" class="shrink-0 text-2xs text-ink-muted tabular-nums">{{ skillCount }}</span>
           </button>
+          <!-- Review: the shared queue of things an agent manager should look
+               at (schema changes, suggestions, quality signals). Shown while
+               there is something open, or while it is the open view. -->
+          <button v-if="reviewCount || reviewView" type="button" data-testid="review-button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0" :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openReview()">
+            <span class="w-3 shrink-0"></span>
+            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-ink-muted shrink-0" />
+            <span class="flex-1 text-start truncate">{{ $t('reviewFeed.title') }}</span>
+            <span v-if="reviewCount" class="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 text-2xs font-semibold tabular-nums flex items-center justify-center">{{ reviewCount }}</span>
+          </button>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
                org-wide shelves, label opens the runs panel. Gated on ORG-LEVEL
@@ -425,7 +434,7 @@
         </button>
         <!-- Review feed -->
         <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
-          <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
+          <ReviewFeed :key="(reviewView.agentId || 'all') + ':' + (reviewView.itemId || '')" :agents="agents" :initial-agent-id="reviewView.agentId" :focus-item-id="reviewView.itemId" @close="closeReview" @count="fetchReviewCount()" @open-instruction="openInstructionFromReview" />
           <div v-if="reviewNavLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px]">
             <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
@@ -2645,7 +2654,7 @@ const onUploadInput = async (e: Event) => {
 
 // Clear every right-pane mode (preview / diff / tables-tools panel / agent view / detail)
 // ── Review feed (center-pane view) ──────────────────────
-const reviewView = ref<null | { agentId: string | null }>(null)
+const reviewView = ref<null | { agentId: string | null; itemId?: string | null }>(null)
 const reviewCount = ref(0)
 const fetchReviewCount = async () => {
   try { const { data } = await useMyFetch<any>('/api/review/count', { method: 'GET' }); reviewCount.value = data.value?.open || 0 } catch {}
@@ -2656,9 +2665,11 @@ const clearRightPane = () => {
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
-const openReview = (agentId: string | null = null) => {
+// Opened from the tree's Review row, or deep-linked from a notification:
+// /agents/review[/<item>] (all agents) and /agents/<id>/review[/<item>].
+const openReview = (agentId: string | null = null, itemId: string | null = null) => {
   clearRightPane()
-  reviewView.value = { agentId }
+  reviewView.value = { agentId, itemId }
 }
 // Open an instruction (from a Review item) and surface its pending diff.
 // Resolve the instruction BEFORE swapping panes so the Review feed → detail
@@ -4634,6 +4645,7 @@ const explorerUrl = (): string => {
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
   if (folderPaneVisible.value && selectedFolder.value) return `/agents/folders/${selectedFolder.value}`
+  if (reviewView.value) return '/agents/' + [reviewView.value.agentId, 'review', reviewView.value.itemId].filter(Boolean).join('/')
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
@@ -4648,7 +4660,7 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, selectedFolder, queryView, listView, listRowView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, selectedFolder, queryView, listView, listRowView, reviewView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
@@ -4696,6 +4708,13 @@ const restoreFromRoute = () => {
       .catch(() => {})
     return
   }
+  // /agents/review[/<item>] — the Review feed across all agents (global items
+  // live here too), optionally focused on one item.
+  if (seg[0] === 'review') {
+    const itemId = seg[1] || null
+    if (!reviewView.value || reviewView.value.agentId || reviewView.value.itemId !== itemId) openReview(null, itemId)
+    return
+  }
   // /agents/global-evals — org-wide evals view, not bound to an agent
   if (seg[0] === 'global-evals') {
     if (panelView.value?.kind !== 'global-evals') openGlobalEvals()
@@ -4710,6 +4729,14 @@ const restoreFromRoute = () => {
   const panel = seg[1] as (typeof PANEL_KINDS)[number] | undefined
   const agent = agents.value.find(a => a.id === agentId)
   if (!agent) return
+  // /agents/<id>/review[/<item>] — the Review feed for one agent.
+  if (seg[1] === 'review') {
+    const itemId = seg[2] || null
+    if (reviewView.value?.agentId === agentId && reviewView.value?.itemId === itemId) return
+    expand('agent:' + agentId, true)
+    openReview(agentId, itemId)
+    return
+  }
   // /agents/<id>/<panel>
   if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
     if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }

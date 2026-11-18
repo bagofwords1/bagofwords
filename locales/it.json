@@ -539,7 +539,7 @@
     "content": {
       "low_confidence": {
         "title": "Risposte a bassa confidenza",
-        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Avvia un addestramento per colmare le lacune."
+        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Miglioralo in modalità addestramento per colmare le lacune."
       },
       "slow_query": {
         "title": "Query sui dati lente (>{secs}s)",
@@ -547,7 +547,10 @@
       },
       "schema_changed": {
         "title": "Lo schema della connessione è cambiato",
-        "body": "Tabelle o colonne di questa connessione sono cambiate. Riesegui valutazioni o addestramento per mantenere accurate le istruzioni."
+        "body": "Tabelle o colonne di questa connessione sono cambiate. Verificalo in modalità addestramento per mantenere accurate le istruzioni.",
+        "title_named": "{agent}: schema modificato in {connection}",
+        "title_agent": "{agent}: schema modificato",
+        "body_counts": "Tabelle aggiunte: {added} · rimosse: {removed} · modificate: {modified}. Controlla le tabelle e le istruzioni dell'agente."
       },
       "instruction_suggestion": {
         "body_ai": "Modifica di istruzione generata dall'IA in attesa di revisione.",
@@ -601,12 +604,125 @@
       "access_granted": {
         "title": "Ora puoi vedere {dashboard}",
         "body": "La tua richiesta di vedere «{dashboard}» è stata approvata."
+      },
+      "nightly_learning": {
+        "title": "{agent}: apprendimento notturno",
+        "title_learned": "{agent}: nuovi apprendimenti della notte ({n})",
+        "title_cleanup": "{agent}: pulizia notturna dei suggerimenti"
+      },
+      "query_error": {
+        "title": "Errori nelle query sui dati",
+        "body": "Alcune query sui dati di questo agente non sono riuscite. Miglioralo in modalità addestramento per colmare la lacuna."
       }
     },
     "checkin": {
       "badge": "Follow-up",
       "openReport": "Apri report",
       "assistantFallback": "Analista IA"
+    },
+    "filterAgents": "Agenti",
+    "filterShares": "Condivisioni",
+    "filterRuns": "Esecuzioni",
+    "filterConnections": "Connessioni",
+    "detail": {
+      "resolved": "Gestito",
+      "dismissed": "Gestito",
+      "open": "Apri",
+      "reviewTables": "Rivedi le tabelle",
+      "reviewInstruction": "Rivedi l'istruzione",
+      "viewQueries": "Vedi le query",
+      "openEvals": "Apri le valutazioni",
+      "viewChecks": "Vedi i controlli",
+      "openInReview": "Apri in Revisione",
+      "connection": "Connessione",
+      "by": "da {name}",
+      "reliabilityStarted": "Un controllo di affidabilità è partito {time}: vengono eseguite le valutazioni e, se falliscono, l'addestramento.",
+      "history": "Modifiche precedenti",
+      "historyEntry": "{added} aggiunte · {removed} rimosse · {modified} modificate",
+      "showDetails": "Dettagli",
+      "hideDetails": "Nascondi dettagli"
+    },
+    "diff": {
+      "addedTables": "Tabelle aggiunte",
+      "removedTables": "Tabelle rimosse",
+      "changedTables": "Tabelle modificate",
+      "newInactive": "Nuove nella connessione, non attive per questo agente",
+      "more": "+{n} altre tabelle"
+    },
+    "clearHandled": "Cancella gestiti",
+    "handled": {
+      "marked": "{name} l'ha segnato come gestito",
+      "suggestion_reviewed": "{name} ha esaminato il suggerimento",
+      "suggestion_rejected": "{name} ha rifiutato il suggerimento",
+      "suggestion_voided": "L'istruzione è cambiata",
+      "training_passed": "L'addestramento avviato da {name} è riuscito",
+      "eval_passed": "La valutazione avviata da {name} è riuscita",
+      "condition_cleared": "Il problema è scomparso",
+      "someone": "Qualcuno"
+    }
+  },
+  "reviewFeed": {
+    "title": "Revisione",
+    "subtitle": "Una coda condivisa per chi gestisce gli agenti: ciò che una persona gestisce si chiude per tutti.",
+    "refresh": "Aggiorna",
+    "close": "Chiudi",
+    "search": "Cerca…",
+    "allAgents": "Tutti gli agenti",
+    "resolvedFilter": "Gestiti",
+    "emptyTitle": "Sei in pari",
+    "emptyBody": "Niente da rivedere. Nuovi suggerimenti, modifiche allo schema e segnali di qualità appariranno qui.",
+    "emptyBodyAgent": "Niente da rivedere per questo agente. Nuovi suggerimenti, modifiche allo schema e segnali di qualità appariranno qui.",
+    "changes": "{n} modifiche",
+    "running": "In corso",
+    "resolved": "Gestito",
+    "dismiss": "Segna come gestito",
+    "agent": "Agente",
+    "nAgents": "{n} agenti",
+    "noEvals": "Questo agente non ha valutazioni. Aggiungi prima un caso di test.",
+    "nothingToRun": "Niente da eseguire",
+    "actionUnavailable": "Azione non disponibile",
+    "evalStarted": "Valutazione avviata",
+    "done": "Fatto",
+    "actionFailed": "Azione non riuscita",
+    "dismissFailed": "Impossibile ignorare",
+    "chipSuggestions": "Suggerimenti",
+    "chipSchema": "Schema",
+    "chipSlow": "Lente",
+    "chipLowConfidence": "Bassa affidabilità",
+    "typeSuggestion": "Suggerimento",
+    "typeSchema": "Modifica allo schema",
+    "typeSlow": "Query lenta",
+    "typeLowConfidence": "Bassa affidabilità",
+    "typeQueryError": "Errore di query",
+    "actionReview": "Rivedi",
+    "actionRunEval": "Esegui valutazione",
+    "focusResolved": "Questo elemento è già stato gestito.",
+    "focusGone": "Questo elemento non è più aperto. È stato risolto o chiuso.",
+    "all": "Tutti",
+    "openN": "{n} aperti",
+    "multipleAgents": "Più agenti",
+    "more": "Altre azioni",
+    "times": "{n} volte",
+    "actionTrainInChat": "Migliora in modalità addestramento",
+    "train": {
+      "schema": "Lo schema della connessione {connection} è cambiato:\n{changes}\n\nRivedi le istruzioni e le query salvate di questo agente che usano queste tabelle o colonne e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "schemaGeneric": "Lo schema della connessione {connection} è cambiato. Rivedi le istruzioni e le query salvate di questo agente che usano le tabelle o colonne modificate e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "tableAdded": "- Nuova tabella: {table}",
+      "tableRemoved": "- Tabella rimossa: {table}",
+      "colsAdded": "colonne aggiunte {cols}",
+      "colsRemoved": "colonne rimosse {cols}",
+      "typeChanged": "il tipo di {col} è cambiato da {from} a {to}",
+      "lowConfidence": "Queste domande a questo agente hanno ricevuto risposte con punteggio basso:\n{examples}\n\nTrova cosa manca o non è chiaro nelle istruzioni e suggerisci istruzioni che colmino queste lacune.",
+      "lowConfidenceGeneric": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Rivedi le conversazioni recenti, trova cosa manca o non è chiaro nelle istruzioni e suggerisci istruzioni che colmino queste lacune.",
+      "slow": "Queste query sui dati di questo agente sono state lente:\n{examples}\n\nTrova la causa comune e suggerisci istruzioni di protezione (ad esempio richiedere un filtro o evitare scansioni complete) perché le query restino veloci.",
+      "slowGeneric": "Le query sui dati di questo agente sono lente. Trova la causa comune e suggerisci istruzioni di protezione (ad esempio richiedere un filtro o evitare scansioni complete) perché le query restino veloci.",
+      "slowLine": "{q} ({s} s)",
+      "error": "Queste query sui dati di questo agente non sono riuscite:\n{examples}\n\nTrova la causa e suggerisci istruzioni perché l'agente scriva query valide.",
+      "errorGeneric": "Le query sui dati di questo agente non riescono. Trova la causa e suggerisci istruzioni perché l'agente scriva query valide.",
+      "errorLine": "{q}: {error}",
+      "generic": "Rivedi le conversazioni recenti di questo agente e suggerisci istruzioni che migliorino le sue risposte.",
+      "schemaUnnamed": "Lo schema della connessione di questo agente è cambiato. Rivedi le istruzioni e le query salvate dell'agente che usano tabelle o colonne modificate e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "more": "- …e altre {n} modifiche"
     }
   },
   "auth": {

@@ -2246,6 +2246,26 @@ class ConnectionService:
                 .execution_options(synchronize_session=False)
             )
 
+    async def _active_tables_by_agent(self, db: AsyncSession, connection: Connection) -> dict:
+        """``{agent_id: {table_name: columns}}`` for the tables each linked agent
+        has active on this connection. Read-only; feeds the schema-change diff.
+        (No try/except: a failed statement would poison the refresh transaction
+        on Postgres anyway, so let it surface like any other refresh error.)"""
+        import copy
+        from app.models.datasource_table import DataSourceTable
+        rows = (await db.execute(
+            select(DataSourceTable.datasource_id, DataSourceTable.name, DataSourceTable.columns)
+            .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
+            .where(
+                ConnectionTable.connection_id == str(connection.id),
+                DataSourceTable.is_active == True,  # noqa: E712
+            )
+        )).all()
+        out: dict = {}
+        for ds_id, name, columns in rows:
+            out.setdefault(str(ds_id), {})[name] = copy.deepcopy(list(columns or []))
+        return out
+
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
                              keep_fresh_tables: bool = True, diagnostics_hook=None, defer_file_conversion=False) -> List[ConnectionTable]:
@@ -2267,6 +2287,11 @@ class ConnectionService:
                 org_id=getattr(connection, "organization_id", None),
                 user_id=getattr(current_user, "id", None),
             ):
+                # What each linked agent actively uses BEFORE discovery: a table
+                # dropped upstream is pruned (with its agent rows) inside
+                # _refresh_schema, so the per-agent sync below could otherwise
+                # never report it as removed.
+                prior_active = await self._active_tables_by_agent(db, connection)
                 tables = await self._refresh_schema(
                     db, connection, current_user, progress_callback, introspection,
                     keep_fresh_tables, diagnostics_hook, **({"defer_file_conversion": True} if defer_file_conversion else {}),
@@ -2290,6 +2315,7 @@ class ConnectionService:
                     await DataSourceService().sync_domain_tables_from_connection(
                         db, agent, connection, max_auto_select=None,
                         commit=False, after_commit=notifications,
+                        prior_active_tables=prior_active.get(str(agent.id)),
                     )
                     self.last_synced_domains += 1
                 if progress_callback:

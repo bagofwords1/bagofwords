@@ -5,9 +5,9 @@ derived from manage-permission on the agent (full admins see everything). State
 is shared: anyone with access reads/dismisses/resolves. Dedup is by
 (org, agent, type, group_key) over ACTIVE items — repeats bump ``group_count``.
 
-Resolution actions (à la carte) fire the *existing* agent workflows scoped to the
-item's agent: ``run_eval`` (eval-only), ``run_training`` (force-train), plus
-``dismiss``. Instruction suggestions are reviewed inline in the explorer (the
+Resolution actions: ``train_in_chat`` (the frontend opens a training-mode
+conversation on the agent, prefilled from ``training_context``), ``run_eval``
+(the agent's eval suite, in the background), plus ``dismiss``. Instruction suggestions are reviewed inline in the explorer (the
 feed just deep-links), and auto-resolve when the pending change clears.
 """
 from __future__ import annotations
@@ -28,9 +28,18 @@ from app.models.review_item import (
     TYPE_INSTRUCTION_SUGGESTION, TYPE_SCHEMA_CHANGED, TYPE_SLOW_QUERY,
     TYPE_LOW_CONFIDENCE, TYPE_QUERY_ERROR,
 )
+from app.models.notification import (
+    RESOLUTION_RESOLVED, RESOLUTION_DISMISSED,
+    HANDLED_MARKED, HANDLED_SUGGESTION_REVIEWED, HANDLED_TRAINING_PASSED,
+    HANDLED_EVAL_PASSED, HANDLED_CONDITION_CLEARED,
+)
 from app.core.permission_resolver import get_ds_ids_with_permission
 
 logger = logging.getLogger(__name__)
+
+# Examples fetched for a training-mode prompt, and the max length of each text.
+TRAINING_CONTEXT_EXAMPLES = 5
+TRAINING_CONTEXT_CHARS = 300
 
 
 # Per-type action menu. Each action: id, label, kind, primary?, optional capability.
@@ -38,36 +47,66 @@ logger = logging.getLogger(__name__)
 def actions_for(item: ReviewItem) -> List[Dict[str, Any]]:
     t = item.type
     menu: List[Dict[str, Any]] = []
+    # Improving the agent happens in a training-mode conversation the admin
+    # opens and sends themselves (``train_in_chat`` is frontend navigation with
+    # a prefilled prompt built from ``training_context``); ``run_eval`` stays as
+    # the eval-suite check for agents that have one.
+    train = {"id": "train_in_chat", "label": "Improve in training mode", "kind": "nav"}
     if t == TYPE_INSTRUCTION_SUGGESTION:
         menu = [
             {"id": "review", "label": "Review", "kind": "nav", "primary": True},
             {"id": "run_eval", "label": "Run eval", "kind": "run_eval"},
         ]
-    elif t == TYPE_SCHEMA_CHANGED:
-        menu = [
-            {"id": "run_training", "label": "Run training", "kind": "run_training", "primary": True},
-            {"id": "run_eval", "label": "Run eval", "kind": "run_eval"},
-        ]
-    elif t == TYPE_LOW_CONFIDENCE:
-        menu = [
-            {"id": "run_training", "label": "Run training", "kind": "run_training", "primary": True},
-            {"id": "run_eval", "label": "Run eval", "kind": "run_eval"},
-        ]
+    elif t in (TYPE_SCHEMA_CHANGED, TYPE_LOW_CONFIDENCE, TYPE_QUERY_ERROR):
+        menu = [dict(train), {"id": "run_eval", "label": "Run eval", "kind": "run_eval"}]
     elif t == TYPE_SLOW_QUERY:
-        menu = [
-            {"id": "run_training", "label": "Add guardrail (train)", "kind": "run_training", "primary": True},
-        ]
-    elif t == TYPE_QUERY_ERROR:
-        menu = [
-            {"id": "run_training", "label": "Run training", "kind": "run_training", "primary": True},
-            {"id": "run_eval", "label": "Run eval", "kind": "run_eval"},
-        ]
+        menu = [dict(train)]
     # Dismiss is always available.
     menu.append({"id": "dismiss", "label": "Dismiss", "kind": "dismiss"})
     return menu
 
 
-def to_dict(item: ReviewItem, *, agent_has_evals: Optional[bool] = None) -> Dict[str, Any]:
+def review_feed_link(item) -> str:
+    """The item itself, opened in the Review feed (agent-scoped or global)."""
+    if item.data_source_id:
+        return f"/agents/{item.data_source_id}/review/{item.id}"
+    return f"/agents/review/{item.id}"
+
+
+def review_link_for(item) -> str:
+    """Where a review notification takes the admin: the place they act on it.
+
+    The agent overview (``/agents/<id>``) is never the answer — it has nothing
+    about the change. A type without a dedicated surface (or a global item that
+    isn't tied to one) opens the item in the Review feed.
+    """
+    ds_id = str(item.data_source_id) if item.data_source_id else None
+    subject = item.subject_json or {}
+    t = item.type
+    if t == TYPE_INSTRUCTION_SUGGESTION and subject.get("instruction_id"):
+        return f"/agents/instructions/{subject['instruction_id']}"
+    if ds_id:
+        if t == TYPE_SCHEMA_CHANGED:
+            return f"/agents/{ds_id}/tables"
+        if t == TYPE_SLOW_QUERY:
+            return f"/agents/{ds_id}/queries"
+        if t == TYPE_LOW_CONFIDENCE:
+            return f"/agents/{ds_id}/evals"
+    return review_feed_link(item)
+
+
+def handled_info(item, *, by_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """How a closed item was handled, for the "Handled · …" line. None while open."""
+    if item.status not in (STATUS_RESOLVED, STATUS_DISMISSED):
+        return None
+    res = item.resolution_json if isinstance(item.resolution_json, dict) else {}
+    how = res.get("how") or (HANDLED_MARKED if item.status == STATUS_DISMISSED else None)
+    by = res.get("by") or (item.dismissed_by_user_id if item.status == STATUS_DISMISSED else item.resolved_by_user_id)
+    at = res.get("at") or (item.updated_at.isoformat() if item.updated_at else None)
+    return {"how": how, "by_user_id": str(by) if by else None, "by_name": by_name, "at": at}
+
+
+def to_dict(item: ReviewItem, *, agent_has_evals: Optional[bool] = None, by_name: Optional[str] = None) -> Dict[str, Any]:
     return {
         "id": str(item.id),
         "type": item.type,
@@ -80,9 +119,11 @@ def to_dict(item: ReviewItem, *, agent_has_evals: Optional[bool] = None) -> Dict
         "group_count": item.group_count,
         "agent_id": str(item.data_source_id) if item.data_source_id else None,
         # Whether the item's agent has any active eval to run/train against —
-        # drives whether run_eval/run_training are offered. None = N/A (global).
+        # drives whether run_eval is offered. None = N/A (global).
         "agent_has_evals": agent_has_evals,
         "resolution": item.resolution_json,
+        # Handled = resolved or dismissed: how, by whom, when (see handled_info).
+        "handled": handled_info(item, by_name=by_name),
         "spawned": item.spawned_json or [],
         "source_run_id": item.source_run_id,
         "build_id": item.build_id,
@@ -241,17 +282,25 @@ class ReviewService:
         try:
             from app.services.inbox_service import inbox_service
             ds_id = str(item.data_source_id) if item.data_source_id else None
-            subject = {
+            agent_name = None
+            if ds_id:
+                from app.models.data_source import DataSource
+                ds = await db.get(DataSource, ds_id)
+                agent_name = getattr(ds, "name", None)
+            # The producer's detail (schema diff + history, instruction id,
+            # thresholds, i18n params…) travels with the notification so the
+            # inbox can show it and re-render the text in the viewer's locale.
+            # The routing keys below always win over a producer key of the
+            # same name.
+            subject = {k: v for k, v in (item.subject_json or {}).items() if k != "kind"}
+            subject.update({
                 "kind": "review_item",
                 "review_item_id": str(item.id),
                 "review_type": item.type,
                 "data_source_id": ds_id,
-            }
-            # Carry the producer's i18n params onto the delivered notification
-            # so the inbox can re-render its text in the viewer's locale.
-            i18n = (item.subject_json or {}).get("i18n")
-            if i18n is not None:
-                subject["i18n"] = i18n
+                "agent_name": agent_name,
+                "review_link": review_feed_link(item),
+            })
             await inbox_service.notify_agent_managers(
                 db,
                 organization_id=str(item.organization_id),
@@ -260,7 +309,7 @@ class ReviewService:
                 title=item.title,
                 body=item.why,
                 severity=item.severity,
-                link=(f"/agents/{ds_id}" if ds_id else None),
+                link=review_link_for(item),
                 subject=subject,
                 group_key=item.group_key,
                 source_id=str(item.id),
@@ -285,15 +334,36 @@ class ReviewService:
                 ReviewItem.deleted_at.is_(None),
             ))
         )).scalars().all()
+        now = datetime.utcnow()
         for it in rows:
             it.status = STATUS_RESOLVED
+            it.resolution_json = {"how": HANDLED_CONDITION_CLEARED, "by": None, "at": now.isoformat()}
             if verified:
-                it.verified_at = datetime.utcnow()
+                it.verified_at = now
         if rows:
+            await self._sync_notifications(db, rows, RESOLUTION_RESOLVED, how=HANDLED_CONDITION_CLEARED)
             await db.commit()
         return len(rows)
 
-    async def resolve_for_instruction(self, db: AsyncSession, *, organization_id: str, instruction_id: str) -> int:
+    async def _sync_notifications(self, db, items, resolution: str, *,
+                                  how: Optional[str] = None, by_user_id: Optional[str] = None) -> None:
+        """Mirror a closed item onto every recipient's notification (matched by
+        ``source_id``) so the bell stops counting what the team already handled.
+        Joins the caller's transaction; never raises (a sync failure must not
+        undo the resolution itself)."""
+        try:
+            from app.services.inbox_service import inbox_service
+            # A savepoint: if the sync fails, only its own writes roll back and
+            # the caller's session stays usable for the resolution's commit.
+            async with db.begin_nested():
+                await inbox_service.resolve_for_sources(db, [str(i.id) for i in items], resolution,
+                                                        how=how, by_user_id=by_user_id)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("review: notification resolution sync failed: %s", e)
+
+    async def resolve_for_instruction(self, db: AsyncSession, *, organization_id: str, instruction_id: str,
+                                      how: str = HANDLED_SUGGESTION_REVIEWED,
+                                      by_user_id: Optional[str] = None) -> int:
         """Auto-resolve any active instruction_suggestion items for an instruction
         (across all agents) — called when the admin has handled the change
         (accepted/rejected) so the item doesn't linger."""
@@ -307,10 +377,14 @@ class ReviewService:
                 ReviewItem.deleted_at.is_(None),
             ))
         )).scalars().all()
+        now = datetime.utcnow()
         for it in rows:
             it.status = STATUS_RESOLVED
-            it.verified_at = datetime.utcnow()
+            it.verified_at = now
+            it.resolved_by_user_id = str(by_user_id) if by_user_id else it.resolved_by_user_id
+            it.resolution_json = {"how": how, "by": str(by_user_id) if by_user_id else None, "at": now.isoformat()}
         if rows:
+            await self._sync_notifications(db, rows, RESOLUTION_RESOLVED, how=how, by_user_id=by_user_id)
             await db.commit()
         return len(rows)
 
@@ -374,7 +448,7 @@ class ReviewService:
             -_ts(r.last_seen_at or r.created_at),
         ))
         unread = sum(1 for r in rows if r.read_at is None and r.status in (STATUS_OPEN, STATUS_IN_PROGRESS))
-        # Gate run_eval/run_training on whether the agent actually has evals.
+        # Gate run_eval on whether the agent actually has evals.
         any_auto, agents_with_evals = await _agents_with_active_evals(db, str(organization.id))
 
         def _has_evals(r: ReviewItem) -> Optional[bool]:
@@ -382,8 +456,19 @@ class ReviewService:
                 return None  # global item — eval actions don't apply
             return any_auto or str(r.data_source_id) in agents_with_evals
 
+        # Names of whoever handled the closed items (one query for the page).
+        closer_ids = {str(x) for r in rows for x in [(handled_info(r) or {}).get("by_user_id")] if x}
+        names: Dict[str, str] = {}
+        if closer_ids:
+            from app.models.user import User
+            for u in (await db.execute(select(User).where(User.id.in_(closer_ids)))).scalars():
+                names[str(u.id)] = u.name or u.email
+        def _by_name(r):
+            uid = (handled_info(r) or {}).get("by_user_id")
+            return names.get(uid) if uid else None
+
         return {
-            "items": [to_dict(r, agent_has_evals=_has_evals(r)) for r in rows],
+            "items": [to_dict(r, agent_has_evals=_has_evals(r), by_name=_by_name(r)) for r in rows],
             "total": len(rows), "unread": unread,
         }
 
@@ -433,8 +518,121 @@ class ReviewService:
             return None
         item.status = STATUS_DISMISSED
         item.dismissed_by_user_id = str(user.id)
+        item.resolution_json = {"how": HANDLED_MARKED, "by": str(user.id), "at": datetime.utcnow().isoformat()}
+        # The Review feed is a shared team queue: once someone marks the item as
+        # handled, the other managers' notifications show it as handled too.
+        await self._sync_notifications(db, [item], RESOLUTION_DISMISSED, how=HANDLED_MARKED, by_user_id=str(user.id))
         await db.commit(); await db.refresh(item)
         return item
+
+    async def training_context(self, db, organization, user, item_id) -> Optional[Dict[str, Any]]:
+        """Concrete examples behind an item, for the training-mode prompt the
+        frontend prefills: the low-scored questions, the slow queries, the
+        failed queries. Read on demand (chat text is encrypted at rest, so it is
+        never copied into the item), limited to the item's window and agent."""
+        item = await self._get_visible_item(db, organization, user, item_id)
+        if item is None:
+            return None
+        out: Dict[str, Any] = {"agent_id": str(item.data_source_id) if item.data_source_id else None,
+                               "type": item.type, "examples": []}
+        if not item.data_source_id or item.type not in (TYPE_LOW_CONFIDENCE, TYPE_SLOW_QUERY, TYPE_QUERY_ERROR):
+            return out
+        from app.models.completion import Completion
+        from app.models.agent_execution import AgentExecution
+        from app.models.tool_execution import ToolExecution
+        from app.models.report_data_source_association import report_data_source_association as assoc
+        from app.services.review_producers import DEFAULT_WINDOW_HOURS, SLOW_QUERY_MS, QUERY_TOOLS
+        ds_id = str(item.data_source_id)
+        # The producer's window, ending at the item's latest occurrence (an item
+        # opened last month still shows last month's examples).
+        until = item.last_seen_at or item.updated_at or datetime.utcnow()
+        since = until - timedelta(hours=DEFAULT_WINDOW_HOURS)
+        limit = TRAINING_CONTEXT_EXAMPLES
+
+        # Examples are other people's conversations. Show only the ones the
+        # caller could already open in Monitoring: the same rule as a console
+        # trace (every agent behind the report is one they manage, or a folder
+        # they can read; org admins see all).
+        from fastapi import HTTPException
+        from app.core.console_access import resolve_console_scope
+        try:
+            scope = await resolve_console_scope(db, organization, user)
+        except HTTPException:
+            return out
+        visible: Dict[str, bool] = {}
+
+        async def _can_see(report_id) -> bool:
+            rid = str(report_id)
+            if rid not in visible:
+                try:
+                    await scope.assert_report_visible(db, rid)
+                    visible[rid] = True
+                except HTTPException:
+                    visible[rid] = False
+            return visible[rid]
+
+        def _text(v) -> str:
+            if isinstance(v, dict):
+                v = v.get("content") or v.get("text") or ""
+            return " ".join(str(v or "").split())[:TRAINING_CONTEXT_CHARS]
+
+        examples: List[Dict[str, Any]] = []
+        seen: set = set()
+        if item.type == TYPE_LOW_CONFIDENCE:
+            rows = (await db.execute(
+                select(Completion)
+                .join(assoc, assoc.c.report_id == Completion.report_id)
+                .where(and_(assoc.c.data_source_id == ds_id,
+                            Completion.response_score.isnot(None), Completion.response_score < 3,
+                            Completion.created_at >= since, Completion.created_at <= until + timedelta(minutes=5)))
+                .order_by(Completion.created_at.desc()).limit(limit * 4)
+            )).scalars().all()
+            for c in rows:
+                if not await _can_see(c.report_id):
+                    continue
+                # The judge scores the head (user) completion, so the question
+                # is its own prompt; fall back to the parent for a scored reply.
+                q = _text(c.prompt)
+                if not q and c.parent_id:
+                    parent = await db.get(Completion, str(c.parent_id))
+                    q = _text(parent.prompt) if parent is not None else ""
+                if q and q not in seen:
+                    seen.add(q)
+                    examples.append({"question": q, "score": c.response_score, "report_id": str(c.report_id)})
+        else:
+            conds = [assoc.c.data_source_id == ds_id, ToolExecution.tool_name.in_(QUERY_TOOLS),
+                     ToolExecution.created_at >= since,
+                     ToolExecution.created_at <= until + timedelta(minutes=5),
+                     AgentExecution.is_eval_run.is_(False)]
+            if item.type == TYPE_SLOW_QUERY:
+                conds.append(ToolExecution.duration_ms > SLOW_QUERY_MS)
+                order = ToolExecution.duration_ms.desc()
+            else:
+                conds.append(ToolExecution.success.is_(False))
+                order = ToolExecution.created_at.desc()
+            rows = (await db.execute(
+                select(ToolExecution, AgentExecution.report_id)
+                .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                .join(assoc, assoc.c.report_id == AgentExecution.report_id)
+                .where(and_(*conds)).order_by(order).limit(limit * 4)
+            )).all()
+            for te, report_id in rows:
+                if not await _can_see(report_id):
+                    continue
+                args = te.arguments_json or {}
+                ex = {"question": _text(args.get("user_prompt") or args.get("title")),
+                      "title": _text(args.get("title")), "report_id": str(report_id)}
+                if item.type == TYPE_SLOW_QUERY:
+                    ex["seconds"] = int((te.duration_ms or 0) // 1000)
+                else:
+                    ex["error"] = _text(te.error_message)
+                key = (ex["question"], ex.get("error"))
+                if (ex["question"] or ex.get("error")) and key not in seen:
+                    seen.add(key)
+                    examples.append(ex)
+        # Repeats of one question say nothing new; keep distinct examples only.
+        out["examples"] = examples[:limit]
+        return out
 
     async def resolve(self, db, organization, user, item_id, action_id: str, params: Optional[dict] = None) -> Dict[str, Any]:
         item = await self._get_visible_item(db, organization, user, item_id)
@@ -454,14 +652,12 @@ class ReviewService:
             # Frontend handles navigation (e.g. open the diff review). No-op here.
             return {"ok": True, "nav": True}
 
-        if kind in ("run_eval", "run_training"):
+        if kind == "run_eval":
             if not item.data_source_id:
                 return {"ok": False, "error": "no_agent"}
-            # Pre-flight: both run_eval and run_training measure against the
-            # agent's eval suite (training is eval-driven), so with no active
-            # evals the workflow is a guaranteed no-op. Reject synchronously
-            # with a clear reason instead of spinning up a run that resolves to
-            # "no_evals" and silently marks the item done.
+            # Pre-flight: with no active evals scoped to the agent the run is a
+            # guaranteed no-op. Reject synchronously with a clear reason instead
+            # of spinning up a run that resolves to "no_evals".
             from app.services.agent_reliability_service import AgentReliabilityService
             case_ids = await AgentReliabilityService().list_agent_eval_case_ids(
                 db, str(organization.id), str(item.data_source_id)
@@ -469,19 +665,10 @@ class ReviewService:
             if not case_ids:
                 return {
                     "ok": False, "error": "no_evals",
-                    "message": "No active evals are scoped to this agent. Add a test case before running an eval or training.",
+                    "message": "No active evals are scoped to this agent. Add a test case before running an eval.",
                 }
-            # Fire the existing agent workflow in the background, scoped to THIS
-            # agent only (even if the suggestion is shared across agents).
-            train_override = "auto" if kind == "run_training" else "off"
-            # Per-event focus brief (training only) seeded into the run.
-            brief = None
-            if kind == "run_training":
-                try:
-                    from app.services.review_producers import build_training_brief
-                    brief = build_training_brief(item)
-                except Exception:
-                    brief = None
+            # Fire the existing agent workflow (eval only, no training) in the
+            # background, scoped to THIS agent only.
             spawned = list(item.spawned_json or [])
             spawned.append({"kind": kind, "status": "running", "started_at": datetime.utcnow().isoformat()})
             item.spawned_json = spawned
@@ -494,9 +681,8 @@ class ReviewService:
                 data_source_id=str(item.data_source_id),
                 item_id=str(item.id),
                 kind=kind,
-                train_override=train_override,
+                train_override="off",
                 user_id=str(user.id),
-                brief=brief,
             )
             return {"ok": True, "status": STATUS_IN_PROGRESS, "spawned": kind}
 
@@ -552,9 +738,11 @@ class ReviewService:
                         spawned.append(s)
                     item.spawned_json = spawned
                     item.source_run_id = run_id or item.source_run_id
+                    how = HANDLED_TRAINING_PASSED if kind == "run_training" else HANDLED_EVAL_PASSED
                     item.resolution_json = {
                         "action": kind, "ref": run_id, "by": user_id,
                         "at": datetime.utcnow().isoformat(), "outcome": outcome_status,
+                        "how": how if outcome_status in ("passed", "passed_pending") else None,
                     }
                     # Only a productive outcome resolves the item. A no-op or
                     # failure (no_evals / skipped / error / gave_up) reopens it so
@@ -563,6 +751,7 @@ class ReviewService:
                     if outcome_status in ("passed", "passed_pending"):
                         item.status = STATUS_RESOLVED
                         item.resolved_by_user_id = user_id
+                        await self._sync_notifications(db, [item], RESOLUTION_RESOLVED, how=how, by_user_id=user_id)
                     else:
                         item.status = STATUS_OPEN
                     await db.commit()

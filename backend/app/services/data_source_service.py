@@ -1,5 +1,6 @@
 from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 import asyncio
+import copy
 import logging
 import os
 
@@ -7187,9 +7188,15 @@ class DataSourceService:
         connection,
         max_auto_select: int | None = None,
         *, commit: bool = True, after_commit: list | None = None,
+        prior_active_tables: dict | None = None,
     ):
         """
         Create DataSourceTable (DomainTable) entries from ConnectionTable entries.
+
+        ``prior_active_tables`` ({name: columns}) is the agent's active tables
+        as they were before the caller re-discovered the connection. A table
+        dropped upstream has already been pruned by then, so without it the
+        schema-change diff could never report a removed table.
         Links domain tables to connection tables for schema access.
         
         Args:
@@ -7236,6 +7243,21 @@ class DataSourceService:
             for t in existing_rows
             if getattr(t, "is_active", False)
         }
+        # The columns themselves (copied: the rows are updated in place below),
+        # so the notification can say WHAT changed, not just which tables.
+        pre_schema_cols = {
+            t.name: copy.deepcopy(list(t.columns or []))
+            for t in existing_rows
+            if getattr(t, "is_active", False)
+        }
+        # Every table name the agent knew before, active or not — a table not
+        # in here after the sync is new on the connection.
+        pre_all_names = {t.name for t in existing_rows}
+        for name, cols in (prior_active_tables or {}).items():
+            if name not in pre_schema_sig:
+                pre_schema_sig[name] = self._column_signature(cols)
+                pre_schema_cols[name] = copy.deepcopy(list(cols or []))
+                pre_all_names.add(name)
         # Unlinked rows (connection_table_id is NULL) keyed by name. These are
         # legacy name-keyed rows from the old save_or_update_tables path. We adopt
         # them below instead of creating a duplicate linked row, which both
@@ -7499,7 +7521,23 @@ class DataSourceService:
                     if changed:
                         from app.services.agent_reliability_service import AgentReliabilityService
                         from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
-                        hint = "Table/column structure changed: " + ", ".join(changed[:8])
+                        from app.services.schema_diff import compute_schema_diff, summary_line
+                        # Tables that appeared on the connection but were not
+                        # activated for this agent: listed for context only
+                        # (they don't trigger anything on their own).
+                        all_post_rows = (await db.execute(
+                            select(DataSourceTable.name, DataSourceTable.is_active).where(
+                                DataSourceTable.datasource_id == data_source.id,
+                            )
+                        )).all()
+                        new_inactive = [n for n, active in all_post_rows
+                                        if not active and n not in pre_all_names]
+                        diff = compute_schema_diff(
+                            pre_schema_cols,
+                            {t.name: list(t.columns or []) for t in post_rows},
+                            new_inactive_tables=new_inactive,
+                        )
+                        hint = summary_line(diff)
                         AgentReliabilityService().schedule(
                             organization_id=str(data_source.organization_id),
                             data_source_id=str(data_source.id),
@@ -7509,6 +7547,9 @@ class DataSourceService:
                         from app.services.review_producers import emit_schema_changed
                         await emit_schema_changed(
                             db, str(data_source.organization_id), str(data_source.id), summary=hint,
+                            diff=diff, agent_name=getattr(data_source, "name", None),
+                            connection_name=getattr(connection, "name", None),
+                            connection_id=str(connection.id) if getattr(connection, "id", None) else None,
                         )
             except Exception:
                 logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)

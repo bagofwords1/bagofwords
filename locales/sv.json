@@ -539,7 +539,7 @@
     "content": {
       "low_confidence": {
         "title": "Svar med låg tillförlitlighet",
-        "body": "{n} svar från den här agenten fick under 3/5 i poäng den senaste veckan. Kör träning för att täppa till luckorna."
+        "body": "{n} svar från den här agenten fick under 3/5 i poäng den senaste veckan. Förbättra den i träningsläge för att täppa till luckorna."
       },
       "slow_query": {
         "title": "Långsamma datafrågor (>{secs}s)",
@@ -547,7 +547,10 @@
       },
       "schema_changed": {
         "title": "Anslutningens schema har ändrats",
-        "body": "Tabeller eller kolumner har ändrats på den här anslutningen. Kör om utvärderingar eller träning för att hålla instruktionerna korrekta."
+        "body": "Tabeller eller kolumner har ändrats på den här anslutningen. Granska den i träningsläge för att hålla instruktionerna korrekta.",
+        "title_named": "{agent}: schemat ändrades i {connection}",
+        "title_agent": "{agent}: schemat ändrades",
+        "body_counts": "Tabeller tillagda: {added} · borttagna: {removed} · ändrade: {modified}. Kontrollera agentens tabeller och instruktioner."
       },
       "instruction_suggestion": {
         "body_ai": "AI-genererad instruktionsändring väntar på granskning.",
@@ -601,12 +604,125 @@
       "access_granted": {
         "title": "Du kan nu se {dashboard}",
         "body": "Din begäran att se ”{dashboard}” godkändes."
+      },
+      "nightly_learning": {
+        "title": "{agent}: nattlig inlärning",
+        "title_learned": "{agent}: nya lärdomar under natten ({n})",
+        "title_cleanup": "{agent}: nattlig rensning av förslag"
+      },
+      "query_error": {
+        "title": "Fel i datafrågor",
+        "body": "Datafrågor för den här agenten misslyckades. Förbättra den i träningsläge för att täppa till luckan."
       }
     },
     "checkin": {
       "badge": "Uppföljning",
       "openReport": "Öppna rapport",
       "assistantFallback": "AI-analytiker"
+    },
+    "filterAgents": "Agenter",
+    "filterShares": "Delningar",
+    "filterRuns": "Körningar",
+    "filterConnections": "Anslutningar",
+    "detail": {
+      "resolved": "Hanterad",
+      "dismissed": "Hanterad",
+      "open": "Öppna",
+      "reviewTables": "Granska tabeller",
+      "reviewInstruction": "Granska instruktionen",
+      "viewQueries": "Visa frågor",
+      "openEvals": "Öppna utvärderingar",
+      "viewChecks": "Visa kontroller",
+      "openInReview": "Öppna i Granskning",
+      "connection": "Anslutning",
+      "by": "av {name}",
+      "reliabilityStarted": "En tillförlitlighetskontroll startade {time}: utvärderingar körs, och vid fel följer träning.",
+      "history": "Tidigare ändringar",
+      "historyEntry": "{added} tillagda · {removed} borttagna · {modified} ändrade",
+      "showDetails": "Detaljer",
+      "hideDetails": "Dölj detaljer"
+    },
+    "diff": {
+      "addedTables": "Tillagda tabeller",
+      "removedTables": "Borttagna tabeller",
+      "changedTables": "Ändrade tabeller",
+      "newInactive": "Nya i anslutningen, inte aktiva för den här agenten",
+      "more": "+{n} tabeller till"
+    },
+    "clearHandled": "Rensa hanterade",
+    "handled": {
+      "marked": "{name} markerade det som hanterat",
+      "suggestion_reviewed": "{name} granskade förslaget",
+      "suggestion_rejected": "{name} avvisade förslaget",
+      "suggestion_voided": "Instruktionen ändrades",
+      "training_passed": "Träningen som {name} körde gick igenom",
+      "eval_passed": "Utvärderingen som {name} körde gick igenom",
+      "condition_cleared": "Problemet försvann",
+      "someone": "Någon"
+    }
+  },
+  "reviewFeed": {
+    "title": "Granskning",
+    "subtitle": "En gemensam kö för dem som hanterar agenterna: det en person hanterar stängs för alla.",
+    "refresh": "Uppdatera",
+    "close": "Stäng",
+    "search": "Sök…",
+    "allAgents": "Alla agenter",
+    "resolvedFilter": "Hanterade",
+    "emptyTitle": "Allt är genomgånget",
+    "emptyBody": "Inget att granska. Nya förslag, schemaändringar och kvalitetssignaler visas här.",
+    "emptyBodyAgent": "Inget att granska för den här agenten. Nya förslag, schemaändringar och kvalitetssignaler visas här.",
+    "changes": "{n} ändringar",
+    "running": "Körs",
+    "resolved": "Hanterad",
+    "dismiss": "Markera som hanterad",
+    "agent": "Agent",
+    "nAgents": "{n} agenter",
+    "noEvals": "Den här agenten har inga utvärderingar. Lägg först till ett testfall.",
+    "nothingToRun": "Inget att köra",
+    "actionUnavailable": "Åtgärden är inte tillgänglig",
+    "evalStarted": "Utvärdering startad",
+    "done": "Klart",
+    "actionFailed": "Åtgärden misslyckades",
+    "dismissFailed": "Kunde inte avfärda",
+    "chipSuggestions": "Förslag",
+    "chipSchema": "Schema",
+    "chipSlow": "Långsamma",
+    "chipLowConfidence": "Låg säkerhet",
+    "typeSuggestion": "Förslag",
+    "typeSchema": "Schemaändring",
+    "typeSlow": "Långsam fråga",
+    "typeLowConfidence": "Låg säkerhet",
+    "typeQueryError": "Frågefel",
+    "actionReview": "Granska",
+    "actionRunEval": "Kör utvärdering",
+    "focusResolved": "Det här objektet är redan hanterat.",
+    "focusGone": "Det här objektet är inte längre öppet. Det har lösts eller stängts.",
+    "all": "Alla",
+    "openN": "{n} öppna",
+    "multipleAgents": "Flera agenter",
+    "more": "Fler åtgärder",
+    "times": "{n} gånger",
+    "actionTrainInChat": "Förbättra i träningsläge",
+    "train": {
+      "schema": "Schemat för anslutningen {connection} har ändrats:\n{changes}\n\nGå igenom agentens instruktioner och sparade frågor som använder de här tabellerna eller kolumnerna och föreslå ändringar så att svaren förblir korrekta.",
+      "schemaGeneric": "Schemat för anslutningen {connection} har ändrats. Gå igenom agentens instruktioner och sparade frågor som använder de ändrade tabellerna eller kolumnerna och föreslå ändringar så att svaren förblir korrekta.",
+      "tableAdded": "- Ny tabell: {table}",
+      "tableRemoved": "- Borttagen tabell: {table}",
+      "colsAdded": "kolumner tillagda {cols}",
+      "colsRemoved": "kolumner borttagna {cols}",
+      "typeChanged": "{col} bytte typ från {from} till {to}",
+      "lowConfidence": "De här frågorna till agenten fick lågt betygsatta svar:\n{examples}\n\nTa reda på vad som saknas eller är oklart i instruktionerna och föreslå instruktioner som täpper till luckorna.",
+      "lowConfidenceGeneric": "{n} svar från agenten fick under 3/5 i poäng den senaste veckan. Gå igenom de senaste konversationerna, ta reda på vad som saknas eller är oklart i instruktionerna och föreslå instruktioner som täpper till luckorna.",
+      "slow": "De här datafrågorna för agenten gick långsamt:\n{examples}\n\nHitta den gemensamma orsaken och föreslå skyddsinstruktioner (till exempel kräva ett filter eller undvika fullständiga genomsökningar) så att frågorna förblir snabba.",
+      "slowGeneric": "Datafrågor för agenten går långsamt. Hitta den gemensamma orsaken och föreslå skyddsinstruktioner (till exempel kräva ett filter eller undvika fullständiga genomsökningar) så att frågorna förblir snabba.",
+      "slowLine": "{q} ({s} s)",
+      "error": "De här datafrågorna för agenten misslyckades:\n{examples}\n\nHitta orsaken och föreslå instruktioner så att agenten skriver giltiga frågor.",
+      "errorGeneric": "Datafrågor för agenten misslyckas. Hitta orsaken och föreslå instruktioner så att agenten skriver giltiga frågor.",
+      "errorLine": "{q}: {error}",
+      "generic": "Gå igenom de senaste konversationerna med agenten och föreslå instruktioner som förbättrar dess svar.",
+      "schemaUnnamed": "Schemat för agentens anslutning har ändrats. Gå igenom agentens instruktioner och sparade frågor som använder ändrade tabeller eller kolumner och föreslå ändringar så att svaren förblir korrekta.",
+      "more": "- …och {n} ändringar till"
     }
   },
   "auth": {
