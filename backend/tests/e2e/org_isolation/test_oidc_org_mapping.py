@@ -240,6 +240,9 @@ class _Directory(FakeIdentityProvider):
     name it); ``names = None`` makes every lookup fail."""
 
     names = {}
+    # Groups the person is in directly (None = all of ``names``). The rest of
+    # ``names`` are reached through a nested group.
+    direct = None
 
     def _respond(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
@@ -252,9 +255,12 @@ class _Directory(FakeIdentityProvider):
             asked = json.loads(request.content)["ids"]
             found = [{"id": g, "displayName": self.names[g]} for g in asked if self.names.get(g)]
             return httpx.Response(200, json={"value": found}, request=request)
-        if "/me/memberOf" in url:
+        if "/me/transitiveMemberOf" in url or "/me/memberOf" in url:
+            listed = self.names
+            if "/me/memberOf" in url and self.direct is not None:
+                listed = {g: n for g, n in self.names.items() if g in self.direct}
             groups = [
-                {"@odata.type": "#microsoft.graph.group", "id": g, "displayName": n} for g, n in self.names.items()
+                {"@odata.type": "#microsoft.graph.group", "id": g, "displayName": n} for g, n in listed.items()
             ]
             return httpx.Response(200, json={"value": groups}, request=request)
         return httpx.Response(404, json={}, request=request)
@@ -360,6 +366,66 @@ def test_readable_group_values_are_their_own_names(test_client, monkeypatch, mul
     email = unique_email("mapped")
     assert _roles(test_client, _sign_in(idp, test_client, email, ["sales-team", "everyone"])) == {org: "member"}
     assert _roles(test_client, _sign_in(idp, test_client, email, ["everyone"])) == {}
+
+
+def test_group_names_that_differ_only_by_case_are_different_groups(test_client, monkeypatch, multi_org):
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(
+        org_mapping=[f"Finance:{org}:admin", f"everyone:{org}:member"],
+    )])
+
+    # In "finance", which is not the mapped "Finance".
+    lower = _sign_in(idp, test_client, unique_email("lower"), ["finance", "everyone"])
+    assert _roles(test_client, lower) == {org: "member"}
+
+    exact = _sign_in(idp, test_client, unique_email("exact"), ["Finance", "everyone"])
+    assert _roles(test_client, exact) == {org: "admin"}
+
+
+def test_resolved_display_names_match_exactly_too(test_client, monkeypatch, multi_org):
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = _Directory(monkeypatch, [oidc_provider(
+        resolve_group_names=True, org_mapping=[f"Finance:{org}:admin", f"Everyone:{org}:member"],
+    )])
+    idp.names = {G_SALES: "finance", G_OTHER: "Everyone"}
+
+    session = _sign_in(idp, test_client, unique_email("mapped"), [G_SALES, G_OTHER])
+
+    assert _roles(test_client, session) == {org: "member"}
+
+
+def test_group_object_ids_still_match_in_any_letter_case(test_client, monkeypatch, multi_org):
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = FakeIdentityProvider(monkeypatch, [oidc_provider(org_mapping=[f"{G_SALES.upper()}:{org}:member"])])
+
+    session = _sign_in(idp, test_client, unique_email("mapped"), [G_SALES.lower()])
+
+    assert _roles(test_client, session) == {org: "member"}
+
+
+def test_too_many_groups_to_list_keeps_a_membership_held_through_a_nested_group(
+    test_client, monkeypatch, multi_org,
+):
+    admin = bootstrap_admin(test_client)
+    org = admin["org_id"]
+    idp = _Directory(monkeypatch, [oidc_provider(org_mapping=[f"{G_SALES}:{org}:admin"])])
+    # The person is directly in G_OTHER only; G_SALES contains it.
+    idp.names = {G_SALES: "Sales Team", G_OTHER: "Sales EMEA"}
+    idp.direct = {G_OTHER}
+    email = unique_email("mapped")
+    # While the token can list the groups it lists the nested one as well.
+    session = _sign_in(idp, test_client, email, [G_SALES, G_OTHER])
+    assert _roles(test_client, session) == {org: "admin"}
+    key = _api_key(test_client, session, org)
+
+    outcome, session = idp.sign_in(test_client, "corp", email, _claim_names={"groups": "src1"})
+
+    assert outcome == "ok", session
+    assert _roles(test_client, session) == {org: "admin"}
+    assert _key_works(test_client, key)
 
 
 def test_too_many_groups_to_list_uses_the_directory_and_its_gaps_remove_nobody(test_client, monkeypatch, multi_org):

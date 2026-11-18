@@ -54,9 +54,13 @@ def _rank(role: Optional[str]) -> int:
 
 
 def _matches(rule_group: str, group_ids: Set[str], group_names: Set[str]) -> bool:
-    # Ids compare case-insensitively (GUID casing differs between Microsoft
-    # surfaces); display names must match exactly.
-    return rule_group.casefold() in group_ids or rule_group in group_names
+    # Only GUID object ids compare case-insensitively (their casing differs
+    # between Microsoft surfaces). Everything else is a name or a provider's
+    # own opaque id and must match exactly: a directory may hold both
+    # "Finance" and "finance".
+    if _GUID_RE.match(rule_group):
+        return rule_group.casefold() in group_ids
+    return rule_group in group_names
 
 
 async def _resolve_organization(db, provider_name: str, reference: str) -> Optional[str]:
@@ -182,8 +186,12 @@ async def _evaluate_rules(db, cfg, group_ids, group_names):
     be ruled out either (keyed by display name while a group's name is
     unknown). A membership there is neither granted nor removed this sign-in.
     """
-    ids = {str(g).casefold() for g in (group_ids or [])}
-    names = {n for n in (group_names or {}).values() if n}
+    claimed = [str(g) for g in (group_ids or [])]
+    # GUID object ids, folded. A claim value that is not a GUID is the group's
+    # name (Okta, Keycloak, ...) or an opaque id, and keeps its exact spelling.
+    ids = {g.casefold() for g in claimed if _GUID_RE.match(g)}
+    names = {g for g in claimed if not _GUID_RE.match(g)}
+    names |= {n for n in (group_names or {}).values() if n}
     unnamed = _has_unnamed_groups(group_ids, group_names)
     wanted: Dict[str, str] = {}
     undecided: Set[str] = set()

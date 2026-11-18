@@ -635,10 +635,13 @@ def _check_relation(name: str, schema: str, catalog: str, relations, ctes,
 def _written_as_string(sql: str, location) -> bool:
     """Whether the token at ``location`` is a string constant ('…', E'…', $$…$$)
     rather than an identifier."""
-    if not isinstance(location, int) or location < 0 or location >= len(sql):
+    # The engine reports the location as a byte offset into the UTF-8 text,
+    # not a character index: the two differ after any non-ASCII character.
+    raw = sql.encode("utf-8")
+    if not isinstance(location, int) or location < 0 or location >= len(raw):
         return False
-    head = sql[location:location + 2]
-    return head[:1] in ("'", "$") or head.lower() == "e'"
+    head = raw[location:location + 2]
+    return head[:1] in (b"'", b"$") or head.lower() == b"e'"
 
 
 def _check_function(name: str, table_function: bool) -> None:
