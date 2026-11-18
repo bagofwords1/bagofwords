@@ -72,9 +72,11 @@ async def _release_sources(db, release: ArtifactRelease) -> set[str]:
     codes = "\n".join(c for (c,) in (await db.execute(
         select(Step.code).join(Query, Query.default_step_id == Step.id)
         .where(Query.artifact_release_id == str(release.id)))).all() if c)
-    rows = (await db.execute(select(DataSource.id, DataSource.name).where(
+    rows = (await db.execute(select(DataSource.id, DataSource.name, DataSource.previous_names).where(
         DataSource.organization_id == str(release.organization_id), DataSource.deleted_at.is_(None)))).all()
-    return {str(i) for i, name in rows if name and str(name) in codes}
+    # Code saved before a rename spells the agent's former name.
+    return {str(i) for i, name, formers in rows
+            if any(n and str(n) in codes for n in [name, *(formers if isinstance(formers, list) else [])])}
 
 
 async def effective_agent_ids(db, artifact: Artifact, release: ArtifactRelease, organization, user) -> list[str]:

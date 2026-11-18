@@ -3259,6 +3259,7 @@ class DataSourceService:
                     only_key = f"{data_source.name}:{active_connections[0].name}"
                     if only_key in stand_ins:
                         stand_ins[data_source.name] = stand_ins[only_key]
+                await self._attach_former_client_keys(db, data_source, active_connections, stand_ins)
                 try:
                     error.unavailable_clients = stand_ins
                 except Exception:
@@ -3272,7 +3273,59 @@ class DataSourceService:
             if only_key in clients:
                 clients[data_source.name] = clients[only_key]
 
+        await self._attach_former_client_keys(db, data_source, active_connections, clients)
         return clients
+
+    async def _attach_former_client_keys(
+        self, db: AsyncSession, data_source: DataSource, active_connections: list, clients: Dict[str, Any],
+    ) -> None:
+        """Leave on each client the keys it had before a rename.
+
+        Saved code spells the agent's and the connection's names in its
+        client key, so after a rename the old key must keep reaching the
+        same client. The old keys are not added to `clients` -- the prompt
+        lists that dict, and new code should use the current name -- but
+        recorded on the client (client_keys.FORMER_KEYS_ATTR); the code
+        executor adds them to what it hands the code
+        (client_keys.with_former_keys). Which old keys a source may answer to
+        is client_keys.former_client_keys' rule: never one another live
+        source carries or used to carry.
+        """
+        from app.models.former_names import former_names
+        from app.services.client_keys import FAST_SUFFIX, FORMER_KEYS_ATTR, former_client_keys
+
+        try:
+            source_formers = former_names(data_source)
+            connections = [
+                (conn.name, former_names(conn), f"{data_source.name}:{conn.name}{FAST_SUFFIX}" in clients)
+                for conn in active_connections
+            ]
+            if not source_formers and not any(formers for _, formers, _ in connections):
+                return
+            others = (await db.execute(
+                select(DataSource.name, DataSource.previous_names).where(
+                    DataSource.organization_id == data_source.organization_id,
+                    DataSource.deleted_at.is_(None),
+                    DataSource.id != data_source.id,
+                )
+            )).all()
+            old_keys = former_client_keys(
+                data_source.name, source_formers, connections,
+                [(name, [f for f in (formers or []) if f != name] if isinstance(formers, list) else [])
+                 for name, formers in others],
+            )
+            by_current: Dict[str, list] = {}
+            for old, current in old_keys.items():
+                by_current.setdefault(current, []).append(old)
+            for current, olds in by_current.items():
+                client = clients.get(current)
+                if client is not None:
+                    setattr(client, FORMER_KEYS_ATTR, tuple(olds))
+        except Exception:
+            # A rename's old keys are a convenience for saved code; failing to
+            # work them out must not take the source's clients down.
+            logger.warning("construct_clients: former client keys failed for %s",
+                           getattr(data_source, "id", None), exc_info=True)
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
                                      connection, row_filter_user: User | None = None):

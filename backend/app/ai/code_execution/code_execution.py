@@ -1721,6 +1721,11 @@ class StreamingCodeExecutor:
             if _missing is not None:
                 raise _missing
 
+            # Keys the clients had before their agent or connection was
+            # renamed: saved code that spells an old name still reaches them.
+            from app.services.client_keys import with_former_keys
+            ds_clients = with_former_keys(ds_clients)
+
             output_log = ""
             executed_queries: List[str] = captured_queries if captured_queries is not None else []
             _timings: List[dict] = captured_timings if captured_timings is not None else []
