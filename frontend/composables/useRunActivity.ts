@@ -21,12 +21,11 @@
  *   keeps its chronological place. Reasoning does not — it rides inside the
  *   step it preceded.
  * - A `create_data` call is always its own step, described by what it produced.
- * - A chart is the one result prose cannot stand in for: a `create_data` call
- *   that produced a chart is never folded. It is returned in `inlineIds` and
- *   keeps its card where it happened, above the conclusion.
- * - Tables and single values fold into their step. They stay reachable from
- *   the answer itself through its sources (composables/useCitations.ts), not
- *   as cards appended to it.
+ * - Every `create_data` result — chart, table or single value — folds into its
+ *   step. Results stay reachable from the answer itself through its citations
+ *   and sources line (composables/useCitations.ts): hover previews them, click
+ *   opens them. Keeping charts open above the answer was tried and dropped: a
+ *   run that charts six results buried its conclusion under six cards.
  * - Other outputs the user would open or act on (dashboards, docs, review
  *   cards…) are returned as `deliverableIds` so the page can keep them
  *   reachable below the final message while the steps are collapsed.
@@ -243,8 +242,6 @@ export interface RunActivity {
   stepOf: Record<string, RunStep>
   /** blockId of each step's first member -> step (header render anchor) */
   headerAt: Record<string, RunStep>
-  /** create_data blocks that produced a chart: never folded, card kept in place. */
-  inlineIds: string[]
   /** Blocks whose output stays reachable below the final message, in order. */
   deliverableIds: string[]
   /** First activity start -> final message start, or null without timestamps. */
@@ -383,12 +380,6 @@ function toMs(v: any): number | null {
   return Number.isFinite(t) ? t : null
 }
 
-/** A create_data call whose result is a chart. */
-export function isInlineChart(block: any): boolean {
-  const te = block?.tool_execution
-  return te?.tool_name === 'create_data' && !isBlockFailed(block) && describeDataOutput(te).kind === 'chart'
-}
-
 /**
  * The block that ends the run's conclusion, or null while there is none. When
  * it also carries a tool call, the prose block right before it is part of the
@@ -447,15 +438,8 @@ export function computeRunActivity(
     runPurpose = null
   }
 
-  const inlineIds: string[] = []
   for (const b of list) {
     if (!b?.tool_execution) { flush(); continue }
-    if (isInlineChart(b)) {
-      // Not a step: the card itself is on screen, open or closed.
-      flush()
-      inlineIds.push(String(b.id))
-      continue
-    }
     const purpose = purposeOf(b)
     const continues = !!runPurpose
       && runPurpose.key === purpose.key
@@ -496,7 +480,6 @@ export function computeRunActivity(
     steps,
     stepOf,
     headerAt,
-    inlineIds,
     deliverableIds: Array.from(latest.values()),
     spanMs,
   }

@@ -382,7 +382,7 @@
 													</div>
 												</div>
 											</div>
-											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
+											<div v-if="isRunBlockShown(m, block)" class="response-block" :class="{ 'activity-only': !(block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer) && !shouldShowToolWidgetPreview(block.tool_execution), 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
 											<!-- Live ticker for a run of low-signal tool steps: one line that
 											     morphs in place while the run works (crossfade between step
 											     labels), then settles into a compact summary; click expands
@@ -462,7 +462,7 @@
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
 							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
 							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
-							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && isRunProseShown(m, block) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error' && block.tool_execution?.tool_name !== 'clarify'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
 								<MarkdownRender
 									:content="answerMarkdown(m, block)"
 									:final="isBlockFinalized(block)"
@@ -487,13 +487,13 @@
 												/>
 
 							<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
-												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) && !isRunInlineBlock(m, block) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
+												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'run-step-detail': !!runFold(m) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
 												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="block.id"
 													:tool-execution="block.tool_execution"
-														:hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data' && !isRunInlineBlock(m, block)) || undefined"
+														:hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
 	                                                    :run-status="m.status"
 													:edit-group-count="editRunInfo(m, block)?.count"
 													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
@@ -1759,11 +1759,9 @@ const {
 	toggleRun,
 	isRunStepExpanded,
 	toggleRunStep,
-	isRunInlineBlock,
 	isRunAnswerBlock,
 	isRunBlockShown,
 	isRunActivityBlock,
-	isRunProseShown,
 	runStepHeaderFor,
 	isRunStepDetail,
 	isRunReasoningShown,
@@ -6947,11 +6945,6 @@ onMounted(async () => {
 }
 .response-block.activity-only + .response-block.activity-only {
     --response-block-gap: 8px;
-}
-/* An inline chart shown while the steps are closed sits between the row and
-   the answer with the usual block spacing. */
-.response-block.run-inline:not(.run-activity) {
-    margin-block: 8px 12px;
 }
 
 /* Folded run, opened: the chain reads as one indented thread above the

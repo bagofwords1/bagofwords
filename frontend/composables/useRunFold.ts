@@ -67,23 +67,16 @@ export function useRunFold<M>(opts: {
     expandedRunSteps.value = next
   }
 
-  // A create_data call that produced a chart: never folded, card kept in place.
-  const isRunInlineBlock = (m: M, block: any): boolean => !!runFold(m)?.inlineIds.includes(String(block.id))
   // Part of the answer shown while the steps are closed.
   const isRunAnswerBlock = (m: M, block: any): boolean => !!runFold(m)?.answerIds.includes(String(block.id))
-  // The answer and inline charts always render; the rest only while open.
+  // The answer always renders; the activity before it only while open.
   function isRunBlockShown(m: M, block: any): boolean {
-    return !runFold(m) || isRunExpanded(m) || isRunAnswerBlock(m, block) || isRunInlineBlock(m, block)
+    return !runFold(m) || isRunExpanded(m) || isRunAnswerBlock(m, block)
   }
   // Part of the indented thread: everything before the answer while the steps
-  // are open. A chart shown while they are closed stands on its own.
+  // are open.
   function isRunActivityBlock(m: M, block: any): boolean {
     return !!runFold(m) && !isRunAnswerBlock(m, block) && isRunExpanded(m)
-  }
-  // Progress prose belongs to the chain: with the steps closed, an inline chart
-  // shows its card only, not the sentence that introduced it.
-  function isRunProseShown(m: M, block: any): boolean {
-    return !runFold(m) || isRunExpanded(m) || isRunAnswerBlock(m, block)
   }
   function runStepHeaderFor(m: M, block: any): RunStep | undefined {
     const fold = runFold(m)
@@ -105,7 +98,7 @@ export function useRunFold<M>(opts: {
   }
   function isRunToolShown(m: M, block: any): boolean {
     const fold = runFold(m)
-    if (!fold || isRunInlineBlock(m, block)) return true
+    if (!fold) return true
     const step = fold.stepOf[String(block.id)]
     return isRunExpanded(m) && !!step && isRunStepExpanded(step.id)
   }
@@ -124,11 +117,9 @@ export function useRunFold<M>(opts: {
     toggleRun,
     isRunStepExpanded,
     toggleRunStep,
-    isRunInlineBlock,
     isRunAnswerBlock,
     isRunBlockShown,
     isRunActivityBlock,
-    isRunProseShown,
     runStepHeaderFor,
     isRunStepDetail,
     isRunReasoningShown,

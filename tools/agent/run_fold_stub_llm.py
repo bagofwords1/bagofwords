@@ -49,7 +49,7 @@ Total revenue across all invoices is **$2,328.60**. {cite_total}
 - The top five countries account for a little over half of all revenue. {cite_chart}
 - The best customer spent $49.62 across 7 invoices. {cite_table}
 
-The chart above shows every country.
+The full breakdown by country is in the Revenue by country chart.
 """
 
 

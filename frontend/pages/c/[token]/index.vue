@@ -137,7 +137,7 @@
                                         />
                                         <!-- Render each completion block -->
                                         <template v-for="block in timelineBlocks(m)" :key="block.id">
-                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block), 'run-inline': isRunInlineBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
+                                        <div v-if="isRunBlockShown(m, block)" :class="{ 'run-activity': isRunActivityBlock(m, block) }" :data-run-final="isRunAnswerBlock(m, block) ? '' : undefined">
                                             <!-- Live ticker for a run of low-signal tool steps (policy: useBlockGrouping.ts) -->
                                             <Transition name="fade" appear>
                                                 <BlockGroupTicker
@@ -182,7 +182,7 @@
                                             </div>
 
                                             <!-- 2. Block content - assistant message -->
-                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error' && isRunProseShown(m, block)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
+                                            <div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="messageDirs.get(String(m.id))" :data-response-dir="messageDirs.get(String(m.id))">
                                                 <MarkdownRender
                                                     :content="citedMarkdown(m, block.content || block.plan_decision?.assistant || '')"
                                                     :final="true"
@@ -204,13 +204,13 @@
                                             />
 
                                             <!-- 3. Tool execution -->
-                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'run-step-detail': !!runFold(m) && !isRunInlineBlock(m, block) }">
+                                            <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container" :class="{ 'run-step-detail': !!runFold(m) }">
                                                 <component
                                                     v-if="shouldUseToolComponent(block.tool_execution)"
                                                     :is="getToolComponent(block.tool_execution.tool_name)"
                                                     :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
                                                     :tool-execution="block.tool_execution"
-                                                    :hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data' && !isRunInlineBlock(m, block)) || undefined"
+                                                    :hide-preview="(!!runFold(m) && block.tool_execution.tool_name === 'create_data') || undefined"
                                                     :readonly="true"
                                                 />
                                                 <!-- Fallback to generic expandable tool display -->
@@ -638,11 +638,9 @@ const {
     toggleRun,
     isRunStepExpanded,
     toggleRunStep,
-    isRunInlineBlock,
     isRunAnswerBlock,
     isRunBlockShown,
     isRunActivityBlock,
-    isRunProseShown,
     runStepHeaderFor,
     isRunStepDetail,
     isRunReasoningShown,
@@ -1201,9 +1199,6 @@ onUnmounted(() => {
 }
 .run-activity:has(+ :not(.run-activity)) {
     margin-block-end: 12px;
-}
-.run-inline:not(.run-activity) {
-    margin-block: 6px 12px;
 }
 .run-step-detail {
     padding-inline-start: 18px;

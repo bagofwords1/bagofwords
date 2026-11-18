@@ -180,7 +180,6 @@ assert.ok(computeRunActivity([{ ...final(), reasoning: 'thinking…' }], { runSt
   // Neither is appended under the answer or kept inline: a table and a number
   // fold into their steps and are reached through the answer's sources.
   assert.deepEqual(a.deliverableIds, [])
-  assert.deepEqual(a.inlineIds, [])
 }
 
 // Output kind comes from the result, not from the requested view.
@@ -203,21 +202,20 @@ assert.equal(describeDataOutput(tool('create_data', {}, {
   assert.deepEqual(a.deliverableIds, [])
 }
 
-// A chart is never folded: it is not a step, it keeps its place, and the calls
-// around it do not merge across it.
+// A chart folds like any other result: it is a step, its calls do not merge
+// with neighbours, and nothing is kept open or appended under the answer.
 {
   const chart = (title) => tool('create_data', { title }, {
     te: { created_step: { title, data: { rows: [{ a: 1, b: 2 }, { a: 3, b: 4 }] } }, result_json: { data_model: { type: 'bar_chart' } } },
   })
-  const blocks = [tool('inspect_data', invoice), chart('Revenue by country'), tool('inspect_data', invoice), final()]
+  const blocks = [tool('inspect_data', invoice), chart('Revenue by country'), chart('Revenue by genre'), tool('inspect_data', invoice), final()]
   const a = computeRunActivity(blocks, { runStatus: 'success' })
-  assert.deepEqual(a.inlineIds, [blocks[1].id])
-  assert.equal(a.stepOf[blocks[1].id], undefined)
-  assert.deepEqual(a.steps.map((s) => s.count), [1, 1])
+  assert.deepEqual(a.steps.map((s) => [s.kind, s.labelKey]), [
+    ['inspect', 'inspectedTable'], ['data', 'createdChart'], ['data', 'createdChart'], ['inspect', 'inspectedTable'],
+  ])
+  assert.equal(a.stepOf[blocks[1].id].output.kind, 'chart')
   assert.deepEqual(a.deliverableIds, [])
-  // A chart that failed to build is a step like any other failure.
-  const failed = [tool('create_data', { title: 'x' }, { te: { status: 'error', result_json: { data_model: { type: 'bar_chart' } } } }), final()]
-  assert.deepEqual(computeRunActivity(failed, { runStatus: 'success' }).inlineIds, [])
+  assert.equal('inlineIds' in a, false)
 }
 
 // --- deliverables ------------------------------------------------------------

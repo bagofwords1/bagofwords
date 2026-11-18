@@ -120,7 +120,7 @@ if (await toggle.count()) {
   const chips = page.locator('[data-message-role="system"]').last().locator('[data-testid="citation-chip"]');
   log('chips:', JSON.stringify(await chips.evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('aria-label')]))));
   log('sources:', JSON.stringify(await page.locator('[data-testid="run-source"]').allInnerTexts()));
-  log('inline charts:', await page.locator('.run-inline').count(), 'appended cards:', await page.locator('[data-testid="run-deliverables"]').count());
+  log('open chart cards while collapsed:', await page.locator('[data-run-final]').count() ? await page.evaluate(() => document.querySelectorAll('.response-block canvas').length) : -1, 'appended cards:', await page.locator('[data-testid="run-deliverables"]').count());
   log('raw markers on page:', (await page.evaluate(() => document.body.innerText)).includes('{{cite'));
   const seenKinds = new Set();
   for (let i = 0; i < await chips.count(); i++) {
