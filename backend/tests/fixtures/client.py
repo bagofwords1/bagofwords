@@ -84,9 +84,11 @@ _CANCEL_BOUND_SECONDS = 5.0
 # before it cancels every task left on the loop, and how long it then waits for
 # those cancellations. Neither bounds the loop's final stop (asyncio.Runner
 # shutdown): a task that swallows cancellation, or executor work, still delays
-# it, exactly as the per-request loop's shutdown always has. Only a stop that
-# an interrupt cuts short waits at most _BOUNDARY_WAIT_SECONDS for the loop to
-# end (see ``_TestLoop._exit_portal``).
+# it, exactly as the per-request loop's shutdown always has. Only an
+# interrupted exit (the stop was interrupted before it exited the portal)
+# waits at most _BOUNDARY_WAIT_SECONDS for the loop to end; an interrupt while
+# the normal exit is waited for re-raises at once (see
+# ``_TestLoop._exit_portal``).
 _BOUNDARY_WAIT_SECONDS = 60.0
 _BOUNDARY_CANCEL_SECONDS = 5.0
 
@@ -245,13 +247,15 @@ class _TestLoop:
         them."""
         if cm is None:
             return
-        from app.settings.database import release_test_connections
-
         try:
             exit_args = (None, None, None)
-            if interrupted is not None:
-                exit_args = (type(interrupted), interrupted, interrupted.__traceback__)
             try:
+                # Inside the try: an interrupt landing here still exits the
+                # portal (the interrupted way) and ends the stop.
+                if interrupted is not None:
+                    exit_args = (type(interrupted), interrupted, interrupted.__traceback__)
+                from app.settings.database import release_test_connections
+
                 portal.call(release_test_connections)
             except Exception as exc:  # the loop is going away regardless
                 self.stats.add("cleanup_errors")
@@ -278,24 +282,53 @@ class _TestLoop:
         interrupted or cut short, or the exit fails, the loop thread may be
         left running: that is counted (``cleanup_errors``) and said. An
         interrupt goes on unwinding; an exit's failure is raised, except on
-        an interrupted exit, where it is noted on the interrupt instead."""
-        interrupted = exit_args[1]
-        outcome = {}
-
-        def run():
-            try:
-                cm.__exit__(*exit_args)
-            except BaseException as exc:
-                outcome["error"] = exc
-
-        helper = threading.Thread(target=run, name="test-client-loop-exit", daemon=True)
+        an interrupted exit, where it is noted on the interrupt instead. An
+        exit given up on says how it ended once it does. If the helper
+        thread cannot be started, the normal exit runs in this thread
+        instead, and that failure is counted, said and raised."""
+        # Whichever of the helper (done) and the waiter (given up) claims
+        # first: dict.setdefault is atomic, so exactly one of them reports.
+        state = {}
+        counted = False
         try:
-            helper.start()
+            interrupted = exit_args[1]
+
+            def run():
+                try:
+                    cm.__exit__(*exit_args)
+                    error = None
+                except BaseException as exc:
+                    error = exc
+                state["error"] = error
+                if state.setdefault("claim", "helper") == "waiter":
+                    print(
+                        "Warning: a test_client loop exit given up on "
+                        + ("then failed: " + repr(error) if error else "has stopped after all"),
+                        file=sys.stderr,
+                    )
+
+            helper = threading.Thread(target=run, name="test-client-loop-exit", daemon=True)
+            try:
+                helper.start()
+            except Exception as exc:
+                if interrupted is not None:
+                    raise
+                counted = True
+                self.stats.add("cleanup_errors")
+                print(
+                    f"Warning: could not start the thread that stops a test_client loop "
+                    f"({exc!r}); stopping it in this thread",
+                    file=sys.stderr,
+                )
+                cm.__exit__(None, None, None)
+                raise
             helper.join(None if interrupted is None else _BOUNDARY_WAIT_SECONDS)
         except BaseException as exc:
-            self._exit_failed(exc)
+            state.setdefault("claim", "waiter")
+            if not counted:
+                self._exit_failed(exc)
             raise
-        if helper.is_alive():
+        if state.setdefault("claim", "waiter") == "waiter":
             self.stats.add("cleanup_errors")
             print(
                 f"Warning: an interrupted test_client loop did not stop within "
@@ -303,9 +336,9 @@ class _TestLoop:
                 file=sys.stderr,
             )
             return
-        if "error" not in outcome:
+        error = state["error"]
+        if error is None:
             return
-        error = outcome["error"]
         self._exit_failed(error)
         if interrupted is None:
             raise error
