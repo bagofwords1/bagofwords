@@ -202,6 +202,172 @@ def pytest_configure(config):
         "flagged default_enabled, as it does in production. Off everywhere "
         "else — see no_default_skills.",
     )
+    config.addinivalue_line(
+        "markers",
+        "per_request_loop: give each test_client request of this test an "
+        "event loop of its own instead of the test's shared loop. Required "
+        "for a test that issues test_client requests from more than one "
+        "thread (see tests/fixtures/client.py).",
+    )
+    from tests.fixtures.client import per_request_loop_enabled
+
+    try:
+        per_request_loop_enabled()  # a mistyped kill switch stops the run here
+    except ValueError as exc:
+        raise pytest.UsageError(str(exc)) from None
+
+
+# The process's counts of test-failing loop problems when a test's setup began.
+_LOOP_PROBLEMS_AT_SETUP = pytest.StashKey[dict]()
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Before the test's fixtures: choose its ``test_client`` loop mode, watch
+    its thread for requests from other threads, and note the test-failing loop
+    problems so far (see pytest_runtest_teardown)."""
+    import threading
+
+    from tests.fixtures.client import (
+        failing_problems,
+        use_per_request_loop,
+        watch_test_thread,
+    )
+
+    use_per_request_loop(item.get_closest_marker("per_request_loop") is not None)
+    watch_test_thread(threading.get_ident())
+    item.stash[_LOOP_PROBLEMS_AT_SETUP] = failing_problems()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """End the test's ``test_client`` event loop at the test boundary.
+
+    Requests of one test share a loop (see tests/fixtures/client.py). Before
+    the test's fixture finalizers run, an idle loop is stopped (its pooled
+    connections released on the loop first), so work a request left in
+    executor threads is joined while the test's mocks are still in place, as
+    when every request had its own loop. A loop with a request still in flight
+    is left running then: a fixture may end its own threaded request in its
+    teardown. After the finalizers the loop is stopped in any case, waiting
+    for requests in flight (see ``_TestLoop.stop``), which also covers
+    fixture teardowns that made requests. No loop, task, executor thread or
+    connection outlives the test. Cheap when no request was made.
+
+    A failure of the first stop is raised only after the finalizers ran, so
+    ``monkeypatch`` and the rest are always undone; if a finalizer or the
+    second stop fails too, that error is raised with the first stop's failure
+    attached as a note.
+
+    The test fails, in its teardown, if any of these happened during it (in
+    its body, its fixtures or a stop): a stop gave up waiting for a request
+    in flight (``boundary_wait_timeouts``), the loop's own cleanup failed
+    (``cleanup_errors``), a task raised while being cancelled
+    (``cancel_errors``, logged with its traceback), or a request came from
+    another thread while one was in flight in a test not marked
+    ``per_request_loop`` (``cross_thread_requests``).
+    """
+    import traceback
+
+    from tests.fixtures.client import (
+        failing_problems,
+        stop_test_loop,
+        use_per_request_loop,
+        watch_test_thread,
+    )
+
+    def keep_first_stop_failure(exc):
+        if pre_error is not None:
+            exc.add_note(
+                "The test_client loop's first stop (before the finalizers) "
+                "also failed:\n" + "".join(traceback.format_exception(pre_error))
+            )
+
+    pre_error = None
+    try:
+        stop_test_loop(if_idle=True)
+    except BaseException as exc:
+        pre_error = exc
+    try:
+        result = yield
+    except BaseException as exc:
+        keep_first_stop_failure(exc)
+        raise
+    finally:
+        try:
+            stop_test_loop()
+        except BaseException as exc:
+            keep_first_stop_failure(exc)
+            raise
+        finally:
+            use_per_request_loop(False)
+            watch_test_thread(None)
+    if pre_error is not None:
+        raise pre_error
+    before = item.stash.get(_LOOP_PROBLEMS_AT_SETUP, {})
+    happened = {
+        name: n - before.get(name, 0)
+        for name, n in failing_problems().items()
+        if n - before.get(name, 0)
+    }
+    if happened:
+        pytest.fail(
+            "test_client loop problems in this test: "
+            + " ".join(f"{name}={n}" for name, n in happened.items())
+            + " (the warnings on stderr and in the log say what happened; "
+            "boundary_wait_timeouts: a request was still running in another "
+            "thread when its loop had to stop; cross_thread_requests: mark "
+            "the test @pytest.mark.per_request_loop; see "
+            "tests/fixtures/client.py)",
+            pytrace=False,
+        )
+    return result
+
+
+# Loop health per worker, reported in the terminal summary: worker name ->
+# its non-zero problem counters, or None when it sent no report.
+_LOOP_HEALTH = {}
+_LOOP_HEALTH_KEY = "bow_test_client_loop_problems"
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Stop the last ``test_client`` loop and report this process's loop
+    problems: an xdist worker sends them to the controller; a run without
+    workers keeps them for its own summary. The xdist controller runs no
+    tests and reports nothing of its own."""
+    from tests.fixtures.client import loop_problems, stop_test_loop
+
+    stop_test_loop()
+    workeroutput = getattr(session.config, "workeroutput", None)
+    if workeroutput is not None:
+        workeroutput[_LOOP_HEALTH_KEY] = loop_problems()
+    elif not session.config.pluginmanager.has_plugin("dsession"):
+        _LOOP_HEALTH["main"] = loop_problems()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_setupnodes(config, specs):
+    """xdist controller: every worker it starts is expected to report; one
+    that never does is shown as "no report"."""
+    for spec in specs:
+        _LOOP_HEALTH.setdefault(spec.id, None)
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_testnodedown(node, error):
+    """xdist controller: collect a finished worker's loop problems."""
+    _LOOP_HEALTH[node.gateway.id] = getattr(node, "workeroutput", {}).get(_LOOP_HEALTH_KEY)
+
+
+def pytest_terminal_summary(terminalreporter):
+    """One line per worker with the loop mode and its non-zero test_client
+    loop problem counters, printed on every run so CI logs show the loop's
+    health."""
+    from tests.fixtures.client import loop_health_lines, loop_mode
+
+    for line in loop_health_lines(_LOOP_HEALTH, loop_mode()):
+        terminalreporter.write_line(line)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_telemetry_for_tests():
@@ -492,25 +658,36 @@ def _dispose_async_engine():
     can neither lock nor corrupt the next test's database.
     """
     from app.dependencies import engine
+    from tests.fixtures.client import stop_test_loop
     import asyncio
 
     async def _dispose():
         await engine.dispose()
 
+    # A test_client loop must release its pooled connections (on its own
+    # loop) and stop before the engine they belong to is disposed; the
+    # dispose runs even if that stop fails. A failed dispose is raised (once
+    # the abandoned sqlite threads are stopped): the fixture that called it
+    # errors rather than run the test on connections left behind.
     try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(_dispose())
-        loop.close()
-    except Exception as e:
-        print(f"Warning: Failed to dispose engine: {e}")
-    _stop_abandoned_sqlite_threads()
+        stop_test_loop()
+    finally:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_dispose())
+            finally:
+                loop.close()
+        finally:
+            _stop_abandoned_sqlite_threads()
 
 
 def _stop_abandoned_sqlite_threads():
     """Stop the aiosqlite threads of connections finished requests left open.
 
-    Each TestClient request has its own event loop, and closing it cuts off
+    Each test's TestClient loop (one per request with
+    BOW_TEST_PER_REQUEST_LOOP=1) is closed at its end, which cuts off
     fire-and-forget tasks such as the welcome email before their session can
     close. The connection's thread then waits forever, holding its SQLite
     memory: about one per registered user, and over 1 MB of worker memory
