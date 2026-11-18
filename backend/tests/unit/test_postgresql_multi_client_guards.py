@@ -54,6 +54,15 @@ REFUSED = [
     "SELECT NULL::__t0001.public.secret_plan[]",
     "SELECT NULL::STRUCT(a __t0001.public.secret_plan)",
     "SELECT NULL::public.secret_plan",
+    "SELECT enum_range(json_transform('null', '\"__t0004.public.secret_plan\"'))",
+    "SELECT json_transform_strict('null', '\"__t0004.public.secret_plan\"')",
+    "SELECT from_json('null', '\"__t0004.public.secret_plan\"')",
+    "SELECT FROM_JSON_STRICT('null', '\"__t0004.public.secret_plan\"')",
+    "SELECT json_transform('{}', '{\"a\": \"__t0004.public.x\"}')",
+    "SELECT json_transform('{}', '{\"a\": [{\"b\": \"__t0001.public.x\"}]}')",
+    "SELECT json_transform(note, note) FROM public.orders",
+    "SELECT json_transform('{}', '{not json')",
+    "SELECT json_transform('{}', '\"INTEGER) FROM __t0001.public.orders --\"')",
 ]
 
 _READERS = [
@@ -93,6 +102,8 @@ ALLOWED = [
     "SELECT CAST(total AS DECIMAL(10, 2)) FROM public.orders",
     "SELECT 1::INTEGER[]",
     "SELECT NULL::memory.main.mood",
+    "SELECT json_transform(note, '{\"a\": \"INTEGER\", \"b\": [\"VARCHAR\"]}') FROM public.orders",
+    "SELECT from_json(note, '\"memory.main.mood\"') FROM public.orders",
 ]
 
 

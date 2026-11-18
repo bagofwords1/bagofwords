@@ -1,3 +1,4 @@
+import json
 import logging
 import re
 import threading
@@ -5,6 +6,7 @@ from time import monotonic
 
 import duckdb
 import pandas as pd
+import sqlglot
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlglot import exp
@@ -272,6 +274,7 @@ class PostgresqlMultiClient(DataSourceClient):
                 "PRAGMA statements are not allowed: the unified tables are already described in the schema."
             )
         foreign_types = [t for stmt in statements for t in _catalog_qualified_types(stmt)]
+        foreign_types += [t for stmt in statements for t in _json_structure_types(stmt)]
         if foreign_types:
             raise TableScopeViolation(
                 f"Type(s) outside this connection's unified tables: {', '.join(dict.fromkeys(foreign_types))}. "
@@ -519,6 +522,51 @@ def _catalog_qualified_types(stmt: exp.Expression) -> list[str]:
         parts = name.split(".")
         if len(parts) > 1 and parts[0].lower() != "memory":
             names.append(name)
+    return names
+
+
+_JSON_STRUCTURE_FUNCTIONS = {"json_transform", "json_transform_strict", "from_json", "from_json_strict"}
+
+
+def _json_leaves(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _json_leaves(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _json_leaves(item)
+
+
+def _json_leaf_types(leaf: str) -> list[str]:
+    try:
+        parsed = sqlglot.parse_one(f"SELECT CAST(NULL AS {leaf})", read=DIALECT)
+    except sqlglot.errors.SqlglotError:
+        return [leaf]
+    if not isinstance(parsed, exp.Select) or {k for k, v in parsed.args.items() if v} != {"expressions"}:
+        return [leaf]
+    if len(parsed.expressions) != 1 or not isinstance(parsed.expressions[0], exp.Cast):
+        return [leaf]
+    return _catalog_qualified_types(parsed)
+
+
+def _json_structure_types(stmt: exp.Expression) -> list[str]:
+    names = []
+    for fn in stmt.find_all(exp.Anonymous):
+        if str(fn.name).lower() not in _JSON_STRUCTURE_FUNCTIONS or len(fn.expressions) < 2:
+            continue
+        structure = fn.expressions[1]
+        if not (isinstance(structure, exp.Literal) and structure.is_string):
+            names.append(f"{fn.name} with a structure that is not a literal")
+            continue
+        try:
+            leaves = list(_json_leaves(json.loads(structure.this)))
+        except ValueError:
+            names.append(f"{fn.name} with a structure that is not JSON")
+            continue
+        for leaf in leaves:
+            names.extend(_json_leaf_types(leaf))
     return names
 
 
