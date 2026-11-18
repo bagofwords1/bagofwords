@@ -346,7 +346,14 @@ class AwsRedshiftClient(DataSourceClient):
             return self._get_tables_basic()
 
     def _normalize_data_type(self, data_type: str) -> str:
-        """Normalize Redshift-specific data types."""
+        """Normalize Redshift-specific data types.
+
+        Keeps any length/precision suffix, which late-binding view columns carry
+        (e.g. ``character varying(256)`` -> ``varchar(256)``).
+        """
+        base, paren, rest = (data_type or "").partition("(")
+        if paren:
+            return f"{self._normalize_data_type(base.strip())}({rest}"
         if data_type == 'character varying':
             return "varchar"
         elif data_type == 'numeric':
@@ -358,6 +365,57 @@ class AwsRedshiftClient(DataSourceClient):
         elif data_type == 'timestamp with time zone':
             return "timestamptz"
         return data_type
+
+    def _append_late_binding_views(self, conn, tables: dict, schema: str) -> None:
+        """Merge late-binding views (``CREATE VIEW ... WITH NO SCHEMA BINDING``).
+
+        Redshift does not record their columns in information_schema.columns, so
+        the catalog join above never sees them. Their columns are only exposed by
+        ``pg_get_late_binding_view_cols()`` -- the same source dbt-redshift and
+        sqlalchemy-redshift use. Best effort: a failure here must not lose the
+        tables and views already discovered.
+        """
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT cols.view_name, cols.col_name, cols.col_type, cols.col_num
+                    FROM pg_get_late_binding_view_cols()
+                        cols(view_schema name, view_name name, col_name name, col_type varchar, col_num int)
+                    WHERE cols.view_schema = %s
+                    ORDER BY cols.view_name, cols.col_num
+                    """,
+                    (schema,),
+                )
+                rows = cursor.fetchall()
+        except IndexingCancelled:
+            raise
+        except Exception as e:
+            logger.warning(f"Could not read late-binding views for schema '{schema}': {e}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            return
+
+        added = set()
+        for view_name, column_name, data_type, _col_num in rows:
+            if view_name in tables and view_name not in added:
+                continue  # already discovered through information_schema
+            if view_name not in tables:
+                tables[view_name] = Table(
+                    name=view_name,
+                    columns=[],
+                    pks=[],
+                    fks=[],
+                    metadata_json={"schema": self.schema},
+                )
+                added.add(view_name)
+            tables[view_name].columns.append(
+                TableColumn(name=column_name, dtype=self._normalize_data_type(data_type))
+            )
+        if added:
+            logger.info(f"Found {len(added)} late-binding views in schema '{schema}'")
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on some Redshift configurations."""
@@ -388,7 +446,7 @@ class AwsRedshiftClient(DataSourceClient):
                         ON pd_tbl.objoid = pc.oid
                         AND pd_tbl.objsubid = 0
                     WHERE t.table_schema = %s
-                    AND t.table_type = 'BASE TABLE'
+                    AND t.table_type IN ('BASE TABLE', 'VIEW')
                     ORDER BY t.table_name, c.ordinal_position
                 """
 
@@ -416,7 +474,8 @@ class AwsRedshiftClient(DataSourceClient):
                         description=col_comment if col_comment else None
                     ))
 
-                logger.info(f"Found {len(tables)} tables in schema '{self.schema}'")
+                self._append_late_binding_views(conn, tables, self.schema)
+                logger.info(f"Found {len(tables)} tables and views in schema '{self.schema}'")
                 return list(tables.values())
 
     def _get_tables_basic(self) -> List[Table]:
@@ -437,12 +496,13 @@ class AwsRedshiftClient(DataSourceClient):
                             ON t.table_name = c.table_name
                             AND t.table_schema = c.table_schema
                         WHERE t.table_schema = %s
-                        AND t.table_type = 'BASE TABLE'
+                        AND t.table_type IN ('BASE TABLE', 'VIEW')
                         ORDER BY t.table_name, c.ordinal_position
                     """
 
                     cursor.execute(sql, (self.schema,))
                     rows = cursor.fetchall()
+                    discovered_schema = self.schema
                     logger.info(f"Basic query returned {len(rows)} rows for schema '{self.schema}'")
 
                     # If no tables found, try a fallback query to see what schemas exist
@@ -462,6 +522,7 @@ class AwsRedshiftClient(DataSourceClient):
                             logger.info("Trying 'public' schema as fallback...")
                             cursor.execute(sql, ('public',))
                             rows = cursor.fetchall()
+                            discovered_schema = 'public'
                             logger.info(f"Fallback query returned {len(rows)} rows for 'public' schema")
 
                     tables = {}
@@ -479,8 +540,9 @@ class AwsRedshiftClient(DataSourceClient):
                             )
                         tables[table_name].columns.append(TableColumn(name=column_name, dtype=full_data_type))
 
-                    logger.info(f"Found {len(tables)} tables in schema '{self.schema}'")
-                    return list(tables.values())
+                self._append_late_binding_views(conn, tables, discovered_schema)
+                logger.info(f"Found {len(tables)} tables and views in schema '{discovered_schema}'")
+                return list(tables.values())
         except IndexingCancelled:
             raise
         except Exception as e:
@@ -538,7 +600,7 @@ class AwsRedshiftClient(DataSourceClient):
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM information_schema.tables 
-                    WHERE table_schema = %s AND table_type = 'BASE TABLE'
+                    WHERE table_schema = %s AND table_type IN ('BASE TABLE', 'VIEW')
                 """, (self.schema,))
                 table_count = cursor.fetchone()[0]
                 
