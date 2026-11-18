@@ -3795,7 +3795,7 @@
       "customTitle": "Règles personnalisées",
       "enterpriseBody": "La protection des données personnelles est disponible dans l'offre Enterprise. Contactez votre administrateur pour l'activer.",
       "enterpriseTitle": "Fonctionnalité entreprise",
-      "masterDesc": "Lorsque cette option est activée, le texte correspondant est masqué dans tous les prompts envoyés à un LLM depuis cet espace de travail.",
+      "masterDesc": "Lorsque cette option est activée, le texte correspondant est masqué dans tous les prompts envoyés à un LLM depuis cet espace de travail, sauf ceux envoyés aux fournisseurs exemptés ci-dessous.",
       "masterLabel": "Activer la protection des données personnelles",
       "modeBlock": "Bloquer la requête",
       "modeBlockDesc": "Refuser d'envoyer le prompt si des données personnelles sont détectées. Peut être surchargé par règle ci-dessous.",
@@ -3821,7 +3821,14 @@
       "testPlaceholder": "Collez un texte contenant des données personnelles d'exemple…",
       "testResult": "Résultat",
       "testTitle": "Testez vos règles",
-      "title": "Protection des données personnelles"
+      "title": "Protection des données personnelles",
+      "providersTitle": "Fournisseurs exemptés",
+      "providersDesc": "Tous les fournisseurs de LLM appliquent les règles de cette page. Activez-en un pour lui envoyer les prompts non masqués, par exemple un modèle auto-hébergé ou dans votre VPC auquel vous faites confiance. Ce qui s'affiche dans l'application reste masqué dans tous les cas.",
+      "noProviders": "Aucun fournisseur de LLM pour l'instant.",
+      "providerExempt": "Reçoit les prompts non masqués",
+      "providerRedacted": "Reçoit les prompts masqués",
+      "sendUnredacted": "Envoyer sans masquage",
+      "sendUnredactedTo": "Envoyer les prompts sans masquage à {name}"
     },
     "piiTab": "Données personnelles",
     "frameAncestors": {

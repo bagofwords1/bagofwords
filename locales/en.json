@@ -4320,7 +4320,7 @@
       "enterpriseTitle": "Enterprise feature",
       "enterpriseBody": "PII protection is available on the Enterprise plan. Contact your administrator to enable it.",
       "masterLabel": "Enable PII protection",
-      "masterDesc": "When on, matching text is redacted from every outbound LLM prompt for this workspace.",
+      "masterDesc": "When on, matching text is redacted from every outbound LLM prompt for this workspace, except prompts sent to providers exempted below.",
       "modeLabel": "Default action when PII is detected",
       "modeReplace": "Replace with a token",
       "modeReplaceDesc": "Swap each match with its replacement token and continue. Override per rule below.",
@@ -4354,7 +4354,14 @@
       "actionReplace": "Replace",
       "actionBlock": "Block",
       "blocksRequest": "Blocks the request",
-      "patternCount": "{n} pattern | {n} patterns"
+      "patternCount": "{n} pattern | {n} patterns",
+      "providersTitle": "Provider exemptions",
+      "providersDesc": "Every LLM provider gets the rules on this page. Turn one on to send it prompts unredacted, for example a self-hosted or in-VPC model you trust. What people see in the app stays masked either way.",
+      "noProviders": "No LLM providers yet.",
+      "providerExempt": "Receives prompts unredacted",
+      "providerRedacted": "Receives redacted prompts",
+      "sendUnredacted": "Send unredacted",
+      "sendUnredactedTo": "Send prompts unredacted to {name}"
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",

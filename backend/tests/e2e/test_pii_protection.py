@@ -281,3 +281,199 @@ def test_inference_stream_v2_block_mode_refuses(create_user, login_user, whoami)
 
     with pytest.raises(PiiPromptBlockedError):
         asyncio.run(drive())
+
+
+# --- per-provider exemption -------------------------------------------------
+#
+# An org can name LLM providers (e.g. a self-hosted model) that receive prompts
+# unredacted; every other provider keeps the org policy. The exemption is
+# resolved per LLM instance from the provider it actually calls, so a fallback
+# to another provider is judged by that provider, not the one first asked.
+
+
+def _admin(create_user, login_user, whoami):
+    email = f"pii_{uuid.uuid4().hex[:8]}@acme.com"
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+    from main import app
+    from fastapi.testclient import TestClient
+    return TestClient(app), _headers(token, org_id), org_id
+
+
+def _create_custom_provider(client, H, name):
+    resp = client.post("/api/llm/providers", json={
+        "name": name,
+        "provider_type": "custom",
+        "credentials": {"base_url": "https://llm.example.com/v1", "api_key": "sk-test"},
+        "models": [{"model_id": f"m-{uuid.uuid4().hex[:6]}", "name": "M", "is_custom": True}],
+    }, headers=H)
+    assert resp.status_code in (200, 201), resp.text
+    return resp.json()["id"]
+
+
+def _put_pii(client, H, **cfg):
+    return client.put("/api/organization/settings", json={"config": {"pii_protection": cfg}}, headers=H)
+
+
+def _prompt_sent_through(provider_id):
+    """Build the real LLM for ``provider_id``'s model (loader-resolved PII, no
+    injected redactor), stub only the provider client, and return the user
+    message text that reached it."""
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.llm_model import LLMModel
+    from app.ai.llm.llm import LLM
+    from app.ai.llm.types import Message
+
+    async def run():
+        async with async_session_maker() as session:
+            model = (await session.execute(
+                select(LLMModel).filter(LLMModel.provider_id == provider_id)
+            )).scalars().first()
+        llm = LLM(model, usage_session_maker=async_session_maker)
+        seen = {}
+
+        class StubClient:
+            async def inference_stream_v2(self, *, messages, system=None, **kwargs):
+                seen["text"] = messages[-1].content
+                return
+                yield  # pragma: no cover - makes this an async generator
+
+        llm.client = StubClient()
+        async for _ in llm.inference_stream_v2(
+            messages=[Message(role="user", content="Email jane.roe@contoso.com about it")],
+            system="sys",
+            should_record=False,
+        ):
+            pass
+        return seen["text"]
+
+    return asyncio.run(run())
+
+
+@pytest.mark.e2e
+def test_exempt_provider_gets_raw_prompt_and_others_keep_org_policy(create_user, login_user, whoami):
+    import app.ai.llm.pii.loader as loader
+
+    client, H, _ = _admin(create_user, login_user, whoami)
+    trusted = _create_custom_provider(client, H, "in-vpc model")
+    public = _create_custom_provider(client, H, "public api")
+
+    put = _put_pii(client, H, enabled=True, mode="replace", exempt_provider_ids=[trusted])
+    assert put.status_code == 200, put.text
+    assert put.json()["config"]["pii_protection"]["exempt_provider_ids"] == [trusted]
+    loader.invalidate()
+
+    assert "jane.roe@contoso.com" in _prompt_sent_through(trusted)
+    redacted = _prompt_sent_through(public)
+    assert "jane.roe@contoso.com" not in redacted
+
+    # Removing the exemption puts the provider back under the org policy.
+    assert _put_pii(client, H, exempt_provider_ids=[]).status_code == 200
+    assert "jane.roe@contoso.com" not in _prompt_sent_through(trusted)
+
+
+@pytest.mark.e2e
+def test_exemption_does_not_relax_display_masking(create_user, login_user, whoami):
+    """Display surfaces resolve the redactor without a provider: an exemption
+    only changes what one provider receives, never what the UI shows."""
+    import app.ai.llm.pii.loader as loader
+    from app.dependencies import async_session_maker
+
+    client, H, org_id = _admin(create_user, login_user, whoami)
+    trusted = _create_custom_provider(client, H, "in-vpc model")
+    assert _put_pii(client, H, enabled=True, exempt_provider_ids=[trusted]).status_code == 200
+    loader.invalidate()
+
+    display = asyncio.run(loader.load_redactor_for_org(org_id, async_session_maker))
+    assert display is not None and display.active
+    outbound = asyncio.run(loader.load_redactor_for_org(org_id, async_session_maker, trusted))
+    assert outbound is None
+
+
+@pytest.mark.e2e
+def test_exempt_list_only_accepts_this_orgs_live_providers(
+    create_user, login_user, whoami, create_organization, monkeypatch
+):
+    from app.settings.config import settings as bow_settings
+    client, H, _ = _admin(create_user, login_user, whoami)
+    # The org's first model becomes its default, which cannot be deleted.
+    _create_custom_provider(client, H, "default")
+    mine = _create_custom_provider(client, H, "mine")
+
+    # A second, unrelated org with its own provider.
+    monkeypatch.setattr(bow_settings.bow_config.features, "allow_uninvited_signups", True)
+    monkeypatch.setattr(bow_settings.bow_config.features, "allow_multiple_organizations", True)
+    other_email = f"pii_{uuid.uuid4().hex[:8]}@other.com"
+    create_user(email=other_email)
+    other_token = login_user(other_email, "test123")
+    other_org = create_organization(name=f"other-{uuid.uuid4().hex[:6]}", user_token=other_token)
+    theirs = _create_custom_provider(client, _headers(other_token, other_org), "theirs")
+
+    # Unknown ids and another org's provider are rejected, and nothing is saved.
+    for bad in ([f"nope-{uuid.uuid4().hex[:6]}"], [theirs], "not-a-list", [mine, 7]):
+        resp = _put_pii(client, H, enabled=True, exempt_provider_ids=bad)
+        assert resp.status_code == 400, (bad, resp.text)
+    cfg = client.get("/api/organization/settings", headers=H).json()["config"].get("pii_protection") or {}
+    assert not cfg.get("exempt_provider_ids")
+
+    # Duplicates collapse.
+    ok = _put_pii(client, H, enabled=True, exempt_provider_ids=[mine, mine])
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["config"]["pii_protection"]["exempt_provider_ids"] == [mine]
+
+    # A stored exemption whose provider was deleted never blocks later saves;
+    # it is dropped on the next write.
+    assert client.delete(f"/api/llm/providers/{mine}", headers=H).status_code in (200, 204)
+    later = _put_pii(client, H, enabled=True, exempt_provider_ids=[mine], mode="block")
+    assert later.status_code == 200, later.text
+    saved = later.json()["config"]["pii_protection"]
+    assert saved["mode"] == "block"
+    assert saved["exempt_provider_ids"] == []
+
+
+@pytest.mark.e2e
+def test_changing_exemptions_is_audited_with_the_providers(create_user, login_user, whoami):
+    from app.ee import license as ee_license
+    # Reading the audit log is its own enterprise feature; the autouse license
+    # above is rebuilt per test, so extending it here is test-local.
+    ee_license._cached_license.features.append("audit_logs")
+    client, H, _ = _admin(create_user, login_user, whoami)
+    a = _create_custom_provider(client, H, "a")
+    b = _create_custom_provider(client, H, "b")
+
+    def entries():
+        resp = client.get("/api/enterprise/audit",
+                          params={"action": "pii_protection.provider_exemptions_updated"}, headers=H)
+        assert resp.status_code == 200, resp.text
+        return [i for i in resp.json()["items"] if i["action"] == "pii_protection.provider_exemptions_updated"]
+
+    assert _put_pii(client, H, enabled=True, exempt_provider_ids=[a]).status_code == 200
+    assert _put_pii(client, H, enabled=True, exempt_provider_ids=[b]).status_code == 200
+    # A save that leaves the list unchanged adds no entry.
+    assert _put_pii(client, H, enabled=True, mode="block", exempt_provider_ids=[b]).status_code == 200
+
+    logged = entries()
+    assert len(logged) == 2
+    details = [e["details"] for e in logged]
+    assert {"exempted_provider_ids": [a], "unexempted_provider_ids": []} in details
+    assert {"exempted_provider_ids": [b], "unexempted_provider_ids": [a]} in details
+
+
+@pytest.mark.e2e
+def test_member_cannot_change_exemptions(create_user, login_user, whoami):
+    client, H, org_id = _admin(create_user, login_user, whoami)
+    trusted = _create_custom_provider(client, H, "in-vpc model")
+
+    email = f"pii_member_{uuid.uuid4().hex[:8]}@acme.com"
+    invite = client.post(f"/api/organizations/{org_id}/members",
+                         json={"organization_id": org_id, "email": email, "role": "member"}, headers=H)
+    assert invite.status_code == 200, invite.text
+    create_user(email=email)
+    member_H = _headers(login_user(email, "test123"), org_id)
+
+    resp = _put_pii(client, member_H, enabled=True, exempt_provider_ids=[trusted])
+    assert resp.status_code == 403, resp.text
+    cfg = client.get("/api/organization/settings", headers=H).json()["config"].get("pii_protection") or {}
+    assert not cfg.get("exempt_provider_ids")

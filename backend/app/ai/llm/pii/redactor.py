@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from .builtin_rules import BUILTIN_PII_RULES
 
@@ -94,9 +94,22 @@ def _compile_patterns(patterns: List[str], *, rule_id: str) -> List[re.Pattern]:
 class PiiRedactor:
     """Compiled, reusable redactor for one organization's ruleset."""
 
-    def __init__(self, mode: str, rules: List[CompiledRule]):
+    def __init__(
+        self,
+        mode: str,
+        rules: List[CompiledRule],
+        exempt_provider_ids: Optional[Iterable[str]] = None,
+    ):
         self.mode = mode if mode in VALID_MODES else "replace"
         self.rules = rules
+        # LLM providers the org trusts with raw values (e.g. a self-hosted
+        # model). Only the outbound LLM path consults this; display masking
+        # always applies the org policy.
+        self.exempt_provider_ids = frozenset(str(p) for p in (exempt_provider_ids or ()) if p)
+
+    def is_exempt(self, provider_id: Optional[str]) -> bool:
+        """Whether prompts sent to ``provider_id`` skip redaction."""
+        return bool(provider_id) and str(provider_id) in self.exempt_provider_ids
 
     @property
     def active(self) -> bool:
@@ -277,4 +290,16 @@ def build_redactor(pii_config: Optional[Dict[str, Any]]) -> Optional[PiiRedactor
     rules = _resolve_rules(pii_config, mode)
     if not rules:
         return None
-    return PiiRedactor(mode=mode, rules=rules)
+    return PiiRedactor(
+        mode=mode,
+        rules=rules,
+        exempt_provider_ids=_exempt_ids(pii_config.get("exempt_provider_ids")),
+    )
+
+
+def _exempt_ids(raw: Any) -> List[str]:
+    """Stored exemption list, tolerating hand-edited config (a lone string is
+    not iterated character by character)."""
+    if not isinstance(raw, (list, tuple, set, frozenset)):
+        return []
+    return [str(p) for p in raw if isinstance(p, str) and p.strip()]

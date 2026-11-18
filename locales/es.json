@@ -4264,7 +4264,7 @@
       "customTitle": "Reglas personalizadas",
       "enterpriseBody": "La protección de datos personales está disponible en el plan Enterprise. Contacta con tu administrador para habilitarla.",
       "enterpriseTitle": "Función enterprise",
-      "masterDesc": "Cuando está activada, el texto coincidente se oculta en todos los prompts enviados a un LLM desde este espacio de trabajo.",
+      "masterDesc": "Cuando está activada, el texto coincidente se oculta en todos los prompts enviados a un LLM desde este espacio de trabajo, salvo los que van a los proveedores exentos más abajo.",
       "masterLabel": "Activar protección de datos personales",
       "modeBlock": "Bloquear la petición",
       "modeBlockDesc": "No enviar el prompt si se detectan datos personales. Se puede anular por regla más abajo.",
@@ -4291,7 +4291,14 @@
       "testResult": "Resultado",
       "testTitle": "Prueba tus reglas",
       "title": "Protección de datos personales",
-      "patternCount": "{n} patrón | {n} patrones"
+      "patternCount": "{n} patrón | {n} patrones",
+      "providersTitle": "Proveedores exentos",
+      "providersDesc": "Todos los proveedores de LLM reciben las reglas de esta página. Activa uno para enviarle los prompts sin ocultar nada, por ejemplo un modelo autoalojado o en tu VPC en el que confías. Lo que se ve en la aplicación sigue oculto en ambos casos.",
+      "noProviders": "Aún no hay proveedores de LLM.",
+      "providerExempt": "Recibe los prompts sin ocultar",
+      "providerRedacted": "Recibe los prompts con los datos ocultos",
+      "sendUnredacted": "Enviar sin ocultar",
+      "sendUnredactedTo": "Enviar los prompts sin ocultar a {name}"
     },
     "piiTab": "Protección de datos",
     "adminPages": {

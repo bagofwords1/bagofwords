@@ -3795,7 +3795,7 @@
       "customTitle": "Eigene Regeln",
       "enterpriseBody": "Der Schutz personenbezogener Daten ist im Enterprise-Plan verfügbar. Wende dich an deine Administration, um ihn zu aktivieren.",
       "enterpriseTitle": "Enterprise-Funktion",
-      "masterDesc": "Wenn aktiviert, wird übereinstimmender Text in jedem ausgehenden LLM-Prompt dieses Workspace geschwärzt.",
+      "masterDesc": "Wenn aktiviert, wird übereinstimmender Text in jedem ausgehenden LLM-Prompt dieses Workspace geschwärzt, außer in Prompts an die unten ausgenommenen Anbieter.",
       "masterLabel": "Schutz personenbezogener Daten aktivieren",
       "modeBlock": "Anfrage blockieren",
       "modeBlockDesc": "Den Prompt nicht senden, wenn personenbezogene Daten gefunden werden. Pro Regel unten überschreibbar.",
@@ -3821,7 +3821,14 @@
       "testPlaceholder": "Füge Text mit personenbezogenen Beispieldaten ein…",
       "testResult": "Ergebnis",
       "testTitle": "Regeln testen",
-      "title": "Schutz personenbezogener Daten"
+      "title": "Schutz personenbezogener Daten",
+      "providersTitle": "Ausgenommene Anbieter",
+      "providersDesc": "Die Regeln auf dieser Seite gelten für jeden LLM-Anbieter. Schalten Sie einen Anbieter ein, um ihm Prompts ungeschwärzt zu senden, etwa einem selbst gehosteten Modell oder einem Modell in Ihrer VPC, dem Sie vertrauen. In der App bleiben die Daten in jedem Fall geschwärzt.",
+      "noProviders": "Noch keine LLM-Anbieter.",
+      "providerExempt": "Erhält Prompts ungeschwärzt",
+      "providerRedacted": "Erhält geschwärzte Prompts",
+      "sendUnredacted": "Ungeschwärzt senden",
+      "sendUnredactedTo": "Prompts ungeschwärzt an {name} senden"
     },
     "piiTab": "PII-Schutz",
     "frameAncestors": {

@@ -654,6 +654,15 @@ class LLM:
                 "Please select a vision-capable model or remove images from your request."
             )
 
+    def _pii_provider_id(self) -> Optional[str]:
+        """The LLM provider this instance sends prompts to; the org may exempt
+        it from PII redaction. A fallback model is a separate LLM instance, so
+        the provider actually called always decides."""
+        provider_id = getattr(self.model, "provider_id", None)
+        if not provider_id:
+            provider_id = getattr(getattr(self.model, "provider", None), "id", None)
+        return str(provider_id) if provider_id else None
+
     async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
         """Async resolution of this org's PII redactor (cached)."""
         # Tolerate objects built via object.__new__(LLM) that bypass __init__
@@ -664,7 +673,7 @@ class LLM:
             return self._pii_redactor
         try:
             self._pii_redactor = await load_redactor_for_org(
-                self._organization_id, self._usage_session_maker
+                self._organization_id, self._usage_session_maker, self._pii_provider_id()
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("PII redactor resolution failed: %s", exc)
@@ -700,7 +709,9 @@ class LLM:
             return None  # no loop reachable yet; retry on a later call
         try:
             fut = asyncio.run_coroutine_threadsafe(
-                load_redactor_for_org(self._organization_id, self._usage_session_maker),
+                load_redactor_for_org(
+                    self._organization_id, self._usage_session_maker, self._pii_provider_id()
+                ),
                 loop,
             )
             self._pii_redactor = fut.result(timeout=10)

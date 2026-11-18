@@ -3795,7 +3795,7 @@
       "customTitle": "Egna regler",
       "enterpriseBody": "Skydd av personuppgifter ingår i Enterprise-planen. Kontakta din administratör för att aktivera det.",
       "enterpriseTitle": "Enterprise-funktion",
-      "masterDesc": "När detta är på maskeras matchande text i varje utgående LLM-prompt från den här arbetsytan.",
+      "masterDesc": "När detta är på maskeras matchande text i varje utgående LLM-prompt från den här arbetsytan, utom prompter till leverantörer som undantas nedan.",
       "masterLabel": "Aktivera skydd av personuppgifter",
       "modeBlock": "Blockera förfrågan",
       "modeBlockDesc": "Skicka inte prompten om personuppgifter hittas. Kan åsidosättas per regel nedan.",
@@ -3821,7 +3821,14 @@
       "testPlaceholder": "Klistra in text som innehåller exempel på personuppgifter…",
       "testResult": "Resultat",
       "testTitle": "Testa dina regler",
-      "title": "Skydd av personuppgifter"
+      "title": "Skydd av personuppgifter",
+      "providersTitle": "Undantagna leverantörer",
+      "providersDesc": "Alla LLM-leverantörer får reglerna på den här sidan. Slå på en för att skicka prompter till den utan maskering, till exempel en självhostad modell eller en modell i ditt VPC som du litar på. Det som visas i appen förblir maskerat i båda fallen.",
+      "noProviders": "Inga LLM-leverantörer ännu.",
+      "providerExempt": "Får prompter utan maskering",
+      "providerRedacted": "Får maskerade prompter",
+      "sendUnredacted": "Skicka utan maskering",
+      "sendUnredactedTo": "Skicka prompter utan maskering till {name}"
     },
     "piiTab": "Personuppgifter",
     "frameAncestors": {

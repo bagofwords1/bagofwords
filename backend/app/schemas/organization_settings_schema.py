@@ -126,12 +126,30 @@ class PiiProtectionConfig(BaseModel):
     builtin_overrides: Dict[str, Dict[str, Any]] = {}
     # Fully user-defined rules
     custom_rules: List[PiiRule] = []
+    # LLM providers (ids) that receive prompts unredacted, e.g. a self-hosted
+    # or in-VPC model. Every other provider inherits this org policy. Display
+    # masking in the UI ignores this list.
+    exempt_provider_ids: List[str] = []
 
     @validator('mode', pre=True, always=True)
     def validate_mode(cls, v):
         if v not in ("replace", "block"):
             return "replace"
         return v
+
+    @validator('exempt_provider_ids', pre=True, always=True)
+    def validate_exempt_provider_ids(cls, v):
+        if v is None:
+            return []
+        if not isinstance(v, (list, tuple)):
+            raise ValueError("exempt_provider_ids must be a list of provider ids")
+        out: List[str] = []
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("exempt_provider_ids must contain provider ids")
+            if item.strip() not in out:
+                out.append(item.strip())
+        return out
 
 
 # Microsoft Graph /me fields that are readable with the default-granted

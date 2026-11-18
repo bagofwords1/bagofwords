@@ -42,6 +42,36 @@
                     </fieldset>
                 </SettingsSection>
 
+                <!-- Per-provider exemptions: who receives prompts unredacted -->
+                <SettingsSection :title="$t('settings.pii.providersTitle')" :description="$t('settings.pii.providersDesc')">
+                    <div data-testid="pii-provider-exemptions" :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
+                        <div v-if="providers.length === 0" class="rounded-lg border border-dashed border-line">
+                            <SettingsEmpty icon="i-heroicons-cpu-chip" :title="$t('settings.pii.noProviders')" compact />
+                        </div>
+                        <div v-else class="bow-table-card divide-y divide-line-subtle">
+                            <div v-for="provider in providers" :key="provider.id" data-testid="pii-provider-row"
+                                 class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <LLMProviderIcon :provider="provider.provider_type" :icon="true" class="w-5 h-5 shrink-0" />
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-medium text-ink truncate">{{ provider.name }}</div>
+                                        <div class="text-xs text-ink-muted">
+                                            {{ isExempt(provider.id) ? $t('settings.pii.providerExempt') : $t('settings.pii.providerRedacted') }}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3 shrink-0">
+                                    <span class="text-xs text-ink-muted">{{ $t('settings.pii.sendUnredacted') }}</span>
+                                    <UToggle
+                                        :model-value="isExempt(provider.id)"
+                                        :aria-label="$t('settings.pii.sendUnredactedTo', { name: provider.name })"
+                                        @update:model-value="setExempt(provider.id, $event); save()" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </SettingsSection>
+
                 <!-- Built-in rules -->
                 <SettingsSection :title="$t('settings.pii.builtinTitle')" :description="$t('settings.pii.builtinDesc')">
                     <div :class="['bow-table-card divide-y divide-line-subtle', { 'opacity-50 pointer-events-none': !pii.enabled }]">
@@ -166,6 +196,7 @@ import SettingsSection from '~/components/settings/SettingsSection.vue'
 import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
+import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
@@ -180,12 +211,14 @@ const testInput = ref('')
 const testResult = ref<{ text: string; matches: any[]; blocked: boolean }>({ text: '', matches: [], blocked: false })
 
 interface CustomRule { id: string; name: string; patterns: string[]; replacement: string; enabled: boolean; action?: string | null }
-const pii = reactive<{ enabled: boolean; mode: string; builtin_overrides: Record<string, any>; custom_rules: CustomRule[] }>({
+const pii = reactive<{ enabled: boolean; mode: string; builtin_overrides: Record<string, any>; custom_rules: CustomRule[]; exempt_provider_ids: string[] }>({
     enabled: false,
     mode: 'replace',
     builtin_overrides: {},
     custom_rules: [],
+    exempt_provider_ids: [],
 })
+const providers = ref<Array<{ id: string; name: string; provider_type: string }>>([])
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
 
 const modeOptions = computed(() => [
@@ -223,6 +256,13 @@ const setBuiltinAction = (id: string, val: string) => {
     pii.builtin_overrides[id] = { ...(pii.builtin_overrides[id] || {}), action: val }
 }
 
+// --- per-provider exemptions ---
+const isExempt = (id: string) => pii.exempt_provider_ids.includes(id)
+const setExempt = (id: string, val: boolean) => {
+    const others = pii.exempt_provider_ids.filter(p => p !== id)
+    pii.exempt_provider_ids = val ? [...others, id] : others
+}
+
 // --- custom rule editing ---
 const addRule = () => {
     pii.custom_rules.push({
@@ -244,14 +284,16 @@ const buildConfig = () => ({
     custom_rules: pii.custom_rules
         .map(r => ({ ...r, patterns: r.patterns.map(p => p.trim()).filter(Boolean) }))
         .filter(r => r.name.trim() || r.patterns.length),
+    exempt_provider_ids: pii.exempt_provider_ids,
 })
 
 const load = async () => {
     loading.value = true
     try {
-        const [settingsRes, rulesRes] = await Promise.all([
+        const [settingsRes, rulesRes, providersRes] = await Promise.all([
             useMyFetch('/api/organization/settings'),
             useMyFetch('/api/organization/pii/builtin-rules'),
+            useMyFetch('/api/llm/providers'),
         ])
         const cfg = (settingsRes.data.value as any)?.config?.pii_protection
         if (cfg) {
@@ -267,6 +309,18 @@ const load = async () => {
                 action: r.action || null,
             }))
         }
+        const stored: string[] = cfg?.exempt_provider_ids || []
+        if (providersRes.status.value === 'success') {
+            providers.value = ((providersRes.data.value as any[]) || [])
+                .map(p => ({ id: String(p.id), name: p.name, provider_type: p.provider_type }))
+            // Hide ids of deleted providers; the server drops them on the next save.
+            const live = new Set(providers.value.map(p => p.id))
+            pii.exempt_provider_ids = stored.filter(id => live.has(id))
+        } else {
+            // Provider list unavailable: keep the stored list as is, so a save
+            // from this page can never silently remove an exemption.
+            pii.exempt_provider_ids = [...stored]
+        }
         builtinRules.value = (rulesRes.data.value as any)?.rules || []
     } finally {
         loading.value = false
@@ -274,9 +328,13 @@ const load = async () => {
 }
 
 let saving = false
+let saveQueued = false
 const save = async () => {
-    if (saving) return
+    // A change made while a save is in flight is saved right after it, so a
+    // quick second toggle is never lost.
+    if (saving) { saveQueued = true; return }
     saving = true
+    saveQueued = false
     try {
         const res = await useMyFetch('/api/organization/settings', {
             method: 'PUT',
@@ -292,6 +350,7 @@ const save = async () => {
         toast.add({ title: t('settings.pii.saveError'), description: e.message, color: 'red', timeout: 5000, icon: 'i-heroicons-exclamation-circle' })
     } finally {
         saving = false
+        if (saveQueued) save()
     }
 }
 

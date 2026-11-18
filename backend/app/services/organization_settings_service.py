@@ -17,6 +17,7 @@ from app.schemas.organization_settings_schema import (
     DefaultMemberRoleSchema,
 )
 from datetime import datetime
+from typing import List, Optional
 import logging
 import os
 import hashlib
@@ -236,6 +237,8 @@ class OrganizationSettingsService:
 
             # Handle top-level feature updates
             pii_changed = False
+            # (added, removed) provider ids when the PII exemption list changes.
+            pii_exemptions_changed = None
             for key, value_update in update_data['config'].items():
                 if key != 'ai_features':
                     # PII protection (enterprise). Validated + normalized via the
@@ -270,7 +273,17 @@ class OrganizationSettingsService:
                                         status_code=400,
                                         detail=f"Rule '{rule.name}': {err}"
                                     )
+                        validated.exempt_provider_ids = await self._resolve_pii_exempt_provider_ids(
+                            db, organization, validated.exempt_provider_ids, existing.get('exempt_provider_ids')
+                        )
                         normalized = validated.dict()
+                        _old_exempt = set(existing.get('exempt_provider_ids') or [])
+                        _new_exempt = set(normalized['exempt_provider_ids'])
+                        if _old_exempt != _new_exempt:
+                            pii_exemptions_changed = (
+                                sorted(_new_exempt - _old_exempt),
+                                sorted(_old_exempt - _new_exempt),
+                            )
                         if current_config.get('pii_protection') != normalized:
                             current_config['pii_protection'] = normalized
                             config_changed = True
@@ -507,8 +520,58 @@ class OrganizationSettingsService:
                     )
                 except Exception:
                     pass
+                # Sending raw values to a provider is a security decision of its
+                # own, so it gets its own audit entry naming the providers.
+                if pii_exemptions_changed:
+                    try:
+                        _added, _removed = pii_exemptions_changed
+                        await audit_service.log(
+                            db=db,
+                            organization_id=str(organization.id),
+                            action="pii_protection.provider_exemptions_updated",
+                            user_id=str(current_user.id),
+                            resource_type="organization_settings",
+                            resource_id=str(settings.id),
+                            details={"exempted_provider_ids": _added, "unexempted_provider_ids": _removed},
+                        )
+                    except Exception:
+                        pass
 
         return settings
+
+    async def _resolve_pii_exempt_provider_ids(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        requested: List[str],
+        previously_stored: Optional[List[str]],
+    ) -> List[str]:
+        """Keep only this org's live LLM providers in the PII exemption list.
+
+        A newly added id that is not one of them is rejected (a typo or another
+        org's provider). A stored id whose provider has since been deleted is
+        dropped quietly, so it can never block saving unrelated PII settings.
+        """
+        if not requested:
+            return []
+        from app.models.llm_provider import LLMProvider
+
+        result = await db.execute(
+            select(LLMProvider.id).filter(
+                LLMProvider.organization_id == organization.id,
+                LLMProvider.id.in_(requested),
+                LLMProvider.deleted_at == None,  # noqa: E711
+            )
+        )
+        live = {str(pid) for pid in result.scalars().all()}
+        stored = set(previously_stored or [])
+        unknown = [pid for pid in requested if pid not in live and pid not in stored]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid PII protection config: unknown LLM provider in exempt_provider_ids.",
+            )
+        return [pid for pid in requested if pid in live]
 
     async def set_general_icon(
         self,

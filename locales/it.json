@@ -3795,7 +3795,7 @@
       "customTitle": "Regole personalizzate",
       "enterpriseBody": "La protezione dei dati personali è disponibile nel piano Enterprise. Contatta il tuo amministratore per abilitarla.",
       "enterpriseTitle": "Funzione enterprise",
-      "masterDesc": "Quando è attiva, il testo corrispondente viene oscurato in ogni prompt inviato a un LLM da questo spazio di lavoro.",
+      "masterDesc": "Quando è attiva, il testo corrispondente viene oscurato in ogni prompt inviato a un LLM da questo spazio di lavoro, tranne quelli inviati ai provider esentati qui sotto.",
       "masterLabel": "Abilita la protezione dei dati personali",
       "modeBlock": "Blocca la richiesta",
       "modeBlockDesc": "Non inviare il prompt se vengono rilevati dati personali. Sovrascrivibile per singola regola qui sotto.",
@@ -3821,7 +3821,14 @@
       "testPlaceholder": "Incolla un testo con dati personali di esempio…",
       "testResult": "Risultato",
       "testTitle": "Prova le tue regole",
-      "title": "Protezione dei dati personali"
+      "title": "Protezione dei dati personali",
+      "providersTitle": "Provider esentati",
+      "providersDesc": "Le regole di questa pagina valgono per ogni provider LLM. Attivane uno per inviargli i prompt senza oscurare nulla, ad esempio un modello self-hosted o nella tua VPC di cui ti fidi. Ciò che si vede nell'app resta oscurato in ogni caso.",
+      "noProviders": "Nessun provider LLM.",
+      "providerExempt": "Riceve i prompt senza oscuramento",
+      "providerRedacted": "Riceve i prompt con i dati oscurati",
+      "sendUnredacted": "Invia senza oscurare",
+      "sendUnredactedTo": "Invia i prompt senza oscurare a {name}"
     },
     "piiTab": "Dati personali",
     "frameAncestors": {

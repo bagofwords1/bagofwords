@@ -59,12 +59,25 @@ def invalidate(organization_id: Optional[str] = None) -> None:
 async def load_redactor_for_org(
     organization_id: Optional[str],
     session_maker: Optional[Callable[[], "object"]],
+    provider_id: Optional[str] = None,
 ) -> Optional[PiiRedactor]:
     """Return the redactor for ``organization_id`` or None.
 
     None means "do not redact" — because the feature is unlicensed, disabled,
-    has no active rules, or the org/session is unavailable.
+    has no active rules, the org/session is unavailable, or ``provider_id``
+    (the LLM provider the prompt is about to be sent to) is one the org
+    exempted. Display surfaces pass no ``provider_id`` and get the org policy.
     """
+    redactor = await _load_for_org(organization_id, session_maker)
+    if redactor is not None and redactor.is_exempt(provider_id):
+        return None
+    return redactor
+
+
+async def _load_for_org(
+    organization_id: Optional[str],
+    session_maker: Optional[Callable[[], "object"]],
+) -> Optional[PiiRedactor]:
     # Enterprise gate first — never touches the DB on community instances.
     if not has_feature("pii_protection"):
         return None
