@@ -418,12 +418,14 @@ async def _org_fallback_ds_ids(
 
 
 async def _org_data_sources(db: AsyncSession, organization_id: str | None) -> list:
-    """(id, name) of the organization's live data sources."""
+    """(id, name, previous_names) of the organization's live data sources.
+    The former names are how a key saved before a rename still names its
+    source (client_keys.sources_for_client_keys)."""
     if not organization_id:
         return []
     from app.models.data_source import DataSource
     return (await db.execute(
-        select(DataSource.id, DataSource.name).where(
+        select(DataSource.id, DataSource.name, DataSource.previous_names).where(
             DataSource.organization_id == str(organization_id),
             DataSource.deleted_at.is_(None),
         )
@@ -435,7 +437,8 @@ def _sources_reached(rows: list, code: str | None) -> list[str]:
     runs on: those its literal client keys name (client_keys) when that is
     the only way it reaches ds_clients and every key names a source; every
     source when it reaches ds_clients any other way, uses no key at all, or
-    uses a key no source matches (a renamed or removed source)."""
+    uses a key no source matches, by its current name or a former one (a
+    removed source)."""
     from app.services.client_keys import client_reach, sources_for_client_keys
 
     all_ids = [str(r[0]) for r in rows]
