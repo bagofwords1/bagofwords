@@ -626,9 +626,10 @@
                         :allow-all-enabled="allowAllEnabled"
                         :agent-cap="agentPermissionCap"
                         :unknown="permissionSettingsFailed"
+                        :stored-unknown="storedPermissionModeUnknown"
                         :compact="isCompactPrompt"
                         @update:model-value="selectPermissionMode"
-                        @retry="loadRouting"
+                        @retry="retryPermissionMode"
                     />
 
                     <!-- Model selector: search, provider groups, effort -->
@@ -1353,15 +1354,25 @@ const allowAllActive = computed(() => {
     return (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value
 })
 
-// The last mode the server accepted for this report. Saves go one at a time:
-// a pick made while one is in flight is sent after it, so the server applies
-// them in the order they were made and only the latest pick decides the chip.
+// The last mode the server is known to hold for this report. Saves and
+// read-backs go one at a time: a pick made while one is in flight is sent
+// after it, so the server applies them in the order they were made and only
+// the latest pick decides the chip.
 let confirmedPermissionMode: PermissionMode | null = permissionMode.value
 let permissionSavePending = false
-// The saves in flight, as one promise: true when the last pick was saved.
-// A prompt sent meanwhile waits for it (the run reads the stored mode), and
-// is not sent if the save failed.
+let permissionReadPending = false
+// The saves and reads in flight, as one promise: true when the last one
+// worked. A prompt sent meanwhile waits for it (the run reads the stored
+// mode), and is not sent if it failed.
 let permissionSaveLoop: Promise<boolean> | null = null
+// A save got no answer (a timeout, a network fault): the client gave up, but
+// the server may still apply it. Until it is seen applied, or this long has
+// passed, every send reads the stored mode first.
+let unconfirmedPermissionSave: { wanted: PermissionMode | null, until: number } | null = null
+const UNCONFIRMED_SAVE_WINDOW_MS = 120000
+// The report's stored mode could not be read back after such a save: it is
+// unknown, the chip says so, and nothing is sent until it is read or saved.
+const storedPermissionModeUnknown = ref(false)
 
 function selectPermissionMode(m: PermissionMode | null) {
     permissionMode.value = m
@@ -1371,51 +1382,143 @@ function selectPermissionMode(m: PermissionMode | null) {
 function persistPermissionMode() {
     // Landing page: there is no report yet; the choice rides on the create call.
     if (!props.report_id || !props.persistSelection) return
-    if (permissionSaveLoop) {
-        permissionSavePending = true
-        return
-    }
-    permissionSaveLoop = savePermissionModes().finally(() => { permissionSaveLoop = null })
+    permissionSavePending = true
+    runPermissionSync()
 }
 
-// A save that hangs must not hold the composer: past this it counts as failed.
+function runPermissionSync(): Promise<boolean> {
+    if (!permissionSaveLoop) {
+        permissionSaveLoop = syncPermissionMode().finally(() => { permissionSaveLoop = null })
+    }
+    return permissionSaveLoop
+}
+
+async function syncPermissionMode(): Promise<boolean> {
+    let ok = true
+    while (permissionSavePending || permissionReadPending) {
+        if (permissionSavePending) {
+            permissionSavePending = false
+            ok = await savePermissionMode()
+        } else {
+            permissionReadPending = false
+            ok = await readStoredPermissionMode()
+        }
+    }
+    return ok
+}
+
+// A save or read that hangs must not hold the composer: past this it has no answer.
 const PERMISSION_SAVE_TIMEOUT_MS = 15000
 
-async function savePermissionModes(): Promise<boolean> {
-    let saved = true
-    do {
-        permissionSavePending = false
-        const wanted = permissionMode.value
-        let error: any = null
-        try {
-            const res = await useMyFetch(`/reports/${props.report_id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ permission_mode: wanted || '' }),
-                timeout: PERMISSION_SAVE_TIMEOUT_MS,
-            })
-            error = res.error
-        } catch (e) {
-            // A throw (no organization, a network fault) is a failed save too.
-            error = ref(e)
+async function savePermissionMode(): Promise<boolean> {
+    const wanted = permissionMode.value
+    let error: any = null
+    try {
+        const res = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ permission_mode: wanted || '' }),
+            timeout: PERMISSION_SAVE_TIMEOUT_MS,
+        })
+        error = res.error?.value
+    } catch (e) {
+        // A throw (no organization, a network fault) is a failed save too.
+        error = e
+    }
+    if (!error) {
+        confirmedPermissionMode = wanted
+        storedPermissionModeUnknown.value = false
+        return true
+    }
+    const answered = !!(error?.statusCode || error?.status || error?.response?.status)
+    if (!answered) {
+        // No answer: the server may have applied the change, or may still
+        // apply it. Read the stored mode back and show that.
+        unconfirmedPermissionSave = { wanted, until: Date.now() + UNCONFIRMED_SAVE_WINDOW_MS }
+        if (!await readStoredPermissionMode()) return false
+        if (confirmedPermissionMode === wanted) return true  // it was applied
+        if (!permissionSavePending) {
+            toast.add({ title: t('prompt.permissionMode.saveFailed'), description: t('errors.network'), color: 'red' })
         }
-        saved = !error?.value
-        if (saved) {
-            confirmedPermissionMode = wanted
-        } else if (!permissionSavePending) {
-            // e.g. Allow all was switched off for the org meanwhile: show
-            // the mode the server will actually use. (A newer pick still
-            // to be sent decides instead.)
-            permissionMode.value = confirmedPermissionMode
-            toast.add({ title: t('prompt.permissionMode.saveFailed'), description: getErrorMessage(error.value), color: 'red' })
-        }
-    } while (permissionSavePending)
-    return saved
+        return false
+    }
+    if (!permissionSavePending) {
+        // e.g. Allow all was switched off for the org meanwhile: show the
+        // mode the server will actually use. (A newer pick still to be sent
+        // decides instead.)
+        permissionMode.value = confirmedPermissionMode
+        toast.add({ title: t('prompt.permissionMode.saveFailed'), description: getErrorMessage(error), color: 'red' })
+    }
+    return false
 }
 
-// Wait for a mode switch still being saved; false if that save failed.
+// Read the report's stored mode and show it. False when it cannot be read:
+// the chip then says the mode is unknown.
+async function readStoredPermissionMode(): Promise<boolean> {
+    let data: any = null
+    let error: any = null
+    try {
+        const res = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'GET',
+            // Never an answer shared with a read that started before the save.
+            query: { _: Date.now() },
+            timeout: PERMISSION_SAVE_TIMEOUT_MS,
+        })
+        data = res.data?.value
+        error = res.error?.value
+    } catch (e) {
+        error = e
+    }
+    if (error || !data) {
+        storedPermissionModeUnknown.value = true
+        if (!permissionSavePending) {
+            toast.add({ title: t('prompt.permissionMode.loadFailed'), description: t('errors.network'), color: 'red' })
+        }
+        return false
+    }
+    const stored = asPermissionMode(data.permission_mode)
+    storedPermissionModeUnknown.value = false
+    confirmedPermissionMode = stored
+    if (unconfirmedPermissionSave
+        && (stored === unconfirmedPermissionSave.wanted || Date.now() > unconfirmedPermissionSave.until)) {
+        unconfirmedPermissionSave = null
+    }
+    // A newer pick still to be sent decides the chip instead.
+    if (!permissionSavePending) permissionMode.value = stored
+    return true
+}
+
+function retryPermissionMode() {
+    if (permissionSettingsFailed.value) loadRouting()
+    if (storedPermissionModeUnknown.value && props.report_id && props.persistSelection) {
+        permissionReadPending = true
+        runPermissionSync()
+    }
+}
+
+// Whether a prompt may be sent now, as far as the permission mode goes. Waits
+// for a mode switch still being saved (false if it failed). While the stored
+// mode is not known for sure (a save got no answer), it is read first: false
+// if it cannot be read, or if it is not the mode the chip showed. The chip
+// then shows the stored mode, a toast names it, and the next send goes out:
+// a prompt is only ever sent under the mode the user saw.
 async function permissionModeSettled(): Promise<boolean> {
-    return permissionSaveLoop ? await permissionSaveLoop : true
+    if (permissionSaveLoop && !await permissionSaveLoop) return false
+    if (!props.report_id || !props.persistSelection) return true
+    if (!storedPermissionModeUnknown.value && !unconfirmedPermissionSave) return true
+    const wasUnknown = storedPermissionModeUnknown.value
+    const shown = permissionMode.value
+    permissionReadPending = true
+    if (!await runPermissionSync()) return false
+    if (wasUnknown || permissionMode.value !== shown) {
+        const now = permissionMode.value ?? orgPermissionDefault.value
+        toast.add({
+            title: t('prompt.permissionMode.tooltip', { mode: t(`prompt.permissionMode.modes.${now}.label`) }),
+            color: 'amber',
+        })
+        return false
+    }
+    return true
 }
 
 // Legacy popper (for current Nuxt UI stable)
@@ -2036,9 +2139,10 @@ async function submit() {
     if (isSubmitting.value || !canSubmit.value) return
     if (isListening.value) abortVoiceInput()
 
-    // A permission-mode switch still being saved: the run reads the stored
-    // mode, so wait for it; if it failed (its toast says so) send nothing.
-    if (props.report_id && permissionSaveLoop) {
+    // A permission-mode switch still being saved, or a stored mode that is
+    // not known for sure: the run reads the stored mode, so wait for it; if
+    // that failed or changed the chip (a toast says so) send nothing.
+    if (props.report_id && (permissionSaveLoop || unconfirmedPermissionSave || storedPermissionModeUnknown.value)) {
         isSubmitting.value = true
         let saved = false
         try {

@@ -1901,12 +1901,10 @@ provide('reportSnapshot', report)
 // MCP Apps (components/tools/McpAppFrame.vue): an app's ui/message posts into
 // this conversation as the user, the same way a follow-up chip does.
 provide('mcpAppHost', {
-	sendMessage(text: string): boolean {
-		if (isStreaming.value || isCompletionInProgress.value) return false
-		const trimmed = (text || '').trim()
-		if (!trimmed) return false
-		onSubmitCompletion({ text: trimmed, mentions: [], mode: currentPromptMode.value })
-		return true
+	// False when the message was not sent: a run is busy, or a permission-mode
+	// switch could not be saved (the run would read another mode).
+	sendMessage(text: string): Promise<boolean> {
+		return sendFromOutsideTheBox((text || '').trim())
 	},
 })
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
@@ -5820,18 +5818,24 @@ async function permissionModeSettled(): Promise<boolean> {
 	return settled ? await settled() : true
 }
 
-async function handleExampleClick(starter: string) {
-	if (starter && await permissionModeSettled()) {
-		onSubmitCompletion({ text: starter, mentions: [], mode: currentPromptMode.value });
-	}
+// One such send at a time: nothing is sent while a run is starting or
+// running, also not by a second click (or an app's second message) that
+// waited for the same save as the first.
+async function sendFromOutsideTheBox(text: string): Promise<boolean> {
+	if (!text || isStreaming.value || isCompletionInProgress.value) return false
+	if (!await permissionModeSettled()) return false
+	// A run may have started while this waited.
+	if (isStreaming.value || isCompletionInProgress.value) return false
+	onSubmitCompletion({ text, mentions: [], mode: currentPromptMode.value })
+	return true
 }
 
-async function handleFollowUpClick(question: string) {
-	if (isStreaming.value || isCompletionInProgress.value) return
-	if (question && await permissionModeSettled()) {
-		if (isStreaming.value || isCompletionInProgress.value) return
-		onSubmitCompletion({ text: question, mentions: [], mode: currentPromptMode.value });
-	}
+function handleExampleClick(starter: string) {
+	return sendFromOutsideTheBox(starter)
+}
+
+function handleFollowUpClick(question: string) {
+	return sendFromOutsideTheBox(question)
 }
 
 // Handlers for feedback-triggered instruction suggestions

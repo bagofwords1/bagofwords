@@ -18,9 +18,10 @@
         <template #panel="{ close }">
             <div class="p-2 text-xs w-[260px]" data-testid="permission-mode-panel">
                 <div class="px-2 pb-1 text-gray-500 dark:text-gray-400">{{ $t('prompt.permissionMode.title') }}</div>
-                <!-- The org settings did not load: the mode in force is unknown.
-                     Ask is still offered (always safe), stored for the report. -->
-                <div v-if="unknown" class="px-2 py-1.5 flex flex-col items-start gap-2">
+                <!-- The org settings did not load, or the report's stored mode
+                     could not be read: the mode in force is unknown. A mode
+                     can still be picked; it is stored for the report. -->
+                <div v-if="unknown || storedUnknown" class="px-2 py-1.5 flex flex-col items-start gap-2">
                     <span class="text-gray-600 dark:text-gray-300 leading-snug">{{ $t('prompt.permissionMode.unknown.hint') }}</span>
                     <button
                         type="button"
@@ -70,9 +71,12 @@ const props = defineProps<{
     agentCap?: 'ask' | 'auto' | null
     // The org settings failed to load: the default and the switch are unknown.
     unknown?: boolean
+    // The report's stored mode is unknown: a save got no answer and the mode
+    // could not be read back. No label is right until it is read or saved.
+    storedUnknown?: boolean
     compact?: boolean
 }>()
-// null = follow the org default again; retry = load the org settings again.
+// null = follow the org default again; retry = load what is unknown again.
 const emit = defineEmits<{ (e: 'update:modelValue', v: Mode | null): void, (e: 'retry'): void }>()
 const { t } = useI18n()
 
@@ -94,7 +98,7 @@ const effective = computed<Mode>(() => {
 
 // Never the Ask label for a mode nobody knows: the server may run Allow all.
 // The report's own Ask is known whatever the org settings say.
-const modeUnknown = computed(() => props.unknown && props.modelValue !== 'ask')
+const modeUnknown = computed(() => !!props.storedUnknown || (!!props.unknown && props.modelValue !== 'ask'))
 const chipMode = computed(() => (modeUnknown.value ? 'unknown' : effective.value))
 const chipLabel = computed(() => (modeUnknown.value
     ? t('prompt.permissionMode.unknown.label')
@@ -127,6 +131,7 @@ function iconClass(m: Mode) {
 // default is unknown the choice is always stored for the report.
 function pick(m: Mode) {
     const next = !props.unknown && m === props.orgDefault ? null : m
-    if (next !== props.modelValue) emit('update:modelValue', next)
+    // While the stored mode is unknown, a pick is always saved, even the one shown.
+    if (next !== props.modelValue || props.storedUnknown) emit('update:modelValue', next)
 }
 </script>
