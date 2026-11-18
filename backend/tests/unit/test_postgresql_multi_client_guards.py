@@ -316,3 +316,18 @@ def test_unknown_type_error_names_no_tenant_type(monkeypatch):
 
     assert "__t0004" not in str(raised.value)
     assert "secret_plan" not in str(raised.value)
+
+
+def test_unsaved_client_retry_onto_a_newer_engine_keeps_its_rebuild_budget():
+    client = _client()
+    client._bow_connection_id = ""
+    failed, current, rebuilt = object(), object(), object()
+    client._own_engine = current
+
+    retried = [client._discard(failed), client._discard(failed)]
+
+    assert retried == [True, True]
+    assert client._own_engine is current
+    assert client._discard(current) is True
+    client._own_engine = rebuilt
+    assert client._discard(rebuilt) is False

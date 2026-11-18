@@ -344,11 +344,12 @@ class PostgresqlMultiClient(DataSourceClient):
             return evict_engine(engine)
         now = monotonic()
         with self._own_engine_lock:
+            if self._own_engine is not engine:
+                return True
             if not forced_rebuild_allowed(self._own_rebuilt_at, now):
                 return False
             self._own_rebuilt_at = now
-            if self._own_engine is engine:
-                self._own_engine = None
+            self._own_engine = None
         return True
 
     def _run(self, engine: TenantEngine, sql: str) -> pd.DataFrame:
