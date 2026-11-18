@@ -122,6 +122,13 @@ At each sign-in:
   single-organization deployment a person left with no membership can no longer
   sign in until they are added again.
 - An organization at its license seat limit is skipped. Sign-in still succeeds.
+- Group names are matched exactly, including letter case: `Finance` and
+  `finance` are different groups. Only group object ids are compared without
+  regard to case.
+- When a person is in too many groups for the token to list them (Entra ID
+  omits the claim above 200 groups), the groups are read from Microsoft Graph,
+  nested groups included. If that lookup fails, nobody is added or removed at
+  that sign-in.
 
 The identity provider must send a groups claim. For Entra ID, add the `groups`
 claim to the ID token in the app registration.

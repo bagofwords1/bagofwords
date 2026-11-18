@@ -1190,6 +1190,48 @@ def test_a_string_in_a_relation_position_is_refused_even_for_a_real_table(odd_na
     assert client.execute_query('SELECT id FROM "export.csv"')["id"][0] == 4
 
 
+_NON_ASCII_BEFORE_A_RELATION = [
+    """SELECT 'é' AS v FROM "$orders" """,
+    """SELECT '日本語' AS v FROM "$orders" """,
+    """SELECT 'é' AS v /* ü */ FROM "Sales Ops".orders JOIN "$orders" ON true""",
+]
+
+
+@pytest.mark.parametrize("sql", _NON_ASCII_BEFORE_A_RELATION)
+def test_non_ascii_text_before_a_relation_does_not_shift_where_it_is_read(sql, odd_names_db):
+    """The engine reports a relation's position in bytes; 'é' is two."""
+    con = duckdb.connect(str(odd_names_db))
+    con.execute('CREATE TABLE "$orders" AS SELECT 8 AS id')
+    con.close()
+    client = DuckDBClient(database=str(odd_names_db))
+    ensure_read_only(client, sql)
+    assert len(client.execute_query(sql)) == 1
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 'ééé' AS v, * FROM '{folder}/real.csv'",
+    "SELECT 'é' AS v, * FROM $${folder}/real.csv$$",
+    "SELECT '日本語' AS v, * FROM E'{folder}/real.csv'",
+])
+def test_non_ascii_text_does_not_hide_a_string_in_a_relation_position(sql, odd_names_db):
+    client = DuckDBClient(database=str(odd_names_db))
+    with pytest.raises(Exception) as refused:
+        client.execute_query(sql.format(folder=odd_names_db.parent))
+    assert "99" not in str(refused.value)
+    with client.connect() as con:
+        with pytest.raises(ReadOnlyViolation):
+            lockdown.check_session_sql(con, sql.format(folder=odd_names_db.parent))
+
+
+def test_a_relation_position_is_read_as_a_byte_offset():
+    sql = """SELECT 'é' FROM "$orders" """
+    at = sql.encode("utf-8").index(b'"$orders"')
+    assert at != sql.index('"$orders"')
+    assert lockdown._written_as_string(sql, at) is False
+    quoted = "SELECT 'é' FROM '/x'"
+    assert lockdown._written_as_string(quoted, quoted.encode("utf-8").index(b"'/x'")) is True
+
+
 def test_file_named_views_are_queryable_under_the_listed_name(data, tmp_path):
     """The schema listing and the query agree on the name, for files whose
     names are not identifiers."""

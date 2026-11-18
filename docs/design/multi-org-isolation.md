@@ -255,12 +255,23 @@ what broke, what to test. Keep exploit detail in Linear.
 
 ### Phase 2
 
+- 2026-11-18 (after PR review): an expired invite is never claimed, by
+  registration, by sign-in or by `POST /api/invites/accept`. An invite link
+  opened by someone who already has an account is carried through password or
+  SSO sign-in and accepted afterwards. Known limit: a `redirect=` target on the
+  sign-in URL is dropped on that path.
+
 ### Phase 3
 
 - 2026-11-18: The legacy artifact confirm route has four frontend call sites and
   no others in `integrations/`, `backend/app/static` or `examples/`.
 
 ### Phase 4
+
+- 2026-11-18: A share list no longer shows a person who has left the
+  organization. The dashboards golden baseline
+  (`test_visibility_baseline[owner]`) still records the old listing. Open
+  decision: regenerate the baseline or restore the old listing.
 
 ### Phase 5
 
@@ -271,3 +282,18 @@ what broke, what to test. Keep exploit detail in Linear.
 ### Phase 6
 
 - 2026-11-18: The dashboards corpus test fixture fails on the main branch (it replays downgrades twice now that the head is `worldai01`). Unrelated to this work; needs its own fix.
+- 2026-11-18 (after PR review): group mapping never removes on doubt. When the
+  directory cannot resolve a group's display name, rules that map by name keep
+  their memberships until a later sign-in; rules that map by object id are not
+  affected. Deleting a rule, the last one included, removes the memberships it
+  created at each person's next sign-in.
+- 2026-11-18: Quoted schema and table names that exist in the DuckDB session
+  are accepted by the relation check.
+- 2026-11-18: CI on the PR. Unit, frontend unit and data-source integration
+  jobs pass. The dashboards e2e jobs fail at fixture setup (a migration
+  downgrade inherited from main), so CI has not run the dashboards tests on
+  this branch. The other e2e jobs fail only on a 2-second timing budget
+  (`test_indexing_happy_path`; the request takes about 1.5 s on main and on
+  this branch) and one worker crash inside pandas.
+- 2026-11-18: Another open PR also bumps `VERSION` to 0.0.629. Whichever merges
+  second must take the next number and move its changelog entry.
