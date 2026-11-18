@@ -723,8 +723,15 @@ async def _callers_slack_channels(db: AsyncSession, conn, user) -> Optional[List
     try:
         client = await ConnectionService().construct_client(
             db, conn, user, config_overrides={"include_direct_messages": False})
-    except Exception:
-        return None
+    except HTTPException as he:
+        if he.status_code in (401, 403):
+            return None  # not signed in with Slack yet
+        raise AppError(ErrorCode.SLACK_CHANNELS_UNAVAILABLE, "Slack connection unavailable",
+                       status_code=502, params={"detail": redact_error(he.detail)})
+    except Exception as e:
+        # Anything else is a real failure, not "sign in": say so.
+        raise AppError(ErrorCode.SLACK_CHANNELS_UNAVAILABLE, f"Slack connection unavailable: {redact_error(e)}",
+                       status_code=502, params={"detail": redact_error(e)})
     if not getattr(client, "access_token", None):
         return None
     try:

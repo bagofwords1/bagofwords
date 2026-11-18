@@ -350,3 +350,56 @@ def test_clients_handed_to_generated_code_carry_the_agents_channels(test_client,
     clients = asyncio.run(build())
     slack = next(c for c in clients.values() if c.__class__.__name__ == "SlackMessagesClient")
     assert slack.allowed == ["C0SUPPORT1"] and slack.include_dms is False
+
+
+@pytest.mark.e2e
+def test_run_clients_get_the_runs_scope_like_the_chat_tools(test_client, org, monkeypatch):
+    """In a run, the clients handed to generated code use the same scope as
+    the chat tools and the planner note (run_scope): the union of the run's
+    agents on the connection, pinned agents winning."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import DataSourceService
+
+    conn, a = _slack_agent(test_client, org["headers"])
+    b = test_client.post("/api/data_sources", headers=org["headers"], json={
+        "name": "Slack B", "type": "slack_messages", "connection_ids": [conn["id"]],
+        "is_public": True, "auth_policy": "user_required", "allowed_user_auth_modes": ["oauth"]}).json()
+    test_client.put(_scope_url(a, conn), headers=org["headers"], json={
+        "allowed_channels": [{"id": "C0SUPPORT1"}], "include_direct_messages": False})
+    test_client.put(_scope_url(b, conn), headers=org["headers"], json={
+        "allowed_channels": [{"id": "C0SALES001"}], "include_direct_messages": False})
+
+    async def creds(self, db, connection, data_source=None, current_user=None, **kw):
+        return {"access_token": "xoxp-user"}
+    monkeypatch.setattr(DataSourceService, "resolve_credentials_for_connection", creds)
+
+    async def slack_client(run_agents):
+        async with async_session_maker() as db:
+            agent = await db.get(DataSource, a["id"])
+            clients = await DataSourceService().construct_clients(db, agent, None, run_agents=run_agents)
+        return next(c for c in clients.values() if c.__class__.__name__ == "SlackMessagesClient")
+
+    both = asyncio.run(slack_client(([a["id"], b["id"]], [a["id"], b["id"]])))
+    assert sorted(both.allowed) == ["C0SALES001", "C0SUPPORT1"]
+    pinned_a = asyncio.run(slack_client(([a["id"], b["id"]], [a["id"]])))
+    assert pinned_a.allowed == ["C0SUPPORT1"]
+    alone = asyncio.run(slack_client(None))
+    assert alone.allowed == ["C0SUPPORT1"]
+
+
+@pytest.mark.e2e
+def test_the_picker_reports_a_slack_failure_not_a_sign_in(test_client, org, monkeypatch):
+    from app.services.connection_service import ConnectionService
+
+    conn, ds = _slack_agent(test_client, org["headers"])
+
+    async def broken(self, db, connection, current_user=None, **kwargs):
+        raise RuntimeError("upstream exploded")
+    monkeypatch.setattr(ConnectionService, "construct_client", broken)
+    r = test_client.get(f"/api/data_sources/{ds['id']}/connections/{conn['id']}/conversations",
+                        headers=org["headers"])
+    assert r.status_code == 502, r.text
+    assert r.json()["error_code"] == "connection.slack_channels_unavailable"

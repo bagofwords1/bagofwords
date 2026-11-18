@@ -3061,6 +3061,7 @@ class DataSourceService:
         self, db: AsyncSession, data_source: DataSource, current_user: User | None,
         *, connection_errors: Optional[list] = None,
         row_filter_user: Any = SAME_AS_CURRENT_USER,
+        run_agents: Optional[tuple] = None,
     ) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
@@ -3077,6 +3078,12 @@ class DataSourceService:
         else's credentials for a viewer's result ("run on my behalf") passes
         the viewer, so the rows stay the viewer's. None means anonymous,
         exactly as for `current_user`.
+
+        `run_agents` is ``(run_agent_ids, pinned_agent_ids)`` when the
+        clients are for a report run: a connection narrowed per agent (Slack
+        channels) then gets the run's scope (``slack_channel_scope.run_scope``),
+        the same one the chat tools and the planner note use. Without it, the
+        agent's own scope.
 
         By default the first connection that fails aborts the whole data
         source. Passing a `connection_errors` list opts into building each
@@ -3154,7 +3161,7 @@ class DataSourceService:
 
                 params = merge_client_credentials(config, creds)
                 params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
-                params.update(await self._agent_connection_overrides(db, data_source, conn))
+                params.update(await self._agent_connection_overrides(db, data_source, conn, run_agents))
 
                 allowed = filter_client_parameters(ClientClass, params)
 
@@ -3385,15 +3392,22 @@ class DataSourceService:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
 
-    async def _agent_connection_overrides(self, db, data_source, conn) -> Dict[str, Any]:
-        """This agent's own narrowing of a shared connection, as client
-        params — today the Slack channel scope. Every client built here
-        (run start, code execution, inspect) carries it, so generated code
-        handed ``ds_clients`` can't read past the channels the agent was
-        given. Empty for every other type."""
+    async def _agent_connection_overrides(self, db, data_source, conn, run_agents=None) -> Dict[str, Any]:
+        """The agent's narrowing of a shared connection, as client params —
+        today the Slack channel scope. Every client built here (run start,
+        code execution, inspect) carries it, so generated code handed
+        ``ds_clients`` can't read past it. In a run, the run's scope (see
+        ``construct_clients``); otherwise the agent's own. Empty for every
+        other type."""
         if getattr(conn, "type", None) != "slack_messages":
             return {}
-        from app.services.slack_channel_scope import client_overrides, scope_for_agents
+        from app.services.slack_channel_scope import client_overrides, run_scope, scope_for_agents
+        if run_agents is not None:
+            run_ids, pinned = run_agents
+            ids = [str(i) for i in (run_ids or [])]
+            if str(data_source.id) not in ids:
+                ids.append(str(data_source.id))
+            return client_overrides(await run_scope(db, str(conn.id), ids, pinned or ()))
         return client_overrides(await scope_for_agents(db, str(conn.id), [str(data_source.id)]))
 
     async def _attach_table_scope(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:

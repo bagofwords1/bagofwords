@@ -181,8 +181,11 @@ class _ChatTool(Tool):
                 f'cursor="{cursor}" (keep going until no cursor is returned) before '
                 "concluding anything about the whole set."
             )
-        else:
+        elif not result.get("partial"):
             summary += ". Complete: these are all the matching messages."
+        else:
+            # Some conversations weren't scanned: never call that complete.
+            summary += ". NOT complete: not every conversation was scanned (see below)."
         if result.get("hint"):
             summary += f" {result['hint']}"
         partial = result.get("partial") or []

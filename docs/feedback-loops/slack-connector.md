@@ -55,7 +55,9 @@ This means a search hit can be read without any lookup state.
     focus setting, not a grant.
   - It applies to every client built for the agent: the chat tools, browse
     and attach, and `DataSourceService.construct_clients` (the clients a run
-    hands to generated code), so no path reads past it.
+    hands to generated code), so no path reads past it. In a run,
+    `construct_clients` gets the run's agents and pins, so the code's clients
+    have exactly the chat tools' scope (`run_scope`).
   - **Private channel names stay private.** Each channel's name and privacy
     are read from the saving manager's own Slack, never from the request.
     Anyone who can view the agent reads its choice, so a private channel
@@ -184,7 +186,18 @@ Screenshots (seeded channel names only; customer-named channels removed):
   replies on an older root are not listed; Teams does include them. Search
   still finds them.
 - **`users.conversations` is capped at 2,000 conversations** and excludes
-  archived channels.
+  archived channels. When the cap is hit, a "not found" error says so.
+- **Only channels the user has joined.** Search hits from public channels the
+  user can read but never joined are dropped, the same as for listing. This
+  is by design: the connector reads what each person is a member of.
+- **A listing with no conversation scans 20 conversations** in Slack's order
+  (Slack offers no activity sort). The unscanned ones are named, and the
+  result is never reported as complete.
+- **The window around an unthreaded message** looks up to 90 days ahead for
+  the messages that followed it.
+- **The connection-level picker route** (`GET /connections/{id}/files`) is not
+  narrowed per agent. The UI doesn't call it: the prompt box uses the
+  agent's routes, which are narrowed.
 - **Each page of a fan-out listing re-reads** the scanned conversations
   (about 20 `conversations.history` calls and up to 10 `conversations.replies`
   calls). The pages are consistent, but each page costs the full fan-out.

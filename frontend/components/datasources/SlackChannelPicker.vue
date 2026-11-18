@@ -10,6 +10,7 @@
 
       <div v-else-if="loadFailed" class="text-xs text-red-600 py-6 text-center" data-testid="slack-scope-load-failed">
         {{ $t('slackChannels.loadFailed') }}
+        <span v-if="loadError" class="block mt-1 text-ink-muted">{{ loadError }}</span>
       </div>
 
       <template v-else>
@@ -94,6 +95,7 @@ const loading = ref(true)
 // The current choice couldn't be read: never fall back to "all channels",
 // or saving would silently erase the agent's choice.
 const loadFailed = ref(false)
+const loadError = ref('')
 const saving = ref(false)
 const connectRequired = ref(false)
 const channels = ref<Channel[]>([])
@@ -120,7 +122,10 @@ async function load() {
       useMyFetch(`${base.value}/channel-scope`, { method: 'GET' }),
       useMyFetch(`${base.value}/conversations`, { method: 'GET' }),
     ])
-    loadFailed.value = !!scopeRes.error.value || !scopeRes.data.value
+    // Either read failing blocks saving: a failed channel list is not
+    // "sign in with Slack" (the person may well be signed in).
+    loadFailed.value = !!scopeRes.error.value || !scopeRes.data.value || !!convRes.error.value
+    loadError.value = convRes.error.value ? getErrorMessage(convRes.error.value) : ''
     if (loadFailed.value) return
     const scope = scopeRes.data.value as any
     const conv = (convRes.data.value as any) || { channels: [], connect_required: true }

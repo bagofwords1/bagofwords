@@ -74,3 +74,21 @@ def test_message_rows_carry_their_link_and_the_tool_surfaces_hints():
     end = tool._end(data, {"items": [], "next_cursor": None, "hint": "'support' is the name of a conversation."})
     assert "is the name of a conversation" in end.payload["observation"]["summary"]
 
+
+
+
+def test_a_listing_that_skipped_conversations_is_never_called_complete():
+    """partial (conversations not scanned) and "Complete" contradict each other."""
+    from app.ai.tools.implementations.chat_tools import ListChatMessagesTool
+    from app.ai.tools.schemas.chat_tools import ListChatMessagesInput
+
+    tool = ListChatMessagesTool()
+    data = ListChatMessagesInput(connection_id="c1")
+
+    def summary(partial):
+        ev = tool._end(data, {"items": [], "next_cursor": None, "folder": None, "partial": partial})
+        return ev.payload["observation"]["summary"]
+
+    assert "Complete:" in summary([])
+    skipped = summary(["#old-a", "#old-b"])
+    assert "Complete:" not in skipped and "NOT complete" in skipped and "#old-a" in skipped
