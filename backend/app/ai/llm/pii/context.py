@@ -9,25 +9,47 @@ reaches the model as "exclude [REDACTED_EMAIL] accounts" produces a wrong query.
 
 Prompt builders wrap those regions with :func:`pii_context` at the point where
 the prompt is assembled. The LLM chokepoint then redacts everything *outside*
-the markers and strips the markers before anything is sent
+the marked regions and strips the markers before anything is sent
 (:func:`strip_markers` runs on every outbound call, PII on or off).
 
-Fail-closed by construction: text nobody marked is redacted. A new prompt path,
-or a marker cut off by truncation, can only cause *more* redaction, never less.
+**The text cannot mark itself.** User messages and tool results are
+interpolated into the same strings, so the marker characters alone prove
+nothing: a region is honored only if it carries a valid HMAC of its exact
+content, made with a key that exists only in this process's memory. The
+decision to skip scanning therefore rests on that key, not on anything the
+prompt text contains. Text that merely includes the reserved characters — typed
+by a user, returned by a tool, read from a file — is never skipped: the stray
+characters are dropped and the text is scanned like any other.
 
-The markers are two Unicode private-use code points: they never occur in real
-text, survive f-strings and JSON-free concatenation unchanged, and cost one
-character each. They are only ever added while assembling an LLM prompt — never
-in shared context formatters whose output is also shown in the UI or returned
-by the MCP ``get_context`` tool.
+Fail-closed by construction: text nobody marked is redacted, and so is a region
+whose content changed after marking (truncation, editing) because its HMAC no
+longer matches. A new prompt path, a cut-off marker or a forged one can only
+cause *more* redaction, never less.
+
+The markers are only ever added while assembling an LLM prompt — never in
+shared context formatters whose output is also shown in the UI or returned by
+the MCP ``get_context`` tool.
 """
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import os
 from typing import Any, List, Tuple
 
+# Unicode private-use code points: they never occur in real text.
 CONTEXT_START = ""
 CONTEXT_END = ""
+_MAC_CHARS = 32  # hex characters of HMAC-SHA256 kept (128 bits)
+
+# Per-process key: prompts are assembled and redacted in the same process, and
+# the key is never written anywhere.
+_KEY = os.urandom(32)
+
+
+def _mac(text: str) -> str:
+    return hmac.new(_KEY, text.encode("utf-8", "surrogatepass"), hashlib.sha256).hexdigest()[:_MAC_CHARS]
 
 
 def pii_context(text: Any) -> Any:
@@ -39,7 +61,8 @@ def pii_context(text: Any) -> Any:
     """
     if not isinstance(text, str) or not text:
         return text
-    return f"{CONTEXT_START}{strip_markers(text)}{CONTEXT_END}"
+    inner = strip_markers(text)
+    return f"{CONTEXT_START}{inner}{CONTEXT_END}{_mac(inner)}"
 
 
 def has_markers(text: Any) -> bool:
@@ -47,51 +70,62 @@ def has_markers(text: Any) -> bool:
 
 
 def strip_markers(text: Any) -> Any:
-    """Remove every context marker. Non-strings pass through."""
+    """Remove every context marker (and the HMAC of each genuine region).
+    Non-strings pass through."""
     if not isinstance(text, str) or not has_markers(text):
         return text
-    return text.replace(CONTEXT_START, "").replace(CONTEXT_END, "")
+    return "".join(segment for _is_context, segment in split_segments(text))
 
 
 def split_segments(text: str) -> List[Tuple[bool, str]]:
     """Split ``text`` into ``(is_context, segment)`` pairs, markers removed.
 
-    A region opens at ``CONTEXT_START`` and closes at the next ``CONTEXT_END``.
-    Fail-closed handling of malformed input:
+    A region is ``START content END hmac``. It is context only when the HMAC
+    matches the content. Everything else is in scope, with any reserved
+    characters dropped:
 
-    * a start with no matching end (e.g. a truncated prompt) does not open a
-      region — the rest of the text is redactable;
-    * an end with no open region is dropped;
-    * a second start inside an open region is dropped (regions are flat).
+    * a start with no end, or an end with no start (a truncated prompt, a
+      stray character in user text);
+    * a region whose HMAC is missing or wrong (forged, or edited after it was
+      marked) — its content is scanned like any other text;
+    * a start inside an open region (regions are flat).
     """
     if not has_markers(text):
         return [(False, text)] if text else []
     segments: List[Tuple[bool, str]] = []
     buf: List[str] = []
+
+    def plain(piece: str) -> None:
+        if piece:
+            buf.append(piece.replace(CONTEXT_START, "").replace(CONTEXT_END, ""))
+
+    def flush() -> None:
+        joined = "".join(buf)
+        buf.clear()
+        if joined:
+            segments.append((False, joined))
+
     i, n = 0, len(text)
     while i < n:
         start = text.find(CONTEXT_START, i)
-        end_stray = text.find(CONTEXT_END, i)
-        # A stray end before the next start is dropped.
-        if end_stray != -1 and (start == -1 or end_stray < start):
-            buf.append(text[i:end_stray])
-            i = end_stray + 1
-            continue
         if start == -1:
-            buf.append(text[i:])
+            plain(text[i:])
             break
+        plain(text[i:start])
         close = text.find(CONTEXT_END, start + 1)
         if close == -1:
-            # Unterminated region: treat the remainder as redactable.
-            buf.append(text[i:start])
-            buf.append(text[start + 1:].replace(CONTEXT_START, ""))
+            # Unterminated: the rest is in scope.
+            plain(text[start + 1:])
             break
-        buf.append(text[i:start])
-        if buf:
-            segments.append((False, "".join(buf)))
-            buf = []
-        segments.append((True, text[start + 1:close].replace(CONTEXT_START, "")))
-        i = close + 1
-    if buf:
-        segments.append((False, "".join(buf)))
-    return [(ctx, seg) for ctx, seg in segments if seg]
+        content = text[start + 1:close]
+        tag = text[close + 1:close + 1 + _MAC_CHARS]
+        if CONTEXT_START not in content and len(tag) == _MAC_CHARS and hmac.compare_digest(tag, _mac(content)):
+            flush()
+            segments.append((True, content))
+            i = close + 1 + _MAC_CHARS
+        else:
+            # Not a region the platform marked: drop the start character and
+            # keep scanning from just after it (the content stays in scope).
+            i = start + 1
+    flush()
+    return segments

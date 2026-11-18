@@ -112,6 +112,15 @@ BOW - a new ai data tool
 | networkPolicy.ingress | list | `[]` |  |
 | nodeSelector | object | `{}` | Node selector for the app pod. Does NOT affect the bundled PostgreSQL pod (use postgresql.primary.nodeSelector for that). |
 | podAnnotations | object | `{}` | Annotations added to every pod (not the Deployment metadata). |
+| pii.presidio.enabled | bool | `false` | Deploy the Presidio analyzer next to the app (enterprise PII protection: names, locations, organizations). |
+| pii.presidio.image.pullPolicy | string | `"IfNotPresent"` |  |
+| pii.presidio.image.repository | string | `"mcr.microsoft.com/presidio-analyzer"` |  |
+| pii.presidio.image.tag | string | `"2.2.362"` |  |
+| pii.presidio.nodeSelector | object | `{}` |  |
+| pii.presidio.replicaCount | int | `1` |  |
+| pii.presidio.resources | object | `{}` | The analyzer loads its language model into memory (about 1 GiB for the default English model). |
+| pii.presidio.tolerations | list | `[]` |  |
+| pii.presidio.url | string | `""` | URL of an existing Presidio analyzer service (overrides the bundled one). |
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | string | `"50%"` |  |
 | podLabels | object | `{}` | Labels added to every pod (e.g. `azure.workload.identity/use: "true"`). |

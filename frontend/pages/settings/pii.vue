@@ -121,21 +121,62 @@
                                 <USelect
                                     :model-value="ruleAction('builtin', rule.id)"
                                     @update:model-value="setRuleOption('builtin', rule.id, 'action', $event); save()"
-                                    :options="actionOptions" size="sm" class="w-28" />
+                                    :options="actionOptions" size="sm" class="w-52" />
                                 <UInput
                                     v-if="ruleAction('builtin', rule.id) === 'replace'"
                                     :model-value="ruleReplacement('builtin', rule.id, rule.replacement)"
                                     @update:model-value="setRuleOption('builtin', rule.id, 'replacement', $event)"
                                     @blur="save"
                                     size="sm" class="w-44" input-class="font-mono text-xs" :placeholder="rule.replacement" />
-                                <span v-else class="w-44 text-xs text-red-600 dark:text-red-400 flex items-center justify-end gap-1">
-                                    <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
-                                    {{ $t('settings.pii.blocksRequest') }}
-                                </span>
+                                <PiiActionHint v-else :action="ruleAction('builtin', rule.id)" class="w-44 justify-end" />
                                 <UToggle
                                     :model-value="ruleEnabled('builtin', rule.id)"
                                     @update:model-value="setRuleOption('builtin', rule.id, 'enabled', $event); save()" />
                             </div>
+                        </div>
+                    </div>
+                </SettingsSection>
+
+                <!-- Names, locations, organizations: found by a detector (Presidio), not a pattern -->
+                <SettingsSection :title="$t('settings.pii.detectorTitle')"
+                                 :description="detector.available ? $t('settings.pii.detectorDescPolicy', { policy: policyLabel(selected) }) : $t('settings.pii.detectorUnavailable')">
+                    <div v-if="detector.available" data-testid="pii-detector-rules"
+                         :class="{ 'opacity-50 pointer-events-none': !pii.enabled }">
+                        <div class="bow-table-card divide-y divide-line-subtle">
+                            <div v-for="rule in detector.entities" :key="rule.id" data-testid="pii-detector-row"
+                                 class="flex items-center justify-between gap-4 px-5 py-3">
+                                <div class="min-w-0">
+                                    <div class="text-sm font-medium text-ink">{{ $t(`settings.pii.entities.${rule.id}`) }}</div>
+                                    <div class="text-xs text-ink-muted">{{ $t('settings.pii.detectedByModel') }}</div>
+                                </div>
+                                <div class="flex items-center gap-3 shrink-0">
+                                    <label class="flex items-center gap-1.5 text-xs text-ink-muted">
+                                        {{ $t('settings.pii.minScore') }}
+                                        <UInput type="number" min="0" max="1" step="0.05" size="sm" class="w-20" input-class="nums"
+                                                :model-value="detectorOption(rule.id).min_score ?? defaultMinScore"
+                                                :disabled="!detectorEnabled(rule.id)"
+                                                :aria-label="$t('settings.pii.minScore')"
+                                                @update:model-value="setDetectorOption(rule.id, 'min_score', clampScore($event))"
+                                                @blur="save" />
+                                    </label>
+                                    <USelect
+                                        :model-value="detectorOption(rule.id).action || current.mode"
+                                        :disabled="!detectorEnabled(rule.id)"
+                                        @update:model-value="setDetectorOption(rule.id, 'action', $event); save()"
+                                        :options="actionOptions" size="sm" class="w-52" />
+                                    <UToggle
+                                        :model-value="detectorEnabled(rule.id)"
+                                        :aria-label="$t(`settings.pii.entities.${rule.id}`)"
+                                        @update:model-value="setDetectorOption(rule.id, 'enabled', $event); save()" />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4">
+                            <SettingsRow :label="$t('settings.pii.detectorErrorLabel')" :description="$t('settings.pii.detectorErrorDesc')">
+                                <USelect v-model="current.on_detector_error" :options="detectorErrorOptions" size="sm" class="w-64"
+                                         data-testid="pii-detector-error" @update:model-value="save" />
+                            </SettingsRow>
                         </div>
                     </div>
                 </SettingsSection>
@@ -179,10 +220,7 @@
                                             size="sm" input-class="font-mono text-xs" :placeholder="rule.replacement" @blur="save" />
                                 </div>
                                 <div v-else class="flex items-end">
-                                    <span class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1 pb-2">
-                                        <Icon name="heroicons:no-symbol" class="w-3.5 h-3.5" />
-                                        {{ $t('settings.pii.blocksRequest') }}
-                                    </span>
+                                    <PiiActionHint :action="ruleAction('custom', rule.id)" class="pb-2" />
                                 </div>
                             </div>
 
@@ -213,7 +251,7 @@
                     <div v-if="testDone" class="mt-4">
                         <div v-if="testResult.blocked" class="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950/40 dark:border-red-900/60 px-4 py-3 text-sm text-red-700 dark:text-red-300 flex items-center gap-2">
                             <Icon name="heroicons:no-symbol" class="w-4 h-4" />
-                            {{ $t('settings.pii.testBlocked') }}
+                            {{ testResult.detector_unavailable ? $t('settings.pii.testDetectorUnavailable') : $t('settings.pii.testBlocked') }}
                         </div>
                         <template v-else>
                             <div class="text-xs font-medium text-ink-muted mb-1.5">{{ $t('settings.pii.testResult') }}</div>
@@ -237,6 +275,7 @@ import SettingsRow from '~/components/settings/SettingsRow.vue'
 import SettingsEmpty from '~/components/settings/SettingsEmpty.vue'
 import SettingsLoading from '~/components/settings/SettingsLoading.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
+import PiiActionHint from '~/components/settings/PiiActionHint.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_settings'] })
 
@@ -251,21 +290,24 @@ const loading = ref(true)
 const testing = ref(false)
 const testDone = ref(false)
 const testInput = ref('')
-const testResult = ref<{ text: string; matches: any[]; blocked: boolean }>({ text: '', matches: [], blocked: false })
+const testResult = ref<{ text: string; matches: any[]; blocked: boolean; detector_unavailable?: boolean }>({ text: '', matches: [], blocked: false })
 
 type Kind = 'builtin' | 'custom'
-interface RuleOptions { enabled?: boolean; action?: string; replacement?: string }
+interface RuleOptions { enabled?: boolean; action?: string; replacement?: string; min_score?: number }
 interface Policy {
     name: string
     mode: string
     redact_context: boolean
     builtin_overrides: Record<string, RuleOptions>
     custom_overrides: Record<string, RuleOptions>
+    detector_overrides: Record<string, RuleOptions>
+    on_detector_error: string
 }
 interface CustomRule { id: string; name: string; patterns: string[]; replacement: string }
 
 const emptyPolicy = (name: string): Policy => ({
     name, mode: 'replace', redact_context: false, builtin_overrides: {}, custom_overrides: {},
+    detector_overrides: {}, on_detector_error: 'block',
 })
 
 const pii = reactive<{
@@ -284,6 +326,11 @@ const current = computed<Policy>(() => pii.policies[selected.value] || pii.polic
 const providers = ref<Array<{ id: string; name: string; provider_type: string }>>([])
 const providersLoaded = ref(false)
 const builtinRules = ref<Array<{ id: string; name: string; replacement: string; pattern_count: number }>>([])
+// The detector (Presidio) on this instance, if any: names, locations, organizations.
+const detector = ref<{ available: boolean; name: string | null; entities: Array<{ id: string; name: string; replacement: string }> }>(
+    { available: false, name: null, entities: [] }
+)
+const defaultMinScore = 0.7
 
 const modeOptions = computed(() => [
     { value: 'replace', label: t('settings.pii.modeReplace'), description: t('settings.pii.modeReplaceDesc') },
@@ -292,7 +339,14 @@ const modeOptions = computed(() => [
 
 const actionOptions = computed(() => [
     { label: t('settings.pii.actionReplace'), value: 'replace' },
+    { label: t('settings.pii.actionPseudonymize'), value: 'pseudonymize' },
+    { label: t('settings.pii.actionMask'), value: 'mask' },
     { label: t('settings.pii.actionBlock'), value: 'block' },
+])
+
+const detectorErrorOptions = computed(() => [
+    { label: t('settings.pii.detectorErrorBlock'), value: 'block' },
+    { label: t('settings.pii.detectorErrorRegexOnly'), value: 'regex_only' },
 ])
 
 const matchLabel = computed(() =>
@@ -362,6 +416,17 @@ const setRuleOption = (kind: Kind, id: string, key: keyof RuleOptions, val: any)
     map[id] = { ...(map[id] || {}), [key]: val }
 }
 
+// --- detector entities (off unless a policy turns them on) ---
+const detectorOption = (id: string): RuleOptions => current.value.detector_overrides[id] || {}
+const detectorEnabled = (id: string) => detectorOption(id).enabled === true
+const setDetectorOption = (id: string, key: keyof RuleOptions, val: any) => {
+    current.value.detector_overrides[id] = { ...detectorOption(id), [key]: val }
+}
+const clampScore = (raw: any) => {
+    const n = Number(raw)
+    return Number.isFinite(n) ? Math.min(1, Math.max(0, Math.round(n * 100) / 100)) : defaultMinScore
+}
+
 // --- custom rules (shared patterns) ---
 const addRule = () => {
     pii.custom_rules.push({
@@ -425,6 +490,8 @@ const load = async () => {
                     redact_context: !!p.redact_context,
                     builtin_overrides: p.builtin_overrides || {},
                     custom_overrides: p.custom_overrides || {},
+                    detector_overrides: p.detector_overrides || {},
+                    on_detector_error: p.on_detector_error || 'block',
                 }
             }
             if (!policies[DEFAULT]) policies[DEFAULT] = emptyPolicy('Default')
@@ -437,6 +504,7 @@ const load = async () => {
             providersLoaded.value = true
         }
         builtinRules.value = (rulesRes.data.value as any)?.rules || []
+        detector.value = (rulesRes.data.value as any)?.detector || { available: false, name: null, entities: [] }
     } finally {
         loading.value = false
     }

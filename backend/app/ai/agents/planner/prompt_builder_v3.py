@@ -17,7 +17,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from app.ai.llm.pii.context import CONTEXT_END as _CTX_CLOSE, CONTEXT_START as _CTX_OPEN, pii_context
+from app.ai.llm.pii.context import pii_context
 from app.ai.llm.types import Message, ToolSpec
 from app.ai.context.parts import TextPart as _TextPart
 from app.ai.prompt_language import language_directive_body, reply_language_reminder
@@ -980,7 +980,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         )
         if planner_input.entities_context and "<entity " in planner_input.entities_context:
             parts.append(
-                "  " + _CTX_OPEN + "<entities_guidance>Entities are saved, reviewed queries — the preferred way to "
+                "  " + pii_context("<entities_guidance>Entities are saved, reviewed queries — the preferred way to "
                 "answer an ask they cover. Match on the QUESTION, not the wording: an ask that is "
                 "the entity's question narrowed to a specific value of one of its <parameters> "
                 "(a genre, a year, a region, a customer) IS a match. For a match call "
@@ -988,16 +988,16 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "params={name: value} where name is the param's name= attribute exactly (not a "
                 "column name); omitted parameters keep their defaults. Do not write new code for "
                 "data an entity already provides; reach for create_data only when no entity fits "
-                "or its rows must be transformed or combined with other data.</entities_guidance>" + _CTX_CLOSE
+                "or its rows must be transformed or combined with other data.</entities_guidance>")
             )
         if getattr(planner_input, "available_steps_context", None):
             parts.append(f"  {planner_input.available_steps_context}")
-            parts.append(
-                "  <reuse_guidance>When a prior step in <available_steps> already holds the data the "
+            parts.append("  " + pii_context(
+                "<reuse_guidance>When a prior step in <available_steps> already holds the data the "
                 "user wants (especially when they refer to it by name, or ask to extend/modify a "
                 "previous result), prefer create_data — it can load that step via load_step instead of "
                 "re-querying from scratch. Do not rebuild existing data with new SQL.</reuse_guidance>"
-            )
+            ))
         return parts
 
     @staticmethod
@@ -1011,7 +1011,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             return ""
         response_locale = getattr(planner_input, "response_locale", None)
         if response_locale:
-            return (
+            return pii_context(
                 "<response_presentation>\n"
                 f"Write user-facing prose, progress updates, tool titles and display labels in {response_locale}. "
                 "Preserve SQL identifiers, field keys and raw data values. "
@@ -1033,16 +1033,20 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         """
         from app.ai.agents.planner.clock import time_block as _time_block
 
+        # PII scope: the clock, routing state and the fixed guidance below are
+        # platform scaffolding (context). The conversation, steering, the
+        # artifact, sub-agent goals and the reply-language reminder (it quotes
+        # the user) are left unmarked, so they stay in scope.
         parts: List[str] = [
-            _time_block(
+            pii_context(_time_block(
                 planner_input.timezone,
                 getattr(planner_input, "week_start", None),
                 getattr(planner_input, "locale", None),
-            )
+            ))
         ]
         runtime = PromptBuilderV3._format_runtime(planner_input)
         if runtime:
-            parts.append(runtime)
+            parts.append(pii_context(runtime))
         # The artifact is re-read every iteration and every create/edit changes
         # its id, version and code. In turn 0 that invalidated the cached prefix
         # — the whole transcript behind it — on each edit, forcing the next call
@@ -1078,17 +1082,17 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             # blocked. `delegate` stays available; the turn just isn't pushed.
             and (getattr(planner_input, "mode", None) or "chat") not in ("subagent", "training")
         ):
-            parts.append(
+            parts.append(pii_context(
                 "<delegation posture=\"proactive\">A why / root-cause ask with 3+ candidate causes: confirm the symptom with at most "
                 "ONE query, then launch ONE `delegate` call per independent cause in a SINGLE response and END YOUR TURN. "
                 "Do not test the causes yourself with create_data, even when the queries look quick.</delegation>"
-            )
+            ))
         if getattr(planner_input, "sub_agent_budget", None):
-            parts.append(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
+            parts.append(pii_context(f"<sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>"))
         # Volatile by nature (it grows every step), so it lives here and never
         # touches the cached prefix.
         if getattr(planner_input, "run_efficiency", None):
-            parts.append(planner_input.run_efficiency)
+            parts.append(pii_context(planner_input.run_efficiency))
         # Last on purpose: this head rides with the newest tool results, which
         # are usually English. Ending on the reply language keeps the user's
         # language next to the point where the model writes its answer.
@@ -1243,20 +1247,22 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         # Volatile tail (see the note where these are built): the wall clock and
         # the routing state change every iteration, so they render last, after
         # everything that stays byte-stable for the run.
-        parts.append(f"  {time_block}")
+        parts.append(f"  {pii_context(time_block)}")
         if runtime_block:
-            parts.append(f"  {runtime_block}")
+            parts.append(f"  {pii_context(runtime_block)}")
         # A sub-agent's step budget, as the transcript path's turn head carries
         # it: the system prompt tells it to finish before the budget runs out.
         if getattr(planner_input, "sub_agent_budget", None):
             parts.append(f"  <sub_agent_budget>{planner_input.sub_agent_budget}</sub_agent_budget>")
-        parts.append("  <error_guidance>")
-        parts.append("    If ANY tool execution errors occurred, acknowledge at the start of your message text.")
-        parts.append("    Inspect 'Field errors' and validation failures closely.")
-        parts.append("    Verify tool names and argument formats before retrying.")
-        parts.append("    If 2 attempts fail, switch strategy or ask via clarify.")
-        parts.append("    Never repeat the same failing call.")
-        parts.append("  </error_guidance>")
+        parts.append("  " + pii_context(
+            "<error_guidance>\n"
+            "    If ANY tool execution errors occurred, acknowledge at the start of your message text.\n"
+            "    Inspect 'Field errors' and validation failures closely.\n"
+            "    Verify tool names and argument formats before retrying.\n"
+            "    If 2 attempts fail, switch strategy or ask via clarify.\n"
+            "    Never repeat the same failing call.\n"
+            "  </error_guidance>"
+        ))
         parts.append("</context>")
         reply_language = PromptBuilderV3._reply_language_block(planner_input)
         if reply_language:

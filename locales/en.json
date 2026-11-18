@@ -1445,7 +1445,9 @@
     "contextClearedDivider": "Context cleared",
     "contextClearedDividerHint": "The agent does not see anything above this line",
     "piiBlocked": "PII protection blocked this request to {model} (rule: {rules}).",
-    "piiBlockedNoModel": "PII protection blocked this request (rule: {rules})."
+    "piiBlockedNoModel": "PII protection blocked this request (rule: {rules}).",
+    "piiDetectorUnavailable": "PII protection blocked this request to {model}: the PII detector is unavailable.",
+    "piiDetectorUnavailableNoModel": "PII protection blocked this request: the PII detector is unavailable."
   },
   "tools": {
     "common": {
@@ -4379,7 +4381,27 @@
       "patternsShared": "Patterns (shared by all policies)",
       "testDescPolicy": "Paste sample text to preview how the {policy} policy redacts it.",
       "testFailed": "Test failed",
-      "providerCount": "{n} provider | {n} providers"
+      "providerCount": "{n} provider | {n} providers",
+      "actionPseudonymize": "Hide from the model",
+      "actionMask": "Mask",
+      "masksValue": "Keeps the last 4 characters",
+      "pseudonymizesValue": "People still see the value",
+      "detectorTitle": "Names, places and organizations",
+      "detectorDescPolicy": "Found by a language model, not a pattern. Off until you turn them on. They apply to the user's prompt and the data, never to instructions or schemas. Options shown for the {policy} policy.",
+      "detectorUnavailable": "Detecting names, places and organizations needs a PII detector, and none is set up on this instance. Ask your administrator to install the backend's pii extra or to configure a Presidio service.",
+      "detectedByModel": "Detected by a language model",
+      "minScore": "Min. confidence",
+      "detectorErrorLabel": "If the detector is unavailable",
+      "detectorErrorDesc": "What happens to a request when the detector can't check it.",
+      "detectorErrorBlock": "Block the request",
+      "detectorErrorRegexOnly": "Send it with pattern rules only",
+      "testDetectorUnavailable": "The PII detector is unavailable, so this text would be blocked.",
+      "entities": {
+        "PERSON": "Person name",
+        "LOCATION": "Location",
+        "ORGANIZATION": "Organization",
+        "NRP": "Nationality, religious or political group"
+      }
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",

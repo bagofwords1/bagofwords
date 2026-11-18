@@ -606,6 +606,34 @@ autoscaling:
   # targetMemoryUtilizationPercentage: 80
 
 ##########################################################
+# PII detection (enterprise PII protection)
+##########################################################
+# Pattern rules (emails, cards, IDs…) need nothing here. Detecting names,
+# locations and organizations needs a Presidio analyzer:
+#   - `pii.presidio.enabled: true` runs one next to the app, or
+#   - `pii.presidio.url` points at an analyzer you run yourself (for example
+#     one serving a multilingual model). The URL wins when both are set.
+# The analyzer loads its language model into memory (about 1 GiB for the
+# default English model): size `resources` accordingly.
+pii:
+  presidio:
+    # -- Deploy the Presidio analyzer next to the app.
+    enabled: false
+    # -- URL of an existing Presidio analyzer service (overrides the bundled one).
+    url: ""
+    image:
+      repository: mcr.microsoft.com/presidio-analyzer
+      tag: "2.2.362"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    resources: {}
+    # resources:
+    #   requests: { cpu: 250m, memory: 1Gi }
+    #   limits: { memory: 2Gi }
+    nodeSelector: {}
+    tolerations: []
+
+##########################################################
 # Pod Disruption Budget
 ##########################################################
 podDisruptionBudget:

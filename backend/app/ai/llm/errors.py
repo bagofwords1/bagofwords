@@ -161,13 +161,14 @@ class LLMError:
     # so the UI can say which rule refused the request in the user's language.
     rules: Optional[list] = None
     policy: Optional[str] = None
+    # pii_blocked only: the policy needs a detector that could not run.
+    detector_unavailable: Optional[bool] = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
-        if self.rules is None:
-            d.pop("rules")
-        if self.policy is None:
-            d.pop("policy")
+        for key in ("rules", "policy", "detector_unavailable"):
+            if getattr(self, key) is None:
+                d.pop(key)
         return d
 
 
@@ -219,6 +220,7 @@ def classify(
             raw_tail="",
             rules=list(getattr(blocked, "rule_names", []) or []),
             policy=getattr(blocked, "policy_name", None),
+            detector_unavailable=True if getattr(blocked, "reason", None) is not None else None,
         )
 
     status = _extract_status(exc, raw)

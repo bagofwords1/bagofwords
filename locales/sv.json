@@ -1329,7 +1329,9 @@
     "compactionTurns": "{turns} turer",
     "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens",
     "piiBlocked": "Skyddet av personuppgifter blockerade den här förfrågan till {model} (regel: {rules}).",
-    "piiBlockedNoModel": "Skyddet av personuppgifter blockerade den här förfrågan (regel: {rules})."
+    "piiBlockedNoModel": "Skyddet av personuppgifter blockerade den här förfrågan (regel: {rules}).",
+    "piiDetectorUnavailable": "Skyddet av personuppgifter blockerade den här förfrågan till {model}: PII-detektorn är inte tillgänglig.",
+    "piiDetectorUnavailableNoModel": "Skyddet av personuppgifter blockerade den här förfrågan: PII-detektorn är inte tillgänglig."
   },
   "tools": {
     "common": {
@@ -3846,7 +3848,27 @@
       "patternsShared": "Mönster (delas av alla policyer)",
       "testDescPolicy": "Klistra in exempeltext för att se hur policyn {policy} maskerar den.",
       "testFailed": "Testet misslyckades",
-      "providerCount": "{n} leverantör | {n} leverantörer"
+      "providerCount": "{n} leverantör | {n} leverantörer",
+      "actionPseudonymize": "Dölj för modellen",
+      "actionMask": "Maskera delvis",
+      "masksValue": "Behåller de 4 sista tecknen",
+      "pseudonymizesValue": "Människor ser fortfarande värdet",
+      "detectorTitle": "Namn, platser och organisationer",
+      "detectorDescPolicy": "Hittas av en språkmodell, inte av ett mönster. Avstängda tills du slår på dem. De gäller användarens prompt och data, aldrig instruktioner eller scheman. Alternativ för policyn {policy}.",
+      "detectorUnavailable": "Att hitta namn, platser och organisationer kräver en PII-detektor, och ingen är konfigurerad på den här instansen. Be din administratör installera backendens pii-tillägg eller konfigurera en Presidio-tjänst.",
+      "detectedByModel": "Hittas av en språkmodell",
+      "minScore": "Min. säkerhet",
+      "detectorErrorLabel": "Om detektorn inte är tillgänglig",
+      "detectorErrorDesc": "Vad som händer med en förfrågan när detektorn inte kan kontrollera den.",
+      "detectorErrorBlock": "Blockera förfrågan",
+      "detectorErrorRegexOnly": "Skicka den med enbart mönsterregler",
+      "testDetectorUnavailable": "PII-detektorn är inte tillgänglig, så den här texten skulle blockeras.",
+      "entities": {
+        "PERSON": "Personnamn",
+        "LOCATION": "Plats",
+        "ORGANIZATION": "Organisation",
+        "NRP": "Nationalitet, religiös eller politisk grupp"
+      }
     },
     "piiTab": "Personuppgifter",
     "frameAncestors": {

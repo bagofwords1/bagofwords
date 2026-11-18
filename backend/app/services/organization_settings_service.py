@@ -264,6 +264,7 @@ class OrganizationSettingsService:
                                 pii_policy.normalize(existing)["provider_policies"],
                             )
                             validated = PiiProtectionConfig(**merged)
+                            self._require_pii_detector_for(merged, pii_policy.normalize(existing))
                         except HTTPException:
                             raise
                         except Exception as e:
@@ -538,6 +539,31 @@ class OrganizationSettingsService:
                         pass
 
         return settings
+
+    @staticmethod
+    def _require_pii_detector_for(merged: dict, previous: dict) -> None:
+        """Turning a detector rule (names, locations…) on needs a detector on
+        this instance. Without one the rule could only ever refuse every
+        request (or silently do nothing), so the save says so instead. A rule
+        that was already on is left alone: an instance whose detector went away
+        must still be able to save other settings."""
+        newly_on = []
+        for pid, pol in (merged.get("policies") or {}).items():
+            before = ((previous.get("policies") or {}).get(pid) or {}).get("detector_overrides") or {}
+            for entity, opts in (pol.get("detector_overrides") or {}).items():
+                if opts.get("enabled") and not (before.get(entity) or {}).get("enabled"):
+                    newly_on.append(entity)
+        if not newly_on:
+            return
+        from app.ai.llm.pii.detectors import detector_status
+        if not detector_status()["available"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid PII protection config: detecting names, locations or organizations needs a "
+                    "PII detector. Install the backend's 'pii' extra or set pii.presidio_url."
+                ),
+            )
 
     async def _resolve_pii_provider_policies(
         self,

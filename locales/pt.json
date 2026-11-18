@@ -1329,7 +1329,9 @@
     "compactionTurns": "{turns} turnos",
     "compactionLast": "Última compactação: histórico ~{before} → ~{after} tokens",
     "piiBlocked": "A proteção de dados pessoais bloqueou esta solicitação para {model} (regra: {rules}).",
-    "piiBlockedNoModel": "A proteção de dados pessoais bloqueou esta solicitação (regra: {rules})."
+    "piiBlockedNoModel": "A proteção de dados pessoais bloqueou esta solicitação (regra: {rules}).",
+    "piiDetectorUnavailable": "A proteção de dados pessoais bloqueou esta solicitação para {model}: o detector de dados pessoais está indisponível.",
+    "piiDetectorUnavailableNoModel": "A proteção de dados pessoais bloqueou esta solicitação: o detector de dados pessoais está indisponível."
   },
   "tools": {
     "common": {
@@ -3846,7 +3848,27 @@
       "patternsShared": "Padrões (compartilhados por todas as políticas)",
       "testDescPolicy": "Cole um texto de exemplo para ver como a política {policy} o oculta.",
       "testFailed": "O teste falhou",
-      "providerCount": "{n} provedor | {n} provedores"
+      "providerCount": "{n} provedor | {n} provedores",
+      "actionPseudonymize": "Ocultar do modelo",
+      "actionMask": "Mascarar",
+      "masksValue": "Mantém os últimos 4 caracteres",
+      "pseudonymizesValue": "As pessoas continuam vendo o valor",
+      "detectorTitle": "Nomes, lugares e organizações",
+      "detectorDescPolicy": "Detectados por um modelo de linguagem, não por um padrão. Ficam desativados até você ativá-los. Aplicam-se ao prompt do usuário e aos dados, nunca às instruções ou aos esquemas. Opções da política {policy}.",
+      "detectorUnavailable": "Detectar nomes, lugares e organizações exige um detector de dados pessoais, e esta instância não tem nenhum configurado. Peça ao administrador para instalar o extra pii do backend ou configurar um serviço Presidio.",
+      "detectedByModel": "Detectado por um modelo de linguagem",
+      "minScore": "Confiança mín.",
+      "detectorErrorLabel": "Se o detector estiver indisponível",
+      "detectorErrorDesc": "O que acontece com uma solicitação quando o detector não consegue verificá-la.",
+      "detectorErrorBlock": "Bloquear a solicitação",
+      "detectorErrorRegexOnly": "Enviar apenas com as regras de padrão",
+      "testDetectorUnavailable": "O detector de dados pessoais está indisponível, então este texto seria bloqueado.",
+      "entities": {
+        "PERSON": "Nome de pessoa",
+        "LOCATION": "Lugar",
+        "ORGANIZATION": "Organização",
+        "NRP": "Nacionalidade, grupo religioso ou político"
+      }
     },
     "piiTab": "Dados pessoais",
     "frameAncestors": {

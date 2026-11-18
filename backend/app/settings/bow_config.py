@@ -626,6 +626,37 @@ class StorageConfig(BaseModel):
         return f"{v}/" if v else ""
 
 
+class PiiConfig(BaseModel):
+    """Where PII detection of names, locations and organizations runs
+    (enterprise ``pii_protection``; pattern rules need none of this).
+
+    * ``presidio_url`` set → a Presidio analyzer service (the official
+      ``presidio-analyzer`` container or any service with its ``/analyze``
+      API). Use this for large installs, bigger or multilingual models, or a
+      GPU: the model is loaded once, outside the backend workers.
+    * otherwise, with the backend's optional ``pii`` extra installed →
+      Presidio inside each backend worker, with the spaCy model named here.
+    * otherwise → detector rules are unavailable.
+    """
+    presidio_url: Optional[str] = Field(default=None, description="Base URL of a Presidio analyzer service (BOW_PII_PRESIDIO_URL)")
+    presidio_timeout_seconds: float = 10.0
+    presidio_language: str = "en"
+    presidio_engine: str = "spacy"            # in-process only: "spacy" | "gliner"
+    presidio_model: str = "en_core_web_sm"    # in-process only
+
+    @model_validator(mode="before")
+    @classmethod
+    def _env(cls, values):
+        import os
+        values = dict(values or {})
+        url = os.environ.get("BOW_PII_PRESIDIO_URL")
+        if url and not values.get("presidio_url"):
+            values["presidio_url"] = url
+        if isinstance(values.get("presidio_url"), str):
+            values["presidio_url"] = values["presidio_url"].strip().rstrip("/") or None
+        return values
+
+
 class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
     base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
@@ -660,6 +691,7 @@ class BowConfig(BaseModel):
     system_logs: SystemLogsConfig = Field(default_factory=SystemLogsConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     mcp_apps: McpAppsConfig = Field(default_factory=McpAppsConfig)
+    pii: PiiConfig = Field(default_factory=PiiConfig)
 
     @model_validator(mode="after")
     def validate_saml_providers(self):

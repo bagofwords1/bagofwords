@@ -1419,7 +1419,9 @@
     "contextClearedDivider": "ההקשר נוקה",
     "contextClearedDividerHint": "הסוכן לא רואה שום דבר מעל הקו הזה",
     "piiBlocked": "הגנת המידע האישי חסמה את הבקשה הזו אל {model} (כלל: {rules}).",
-    "piiBlockedNoModel": "הגנת המידע האישי חסמה את הבקשה הזו (כלל: {rules})."
+    "piiBlockedNoModel": "הגנת המידע האישי חסמה את הבקשה הזו (כלל: {rules}).",
+    "piiDetectorUnavailable": "הגנת המידע האישי חסמה את הבקשה הזו אל {model}: גלאי המידע האישי אינו זמין.",
+    "piiDetectorUnavailableNoModel": "הגנת המידע האישי חסמה את הבקשה הזו: גלאי המידע האישי אינו זמין."
   },
   "tools": {
     "common": {
@@ -4316,7 +4318,27 @@
       "patternsShared": "תבניות (משותפות לכל המדיניות)",
       "testDescPolicy": "הדביקו טקסט לדוגמה כדי לראות איך המדיניות {policy} מסתירה אותו.",
       "testFailed": "הבדיקה נכשלה",
-      "providerCount": "ספק אחד | {n} ספקים"
+      "providerCount": "ספק אחד | {n} ספקים",
+      "actionPseudonymize": "הסתרה מהמודל",
+      "actionMask": "מיסוך",
+      "masksValue": "שומר על 4 התווים האחרונים",
+      "pseudonymizesValue": "אנשים עדיין רואים את הערך",
+      "detectorTitle": "שמות, מקומות וארגונים",
+      "detectorDescPolicy": "מזוהים על ידי מודל שפה ולא על ידי תבנית. כבויים עד שמפעילים אותם. חלים על הפרומפט של המשתמש ועל הנתונים, לעולם לא על הנחיות או סכימות. מוצגות האפשרויות של המדיניות {policy}.",
+      "detectorUnavailable": "זיהוי שמות, מקומות וארגונים דורש גלאי מידע אישי, ובסביבה הזו לא מוגדר גלאי. בקשו ממנהל המערכת להתקין את תוספת ה-pii של השרת או להגדיר שירות Presidio.",
+      "detectedByModel": "מזוהה על ידי מודל שפה",
+      "minScore": "ביטחון מינימלי",
+      "detectorErrorLabel": "אם הגלאי אינו זמין",
+      "detectorErrorDesc": "מה קורה לבקשה כשהגלאי לא יכול לבדוק אותה.",
+      "detectorErrorBlock": "לחסום את הבקשה",
+      "detectorErrorRegexOnly": "לשלוח עם כללי התבניות בלבד",
+      "testDetectorUnavailable": "גלאי המידע האישי אינו זמין, ולכן הטקסט הזה היה נחסם.",
+      "entities": {
+        "PERSON": "שם של אדם",
+        "LOCATION": "מקום",
+        "ORGANIZATION": "ארגון",
+        "NRP": "לאום, קבוצה דתית או פוליטית"
+      }
     },
     "piiTab": "הגנת מידע אישי",
     "adminPages": {
