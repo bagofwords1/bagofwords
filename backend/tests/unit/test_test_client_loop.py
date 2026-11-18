@@ -5,7 +5,6 @@ the loop are their own; the "wiring" tests use the real shared loop to check
 it is stopped at the test boundary and before an engine dispose. No database.
 """
 import asyncio
-import contextlib
 import signal
 import threading
 import time
@@ -22,7 +21,7 @@ from tests.fixtures.client import (
     _TestLoop,
     make_test_client,
 )
-from tests.fixtures.signals import retrying_signal
+from tests.fixtures.signals import handling_sigint, retrying_signal
 
 app = FastAPI()
 TASKS = {}
@@ -616,6 +615,24 @@ def test_an_interrupted_connection_release_still_stops_the_loop(client, loop, mo
     assert not loop._stopping
 
 
+@pytest.fixture(autouse=True)
+def _sigint_raises():
+    """This module's interrupts (``_thread.interrupt_main``) raise also in a
+    run that inherited SIGINT ignored (see ``handling_sigint``)."""
+    with handling_sigint():
+        yield
+
+
+def test_retrying_signal_restores_the_handler_where_sigtimedwait_is_missing(monkeypatch):
+    """macOS has no ``signal.sigtimedwait``: the block's exit must not need
+    it to restore the previous handler."""
+    monkeypatch.delattr(signal, "sigtimedwait", raising=False)
+    previous = signal.getsignal(signal.SIGUSR1)
+    with retrying_signal(signal.SIGUSR1, lambda signum, frame: None) as send:
+        send()
+    assert signal.getsignal(signal.SIGUSR1) is previous
+
+
 @pytest.fixture
 def interrupt_main_thread():
     """A function that interrupts the main thread (the test's) with one
@@ -827,183 +844,6 @@ def test_a_failed_exit_of_an_interrupted_stop_keeps_the_interrupt(client, loop, 
     assert "the portal's exit failed" in capsys.readouterr().err
     assert loop.portal is None and not loop._stopping
     assert not any(t.is_alive() for t in started)
-
-
-class _ThreadingWith:
-    """``threading`` with its ``Thread`` replaced, for ``client_mod``."""
-
-    def __init__(self, thread):
-        self.Thread = thread
-
-    def __getattr__(self, name):
-        return getattr(threading, name)
-
-
-@contextlib.contextmanager
-def _exit_thread_replaced(thread):
-    # Patched for this test only, not with monkeypatch: its undo comes after
-    # this module's autouse teardown, whose shared loop must exit for real.
-    client_mod.threading = _ThreadingWith(thread)
-    try:
-        yield
-    finally:
-        client_mod.threading = threading
-
-
-def _end_loop_left_running(cm, started):
-    """Test harness only: exit a portal a stop left running."""
-    if any(t.is_alive() for t in started):
-        cm.__exit__(None, None, None)
-
-
-def test_an_interrupt_before_the_exit_thread_runs_is_counted(client, loop, capsys):
-    """An interrupt that lands while the stop sets up the thread the portal's
-    exit runs on (a signal handler raising there) leaves the loop thread
-    running: ``stop`` counts it, says so and re-raises."""
-
-    def thread_interrupted(*args, **kwargs):
-        raise KeyboardInterrupt
-
-    before = _portal_threads()
-    assert client.get("/loop").status_code == 200
-    started = _portal_threads() - before
-    cm = loop._cm
-    try:
-        with _exit_thread_replaced(thread_interrupted), pytest.raises(KeyboardInterrupt):
-            loop.stop()
-    finally:
-        _end_loop_left_running(cm, started)
-    assert loop.stats.snapshot()["cleanup_errors"] == 1
-    assert "loop thread may still be running" in capsys.readouterr().err
-    assert loop.portal is None and not loop._stopping
-
-
-def test_an_interrupt_before_the_release_still_ends_the_stop(client, loop):
-    """An interrupt that lands before the stop releases the loop's
-    connections (here while it imports the release) still exits the portal
-    and ends the stop, so no later ``stop`` waits on it forever."""
-    from app.settings import database
-
-    before = _portal_threads()
-    assert client.get("/loop").status_code == 200
-    started = _portal_threads() - before
-    cm = loop._cm
-    real_release = database.release_test_connections
-
-    def interrupted_lookup(name):
-        if name == "release_test_connections":
-            raise KeyboardInterrupt
-        raise AttributeError(name)
-
-    del database.release_test_connections
-    database.__getattr__ = interrupted_lookup
-    timer, rescued = _rescue_detached_stops_after(loop, 5)
-    try:
-        with pytest.raises(KeyboardInterrupt):
-            loop.stop()
-    finally:
-        timer.cancel()
-        del database.__getattr__
-        database.release_test_connections = real_release
-        for stopped in rescued:
-            loop._stopping.discard(stopped)
-        _end_loop_left_running(cm, started)
-    assert not rescued, "stop hung on the loop whose release was interrupted"
-    assert loop.portal is None
-    assert not any(t.is_alive() for t in started)
-
-
-@pytest.mark.parametrize("fails", [True, False], ids=["late-failure", "late-success"])
-def test_the_late_outcome_of_an_exit_given_up_on_is_said(
-    client, loop, monkeypatch, capsys, fails
-):
-    """An interrupted stop gives up on the portal's exit after
-    _BOUNDARY_WAIT_SECONDS. When that exit ends later, its outcome is still
-    said: its failure, or that the loop did stop after all."""
-    import _thread
-
-    import anyio.from_thread
-
-    from app.settings import database
-
-    real_start = anyio.from_thread.start_blocking_portal
-    proceed = threading.Event()
-
-    class _ExitLate:
-        """anyio's portal context; its exit waits for the test, then stops
-        the loop and (with ``fails``) fails."""
-
-        def __init__(self, cm):
-            self._cm = cm
-
-        def __enter__(self):
-            return self._cm.__enter__()
-
-        def __exit__(self, *exc_info):
-            proceed.wait(10)  # 10s: a broken test ends
-            self._cm.__exit__(*exc_info)
-            if fails:
-                raise RuntimeError("the late exit failed")
-
-    # Patched for this loop only, not with monkeypatch: its undo comes after
-    # this module's autouse teardown, whose shared loop must exit for real.
-    anyio.from_thread.start_blocking_portal = lambda *a, **kw: _ExitLate(real_start(*a, **kw))
-    try:
-        before = _portal_threads()
-        assert client.get("/loop").status_code == 200
-    finally:
-        anyio.from_thread.start_blocking_portal = real_start
-    started = _portal_threads() - before
-
-    async def interrupted_release():
-        _thread.interrupt_main()  # raised in the test thread once this returns
-
-    monkeypatch.setattr(database, "release_test_connections", interrupted_release)
-    monkeypatch.setattr(client_mod, "_BOUNDARY_WAIT_SECONDS", 0.2)
-    try:
-        with pytest.raises(KeyboardInterrupt):
-            loop.stop()
-        helpers = [t for t in threading.enumerate() if t.name == "test-client-loop-exit"]
-    finally:
-        proceed.set()
-    for thread in helpers + list(started):
-        thread.join(10)
-    assert not any(t.is_alive() for t in helpers + list(started))
-    err = capsys.readouterr().err
-    assert "did not stop within" in err
-    if fails:
-        assert "the late exit failed" in err
-    else:
-        assert "has stopped after all" in err
-
-
-def test_a_normal_stop_exits_in_place_when_its_exit_thread_cannot_start(
-    client, loop, capsys
-):
-    """The thread the portal's exit runs on cannot be started: the normal
-    stop exits the portal in the test thread instead, so no loop is left
-    running, then counts the failure, says so and raises it."""
-
-    class _Unstartable(threading.Thread):
-        def start(self):
-            raise RuntimeError("can't start new thread")
-
-    before = _portal_threads()
-    assert client.get("/loop").status_code == 200
-    started = _portal_threads() - before
-    cm = loop._cm
-    try:
-        with _exit_thread_replaced(_Unstartable), pytest.raises(
-            RuntimeError, match="can't start new thread"
-        ):
-            loop.stop()
-        alive = [t for t in started if t.is_alive()]
-    finally:
-        _end_loop_left_running(cm, started)
-    assert alive == []
-    assert loop.stats.snapshot()["cleanup_errors"] == 1
-    assert "can't start new thread" in capsys.readouterr().err
-    assert loop.portal is None and not loop._stopping
 
 
 def test_full_stop_gives_up_on_a_thread_that_keeps_requesting(

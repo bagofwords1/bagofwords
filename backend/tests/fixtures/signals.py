@@ -16,15 +16,16 @@ def retrying_signal(signum, act):
     (and saying so) after about 5 s. One signal is not enough to interrupt a
     wait: one that lands after the main thread released the GIL but before
     it started its lock wait interrupts no wait, and its handler runs only
-    once the wait ends. The block's exit blocks ``signum`` in the main
-    thread, stops and joins the senders, drops what they left pending and
-    restores the previous handler before it unblocks ``signum``, so no
-    signal sent here reaches that handler, and none raises in the exit."""
+    once the wait ends. The block's exit stops and joins the senders, then
+    restores the previous handler. ``signal.signal`` first runs the Python
+    handlers of signals still pending, so a signal sent here that is still
+    pending reaches this (by then no-op) handler, not the previous one."""
     assert threading.current_thread() is threading.main_thread()
     main = threading.main_thread().ident
     handled = threading.Event()
     fired = False  # checked first: the handler never waits on ``handled``'s lock
     senders = []
+    senders_lock = threading.Lock()  # append+start as one: never join an unstarted sender
 
     def handler(signum_, frame):
         nonlocal fired
@@ -48,21 +49,42 @@ def retrying_signal(signum, act):
 
     def send():
         sender = threading.Thread(target=keep_sending, name="test-signal-sender", daemon=True)
-        senders.append(sender)
-        sender.start()
+        with senders_lock:
+            senders.append(sender)
+            sender.start()
 
     previous = signal.signal(signum, handler)
     try:
         yield send
     finally:
-        fired = True
-        mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signum})
         try:
+            fired = True
             handled.set()
-            for sender in list(senders):
+            with senders_lock:
+                started = list(senders)
+            for sender in started:
                 sender.join()
-            while signal.sigtimedwait({signum}, 0) is not None:
-                pass  # sent here, still pending: dropped
-            signal.signal(signum, previous)
         finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            signal.signal(signum, previous)
+
+
+@contextlib.contextmanager
+def handling_sigint():
+    """Within the block SIGINT raises KeyboardInterrupt, as it does in an
+    interactive run, also when the process inherited it ignored (a
+    background job of a non-interactive shell: ``nohup pytest &``, an ssh
+    background run) or set to the default action, under which
+    ``_thread.interrupt_main()`` does nothing. Outside the main thread, or
+    when SIGINT has a Python handler already, it changes nothing."""
+    previous = signal.getsignal(signal.SIGINT)
+    if threading.current_thread() is not threading.main_thread() or previous not in (
+        signal.SIG_IGN,
+        signal.SIG_DFL,
+    ):
+        yield
+        return
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
