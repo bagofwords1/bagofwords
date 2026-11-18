@@ -209,7 +209,7 @@ def _ident(value: str) -> str:
 
 
 def _pg_literal(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+    return "E'" + value.replace("\\", "\\\\").replace("'", "''") + "'"
 
 
 def _qualified_pg_name(schema: str, table: str) -> str:

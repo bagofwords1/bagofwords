@@ -407,6 +407,36 @@ def test_tenant_left_out_after_a_drop_does_not_vouch_for_a_forged_error(multi_te
     assert len(builds) == 1
 
 
+def test_vanished_table_check_reads_names_with_backslashes_on_any_string_setting(multi_tenant_server, monkeypatch):
+    table = 'public."a\\b"'
+    tenants = ["bs_1", "bs_2"]
+    for tenant in tenants:
+        _create_tenant(multi_tenant_server, tenant, [
+            f"CREATE TABLE {table} (id int, note text)", f"INSERT INTO {table} VALUES (1, 'x')",
+        ])
+    admin = multi_tenant_server.connect("postgres")
+    admin.autocommit = True
+    try:
+        with admin.cursor() as cur:
+            cur.execute("ALTER DATABASE bs_1 SET standard_conforming_strings = off")
+    finally:
+        admin.close()
+    client = _client(multi_tenant_server, databases="bs_*", connection_id="conn-backslash")
+    client.get_schemas()
+    client.execute_query(f"SELECT count(*) FROM {table}")
+    builds = _count_builds(monkeypatch)
+
+    with pytest.raises(duckdb.Error):
+        client.execute_query(f"SELECT * FROM {table} WHERE note = '{_FORGED_TAIL}' || chr(0)")
+    assert builds == []
+
+    _alter_tenant(multi_tenant_server, "bs_1", f"DROP TABLE {table}")
+    df = client.execute_query(f"SELECT tenant_db FROM {table}")
+
+    assert list(df["tenant_db"]) == ["bs_2"]
+    assert len(builds) == 1
+
+
 @pytest.mark.parametrize("forge", [
     f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}'",
     f"SELECT * FROM public.orders WHERE note = '{_FORGED_TAIL}' || chr(0)",
