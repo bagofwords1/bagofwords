@@ -81,6 +81,23 @@ def world(dynamic_sqlite_db, create_data_source, create_report, create_user, log
     w.report_id = report["id"]
     w.create_data_source, w.create_report, w.sqlite_db = create_data_source, create_report, dynamic_sqlite_db
 
+    def attach_connection(name, database=None):
+        """A second sqlite connection on the agent; returns its id."""
+        r = test_client.post("/api/connections", headers=headers, json={
+            "name": name, "type": "sqlite", "config": {"database": database or dynamic_sqlite_db},
+            "credentials": {}, "auth_policy": "system_only"})
+        assert r.status_code == 200, r.json()
+        conn_id = r.json()["id"]
+        r = test_client.post(f"/api/data_sources/{w.ds_id}/connections/{conn_id}", headers=headers)
+        assert r.status_code == 200, r.json()
+        return conn_id
+
+    def detach_connection(conn_id):
+        r = test_client.delete(f"/api/data_sources/{w.ds_id}/connections/{conn_id}", headers=headers)
+        assert r.status_code == 200, r.json()
+
+    w.attach_connection, w.detach_connection = attach_connection, detach_connection
+
     def run(code, report_id=None):
         query_id = _run(_seed_query(report_id or w.report_id, code))
         response = test_client.post(f"/api/queries/{query_id}/run",
@@ -184,3 +201,51 @@ def test_an_old_name_taken_by_another_agent_does_not_reach_the_renamed_one(world
                                  data_sources=[world.ds_id, other["id"]])
 
     _assert_no_rows(world.run(_code(old_key), report_id=report["id"]))
+
+
+@pytest.mark.e2e
+def test_code_that_walks_every_client_reaches_each_one_once_after_a_rename(world):
+    """An old key is a way to ask for a client, not another client: a step
+    that sums over ds_clients.values() must not count the renamed connection
+    twice."""
+    second = f"second-{uuid.uuid4().hex[:6]}"
+    world.attach_connection(second)
+    old_key = f"{world.ds_name}:{world.connection_name}"
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    import pandas as pd\n"
+        "    walked = sum(int(c.execute_query('SELECT 1 AS one')['one'].iloc[0]) for c in ds_clients.values())\n"
+        f"    by_old_key = int(ds_clients[{old_key!r}].execute_query('SELECT 7 AS n')['n'].iloc[0])\n"
+        "    return pd.DataFrame({'n': [by_old_key], 'walked': [walked], 'clients': [len(ds_clients)]})\n"
+    )
+    before = world.run(code).json()["data"]["rows"][0]
+
+    world.rename_connection(f"conn-{uuid.uuid4().hex[:6]}")
+
+    response = world.run(code)
+    _assert_rows(response)  # the old key still resolves
+    after = response.json()["data"]["rows"][0]
+    assert (int(after["walked"]), int(after["clients"])) == (int(before["walked"]), int(before["clients"]))
+    assert int(after["walked"]) == 2
+
+
+@pytest.mark.e2e
+def test_the_bare_old_key_is_not_answered_by_a_replacement_connection(world, tmp_path):
+    """`ds_clients["<agent>"]` saved when the agent had one connection is
+    that connection's. After a rename, swapping the agent's connection must
+    not hand the saved code the replacement database."""
+    import sqlite3
+
+    code = _code(world.ds_name)  # the bare key
+    world.rename_agent(f"Warehouse {uuid.uuid4().hex[:6]}")
+    _assert_rows(world.run(code))  # still the original connection
+
+    other_db = tmp_path / "replacement.db"
+    con = sqlite3.connect(other_db)
+    con.execute("CREATE TABLE t (id INTEGER)")
+    con.commit()
+    con.close()
+    world.attach_connection(f"replacement-{uuid.uuid4().hex[:6]}", database=str(other_db))
+    world.detach_connection(world.connection_id)
+
+    _assert_no_rows(world.run(code))

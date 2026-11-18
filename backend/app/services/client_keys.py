@@ -381,10 +381,9 @@ def source_names_for_key(names: Iterable[str], key: str) -> list[str]:
 
 def _row_former_names(row) -> list[str]:
     """Former names of an (id, name[, previous_names]) row."""
-    raw = row[2] if len(row) > 2 else None
-    if not isinstance(raw, (list, tuple)):
-        return []
-    return [str(n) for n in raw if n and str(n) != str(row[1])]
+    from app.models.former_names import names_of
+
+    return names_of(row[2] if len(row) > 2 else None, str(row[1]) if row[1] else None)
 
 
 def sources_for_client_keys(rows: list, keys: Iterable[str]) -> tuple[list[str], list[str]]:
@@ -432,25 +431,31 @@ def former_client_keys(
     source_former_names: Iterable[str],
     connections: Iterable[tuple],
     other_sources: Iterable[tuple],
+    bare_owners: Optional[dict] = None,
 ) -> dict[str, str]:
     """{old key: current key} for one source: every key its clients had
     under a former name of the source or of a connection.
 
-    `connections` is (name, former names, has a "::fast" client) of the
+    `connections` is (name, former names, has a "::fast" client, id) of the
     source's active connections; `other_sources` is (name, former names) of
-    the organization's other live sources. An old key is left out -- the code
-    then fails on a missing key, it never reaches a different client -- when
+    the organization's other live sources; `bare_owners` is {former source
+    name: id of the connection the bare "<source>" key belonged to then}
+    (former_names.former_bare_connections). An old key is left out -- the
+    code then fails on a missing key, it never reaches a different client --
+    when
 
     - it is a current key of this source (a connection took the old name),
-    - two connections of this source could both answer to it, or
+    - two connections of this source could both answer to it,
+    - it is a bare "<source>" key whose connection is no longer one of the
+      source's active connections (it was replaced or went down), or
     - another live source carries or used to carry a name the key could
       belong to (source_names_for_key): a current name wins, and two sources
       that both had the name cannot both answer.
     """
-    connections = [(str(n), [str(f) for f in (formers or []) if f], bool(fast))
-                   for n, formers, fast in connections]
+    connections = [(str(c[0]), [str(f) for f in (c[1] or []) if f], bool(c[2]),
+                    str(c[3]) if len(c) > 3 and c[3] else None) for c in connections]
     source_names = [source_name] + [str(n) for n in source_former_names if n and n != source_name]
-    live = {f"{source_name}:{name}" for name, _, _ in connections}
+    live = {f"{source_name}:{name}" for name, _, _, _ in connections}
     if len(connections) == 1:
         live.add(source_name)
     claimed = [str(n) for name, formers in other_sources for n in (name, *(formers or [])) if n]
@@ -467,27 +472,42 @@ def former_client_keys(
             return
         out[old] = current
 
-    for name, formers, _ in connections:
+    for name, formers, _, _ in connections:
         for s_name in source_names:
             for c_name in [name] + [f for f in formers if f != name]:
                 offer(f"{s_name}:{c_name}", f"{source_name}:{name}")
-    if len(connections) == 1:
-        for s_name in source_names[1:]:
-            offer(s_name, f"{source_name}:{connections[0][0]}")
-    has_fast = {f"{source_name}:{name}" for name, _, fast in connections if fast}
+    has_fast = {f"{source_name}:{name}" for name, _, fast, _ in connections if fast}
     for old, current in list(out.items()):
-        # The bare "<source>" alias never had a "::fast" sibling.
-        if current in has_fast and old not in source_names:
+        if current in has_fast:
             out[old + FAST_SUFFIX] = current + FAST_SUFFIX
+    # The bare "<source>" key: the connection it belonged to, and only while
+    # that connection is still one of the source's. It never had a "::fast"
+    # sibling.
+    by_id = {conn_id: name for name, _, _, conn_id in connections if conn_id}
+    for s_name in source_names[1:]:
+        owner = (bare_owners or {}).get(s_name)
+        if owner in by_id:
+            offer(s_name, f"{source_name}:{by_id[owner]}")
     return out
 
 
-def with_former_keys(clients: Optional[dict]) -> dict:
-    """`clients` plus the old keys its clients answer to (FORMER_KEYS_ATTR,
-    set by construct_clients). A key already there is never replaced: a
-    current name wins over a former one."""
-    out = dict(clients or {})
-    for client in list(out.values()):
+def former_key_map(clients: Optional[dict]) -> dict[str, str]:
+    """{old key: current key} over `clients`: the keys its clients answered
+    to before a rename (FORMER_KEYS_ATTR, set by construct_clients). A key
+    that is current is never an old key: a current name wins."""
+    clients = clients or {}
+    out: dict[str, str] = {}
+    for key, client in clients.items():
         for old in getattr(client, FORMER_KEYS_ATTR, None) or ():
-            out.setdefault(old, client)
+            if old not in clients:
+                out.setdefault(old, key)
     return out
+
+
+def with_former_keys(clients: Optional[dict]):
+    """`clients` as the dict a run hands the code (sandbox ClientsDict): a
+    former key answers a direct lookup (`[key]`, `.get(key)`, `key in`),
+    while iteration still sees each client once, under its current keys."""
+    from app.ai.code_execution.sandbox.namespace import ClientsDict
+
+    return ClientsDict(clients, former_key_map(clients))
