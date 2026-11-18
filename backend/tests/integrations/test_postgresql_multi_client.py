@@ -354,17 +354,22 @@ def test_left_out_tables_and_tenants_are_reported_in_index_stats(multi_tenant_se
     assert client.index_stats()["unreadable_dataset_count"] == len(entries)
 
 
-def test_description_leaves_out_raw_connection_errors(multi_tenant_server):
+def test_unreadable_reasons_name_the_cause_without_server_or_login(multi_tenant_server):
     client = _client(multi_tenant_server)
     client.get_schemas()
 
-    description = client.description
+    reasons = {d["name"]: d["reason"] for d in client.index_stats()["unreadable_datasets"]}
+    probe = _client(multi_tenant_server).test_connection()["message"]
+    unreachable = _client(multi_tenant_server, discovery_database="no_such_database").test_connection()
+    texts = [*reasons.values(), probe, unreachable["message"], client.description]
 
-    reasons = [d["reason"] for d in client.index_stats()["unreadable_datasets"]]
-    assert any(str(multi_tenant_server.port) in r for r in reasons)
-    assert str(multi_tenant_server.port) not in description
-    assert multi_tenant_server.reader_user not in description
-    assert "permission denied" not in description.lower()
+    assert "permission denied" in reasons[LOCKED_TENANT]
+    assert unreachable["success"] is False
+    assert "does not exist" in unreachable["message"]
+    for text_ in texts:
+        assert multi_tenant_server.host not in text_
+        assert str(multi_tenant_server.port) not in text_
+        assert multi_tenant_server.reader_user not in text_
 
 
 def test_bare_table_name_is_refused(multi_tenant_server):

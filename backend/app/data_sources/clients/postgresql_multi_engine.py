@@ -222,8 +222,8 @@ def build_engine(
             try:
                 con.execute(f"ATTACH {attach} AS {alias} (TYPE postgres, READ_ONLY, SECRET {_SECRET_NAME})")
             except duckdb.Error as exc:
-                failures[tenant] = str(exc)
-                logger.warning("Could not attach tenant database %s: %s", tenant, failure_category(exc))
+                failures[tenant] = failure_category(exc)
+                logger.warning("Could not attach tenant database %s: %s", tenant, failures[tenant])
             else:
                 aliases[tenant] = alias
 

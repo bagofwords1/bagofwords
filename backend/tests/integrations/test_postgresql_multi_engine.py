@@ -151,6 +151,27 @@ def test_unreachable_tenant_is_left_out_and_reported(multi_tenant_server):
         built.close()
 
 
+def test_failure_reasons_name_the_cause_without_server_or_login(multi_tenant_server):
+    wrong = _reader(multi_tenant_server, password="not-the-password")
+    locked = _build(multi_tenant_server, tenants=["tenant_a", LOCKED_TENANT])
+    refused = _build(multi_tenant_server, conn=wrong, views={"public.users": ["tenant_a"]})
+    try:
+        reasons = {
+            "locked": locked.failed_tenants[0]["reason"],
+            "wrong password": refused.failed_tenants[0]["reason"],
+        }
+    finally:
+        locked.close()
+        refused.close()
+
+    assert "permission denied" in reasons["locked"]
+    assert "authentication" in reasons["wrong password"]
+    for reason in reasons.values():
+        assert multi_tenant_server.host not in reason
+        assert str(multi_tenant_server.port) not in reason
+        assert multi_tenant_server.reader_user not in reason
+
+
 def test_tenant_missing_one_table_is_left_out_of_that_view_only(multi_tenant_server):
     views = {"public.orders": ["tenant_a", "public"], "public.refunds": ["tenant_a"]}
     built = _build(multi_tenant_server, views=views)

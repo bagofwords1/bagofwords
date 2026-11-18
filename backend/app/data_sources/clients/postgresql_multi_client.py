@@ -17,6 +17,7 @@ from app.data_sources.clients.postgresql_multi_catalog import TENANT_COLUMN, uni
 from app.data_sources.clients.postgresql_multi_engine import (
     PgConn,
     TenantEngine,
+    failure_category,
     get_engine,
     invalidate_engines,
     peek_engine,
@@ -139,9 +140,11 @@ class PostgresqlMultiClient(DataSourceClient):
             raise ValueError("table_exclude_pattern timed out; simplify the regular expression")
         return not excluded
 
-    def _unreadable_reason(self, client: PostgresqlClient, fallback: str) -> str:
+    def _unreadable_reason(self, client: PostgresqlClient, error: Exception) -> str:
         probe = client.test_connection()
-        return fallback if probe.get("success") else str(probe.get("message") or fallback)
+        if probe.get("success"):
+            return failure_category(error)
+        return failure_category(str(probe.get("message") or ""), default="connection failed")
 
     def _with_exact_types(self, client: PostgresqlClient, tables: list[Table]) -> list[Table]:
         if not any(c.dtype in _GENERIC_TYPES for t in tables for c in t.columns or []):
@@ -162,7 +165,7 @@ class PostgresqlMultiClient(DataSourceClient):
         except (NotImplementedError, RecursionError):
             raise
         except (IncompleteDiscoveryError, SQLAlchemyError, RuntimeError) as exc:
-            reason = self._unreadable_reason(client, str(exc))
+            reason = self._unreadable_reason(client, exc)
             logger.warning("Could not read tenant database %s: %s", database, reason)
             self._unreadable.append({"name": database, "reason": reason})
             return None
@@ -300,7 +303,10 @@ class PostgresqlMultiClient(DataSourceClient):
                     if reason:
                         unreadable.append({"name": database, "reason": reason})
         except Exception as e:
-            return {"success": False, "message": str(e)}
+            return {
+                "success": False,
+                "message": f"Could not list the databases from '{self.discovery_database}': {failure_category(e)}",
+            }
         if len(unreadable) == len(tenants):
             return {
                 "success": False,
@@ -319,7 +325,7 @@ class PostgresqlMultiClient(DataSourceClient):
                     text(_READABLE_TABLES_SQL.format(schema_filter=schema_filter)), {"schemas": self._schemas}
                 ).scalar()
         except Exception as exc:
-            return str(exc)
+            return failure_category(exc)
         return None if readable else NO_READABLE_TABLES_REASON
 
     def get_schema(self, table_id: str) -> Table:
