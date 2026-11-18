@@ -563,11 +563,10 @@ def _json_structure_types(stmt: exp.Expression) -> list[str]:
     for fn in stmt.find_all(exp.Anonymous):
         if str(fn.name).lower() not in _JSON_STRUCTURE_FUNCTIONS:
             continue
-        method_call = isinstance(fn.parent, exp.Dot) and fn.parent.expression is fn
-        position = 0 if method_call else 1
-        if len(fn.expressions) <= position:
+        dotted = isinstance(fn.parent, exp.Dot) and fn.parent.expression is fn
+        if not fn.expressions or (not dotted and len(fn.expressions) < 2):
             continue
-        structure = fn.expressions[position]
+        structure = fn.expressions[-1] if dotted else fn.expressions[1]
         if not (isinstance(structure, exp.Literal) and structure.is_string):
             names.append(f"{fn.name} with a structure that is not a literal")
             continue
