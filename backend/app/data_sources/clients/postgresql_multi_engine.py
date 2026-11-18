@@ -243,20 +243,23 @@ def _engine_tenants(views: dict[str, list[str]], tenants: list[str] | None) -> l
     return sorted(set(tenants or ()) | {tenant for members in views.values() for tenant in members})
 
 
-_cache: dict[str, tuple[TenantEngine, float]] = {}
+_CacheKey = tuple[str, str]
+
+_cache: dict[_CacheKey, tuple[TenantEngine, float]] = {}
 _cache_lock = threading.Lock()
-_build_locks: dict[str, threading.Lock] = {}
-_generation = 0
+_build_locks: dict[_CacheKey, threading.Lock] = {}
+_building: dict[_CacheKey, object] = {}
 
 
-def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> str:
-    payload = {"connection_id": connection_id or "", "conn": asdict(conn), "tenants": tenants}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKey:
+    payload = {"conn": asdict(conn), "tenants": tenants}
+    return connection_id or "", hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
 def _drop_expired(now: float) -> None:
     for key in [k for k, (_, expires_at) in _cache.items() if expires_at <= now]:
         del _cache[key]
+        _build_locks.pop(key, None)
 
 
 def _expiry(engine: TenantEngine, now: float, ttl_seconds: int) -> float:
@@ -284,10 +287,12 @@ def get_engine(
     with _cache_lock:
         build_lock = _build_locks.setdefault(key, threading.Lock())
     with build_lock:
+        token = object()
         with _cache_lock:
             _drop_expired(monotonic())
             cached = _cache.get(key)
-            generation = _generation
+            if not cached:
+                _building[key] = token
         if cached:
             engine = cached[0]
             was_degraded = engine.degraded
@@ -297,18 +302,25 @@ def get_engine(
                     if key in _cache:
                         _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
             return engine
-        engine = build_engine(
-            conn,
-            views,
-            statement_timeout_ms=DEFAULT_STATEMENT_TIMEOUT_MS,
-            memory_limit=DEFAULT_MEMORY_LIMIT,
-            threads=DEFAULT_THREADS,
-            pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
-            pg_idle_timeout_ms=DEFAULT_PG_IDLE_TIMEOUT_MS,
-            tenants=all_tenants,
-        )
+        try:
+            engine = build_engine(
+                conn,
+                views,
+                statement_timeout_ms=DEFAULT_STATEMENT_TIMEOUT_MS,
+                memory_limit=DEFAULT_MEMORY_LIMIT,
+                threads=DEFAULT_THREADS,
+                pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
+                pg_idle_timeout_ms=DEFAULT_PG_IDLE_TIMEOUT_MS,
+                tenants=all_tenants,
+            )
+        except BaseException:
+            with _cache_lock:
+                if _building.get(key) is token:
+                    del _building[key]
+            raise
         with _cache_lock:
-            if generation == _generation:
+            if _building.get(key) is token:
+                del _building[key]
                 _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
         return engine
 
@@ -319,10 +331,9 @@ def evict_engine(engine: TenantEngine) -> None:
             del _cache[key]
 
 
-def invalidate_engines() -> None:
+def invalidate_engines(connection_id: str | None = None) -> None:
     # Engines are dropped, not closed: queries still running on their cursors keep them alive.
-    global _generation
     with _cache_lock:
-        _generation += 1
-        _cache.clear()
-        _build_locks.clear()
+        for registry in (_cache, _build_locks, _building):
+            for key in [k for k in registry if connection_id is None or k[0] == connection_id]:
+                del registry[key]

@@ -476,23 +476,36 @@ def test_get_engine_rebuilds_after_invalidate_and_ttl(multi_tenant_server, monke
     )
 
 
-def test_build_interrupted_by_invalidate_is_not_cached(multi_tenant_server, monkeypatch):
+@pytest.mark.parametrize("scope", [None, "c1"])
+def test_build_interrupted_by_invalidate_is_not_cached(multi_tenant_server, monkeypatch, scope):
     conn = _reader(multi_tenant_server)
     views = {"public.users": ["tenant_a"]}
     real_build = engine_module.build_engine
 
     def build_then_reindex(*args, **kwargs):
         built = real_build(*args, **kwargs)
-        invalidate_engines()
+        invalidate_engines(scope)
         return built
 
     monkeypatch.setattr(engine_module, "build_engine", build_then_reindex)
-    stale = get_engine(conn, views)
+    stale = get_engine(conn, views, connection_id="c1")
     monkeypatch.setattr(engine_module, "build_engine", real_build)
 
-    fresh = get_engine(conn, views)
+    fresh = get_engine(conn, views, connection_id="c1")
     assert fresh is not stale
-    assert get_engine(conn, views) is fresh
+    assert get_engine(conn, views, connection_id="c1") is fresh
+
+
+def test_invalidating_one_connection_keeps_the_other_connections_engines(multi_tenant_server):
+    conn = _reader(multi_tenant_server)
+    views = {"public.users": ["tenant_a"]}
+    reindexed = get_engine(conn, views, connection_id="reindexed")
+    untouched = get_engine(conn, views, connection_id="untouched")
+
+    invalidate_engines("reindexed")
+
+    assert get_engine(conn, views, connection_id="untouched") is untouched
+    assert get_engine(conn, views, connection_id="reindexed") is not reindexed
 
 
 def test_extension_directory_without_postgres_extension_fails_offline(multi_tenant_server, monkeypatch, tmp_path):

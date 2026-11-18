@@ -45,8 +45,8 @@ def multi_tenant_server():
     invalidate_engines()
 
 
-def _client(server, databases=ALL_TENANTS_SPEC, **kwargs) -> PostgresqlMultiClient:
-    return PostgresqlMultiClient(
+def _client(server, databases=ALL_TENANTS_SPEC, connection_id="conn-shared", **kwargs) -> PostgresqlMultiClient:
+    client = PostgresqlMultiClient(
         host=server.host,
         port=server.port,
         databases=databases,
@@ -55,6 +55,9 @@ def _client(server, databases=ALL_TENANTS_SPEC, **kwargs) -> PostgresqlMultiClie
         sslmode="disable",
         **kwargs,
     )
+    if connection_id:
+        client._bow_connection_id = connection_id
+    return client
 
 
 def _as_stored(tables) -> list[dict]:
@@ -282,8 +285,7 @@ def test_table_gone_from_one_tenant_after_build_leaves_the_others_queryable(
     multi_tenant_server.create_database(vanishing)
     _seed_tenant(multi_tenant_server, vanishing, TENANT_ROWS["tenant_a"])
     spec = f"{vanishing}, public, tenant_old"
-    client = _client(multi_tenant_server, databases=spec)
-    client._bow_connection_id = f"conn-{vanishing}"
+    client = _client(multi_tenant_server, databases=spec, connection_id=f"conn-{vanishing}")
     client.get_schemas()
     assert len(client.execute_query("SELECT DISTINCT tenant_db FROM public.orders")) == 3
     _alter_tenant(multi_tenant_server, vanishing, change)
@@ -301,8 +303,7 @@ def test_table_gone_from_one_tenant_after_build_leaves_the_others_queryable(
 
 
 def test_error_in_agent_sql_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
-    client = _client(multi_tenant_server)
-    client._bow_connection_id = "conn-agent-typo"
+    client = _client(multi_tenant_server, connection_id="conn-agent-typo")
     client.get_schemas()
     client.execute_query("SELECT count(*) FROM public.orders")
     builds = _count_builds(monkeypatch)
@@ -368,12 +369,38 @@ def test_two_connections_with_the_same_login_get_separate_engines(multi_tenant_s
     invalidate_engines()
     builds = _count_builds(monkeypatch)
     for connection_id in ("conn-org-1", "conn-org-2", "conn-org-1"):
-        client = _client(multi_tenant_server)
-        client._bow_connection_id = connection_id
+        client = _client(multi_tenant_server, connection_id=connection_id)
         client.attach_table_metadata(stored)
         client.execute_query("SELECT count(*) FROM public.users")
 
     assert len(builds) == 2
+
+
+def test_clients_without_a_connection_never_share_an_engine(multi_tenant_server, monkeypatch):
+    stored = _as_stored(_client(multi_tenant_server).get_schemas())
+    invalidate_engines()
+    builds = _count_builds(monkeypatch)
+    for _ in range(2):
+        client = _client(multi_tenant_server, connection_id=None)
+        client.attach_table_metadata(stored)
+        client.execute_query("SELECT count(*) FROM public.users")
+        client.execute_query("SELECT count(*) FROM public.orders")
+
+    assert len(builds) == 2
+
+
+def test_reindexing_one_connection_keeps_the_other_connections_engine(multi_tenant_server, monkeypatch):
+    stored = _as_stored(_client(multi_tenant_server).get_schemas())
+    invalidate_engines()
+    other = _client(multi_tenant_server, connection_id="conn-other")
+    other.attach_table_metadata(stored)
+    other.execute_query("SELECT count(*) FROM public.users")
+    builds = _count_builds(monkeypatch)
+
+    _client(multi_tenant_server, connection_id="conn-reindexed").get_schemas()
+    other.execute_query("SELECT count(*) FROM public.users")
+
+    assert builds == []
 
 
 def test_left_out_tables_and_tenants_are_reported_in_index_stats(multi_tenant_server):

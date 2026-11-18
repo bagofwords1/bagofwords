@@ -1,6 +1,7 @@
 """The postgresql_multi connection type is registered and its form schema rejects configs that cannot work."""
 
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -92,3 +93,20 @@ def test_every_form_label_resolves_in_every_locale(locale):
     assert keys
     missing = [key for key in keys if not isinstance(_lookup(catalog, key), str) or not _lookup(catalog, key).strip()]
     assert missing == []
+
+
+@pytest.mark.asyncio
+async def test_connection_service_tags_each_client_with_its_connection():
+    from app.models.connection import Connection
+    from app.services.connection_service import ConnectionService
+
+    built = []
+    for _ in range(2):
+        connection = Connection(type="postgresql_multi", config=PostgreSQLMultiConfig(**BASE).model_dump(), auth_policy="system_only")
+        connection.id = str(uuid.uuid4())
+        connection.encrypt_credentials({"user": "reader", "password": "pw"})
+        built.append((connection, await ConnectionService().construct_client(None, connection, None)))
+
+    for connection, client in built:
+        assert isinstance(client, PostgresqlMultiClient)
+        assert client._bow_connection_id == str(connection.id)

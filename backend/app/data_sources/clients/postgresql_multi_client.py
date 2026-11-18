@@ -1,5 +1,6 @@
 import logging
 import re
+import uuid
 
 import duckdb
 import pandas as pd
@@ -107,6 +108,7 @@ class PostgresqlMultiClient(DataSourceClient):
         self._type_conflicts: list[dict] = []
         self._query_failures: list[str] = []
         self._query_left_out: dict[str, list[str]] = {}
+        self._unsaved_engine_owner = f"unsaved-{uuid.uuid4().hex}"
 
     def _tenant_client(self, database: str) -> PostgresqlClient:
         return PostgresqlClient(
@@ -210,7 +212,7 @@ class PostgresqlMultiClient(DataSourceClient):
             table.metadata_json[UNREADABLE_TENANTS_KEY] = list(self._unreadable_names)
             table.metadata_json[INDEXED_TENANTS_KEY] = list(indexed)
         self._learn([(t.name, t.metadata_json) for t in catalog.tables], replace=True)
-        invalidate_engines()
+        invalidate_engines(self._connection_id())
         return catalog.tables
 
     def _learn(self, entries, *, replace: bool) -> None:
@@ -272,7 +274,7 @@ class PostgresqlMultiClient(DataSourceClient):
         return sorted(set(self._indexed_tenants) | {t for members in self._views.values() for t in members})
 
     def _connection_id(self) -> str:
-        return str(getattr(self, "_bow_connection_id", "") or "")
+        return str(getattr(self, "_bow_connection_id", "") or self._unsaved_engine_owner)
 
     def _learn_engine(self, engine: TenantEngine) -> None:
         self._query_failures = sorted(f["name"] for f in engine.failed_tenants)

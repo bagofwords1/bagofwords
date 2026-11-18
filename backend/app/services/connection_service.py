@@ -2981,7 +2981,7 @@ class ConnectionService:
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
         client = ClientClass(**allowed)
-        if connection.type == "network_dir":
+        if connection.type in ("network_dir", "postgresql_multi"):
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):
             client.pool_scope = f"{connection.organization_id}:{connection.id}:{getattr(current_user, 'id', 'system')}"
