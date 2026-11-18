@@ -13571,44 +13571,6 @@
    ]
   }
  ],
- "2c5480c7b2979b9f": [
-  {
-   "created_at": "<ts>",
-   "group_id": "<shares_gone/group>",
-   "group_name": "קבוצה שנמחקה",
-   "id": "<report_shares#8>",
-   "member_count": 0,
-   "principal_type": "group",
-   "share_type": "artifact",
-   "user_email": null,
-   "user_id": null,
-   "user_name": null
-  },
-  {
-   "created_at": "<ts>",
-   "group_id": null,
-   "group_name": null,
-   "id": "<report_shares#6>",
-   "member_count": null,
-   "principal_type": "user",
-   "share_type": "artifact",
-   "user_email": "direct.share@corpus.com",
-   "user_id": "<user:direct_share>",
-   "user_name": "corpus direct_share"
-  },
-  {
-   "created_at": "<ts>",
-   "group_id": null,
-   "group_name": null,
-   "id": "<report_shares#7>",
-   "member_count": null,
-   "principal_type": "user",
-   "share_type": "artifact",
-   "user_email": "departed@corpus.com",
-   "user_id": "<departed>",
-   "user_name": "עזב"
-  }
- ],
  "2c76692071a4f6d2": {
   "allow_popups": false,
   "artifact_id": "<user_required/dash>",
@@ -32075,6 +32037,32 @@
     }
    ],
    "widget_id": "<shares_gone/q_sales/widget>"
+  }
+ ],
+ "6913172f69e21c77": [
+  {
+   "created_at": "<ts>",
+   "group_id": "<shares_gone/group>",
+   "group_name": "קבוצה שנמחקה",
+   "id": "<report_shares#8>",
+   "member_count": 0,
+   "principal_type": "group",
+   "share_type": "artifact",
+   "user_email": null,
+   "user_id": null,
+   "user_name": null
+  },
+  {
+   "created_at": "<ts>",
+   "group_id": null,
+   "group_name": null,
+   "id": "<report_shares#6>",
+   "member_count": null,
+   "principal_type": "user",
+   "share_type": "artifact",
+   "user_email": "direct.share@corpus.com",
+   "user_id": "<user:direct_share>",
+   "user_name": "corpus direct_share"
   }
  ],
  "6966f4d6d7d9365c": {
