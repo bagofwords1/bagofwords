@@ -49,9 +49,26 @@ that.
 - Per-test overhead is what makes this suite slow, not the tests: don't add
   `sleep`s, don't start background loops you don't drain, and never leak a
   pooled connection across the test boundary. On Postgres the app engine pools
-  connections but only reuses one on the event loop that opened it, and
-  `test_client` releases them at the end of every request — keep that in mind
-  before building a second engine or a long-lived loop in a test.
+  connections but only reuses one on the event loop that opened it — keep that
+  in mind before building a second engine or a long-lived loop in a test.
+- `test_client` runs all requests of a test on one event loop per test
+  (`tests/fixtures/client.py`), so pooled connections are reused within the
+  test and released when the loop stops at the test boundary. Tasks a request
+  spawns are still cancelled when it returns, but executor work it started is
+  joined at the end of the test, not at the end of the request. A test that
+  issues `test_client` requests from more than one thread (a
+  `ThreadPoolExecutor`, a `threading.Thread`, `asyncio.to_thread` inside a
+  mocked provider) must be marked `@pytest.mark.per_request_loop`, which gives
+  each of its requests a loop of its own. `BOW_TEST_PER_REQUEST_LOOP=1` does
+  that for every test (the kill switch, for A/B runs and debugging; the `-m ai`
+  CI step uses it; any other value than 1/true/yes or 0/false/no stops the
+  run). An unmarked test with requests from two threads in flight at once
+  fails (whichever thread came first), as does one with a request still
+  running when its loop has to stop, a task that raises while being cancelled
+  (at a request's end or at the loop's final stop), or a failed loop
+  cleanup. The terminal summary prints the loop mode and one
+  `test_client loop` line per worker; any non-zero counter there is a problem
+  to investigate.
 - Pass the `tests/e2e` path, not just `-m e2e`: without it pytest imports the
   whole tree (~11.5k tests) before deselecting, ~110s per xdist process.
 

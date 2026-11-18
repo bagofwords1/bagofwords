@@ -239,16 +239,18 @@ class _LoopLocalPool(NullPool):
     """Test-only pool: idle connections are kept per event loop and only ever
     handed out again on the loop that opened them.
 
-    Every TestClient request (and every ``asyncio.run`` in a test) runs on its
-    own short-lived loop, and asyncpg binds a connection to the loop that
-    opened it — so a plain pool would pass connections across loops, which is
-    why this used to be NullPool. NullPool paid a full connect for every
-    session, and one request opens several.
+    A test's TestClient requests (and every ``asyncio.run`` in a test) run on
+    short-lived loops, and asyncpg binds a connection to the loop that opened
+    it — so a plain pool would pass connections across loops, which is why
+    this used to be NullPool. NullPool paid a full connect for every session,
+    and one request opens several.
 
     A connection is never touched from a loop other than its own while that
     loop is alive. Once its loop has closed it is abandoned: socket closed and
     marked aborted, since nothing can talk through a dead loop. ``test_client``
-    releases the running loop's connections at the end of each request.
+    releases its loop's connections when that loop stops (at the end of the
+    test), and at the end of each request only with the ``per_request_loop``
+    marker or ``BOW_TEST_PER_REQUEST_LOOP=1``.
     """
 
     _MAX_IDLE_PER_LOOP = 5
@@ -363,7 +365,9 @@ def _tag_connection_loop(engine):
 
 async def release_test_connections():
     """Test-only: close the pooled connections the running loop opened, while
-    it can still close them (called at the end of each TestClient request)."""
+    it can still close them (called when a test_client loop stops, or at the
+    end of each request with ``per_request_loop`` /
+    ``BOW_TEST_PER_REQUEST_LOOP=1``)."""
     engine = _async_engine_singleton
     if engine is None:
         return
