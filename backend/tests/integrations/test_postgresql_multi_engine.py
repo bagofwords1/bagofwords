@@ -9,6 +9,7 @@ leave the sandbox once the engine is built.
 
 from __future__ import annotations
 
+import logging
 import threading
 from decimal import Decimal
 
@@ -21,6 +22,7 @@ from app.data_sources.clients.postgresql_multi_engine import (
     build_engine,
     get_engine,
     invalidate_engines,
+    peek_engine,
 )
 from tests.integrations.postgresql_multi_fixture import (
     LOCKED_TENANT,
@@ -146,17 +148,44 @@ def test_unreachable_tenant_is_left_out_and_reported(multi_tenant_server):
         built.close()
 
 
-def test_tenant_missing_a_listed_table_is_left_out_of_every_view(multi_tenant_server):
+def test_tenant_missing_one_table_is_left_out_of_that_view_only(multi_tenant_server):
     views = {"public.orders": ["tenant_a", "public"], "public.refunds": ["tenant_a"]}
     built = _build(multi_tenant_server, views=views)
     try:
         tenants = {t for (t,) in built.cursor().execute("SELECT DISTINCT tenant_db FROM public.orders").fetchall()}
 
-        assert tenants == {"public"}
-        assert [f["name"] for f in built.failed_tenants] == ["tenant_a"]
+        assert tenants == {"tenant_a", "public"}
+        assert built.failed_tenants == []
         assert built.missing_views == ["public.refunds"]
+        assert [(e["view"], e["tenant"]) for e in built.left_out] == [("public.refunds", "tenant_a")]
+        assert built.left_out[0]["reason"]
         with pytest.raises(duckdb.CatalogException):
             built.cursor().execute("SELECT * FROM public.refunds")
+    finally:
+        built.close()
+
+
+def test_view_that_cannot_be_created_leaves_the_other_views_queryable(multi_tenant_server):
+    clash = "case_clash_tenant"
+    multi_tenant_server.create_database(clash)
+    conn = multi_tenant_server.connect(clash)
+    try:
+        with conn.cursor() as cur:
+            cur.execute('CREATE TABLE public.users (id int)')
+            cur.execute('CREATE TABLE public."Users" (id int, name text)')
+            cur.execute(f"GRANT USAGE ON SCHEMA public TO {multi_tenant_server.reader_user}")
+            cur.execute(f"GRANT SELECT ON ALL TABLES IN SCHEMA public TO {multi_tenant_server.reader_user}")
+        conn.commit()
+    finally:
+        conn.close()
+    views = {"public.users": [clash], "public.Users": [clash], "public.orders": ["tenant_a"]}
+
+    built = _build(multi_tenant_server, views=views)
+    try:
+        assert built.cursor().execute("SELECT count(*) FROM public.orders").fetchone()[0] == len(
+            TENANT_ROWS["tenant_a"]["orders"]
+        )
+        assert {"public.users", "public.Users"} & set(built.missing_views)
     finally:
         built.close()
 
@@ -389,3 +418,85 @@ def test_extension_directory_without_postgres_extension_fails_offline(multi_tena
     with pytest.raises(duckdb.Error):
         _build(multi_tenant_server, views={"public.users": ["tenant_a"]})
     assert not any(tmp_path.rglob("*.duckdb_extension"))
+
+
+def _count_builds(monkeypatch) -> list:
+    built: list = []
+    real_build = engine_module.build_engine
+
+    def counting(*args, **kwargs):
+        engine = real_build(*args, **kwargs)
+        built.append(engine)
+        return engine
+
+    monkeypatch.setattr(engine_module, "build_engine", counting)
+    return built
+
+
+def test_selections_on_one_connection_share_one_engine(multi_tenant_server, monkeypatch):
+    builds = _count_builds(monkeypatch)
+    conn = _reader(multi_tenant_server)
+
+    orders_only = get_engine(conn, {"public.orders": ["tenant_a"]}, tenants=READABLE_TENANTS, connection_id="c1")
+    users_only = get_engine(conn, {"public.users": ["public"]}, tenants=READABLE_TENANTS, connection_id="c1")
+
+    assert users_only is orders_only
+    assert len(builds) == 1
+    cur = users_only.cursor()
+    assert cur.execute("SELECT count(*) FROM public.orders").fetchone()[0] == len(TENANT_ROWS["tenant_a"]["orders"])
+    assert cur.execute("SELECT count(*) FROM public.users").fetchone()[0] == len(TENANT_ROWS["public"]["users"])
+
+
+def test_identical_logins_on_two_connections_never_share_an_engine(multi_tenant_server):
+    conn = _reader(multi_tenant_server)
+    views = {"public.users": ["tenant_a"]}
+
+    first = get_engine(conn, views, connection_id="org-1-conn")
+    second = get_engine(conn, views, connection_id="org-2-conn")
+
+    assert first is not second
+
+
+def test_peek_returns_the_cached_engine_without_building(multi_tenant_server, monkeypatch):
+    builds = _count_builds(monkeypatch)
+    conn = _reader(multi_tenant_server)
+    tenants = ["tenant_a", "public"]
+
+    assert peek_engine(conn, tenants=tenants, connection_id="c1") is None
+    assert builds == []
+    engine = get_engine(conn, {"public.users": tenants}, tenants=tenants, connection_id="c1")
+
+    assert peek_engine(conn, tenants=tenants, connection_id="c1") is engine
+    assert peek_engine(conn, tenants=tenants, connection_id="other") is None
+    assert len(builds) == 1
+
+
+def test_engine_with_failed_tenant_expires_sooner(multi_tenant_server, monkeypatch):
+    conn = _reader(multi_tenant_server)
+    clock = [5000.0]
+    monkeypatch.setattr(engine_module, "monotonic", lambda: clock[0])
+    healthy_views = {"public.users": ["tenant_a"]}
+    failing_views = {"public.users": ["tenant_a", LOCKED_TENANT]}
+
+    healthy = get_engine(conn, healthy_views, ttl_seconds=600)
+    failing = get_engine(conn, failing_views, ttl_seconds=600)
+    assert [f["name"] for f in failing.failed_tenants] == [LOCKED_TENANT]
+
+    clock[0] += 120
+    assert get_engine(conn, healthy_views, ttl_seconds=600) is healthy
+    assert get_engine(conn, failing_views, ttl_seconds=600) is not failing
+
+
+def test_failed_tenant_is_logged_without_the_password(multi_tenant_server, caplog):
+    secret = "Logged-Never-42"
+    with caplog.at_level(logging.WARNING, logger=engine_module.__name__):
+        built = _build(
+            multi_tenant_server,
+            conn=_reader(multi_tenant_server, password=secret),
+            views={"public.users": ["tenant_a"]},
+        )
+    built.close()
+
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("tenant_a" in w for w in warnings)
+    assert not any(secret in w for w in warnings)

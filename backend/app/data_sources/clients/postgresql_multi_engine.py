@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import threading
 from dataclasses import asdict, dataclass, field
@@ -13,9 +14,12 @@ DEFAULT_STATEMENT_TIMEOUT_MS = 300_000
 DEFAULT_MEMORY_LIMIT = "2GB"
 DEFAULT_THREADS = 4
 DEFAULT_PG_CONNECTION_LIMIT = 4
+DEGRADED_ENGINE_TTL_SECONDS = 30
 EXTENSION_DIR_ENV = "BOW_DUCKDB_EXTENSION_DIR"
 
 _SECRET_NAME = "bow_tenant_server"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -28,16 +32,107 @@ class PgConn:
 
 
 class TenantEngine:
-    def __init__(self, con: duckdb.DuckDBPyConnection, failed_tenants: list[dict], missing_views: list[str]):
+    def __init__(self, con: duckdb.DuckDBPyConnection, aliases: dict[str, str], failed_tenants: list[dict]):
         self._con = con
+        self._aliases = aliases
+        self._failed = {f["name"] for f in failed_tenants}
         self.failed_tenants = failed_tenants
-        self.missing_views = missing_views
+        self.missing_views: list[str] = []
+        self.left_out: list[dict] = []
+        self._settled: dict[str, tuple[str, ...]] = {}
+        self._created: set[str] = set()
+        self._lock = threading.Lock()
+
+    @property
+    def degraded(self) -> bool:
+        return bool(self.failed_tenants or self.missing_views or self.left_out)
 
     def cursor(self) -> duckdb.DuckDBPyConnection:
         return self._con.cursor()
 
     def close(self) -> None:
         self._con.close()
+
+    def ensure_views(self, views: dict[str, list[str]]) -> None:
+        wanted = {name: tuple(sorted(set(members))) for name, members in views.items()}
+        if all(self._settled.get(name) == members for name, members in wanted.items()):
+            return
+        with self._lock:
+            cur = self._con.cursor()
+            try:
+                for name, members in sorted(wanted.items()):
+                    if self._settled.get(name) != members:
+                        self._create_view(cur, name, members)
+                        self._settled[name] = members
+            finally:
+                cur.close()
+
+    def _forget(self, name: str) -> None:
+        self.missing_views = [v for v in self.missing_views if v != name]
+        self.left_out = [e for e in self.left_out if e["view"] != name]
+
+    def _leave_out(self, name: str, tenant: str, reason: str) -> None:
+        logger.warning("Tenant database %s left out of view %s: %s", tenant, name, reason)
+        self.left_out.append({"view": name, "tenant": tenant, "reason": reason})
+
+    def _create_view(self, cur: duckdb.DuckDBPyConnection, name: str, members: tuple[str, ...]) -> None:
+        self._forget(name)
+        schema, table = _split_view_name(name)
+        readable = []
+        for tenant in members:
+            if tenant in self._failed:
+                continue
+            if tenant not in self._aliases:
+                self._leave_out(name, tenant, "not attached")
+                continue
+            try:
+                cur.execute(f"DESCRIBE {_table_ref(self._aliases[tenant], schema, table)}")
+            except duckdb.Error as exc:
+                self._leave_out(name, tenant, _failure_category(exc))
+            else:
+                readable.append(tenant)
+        if not readable:
+            self._drop(cur, name)
+            return
+        union = " UNION ALL BY NAME ".join(
+            f"SELECT {_sql_literal(t)} AS {TENANT_COLUMN}, * FROM {_table_ref(self._aliases[t], schema, table)}"
+            for t in readable
+        )
+        try:
+            cur.execute(f"CREATE SCHEMA IF NOT EXISTS memory.{_ident(schema)}")
+            replace = "OR REPLACE " if name in self._created else ""
+            cur.execute(f"CREATE {replace}VIEW memory.{_ident(schema)}.{_ident(table)} AS {union}")
+            self._created.add(name)
+        except duckdb.Error as exc:
+            logger.warning("Could not create view %s: %s", name, _failure_category(exc))
+            self._drop(cur, name)
+
+    def _drop(self, cur: duckdb.DuckDBPyConnection, name: str) -> None:
+        self.missing_views.append(name)
+        if name in self._created:
+            schema, table = _split_view_name(name)
+            cur.execute(f"DROP VIEW IF EXISTS memory.{_ident(schema)}.{_ident(table)}")
+            self._created.discard(name)
+
+
+_FAILURE_CATEGORIES = (
+    ("password authentication failed", "authentication failed"),
+    ("permission denied", "permission denied"),
+    ("does not exist", "does not exist"),
+    ("already exists", "name collides with another view"),
+    ("timeout", "timed out"),
+    ("timed out", "timed out"),
+    ("could not connect", "connection failed"),
+    ("connection refused", "connection failed"),
+)
+
+
+def _failure_category(exc: BaseException) -> str:
+    text = str(exc).lower()
+    for needle, category in _FAILURE_CATEGORIES:
+        if needle in text:
+            return category
+    return type(exc).__name__
 
 
 def _sql_literal(value: str) -> str:
@@ -97,6 +192,7 @@ def build_engine(
     memory_limit: str,
     threads: int,
     pg_connection_limit: int,
+    tenants: list[str] | None = None,
 ) -> TenantEngine:
     con = duckdb.connect()
     try:
@@ -109,50 +205,31 @@ def build_engine(
 
         failures: dict[str, str] = {}
         aliases: dict[str, str] = {}
-        tenants = sorted({tenant for members in views.values() for tenant in members})
-        for number, tenant in enumerate(tenants, start=1):
+        for number, tenant in enumerate(_engine_tenants(views, tenants), start=1):
             alias = f"__t{number:04d}"
             attach = _sql_literal(_attach_string(tenant, conn, statement_timeout_ms))
             try:
                 con.execute(f"ATTACH {attach} AS {alias} (TYPE postgres, READ_ONLY, SECRET {_SECRET_NAME})")
             except duckdb.Error as exc:
                 failures[tenant] = str(exc)
+                logger.warning("Could not attach tenant database %s: %s", tenant, _failure_category(exc))
             else:
                 aliases[tenant] = alias
 
-        for name, members in sorted(views.items()):
-            schema, table = _split_view_name(name)
-            for tenant in sorted(set(members)):
-                if tenant not in aliases or tenant in failures:
-                    continue
-                try:
-                    con.execute(f"DESCRIBE {_table_ref(aliases[tenant], schema, table)}")
-                except duckdb.Error as exc:
-                    failures[tenant] = str(exc)
-                    con.execute(f"DETACH {aliases[tenant]}")
-
-        missing_views: list[str] = []
-        for name, members in sorted(views.items()):
-            schema, table = _split_view_name(name)
-            readable = [t for t in sorted(set(members)) if t in aliases and t not in failures]
-            if not readable:
-                missing_views.append(name)
-                continue
-            con.execute(f"CREATE SCHEMA IF NOT EXISTS memory.{_ident(schema)}")
-            union = " UNION ALL BY NAME ".join(
-                f"SELECT {_sql_literal(t)} AS {TENANT_COLUMN}, * FROM {_table_ref(aliases[t], schema, table)}"
-                for t in readable
-            )
-            con.execute(f"CREATE VIEW memory.{_ident(schema)}.{_ident(table)} AS {union}")
-
         con.execute("SET enable_external_access = false")
         con.execute("SET lock_configuration = true")
+        engine = TenantEngine(
+            con, aliases, [{"name": name, "reason": reason} for name, reason in sorted(failures.items())]
+        )
+        engine.ensure_views(views)
     except BaseException:
         con.close()
         raise
+    return engine
 
-    failed_tenants = [{"name": name, "reason": reason} for name, reason in sorted(failures.items())]
-    return TenantEngine(con, failed_tenants, missing_views)
+
+def _engine_tenants(views: dict[str, list[str]], tenants: list[str] | None) -> list[str]:
+    return sorted(set(tenants or ()) | {tenant for members in views.values() for tenant in members})
 
 
 _cache: dict[str, tuple[TenantEngine, float]] = {}
@@ -161,11 +238,8 @@ _build_locks: dict[str, threading.Lock] = {}
 _generation = 0
 
 
-def _cache_key(conn: PgConn, views: dict[str, list[str]]) -> str:
-    payload = {
-        "conn": asdict(conn),
-        "views": sorted((name, sorted(set(members))) for name, members in views.items()),
-    }
+def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> str:
+    payload = {"connection_id": connection_id or "", "conn": asdict(conn), "tenants": tenants}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -174,17 +248,44 @@ def _drop_expired(now: float) -> None:
         del _cache[key]
 
 
-def get_engine(conn: PgConn, views: dict[str, list[str]], ttl_seconds: int = 600) -> TenantEngine:
-    key = _cache_key(conn, views)
+def _expiry(engine: TenantEngine, now: float, ttl_seconds: int) -> float:
+    return now + (min(ttl_seconds, DEGRADED_ENGINE_TTL_SECONDS) if engine.degraded else ttl_seconds)
+
+
+def peek_engine(conn: PgConn, *, tenants: list[str], connection_id: str = "") -> TenantEngine | None:
+    key = _cache_key(conn, _engine_tenants({}, tenants), connection_id)
+    with _cache_lock:
+        _drop_expired(monotonic())
+        cached = _cache.get(key)
+    return cached[0] if cached else None
+
+
+def get_engine(
+    conn: PgConn,
+    views: dict[str, list[str]],
+    ttl_seconds: int = 600,
+    *,
+    tenants: list[str] | None = None,
+    connection_id: str = "",
+) -> TenantEngine:
+    all_tenants = _engine_tenants(views, tenants)
+    key = _cache_key(conn, all_tenants, connection_id)
     with _cache_lock:
         build_lock = _build_locks.setdefault(key, threading.Lock())
     with build_lock:
         with _cache_lock:
             _drop_expired(monotonic())
             cached = _cache.get(key)
-            if cached:
-                return cached[0]
             generation = _generation
+        if cached:
+            engine = cached[0]
+            was_degraded = engine.degraded
+            engine.ensure_views(views)
+            if engine.degraded and not was_degraded:
+                with _cache_lock:
+                    if key in _cache:
+                        _cache[key] = (engine, min(_cache[key][1], _expiry(engine, monotonic(), ttl_seconds)))
+            return engine
         engine = build_engine(
             conn,
             views,
@@ -192,10 +293,11 @@ def get_engine(conn: PgConn, views: dict[str, list[str]], ttl_seconds: int = 600
             memory_limit=DEFAULT_MEMORY_LIMIT,
             threads=DEFAULT_THREADS,
             pg_connection_limit=DEFAULT_PG_CONNECTION_LIMIT,
+            tenants=all_tenants,
         )
         with _cache_lock:
             if generation == _generation:
-                _cache[key] = (engine, monotonic() + ttl_seconds)
+                _cache[key] = (engine, _expiry(engine, monotonic(), ttl_seconds))
         return engine
 
 
