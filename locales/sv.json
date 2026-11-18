@@ -2978,10 +2978,12 @@
       "defaultRoleShort": "Standardroll"
     },
     "organizationName": "Organisationens namn",
+    "organizationNameRequired": "Organisationens namn får inte vara tomt.",
     "organizationIcon": "Organisationens ikon",
     "uploadIcon": "Ladda upp ikon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI-analytikerns namn",
+    "aiAnalystNameRequired": "AI-analytikerns namn får inte vara tomt.",
     "showCredit": "Visa ”Made with BOW”-credit",
     "language": {
       "title": "Språk",
@@ -3806,7 +3808,9 @@
       "readOnly": "På en instans med flera organisationer kan bara en instansadministratör ändra listan.",
       "duplicate": "Webbplatsen finns redan i listan.",
       "invalidFormat": "Ange en adress som börjar med https://, utan sökväg. Till exempel: https://portal.example.com",
-      "publicNote": "Vem som helst kan se de här adresserna: webbläsare får dem med varje sida."
+      "publicNote": "Vem som helst kan se de här adresserna: webbläsare får dem med varje sida.",
+      "confirmRemoveTitle": "Ta bort den här webbplatsen?",
+      "confirmRemoveBody": "{site} kan inte längre visa BOW. Sidor där som visar BOW slutar fungera direkt."
     }
   },
   "data": {

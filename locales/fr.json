@@ -2978,10 +2978,12 @@
       "defaultRoleShort": "Rôle par défaut"
     },
     "organizationName": "Nom de l'organisation",
+    "organizationNameRequired": "Le nom de l'organisation ne peut pas être vide.",
     "organizationIcon": "Icône de l'organisation",
     "uploadIcon": "Téléverser une icône",
     "iconConstraints": "PNG/JPEG, ≤ 512 Ko.",
     "aiAnalystName": "Nom de l'analyste IA",
+    "aiAnalystNameRequired": "Le nom de l'analyste IA ne peut pas être vide.",
     "showCredit": "Afficher la mention « Made with BOW »",
     "language": {
       "title": "Langue",
@@ -3806,7 +3808,9 @@
       "readOnly": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut modifier cette liste.",
       "duplicate": "Ce site est déjà dans la liste.",
       "invalidFormat": "Saisissez une adresse commençant par https://, sans chemin. Par exemple : https://portal.example.com",
-      "publicNote": "Ces adresses sont visibles par tous : les navigateurs les reçoivent avec chaque page."
+      "publicNote": "Ces adresses sont visibles par tous : les navigateurs les reçoivent avec chaque page.",
+      "confirmRemoveTitle": "Retirer ce site ?",
+      "confirmRemoveBody": "{site} ne pourra plus afficher BOW. Les pages de ce site qui affichent BOW cesseront de fonctionner immédiatement."
     }
   },
   "data": {

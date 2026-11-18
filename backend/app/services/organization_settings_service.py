@@ -238,6 +238,26 @@ class OrganizationSettingsService:
             pii_changed = False
             for key, value_update in update_data['config'].items():
                 if key != 'ai_features':
+                    # Workspace settings (Settings → General). Merged over the
+                    # stored object so a page that saves one field at a time
+                    # never resets the others, and validated so an empty AI
+                    # analyst name is a 400 instead of being stored. The icon
+                    # fields belong to the icon endpoints, which validate and
+                    # store the file; this writer keeps whatever they stored.
+                    if key == 'general':
+                        if not isinstance(value_update, dict):
+                            raise HTTPException(status_code=400, detail="Invalid general settings payload.")
+                        stored = dict(current_config.get('general') or {})
+                        incoming = {k: v for k, v in value_update.items() if k not in ('icon_key', 'icon_url')}
+                        try:
+                            validated = OrganizationSettingsConfig.GeneralConfig(**{**stored, **incoming})
+                        except Exception as e:
+                            raise HTTPException(status_code=400, detail=f"Invalid general settings: {e}")
+                        merged = {**stored, **validated.dict()}
+                        if current_config.get('general') != merged:
+                            current_config['general'] = merged
+                            config_changed = True
+                        continue
                     # PII protection (enterprise). Validated + normalized via the
                     # schema; custom rule regexes are compiled so a bad pattern is
                     # rejected at save time rather than silently skipped at runtime.

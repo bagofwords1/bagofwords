@@ -2978,10 +2978,12 @@
       "defaultRoleShort": "الدور الافتراضي"
     },
     "organizationName": "اسم المؤسسة",
+    "organizationNameRequired": "لا يمكن أن يكون اسم المؤسسة فارغًا.",
     "organizationIcon": "أيقونة المؤسسة",
     "uploadIcon": "رفع أيقونة",
     "iconConstraints": "PNG/JPEG، ≤ 512 ك.ب.",
     "aiAnalystName": "اسم محلل الذكاء الاصطناعي",
+    "aiAnalystNameRequired": "لا يمكن أن يكون اسم محلل الذكاء الاصطناعي فارغًا.",
     "showCredit": "عرض ملاحظة \"Made with BOW\"",
     "language": {
       "title": "اللغة",
@@ -3806,7 +3808,9 @@
       "readOnly": "في خادم يضم عدة مؤسسات، يمكن لمسؤول الخادم فقط تغيير هذه القائمة.",
       "duplicate": "هذا الموقع موجود بالفعل في القائمة.",
       "invalidFormat": "أدخل عنوانًا يبدأ بـ https://، بدون مسار. مثال: https://portal.example.com",
-      "publicNote": "هذه العناوين مرئية للجميع: يتلقاها المتصفح مع كل صفحة."
+      "publicNote": "هذه العناوين مرئية للجميع: يتلقاها المتصفح مع كل صفحة.",
+      "confirmRemoveTitle": "هل تريد إزالة هذا الموقع؟",
+      "confirmRemoveBody": "لن يتمكن {site} بعد الآن من عرض BOW. ستتوقف الصفحات التي تعرض BOW فيه عن العمل فورًا."
     }
   },
   "data": {

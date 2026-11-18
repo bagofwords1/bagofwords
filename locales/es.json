@@ -3301,10 +3301,12 @@
       "colLastLogin": "Último inicio de sesión"
     },
     "organizationName": "Nombre de la organización",
+    "organizationNameRequired": "El nombre de la organización no puede estar vacío.",
     "organizationIcon": "Icono de la organización",
     "uploadIcon": "Subir icono",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nombre del analista de IA",
+    "aiAnalystNameRequired": "El nombre del analista de IA no puede estar vacío.",
     "showCredit": "Mostrar crédito «Made with BOW»",
     "workspacePlaceholder": "Nombre del espacio",
     "changeIcon": "Cambiar icono",
@@ -4364,7 +4366,9 @@
       "readOnly": "Solo un administrador de la instancia puede cambiar esta lista en una instancia con varias organizaciones.",
       "duplicate": "Este sitio ya está en la lista.",
       "invalidFormat": "Introduce una dirección que empiece por https://, sin ruta. Por ejemplo: https://portal.example.com",
-      "publicNote": "Cualquiera puede ver estas direcciones: los navegadores las reciben con cada página."
+      "publicNote": "Cualquiera puede ver estas direcciones: los navegadores las reciben con cada página.",
+      "confirmRemoveTitle": "¿Quitar este sitio?",
+      "confirmRemoveBody": "{site} ya no podrá mostrar BOW. Las páginas de ese sitio que muestran BOW dejarán de funcionar de inmediato."
     }
   },
   "data": {
