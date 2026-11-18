@@ -302,6 +302,22 @@ def test_table_gone_from_one_tenant_after_build_leaves_the_others_queryable(
     assert len(builds) == 1
 
 
+def test_table_no_tenant_can_serve_at_query_time_is_named_in_the_description(multi_tenant_server):
+    _create_tenant(multi_tenant_server, "sole_1", ["CREATE TABLE public.items (id int)",
+                                                  "CREATE TABLE public.extras (id int)"])
+    _create_tenant(multi_tenant_server, "sole_2", ["CREATE TABLE public.items (id int)"])
+    stored = _as_stored(_client(multi_tenant_server, databases="sole_*").get_schemas())
+    _revoke_connect(multi_tenant_server, "sole_1")
+    invalidate_engines()
+    client = _client(multi_tenant_server, databases="sole_*")
+    client.attach_table_metadata(stored)
+
+    client.execute_query("SELECT count(*) FROM public.items")
+
+    assert any("public.extras" in line for line in client.description.splitlines())
+    assert "public.items" not in client.description
+
+
 def test_error_in_agent_sql_does_not_rebuild_the_engine(multi_tenant_server, monkeypatch):
     client = _client(multi_tenant_server, connection_id="conn-agent-typo")
     client.get_schemas()

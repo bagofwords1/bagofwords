@@ -108,6 +108,7 @@ class PostgresqlMultiClient(DataSourceClient):
         self._type_conflicts: list[dict] = []
         self._query_failures: list[str] = []
         self._query_left_out: dict[str, list[str]] = {}
+        self._query_missing_views: list[str] = []
         self._unsaved_engine_owner = f"unsaved-{uuid.uuid4().hex}"
 
     def _tenant_client(self, database: str) -> PostgresqlClient:
@@ -283,6 +284,7 @@ class PostgresqlMultiClient(DataSourceClient):
             if entry["view"] in self._views:
                 left_out.setdefault(entry["view"], []).append(entry["tenant"])
         self._query_left_out = left_out
+        self._query_missing_views = sorted({v for v in engine.missing_views if v in self._views})
 
     def _engine(self) -> TenantEngine:
         engine = get_engine(
@@ -424,6 +426,11 @@ class PostgresqlMultiClient(DataSourceClient):
         conflicts = self._conflict_notes()
         if conflicts:
             text_ += "Tenants left out of single tables: " + "; ".join(conflicts) + ".\n"
+        if self._query_missing_views:
+            text_ += (
+                "No tenant database could serve these tables right now, so they cannot be queried: "
+                f"{format_name_list(self._query_missing_views, 50)}. Tell the user if they ask for them.\n"
+            )
         text_ += (
             "\nExamples:\n"
             "```python\n"
