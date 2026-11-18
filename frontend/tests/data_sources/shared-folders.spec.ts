@@ -190,6 +190,79 @@ test('drag an agent between a nested folder and root', async ({page}, testInfo) 
   await drag(tree.getByText('Agents', {exact:true}), 'drag-to-root.png', null)
 })
 
+test('drag an agent from the bottom of a long list into a top-level folder', async ({page}, testInfo) => {
+  test.setTimeout(180_000)
+  const scoped = await apiHeaders(page)
+  const post = async (path:string, data:object) => {
+    const response = await page.request.post('/api/' + path, {headers:scoped,data})
+    expect(response.ok(), await response.text()).toBeTruthy()
+    return response.json()
+  }
+  const stamp = Date.now()
+  // Sorts after any agent other specs leave behind, so ours fill the bottom.
+  const prefix = `Zz bulk ${stamp} `
+  const folder = await post('folders/ensure', {path_segments:['Long list ' + stamp]})
+  const created: {id:string, name:string}[] = []
+  try {
+    for (let i = 0; i < 40; i++) created.push(await post('data_sources', {name:prefix + String(i).padStart(2, '0'),
+      type:'sqlite', config:{database:':memory:'}, credentials:{}, auth_policy:'system_only'}))
+
+    await page.setViewportSize({width:1360, height:720})
+    await page.goto('/agents')
+    const tree = agentsTree(page)
+    const mine = tree.locator('[draggable=true]').filter({hasText:prefix})
+    await expect(mine).toHaveCount(40)
+    const scroller = tree.locator('xpath=ancestor::div[contains(@class,"overflow-y-auto")][1]')
+    await scroller.evaluate(el => { el.scrollTop = el.scrollHeight })
+    const row = mine.last()
+    await row.scrollIntoViewIfNeeded()
+    const name = (await row.locator('span[dir=auto]').first().innerText()).trim()
+    const agent = created.find(a => a.name === name)!
+    const header = folderRow(page, 'Long list ' + stamp)
+    // The scenario: the destination is scrolled out of view.
+    await expect(header).not.toBeInViewport()
+
+    const start = (await row.boundingBox())!
+    const box = (await scroller.boundingBox())!
+    const x = box.x + box.width / 2
+    await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(x, box.y + box.height / 2, {steps:5})
+    // The root target ("Agents") pins to the top while dragging.
+    await expect(tree.locator('[data-drag-sticky]')).toHaveClass(/sticky/)
+    const pinned = (await tree.locator('[data-drag-sticky]').boundingBox())!
+    expect(Math.round(pinned.y)).toBe(Math.round(box.y))
+    // Rest just under the pinned header (inside the top edge band) and keep
+    // dragover events coming until the folder is comfortably in view.
+    const comfortablyVisible = () => header.evaluate((h, top) => {
+      const sc = h.closest('.overflow-y-auto')!.getBoundingClientRect()
+      const r = h.getBoundingClientRect()
+      return r.top >= top + 90 && r.bottom <= sc.bottom - 60
+    }, box.y)
+    let jiggle = 0
+    await expect.poll(async () => {
+      await page.mouse.move(x, pinned.y + pinned.height + 10 + (jiggle++ % 2))
+      return comfortablyVisible()
+    }, {timeout:30_000, intervals:[100]}).toBe(true)
+    // Leave the edge band (stops scrolling) before aiming at the folder.
+    await page.mouse.move(x, box.y + box.height / 2)
+    const target = (await header.boundingBox())!
+    await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {steps:3})
+    await page.mouse.up()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog.getByRole('heading')).toHaveText(`Move ${agent.name}?`)
+    await page.screenshot({path:testInfo.outputPath('long-list-drop.png')})
+    const [response] = await Promise.all([page.waitForResponse(r => r.url().endsWith(agent.id + '/placement') &&
+      r.request().method() === 'PUT' && !r.request().postDataJSON().preview), dialog.getByRole('button',{name:'Move agent',exact:true}).click()])
+    expect(response.ok()).toBeTruthy()
+    const persisted = await page.request.get('/api/data_sources/' + agent.id, {headers:scoped})
+    expect((await persisted.json()).folder_id).toBe(folder.id)
+  } finally {
+    for (const a of created) await page.request.delete('/api/data_sources/' + a.id, {headers:scoped})
+  }
+})
+
 test('create and reopen a rule in the selected folder', async ({page}) => {
   await page.goto('/agents')
   const name = 'Routing ' + Date.now()
