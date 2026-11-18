@@ -3395,6 +3395,7 @@ class ReportService:
                         publish_status=getattr(ds, "publish_status", "published") or "published",
                         reliability_status=getattr(ds, "reliability_status", "training") or "training",
                         icon=getattr(ds, "icon", None),
+                        max_permission_mode=ds.max_permission_mode,
                         # Compute type from first connection
                         type=ds.connections[0].type if ds.connections else None,
                     )

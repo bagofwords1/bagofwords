@@ -410,6 +410,10 @@ def test_the_report_shows_its_agents_caps(env, test_client):
     assert r.status_code == 200, r.text
     assert [ds["max_permission_mode"] for ds in test_client.get(url, headers=env.headers).json()["data_sources"]] \
         == ["auto"]
+    # The conversations list carries the same agents: its cards say the same.
+    cards = test_client.get("/api/reports", headers=env.headers, params={"filter": "my"}).json()["reports"]
+    card = next(c for c in cards if c["id"] == env.report_id)
+    assert [ds["max_permission_mode"] for ds in card["data_sources"]] == ["auto"]
 
 
 def test_agent_cap_can_be_cleared(env, test_client):
@@ -715,8 +719,42 @@ def _drive_dispatcher(report_id):
     asyncio.run(_run())
 
 
+@pytest.fixture
+def live_client():
+    """A client whose event loop lives for the whole test, as the server's
+    does: a task a request starts runs to its end instead of being cut off
+    when the response returns."""
+    from fastapi.testclient import TestClient
+
+    from main import app
+
+    with TestClient(app) as client:
+        yield client
+
+
+def _settle_queue_work(portal, timeout=30.0):
+    """Wait until no dispatcher or dispatched-run task is left on the live
+    loop (as test_completion_queue_steer.py does)."""
+    import asyncio
+
+    names = ("CompletionService.start_next_queued_if_idle", "CompletionService._run_dispatched_agent")
+
+    async def _wait():
+        deadline = asyncio.get_running_loop().time() + timeout
+        while asyncio.get_running_loop().time() < deadline:
+            pending = [t for t in asyncio.all_tasks()
+                       if t is not asyncio.current_task() and not t.done()
+                       and getattr(t.get_coro(), "__qualname__", "").endswith(names)]
+            if not pending:
+                return
+            await asyncio.wait(pending, timeout=deadline - asyncio.get_running_loop().time())
+        raise AssertionError("queue work did not settle")
+
+    portal.call(_wait)
+
+
 @pytest.mark.parametrize("credential", ["api_key", "jwt"])
-def test_a_queued_api_prompt_stays_unattended_when_dispatched_later(env, test_client, alembic_config,
+def test_a_queued_api_prompt_stays_unattended_when_dispatched_later(env, test_client, live_client, alembic_config,
                                                                    create_api_key, credential):
     from datetime import datetime
 
@@ -745,9 +783,15 @@ def test_a_queued_api_prompt_stays_unattended_when_dispatched_later(env, test_cl
 
     headers = _api_key_headers(env, create_api_key) if credential == "api_key" else env.headers
     before = len(_ScriptedAgent.runs)
-    r = test_client.post(f"/api/reports/{env.report_id}/completions", headers=headers,
+    # Queueing starts a dispatcher of its own (in case nothing was running),
+    # and it takes the report's write lock. On the per-request loop of
+    # test_client it can be cut off holding that lock, and the rows written
+    # below then wait on a lock nobody releases. On a live loop it sees the
+    # live run and ends its transaction.
+    r = live_client.post(f"/api/reports/{env.report_id}/completions", headers=headers,
                          json={"prompt": {"content": "run delete_branch"}, "queue": True})
     assert r.status_code == 200, r.text
+    _settle_queue_work(live_client.portal)
     head = r.json()["completions"][0]
     assert head["status"] == "queued"
     assert len(_ScriptedAgent.runs) == before
