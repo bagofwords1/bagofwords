@@ -445,7 +445,8 @@ class PostgreSQLMultiConfig(BaseModel):
         ...,
         title="Databases",
         description="Comma-separated database names, globs and !-exclusions, e.g. 'tenant_*, !tenant_test'. Matching is case-sensitive. Every matching database is unified into one set of tables with a tenant_db column.",
-        json_schema_extra={"ui:type": "string", "ui:descriptionKey": "data.postgresqlMulti.databasesDescription"},
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.postgresqlMulti.databasesTitle",
+                           "ui:descriptionKey": "data.postgresqlMulti.databasesDescription"},
     )
     schema: Optional[str] = Field(
         None,
