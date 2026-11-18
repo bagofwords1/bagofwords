@@ -118,11 +118,11 @@ def _reads_only(command: str) -> bool:
 def _program(token: str) -> str:
     """A token as a program name: its basename (/ or \\), lowercased, without
     a Windows .exe/.cmd/.bat ending (SQLCMD.EXE, C:\\tools\\psql.exe)."""
-    name = re.split(r"[/\\]", token)[-1].lower()
-    for ext in (".exe", ".cmd", ".bat"):
-        if name.endswith(ext):
-            return name[:-len(ext)]
-    return name
+    name = token
+    if "/" in token or "\\" in token:
+        name = re.split(r"[/\\]", token)[-1]
+    name = name.lower()
+    return name[:-4] if name.endswith((".exe", ".cmd", ".bat")) else name
 
 
 # Every character a shell may end a line at: bash at \n; PowerShell (the shell
@@ -146,6 +146,10 @@ def _ansi_c(match: "re.Match") -> str:
     else:
         return _ANSI_C_NAMED.get(esc, esc)
     return chr(code) if code <= 0x10FFFF else match.group(0)
+
+
+# Characters _lex never reads as syntax, wherever they stand.
+_PLAIN_RUN = re.compile(r"[^\\'\"$ \t<>;&|\n()#]+")
 
 
 def _lex(text: str, comments: bool) -> tuple:
@@ -253,9 +257,12 @@ def _lex(text: str, comments: bool) -> tuple:
             j = text.find("\n", i)
             i = n if j < 0 else j
         else:
-            buf.append(c)
+            # An ordinary character, with the run of them after it.
+            run = _PLAIN_RUN.match(text, i)
+            j = run.end() if run else i + 1
+            buf.append(text[i:j])
             in_word = True
-            i += 1
+            i = j
     flush()
     return tuple(words), tuple(seps), balanced
 
@@ -294,6 +301,22 @@ def _token_views(text: str, raw: bool = False) -> list:
     return views
 
 
+_QUOTING_CHARS = frozenset("\"'\\()")
+_QUOTING_TO_SPACES = {ord(c): " " for c in _QUOTING_CHARS}
+
+
+def _unquoted_view(text: str) -> tuple:
+    """One more reading of a command or a nested body, as (words,
+    separators): its words with every quote, backslash and parenthesis read
+    as a space, so each ; & | and line break is a real separator. This is
+    what is run in the end however many shells unquote the text on the way
+    (eval "eval '…'", ssh host "bash <<< '…'") and whatever call syntax of
+    another interpreter holds it (os.system('…'), system("…")). The word
+    rules read it like any other reading, so it can only over-match."""
+    words, seps, _ = _lex(text.translate(_QUOTING_TO_SPACES), comments=False)
+    return words, seps
+
+
 def _joined_segments(words: tuple, seps: Optional[tuple]) -> list:
     """The simple commands of one reading, each as a text of its words joined
     by spaces. The words have lost one level of quotes, so reading a segment
@@ -315,18 +338,27 @@ def _joined_segments(words: tuple, seps: Optional[tuple]) -> list:
 
 def _substitution_bodies(text: str) -> list:
     """The body of every backtick pair and of every $( ), <( ) and >( ) in
-    the text, at any nesting, found without regard to quotes. Bodies nested
-    so deep that together they pass _MAX_SHELL_WORK are not collected: the
-    command is unreadable."""
+    the text, at any nesting, found without regard to quotes. Each body
+    holds the ones inside it, so reading all of them costs the text's size
+    times the nesting: one nested past _MAX_SUBSTITUTION_DEPTH is not
+    collected, and neither are bodies that together pass _MAX_SHELL_WORK.
+    The command is unreadable then."""
     bodies = re.findall(r"`([^`]*)`", text)
+    # For each open (: where it is, whether it starts a substitution, and the
+    # deepest nesting of substitutions closed inside it so far.
     stack: list = []
     total = 0
     for i, c in enumerate(text):
         if c == "(":
-            stack.append(i)
+            stack.append([i, i > 0 and text[i - 1] in "$<>", 0])
         elif c == ")" and stack:
-            start = stack.pop()
-            if start and text[start - 1] in "$<>":
+            start, substitution, nesting = stack.pop()
+            nesting += substitution
+            if nesting > _MAX_SUBSTITUTION_DEPTH:
+                raise _ShellUnreadable()
+            if stack and stack[-1][2] < nesting:
+                stack[-1][2] = nesting
+            if substitution:
                 total += i - start
                 if total > _MAX_SHELL_WORK:
                     raise _ShellUnreadable()
@@ -336,6 +368,9 @@ def _substitution_bodies(text: str) -> list:
 
 # Nested shell bodies are read this many levels deep; a deeper one is refused.
 _MAX_SHELL_DEPTH = 3
+# Substitutions ($( ), <( ), >( )) are read this many levels inside each
+# other; a deeper one is refused.
+_MAX_SUBSTITUTION_DEPTH = 4
 # Text read for one command, in characters, across every segment, line and
 # nested body: 64 times the longest command. A command that needs more (only
 # deeply nested substitutions do) is refused, so the work stays linear.
@@ -352,19 +387,25 @@ class _ShellReading:
     lines, the simple commands between separators, and the body of any
     ``sh -c '…'``, backtick, ``$( )``, ``<( )`` or ``>( )`` inside them, so
     a blocked action can't hide behind a separator, a line break, a quote
-    that only one shell reads, or a nested shell."""
+    that only one shell reads, or a nested shell. The command and each
+    nested body also get a reading without any quoting (_unquoted_view)."""
 
     def __init__(self) -> None:
         self.texts: dict = {}   # text -> its readings, in the order found
+        self.unquoted: dict = {}  # command or nested body -> its reading without quoting
         self._raw: set = set()  # texts whose raw readings are wanted too
+        self._shells: dict = {}  # a reading's words -> the nested shell bodies in them
         self._work = 0
+
+    def _spend(self, text: str) -> None:
+        self._work += len(text) + 1
+        if self._work > _MAX_SHELL_WORK:
+            raise _ShellUnreadable()
 
     def views(self, text: str) -> list:
         raw = text in self._raw
         if text not in self.texts or (raw and self.texts[text][-1][1] is not None):
-            self._work += len(text) + 1
-            if self._work > _MAX_SHELL_WORK:
-                raise _ShellUnreadable()
+            self._spend(text)
             self.texts[text] = _token_views(text, raw)
         return self.texts[text]
 
@@ -383,6 +424,9 @@ class _ShellReading:
                 if not root or deepest.get((root, substituted), -1) >= depth:
                     continue
                 deepest[(root, substituted)] = depth
+                if root not in self.unquoted and not _QUOTING_CHARS.isdisjoint(root):
+                    self._spend(root)
+                    self.unquoted[root] = _unquoted_view(root)
                 # A line is read on its own too: nothing on an earlier line (a
                 # quote in a comment or a here-document) can hide it.
                 lines = [line.strip() for line in root.split("\n")] if "\n" in root else []
@@ -407,7 +451,9 @@ class _ShellReading:
                 shells: list = []
                 for text in level:
                     for words, _ in self.views(text):
-                        shells.extend(_nested_bodies(words))
+                        if words not in self._shells:
+                            self._shells[words] = _nested_bodies(words)
+                        shells.extend(self._shells[words])
                 nested = [(body.strip(), kind) for bodies, kind in ((substitutions, True), (shells, False))
                           for body in dict.fromkeys(bodies) if body.strip()]
                 if nested and depth >= _MAX_SHELL_DEPTH:
@@ -443,6 +489,7 @@ def _nested_bodies(toks: list) -> list:
 _VARIABLE_WILDCARD = re.compile(r"\$(\w+|\{[^}]*\})(/+\*)+/*")
 _HOME_PREFIX = re.compile(r"~([\w.+-]*)(?=/|$)")
 _HOME_OR_PWD = re.compile(r"\$\{(HOME|PWD)[^}]*\}(?=/|$)")
+_PATH_CHARS = frozenset("/~.*$")
 
 
 def _protected_target(target: str) -> bool:
@@ -451,6 +498,8 @@ def _protected_target(target: str) -> bool:
     of _RM_ROOTS or a home directory, or only ".." parts (../.., ./..). A
     wildcard under any variable ("$DIR/"*, ${DIR}/*) counts too: with the
     variable unset it is /* (an accepted false refusal when it is set)."""
+    if target and _PATH_CHARS.isdisjoint(target):
+        return False  # a plain word: every root, home or variable spelling holds one of these
     if _VARIABLE_WILDCARD.fullmatch(target):
         return True
     t = target
@@ -521,6 +570,8 @@ def _device(path: str, harmless: "re.Pattern" = _HARMLESS_DEV) -> bool:
 def _names_device(word: str) -> bool:
     """A word naming a device node: its path alone, as an option's value or
     attached to a short option (see _DEVICE_OPTION)."""
+    if "/" not in word:
+        return False
     m = _DEVICE_OPTION.match(word)
     return m is not None and _device(word[m.end():])
 
@@ -628,9 +679,21 @@ def _cp_source(tokens: list, k: int, end: int) -> Optional[int]:
 
 _REASON_POWER = "shuts down or restarts the server"
 _ASSIGNMENT = re.compile(r"^[A-Za-z_]\w*=")
+# Every program name a rule of _token_reason starts from.
+_RULE_PROGRAMS = _DISK_TOOLS | {"rm", "chmod", "chown", "chgrp", "find", "init", "telinit", "dd", "cp", "install"}
 
 
-def _token_reason(words: tuple, seps: Optional[tuple], power: bool = True) -> Optional[str]:
+class _WordFacts:
+    """What a word is, kept for one check: the words of a command come back
+    in every reading of every text that holds them."""
+
+    def __init__(self) -> None:
+        self.names: dict = {}   # word -> its program name
+        self.places: dict = {}  # word -> (names a device node, names a protected root)
+
+
+def _token_reason(words: tuple, seps: Optional[tuple], power: bool = True,
+                  facts: Optional[_WordFacts] = None) -> Optional[str]:
     """rm, find, chmod/chown/chgrp, dd, cp/install, the disk tools, init and
     redirects anywhere in one reading of a text, so no wrapper spelling can
     hide them. rm, find and chmod read the rest of the words; the others the
@@ -638,15 +701,28 @@ def _token_reason(words: tuple, seps: Optional[tuple], power: bool = True) -> Op
     break, never a quoted one or a parenthesis; None for a raw reading, which
     has none and reads on). ``power`` is off for a lone read-only command,
     whose shutdown words are text. Facts about the words to the right are
-    gathered in one pass, so the work is linear ("rm rm rm …" included)."""
+    gathered in one pass, so the work is linear ("rm rm rm …" included).
+    ``facts`` carries what is known of each word from one reading to the
+    next."""
+    facts = facts or _WordFacts()
     lexed = seps is not None
     tokens, seps = _expand_braces(words, seps if lexed else (False,) * len(words))
     n = len(tokens)
     # A word's program name; for an assignment (x=rm, alias del=rm) the
     # program it names, which a later word may run ($x -rf /).
-    names = [_program(_ASSIGNMENT.sub("", t)) for t in tokens]
-    disk = [_names_device(t) for t in tokens]
-    target = [not t.startswith("-") and _protected_target(t) for t in tokens]
+    known = facts.names
+    for t in tokens:
+        if t not in known:
+            known[t] = _program(_ASSIGNMENT.sub("", t) if "=" in t else t)
+    names = [known[t] for t in tokens]
+    if _RULE_PROGRAMS.isdisjoint(names) and not any(">" in t for t in tokens):
+        return None  # no program a rule below reads, and no redirect
+    places = facts.places
+    for t in tokens:
+        if t not in places:
+            places[t] = (_names_device(t), not t.startswith("-") and _protected_target(t))
+    disk = [places[t][0] for t in tokens]
+    target = [places[t][1] for t in tokens]
     # Suffix facts: index i covers tokens[i:].
     r_flag, f_flag, no_preserve, tree_r, protected, delete, exec_rm = ([False] * (n + 1) for _ in range(7))
     # Prefix counts: tokens[:i].
@@ -853,6 +929,7 @@ def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
     client_anywhere = any(seen for _, seen in clients.values())
     read_views: set = set()
     read_sql: set = set()
+    facts = _WordFacts()
 
     def sql_reason(sql: str, level: str) -> Optional[str]:
         if (sql, level) in read_sql:
@@ -865,7 +942,7 @@ def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
             if view in read_views:
                 continue
             read_views.add(view)
-            reason = _token_reason(*view, power=not power_words_are_text)
+            reason = _token_reason(*view, power=not power_words_are_text, facts=facts)
             if reason:
                 return reason
         if not power_words_are_text:
@@ -889,6 +966,13 @@ def _shell_reason(command: str, budget: "_Budget") -> Optional[str]:
                     reason = sql_reason(word, "shared")
                     if reason:
                         return reason
+    # The reading without quoting, of the command and of each nested body.
+    for view in reading.unquoted.values():
+        if view not in read_views:
+            read_views.add(view)
+            reason = _token_reason(*view, power=not power_words_are_text, facts=facts)
+            if reason:
+                return reason
     return None
 
 

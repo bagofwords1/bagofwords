@@ -483,6 +483,54 @@ def test_near_misses_of_the_words_between_rule_pass(command):
     assert shell_block_reason(command) is None
 
 
+@pytest.mark.parametrize("command,reason", [
+    # Two levels of quotes: the second shell's command is still read.
+    ("eval \"sh<<<'dd if=x of=/dev/sda'\"", _DESTRUCTIVE),
+    ("eval \"eval 'dd if=/dev/zero of=/dev/sda bs=1M'\"", _DESTRUCTIVE),
+    ("ssh h \"eval 'wipefs -a /dev/sda'\"", _DESTRUCTIVE), ("ssh h \"bash <<< 'cp zero.img /dev/sda'\"", _DESTRUCTIVE),
+    ("watch \"eval 'shred -n1 /dev/sdb'\"", _DESTRUCTIVE),
+    ("ssh a ssh b \"eval 'parted -s /dev/xvda mklabel gpt'\"", _DESTRUCTIVE),
+    ("ssh host \"eval 'rm -rf /'\"", _RM_ROOT), ("eval \"eval 'rm -rf /'\"", _RM_ROOT),
+    ("eval \"eval 'find /etc -delete'\"", _DESTRUCTIVE), ("ssh h \"eval 'chmod -R 777 /'\"", _DESTRUCTIVE),
+    ("watch \"eval 'chown -R nobody /usr'\"", _DESTRUCTIVE), ("eval \"eval 'cat img > /dev/sda'\"", _DESTRUCTIVE),
+    # The command another interpreter is handed, inside its own call syntax.
+    ("python3 -c \"import os; os.system('dd if=x of=/dev/sda')\"", _DESTRUCTIVE),
+    ("python3 -c \"import os;os.system('wipefs -a /dev/sda')\"", _DESTRUCTIVE),
+    ("perl -e 'system(\"tee /dev/sda\")'", _DESTRUCTIVE),
+    ("awk 'BEGIN{system(\"truncate -s 0 /dev/sda\")}'", _DESTRUCTIVE),
+    ("ruby -e 'system(\"shred /dev/sda\")'", _DESTRUCTIVE),
+    ("node -e 'require(\"child_process\").execSync(\"parted /dev/sda mklabel gpt\")'", _DESTRUCTIVE),
+    ("python3 -c \"import os; os.system('rm -rf /')\"", _RM_ROOT), ("perl -e 'system(\"rm -rf /\")'", _RM_ROOT),
+    ("awk 'BEGIN{system(\"find / -delete\")}'", _DESTRUCTIVE),
+    ("ruby -e 'system(\"chmod -R 777 /etc\")'", _DESTRUCTIVE),
+    ("python3 -c \"import subprocess; subprocess.run('find /var -exec rm {} +', shell=True)\"", _DESTRUCTIVE),
+    # The same inside a substitution: the words after it are not the command's.
+    ("echo $(eval \"eval 'fdisk /dev/sda'\") -l", _DESTRUCTIVE),
+])
+def test_a_write_behind_two_levels_of_quotes_or_an_interpreter_call_is_refused(command, reason):
+    assert shell_block_reason(command) == reason
+
+
+@pytest.mark.parametrize("command", [
+    "eval \"eval 'ls -la /dev/sda'\"", "ssh h \"eval 'cp /dev/sda img'\"", "ssh h \"eval 'rm -rf /tmp/x'\"",
+    "python3 -c \"import os; os.system('ls /etc')\"", "perl -e 'print(\"hello (world)\")'",
+    "awk 'BEGIN{system(\"date\")}'", "ruby -e 'system(\"fdisk -l /dev/sda\")'",
+    "node -e 'require(\"child_process\").execSync(\"find . -name x -delete\")'",
+    "python3 -c \"import shutil; shutil.rmtree('/tmp/build')\"", "watch \"eval 'dd if=/dev/sda of=img'\"",
+])
+def test_ordinary_commands_behind_two_levels_of_quotes_or_an_interpreter_call_pass(command):
+    assert shell_block_reason(command) is None
+
+
+@pytest.mark.parametrize("command,reason", [
+    # Accepted false refusals (named in the PR): text an interpreter only
+    # prints reads like the command it would run.
+    ("python3 -c \"print('rm -rf /')\"", _RM_ROOT), ("perl -e 'print(\"dd if=x of=/dev/sda\")'", _DESTRUCTIVE),
+])
+def test_accepted_false_refusals_of_the_reading_without_quotes(command, reason):
+    assert shell_block_reason(command) == reason
+
+
 def _nested_three_levels(n_parts):
     import shlex
 
@@ -598,6 +646,120 @@ def test_repeated_program_words_cost_work_linear_in_the_words(monkeypatch, word)
     # The command and its one segment, each read once per word.
     assert calls["target"] <= 2 * words + 4
     assert calls["sql"] <= 4 * words + 4
+
+
+@pytest.fixture
+def shell_reads(monkeypatch):
+    """Counts the work one shell check does: the characters it splits into
+    words and the words its rules then read. The spies delegate, so the check
+    behaves as without them. A work count, not a clock (tests/AGENTS.md)."""
+    reads = SimpleNamespace(chars=0, words=0)
+
+    def spy(name, field):
+        real = getattr(tool_blocklist, name)
+
+        def counted(first, *args, **kwargs):
+            setattr(reads, field, getattr(reads, field) + len(first))
+            return real(first, *args, **kwargs)
+
+        monkeypatch.setattr(tool_blocklist, name, counted)
+
+    spy("_lex", "chars")
+    for rule in ("_token_reason", "_nested_bodies", "_db_client_sql"):
+        spy(rule, "words")
+    return reads
+
+
+# The work of one shell check per character of the command, at most: every
+# reading of every line, segment and nested body together.
+_SHELL_WORK_PER_CHAR = 64
+_SHELL_CAP = 16 * 1024
+_RANDOM_SHELL_PIECES = {
+    "quotes": list("ab ") + ["'", '"', "\\", ";", "|", "$(", ")"],
+    "printable": [chr(c) for c in range(32, 127)] + ["\n"],
+    "shell words": ["a ", "b|", "c;", "'d' ", '"e" ', "\\f ", "$(g) ", "`h` ", "(i) ", "x=1 ", "# j\n", "k\n",
+                    "sh -c ", "eval "],
+}
+
+
+def _random_shell_text(pieces, seed):
+    import random
+
+    rng = random.Random(seed)
+    out, size = [], 0
+    while size < _SHELL_CAP:
+        out.append(rng.choice(pieces))
+        size += len(out[-1])
+    text = "".join(out)[:_SHELL_CAP]
+    while len(text.encode()) > _SHELL_CAP:
+        text = text[:-1]
+    return text
+
+
+@pytest.mark.parametrize("pieces", sorted(_RANDOM_SHELL_PIECES))
+@pytest.mark.parametrize("seed", range(4))
+def test_random_text_at_the_size_cap_is_checked_in_work_linear_in_its_size(shell_reads, pieces, seed):
+    command = _random_shell_text(_RANDOM_SHELL_PIECES[pieces], seed)
+    shell_block_reason(command)
+    assert shell_reads.chars + shell_reads.words <= _SHELL_WORK_PER_CHAR * len(command)
+
+
+def _nested_substitutions(depth, filler):
+    per = max(1, (_SHELL_CAP - 3 * depth) // (depth * len(filler)))
+    return (("$(" + filler * per) * depth + ")" * depth)[:_SHELL_CAP]
+
+
+@pytest.mark.parametrize("filler", ["a|b ';", "a\\b|c ';", "a|b \";", "a b;"])
+@pytest.mark.parametrize("depth", [5, 9, 58, 100])
+def test_substitutions_nested_past_the_read_depth_are_refused_before_they_are_read(shell_reads, depth, filler):
+    # Each level holds the ones inside it, so reading every level costs the
+    # command's size times the depth: past the bound nothing is read.
+    command = _nested_substitutions(depth, filler)
+    assert shell_block_reason(command) == "could not read the command safely"
+    assert shell_reads.chars + shell_reads.words <= 4 * len(command)
+
+
+@pytest.mark.parametrize("filler", ["a|b ';", "a\\b|c ';", "a|b \";", "a b;"])
+@pytest.mark.parametrize("depth", [1, 2, 4])
+def test_substitutions_nested_up_to_the_read_depth_are_read_in_bounded_work(shell_reads, depth, filler):
+    command = _nested_substitutions(depth, filler)
+    assert shell_block_reason(command) is None
+    assert shell_reads.chars + shell_reads.words <= _SHELL_WORK_PER_CHAR * len(command)
+    # Read, not skipped: the same nesting around a disk write is refused.
+    assert shell_block_reason("$(" * depth + "dd if=x of=/dev/sda" + ")" * depth) == _DESTRUCTIVE
+
+
+def test_a_word_is_looked_up_once_however_many_readings_hold_it(monkeypatch):
+    # A nested command's words come back in every reading of every level:
+    # what a word names is worked out once per check, and not at all in a
+    # reading that holds no program a rule starts from.
+    lookups, shells = [], []
+    real, real_shells = tool_blocklist._protected_target, tool_blocklist._nested_bodies
+    monkeypatch.setattr(tool_blocklist, "_protected_target", lambda t: lookups.append(t) or real(t))
+    monkeypatch.setattr(tool_blocklist, "_nested_bodies", lambda words: shells.append(words) or real_shells(words))
+    command = _nested_substitutions(4, "find `a` \\; 'b' ~/c ")
+    assert shell_block_reason(command) is None
+    assert 0 < len(lookups) <= 64 and len(lookups) == len(set(lookups))
+    # The nested shells of a reading are looked for once as well.
+    assert 0 < len(shells) == len(set(shells))
+    del lookups[:]
+    assert shell_block_reason(_nested_substitutions(4, "echo `a` \\; 'b' ~/c ")) is None
+    assert lookups == []
+    # Looked up, not skipped: the same words beside a protected root are refused.
+    assert shell_block_reason("$(" * 4 + "find `a` \\; 'b' ~/c ~ -delete " * 9 + ")" * 4) == _DESTRUCTIVE
+
+
+def test_a_deeply_nested_substitution_never_hides_a_command():
+    for depth in (4, 5, 40):
+        assert shell_block_reason("echo " + "$(echo " * depth + "rm -rf /" + ")" * depth)
+    assert shell_block_reason("echo " + "$(echo " * 4 + "ls" + ")" * 4) is None
+    assert shell_block_reason("echo " + "$(echo " * 5 + "ls" + ")" * 5) == "could not read the command safely"
+    # Substitutions side by side are no deeper, and neither is one beside a
+    # "$(" that never closes (a quoted one).
+    assert shell_block_reason("echo " + "$(echo $(echo a)) " * 40) is None
+    assert shell_block_reason("grep -c " + "'$(' " * 9 + "f; echo $(echo $(ls))") is None
+    # Parentheses that are no substitution add no depth.
+    assert shell_block_reason("echo $((" + "(" * 40 + "1" + ")" * 40 + "))") is None
 
 
 @pytest.mark.parametrize("sql", [
@@ -1854,6 +2016,42 @@ def test_a_turn_started_by_a_platform_run_is_a_platform_run_too(trigger):
     assert not ToolPolicyService.is_interactive_run(ctx)
     assert not ToolPolicyService.report_grants_apply(ctx)
     assert not ToolPolicyService.is_machine_run(ctx)  # a person's run: the unattended 'allow' does not cover it
+
+
+def _origin_mark(rows, completion_id):
+    """unattended_origin over a session that holds only ``rows`` (id -> row)."""
+    import asyncio
+
+    from app.services.machine_turn import unattended_origin
+
+    class Rows:
+        async def get(self, model, key):
+            return rows.get(key)
+
+    return asyncio.run(unattended_origin(Rows(), completion_id))
+
+
+def _completion_row(role, parent_id=None, **fields):
+    blank = {"started_via": None, "scheduled_prompt_id": None, "webhook_id": None, "prompt": None,
+             "external_platform": None, "trigger_source": None}
+    return SimpleNamespace(role=role, parent_id=parent_id, **{**blank, **fields})
+
+
+def test_an_origin_whose_head_row_is_gone_is_unattended(caplog):
+    # The system row names its head, and only the head says how the turn was
+    # started (API key, schedule, channel): with the head missing nobody can
+    # say a person watched it, whatever the system row's own fields are.
+    system = _completion_row("system", parent_id="head")
+    with caplog.at_level("WARNING", logger="app.services.machine_turn"):
+        assert _origin_mark({"system": system}, "system") == "unattended"
+    assert "head" in caplog.text and "unattended" in caplog.text
+    # Controls: the same system row with its head there follows the head.
+    assert _origin_mark({"system": system, "head": _completion_row("user")}, "system") is None
+    assert _origin_mark({"system": system, "head": _completion_row("user", started_via="api_key")},
+                        "system") == "api_key"
+    # A row that names no head is read by its own fields, as before.
+    assert _origin_mark({"system": _completion_row("system")}, "system") is None
+    assert _origin_mark({"head": _completion_row("user")}, "head") is None
 
 
 def test_webhook_turn_counts_as_unattended():

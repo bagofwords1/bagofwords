@@ -35,8 +35,9 @@ async def unattended_origin(session, completion_id: Optional[str]) -> Optional[s
     ``'unattended'``; a turn a person sent from another channel (Slack,
     Teams, email, an app surface) gives ``'channel'``, the same kind of run
     as that turn. An origin that is named but whose row is gone gives
-    ``'unattended'`` (fail closed); a turn with no origin at all (a dream
-    check-in) gives None."""
+    ``'unattended'`` (fail closed), and so does a system row whose head row
+    is gone: only the head says how the turn was started. A turn with no
+    origin at all (a dream check-in) gives None."""
     from app.core.request_origin import CHANNEL_STARTED, UNATTENDED_STARTED
     from app.services.tool_policy_service import ToolPolicyService
 
@@ -48,7 +49,11 @@ async def unattended_origin(session, completion_id: Optional[str]) -> Optional[s
         return UNATTENDED_STARTED
     head = row
     if row.role != "user" and row.parent_id:
-        head = await session.get(Completion, str(row.parent_id)) or row
+        head = await session.get(Completion, str(row.parent_id))
+        if head is None:
+            logger.warning("machine turn: the head %s of origin completion %s is gone; the turn runs unattended",
+                           row.parent_id, completion_id)
+            return UNATTENDED_STARTED
     if head.started_via:
         return head.started_via
     if any(getattr(c, "scheduled_prompt_id", None) or getattr(c, "webhook_id", None) for c in (head, row)):
