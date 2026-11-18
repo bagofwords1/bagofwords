@@ -259,7 +259,6 @@ def _cache_key(conn: PgConn, tenants: list[str], connection_id: str) -> _CacheKe
 def _drop_expired(now: float) -> None:
     for key in [k for k, (_, expires_at) in _cache.items() if expires_at <= now]:
         del _cache[key]
-        _build_locks.pop(key, None)
 
 
 def _expiry(engine: TenantEngine, now: float, ttl_seconds: int) -> float:
