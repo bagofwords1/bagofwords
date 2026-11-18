@@ -533,6 +533,11 @@ _PRAGMA_ONE_ARG = re.compile(
 _EXPLAIN_PREFIX = re.compile(r"^\s*EXPLAIN\s+(?:ANALYZE\s+)?", re.IGNORECASE)
 _STRING_SYNTAX_SQLGLOT_MISREADS = re.compile(r"\$[A-Za-z_]*\$|\b[eE]'")
 
+# A string constant where a PIVOT statement takes its relation.
+_STRING_RELATION_IN_PIVOT = re.compile(
+    r"\b(?:PIVOT|UNPIVOT|FROM|JOIN)\s*(?:/\*.*?\*/\s*|--[^\n]*\n\s*)*'", re.IGNORECASE | re.DOTALL
+)
+
 _NOT_A_TABLE = "Query the connection's tables by name; files, URLs and system state are not available."
 _scratch = None
 _scratch_lock = threading.Lock()
@@ -556,34 +561,84 @@ def _serialized(sql: str) -> dict:
     return json.loads(raw)
 
 
-def session_relations(con) -> frozenset:
-    """Names of the tables and views a session serves, lowercased."""
-    rows = con.execute("SELECT table_name FROM information_schema.tables").fetchall()
-    return frozenset(str(r[0]).lower() for r in rows)
+class SessionCatalog:
+    """The tables and views a session really has, fully qualified, and the
+    database and schema an unqualified name resolves in. Identifiers compare
+    case-insensitively, as DuckDB's do."""
+
+    def __init__(self, relations, database: str = "memory", schema: str = "main"):
+        self.relations = frozenset(tuple(str(p or "").lower() for p in r) for r in relations)
+        self.database = (database or "memory").lower()
+        self.schema = (schema or "main").lower()
+
+    def has(self, catalog: str, schema: str, name: str) -> bool:
+        catalog, schema, name = (catalog or "").lower(), (schema or "").lower(), (name or "").lower()
+        if catalog:
+            return (catalog, schema or "main", name) in self.relations
+        if schema:
+            # `a.b` is schema a in the current database, or database a's main schema.
+            return (self.database, schema, name) in self.relations or (schema, "main", name) in self.relations
+        return (self.database, self.schema, name) in self.relations or ("temp", "main", name) in self.relations
 
 
-def _check_relation(name: str, schema: str, catalog: str, relations, ctes) -> None:
-    """A relation is one of the session's own, a CTE of the statement, or a
-    plain identifier (which the engine resolves in its catalog and never as a
-    file). A string, path, URL or file name is not a relation."""
+def session_relations(con) -> SessionCatalog:
+    """Ask the engine what the session serves."""
+    rows = con.execute(
+        "SELECT database_name, schema_name, table_name FROM duckdb_tables() "
+        "UNION ALL SELECT database_name, schema_name, view_name FROM duckdb_views()"
+    ).fetchall()
+    database, schema = con.execute("SELECT current_database(), current_schema()").fetchone()
+    return SessionCatalog(rows, database, schema)
+
+
+def _is_plain(*parts: str) -> bool:
+    return all(not p or _PLAIN_NAME.match(p) for p in parts)
+
+
+def _check_relation(name: str, schema: str, catalog: str, relations, ctes,
+                    is_string: bool = False, deferred: bool = False) -> None:
+    """Whether a statement may name this relation.
+
+    With the session's catalog (``relations``): any relation the session
+    really has, whatever characters its name, schema or database contain
+    ("Sales Ops".orders, a table called "export.csv"). A name is a file path
+    or URL only when it is not one of those. Anything else must be a plain
+    identifier, which the engine resolves in its catalog and never as a file.
+
+    A relation written as a string constant is always refused. Without the
+    catalog, a non-plain identifier is left to the client's own check against
+    its catalog (``deferred``), or refused when it looks like a path.
+    """
     lowered = (name or "").lower()
-    qualifiers_plain = all(not q or _PLAIN_NAME.match(q) for q in (schema, catalog))
-    if not name or not qualifiers_plain:
+    if not name:
+        _refuse()
+    if is_string:
+        # 'x', E'x', $$x$$ in a relation position: how a file is named. A
+        # table is always nameable as an identifier ("x").
         _refuse()
     if not schema and not catalog and lowered in ctes:
         return
-    if relations is not None and lowered in relations:
+    if isinstance(relations, SessionCatalog) and relations.has(catalog, schema, name):
         return
-    if _PLAIN_NAME.match(name):
+    if _is_plain(name, schema, catalog):
         if lowered.startswith("duckdb_") and lowered not in _CATALOG_RELATIONS_ALLOWED:
             _refuse()
         return
-    # Not plain and not a known relation. Without the session's list (the
-    # check ran before connecting) an unusual but path-free name is left for
-    # the session check to decide.
-    if relations is None and not _PATH_LIKE.search(name):
-        return
+    if relations is None:
+        if deferred:
+            return
+        if not any(_PATH_LIKE.search(p) for p in (name, schema, catalog) if p):
+            return
     _refuse()
+
+
+def _written_as_string(sql: str, location) -> bool:
+    """Whether the token at ``location`` is a string constant ('…', E'…', $$…$$)
+    rather than an identifier."""
+    if not isinstance(location, int) or location < 0 or location >= len(sql):
+        return False
+    head = sql[location:location + 2]
+    return head[:1] in ("'", "$") or head.lower() == "e'"
 
 
 def _check_function(name: str, table_function: bool) -> None:
@@ -596,17 +651,18 @@ def _check_function(name: str, table_function: bool) -> None:
         _refuse()
 
 
-def _walk_serialized(node, relations, ctes) -> None:
+def _walk_serialized(node, relations, ctes, sql: str = "", deferred: bool = False) -> None:
     if isinstance(node, list):
         for item in node:
-            _walk_serialized(item, relations, ctes)
+            _walk_serialized(item, relations, ctes, sql, deferred)
         return
     if not isinstance(node, dict):
         return
     kind = node.get("type")
     if kind == "BASE_TABLE":
         _check_relation(node.get("table_name") or "", node.get("schema_name") or "",
-                        node.get("catalog_name") or "", relations, ctes)
+                        node.get("catalog_name") or "", relations, ctes,
+                        is_string=_written_as_string(sql, node.get("query_location")), deferred=deferred)
     elif kind == "TABLE_FUNCTION":
         fn = node.get("function")
         if not isinstance(fn, dict) or fn.get("class") != "FUNCTION":
@@ -618,7 +674,7 @@ def _walk_serialized(node, relations, ctes) -> None:
     if node.get("class") == "FUNCTION":
         _check_function(node.get("function_name"), table_function=False)
     for value in node.values():
-        _walk_serialized(value, relations, ctes)
+        _walk_serialized(value, relations, ctes, sql, deferred)
 
 
 def _cte_names(node, out: set) -> set:
@@ -636,14 +692,14 @@ def _cte_names(node, out: set) -> set:
     return out
 
 
-def _check_pivot_statement(sql: str, relations) -> None:
+def _check_pivot_statement(sql: str, relations, deferred: bool = False) -> None:
     """A dynamic PIVOT cannot be serialized by the engine. Its relations are
     read from the SQL guard's tree instead, and the string syntaxes that tree
     does not read the engine's way are refused outright."""
     import sqlglot
     from sqlglot import exp
 
-    if _STRING_SYNTAX_SQLGLOT_MISREADS.search(sql):
+    if _STRING_SYNTAX_SQLGLOT_MISREADS.search(sql) or _STRING_RELATION_IN_PIVOT.search(sql):
         _refuse()
     try:
         tree = sqlglot.parse_one(sql, read="duckdb")
@@ -656,16 +712,18 @@ def _check_pivot_statement(sql: str, relations) -> None:
                 name = node.this.name if isinstance(node.this, exp.Anonymous) else node.this.sql_name()
                 _check_function(name, table_function=True)
             else:
-                _check_relation(node.name, node.db or "", node.catalog or "", relations, ctes)
+                _check_relation(node.name, node.db or "", node.catalog or "", relations, ctes, deferred=deferred)
         elif isinstance(node, exp.Func):
             _check_function(node.name if isinstance(node, exp.Anonymous) else node.sql_name(), table_function=False)
 
 
-def engine_tree_check(sql: str, relations=None) -> None:
+def engine_tree_check(sql: str, relations=None, deferred: bool = False) -> None:
     """Decide, from DuckDB's own reading of the statement, that it is one
     read whose relations and functions stay inside the session. ``relations``
-    is the session's table/view names when known. Raises ReadOnlyViolation;
-    fails closed on anything it cannot read."""
+    is the session's catalog (``session_relations``) when known. ``deferred``
+    says the caller will run this check again with the catalog before the
+    statement executes. Raises ReadOnlyViolation; fails closed on anything it
+    cannot read."""
     import duckdb
 
     try:
@@ -677,7 +735,7 @@ def engine_tree_check(sql: str, relations=None) -> None:
         and re.search(r"\bPIVOT\b", sql, re.IGNORECASE)
     ):
         # One statement that DuckDB expands into a temporary enum plus a SELECT.
-        _check_pivot_statement(sql, relations)
+        _check_pivot_statement(sql, relations, deferred)
         return
     if len(kinds) != 1:
         _refuse("Only a single read-only SELECT statement is allowed.")
@@ -692,7 +750,7 @@ def engine_tree_check(sql: str, relations=None) -> None:
             inner_kinds = []
         if inner_kinds != [duckdb.StatementType.SELECT]:
             _refuse("Only a single read-only SELECT statement is allowed.")
-        engine_tree_check(inner, relations)
+        engine_tree_check(inner, relations, deferred)
         return
     if kinds[0] != duckdb.StatementType.SELECT:
         _refuse("Only a single read-only SELECT statement is allowed.")
@@ -702,22 +760,23 @@ def engine_tree_check(sql: str, relations=None) -> None:
             return
         m = _PRAGMA_ONE_ARG.match(sql)
         if m:
-            _check_relation(m.group(2).strip(), "", "", relations, frozenset())
+            _check_relation(m.group(2).strip(), "", "", relations, frozenset(), deferred=deferred)
             return
         _refuse("The statement could not be verified as a read. Only SELECT queries are allowed.")
-    _walk_serialized(tree, relations, _cte_names(tree, set()))
+    _walk_serialized(tree, relations, _cte_names(tree, set()), sql, deferred)
 
 
-def check_user_sql(sql: str, *, hide_settings: bool = False, relations=None) -> None:
+def check_user_sql(sql: str, *, hide_settings: bool = False, relations=None, deferred: bool = False) -> None:
     """Read-only check on SQL a connector is about to run in-process, for
     callers that do not come through the code-execution wrapper. With
     ``relations`` (see ``session_relations``) every relation the statement
-    names must be one of the session's own."""
+    names is checked against what the session really has. ``deferred``: the
+    caller has no session yet and will call again with one."""
     if unrestricted() or not isinstance(sql, str) or not sql.strip():
         return
     from app.ai.code_execution.sql_guard import check_sql
 
-    check_sql(sql, "duckdb")
+    check_sql(sql, "duckdb", relations_checked_by_client=deferred or relations is not None)
     if relations is not None:
         engine_tree_check(sql, relations)
 

@@ -131,7 +131,7 @@ class CSVClient(DataSourceClient):
             for filepath in files:
                 table_name = self._safe_table_name(filepath, used)
                 con.execute(
-                    f"CREATE VIEW {table_name} AS SELECT * FROM {self._read_expr(filepath)}"
+                    f'CREATE VIEW "{table_name}" AS SELECT * FROM {self._read_expr(filepath)}'
                 )
                 table_map[table_name] = filepath
 
@@ -161,7 +161,7 @@ class CSVClient(DataSourceClient):
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("csv.query.start", extra={"csv_sql": sql})
-        lockdown.check_user_sql(sql)
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
                 lockdown.check_session_sql(con, sql)

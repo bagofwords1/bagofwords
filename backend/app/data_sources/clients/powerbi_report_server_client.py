@@ -644,7 +644,7 @@ class PowerBIReportServerClient(DataSourceClient):
         import duckdb  # type: ignore
         from app.data_sources.clients import _duckdb_lockdown as lockdown
 
-        lockdown.check_user_sql(query)
+        lockdown.check_user_sql(query, deferred=True)
         paths = self.ensure_pbix_parquets(report_id, modified_date, report_name=report_name)
         if not paths:
             raise RuntimeError(

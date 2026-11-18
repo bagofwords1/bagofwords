@@ -630,7 +630,7 @@ class QVDClient(DataSourceClient):
                 table_name = self._safe_table_name(filepath, used)
                 parquet_sql = str(parquet).replace("'", "''")
                 con.execute(
-                    f"CREATE VIEW {table_name} AS SELECT * FROM read_parquet('{parquet_sql}')"
+                    f"CREATE VIEW \"{table_name}\" AS SELECT * FROM read_parquet('{parquet_sql}')"
                 )
                 table_map[table_name] = filepath
                 parquets.append(str(parquet))
@@ -660,7 +660,7 @@ class QVDClient(DataSourceClient):
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("qvd.query.start", extra={"qvd_sql": sql})
-        lockdown.check_user_sql(sql)
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
                 lockdown.check_session_sql(con, sql)

@@ -333,7 +333,7 @@ class PBIXClient(DataSourceClient):
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("pbix.query.start", extra={"pbix_sql": sql})
-        lockdown.check_user_sql(sql)
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
                 lockdown.check_session_sql(con, sql)

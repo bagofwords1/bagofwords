@@ -917,11 +917,17 @@ def test_every_way_of_naming_a_file_or_url_as_a_relation_is_refused(data, outsid
     for target in targets:
         for sql in _relation_bypasses(target):
             with pytest.raises(ReadOnlyViolation):
-                ensure_read_only(client, sql)
-            with pytest.raises(ReadOnlyViolation):
                 check_sql(sql, "duckdb")
             with pytest.raises(Exception):
                 client.execute_query(sql)
+            with client.connect() as con:
+                with pytest.raises(ReadOnlyViolation):
+                    lockdown.check_session_sql(con, sql)
+            # Before the session exists, a double-quoted identifier may yet be
+            # one of the connection's tables; every other form is refused there too.
+            if f'"{target}"' not in sql:
+                with pytest.raises(ReadOnlyViolation):
+                    ensure_read_only(client, sql)
 
 
 @pytest.mark.parametrize("sql", _STATE_READS)
@@ -1087,3 +1093,132 @@ def test_in_memory_sqlite_cannot_attach_a_file(tmp_path):
     with SqliteClient(database=":memory:").connect() as conn:
         with pytest.raises(sqlite3.Error):
             conn.execute(f"ATTACH DATABASE '{other}' AS o")
+
+
+# -- relations with unusual names ----------------------------------------------
+
+
+@pytest.fixture
+def odd_names_db(tmp_path):
+    """A database file whose schemas and tables are not plain identifiers."""
+    db = _folder(tmp_path / "odd") / "My Data.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute('CREATE SCHEMA "Sales Ops"')
+    con.execute('CREATE SCHEMA "sales-ops"')
+    con.execute('CREATE TABLE "Sales Ops".orders AS SELECT 1 AS id')
+    con.execute('CREATE TABLE "sales-ops".orders AS SELECT 2 AS id')
+    con.execute('CREATE TABLE "sales-ops"."Order Lines" AS SELECT 3 AS id')
+    con.execute('CREATE TABLE "export.csv" AS SELECT 4 AS id')
+    con.execute('CREATE TABLE "2026 plan/v2" AS SELECT 5 AS id')
+    con.execute('CREATE VIEW "s3://not-a-bucket/x.parquet" AS SELECT 6 AS id')
+    con.execute('CREATE TABLE "Sales Ops"."data.parquet" AS SELECT 7 AS id')
+    con.close()
+    (db.parent / "real.csv").write_text("id\n99\n")
+    return db
+
+
+_ODD_NAME_QUERIES = [
+    ('SELECT id FROM "Sales Ops".orders', 1),
+    ('SELECT id FROM "sales-ops".orders', 2),
+    ('SELECT id FROM "SALES OPS".ORDERS', 1),
+    ('SELECT o.id FROM "Sales Ops".orders o JOIN "sales-ops".orders p ON o.id < p.id', 1),
+    ('SELECT id FROM "sales-ops"."Order Lines"', 3),
+    ('SELECT id FROM "sales-ops"."order lines"', 3),
+    ('SELECT id FROM "My Data"."Sales Ops".orders', 1),
+    ('SELECT id FROM "my data"."sales-ops"."Order Lines"', 3),
+    ('SELECT id FROM "export.csv"', 4),
+    ('SELECT id FROM "EXPORT.CSV"', 4),
+    ('SELECT id FROM main."export.csv"', 4),
+    ('SELECT id FROM "My Data".main."export.csv"', 4),
+    ('SELECT id FROM "2026 plan/v2"', 5),
+    ('SELECT id FROM "s3://not-a-bucket/x.parquet"', 6),
+    ('SELECT id FROM "Sales Ops"."data.parquet"', 7),
+    ('WITH "my cte.csv" AS (SELECT id FROM "export.csv") SELECT id FROM "my cte.csv"', 4),
+    ('SELECT id FROM (SELECT id FROM "Sales Ops".orders) AS "sub query"', 1),
+]
+
+
+@pytest.mark.parametrize("sql,expected", _ODD_NAME_QUERIES)
+def test_existing_relations_are_queryable_whatever_their_names(sql, expected, odd_names_db):
+    client = DuckDBClient(database=str(odd_names_db))
+    ensure_read_only(client, sql)
+    assert client.execute_query(sql)["id"][0] == expected
+
+
+def test_describe_and_summarize_work_on_oddly_named_relations(odd_names_db):
+    client = DuckDBClient(database=str(odd_names_db))
+    for sql in ('DESCRIBE "Sales Ops".orders', 'SUMMARIZE "export.csv"', 'SHOW "sales-ops"."Order Lines"',
+                'EXPLAIN SELECT * FROM "2026 plan/v2"',
+                'PIVOT "export.csv" ON id USING count(*)'):
+        ensure_read_only(client, sql)
+        assert len(client.execute_query(sql)) >= 1
+
+
+@pytest.mark.parametrize("sql", [
+    # Not in the catalog: a file next to the database, by any spelling.
+    'SELECT * FROM "real.csv"',
+    "SELECT * FROM 'real.csv'",
+    'SELECT * FROM "{folder}/real.csv"',
+    'SELECT * FROM "Sales Ops"."real.csv"',
+    'SELECT * FROM "no such schema".orders',
+    'SELECT * FROM "My Data"."no-such"."export.csv"',
+    'SELECT * FROM "/etc/hostname"',
+    'SELECT * FROM "https://example.com/x.csv"',
+    'SELECT * FROM "s3://not-a-bucket/y.parquet"',
+    'SELECT * FROM "export.csv.gz"',
+    'SUMMARIZE "real.csv"',
+    'PIVOT "real.csv" ON id USING count(*)',
+    # A real relation, but written as a string where one is ambiguous with a file.
+    "SELECT * FROM '{folder}/real.csv'",
+    "SELECT * FROM read_csv('{folder}/real.csv')",
+])
+def test_names_that_are_not_relations_are_still_refused(sql, odd_names_db):
+    client = DuckDBClient(database=str(odd_names_db))
+    with pytest.raises(Exception) as refused:
+        client.execute_query(sql.format(folder=odd_names_db.parent))
+    assert "99" not in str(refused.value)
+    with client.connect() as con:
+        with pytest.raises(ReadOnlyViolation):
+            lockdown.check_session_sql(con, sql.format(folder=odd_names_db.parent))
+
+
+def test_a_string_in_a_relation_position_is_refused_even_for_a_real_table(odd_names_db):
+    """`FROM 'export.csv'` is how a file is named; the table is `"export.csv"`."""
+    client = DuckDBClient(database=str(odd_names_db))
+    with pytest.raises(Exception):
+        client.execute_query("SELECT id FROM 'export.csv'")
+    assert client.execute_query('SELECT id FROM "export.csv"')["id"][0] == 4
+
+
+def test_file_named_views_are_queryable_under_the_listed_name(data, tmp_path):
+    """The schema listing and the query agree on the name, for files whose
+    names are not identifiers."""
+    (data / "Q1 sales-2026.csv").write_text("region,amount\neast,5\n")
+    (data / "2026.plan.csv").write_text("region,amount\nwest,6\n")
+    csv = CSVClient(file_paths=str(data / "*.csv"))
+    names = {t.name for t in csv.get_tables()}
+    assert {"q1_sales_2026", "2026_plan"} <= names
+    for name in names:
+        sql = f'SELECT COUNT(*) AS n FROM "{name}"'
+        ensure_read_only(csv, sql)
+        assert csv.execute_query(sql)["n"][0] >= 1
+    assert csv.execute_query("SELECT amount FROM q1_sales_2026")["amount"][0] == 5
+    assert csv.execute_query('SELECT amount FROM "Q1_SALES_2026"')["amount"][0] == 5
+
+    folder = _folder(tmp_path / "Reports 2026-Q1")
+    pd.DataFrame({"n": [1, 2]}).to_parquet(folder / "Net Sales (final).parquet")
+    duck = DuckDBClient(uris=str(folder / "Net Sales (final).parquet"))
+    (view,) = [t.name for t in duck.get_tables()]
+    assert duck.execute_query(f'SELECT SUM(n) AS n FROM "{view}"')["n"][0] == 3
+    assert duck.execute_query(f"SELECT SUM(n) AS n FROM {view}")["n"][0] == 3
+
+
+def test_checks_without_a_session_still_refuse_paths_but_not_quoted_qualifiers():
+    """Connectors with no catalog of their own to ask (Iceberg, network-dir
+    tables) keep the strict reading."""
+    check_sql('SELECT id FROM "Sales Ops".orders', "duckdb")
+    check_sql('SELECT id FROM "sales-ops"."Order Lines"', "duckdb")
+    for sql in ('SELECT * FROM "/etc/hostname"', 'SELECT * FROM "export.csv"', "SELECT * FROM 'orders'",
+                'SELECT * FROM "s3://b/x.parquet"', 'SELECT * FROM "Sales Ops"."x.csv"'):
+        with pytest.raises(ReadOnlyViolation):
+            check_sql(sql, "duckdb")

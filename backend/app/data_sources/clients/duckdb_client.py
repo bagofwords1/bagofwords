@@ -55,6 +55,12 @@ class DuckDBClient(DataSourceClient):
         # escape single quotes by doubling them
         return "'" + str(value).replace("'", "''") + "'"
 
+    @staticmethod
+    def _quoted(name: str) -> str:
+        """An identifier as DuckDB reads it whatever it contains (a view named
+        after a file can start with a digit; a table can hold a space)."""
+        return '"' + str(name).replace('"', '""') + '"'
+
     def _configure_httpfs(self, con: duckdb.DuckDBPyConnection) -> None:
         con.execute("INSTALL httpfs;")
         con.execute("LOAD httpfs;")
@@ -162,10 +168,10 @@ class DuckDBClient(DataSourceClient):
             view = self._safe_view_name(candidate, used)
             lower = normalized.lower()
             if lower.endswith(".parquet") or ".parquet" in lower:
-                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
+                con.execute(f"CREATE OR REPLACE VIEW {self._quoted(view)} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
             else:
                 # default to CSV auto
-                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_csv_auto({self._sql_literal(normalized)})")
+                con.execute(f"CREATE OR REPLACE VIEW {self._quoted(view)} AS SELECT * FROM read_csv_auto({self._sql_literal(normalized)})")
             created.append(view)
         return created
 
@@ -236,7 +242,7 @@ class DuckDBClient(DataSourceClient):
             (self._normalize_uri(p) for p in self.uri_patterns), lockdown.organization_of(self))
 
     def execute_query(self, sql: str) -> pd.DataFrame:
-        lockdown.check_user_sql(sql)
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
                 lockdown.check_session_sql(con, sql)
@@ -274,7 +280,7 @@ class DuckDBClient(DataSourceClient):
             for (name,) in discovery_items(rows, 'tables', label=lambda row: row[0]):
                 cols = []
                 try:
-                    desc = con.execute(f"DESCRIBE {name}").fetchall()
+                    desc = con.execute(f"DESCRIBE {self._quoted(name)}").fetchall()
                     for d in desc:
                         # DuckDB DESCRIBE columns: column_name, column_type, null, key, default, extra
                         col_name = d[0]
@@ -285,7 +291,7 @@ class DuckDBClient(DataSourceClient):
                 except Exception:
                     # Fallback: zero-row scan
                     try:
-                        df = con.execute(f"SELECT * FROM {name} LIMIT 0").df()
+                        df = con.execute(f"SELECT * FROM {self._quoted(name)} LIMIT 0").df()
                         for c in df.columns:
                             cols.append(TableColumn(name=str(c), dtype="unknown"))
                     except IndexingCancelled:
@@ -300,14 +306,14 @@ class DuckDBClient(DataSourceClient):
         cols: List[TableColumn] = []
         with self.connect() as con:
             try:
-                desc = con.execute(f"DESCRIBE {table_name}").fetchall()
+                desc = con.execute(f"DESCRIBE {self._quoted(table_name)}").fetchall()
                 for d in desc:
                     col_name = d[0]
                     col_type = d[1]
                     cols.append(TableColumn(name=col_name, dtype=str(col_type)))
             except Exception:
                 try:
-                    df = con.execute(f"SELECT * FROM {table_name} LIMIT 0").df()
+                    df = con.execute(f"SELECT * FROM {self._quoted(table_name)} LIMIT 0").df()
                     for c in df.columns:
                         cols.append(TableColumn(name=str(c), dtype="unknown"))
                 except Exception:
@@ -340,7 +346,7 @@ class DuckDBClient(DataSourceClient):
                     view_names = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW' ORDER BY table_name LIMIT 1").fetchall()
                     if view_names:
                         vn = view_names[0][0]
-                        con.execute(f"SELECT * FROM {vn} LIMIT 1")
+                        con.execute(f"SELECT * FROM {self._quoted(vn)} LIMIT 1")
                 return {"success": True, "message": "DuckDB connected and views ready"}
         except Exception as e:
             return {"success": False, "message": str(e)}

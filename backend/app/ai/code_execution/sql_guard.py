@@ -95,8 +95,9 @@ _DUCKDB_FILE_TEXT = re.compile(
     r"|json_execute_serialized_sql)\s*\(",
     re.IGNORECASE,
 )
-# A quoted path standing where a table name goes (DuckDB reads the file).
-_DUCKDB_PATH_AS_TABLE = re.compile(r"\b(?:FROM|JOIN)\s+(?:'|\"[^\"]*[/\\])", re.IGNORECASE)
+# Which relations a statement may name is decided from the engine's own parse
+# tree (`_duckdb_lockdown.engine_tree_check`), not here: only it tells a
+# string from an identifier the way DuckDB does.
 
 # PRAGMAs that take an argument and only report: the argument names an object.
 _READ_PRAGMAS_WITH_ARGUMENT = {
@@ -238,7 +239,8 @@ def ensure_read_only(client, query) -> None:
     if not dialect and name in _IN_PROCESS_DUCKDB_CLIENTS and not _file_connectors_unrestricted():
         dialect = "duckdb"
     if dialect:
-        check_sql(query, dialect)
+        check_sql(query, dialect,
+                  relations_checked_by_client=name in _IN_PROCESS_DUCKDB_CLIENTS or name == "DuckDBClient")
 
 
 def _file_connectors_unrestricted() -> bool:
@@ -247,7 +249,12 @@ def _file_connectors_unrestricted() -> bool:
     return unrestricted()
 
 
-def check_sql(sql: str, dialect: str) -> None:
+def check_sql(sql: str, dialect: str, *, relations_checked_by_client: bool = False) -> None:
+    """``relations_checked_by_client``: the DuckDB connector that will run the
+    statement checks every relation it names against its own catalog first
+    (a quoted schema or table name can hold any character, and only the
+    session knows which names are real), so an identifier this check cannot
+    place is left to it instead of being refused here."""
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
@@ -264,7 +271,7 @@ def check_sql(sql: str, dialect: str) -> None:
         # DuckDB does; this does.
         from app.data_sources.clients._duckdb_lockdown import engine_tree_check
 
-        engine_tree_check(sql)
+        engine_tree_check(sql, deferred=relations_checked_by_client)
     if teradata:
         _check_teradata(sql)
 
@@ -380,15 +387,9 @@ def _check_duckdb_tree(stmt) -> None:
             name = node.name if isinstance(node, exp.Anonymous) else node.sql_name()
             if _DUCKDB_FILE_FUNCTIONS.match(name or ""):
                 raise ReadOnlyViolation(_FILE_ACCESS_REFUSED)
-        elif isinstance(node, exp.Table):
-            name = node.name or ""
-            if "/" in name or "\\" in name:
-                raise ReadOnlyViolation(_FILE_ACCESS_REFUSED)
 
 
 def _check_duckdb_text(sql: str) -> None:
-    if _DUCKDB_PATH_AS_TABLE.search(sql):
-        raise ReadOnlyViolation(_FILE_ACCESS_REFUSED)
     match = _DUCKDB_FILE_TEXT.search(_LITERALS_AND_COMMENTS.sub(" ", sql))
     if match:
         raise ReadOnlyViolation(_FILE_ACCESS_REFUSED)
