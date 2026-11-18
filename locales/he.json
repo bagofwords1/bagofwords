@@ -4782,6 +4782,11 @@
     "setupGuideTitle": "שלבי הגדרה",
     "setupGuideCopy": "העתק",
     "setupGuideCopied": "הועתק",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "לא נשמר מפתח. השאילתות רצות בזהות Google שהוגדרה בשרת: חשבון שירות מצורף או תצורת Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

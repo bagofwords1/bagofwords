@@ -421,6 +421,19 @@ class SecurityConfig(BaseModel):
         default_factory=lambda: (os.getenv("BOW_TLS_STRICT_X509") or "").strip().lower()
         not in ("0", "false", "no", "off")
     )
+    # Lets a connection authenticate to Google Cloud as the deployment itself
+    # (Application Default Credentials: an attached service account, GKE
+    # Workload Identity, or a Workload Identity Federation config file named by
+    # GOOGLE_APPLICATION_CREDENTIALS) instead of a pasted service-account key.
+    # Off by default: once on, anyone who may create a connection can run
+    # queries as that identity, and as any service account it is allowed to
+    # impersonate. Turn it on only where the operator owns both the deployment
+    # and the identity. Env: BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS. Only an
+    # explicit true/1/yes/on enables it.
+    allow_google_default_credentials: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS") or "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
     # Peers whose X-Forwarded-For is believed when resolving the client address
     # recorded in audit events (CIDR list). None = loopback and RFC 1918/ULA
     # ranges, which covers a reverse proxy on the same host or Docker network.

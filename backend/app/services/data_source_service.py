@@ -2075,9 +2075,16 @@ class DataSourceService:
             from app.schemas.data_source_registry import credentials_schema_for, get_entry, supports_user_auth
             entry = get_entry(data_source_type)
             # Filter auth variants by policy if provided (system_only vs user_required)
+            from app.schemas.data_source_registry import auth_variant_enabled
+
             def allowed(mode: str) -> bool:
+                variant = entry.credentials_auth.by_auth.get(mode)
+                # A method that borrows the deployment's own identity is only
+                # offered once the operator has enabled it.
+                if variant is not None and not auth_variant_enabled(variant):
+                    return False
                 try:
-                    scopes = (entry.credentials_auth.by_auth.get(mode) or {}).scopes or []
+                    scopes = (variant or {}).scopes or []
                 except Exception:
                     scopes = []
                 if not auth_policy or auth_policy == "system_only":
@@ -2126,6 +2133,7 @@ class DataSourceService:
                     "by_auth": {
                         k: {
                             "title": v.title,
+                            "description": v.description,
                             "scopes": list(v.scopes or []),
                             "catalog_ownership": v.catalog_ownership or entry.catalog_ownership,
                         }
@@ -2645,6 +2653,7 @@ class DataSourceService:
             from app.services.connection_service import (
                 _check_network_dir_root,
                 _check_tool_provider_url,
+                _prepare_auth_credentials,
                 _reject_unsafe_google_keys,
                 _validate_connection_config,
             )
@@ -2653,6 +2662,7 @@ class DataSourceService:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
                 _reject_unsafe_google_keys(credentials)
+                credentials = _prepare_auth_credentials(data_source_type, config, credentials) or {}
             except HTTPException as e:
                 return {"success": False, "message": e.detail}
 

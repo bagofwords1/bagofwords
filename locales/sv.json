@@ -4223,6 +4223,11 @@
     "setupGuideTitle": "Installationssteg",
     "setupGuideCopy": "Kopiera",
     "setupGuideCopied": "Kopierat",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Ingen nyckel lagras. Frågor körs med den Google-identitet som är konfigurerad på servern: ett kopplat tjänstkonto eller en konfiguration för Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {

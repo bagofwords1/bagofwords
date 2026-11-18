@@ -4223,6 +4223,11 @@
     "setupGuideTitle": "خطوات الإعداد",
     "setupGuideCopy": "نسخ",
     "setupGuideCopied": "تم النسخ",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "لا يُخزَّن أي مفتاح. تُنفَّذ الاستعلامات بهوية Google المُعدّة على الخادم: حساب خدمة مرفق أو إعداد Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
