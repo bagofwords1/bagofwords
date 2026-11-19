@@ -1,26 +1,18 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="isCollapsed = !isCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-      <Icon v-else name="heroicons-document-text" class="w-3 h-3 me-1.5 text-ink-muted" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.createDoc.writing') }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.created') }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.failed') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createDoc.label') }}</span>
-
-      <span v-if="vizCount > 0" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-        {{ t('tools.createDoc.chartsCount', { n: vizCount }) }}
-      </span>
-      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.createDoc.writing') }}</template>
+      <template v-else-if="status === 'success'">{{ t('tools.createDoc.created') }}</template>
+      <template v-else-if="status === 'error'">{{ t('tools.createDoc.failed') }}</template>
+      <template v-else>{{ t('tools.createDoc.label') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="vizCount > 0" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ t('tools.createDoc.chartsCount', { n: vizCount }) }}</span><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Expanded content -->
-    <template v-if="!isCollapsed">
+    <template v-if="toolHeaderExpanded">
       <!-- Outline -->
       <div v-if="outline.length" class="mt-1 ms-[18px] text-chat-2 text-ink-muted space-y-0.5">
         <div v-for="(h, i) in outline" :key="i" class="truncate font-mono text-chat-2">{{ h }}</div>
@@ -52,14 +44,19 @@
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-gray-600 dark:group-hover:text-gray-400 flex-shrink-0" />
       </div>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'
 
 interface Props {

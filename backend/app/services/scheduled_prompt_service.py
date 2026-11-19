@@ -784,7 +784,10 @@ class ScheduledPromptService:
             for b in reversed(blocks):
                 content = getattr(b, 'content', None)
                 if content:
-                    summary["last_content"] = content
+                    # The email/notification renders plain text: drop
+                    # `{{cite:…}}` markers (they're chips only on the web).
+                    from app.ai.citations import strip_citations
+                    summary["last_content"] = strip_citations(content)
                     break
 
         return summary

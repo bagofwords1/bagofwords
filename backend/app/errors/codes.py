@@ -67,6 +67,12 @@ class ErrorCode(str, Enum):
     CONVERSATION_LIMIT = "conversation.limit"
     CONVERSATION_NO_AGENTS = "conversation.no_agents"
 
+    # Agent bundle import (the zip produced by "Export agent")
+    AGENT_IMPORT_INVALID_BUNDLE = "agent_import.invalid_bundle"
+    AGENT_IMPORT_NAME_TAKEN = "agent_import.name_taken"
+    AGENT_IMPORT_NO_CONNECTION = "agent_import.no_connection"
+    AGENT_IMPORT_FAILED = "agent_import.failed"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"
@@ -80,6 +86,7 @@ class ErrorCode(str, Enum):
 
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
+    REVIEW_ITEM_NOT_FOUND = "review_item.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     DASHBOARD_NOT_PUBLISHED = "dashboard.not_published"

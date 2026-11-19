@@ -1,50 +1,25 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Main Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ runningLabel }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ errorLabel }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createArtifact.create') }}</span>
-
-      <!-- Mode Badge -->
-      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
-      <Transition name="fade-in" appear>
-        <span
-          v-if="artifactMode"
-          :class="[
-            'ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium',
-            artifactMode === 'slides'
-              ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
-              : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
-          ]"
-        >
-          {{ artifactMode === 'slides' ? t('tools.createArtifact.slides') : t('tools.createArtifact.dashboard') }}
-        </span>
-      </Transition>
-
-      <!-- Saved without a render check (the server could not start its browser) -->
-      <span
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ runningLabel }}</template>
+      <template v-else-if="status === 'success'">{{ successLabel }}</template>
+      <template v-else-if="status === 'stopped'">{{ runningLabel }}</template>
+      <template v-else-if="status === 'error'">{{ errorLabel }}</template>
+      <template v-else>{{ t('tools.createArtifact.create') }}</template>
+      <template v-if="artifactMode">{{ artifactMode === 'slides' ? t('tools.createArtifact.slides') : t('tools.createArtifact.dashboard') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span><span
         v-if="notRenderChecked"
         data-testid="not-render-checked"
         class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700"
         :title="t('tools.createArtifact.notRenderCheckedDesc')"
-      >
-        {{ t('tools.createArtifact.notRenderChecked') }}
-      </span>
-
-      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+      >{{ t('tools.createArtifact.notRenderChecked') }}</span><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Expanded content -->
-    <template v-if="!isCollapsed">
+    <template v-if="toolHeaderExpanded">
       <!-- Plan prompt -->
       <div v-if="artifactPrompt" class="mt-0.5 ms-[18px] text-chat-2 text-ink-muted max-w-lg">
         <span>{{ t('tools.createArtifact.plan') }}</span>
@@ -126,6 +101,29 @@
         </div>
       </div>
 
+      <!-- Confirmation card -->
+      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 p-2.5 space-y-2">
+        <div class="text-chat-2 font-medium text-gray-700 dark:text-gray-300">{{ t('tools.createArtifact.confirm') }}</div>
+        <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
+          <span
+            v-for="viz in confirmation.visualizations"
+            :key="viz.id"
+            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-white dark:bg-gray-900 border border-amber-200 text-gray-600 dark:text-gray-400"
+          >
+            {{ viz.title }}
+          </span>
+        </div>
+        <input
+          v-model="editableTitle"
+          class="w-full px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 focus:outline-none focus:border-blue-400"
+          :placeholder="t('tools.createArtifact.titlePlaceholder')"
+        />
+        <div class="flex items-center gap-2">
+          <button class="px-2.5 py-1 text-chat-2 font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors" @click="approveConfirmation">{{ t('tools.createArtifact.approve') }}</button>
+          <button class="px-2.5 py-1 text-chat-2 font-medium text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" @click="rejectConfirmation">{{ t('tools.createArtifact.cancel') }}</button>
+          <span class="text-chat-3 text-ink-muted">{{ t('tools.createArtifact.autoApprovingIn', { n: confirmationCountdown }) }}</span>
+        </div>
+      </div>
       <!-- Preview Card -->
       <div
         v-if="(status === 'success' && createdArtifact) || status === 'running'"
@@ -164,7 +162,7 @@
             <span v-else>{{ artifactMode === 'slides' ? t('tools.createArtifact.presentation') : t('tools.createArtifact.dashboard') }}</span>
           </div>
           <button
-            v-if="createdArtifact && !isCollapsed"
+            v-if="createdArtifact && toolHeaderExpanded"
             @click.stop="copyArtifactId"
             class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 font-mono mt-0.5"
             :title="t('tools.createArtifact.copyIdTooltip')"
@@ -177,11 +175,17 @@
       </div>
     </div>
     </template>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
+import { computed, ref, watch, onUnmounted } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'
@@ -257,7 +261,57 @@ const thumbnailUrl = computed(() => {
 // Slide progress tracking
 const slideProgress = computed(() => (props.toolExecution as any).progress_slides || [])
 
+// Confirmation state
+const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
 const resolvedVisualizations = computed(() => (props.toolExecution as any).progress_visualizations || [])
+const editableTitle = ref('')
+const confirmationCountdown = ref(5)
+let countdownInterval: ReturnType<typeof setInterval> | null = null
+
+watch(confirmation, (val) => {
+  if (val) {
+    editableTitle.value = val.title || ''
+    confirmationCountdown.value = 5
+    if (countdownInterval) clearInterval(countdownInterval)
+    countdownInterval = setInterval(() => {
+      confirmationCountdown.value--
+      if (confirmationCountdown.value <= 0) {
+        if (countdownInterval) clearInterval(countdownInterval)
+        countdownInterval = null
+      }
+    }, 1000)
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  if (countdownInterval) clearInterval(countdownInterval)
+})
+
+const { markConfirmationAnswered } = useToolConfirmations()
+
+async function approveConfirmation() {
+  if (!confirmation.value?.confirmation_id) return
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
+  try {
+    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
+      method: 'POST',
+      body: { approved: true, title: editableTitle.value || null },
+    })
+    markConfirmationAnswered(confirmation.value?.confirmation_id)
+  } catch {}
+}
+
+async function rejectConfirmation() {
+  if (!confirmation.value?.confirmation_id) return
+  if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
+  try {
+    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
+      method: 'POST',
+      body: { approved: false },
+    })
+    markConfirmationAnswered(confirmation.value?.confirmation_id)
+  } catch {}
+}
 
 // Labels
 const runningLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.creatingPresentation') : t('tools.createArtifact.creatingDashboard'))
@@ -309,15 +363,4 @@ async function copyArtifactId() {
 .fade-enter-from,
 .fade-leave-to { opacity: 0; }
 
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-  font-weight: 400;
-  opacity: 1;
-}
 </style>

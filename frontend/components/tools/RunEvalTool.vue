@@ -1,56 +1,27 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Header line -->
-    <div
-      class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400"
-      :class="{ 'cursor-pointer select-none': canExpand }"
-      @click="canExpand && (expanded = !expanded)"
-    >
-      <span v-if="status === 'running' || isInProgress" class="tool-shimmer flex items-center">
-        <Spinner class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.runEval.running') }}{{ totalLabel }}
-      </span>
-      <span v-else-if="status === 'stopped' || progress.status === 'stopped'" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">{{ t('tools.runEval.stopped') }}</span>
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-check-circle" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">{{ t('tools.runEval.finished') }}</span>
-      </span>
-
-      <!-- Live counters -->
-      <span v-if="progress.total > 0" class="ms-2 text-chat-3 text-gray-500 dark:text-gray-400">
-        <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
-        <span dir="ltr">{{ progress.finished }} / {{ progress.total }}</span>
-        <span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
-          v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span>
-      </span>
-
-      <!-- Expand/collapse affordance — only when there are per-case rows -->
-      <Icon
-        v-if="canExpand"
-        :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-        class="w-3 h-3 ms-1 text-ink-muted"
-      />
-
-      <!-- Stop button (only while in-flight) -->
-      <button
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-clipboard-document-check" :running="status === 'running' || isInProgress" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running' || isInProgress">{{ t('tools.runEval.running') }}{{ totalLabel }}</template>
+      <template v-else-if="status === 'stopped' || progress.status === 'stopped'">{{ t('tools.runEval.stopped') }}</template>
+      <template v-else>{{ t('tools.runEval.finished') }}</template></template>
+      <template #actions><button
         v-if="canStop"
         class="ms-auto inline-flex items-center gap-0.5 text-chat-2 text-red-600 hover:text-red-800"
         @click.stop="stopRun"
         :disabled="isStopping"
         :title="t('tools.runEval.stopTitle')"
-      >
-        <Icon name="heroicons-stop" class="w-3 h-3" />
-        <span>{{ isStopping ? t('tools.runEval.stopping') : t('tools.runEval.stop') }}</span>
-      </button>
-    </div>
+      ><Icon name="heroicons-stop" class="w-3 h-3" /><span>{{ isStopping ? t('tools.runEval.stopping') : t('tools.runEval.stop') }}</span></button></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="progress.total > 0" class="ms-2 text-chat-3 text-gray-500 dark:text-gray-400"><span dir="ltr">{{ progress.finished }} / {{ progress.total }}</span><span v-if="progress.passed > 0" class="ms-1 text-green-700">· {{ t('tools.runEval.pass', { count: progress.passed }) }}</span><span
+          v-if="progress.failed > 0" class="ms-1 text-red-700">· {{ t('tools.runEval.fail', { count: progress.failed }) }}</span></span></div>
 
     <!-- Progress bar — only while running; once finished the counts + per-case
          rows carry the result, and a solid full-width bar reads as a heavy
          divider. Kept thin and capped in width so it stays subtle. -->
-    <div v-if="progress.total > 0 && isInProgress && expanded" class="mb-2">
+    <div v-if="progress.total > 0 && isInProgress && toolHeaderExpanded" class="mb-2">
       <div class="h-0.5 w-40 max-w-full bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
         <div
           class="h-full bg-green-400 transition-all duration-300"
@@ -60,7 +31,7 @@
     </div>
 
     <!-- Per-case rows (collapsed by default) -->
-    <ul v-if="progress.cases.length && expanded" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
+    <ul v-if="progress.cases.length && toolHeaderExpanded" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in progress.cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
         <!-- Static glyph in a transcript: a spinner would imply live work. -->
         <Spinner
@@ -83,16 +54,22 @@
 
     <!-- Run-id link (part of the expandable detail). The run page is
          authenticated; a shared link's reader cannot open it. -->
-    <div v-if="!readonly && progress.run_id && expanded" class="mt-1 text-chat-2 text-ink-muted ms-1">
+    <div v-if="!readonly && progress.run_id && toolHeaderExpanded" class="mt-1 text-chat-2 text-ink-muted ms-1">
       <NuxtLink :to="`/evals/runs/${progress.run_id}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.runEval.openRun') }}
       </NuxtLink>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 
@@ -333,16 +310,6 @@ async function stopRun() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
 .animate-spin-slow {
   animation: spin 2s linear infinite;
 }

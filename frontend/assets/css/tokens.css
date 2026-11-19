@@ -86,12 +86,13 @@
    * browser in `localStorage['bow.chat.textScale']` and applied to <html>
    * by `plugins/chat-display.client.ts`, the same way the locale is.
    *
-   * 14px with a 23px line height at the default reader size. Larger
+   * 14px with a 1.6 line height at the default reader size. Larger
    * reader steps scale proportionally; the column keeps its existing width.
    */
   --bow-chat-text-scale: 0.875;
   --bow-chat-font-size: calc(1rem * var(--bow-chat-text-scale));
-  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 23 / 14);
+  --bow-chat-line-height: calc(var(--bow-chat-font-size) * 1.6);
+  --bow-chat-ink-rgb: 32 33 35;
 
   /*
    * Two derived steps, so a message is one ramp instead of three systems.
@@ -147,6 +148,7 @@
  * use, so these override cleanly.
  */
 .dark {
+  --bow-chat-ink-rgb: 229 231 235;
   --bow-bg-rgb: 17 24 39; /* gray-900 */
   --bow-bg-subtle-rgb: 11 18 32; /* below the page — wells read recessed */
   --bow-bg-muted-rgb: 31 41 55; /* gray-800 */

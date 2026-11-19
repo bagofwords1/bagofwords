@@ -1,23 +1,15 @@
 <template>
   <!-- Hide entirely when not loading and no drafts -->
   <div v-if="isLoading || drafts.length > 0" class="mb-2">
-    <!-- Title section -->
-    <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 mb-3">
-      <!-- Status icon -->
-      <Spinner v-if="isLoading" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 me-1.5 text-green-500" />
-
-      <!-- Title with shimmer for loading -->
-      <span v-if="isLoading" class="tool-shimmer">
-        Suggesting Instructions...
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300">
-        Suggested {{ drafts.length }} instruction{{ drafts.length === 1 ? '' : 's' }}
-      </span>
-    </div>
+    <ToolCallHeader icon="heroicons-light-bulb" :running="isLoading" :expanded="headerExpanded" @toggle="headerExpanded = !headerExpanded">
+      <template #label>
+        <template v-if="isLoading">Suggesting Instructions...</template>
+        <template v-else>Suggested {{ drafts.length }} instruction{{ drafts.length === 1 ? '' : 's' }}</template>
+      </template>
+    </ToolCallHeader>
 
     <!-- Instruction cards -->
-    <div class="space-y-2" v-if="drafts.length">
+    <div class="space-y-2" v-if="drafts.length && (headerExpanded || !isBuildPublished)">
       <div
         v-for="(d, i) in drafts"
         :key="d.id || i"
@@ -104,6 +96,9 @@
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const headerExpanded = activityRef(false)
 import { computed, ref, watch } from 'vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'

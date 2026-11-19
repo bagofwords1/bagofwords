@@ -62,6 +62,17 @@ async def read_all_notifications(
     return {"ok": True, "marked": n}
 
 
+@router.post("/notifications/dismiss-resolved")
+async def dismiss_resolved_notifications(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Clear handled notifications from the caller's own inbox."""
+    n = await inbox_service.dismiss_resolved(db, current_user, organization)
+    return {"ok": True, "dismissed": n}
+
+
 @router.post("/notifications/{notification_id}/read")
 async def read_notification(
     notification_id: str,

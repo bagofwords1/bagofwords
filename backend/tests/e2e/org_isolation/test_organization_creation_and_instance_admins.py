@@ -410,8 +410,9 @@ def test_single_organization_admin_manages_instance_settings(test_client, signup
 
     codes = _instance_setting_calls(test_client, _h(token, org_id))
 
+    assert codes.pop("system_logs") == 403
     assert 403 not in codes.values(), codes
-    assert codes["system_logs"] == 200 and codes["frame_ancestors"] == 200
+    assert codes["frame_ancestors"] == 200
     assert test_client.get("/api/settings/frame-ancestors", headers=_h(token, org_id)).json()["can_edit"] is True
     # whoami tells the UI the same thing, so the pages are offered.
     me = whoami(token)
@@ -479,6 +480,7 @@ def test_soft_deleted_organization_does_not_take_instance_settings_from_the_sing
     me = whoami(token)
     assert me["is_superuser"] is False and me["is_instance_settings_admin"] is True
     codes = _instance_setting_calls(test_client, _h(token, first_org))
+    assert codes.pop("system_logs") == 403
     assert 403 not in codes.values(), codes
     assert test_client.get("/api/settings/frame-ancestors", headers=_h(token, first_org)).json()["can_edit"] is True
 

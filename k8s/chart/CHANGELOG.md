@@ -1,11 +1,11 @@
 # Changelog
 
-## 3.3.0
+## 3.4.0
 
 ### Multiple organizations: instance administrators, group mapping, security settings
 
 Three additions, all optional. **With none of them set the chart renders
-exactly what 3.2.0 rendered.**
+exactly what 3.3.0 rendered.**
 
 ```yaml
 config:
@@ -37,6 +37,36 @@ config:
 
 Requires an application version that has these settings; an older one ignores
 `BOW_SUPERUSER_EMAILS` and the provider keys.
+
+## 3.3.0
+
+### Optional Presidio analyzer for PII protection (`pii.presidio.*`)
+
+Enterprise PII protection can detect names, locations and organizations in
+prompts, which needs a Presidio analyzer. Two ways to provide one, both opt-in
+— **the default is unchanged, and pattern rules (emails, cards, IDs…) need
+neither**:
+
+```yaml
+# Run the analyzer next to the app (official image, English model)
+pii:
+  presidio:
+    enabled: true
+    resources:
+      requests: { cpu: 250m, memory: 1Gi }
+      limits: { memory: 2Gi }
+```
+
+```yaml
+# Or point at an analyzer you run yourself (e.g. a multilingual model)
+pii:
+  presidio:
+    url: https://presidio.internal.example
+```
+
+Either one sets `BOW_PII_PRESIDIO_URL` on the app. The analyzer's Deployment
+and Service use their own labels, so the app Service never routes to it. If you
+use `networkPolicy.egress`, allow the app to reach the analyzer on port 3000.
 
 ## 3.2.0
 

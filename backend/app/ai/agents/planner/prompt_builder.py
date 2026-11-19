@@ -6,6 +6,7 @@ The active prompt builder is :mod:`prompt_builder_v3`, which produces a
 structured (system, messages, tools) input for native tool_use. This module
 remains only while ``BOW_PLANNER=v2`` is supported as a fallback.
 """
+from app.ai.llm.pii.context import pii_context
 import json
 from typing import List, Dict, Any, Optional
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
@@ -320,7 +321,7 @@ INPUT ENVELOPE
 <context>
   <platform>{planner_input.external_platform}</platform>
   {PromptBuilder._format_platform_context(planner_input)}
-  {planner_input.instructions}
+  {pii_context(planner_input.instructions)}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
@@ -1109,7 +1110,7 @@ INPUT ENVELOPE
 <context>
   <platform>{planner_input.external_platform}</platform>
   {PromptBuilder._format_platform_context(planner_input)}
-  {planner_input.instructions}
+  {pii_context(planner_input.instructions)}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
@@ -1299,7 +1300,7 @@ INPUT ENVELOPE
 <context>
   <platform>{planner_input.external_platform}</platform>
   {PromptBuilder._format_platform_context(planner_input)}
-  {planner_input.instructions}
+  {pii_context(planner_input.instructions)}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   <past_observations>{json.dumps(PromptBuilder._compact_past_observations(planner_input.past_observations))}</past_observations>

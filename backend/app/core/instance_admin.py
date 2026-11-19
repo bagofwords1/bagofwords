@@ -162,7 +162,7 @@ async def live_organization_count(db: AsyncSession) -> int:
 
 
 async def instance_settings_require_superuser(db: AsyncSession) -> bool:
-    """Whether instance-wide settings (license, system logs, product updates,
+    """Whether instance-wide settings (license, product updates,
     sites allowed to frame the app) are reserved for instance administrators.
 
     With a single organization its admins own the instance. As soon as the

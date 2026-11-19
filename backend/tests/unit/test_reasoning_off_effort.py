@@ -127,6 +127,7 @@ APIS = ["responses", "chat"]
 @pytest.mark.parametrize("model_id,lightest", [
     ("gpt-5.6-terra", "none"), ("gpt-5.6-luna", "none"), ("gpt-6-sol", "none"),
     ("gpt-5.1", "none"),
+    ("gpt-6.2-sol", "low"), ("gpt-6.2-astra", "low"),
     ("gpt-6.1-sol", "low"),   # has no "none"
     ("gpt-5", "minimal"),     # lightest is "minimal"
     ("o3", "low"),

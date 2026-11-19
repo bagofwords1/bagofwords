@@ -1752,6 +1752,8 @@ class CompletionService:
                 parent_id=c.parent_id,
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
+                steering_applied_at=getattr(c, 'steering_applied_at', None),
+                steering_loop_index=getattr(c, 'steering_loop_index', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 total_duration_ms=exec_obj.total_duration_ms if exec_obj else None,
                 prompt=_redact_prompt_display(c.prompt),
@@ -2188,6 +2190,8 @@ class CompletionService:
                 parent_id=c.parent_id,
                 report_id=c.report_id,
                 message_type=getattr(c, 'message_type', None),
+                steering_applied_at=getattr(c, 'steering_applied_at', None),
+                steering_loop_index=getattr(c, 'steering_loop_index', None),
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 total_duration_ms=exec_obj.total_duration_ms if exec_obj else None,
                 prompt=c.prompt,
@@ -3669,7 +3673,14 @@ class CompletionService:
         except Exception:
             pass
 
-        return {"status": "steered", "completion_id": str(steering_row.id), "system_completion_id": str(target.id)}
+        return {
+            "status": "steered",
+            "completion_id": str(steering_row.id),
+            "system_completion_id": str(target.id),
+            # Server clock: the chat places a still-pending steer by this, so
+            # the client must not substitute its own (possibly skewed) clock.
+            "created_at": steering_row.created_at.isoformat() if steering_row.created_at else None,
+        }
 
     async def start_next_queued_if_idle(self, report_id: str, prev_system_completion_id: str | None = None):
         """Queue dispatcher. Called after every agent run finishes (and after

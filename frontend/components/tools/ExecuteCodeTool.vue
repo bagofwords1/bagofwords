@@ -1,27 +1,16 @@
 <template>
-  <div class="mb-2">
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 rtl-flip" />
-
-      <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-
-      <!-- Action label with shimmer effect for running status -->
-      <span v-if="status === 'running'" class="tool-shimmer">{{ actionLabel }}
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ actionLabel }}</span>
-
-      <!-- Row count if available -->
-      <span v-if="rowCount" class="ms-2 text-ink-muted">{{ rowCount }} rows</span>
-
-      <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-command-line" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ actionLabel }}</template>
+      <template v-else>{{ actionLabel }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="rowCount" class="ms-2 text-ink-muted">{{ rowCount }} rows</span><span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed" class="mt-1 ms-4">
+      <div v-if="toolHeaderExpanded" class="mt-1 ms-4">
         <!-- Minimalistic code display -->
         <div v-if="codeContent" class="text-chat-2 mb-2">
           <div class="bg-gray-50 dark:bg-gray-900 rounded px-4 py-3 font-mono text-chat-2 max-h-42 overflow-y-auto">
@@ -62,13 +51,19 @@
       </div>
 
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 
 interface Props {
   toolExecution: {
@@ -108,7 +103,6 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const isCollapsed = ref(true) // Start collapsed
 
 const status = computed(() => props.toolExecution.status)
 const statusReason = computed(() => props.toolExecution.status_reason)
@@ -205,24 +199,8 @@ function formatMemorySize(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`
 }
 
-function toggleCollapsed() {
-  isCollapsed.value = !isCollapsed.value
-}
 
-// Auto-collapse when execution finishes
-watch(() => status.value, (newStatus, oldStatus) => {
-  // Auto-expand when execution starts
-  if (newStatus === 'running') {
-    isCollapsed.value = false
-  }
-  // Auto-collapse when execution finishes
-  else if (oldStatus === 'running' && (newStatus === 'success' || newStatus === 'error')) {
-    // Delay collapse to show result briefly
-    setTimeout(() => {
-      isCollapsed.value = true
-    }, 2000) // 2 second delay
-  }
-}, { immediate: true })
+
 </script>
 
 <style scoped>

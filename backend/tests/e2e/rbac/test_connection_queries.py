@@ -113,7 +113,10 @@ def test_a_connection_manager_sees_the_running_query_and_kills_it(test_client, w
 
     assert isinstance(outcome.get("error"), QueryKilledError)
     assert source.cancelled.is_set()
-    assert _running(test_client, hdr, conn_id)["items"] == []
+    # The row is closed by a separate thread once the source call has exited
+    # (query_executions.finish_after), so it can still be listed right after
+    # the kill returns: wait for it, within a bound.
+    assert _wait(lambda: _running(test_client, hdr, conn_id)["items"] == [])
     history = test_client.get(f"/api/connections/{conn_id}/queries", headers=hdr).json()
     [done] = history["items"]
     assert done["status"] == "cancelled"

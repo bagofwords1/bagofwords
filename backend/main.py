@@ -124,6 +124,7 @@ from app.routes import (
     prompt as prompt_routes,
     excel,
     agent_yaml,
+    agent_bundle_import,
     eval_yaml,
     data_source_tools,
     agent_lists,
@@ -380,6 +381,7 @@ app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
 app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
+app.include_router(agent_bundle_import.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")

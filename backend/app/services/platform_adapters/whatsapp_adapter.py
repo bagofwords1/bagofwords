@@ -34,7 +34,7 @@ _CODE_FENCE_RE = re.compile(r"(```[\s\S]*?```)")
 # or image in a web/PDF document. WhatsApp has nowhere to render them, so the
 # agent occasionally leaks the raw token into a chat reply — strip it (and the
 # whitespace it sat on) so the user never sees "{{viz:...}}".
-_DOC_PLACEHOLDER_RE = re.compile(r"[ \t]*\{\{\s*(?:viz|image)\s*:[^}]*\}\}[ \t]*")
+_DOC_PLACEHOLDER_RE = re.compile(r"[ \t]*\{\{\s*(?:viz|image|cite)\s*:[^}]*\}\}[ \t]*")
 # 3+ newlines (e.g. left by a removed placeholder on its own line) -> one blank line.
 _EXTRA_BLANKS_RE = re.compile(r"\n{3,}")
 

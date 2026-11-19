@@ -191,6 +191,21 @@
             </button>
         </li>
 
+        <!-- Collapsed rail only: the expanded sidebar lists reports inline (and its
+             "Reports" header links to /reports), so the rail needs its own entry. -->
+        <li v-if="isCollapsed">
+          <NuxtLink to="/reports" :aria-label="$t('nav.reports')" :class="[
+            'flex items-center justify-center px-2.5 py-1.5 w-full rounded-md',
+            isRouteActive('/reports') ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+          ]">
+            <UTooltip :text="$t('nav.reports')" :popper="{ placement: tooltipPlacement }">
+              <span class="flex items-center justify-center w-5 h-5 text-base">
+                <UIcon name="i-heroicons-document-duplicate" />
+              </span>
+            </UTooltip>
+          </NuxtLink>
+        </li>
+
         <template v-for="item in mainNavItems" :key="item.href">
         <li v-if="item.section && !isCollapsed && (!item.adminOnly || isAdmin)" class="pt-3 pb-1 px-2.5">
           <span class="text-2xs font-medium text-ink-muted uppercase tracking-wider">{{ $t(item.section) }}</span>
@@ -295,7 +310,7 @@
             ]">
               <!-- Drop cue: the folder opens while a report hovers this row. -->
               <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
-              <span v-text-dir class="flex-1 truncate">{{ project.name }}</span>
+              <span v-text-dir class="flex-1 truncate" @mouseenter="showTitleTip($event, project.name)" @mouseleave="hideTitleTip">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
             <button
@@ -405,6 +420,8 @@
                     <span v-text-dir
                       class="flex-1 truncate"
                       :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
+                      @mouseenter="showTitleTip($event, report.title)"
+                      @mouseleave="hideTitleTip"
                     >{{ report.title || $t('reports.untitled') }}</span>
                   </NuxtLink>
                   <!-- Project membership: a thin color rule at the leading edge
@@ -656,6 +673,19 @@
         </button>
       </div>
     </div>
+  </Teleport>
+
+  <!-- Full-title tooltip for truncated sidebar report/project names. Teleported
+       so it escapes the sidebar's overflow clipping; sits beside the sidebar
+       (right in LTR, left in RTL) so it never covers neighbouring rows. -->
+  <Teleport to="body">
+    <div
+      v-if="titleTip"
+      v-text-dir
+      role="tooltip"
+      class="fixed z-[60] max-w-xs px-2 py-1 rounded-md shadow ring-1 ring-gray-200 dark:ring-gray-800 text-xs leading-snug break-words pointer-events-none bg-white text-gray-900 dark:bg-gray-900 dark:text-white"
+      :style="titleTip.style"
+    >{{ titleTip.text }}</div>
   </Teleport>
 
   <!-- Sidebar project actions: rename / delete (teleported like the report menu) -->
@@ -1480,6 +1510,36 @@
   const renaming = ref(false)
   const deleteOpen = ref(false)
   const deleting = ref(false)
+
+  // ── Full-title tooltip for truncated sidebar rows ─────────────────────
+  // Only shown when the title is actually clipped (scrollWidth > clientWidth),
+  // after a short delay, anchored to the row's outer edge so it reads as a
+  // continuation of the clipped label rather than covering the list.
+  const titleTip = ref<{ text: string; style: Record<string, string> } | null>(null)
+  let titleTipTimer: ReturnType<typeof setTimeout> | null = null
+  const hideTitleTip = () => {
+    if (titleTipTimer) { clearTimeout(titleTipTimer); titleTipTimer = null }
+    titleTip.value = null
+  }
+  const showTitleTip = (e: MouseEvent, text: string | null | undefined) => {
+    hideTitleTip()
+    const el = e.currentTarget as HTMLElement | null
+    if (!el || !text || draggingReport.value) return
+    if (el.scrollWidth <= el.clientWidth) return
+    titleTipTimer = setTimeout(() => {
+      const row = (el.closest('li') as HTMLElement | null) || el
+      const r = row.getBoundingClientRect()
+      const style: Record<string, string> = {
+        top: `${r.top + r.height / 2}px`,
+        transform: 'translateY(-50%)',
+      }
+      if (isRtl.value) style.right = `${window.innerWidth - r.left + 8}px`
+      else style.left = `${r.right + 8}px`
+      titleTip.value = { text, style }
+    }, 350)
+  }
+  watch([reportMenuOpen, projectMenuOpen, draggingReport, () => route.fullPath], hideTitleTip)
+  onBeforeUnmount(hideTitleTip)
 
   const openReportMenu = (e: MouseEvent, report: any) => {
     menuReport.value = report

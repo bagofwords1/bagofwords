@@ -1,32 +1,19 @@
 <template>
-  <div class="mt-1 min-w-0 max-w-full">
+  <div class="min-w-0">
     <!-- Status header (click to expand) -->
-    <Transition name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="status === 'running'" class="flex items-center min-w-0">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer truncate">{{ runningLabel }}</span>
-        </span>
-        <span v-else class="flex items-center min-w-0" :class="isError ? 'text-gray-600 dark:text-gray-400' : 'text-gray-600 dark:text-gray-400'">
-          <Icon :name="headerIcon" class="w-3 h-3 me-1.5 shrink-0" :class="iconColor" />
-          <span class="truncate">{{ doneLabel }}</span>
-          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-ink-muted">{{ t('tools.browser.updateStates.pending') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-ink-muted">{{ displayUrl }}</span>
-          <span v-if="blockedReason" class="ms-1.5 text-chat-3 text-amber-500 shrink-0">{{ blockedReason }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted rtl-flip shrink-0"
-          />
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-globe-alt" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ runningLabel }}</template>
+      <template v-else>{{ doneLabel }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-ink-muted">{{ t('tools.browser.updateStates.pending') }}</span><span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-ink-muted">{{ displayUrl }}</span><span v-if="blockedReason" class="ms-1.5 text-chat-3 text-amber-500 shrink-0">{{ blockedReason }}</span></template></div>
 
     <!-- Expanded content -->
     <Transition name="slide">
-      <div v-if="isExpanded && status !== 'running'" class="mt-2 ms-5 space-y-1.5">
+      <div v-if="toolHeaderExpanded && status !== 'running'" class="mt-2 ms-5 space-y-1.5">
         <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
@@ -71,13 +58,18 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
 
 const { t } = useResponseI18n()
 
@@ -139,15 +131,6 @@ function toggleExpanded() {
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-}
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .slide-enter-active, .slide-leave-active { transition: all 0.15s ease; overflow: hidden; }

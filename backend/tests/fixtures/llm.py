@@ -219,8 +219,8 @@ def create_llm_provider_and_models(test_client):
                            "is_custom": False
                        },
                        {
-                           "model_id": "gpt-6.1-terra",
-                           "name": "GPT-6.1 Terra",
+                           "model_id": "gpt-6.2-sol",
+                           "name": "GPT-6.2 Sol",
                            "is_custom": False
                        },
                        {

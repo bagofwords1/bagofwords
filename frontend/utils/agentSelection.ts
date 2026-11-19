@@ -31,3 +31,25 @@ export interface AgentAutoState {
 export function resolveAgentAuto(input: AgentAutoInput): AgentAutoState {
     return { isAuto: (input.selectedIds || []).length === 0 }
 }
+
+/**
+ * The starting selection for a new report opened inside a project: the
+ * project's default agents, in the project's order, limited to the agents this
+ * user can see. A default never widens access — an id the user can't see is
+ * dropped rather than pinned. No visible default means an empty selection,
+ * i.e. Auto.
+ */
+export function projectDefaultSelection<T extends { id: string | number }>(
+    defaultIds: Array<string | number>,
+    available: T[],
+): T[] {
+    const visible = new Map((available || []).map(a => [String(a.id), a]))
+    const out: T[] = []
+    const seen = new Set<string>()
+    for (const raw of defaultIds || []) {
+        const id = String(raw)
+        const agent = visible.get(id)
+        if (agent && !seen.has(id)) { seen.add(id); out.push(agent) }
+    }
+    return out
+}

@@ -1,23 +1,12 @@
 <template>
-  <div class="mb-2">
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 hidden">
-
-      <!-- Status icon -->
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500" />
-
-      <!-- Action label with shimmer for running -->
-      <span v-if="status === 'running'" class="tool-shimmer">
-        {{ actionLabel }}
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ actionLabel }}</span>
-
-      <!-- Stage badge -->
-      <span v-if="progressStage" class="ms-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ progressStageLabel }}</span>
-
-      <!-- Execution time if > 2 seconds -->
-      <span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-chart-bar" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ actionLabel }}</template>
+      <template v-else>{{ actionLabel }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="progressStage" class="ms-2 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ progressStageLabel }}</span><span v-if="showDuration" class="ms-2 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
@@ -141,20 +130,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
-  <QueryCodeEditorModal
-    :visible="showEditor"
-    :query-id="createdQueryId"
-    :initial-code="codeContent || ''"
-    :title="widgetTitle"
-    :step-id="initialStepId"
-    :tool-execution-id="props.toolExecution?.id || null"
-    @close="showEditor = false"
-    @stepCreated="onModalSaved"
-  />
-  </template>
+</template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref, watch } from 'vue'

@@ -60,11 +60,14 @@ def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
     `ds_clients` in any form other than a literal key (a computed key, an
     alias, `.items()`), counts as NOT reaching only usable clients.
     """
-    from app.services.client_keys import literal_client_keys
+    from app.services.client_keys import literal_client_keys, with_former_keys
 
     keys = literal_client_keys(code)
     if not keys:
         return False
+    # A key spelled with a former name reaches its client too (the run adds
+    # those keys the same way).
+    clients = with_former_keys(clients)
     return all(k in clients for k in keys)
 
 
@@ -88,9 +91,9 @@ def _failure_keeps_code(error: BaseException, code: str, clients: dict) -> bool:
     missing = _missing_key(error)
     if not isinstance(missing, str):
         return False
-    from app.services.client_keys import literal_client_keys
+    from app.services.client_keys import literal_client_keys, with_former_keys
 
-    return missing not in clients and missing not in (literal_client_keys(code) or [])
+    return missing not in with_former_keys(clients) and missing not in (literal_client_keys(code) or [])
 
 
 def _missing_key(error: BaseException):

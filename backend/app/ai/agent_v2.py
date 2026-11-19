@@ -473,6 +473,24 @@ _CONTEXT_OVERFLOW_PATTERNS = (
 MAX_OVERFLOW_COMPACTIONS = 3
 
 
+# Classified LLM error codes for which re-running the planner on the same model
+# cannot help: the identical prompt is rejected identically every time.
+_PLANNER_NO_RETRY_CODES = ("content_filter", "pii_blocked")
+
+
+def _planner_retry_is_pointless(llm_err_payload: Optional[dict]) -> bool:
+    """True when a planner LLM error must end the turn instead of retrying.
+
+    A provider content filter (e.g. Azure Prompt Shields flagging the prompt as
+    a jailbreak) blocks the same request on every attempt; retrying
+    only delays the error and hides its cause behind a generic retry notice.
+    A PII block is the same kind of refusal: the org's policy for this provider
+    would refuse the identical prompt again, and it is never fallback-eligible
+    (another provider must not receive what this one's policy refused).
+    """
+    return bool(llm_err_payload) and llm_err_payload.get("code") in _PLANNER_NO_RETRY_CODES
+
+
 def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> float:
     """Next trim-budget factor after a context_length rejection.
 
@@ -1548,6 +1566,29 @@ class AgentV2:
         elapsed = f" +{(_time.monotonic() - t0) * 1000:.0f}ms" if t0 else ""
         logger.info(f"[agent:{rid}] {label}{elapsed}")
 
+    async def _record_exposure(self) -> None:
+        """Record every agent this run has been given — its working set plus the
+        report's pins (a pin's schema reaches the trace via set_report_agents /
+        create_agent even when no client could be built for it). Monitoring uses
+        it to decide which agent managers may see the run; see
+        app.services.folder_monitoring.record_exposed_agents. Best-effort: a
+        failure leaves the run unattributed, which hides it from scoped managers."""
+        execution = getattr(self, "current_execution", None)
+        if execution is None:
+            return
+        try:
+            ids = [d.id for d in (self.data_sources or [])]
+            if self.report is not None:
+                ids += [d.id for d in (getattr(self.report, "data_sources", None) or [])]
+            from app.services.folder_monitoring import record_exposed_agents
+            await record_exposed_agents(self.db, execution.id, ids)
+        except Exception:
+            logger.exception("recording run exposure failed")
+            try:
+                await self.db.rollback()
+            except Exception:
+                pass
+
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1572,6 +1613,7 @@ class AgentV2:
                     if built:
                         self.clients.update(built)
                         self.data_sources.append(ds)
+                        await self._record_exposure()
                         self._mlog(f"mid-run client built for {ds.name}")
                 except Exception:
                     logger.exception("mid-run client construction failed for %s", getattr(ds, "name", "?"))
@@ -4001,7 +4043,9 @@ class AgentV2:
         except Exception:
             pass
 
-    async def _collect_steering_messages(self, poll_db: bool = True) -> list[str]:
+    async def _collect_steering_messages(
+        self, applies_to_loop_index: int | None = None, poll_db: bool = True
+    ) -> list[str]:
         """Drain steering messages that arrived since the last checkpoint.
 
         Merges the in-process websocket fast path with a DB backstop (needed
@@ -4009,6 +4053,13 @@ class AgentV2:
         completion id, appends new texts to self._steering_texts (which
         _effective_user_message renders into every subsequent planner input),
         and acks over SSE so the UI can show "steering applied".
+
+        ``applies_to_loop_index`` is the first loop step that plans with the
+        new steers. It is stamped on the steering rows (with the pickup time)
+        and sent in the ack, so the chat renders each steer right above the
+        step that acted on it — live, after reload, and on share links.
+        ``None`` means no step will act on them (the step limit is reached):
+        nothing is stamped or acked, so they stay shown as pending.
         """
         fresh: dict[str, str] = dict(self._steering_pending)
         self._steering_pending.clear()
@@ -4047,16 +4098,56 @@ class AgentV2:
             new_texts.append(content)
             new_ids.append(cid)
 
-        if new_texts:
+        if new_texts and applies_to_loop_index is not None:
+            applied_at = datetime.utcnow()
+            data = {"count": len(new_texts), "messages": new_texts, "ids": new_ids}
+            # Send the position only when it was saved, so the live view and a
+            # reload (or the share link) place the steer the same way.
+            if await self._stamp_steering_applied(new_ids, applied_at, applies_to_loop_index):
+                data["loop_index"] = applies_to_loop_index
+                data["applied_at"] = applied_at.isoformat()
             try:
                 await self._emit_sse_event(SSEEvent(
                     event="completion.steering.applied",
                     completion_id=str(self.system_completion_id),
-                    data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
+                    data=data,
                 ))
             except Exception:
                 pass
         return new_texts
+
+    async def _stamp_steering_applied(
+        self, ids: list[str], applied_at, loop_index: int
+    ) -> bool:
+        """Persist where the agent picked these steers up; True when saved.
+        Best effort: a failure only costs the chat its precise placement (it
+        falls back to send time), never the run."""
+        if not ids:
+            return False
+        try:
+            from sqlalchemy import update as _update
+            # The run's write path: one shared session in single-writer mode,
+            # a short-lived one otherwise. A Core UPDATE fires no ORM listeners,
+            # so the bus does not re-announce these rows (the subscriber would
+            # skip them as seen anyway).
+            async with self._writes_session() as _stamp_session:
+                result = await _stamp_session.execute(
+                    _update(Completion)
+                    .where(
+                        Completion.id.in_(ids),
+                        Completion.message_type == 'steering',
+                        Completion.steering_applied_at.is_(None),
+                    )
+                    .values(steering_applied_at=applied_at, steering_loop_index=loop_index)
+                )
+                await _stamp_session.commit()
+            # 0 rows when the steer's own insert has not committed yet (the bus
+            # announces it at flush time): report it unsaved, so the live view
+            # does not place it differently from a reload.
+            return bool(result.rowcount)
+        except Exception:
+            logger.exception("steering: failed to stamp applied position")
+            return False
 
     def _render_steering_context(self) -> str | None:
         """Rendered <steering_updates> block for PlannerInput.steering_context.
@@ -5559,6 +5650,7 @@ class AgentV2:
                 self.current_execution.starting_folder_ids = report_folder_ids(self.report)
                 self.current_execution.starting_folder_id = self.report.agent_folder_id
                 await self.db.commit()
+            await self._record_exposure()
             # Sub-agent child: bind the execution to its row, narrow the catalog to
             # the profile, and load the budget. Must precede the first planner call.
             if self._is_sub_agent:
@@ -6001,7 +6093,8 @@ class AgentV2:
                     # _effective_user_message().
                     _new_steers = []
                     try:
-                        _new_steers = await self._collect_steering_messages()
+                        # This iteration is the first to plan with them.
+                        _new_steers = await self._collect_steering_messages(applies_to_loop_index=loop_index)
                     except Exception:
                         pass
 
@@ -6429,7 +6522,11 @@ class AgentV2:
                         # set observation, break, outer loop continues).
                         if self._steering_interrupt.is_set():
                             self._steering_interrupt.clear()
-                            _steers = await self._collect_steering_messages()
+                            # This decision is cancelled; the re-plan in the
+                            # next iteration is the first step to act on them.
+                            _steers = await self._collect_steering_messages(
+                                applies_to_loop_index=loop_index + 1 if loop_index + 1 < step_limit else None
+                            )
                             if _steers:
                                 await _cancel_skeleton_block("steering")
                                 observation = {
@@ -6751,6 +6848,12 @@ class AgentV2:
                                     except Exception:
                                         pass
 
+                                # Deterministic rejections (a provider content
+                                # filter) repeat on every re-run: fail the turn
+                                # now, with the cause named, not after two more.
+                                if _planner_retry_is_pointless(llm_err_payload):
+                                    invalid_retry_count = max_invalid_retries
+
                                 if invalid_retry_count >= max_invalid_retries:
                                     # Too many retries, treat as final error.
                                     # Also flip completion to error status with a
@@ -7048,7 +7151,10 @@ class AgentV2:
                                 # final plan streamed. Don't finalize over it — pick
                                 # it up and give the planner another iteration.
                                 try:
-                                    _late_steers = await self._collect_steering_messages()
+                                    # Not finalized: the next iteration re-plans with them.
+                                    _late_steers = await self._collect_steering_messages(
+                                        applies_to_loop_index=loop_index + 1 if loop_index + 1 < step_limit else None
+                                    )
                                 except Exception:
                                     _late_steers = []
                                 if _late_steers:
@@ -8256,10 +8362,15 @@ class AgentV2:
                                     await self._persist_focus_on_use(_tn, _ti_args, _obs)
                                 except Exception:
                                     logger.exception("focus-on-use persist failed")
-                            if getattr(self.report, "agent_folder_id", None):
-                                from app.services.folder_monitoring import record_used_agents
-                                await record_used_agents(self.db, self.current_execution.id, self.data_sources,
-                                                         outcomes, self.used_agent_ids)
+                            # Every run, not only folder runs: an Auto run has no
+                            # pins, so observed use is what lets the console's
+                            # agent filter ("runs involving X") find it.
+                            from app.services.folder_monitoring import record_used_agents
+                            await record_used_agents(self.db, self.current_execution.id, self.data_sources,
+                                                     outcomes, self.used_agent_ids)
+                            # A tool may have attached an agent (set_report_agents,
+                            # create_agent): it is part of the run's exposure now.
+                            await self._record_exposure()
                             self._note_question_agents(outcomes)
 
                             observation = self._carry_substantive_observation(
@@ -8407,7 +8518,8 @@ class AgentV2:
                             await self._handle_context_overflow(_loop_err_payload.get("provider_message"))
                         except Exception:
                             logger.warning("[agent] context overflow handling failed", exc_info=True)
-                    if loop_error_retry_count < max_loop_retries:
+                    # A PII block would be refused again: never retried.
+                    if loop_error_retry_count < max_loop_retries and _loop_err_payload.get("code") != "pii_blocked":
                         loop_error_retry_count += 1
                         try:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -8783,6 +8895,7 @@ class AgentV2:
             raise
         finally:
             self._presence(False)
+            await self._record_exposure()
             # Sub-agent child: close the sub_agents row exactly once (record +
             # envelope, write-back to the parent's delegate tool execution,
             # wave decrement, fan-in when last). Runs on every exit path.

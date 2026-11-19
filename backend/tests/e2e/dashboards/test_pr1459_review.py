@@ -2,6 +2,8 @@
 import json
 import asyncio
 
+import pytest
+
 from tests.e2e.dashboards.dashboard_setup import as_, own
 from tests.e2e.dashboards.test_collaboration import (
     drawn, spawned, _edit, _finish, _grant_editor, _publish_api, _rows,
@@ -116,6 +118,7 @@ def test_draft_schedule_keeps_report_identity_after_original_conversation_delete
     assert "member@corpus.com" in rendered
 
 
+@pytest.mark.per_request_loop  # the intervening publish requests from a worker thread
 def test_publish_rechecks_intervening_publish_after_connection_handshake(corpus, corpus_rows, test_client, spawned, monkeypatch):
     from app.services.data_source_service import DataSourceService
     from tests.e2e.dashboards.test_collaboration import _new_version

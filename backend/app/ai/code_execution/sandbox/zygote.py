@@ -31,6 +31,10 @@ import pandas  # noqa: F401
 import pyarrow  # noqa: F401
 
 from app.ai.code_execution.sandbox import child as _child  # noqa: F401  (pre-import)
+# Every data run imports this lazily in `invoke_generate_df` (it pulls in
+# pydantic via param_schema); loading it here saves that CPU on each step run.
+# Stdlib + pydantic only, no I/O at import time.
+import app.ai.code_execution.query_params  # noqa: F401
 from app.ai.code_execution.sandbox import landlock
 
 _MSG = struct.Struct("<ii")  # (kind, pid)   kind: 1 = fork, 2 = reap
