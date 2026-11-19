@@ -1,5 +1,43 @@
 # Changelog
 
+## 3.4.0
+
+### Multiple organizations: instance administrators, group mapping, security settings
+
+Three additions, all optional. **With none of them set the chart renders
+exactly what 3.3.0 rendered.**
+
+```yaml
+config:
+  allowMultipleOrganizations: true
+  # Who may create organizations.
+  superuserEmails:
+    - it-admin@company.com
+  # Written into bow-config's `security:` section as given.
+  security:
+    block_private_outbound: true
+  oidcProviders:
+    - name: entra
+      # ...
+      # Place people in organizations by identity-provider group.
+      orgMapping:
+        - group: "<group object id>"
+          organization: "Finance"
+          role: member
+      # true | false; leave unset for the automatic rule.
+      trustEmailForLinking: true
+```
+
+- `config.superuserEmails` becomes `BOW_SUPERUSER_EMAILS`. When set the list
+  is authoritative: people removed from it lose the role.
+- `config.oidcProviders[].orgMapping` takes objects (`group`, `organization`,
+  optional `role`) or the compact `"<group>:<organization>:<role>"` string.
+- `config.security` uses the application's own setting names (snake_case),
+  not the chart's camelCase.
+
+Requires an application version that has these settings; an older one ignores
+`BOW_SUPERUSER_EMAILS` and the provider keys.
+
 ## 3.3.0
 
 ### Optional Presidio analyzer for PII protection (`pii.presidio.*`)
