@@ -140,4 +140,32 @@ assert.equal(citationKeyFromHref(`http://localhost:3000/reports/1#cite-${s1.key}
 assert.equal(citationKeyFromHref('https://docs.example.com/page#cite-ref-2'), '')
 assert.equal(citationKeyFromHref('#cite-%E0%A4%A'), '%E0%A4%A')
 
+// A saved query materialized by describe_entity (create mode) is a source like
+// a create_data result: the answer can cite it, and the sources row lists it.
+// A describe_entity lookup that created nothing is not a source.
+{
+  const materialized = {
+    id: 'b-entity', status: 'completed',
+    tool_execution: {
+      tool_name: 'describe_entity', status: 'success',
+      arguments_json: { name_or_id: 'Tracks wide', should_create: true },
+      created_step_id: 's-tracks',
+      result_json: { title: 'Tracks wide', data: { rows }, created_visualization_ids: [uuid(7)] },
+    },
+  }
+  const lookup = {
+    id: 'b-lookup', status: 'completed',
+    tool_execution: {
+      tool_name: 'describe_entity', status: 'success',
+      arguments_json: { name_or_id: 'Tracks wide' },
+      result_json: { title: 'Tracks wide', data: { rows }, created_visualization_ids: [uuid(8)] },
+    },
+  }
+  const found = collectSources([lookup, materialized], describeDataOutput)
+  assert.deepEqual(found.map((s) => [s.key, s.output.kind, s.output.title]), [['b-entity', 'table', 'Tracks wide']])
+  const { markdown, cited } = citeText(`The tracks run 3 to 4.5 minutes. ${cite(uuid(7).slice(0, 8))}`, found)
+  assert.deepEqual(cited.map((s) => s.key), ['b-entity'])
+  assert.match(markdown, /\[1\]\(#cite-b-entity/)
+}
+
 console.log('useCitations: all assertions passed')

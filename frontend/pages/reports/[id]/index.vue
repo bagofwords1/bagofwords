@@ -1255,7 +1255,7 @@ import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
-import { blockHasMessage, describeDataOutput, type RunActivity } from '~/composables/useRunActivity'
+import { blockHasMessage, describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
@@ -1791,7 +1791,7 @@ function runFoldDuration(m: ChatMessage): string {
 // ---------------------------------------------------------------------------
 // Citations: `{{cite:<id>}}` markers in an answer become numbered chips that
 // preview and open the cited result (grammar in useCitations). A source is
-// any create_data result loaded in this conversation, so a follow-up can cite
+// any data result (isDataResultCall) loaded in this conversation, so a follow-up can cite
 // an earlier turn's table.
 // ---------------------------------------------------------------------------
 // Memoized per block and per message: a streamed token re-runs the rewrite
@@ -1803,7 +1803,7 @@ const citationSources = computed<CitationSource[]>(() => {
 		if (m.role !== 'system') continue
 		for (const b of visibleBlocks(m)) {
 			const te = b.tool_execution
-			if (te?.tool_name !== 'create_data') continue
+			if (!isDataResultCall(te)) continue
 			const key = `${te.id}:${te.status}:${te.created_step_id ?? ''}:${te.result_json ? 1 : 0}`
 			let hit = _sourceCache.get(String(b.id))
 			if (!hit || hit.key !== key) {
