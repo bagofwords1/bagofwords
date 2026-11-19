@@ -164,6 +164,7 @@ def test_config_fields_that_choose_the_identity_or_tenant_are_not_safe_listed(ke
 @pytest.mark.parametrize("key", [
     "role_arn", "kerberos_principal", "principal", "impersonated_user", "trusted_user", "user_directory",
     "user_id", "documentum_login", "tenant_id", "member_cid", "partition", "domain", "workspace_domain",
+    "target_service_account",
 ])
 def test_credential_fields_that_choose_the_identity_or_tenant_count(key):
     config = {"host": "db.example.com"}
@@ -261,3 +262,34 @@ def test_secret_field_names_excludes_identifiers():
     names = set(secret_field_names("custom_api", "oauth_app"))
     assert not ({"token_url", "authorize_url", "client_id", "token_endpoint_auth_method", "scopes"} & names)
     assert "user" not in set(secret_field_names("postgresql", "userpass"))
+
+
+class _SavedBigQuery:
+    type = "bigquery"
+    organization_id = "org"
+    data_sources = []
+    credentials = "stored"
+
+    def __init__(self, config, saved):
+        import json
+        self.config = json.dumps(config)
+        self._saved = saved
+
+    def decrypt_credentials(self):
+        return dict(self._saved)
+
+
+def test_switching_bigquery_to_the_server_identity_is_not_a_secret_reentry():
+    """ADC stores no secret, so a switch to it cannot be authorized by re-entering one."""
+    from app.services.connection_destination import credentials_after_auth_switch
+
+    connection = _SavedBigQuery({"project_id": "p", "dataset": "d"}, {"credentials_json": '{"type": "service_account"}'})
+    assert credentials_after_auth_switch(connection, {"project_id": "p", "dataset": "d", "auth_type": "adc"}, {}) is None
+
+
+def test_the_impersonated_service_account_of_the_server_identity_is_a_destination():
+    from app.services.connection_destination import destination_changed
+
+    config = {"project_id": "p", "dataset": "d", "auth_type": "adc"}
+    connection = _SavedBigQuery(config, {"use_application_default_credentials": True, "target_service_account": "a@p.iam.gserviceaccount.com"})
+    assert destination_changed(connection, config, {"target_service_account": "b@p.iam.gserviceaccount.com"})

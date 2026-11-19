@@ -89,6 +89,7 @@ CREDENTIAL_DESTINATION_KEYS = (
     # These choose who the server acts as, or in which tenant, so they compare like a host.
     "role_arn", "kerberos_principal", "principal", "impersonated_user", "trusted_user", "user_directory",
     "user_id", "documentum_login", "tenant_id", "member_cid", "partition", "domain", "workspace_domain",
+    "target_service_account",
 )
 
 # Values interpolated into a connection string: a delimiter here can move the
@@ -115,7 +116,11 @@ _NOT_SECRET_NAMES = frozenset({"root_ca", "certificate", "client_cert", "api_key
 _JSON_SECRET_FIELDS = frozenset({"credentials_json", "service_account_json"})
 
 # Variants that use the server's own identity, so there is no secret to re-enter.
-_AMBIENT_VARIANTS = frozenset({"default", "aws_default", "aws_role", "arn", "managed_identity", "kerberos", "kerberos_delegated"})
+_AMBIENT_VARIANTS = frozenset({
+    "default", "aws_default", "aws_role", "arn", "managed_identity", "kerberos", "kerberos_delegated",
+    # BigQuery Application Default Credentials: the deployment's own Google identity.
+    "adc",
+})
 
 
 def _as_dict(value: Any) -> dict:
