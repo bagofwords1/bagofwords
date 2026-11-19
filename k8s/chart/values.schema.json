@@ -147,6 +147,8 @@
         "authMode": { "type": "string", "enum": ["hybrid", "local_only", "sso_only"] },
         "allowUninvitedSignups": { "type": "boolean" },
         "allowMultipleOrganizations": { "type": "boolean" },
+        "superuserEmails": { "type": "array", "items": { "type": "string" } },
+        "security": { "type": "object", "additionalProperties": true },
         "verifyEmails": { "type": "boolean" },
         "uvicornWorkers": { "type": ["string", "integer"] },
         "database": {

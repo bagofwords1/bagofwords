@@ -11,6 +11,10 @@ features:
 
 auth:
   mode: "hybrid" # hybrid | local_only | sso_only
+  # Instance administrators. With features.allow_multiple_organizations they
+  # are the only people who can create organizations. The environment variable
+  # BOW_SUPERUSER_EMAILS (comma-separated) replaces this list when set.
+  # superuser_emails: ["it-admin@company.com"]
 
 google_oauth:
   enabled: false
@@ -26,6 +30,12 @@ google_oauth:
 #  client_auth_method: basic
 #  discovery: true
 #  uid_claim: sub
+#  # Several organizations on one deployment: place people by group at each
+#  # sign-in. See docs/guides/multiple-organizations.md.
+#  org_mapping:
+#    - group: "<group object id>"
+#      organization: "Finance"   # organization id, or exact name
+#      role: member              # member (default) | admin
  # Optional overrides:
  # redirect_path: /api/auth/okta/callback
  # extra_authorize_params: { prompt: login }
