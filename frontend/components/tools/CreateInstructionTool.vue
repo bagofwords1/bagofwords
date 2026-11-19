@@ -131,7 +131,9 @@
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
+// Open by default: a new instruction is something to read and accept or
+// reject, so its card and actions must not hide behind a click.
+const toolHeaderExpanded = activityRef(true)
 
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
