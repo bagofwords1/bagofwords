@@ -5374,7 +5374,21 @@
     "firstPage": "First page",
     "previousPage": "Previous page",
     "nextPage": "Next page",
-    "lastPage": "Last page"
+    "lastPage": "Last page",
+    "inRangeStart": "From",
+    "inRangeEnd": "To",
+    "resetFilter": "Clear",
+    "noRowsToShow": "No rows to show",
+    "filteredRows": "{shown} of {total} rows",
+    "clearFilters": "Clear filters",
+    "expand": "Expand table",
+    "collapse": "Close full screen",
+    "search": "Search…",
+    "selectAll": "Select all",
+    "blankValue": "(Blank)",
+    "noMatches": "No matching values",
+    "moreValues": "Showing the first {n} — type to narrow",
+    "alsoFilteredAbove": "This column is also filtered in Filters above"
   },
   "sharedReport": {
     "backToApp": "Back to app",
@@ -8767,5 +8781,36 @@
     "inviteNotSent": "The invite to {email} could not be sent. Invite them again from the Members page.",
     "adminAdded": "{email} was added as an admin.",
     "failed": "Could not create the organization."
+  },
+  "vizFilter": {
+    "filter": "Filter",
+    "title": "Filters",
+    "clear": "Clear",
+    "noData": "No data available to filter",
+    "noFilters": "No filters applied",
+    "addFilter": "Add filter",
+    "column": "Column",
+    "value": "Value",
+    "apply": "Apply",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "equals",
+      "not_equals": "not equals",
+      "contains": "contains",
+      "not_contains": "not contains",
+      "starts_with": "starts with",
+      "ends_with": "ends with",
+      "is_empty": "is empty",
+      "is_not_empty": "is not empty",
+      "before": "before",
+      "after": "after",
+      "is_true": "is true",
+      "is_false": "is false",
+      "between": "between",
+      "in": "is one of",
+      "not_in": "is not one of"
+    },
+    "or": "OR",
+    "and": "AND"
   }
 }

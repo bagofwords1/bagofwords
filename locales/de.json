@@ -4677,7 +4677,21 @@
     "firstPage": "Erste Seite",
     "previousPage": "Vorherige Seite",
     "nextPage": "Nächste Seite",
-    "lastPage": "Letzte Seite"
+    "lastPage": "Letzte Seite",
+    "inRangeStart": "Von",
+    "inRangeEnd": "Bis",
+    "resetFilter": "Zurücksetzen",
+    "noRowsToShow": "Keine Zeilen vorhanden",
+    "filteredRows": "{shown} von {total} Zeilen",
+    "clearFilters": "Filter zurücksetzen",
+    "expand": "Tabelle vergrößern",
+    "collapse": "Vollbild schließen",
+    "search": "Suchen…",
+    "selectAll": "Alle auswählen",
+    "blankValue": "(Leer)",
+    "noMatches": "Keine passenden Werte",
+    "moreValues": "Die ersten {n} werden angezeigt – tippen zum Eingrenzen",
+    "alsoFilteredAbove": "Diese Spalte wird auch oben unter Filter gefiltert"
   },
   "sharedReport": {
     "backToApp": "Zurück zur App",
@@ -7853,5 +7867,36 @@
     "inviteNotSent": "Die Einladung an {email} konnte nicht gesendet werden. Laden Sie die Person auf der Seite „Mitglieder“ erneut ein.",
     "adminAdded": "{email} wurde als Administrator hinzugefügt.",
     "failed": "Die Organisation konnte nicht erstellt werden."
+  },
+  "vizFilter": {
+    "filter": "Filtern",
+    "title": "Filter",
+    "clear": "Zurücksetzen",
+    "noData": "Keine Daten zum Filtern",
+    "noFilters": "Keine Filter aktiv",
+    "addFilter": "Filter hinzufügen",
+    "column": "Spalte",
+    "value": "Wert",
+    "apply": "Anwenden",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "gleich",
+      "not_equals": "ungleich",
+      "contains": "enthält",
+      "not_contains": "enthält nicht",
+      "starts_with": "beginnt mit",
+      "ends_with": "endet mit",
+      "is_empty": "ist leer",
+      "is_not_empty": "ist nicht leer",
+      "before": "vor",
+      "after": "nach",
+      "is_true": "ist wahr",
+      "is_false": "ist falsch",
+      "between": "zwischen",
+      "in": "ist einer von",
+      "not_in": "ist keiner von"
+    },
+    "or": "ODER",
+    "and": "UND"
   }
 }
