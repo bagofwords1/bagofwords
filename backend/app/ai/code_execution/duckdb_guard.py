@@ -426,7 +426,15 @@ def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready
     (a TableScopeViolation) for a table, DuckdbQueryError for text the agent
     can fix (syntax, DESCRIBE / SHOW, a CTE name that is not plain). The
     policy refusals come first: a fixable error is raised only when nothing
-    in the statement is refused."""
+    in the statement is refused.
+
+    Nothing is checked with
+    `security.unsafe_allow_unrestricted_file_connectors` on, as for the rest
+    of the file connections' checks (`_duckdb_lockdown.check_session_sql`)."""
+    from app.data_sources.clients._duckdb_lockdown import unrestricted
+
+    if unrestricted():
+        return
     shown_views = sorted({str(v) for v in allowed_views}, key=str.lower)
     stmt = inspect_duckdb_sql(sql)
     views = {ascii_lower(v) for v in shown_views}

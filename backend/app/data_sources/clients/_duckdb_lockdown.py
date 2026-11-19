@@ -13,9 +13,11 @@ connection to the data it was configured with:
     and cannot change its configuration back. The lock is read back from the
     engine and refused unless it holds exactly what was asked.
 
-`security.unsafe_allow_unrestricted_file_connectors` turns the path policy and
-the extra statement checks of this module off. It does not lift the session
-lock or the query guard (`sql_guard`): those always apply.
+`security.unsafe_allow_unrestricted_file_connectors` turns the path policy,
+the session lock and the file connections' statement checks off. The
+code-execution wrapper still checks what DuckDB connections and Iceberg are
+sent (`sql_guard`), and the accelerated tables and the network directory,
+which are not file connectors, keep their own locks whatever it says.
 
 Untrusted text is only ever parsed by DuckDB on a locked engine (the query
 guard's inspector, `duckdb_guard`, or the locked session itself): DuckDB opens
@@ -459,8 +461,10 @@ def database_file_sources(db_file: str, extra_patterns: Iterable[str] = (),
 FILE_DATABASE_CONFIG = {"enable_external_access": False, "lock_configuration": True}
 
 ACCESS_HELP = (
-    "This connection can only read the files or locations it is configured with: for a .duckdb file, "
-    "the file itself; otherwise the files and folders its URIs name (each must pass the path policy)."
+    "This connection can only read the files or locations it is configured with. "
+    "For a .duckdb file that is the file's own folder plus any location listed in the connection's URIs; "
+    "add the location there (it must pass the path policy), or set "
+    "security.unsafe_allow_unrestricted_file_connectors to lift the restriction for the whole instance."
 )
 
 
@@ -571,14 +575,18 @@ def lock_connection(con, *, paths: Iterable[str] = (), directories: Iterable[str
     the engine reads back exactly what this call would have set; any other
     lock (other paths or directories, a temp directory, external access on,
     another database file attached, its own database name on another file)
-    is refused. The callers that open a database file all lock it with no
-    paths of their own, so their connections to one file agree.
+    is refused. A database file is locked to its own folder and the
+    connection's URIs (`database_file_sources`), so connections to one file
+    configured with the same URIs agree; one configured with other URIs is
+    refused while the file is open elsewhere.
 
     `paths` lets the connection write those files as well as read them: the
     engine alone does not keep a statement from overwriting the
     connection's own files. The query checks are what refuse anything but
-    a SELECT. The lock applies whatever
-    `security.unsafe_allow_unrestricted_file_connectors` says."""
+    a SELECT. With `security.unsafe_allow_unrestricted_file_connectors`
+    on, nothing is locked."""
+    if unrestricted():
+        return
     paths = list(dict.fromkeys(str(p) for p in paths if p))
     directories = list(dict.fromkeys(str(d) for d in directories if d))
     own_database = None

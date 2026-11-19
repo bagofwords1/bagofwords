@@ -107,7 +107,10 @@ def scoped(client) -> DuckDBClient:
 
 @pytest.fixture
 def db_file(tmp_path) -> Path:
-    path = tmp_path / "warehouse.duckdb"
+    # In a folder of its own: a database file connection may read its
+    # folder, and `files.secret` must stay outside it.
+    (tmp_path / "db").mkdir()
+    path = tmp_path / "db" / "warehouse.duckdb"
     con = duckdb.connect(str(path))
     con.execute("CREATE TABLE orders AS SELECT * FROM (VALUES (1, 5), (2, 7)) AS t(id, amount)")
     con.close()
@@ -365,9 +368,13 @@ def test_a_second_lock_asking_for_other_paths_on_a_locked_database_file_engine_i
 
 
 def test_a_database_file_engine_locked_the_same_way_elsewhere_is_accepted(db_file, files):
+    from app.data_sources.clients._duckdb_lockdown import database_file_sources
+
     holder = duckdb.connect(str(db_file), read_only=True)
     try:
-        lock_connection(holder)
+        # The file's own folder, as a connection to it locks it.
+        paths, directories = database_file_sources(str(db_file))
+        lock_connection(holder, paths=paths, directories=directories)
         with DuckDBClient(database=str(db_file)).connect() as con:
             _reads_the_file_and_nothing_else(con, files)
     finally:

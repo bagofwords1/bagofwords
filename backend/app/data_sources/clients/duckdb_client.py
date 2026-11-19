@@ -2,6 +2,7 @@ from app.data_sources.clients.progress import discovery_progress, discovery_item
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients._duckdb_lockdown import _list_literal
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
 import duckdb
 import os
@@ -317,13 +318,24 @@ class DuckDBClient(DataSourceClient):
             db_file = self.database or local_db
 
             if db_file:
-                # Open the local .duckdb file directly, read-only. The file is
-                # the whole connection: nothing outside it stays reachable.
-                if not lockdown.unrestricted():
-                    # The path policy, before the file is opened.
-                    lockdown.check_local_path(db_file, organization_id=lockdown.organization_of(self))
-                con = duckdb.connect(database=db_file, read_only=True)
-                lockdown.lock_connection(con, database_path=db_file)
+                # Open the local .duckdb file directly, read-only.
+                if lockdown.unrestricted():
+                    con = duckdb.connect(database=db_file, read_only=True)
+                else:
+                    # Besides the file: its own folder, where the files its
+                    # views read usually sit, and any other URI listed on the
+                    # connection, as the path policy (organization roots
+                    # included) accepts them, before the file is opened.
+                    others = [p for p in self.uri_patterns if lockdown.local_path_of(p) != db_file and p != db_file]
+                    paths, directories = lockdown.database_file_sources(
+                        db_file, others, lockdown.organization_of(self))
+                    con = duckdb.connect(database=db_file, read_only=True)
+                    lockdown.lock_connection(con, paths=paths, directories=directories, database_path=db_file)
+            elif lockdown.unrestricted():
+                # In-memory database with views from URI patterns, unlocked.
+                con = duckdb.connect(database=":memory:")
+                self._configure_httpfs(con)
+                self._create_views(con)
             else:
                 # In-memory database with views from URI patterns.
                 con = duckdb.connect(database=":memory:")
@@ -345,7 +357,8 @@ class DuckDBClient(DataSourceClient):
                 # anything else fails at once instead of reading it.
                 self._create_views(con)
             yield con
-        except IndexingCancelled:
+        except (IndexingCancelled, ReadOnlyViolation):
+            # A query refused on the session keeps its type.
             raise
         except Exception as e:
             raise RuntimeError(f"Error while connecting to DuckDB: {e}")

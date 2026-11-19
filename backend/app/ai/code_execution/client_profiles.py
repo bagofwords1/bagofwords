@@ -379,6 +379,14 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("graph_drive_client", "GraphDriveClient", f"{_SPEC}: file id or JSON file spec read by GET, graph_drive_client.py:572"),
     _exempt("google_drive_client", "GoogleDriveClient", f"{_SPEC}: file id read by GET, google_drive_client.py:166"),
     _exempt("gmail_mail_client", "GmailMailClient", f"{_SPEC}: message id or Gmail search by GET, gmail_mail_client.py:212"),
+    _exempt("slack_messages_client", "SlackMessagesClient",
+            f"{_SPEC}: message or conversation id read, or a Slack search (slack_messages_client.py:1202), "
+            "each request a GET to a read method the client names, the agent's text only in the query "
+            "string, slack_messages_client.py:339"),
+    _exempt("exchange_onprem_client", "ExchangeOnpremClient",
+            f"{_SPEC}: message id read with GetItem (exchange_onprem_client.py:759) or a mail search with "
+            "FindItem (exchange_onprem_client.py:410); the client builds no other operation than GetFolder, "
+            "FindFolder, FindItem and GetItem (_exchange_ews), exchange_onprem_client.py:818"),
     # S3, Google Cloud Storage and Azure Blob: one object read by its key.
     _exempt("_object_store_common", "ObjectStoreClient",
             f"{_SPEC}: object key or JSON file spec read with read_file, _object_store_common.py:857"),

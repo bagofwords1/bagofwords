@@ -717,8 +717,8 @@ _DUCKDB_UNREAD = ("The statement could not be read as a SELECT or as one of this
 _DUCKDB_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # A table named in a string (`PRAGMA table_info('main.orders')`).
 _DUCKDB_STRING_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*){0,2}")
-# What no part of a table name on a database-file connection may hold: a
-# path, a URL or a file name DuckDB would read in place of a table.
+# What no part of a table name on an Iceberg connection may hold: a path, a
+# URL or a file name DuckDB would read in place of a table.
 _DUCKDB_PATH_CHARS = frozenset("./" + chr(92) + ":*?[]{}")
 
 
@@ -961,17 +961,21 @@ def _check_duckdb_table(client, table: tuple[str, str, str]) -> None:
     """A table a DuckDB connection may name, given as folded parts
     (`duckdb_guard.ascii_lower`). Over URIs: one of the views it registers
     (`view_names()`), in the default schema and catalog. On a database file:
-    a name whose parts hold no path, URL or file-name character, and that
-    is not one of DuckDB's built-in catalog views. An Iceberg connection
-    names its tables the database-file way: the client registers each
-    catalog table by name in an in-memory DuckDB before running the query."""
+    a name that is not one of DuckDB's built-in catalog views; one whose
+    parts hold a path, URL or file-name character is left to the client,
+    which takes it only when the file holds that relation
+    (`_duckdb_lockdown.check_session_sql`). An Iceberg connection names
+    its tables the database-file way, with no such character: the client
+    registers each catalog table by name in an in-memory DuckDB before
+    running the query."""
     from app.ai.code_execution.duckdb_guard import ascii_lower, names_catalog, tables_line
     from app.data_sources.clients.iceberg_client import IcebergClient
 
     catalog, schema, name = table
     shown = ".".join(part for part in table if part)
-    if isinstance(client, IcebergClient) or client._is_direct_db_connection():
-        if not name or any(c in _DUCKDB_PATH_CHARS for part in table for c in part):
+    iceberg = isinstance(client, IcebergClient)
+    if iceberg or client._is_direct_db_connection():
+        if not name or iceberg and any(c in _DUCKDB_PATH_CHARS for part in table for c in part):
             raise ReadOnlyViolation(
                 f"Table {shown} is not allowed on this connection: query its tables by their names, "
                 "not by a file path or URL."
