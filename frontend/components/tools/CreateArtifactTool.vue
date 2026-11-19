@@ -182,7 +182,9 @@
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
+// Open by default: the preview card (thumbnail, title, open link) is the
+// result of this call, not a detail of it.
+const toolHeaderExpanded = activityRef(true)
 
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
