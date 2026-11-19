@@ -29,7 +29,7 @@ SECRET_JSON = json.dumps({
     "type": "service_account", "project_id": "p", "client_email": "svc@example.com",
     "private_key": "stored-secret", "token_uri": "https://oauth2.googleapis.com/token",
 })
-ADMIN_ONLY_VARIANTS = ["default", "aws_default", "arn", "managed_identity", "kerberos", "kerberos_delegated"]
+ADMIN_ONLY_VARIANTS = ["default", "aws_default", "arn", "managed_identity", "kerberos", "kerberos_delegated", "adc"]
 
 
 def _sample(name, field, other=False):
@@ -85,7 +85,11 @@ def _stored(test_client, w, conn_type, auth_type, extra_config=None, extra_crede
 
 @pytest.fixture
 def every_connector_allowed(monkeypatch):
+    from app.settings.config import settings
+
     monkeypatch.setattr("app.ee.license.is_datasource_allowed", lambda _type: True)
+    # Auth methods a deployment must opt into (BigQuery's server identity).
+    monkeypatch.setattr(settings.bow_config.security, "allow_google_default_credentials", True)
 
 
 # ── 1. Credential keys that decide the destination ───────────────────────
@@ -226,6 +230,17 @@ def _stored_credentials(connection_id):
         async with async_session_maker() as db:
             return (await db.get(Connection, connection_id)).decrypt_credentials() or {}
     return asyncio.run(_read())
+
+
+def _retain_credentials(connection_id, extra):
+    # Direct DB write: a save drops another method's fields where methods are
+    # exclusive, so only an older row can still hold them.
+    async def _write():
+        async with async_session_maker() as db:
+            row = await db.get(Connection, connection_id)
+            row.encrypt_credentials({**(row.decrypt_credentials() or {}), **extra})
+            await db.commit()
+    asyncio.run(_write())
 
 
 @pytest.mark.e2e
@@ -633,6 +648,8 @@ def test_every_server_identity_field_needs_an_admin_on_a_changed_destination(tes
         flag_value = _flag_value(conn_type, flag)
         extra = {flag: flag_value} if retained else None
         conn = _stored(test_client, world, conn_type, auth_type, extra_credentials=extra)
+        if extra and not set(extra) <= set(_stored_credentials(conn["id"])):
+            _retain_credentials(conn["id"], extra)
         typed = {n: "typed-value" for n in secret_field_names(conn_type, auth_type)}
         credentials = typed if retained else {**typed, flag: flag_value}
         with _skip_network():

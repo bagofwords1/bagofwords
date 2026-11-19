@@ -225,6 +225,11 @@ def test_org_connection_admin_can_test_a_changed_destination(test_client, world,
 def test_normalized_or_unchanged_form_values_are_not_a_change(test_client, world, driver, override):
     r = _test(test_client, world, {"config": override})
     assert r.status_code == 200, r.text
+    if "/" in str(override.get("host", "")):
+        # Not a destination change, but the client refuses to build a URL from
+        # a host holding "/", so nothing reaches the driver.
+        assert r.json()["success"] is False and not driver
+        return
     assert driver and driver[0]["password"] == STORED_SECRET
 
 
