@@ -1,5 +1,5 @@
 import uuid
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 from fastapi_users import schemas
 from datetime import datetime
@@ -38,6 +38,19 @@ class UserUpdate(schemas.BaseUserUpdate):
     # applies this through the standard PATCH /users/me self-update flow.
     name: Optional[str] = Field(None, min_length=1, max_length=50)
     #password: Optional[str] = Field(None, min_length=6)
+    # Optional with `password` on PATCH /users/me; checked when sent (see
+    # UserManager.update). Never persisted on the User row.
+    current_password: Optional[str] = None
+
+    def create_update_dict(self):
+        d = super().create_update_dict()
+        d.pop("current_password", None)
+        return d
+
+    def create_update_dict_superuser(self):
+        d = super().create_update_dict_superuser()
+        d.pop("current_password", None)
+        return d
 
 class UserRead(schemas.BaseUser[uuid.UUID]):
     name: str
@@ -54,6 +67,21 @@ class UserSchema(BaseModel):
     external_user_mappings: List[ExternalUserMappingMinimalSchema] = []
     last_login: Optional[datetime] = None
     last_seen: Optional[datetime] = None
+
+    @field_validator("external_user_mappings", mode="before")
+    @classmethod
+    def _only_current_organization_mappings(cls, value):
+        """A person's chat identities are per organization: show only those of
+        the organization the request is for (all of them when there is none)."""
+        from app.core.request_org import current_request_organization_id
+
+        org_id = current_request_organization_id()
+        if org_id is None or not value:
+            return value
+        return [
+            m for m in value
+            if getattr(m, "organization_id", None) in (None, org_id)
+        ]
 
     class Config:
         from_attributes = True

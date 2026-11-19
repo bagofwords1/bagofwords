@@ -263,7 +263,8 @@ class SetReportAgentsTool(Tool):
             try:
                 from app.ai.tools.implementations.agent_focus_common import render_agents_full
                 detail = await render_agents_full(
-                    db, organization, report, user, [ds for ds, _ in valid][:5]
+                    db, organization, report, user, [ds for ds, _ in valid][:5],
+                    context_hub=runtime_ctx.get("context_hub"),
                 )
             except Exception:
                 logger.exception("set_report_agents: schema render for observation failed")

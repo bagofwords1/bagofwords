@@ -169,10 +169,16 @@ def test_the_duckdb_text_check_refuses_the_import_and_export_forms(watched, temp
 
 
 @pytest.mark.parametrize("sql", [
-    "PRAGMA version", "PRAGMA show_tables", "PRAGMA table_info('indexed_files')", "SELECT 1 AS n",
+    "PRAGMA show_tables", "PRAGMA table_info('indexed_files')", "SELECT 1 AS n",
 ])
 def test_the_duckdb_text_check_keeps_the_read_pragmas(sql):
     check_sql(sql, "duckdb")
+
+
+def test_the_duckdb_text_check_refuses_a_report_of_the_engine_itself():
+    # The engine-tree check of in-process DuckDB refuses session state.
+    with pytest.raises(ReadOnlyViolation):
+        check_sql("PRAGMA version", "duckdb")
 
 
 @pytest.mark.parametrize("code_point", _DUCKDB_UNICODE_SPACES, ids=lambda c: f"U+{c:04X}")
@@ -217,6 +223,42 @@ def test_the_statement_inspector_reads_back_a_locked_engine():
         settings = _connection().execute(
             "SELECT current_setting('enable_external_access'), current_setting('lock_configuration')").fetchone()
     assert settings == (False, True)
+
+
+# ------------------------------------------------------------ the engine-tree check of in-process DuckDB
+
+@pytest.mark.parametrize("template", _FORMS)
+def test_the_engine_tree_check_parses_only_on_a_locked_engine(watched, template):
+    """Called on its own, with no text check in front of it: the engine-tree
+    check reads the text on a locked engine, and refuses what that engine
+    refuses to parse."""
+    from app.data_sources.clients._duckdb_lockdown import engine_tree_check
+
+    with pytest.raises(ReadOnlyViolation):
+        engine_tree_check(_form(template, watched))
+    _nothing_reached(watched)
+    with pytest.raises(ReadOnlyViolation):
+        engine_tree_check("SELECT 1 AS n; " + _form(template, watched))
+    _nothing_reached(watched)
+
+
+@pytest.mark.parametrize("template", _FORMS)
+def test_the_unparsed_duckdb_check_parses_only_on_a_locked_engine(watched, template):
+    from app.ai.code_execution.sql_guard import _check_unparsed_duckdb
+
+    with pytest.raises(ReadOnlyViolation):
+        _check_unparsed_duckdb(_form(template, watched))
+    _nothing_reached(watched)
+
+
+@pytest.mark.parametrize("template", _FORMS)
+def test_the_file_connections_dispatch_check_refuses_them(watched, template):
+    from app.data_sources.clients._duckdb_lockdown import check_user_sql
+
+    for deferred in (True, False):
+        with pytest.raises(ReadOnlyViolation):
+            check_user_sql(_form(template, watched), deferred=deferred)
+        _nothing_reached(watched)
 
 
 # ------------------------------------------------------------ the network directory's file tables
@@ -277,7 +319,8 @@ def test_the_accelerated_client_refuses_them_on_its_locked_engine(watched, templ
 
 
 @pytest.mark.parametrize("template", _FORMS)
-def test_a_duckdb_connection_refuses_them_in_its_check_and_on_its_locked_engine(watched, tmp_path, template):
+def test_a_duckdb_connection_refuses_them_in_its_check_and_on_its_locked_engine(watched, tmp_path, monkeypatch,
+                                                                                template):
     from app.data_sources.clients.duckdb_client import DuckDBClient
 
     data = tmp_path / "data"
@@ -288,6 +331,15 @@ def test_a_duckdb_connection_refuses_them_in_its_check_and_on_its_locked_engine(
     with pytest.raises(ReadOnlyViolation):
         ensure_read_only(client, sql)
     _nothing_reached(watched)
+    # The client's own check refuses it at its dispatch point.
+    with pytest.raises(ReadOnlyViolation):
+        client.execute_query(sql)
+    _nothing_reached(watched)
+    # With that check out of the way, the locked engine refuses it.
+    from app.data_sources.clients import _duckdb_lockdown
+
+    monkeypatch.setattr(_duckdb_lockdown, "check_user_sql", lambda *a, **k: None)
+    monkeypatch.setattr(_duckdb_lockdown, "check_session_sql", lambda *a, **k: None)
     with pytest.raises(Exception, match="(?i)permission|disabled|not allowed|catalog"):
         client.execute_query(sql)
     _nothing_reached(watched)

@@ -22,6 +22,9 @@ class DataSource(BaseSchema):
     inherits_folder_access = Column(Boolean, nullable=False, default=True, server_default="1")
 
     name = Column(String, nullable=False)
+    # Names this agent used to have (app/models/former_names.py): saved code
+    # that spells an old name keeps reaching it after a rename.
+    previous_names = Column(JSON, nullable=True)
     # Connection-related fields have been moved to the Connection model
     # type, config, credentials, auth_policy, allowed_user_auth_modes are now on Connection
     last_synced_at = Column(DateTime, nullable=True)
@@ -492,3 +495,7 @@ class DataSource(BaseSchema):
         membership = result.scalar_one_or_none()
         
         return membership is not None
+
+from app.models.former_names import track_former_names  # noqa: E402
+
+track_former_names(DataSource)

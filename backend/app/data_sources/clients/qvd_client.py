@@ -21,8 +21,8 @@ import pandas as pd
 
 from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
-from app.data_sources.clients._duckdb_lockdown import lock_down
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients.progress import (
     CancelCheck,
     IndexingCancelled,
@@ -134,7 +134,7 @@ class QVDClient(DataSourceClient):
         for pattern in self.patterns:
             matched = glob.glob(pattern, recursive=True)
             files.extend([f for f in matched if f.lower().endswith('.qvd')])
-        return sorted(set(files))
+        return lockdown.filter_files(sorted(set(files)), "qvd", lockdown.organization_of(self))
 
     def _safe_table_name(self, filepath: str, used: set[str]) -> str:
         """Generate a safe table name from filepath."""
@@ -643,14 +643,13 @@ class QVDClient(DataSourceClient):
                 table_name = self._safe_table_name(filepath, used)
                 parquet_sql = str(parquet).replace("'", "''")
                 con.execute(
-                    f"CREATE VIEW {table_name} AS SELECT * FROM read_parquet('{parquet_sql}')"
+                    f"CREATE VIEW \"{table_name}\" AS SELECT * FROM read_parquet('{parquet_sql}')"
                 )
                 table_map[table_name] = filepath
                 parquet_paths.append(str(parquet))
             # The views read their Parquet caches lazily: from here on the
             # connection may read those files and nothing else.
-            lock_down(con, allowed_paths=parquet_paths)
-
+            lockdown.lock_connection(con, paths=parquet_paths)
             self._table_map = table_map
             logger.info(
                 "qvd.connect.done",
@@ -681,6 +680,7 @@ class QVDClient(DataSourceClient):
         try:
             with self._open() as (con, views, not_ready):
                 check_duckdb_file_query(sql, views, not_ready=not_ready)
+                lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(
                 "qvd.query.done",

@@ -47,27 +47,37 @@ async def resolve_or_admit(db, service, client, config, claims):
         )
     ).all()
     ids = {a.user_id for a in accounts}
+    existing_user = None
     if ids:
         if len(ids) != 1:
             raise ExchangeError("invalid_grant", "Ambiguous Entra identity")
         user_id = ids.pop()
-        if not await service._active_subject(db, user_id, client.organization_id):
-            raise ExchangeError("invalid_grant", "User access is unavailable; contact your administrator")
-        await db.commit()
-        return user_id
+        if await service._active_subject(db, user_id, client.organization_id):
+            await db.commit()
+            return user_id
+        # The same verified identity (matched on its immutable tenant/object id
+        # above, never on email) may join an additional organization under that
+        # organization's own invite/domain policy. A disabled account stays out.
+        from app.settings.config import settings
 
-    # A configured Entra tenant supplies the login name. Use it only to admit a
-    # NEW principal according to this org's policy, never to claim an old user.
-    try:
-        email = str(
-            TypeAdapter(EmailStr).validate_python(
-                claims.get("preferred_username") or claims.get("unique_name") or claims.get("email")
-            )
-        ).lower()
-    except (ValidationError, TypeError):
-        raise ExchangeError("invalid_grant", "An Entra email login is required for first-time admission") from None
-    if await db.scalar(select(User.id).where(func.lower(User.email) == email)):
-        raise ExchangeError("invalid_grant", "Existing account requires a verified Entra identity link")
+        if settings.bow_config.features.allow_multiple_organizations:
+            existing_user = await db.scalar(select(User).where(User.id == user_id, User.is_active.is_(True)))
+        if existing_user is None:
+            raise ExchangeError("invalid_grant", "User access is unavailable; contact your administrator")
+        email = (existing_user.email or "").lower()
+    else:
+        # A configured Entra tenant supplies the login name. Use it only to admit a
+        # NEW principal according to this org's policy, never to claim an old user.
+        try:
+            email = str(
+                TypeAdapter(EmailStr).validate_python(
+                    claims.get("preferred_username") or claims.get("unique_name") or claims.get("email")
+                )
+            ).lower()
+        except (ValidationError, TypeError):
+            raise ExchangeError("invalid_grant", "An Entra email login is required for first-time admission") from None
+        if await db.scalar(select(User.id).where(func.lower(User.email) == email)):
+            raise ExchangeError("invalid_grant", "Existing account requires a verified Entra identity link")
     current = await db.scalar(
         select(OAuthClient)
         .where(OAuthClient.id == client.id)
@@ -96,7 +106,7 @@ async def resolve_or_admit(db, service, client, config, claims):
 
     policy = await _org_signup_policy(db, client.organization_id)
     allowed = {str(domain).strip().lower() for domain in policy.get("allowed_domains", [])}
-    if not invite and email.rsplit("@", 1)[1] not in allowed:
+    if not invite and email.rsplit("@", 1)[-1] not in allowed:
         raise ExchangeError("invalid_grant", "An invitation or enabled domain signup policy is required")
     if not invite:
         from app.core.seats import has_seat_for
@@ -105,7 +115,7 @@ async def resolve_or_admit(db, service, client, config, claims):
             raise ExchangeError("invalid_grant", "Organization seat limit reached")
     role = invite.role if invite else str(policy.get("auto_invite_role") or "member")
     helper = PasswordHelper()
-    user = User(
+    user = existing_user or User(
         email=email,
         name=str(claims.get("name") or email.split("@")[0]),
         hashed_password=helper.hash(secrets.token_urlsafe(48)),
@@ -114,19 +124,20 @@ async def resolve_or_admit(db, service, client, config, claims):
         is_superuser=False,
     )
     try:
-        db.add(user)
-        await db.flush()
-        db.add(
-            OAuthAccount(
-                user_id=user.id,
-                oauth_name=config["provider"],
-                account_id="entra:" + subject_key,
-                account_email=email,
-                access_token="",
-                entra_identity=identity,
-                entra_subject=subject_key,
+        if existing_user is None:
+            db.add(user)
+            await db.flush()
+            db.add(
+                OAuthAccount(
+                    user_id=user.id,
+                    oauth_name=config["provider"],
+                    account_id="entra:" + subject_key,
+                    account_email=email,
+                    access_token="",
+                    entra_identity=identity,
+                    entra_subject=subject_key,
+                )
             )
-        )
         if invite:
             invite.user_id = user.id
             invite.email = None
@@ -139,8 +150,9 @@ async def resolve_or_admit(db, service, client, config, claims):
         from app.core.permission_resolver import ensure_system_role_assignment
 
         await ensure_system_role_assignment(db, client.organization_id, user.id, role)
+        admitted_id = user.id
         await db.commit()
     except (IntegrityError, OperationalError):
         await db.rollback()
         raise ExchangeError("temporarily_unavailable", "Concurrent user provisioning; retry", 503) from None
-    return user.id
+    return admitted_id

@@ -15,7 +15,13 @@ from app.ai.prompt_formatters import TableFormatter
 from app.data_sources.routines import build_routine_tables, mysql_variants, with_routines
 from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
-from urllib.parse import quote_plus
+from app.data_sources.clients._sa_url import (
+    MYSQL_DENIED_OPTIONS, MYSQL_PATH_OPTIONS, build_url, render, split_database_options,
+)
+
+# The driver must never answer a server's request for a local file, whatever
+# the connection fields contain.
+_CONNECT_ARGS = {"local_infile": False}
 
 
 class MysqlClient(DataSourceClient):
@@ -42,22 +48,35 @@ class MysqlClient(DataSourceClient):
         self.password = password
 
     @cached_property
+    def _sa_url(self):
+        # "db?charset=utf8mb4": driver options after the name keep working,
+        # minus the ones that redirect the connection or touch local files.
+        database, options = split_database_options(
+            self.database, kind="MySQL", host=self.host,
+            denied=MYSQL_DENIED_OPTIONS, path_options=MYSQL_PATH_OPTIONS,
+        )
+        return build_url(
+            "mysql+pymysql",
+            username=self.user,
+            password=self.password if self.user not in (None, "") else None,
+            host=self.host,
+            port=self.port,
+            database=database,
+            query=options,
+        )
+
+    @cached_property
     def mysql_uri(self):
-        auth_part = ""
-        if self.user is not None:
-            auth_part = quote_plus(self.user)
-            if self.password is not None:
-                auth_part += f":{quote_plus(self.password)}"
-            auth_part += "@"
-        uri = f"mysql+pymysql://{auth_part}{self.host}:{self.port}/{self.database}"
-        return uri
+        """Identity string (pool key, dialect detection); the engine is built
+        from `_sa_url`."""
+        return render(self._sa_url)
 
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a MySQL db."""
         conn = None
         try:
-            engine = get_engine(self.mysql_uri)
+            engine = get_engine(self._sa_url, connect_args=dict(_CONNECT_ARGS))
             conn = engine.connect()
         except IndexingCancelled:
             raise

@@ -6,7 +6,10 @@
 // caller decides how to surface success/failure (a duplicate name, etc.).
 export async function createPublicAgent(
   connectionId: string,
-  opts: { name: string; type: string },
+  // `authModes`: how each person signs in. Sign-in integrations use OAuth;
+  // a source people sign in to with their own username and password (a mail
+  // server) passes its own mode.
+  opts: { name: string; type: string; authModes?: string[] },
 ) {
   return useMyFetch('/data_sources', {
     method: 'POST',
@@ -21,7 +24,7 @@ export async function createPublicAgent(
       // Each person's own account → a connector (prompt-box connectors menu),
       // not an agent in the picker.
       kind: 'connector',
-      allowed_user_auth_modes: ['oauth'],
+      allowed_user_auth_modes: opts.authModes?.length ? opts.authModes : ['oauth'],
     },
   })
 }

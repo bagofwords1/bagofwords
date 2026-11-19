@@ -35,7 +35,11 @@ Policy, per client:
     text, which must be one SELECT or one of a short list of reads (SHOW,
     DESCRIBE, a few PRAGMAs, EXPLAIN of a SELECT; `duckdb_read`), calling
     no file reader, settings or catalog function, and naming only the
-    connection's own tables.
+    connection's own tables. Every DuckDB engine inside the API process
+    (duckdb, csv, qvd, pbix, iceberg, network-dir tables) also gets the
+    engine-tree check of `_duckdb_lockdown.engine_tree_check`: no
+    file-reading function, no string, path or URL used as a table. DuckDB
+    parses untrusted text only on a locked engine.
   * **Splunk**: SPL is not SQL but can write; its writing commands are refused.
   * **SQL with no sqlglot dialect** (Db2 LUW, z/OS and IBM i, Vertica,
     Sybase, SAP HANA, Pinot): one statement, a read verb (SELECT / WITH /
@@ -91,6 +95,34 @@ CLIENT_DIALECTS = {
     for entry in _CLIENT_TABLE.values()
     if entry.profile is not None and entry.profile.kind == "sql"
 }
+
+# DuckDB table functions that open a file, URL or another database by name.
+_DUCKDB_FILE_FUNCTIONS = re.compile(
+    r"^(?:read_\w+|\w+_scan|scan_\w+|glob|sniff_csv|from_csv_auto|parquet_\w+|iceberg_\w+"
+    r"|delta_\w+|st_read\w*|st_drivers|shapefile_meta|load_\w+|import_database|export_database"
+    r"|copy_database|sqlite_attach|postgres_\w+|mysql_\w+|query|query_table|json_execute_serialized_sql"
+    r"|duckdb_logs_parsed)$",
+    re.IGNORECASE,
+)
+# The same, for text that could not be parsed into a tree.
+_DUCKDB_FILE_TEXT = re.compile(
+    r"\b(?:read_\w+|\w+_scan|scan_\w+|glob|sniff_csv|from_csv_auto|parquet_\w+|iceberg_\w+"
+    r"|delta_\w+|st_read\w*|shapefile_meta|load_\w+|import_database|export_database"
+    r"|copy_database|sqlite_attach|postgres_\w+|mysql_\w+|query|query_table"
+    r"|json_execute_serialized_sql)\s*\(",
+    re.IGNORECASE,
+)
+# Which relations a statement may name is decided from the engine's own parse
+# tree (`_duckdb_lockdown.engine_tree_check`), not here: only it tells a
+# string from an identifier the way DuckDB does.
+
+# PRAGMAs that take an argument and only report: the argument names an object.
+_READ_PRAGMAS_WITH_ARGUMENT = {
+    "table_info", "table_xinfo", "table_list", "index_list", "index_info", "index_xinfo",
+    "foreign_key_list", "foreign_key_check", "integrity_check", "quick_check",
+    "show", "storage_info",
+}
+_PRAGMA_CALL = re.compile(r"^\s*PRAGMA\s+(?:[\w\"`\[\]]+\s*\.\s*)?(\w+)\s*\(", re.IGNORECASE)
 
 # Statements sqlglot leaves as an opaque Command that are still reads.
 _READ_COMMANDS = {"SHOW", "DESCRIBE", "DESC", "EXPLAIN", "PRAGMA"}
@@ -890,6 +922,15 @@ def _check_duckdb_client(client, sql: str) -> None:
         _check_duckdb_table(client, _duckdb_table(read.name))
     elif read.select is not None:
         _check_duckdb_select(client, read.select, after=read.verb)
+    if not _file_connectors_unrestricted():
+        # The engine-tree check every in-process DuckDB engine gets (it
+        # refuses, among others, reports of the engine's own state). A
+        # DuckDBClient checks its relations against its own session again
+        # before it runs the statement (`_duckdb_lockdown.check_session_sql`).
+        from app.data_sources.clients._duckdb_lockdown import engine_tree_check
+        from app.data_sources.clients.iceberg_client import IcebergClient
+
+        engine_tree_check(sql, deferred=not isinstance(client, IcebergClient))
 
 
 def _check_duckdb_select(client, sql: str, *, after: Optional[str] = None) -> None:
@@ -950,22 +991,48 @@ def _check_duckdb_table(client, table: tuple[str, str, str]) -> None:
                             f"Table {shown} is not one of the tables of this connection.")
 
 
-def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:
+def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False,
+              relations_checked_by_client: bool = False) -> None:
     """Refuse `sql` unless it is one read in `dialect`. `unknown_lexer`:
     the engine is checked as `dialect` but its own lexer is not known
-    (`check_engine_reading`)."""
+    (`check_engine_reading`).
+
+    `relations_checked_by_client` (DuckDB): the connector that will run
+    the statement checks every relation it names against its own catalog
+    first (a quoted schema or table name can hold any character, and only
+    the session knows which names are real), so an identifier the
+    engine-tree check cannot place is left to it instead of being refused
+    there. It relaxes nothing else."""
     if dialect in _LEXED_DIALECTS:
         _check_postgres(sql, dialect)
         return
 
     check_engine_reading(sql, dialect, unknown_lexer=unknown_lexer)
     if dialect == "duckdb":
+        # Before DuckDB parses the text anywhere: it opens what the import
+        # forms name while it parses them.
         _check_duckdb_statement_words(sql)
     teradata = dialect == "teradata"
+    # DuckDB here always means an engine inside the API process.
+    in_process = dialect == "duckdb" and not _file_connectors_unrestricted()
+    if in_process:
+        # The engine's own parser (on a locked engine) has the first word on
+        # what the statement is and what it names: relations must be tables
+        # (never a string, path or URL), table functions come from a short
+        # built-in list, and nothing reads settings or secrets. sqlglot does
+        # not see dollar-quoted or E'' strings, quoted function names or
+        # comment-split calls the way DuckDB does; this does.
+        from app.data_sources.clients._duckdb_lockdown import engine_tree_check
+
+        engine_tree_check(sql, deferred=relations_checked_by_client)
     if teradata:
         _check_teradata(sql)
 
     def unparsed() -> None:
+        if in_process:
+            # DuckDB's own parser must see exactly one SELECT; the readings
+            # below still apply.
+            _check_unparsed_duckdb(sql)
         if teradata:
             # `CHARACTER SET UNICODE` in a CAST is a read; without this the
             # keyword check would see SET. The leading-verb allowlist above
@@ -983,7 +1050,7 @@ def check_sql(sql: str, dialect: str, *, unknown_lexer: bool = False) -> None:
                 except ReadOnlyViolation as e:
                     raise ReadOnlyViolation(f"{e} (This is how the text reads {reading}.)") from e
 
-    _check_parsed(sql, dialect, unparsed)
+    _check_parsed(sql, dialect, unparsed, in_process=in_process)
 
 
 # Marks some SQL readers take as the start of a comment and others do not.
@@ -1113,10 +1180,11 @@ def _func_names(node) -> list[str]:
     return list(type(node).sql_names())
 
 
-def _check_parsed(sql: str, dialect: str, unparsed) -> None:
+def _check_parsed(sql: str, dialect: str, unparsed, *, in_process: bool = False) -> None:
     """The parsed-path rules on `sql`; `unparsed()` when sqlglot cannot
     parse it (any exception: a parser failure must not let the text run
-    unchecked)."""
+    unchecked). `in_process`: DuckDB inside the API process, which also
+    gets the file-function checks."""
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
 
@@ -1156,9 +1224,15 @@ def _check_parsed(sql: str, dialect: str, unparsed) -> None:
             return
         if verb not in _READ_COMMANDS or (verb == "PRAGMA" and "=" in sql):
             raise ReadOnlyViolation(f"Statement '{verb}' is not allowed. Only SELECT queries are allowed.")
+        if verb == "PRAGMA":
+            _check_pragma(sql)
         if verb == "EXPLAIN":
             # EXPLAIN ANALYZE executes its statement on Postgres/MySQL.
             _keyword_check(getattr(stmt.expression, "this", "") or "")
+        if in_process:
+            # No tree to walk for an opaque command; EXPLAIN ANALYZE runs its
+            # statement here too.
+            _check_duckdb_text(sql)
         return
 
     if isinstance(stmt, exp.Use):
@@ -1175,10 +1249,67 @@ def _check_parsed(sql: str, dialect: str, unparsed) -> None:
         raise ReadOnlyViolation(
             f"Statement '{stmt.key.upper()}' is not allowed. Only SELECT queries are allowed."
         )
-    if isinstance(stmt, exp.Pragma) and "=" in sql:
-        raise ReadOnlyViolation("PRAGMA assignments are not allowed.")
+    if isinstance(stmt, exp.Pragma):
+        if "=" in sql:
+            raise ReadOnlyViolation("PRAGMA assignments are not allowed.")
+        _check_pragma(sql)
 
     _refuse_writes(stmt, dialect)
+    if in_process:
+        _check_duckdb_tree(stmt)
+
+
+def _file_connectors_unrestricted() -> bool:
+    from app.data_sources.clients._duckdb_lockdown import unrestricted
+
+    return unrestricted()
+
+
+_FILE_ACCESS_REFUSED = (
+    "Reading files or URLs directly is not allowed. Query the connection's tables by name."
+)
+
+
+def _check_pragma(sql: str) -> None:
+    """`PRAGMA name(arg)` sets `name` on SQLite just as `PRAGMA name = arg`
+    does. Only the ones whose argument names an object to describe pass."""
+    text = _LITERALS_AND_COMMENTS.sub(lambda m: m.group() if not m.group().startswith(("--", "/*")) else " ", sql)
+    m = _PRAGMA_CALL.match(text)
+    if m and m.group(1).lower() not in _READ_PRAGMAS_WITH_ARGUMENT:
+        raise ReadOnlyViolation(f"PRAGMA {m.group(1)}(...) is not allowed.")
+
+
+def _check_duckdb_tree(stmt) -> None:
+    from sqlglot import exp
+
+    for node in stmt.walk():
+        if isinstance(node, exp.Func):
+            name = node.name if isinstance(node, exp.Anonymous) else node.sql_name()
+            if _DUCKDB_FILE_FUNCTIONS.match(name or ""):
+                raise ReadOnlyViolation(_FILE_ACCESS_REFUSED)
+
+
+def _check_duckdb_text(sql: str) -> None:
+    match = _DUCKDB_FILE_TEXT.search(_LITERALS_AND_COMMENTS.sub(" ", sql))
+    if match:
+        raise ReadOnlyViolation(_FILE_ACCESS_REFUSED)
+
+
+def _check_unparsed_duckdb(sql: str) -> None:
+    """sqlglot could not read it. The engine's own parser, on the locked
+    inspector connection, decides what it is: exactly one SELECT (DESCRIBE /
+    SHOW / SUMMARIZE count as SELECT there)."""
+    import duckdb
+
+    from app.ai.code_execution.duckdb_guard import statement_types
+
+    try:
+        kinds = statement_types(sql)
+    except Exception as e:
+        raise ReadOnlyViolation("The statement could not be parsed. Only SELECT queries are allowed.") from e
+    if kinds != [duckdb.StatementType.SELECT]:
+        raise ReadOnlyViolation("Only a single read-only SELECT statement is allowed.")
+    _check_duckdb_text(sql)
 
 
 def _refuse_writes(stmt, dialect: str) -> None:

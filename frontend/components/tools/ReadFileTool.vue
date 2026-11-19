@@ -1,39 +1,13 @@
 <template>
-  <div class="mt-1">
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : t('tools.readFile.reading', { name: fileLabel }) }}</span>
-        </span>
-        <span
-          v-else
-          class="text-gray-700 dark:text-gray-300 flex items-center"
-          :class="expandable ? 'cursor-pointer' : ''"
-          @click="expandable && (expanded = !expanded)"
-          :aria-expanded="expandable ? expanded : undefined"
-        >
-          <Icon v-if="expandable" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
-          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ modelTitle || t('tools.readFile.read', { name: fileLabel }) }}</span>
-          <span v-if="contentType" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
-          <span v-if="rowCount != null" class="ms-2 text-ink-muted">{{ t('tools.readFile.rowsCols', { rows: rowCount, cols: colCount }) }}</span>
-          <span v-if="truncated" class="ms-2 text-chat-3 text-yellow-600">{{ t('tools.readFile.truncated') }}</span>
-          <span v-if="windowed" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
-          <span v-if="pagesShown" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ pagesTotal
-            ? t('tools.readFile.pagesOfTotal', { shown: pagesShown, total: pagesTotal })
-            : t('tools.readFile.pages', { shown: pagesShown }) }}</span>
-        </span>
-      </div>
-    </Transition>
+  <div class="min-w-0">
+    <!-- The same header geometry in every state and in grouped activity. -->
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>{{ modelTitle || t(isReading ? 'tools.readFile.reading' : 'tools.readFile.read', { name: fileLabel }) }}</template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
 
-    <!-- Visual previews render on success without being asked, the way a
-         chart does in create_data — and the chevron opens by default to say
-         so, since everything below the title row is under it. Plain-text
-         reads stay collapsed. Exception: page-render galleries of a document
-         (preview.derived) are a lossy stand-in, so they wait behind an
-         explicit click. -->
+
+    <!-- Document previews stay inside the tool disclosure. -->
     <button
       v-if="derivedGalleryCollapsed"
       type="button"
@@ -44,7 +18,7 @@
       {{ t('tools.readFile.showPagePreviews', { n: (preview.image_file_ids || []).length }) }}
     </button>
     <Transition name="fade" appear>
-      <div v-if="showVisualPreview && expanded" class="mb-2">
+      <div v-if="showVisualPreview && toolHeaderExpanded" class="mb-2 w-full min-w-0">
         <!-- Inline frame stays compact; the side panel is the full-size view. -->
         <FilePreview
           v-if="preview.kind === 'pdf' || preview.kind === 'image'"
@@ -71,7 +45,12 @@
     <ImagePreviewModal ref="imageModal" />
 
     <Transition name="fade" appear>
-      <div v-if="expanded && expandable" class="text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && expandable" class="mt-2 w-full min-w-0 text-chat-2 text-ink-2">
+        <div v-if="hasError" class="mb-2 break-words text-chat-3 text-ink-muted" data-testid="read-file-error">{{ errorMessage || t('tools.common.failed') }}</div>
+        <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3.5 h-3.5 shrink-0" /><span v-if="contentType" class="px-1 py-0.5 rounded bg-surface-muted">{{ contentType }}</span><span v-if="rowCount != null">{{ t('tools.readFile.rowsCols', { rows: rowCount, cols: colCount }) }}</span><span v-if="truncated" class="text-yellow-600">{{ t('tools.readFile.truncated') }}</span><span v-if="windowed">{{ windowLabel }}</span><span v-if="pagesShown">{{ pagesTotal
+            ? t('tools.readFile.pagesOfTotal', { shown: pagesShown, total: pagesTotal })
+            : t('tools.readFile.pages', { shown: pagesShown }) }}</span></div>
+
         <div v-if="filePath" class="mb-1 text-chat-3 text-gray-500 dark:text-gray-400">
           <span class="text-ink-muted">{{ t('tools.readFile.pathLabel') }}</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
@@ -87,15 +66,20 @@
       </div>
     </Transition>
 
-    <div v-if="status !== 'running' && !hasContent && errorMessage" class="text-chat-2 text-amber-600 mt-1">{{ errorMessage }}</div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
+import { toolErrorText } from '~/utils/toolError'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 import FilePreview from '~/components/FilePreview.vue'
 import FileTablePreview from '~/components/FileTablePreview.vue'
@@ -107,6 +91,7 @@ interface ToolExecution {
   id: string
   tool_name: string
   status: string
+  error_message?: string
   result_summary?: string
   result_json?: any
   arguments_json?: any
@@ -114,6 +99,7 @@ interface ToolExecution {
 
 const props = withDefaults(defineProps<{
   toolExecution: ToolExecution
+  initiallyCollapsed?: boolean
   dataSources?: any[]
   /** Host page has a side panel to open documents into. */
   canExpand?: boolean
@@ -148,6 +134,7 @@ const connIcon = useToolConnectionIcon(
 )
 
 const status = computed(() => props.toolExecution?.status || '')
+const isReading = computed(() => ['running', 'pending', 'queued', 'in_progress'].includes(status.value))
 
 const modelTitle = computed<string>(() => {
   const t = props.toolExecution?.arguments_json?.title
@@ -184,7 +171,8 @@ const rowCount = computed(() => rj.value.row_count)
 const colCount = computed(() => rj.value.col_count)
 const truncated = computed(() => !!rj.value.truncated)
 const sessionFileId = computed(() => rj.value.session_file_id || '')
-const errorMessage = computed(() => rj.value.error || '')
+const errorMessage = computed(() => toolErrorText(rj.value.error || props.toolExecution?.error_message))
+const hasError = computed(() => !isReading.value && (!!errorMessage.value || ['error', 'failed'].includes(status.value)))
 
 // Windowed (byte-range) read state — offset comes from the call args, the
 // cursor from the result. Shown as a badge so paging progress is visible.
@@ -205,7 +193,7 @@ const hasParams = computed(() => {
   if (!src || typeof src !== 'object') return false
   return Object.entries(src).some(([k, v]) => k !== 'title' && v !== null && v !== undefined && v !== '')
 })
-const expandable = computed(() => hasContent.value || hasParams.value)
+const expandable = computed(() => hasError.value || hasContent.value || hasParams.value)
 const previewText = computed(() => {
   if (rj.value.csv) return String(rj.value.csv).slice(0, 4000)
   if (rj.value.text) return String(rj.value.text).slice(0, 4000)
@@ -234,7 +222,7 @@ const derivedGalleryCollapsed = computed(() =>
 )
 
 const showVisualPreview = computed(() => {
-  if (status.value === 'running' || errorMessage.value) return false
+  if (isReading.value || hasError.value) return false
   // Token-backed viewers need an authenticated user; guests get the
   // text-only card they had before previews existed.
   if (props.readonly) return preview.value.kind === 'table'
@@ -247,27 +235,9 @@ function openImage(fileId: string) {
   imageModal.value?.open({ id: fileId, filename: rj.value.file_name || '' })
 }
 
-// Open by default when there is something visual to show (the preview lives
-// under the chevron, so a closed chevron over a visible document would lie);
-// closed for text-only reads, whose 4000-char dump is opt-in. The first click
-// takes over.
-const manualExpanded = ref<boolean | null>(null)
-const expanded = computed<boolean>({
-  get: () => (manualExpanded.value ?? showVisualPreview.value),
-  set: (v) => { manualExpanded.value = v },
-})
 </script>
 
 <style scoped>
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-}
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

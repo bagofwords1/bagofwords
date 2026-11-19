@@ -155,6 +155,31 @@ def _serialize(sql: str) -> dict:
     return tree
 
 
+def serialize_sql(sql: str) -> dict:
+    """DuckDB's serialization of `sql` (`json_serialize_sql`), read on the
+    locked inspector connection: an error comes back as the tree's
+    `error`, as DuckDB reports it."""
+    return _serialize(sql)
+
+
+def statement_types(sql: str) -> list:
+    """The type of each statement DuckDB splits `sql` into, read on the
+    locked inspector connection. Raises what DuckDB raises: a
+    `duckdb.ParserException` for text it cannot parse, a
+    `duckdb.PermissionException` for a statement that would open a file or
+    an address while it is parsed."""
+    with _LOCK:
+        try:
+            return [s.type for s in _connection().extract_statements(sql)]
+        except _TEXT_ERRORS:
+            raise
+        except duckdb.PermissionException:
+            raise
+        except Exception:
+            _drop_connection()
+            raise
+
+
 class _Reader:
     """Collects what a serialized statement reads.
 

@@ -50,6 +50,7 @@ B = {
     "SapBwXmlaClient", "InforOlapClient", "AnalysisServicesClient", "PowerBIClient", "InforEpmClient",
     # Other query text with no declared renderer.
     "PrometheusClient", "AwsCloudWatchClient", "BusinessObjectsClient", "TimbrA2aClient", "GmailMailClient",
+    "SlackMessagesClient", "ExchangeOnpremClient",
     # File / document id or JSON file spec.
     "NetworkDirClient", "GitHubRepoClient", "GitLabRepoClient", "BitbucketRepoClient", "OnedriveClient",
     "SharepointClient", "OnenoteClient", "GraphMailClient", "GraphTeamsClient", "GoogleDriveClient", "S3Client",
@@ -101,7 +102,7 @@ def test_the_enumeration_covers_the_registry_and_the_accelerated_client(classes)
 
     names = [c.__name__ for c in classes]
     assert FastQueryClient in classes
-    assert len(names) == len(set(names)) == 106
+    assert len(names) == len(set(names)) == 108
     # Registry entries without a client_path resolve through the naming fallback.
     for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "mariadb",
                 "clickhouse", "pinot", "druid", "aws_cost", "vertica", "aws_redshift", "sybase"):

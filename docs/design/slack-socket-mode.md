@@ -53,7 +53,7 @@ package, which works as a client. (Alternative: adopt `slack_sdk`'s async
 Backend:
 1. **Refactor** `app/routes/slack_webhook.py`: extract the post-parse body
    (bot filter, event gating, dedupe, team_id→platform lookup, manager
-   handoff) into a shared `handle_slack_event(db, event_data)`; the route
+   handoff) into a shared `handle_slack_event(db, event_data, platform_id=None)`; the route
    keeps only URL-verification challenge + signature concerns.
 2. **New** `app/services/slack_socket_mode_service.py` — modeled on
    `email_poller_service.py`, started from `main.py` under the scheduler

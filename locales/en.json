@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Show World in Agents"
+    "stopLoading": "Stop loading"
   },
   "folderRemoval": {
     "danger": "Danger zone",
@@ -202,6 +201,8 @@
     "newInstructionDesc": "A rule, skill or note for your agents",
     "newAgent": "Agent",
     "newAgentDesc": "Connect data, tools and tables",
+    "importAgent": "Import agent",
+    "importAgentDesc": "From an exported agent zip",
     "searchPlaceholder": "Search everything…",
     "clearSearch": "Clear search",
     "searchAgentInstructions": "Search instructions…",
@@ -597,6 +598,7 @@
     "collapseSidebar": "Collapse sidebar",
     "resizeSidebar": "Resize sidebar",
     "switchOrganization": "Switch organization",
+    "createOrganization": "Create organization",
     "version": "Version",
     "loggedInAs": "Logged in as {name}",
     "prompts": "Prompts",
@@ -622,7 +624,7 @@
     "content": {
       "low_confidence": {
         "title": "Low-confidence answers",
-        "body": "{n} answers on this agent were scored below 3/5 in the past week. Run training to close the gaps."
+        "body": "{n} answers on this agent were scored below 3/5 in the past week. Improve it in training mode to close the gaps."
       },
       "slow_query": {
         "title": "Slow data queries (>{secs}s)",
@@ -630,7 +632,10 @@
       },
       "schema_changed": {
         "title": "Connection schema changed",
-        "body": "Tables or columns changed on this connection. Re-run evals or training to keep instructions accurate."
+        "body": "Tables or columns changed on this connection. Review it in training mode to keep instructions accurate.",
+        "title_named": "{agent}: schema changed on {connection}",
+        "title_agent": "{agent}: schema changed",
+        "body_counts": "Tables added: {added} · removed: {removed} · changed: {modified}. Check the agent's tables and instructions."
       },
       "instruction_suggestion": {
         "body_ai": "AI instruction change awaiting review.",
@@ -684,12 +689,125 @@
       "access_granted": {
         "title": "You can now view {dashboard}",
         "body": "Your request to view “{dashboard}” was approved."
+      },
+      "nightly_learning": {
+        "title": "{agent}: overnight learning",
+        "title_learned": "{agent}: new overnight learnings ({n})",
+        "title_cleanup": "{agent}: overnight suggestion cleanup"
+      },
+      "query_error": {
+        "title": "Data query errors",
+        "body": "Data queries on this agent failed. Improve it in training mode to close the gap."
       }
     },
     "checkin": {
       "badge": "Follow-up",
       "openReport": "Open report",
       "assistantFallback": "AI Analyst"
+    },
+    "filterAgents": "Agents",
+    "filterShares": "Shares",
+    "filterRuns": "Runs",
+    "filterConnections": "Connections",
+    "detail": {
+      "resolved": "Handled",
+      "dismissed": "Handled",
+      "open": "Open",
+      "reviewTables": "Review tables",
+      "reviewInstruction": "Review instruction",
+      "viewQueries": "View queries",
+      "openEvals": "Open evals",
+      "viewChecks": "View checks",
+      "openInReview": "Open in Review",
+      "connection": "Connection",
+      "by": "by {name}",
+      "reliabilityStarted": "A reliability check started {time}: evals run, then training if they fail.",
+      "history": "Earlier changes",
+      "historyEntry": "{added} added · {removed} removed · {modified} changed",
+      "showDetails": "Details",
+      "hideDetails": "Hide details"
+    },
+    "diff": {
+      "addedTables": "Tables added",
+      "removedTables": "Tables removed",
+      "changedTables": "Tables changed",
+      "newInactive": "New on the connection, not active for this agent",
+      "more": "+{n} more tables"
+    },
+    "clearHandled": "Clear handled",
+    "handled": {
+      "marked": "{name} marked it as handled",
+      "suggestion_reviewed": "{name} reviewed the suggestion",
+      "suggestion_rejected": "{name} rejected the suggestion",
+      "suggestion_voided": "The instruction was changed",
+      "training_passed": "The training {name} ran passed",
+      "eval_passed": "The eval {name} ran passed",
+      "condition_cleared": "The issue cleared",
+      "someone": "Someone"
+    }
+  },
+  "reviewFeed": {
+    "title": "Review",
+    "subtitle": "A shared queue for the agent managers: what one person handles is closed for everyone.",
+    "refresh": "Refresh",
+    "close": "Close",
+    "search": "Search…",
+    "allAgents": "All agents",
+    "resolvedFilter": "Handled",
+    "emptyTitle": "You're all caught up",
+    "emptyBody": "Nothing needs review. New suggestions, schema changes and quality signals will land here.",
+    "emptyBodyAgent": "Nothing needs review for this agent. New suggestions, schema changes and quality signals will land here.",
+    "changes": "{n} changes",
+    "running": "Running",
+    "resolved": "Handled",
+    "dismiss": "Mark as handled",
+    "agent": "Agent",
+    "nAgents": "{n} agents",
+    "noEvals": "No evals for this agent. Add a test case first.",
+    "nothingToRun": "Nothing to run",
+    "actionUnavailable": "Action unavailable",
+    "evalStarted": "Eval started",
+    "done": "Done",
+    "actionFailed": "Action failed",
+    "dismissFailed": "Failed to dismiss",
+    "chipSuggestions": "Suggestions",
+    "chipSchema": "Schema",
+    "chipSlow": "Slow",
+    "chipLowConfidence": "Low confidence",
+    "typeSuggestion": "Suggestion",
+    "typeSchema": "Schema change",
+    "typeSlow": "Slow query",
+    "typeLowConfidence": "Low confidence",
+    "typeQueryError": "Query error",
+    "actionReview": "Review",
+    "actionRunEval": "Run eval",
+    "focusResolved": "This item was already handled.",
+    "focusGone": "This item is no longer open. It was resolved or closed.",
+    "all": "All",
+    "openN": "{n} open",
+    "multipleAgents": "Several agents",
+    "more": "More actions",
+    "times": "{n} times",
+    "actionTrainInChat": "Improve in training mode",
+    "train": {
+      "schema": "The schema of the {connection} connection changed:\n{changes}\n\nGo over this agent's instructions and saved queries that refer to these tables or columns, and suggest updates so answers stay correct.",
+      "schemaGeneric": "The schema of the {connection} connection changed. Go over this agent's instructions and saved queries that refer to the changed tables or columns, and suggest updates so answers stay correct.",
+      "tableAdded": "- New table: {table}",
+      "tableRemoved": "- Removed table: {table}",
+      "colsAdded": "added columns {cols}",
+      "colsRemoved": "removed columns {cols}",
+      "typeChanged": "{col} changed type from {from} to {to}",
+      "lowConfidence": "These questions to this agent got low-scored answers:\n{examples}\n\nFind what is missing or unclear in the instructions and suggest instructions that close these gaps.",
+      "lowConfidenceGeneric": "{n} answers on this agent were scored below 3/5 in the past week. Review recent conversations, find what is missing or unclear in the instructions, and suggest instructions that close these gaps.",
+      "slow": "These data queries on this agent ran slowly:\n{examples}\n\nFind the common cause and suggest guardrail instructions (for example, require a filter or avoid full scans) so queries stay fast.",
+      "slowGeneric": "Data queries on this agent have been running slowly. Find the common cause and suggest guardrail instructions (for example, require a filter or avoid full scans) so queries stay fast.",
+      "slowLine": "{q} ({s}s)",
+      "error": "These data queries on this agent failed:\n{examples}\n\nFind the cause and suggest instructions so the agent writes valid queries.",
+      "errorGeneric": "Data queries on this agent have been failing. Find the cause and suggest instructions so the agent writes valid queries.",
+      "errorLine": "{q}: {error}",
+      "generic": "Review recent conversations on this agent and suggest instructions that improve its answers.",
+      "schemaUnnamed": "This agent's connection schema changed. Go over the agent's instructions and saved queries that refer to changed tables or columns, and suggest updates so answers stay correct.",
+      "more": "- …and {n} more changes"
     }
   },
   "auth": {
@@ -907,6 +1025,15 @@
         "degraded": "fallback summary (no model summary)",
         "cancel": "Cancel",
         "dismiss": "Dismiss"
+      },
+      "clear": {
+        "description": "Start a fresh context — earlier turns stay visible, the agent stops seeing them",
+        "usage": "/clear",
+        "pending": "Will clear the context when the agent finishes this run",
+        "running": "Clearing context…",
+        "done": "Context cleared · the agent starts fresh from your next message",
+        "nothing": "Nothing to clear yet",
+        "failed": "Couldn't clear the context"
       }
     }
   },
@@ -1358,7 +1485,8 @@
       "copyTurn": "Copy this turn as JSON",
       "copied": "Trace JSON copied to clipboard",
       "failed": "Couldn't export the trace"
-    }
+    },
+    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage"
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1392,6 +1520,9 @@
     "stepRef": "→ Step: {id}",
     "viewAgentTrace": "View Agent Trace",
     "followUp": "Follow up",
+    "rerun": "Rerun",
+    "rerunTooltip": "Run this prompt again as a new message",
+    "rerunQueuedTooltip": "Add to the queue: runs again after the current response",
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
@@ -1430,7 +1561,76 @@
     "compactionSummaryHint": "The agent sees this summary instead of the turns above the line.",
     "compactingContext": "Compacting context…",
     "compactionTurns": "{turns} turns",
-    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens"
+    "compactionLast": "Last compaction: history ~{before} → ~{after} tokens",
+    "contextClearedDivider": "Context cleared",
+    "contextClearedDividerHint": "The agent does not see anything above this line",
+    "runFold": {
+      "groups": {
+        "browser": "Used the browser",
+        "search": "Searched",
+        "files": "Read files",
+        "inspect": "Inspected data",
+        "data": "Ran {count} queries",
+        "create": "Created and updated results",
+        "tools": "Used tools",
+        "results": "Ran {count} queries"
+      },
+      "workedFor": "Worked for {duration}",
+      "worked": "Worked",
+      "working": "Working",
+      "workingFor": "Working for {duration}",
+      "viewSteps": "View steps",
+      "hideSteps": "Hide steps",
+      "checks": "{count} checks",
+      "actions": "{count} actions",
+      "openTable": "Open table",
+      "openChart": "Open chart",
+      "steps": {
+        "inspectedTable": "Checked the {name} table",
+        "inspectedTables": "Checked {count} tables",
+        "lookedForTables": "Looked for tables matching {name}",
+        "inspectedEntity": "Checked {name}",
+        "inspectedData": "Checked the data",
+        "createdTable": "Created the table “{title}”",
+        "createdTableUntitled": "Created a table",
+        "createdChart": "Created the chart “{title}”",
+        "createdChartUntitled": "Created a chart",
+        "calculated": "Calculated {title}:",
+        "calculatedUntitled": "Calculated a value:",
+        "dataFailed": "Could not create “{title}”",
+        "dataFailedUntitled": "Could not create the data",
+        "preparedData": "Prepared “{title}”",
+        "preparedDataUntitled": "Prepared the data",
+        "creatingData": "Creating “{title}”…",
+        "creatingDataUntitled": "Creating the data…",
+        "searched": "Searched for information",
+        "read": "Read reference material",
+        "lookedUp": "Looked up details",
+        "usedTool": "Used a connected tool",
+        "browsed": "Browsed a page",
+        "created": "Created an item",
+        "updated": "Made an update",
+        "ran": "Ran {tool}"
+      }
+    },
+    "citations": {
+      "untitled": "Untitled result",
+      "openSource": "Open {title}",
+      "moreRows": "+{count} more rows",
+      "moreColumns": "+{count} more columns",
+      "noPreview": "No preview available",
+      "chipLabel": "Source {number}: {title}",
+      "chipLabelUntitled": "Source {number}",
+      "tabs": {
+        "chart": "Chart",
+        "data": "Data",
+        "code": "Code"
+      }
+    },
+    "piiBlocked": "PII protection blocked this request to {model} (rule: {rules}).",
+    "piiBlockedNoModel": "PII protection blocked this request (rule: {rules}).",
+    "piiDetectorUnavailable": "PII protection blocked this request to {model}: the PII detector is unavailable.",
+    "piiDetectorUnavailableNoModel": "PII protection blocked this request: the PII detector is unavailable."
   },
   "tools": {
     "common": {
@@ -1463,6 +1663,8 @@
       "bowSource": "BOW",
       "creating": "Creating Data",
       "created": "Created Data",
+      "creatingTitled": "Creating “{title}”…",
+      "createdTitled": "Created “{title}”",
       "create": "Create Data",
       "generatingCode": "Generating Code",
       "generatedCode": "Generated Code",
@@ -2857,6 +3059,35 @@
       "notLicensed": "Enterprise"
     },
     "auditLogs": "Audit Logs",
+    "systemLogsTab": "System logs",
+    "systemLogs": {
+      "title": "System logs",
+      "subtitle": "The server's own log output, for troubleshooting. Only admins can see it.",
+      "retention": "Logs are kept for {days} days, up to {max} in total; above that the oldest are deleted first. {used} used.",
+      "droppedNotice": "{count} lines on this instance could not be saved because the log directory could not be written to.",
+      "writeError": "This instance cannot write to the log directory ({directory}). Check that it exists and is writable.",
+      "searchPlaceholder": "Search messages…",
+      "from": "From",
+      "to": "To",
+      "allInstances": "All instances",
+      "thisInstance": "{id} (this instance)",
+      "errorsOnly": "Errors only",
+      "autoRefresh": "Auto-refresh",
+      "clearFilters": "Clear filters",
+      "refresh": "Refresh",
+      "rangeInvalid": "“From” must be before “To”.",
+      "empty": "No log lines match yet.",
+      "count": "Lines shown: {count}",
+      "countTruncated": "Newest {count} lines shown. Narrow the filters to see older ones.",
+      "deleteAll": "Delete all logs",
+      "deleteTitle": "Delete all system logs?",
+      "deleteMessage": "This permanently deletes every stored log line from every instance. New lines keep being recorded.",
+      "deleteConfirm": "Delete all",
+      "cancel": "Cancel",
+      "deletedToast": "All system logs were deleted",
+      "deleteFailed": "Could not delete the logs",
+      "loadFailed": "Could not load system logs"
+    },
     "integrations": {
       "title": "Channels",
       "subtitle": "Configure external platforms like Slack and Microsoft Teams for your organization.",
@@ -3352,10 +3583,12 @@
       "colLastLogin": "Last login"
     },
     "organizationName": "Organization name",
+    "organizationNameRequired": "Organization name can't be empty.",
     "organizationIcon": "Organization icon",
     "uploadIcon": "Upload Icon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI analyst name",
+    "aiAnalystNameRequired": "AI analyst name can't be empty.",
     "showCredit": "Show \"Made with BOW\" credit",
     "language": {
       "title": "Language",
@@ -3969,6 +4202,10 @@
         "allow_access_requests": {
           "name": "Allow access requests",
           "description": "Let members ask a dashboard's editors for view access from the no-access page. When off, the page just names the owner to ask, and no new requests can be sent; requests already sent stay answerable."
+        },
+        "show_world": {
+          "name": "World view",
+          "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
         }
       }
     },
@@ -4177,7 +4414,10 @@
         "cachingTooltip": "Reuse cached input where the provider supports it, which lowers cost for repeated questions.",
         "formatFoundryDecision1": "Microsoft Decision-1 (Foundry)",
         "providerTileHint": "Decision models"
-      }
+      },
+      "piiBadge": "PII: {policy}",
+      "piiBadgeExempt": "PII: unredacted",
+      "piiBadgeTooltip": "The PII policy this provider's prompts get. Change it in Settings → PII Protection."
     },
     "licensePage": {
       "title": "License",
@@ -4271,45 +4511,97 @@
     "piiTab": "PII Protection",
     "pii": {
       "title": "PII Protection",
-      "subtitle": "Redact personal data from prompts before they are sent to any LLM provider. Rules run on the full assembled prompt — the user message, schema samples, data previews and uploaded file text.",
+      "subtitle": "Redact personal data from prompts before they are sent to an LLM provider. Rules run on the user's prompt and the data the agent reads: query results, data previews, uploaded file text and the conversation.",
       "enterpriseTitle": "Enterprise feature",
       "enterpriseBody": "PII protection is available on the Enterprise plan. Contact your administrator to enable it.",
       "masterLabel": "Enable PII protection",
-      "masterDesc": "When on, matching text is redacted from every outbound LLM prompt for this workspace.",
-      "modeLabel": "Default action when PII is detected",
-      "modeReplace": "Replace with a token",
-      "modeReplaceDesc": "Swap each match with its replacement token and continue. Override per rule below.",
-      "modeBlock": "Block the request",
-      "modeBlockDesc": "Refuse to send the prompt if any PII is found. Override per rule below.",
-      "builtinTitle": "Built-in rules",
-      "builtinDesc": "Prebuilt detectors for common PII. Toggle each and customize its replacement token.",
+      "masterDesc": "When on, each LLM provider's prompts are redacted according to its policy. The user's prompt and the data are redacted; instructions and schemas reach the model as written unless a policy redacts them too.",
       "customTitle": "Custom rules",
-      "customDesc": "Define your own detectors. A rule can hold multiple patterns (regular expressions) — a match on any one triggers the rule.",
       "addRule": "Add rule",
       "ruleName": "Rule name",
       "ruleNamePlaceholder": "e.g. Employee ID",
       "replacement": "Replacement",
-      "patterns": "Patterns (regex)",
       "addPattern": "Add pattern",
       "patternPlaceholder": "e.g. \\bEMP-\\d+\\b",
       "removeRule": "Remove",
       "noCustomRules": "No custom rules yet.",
       "testTitle": "Test your rules",
-      "testDesc": "Paste sample text to preview how it will be redacted with the current rules.",
       "testPlaceholder": "Paste text containing sample PII…",
-      "testButton": "Preview redaction",
-      "testResult": "Result",
       "testBlocked": "This prompt would be BLOCKED (PII detected).",
       "testMatches": "Matched: {rules}",
       "testNoMatches": "No PII detected in the sample.",
       "saved": "PII settings saved",
       "saveError": "Failed to save PII settings",
       "patternRequired": "Each rule needs at least one pattern.",
-      "action": "Action",
       "actionReplace": "Replace",
       "actionBlock": "Block",
       "blocksRequest": "Blocks the request",
-      "patternCount": "{n} pattern | {n} patterns"
+      "patternCount": "{n} pattern | {n} patterns",
+      "providersTitle": "Provider policies",
+      "providersDesc": "Choose the policy each LLM provider gets. Providers without a choice use Default. Exempt sends prompts unredacted, for example to a self-hosted or in-VPC model you trust. What people see in the app is masked with the Default policy either way.",
+      "noProviders": "No LLM providers yet.",
+      "providerPolicyFor": "PII policy for {name}",
+      "exemptOption": "Exempt (send unredacted)",
+      "policiesTitle": "Policies",
+      "newPolicy": "New policy",
+      "policyName": "Policy name",
+      "deletePolicy": "Delete policy",
+      "deletePolicyConfirm": "Delete the policy \"{policy}\"? Providers that use it go back to Default.",
+      "defaultPolicy": "Default",
+      "defaultPolicyNote": "Default applies to every provider without a policy of its own, and masks what people see in the app. It can't be renamed or deleted.",
+      "redactContextLabel": "Also redact instructions and schemas",
+      "redactContextDesc": "Off: only the user's prompt and the data (query results, files, conversation) are redacted, and instructions, schemas and other agent context reach the model as written. On: everything is redacted.",
+      "customDescShared": "Define your own detectors once, with one or more patterns (regular expressions). Each policy chooses whether to use them and what they do.",
+      "testFailed": "Test failed",
+      "actionPseudonymize": "Hide from the model",
+      "actionMask": "Mask",
+      "masksValue": "Keeps the last 4 characters",
+      "pseudonymizesValue": "People still see the value",
+      "detectorTitle": "Names, places and organizations",
+      "detectorUnavailable": "Detecting names, places and organizations needs a PII detector, and none is set up on this instance. Ask your administrator to install the backend's pii extra or to configure a Presidio service.",
+      "detectorErrorLabel": "If the detector is unavailable",
+      "detectorErrorDesc": "What happens to a request when the detector can't check it.",
+      "detectorErrorBlock": "Block the request",
+      "detectorErrorRegexOnly": "Send it with pattern rules only",
+      "testDetectorUnavailable": "The PII detector is unavailable, so this text would be blocked.",
+      "policiesListDesc": "A policy is a set of rules for what a model may see. Open a policy to change its rules.",
+      "rulesOn": "{n} rule on | {n} rules on",
+      "usedBy": "Used by {providers}.",
+      "usedByNone": "Not used by any provider.",
+      "policyNamePlaceholder": "e.g. Strict",
+      "copyFrom": "Start from a copy of",
+      "newRuleTitle": "New custom rule",
+      "editRuleTitle": "Edit custom rule",
+      "patterns": "Patterns",
+      "patternsHelp": "Regular expressions. Text that matches any of them is protected.",
+      "deleteRuleTitle": "Delete custom rule",
+      "deleteRuleBody": "Delete \"{name}\"? Every policy stops using it.",
+      "backToPolicies": "All policies",
+      "policyHeading": "{policy} policy",
+      "policyNotFound": "This policy no longer exists.",
+      "offNotice": "PII protection is off, so this policy is not applied yet. Turn it on from the policies page.",
+      "rulesTitle": "What to protect",
+      "rulesDesc": "Turn on what this policy should catch, and choose what the model sees in its place.",
+      "groupPatterns": "Common identifiers",
+      "detectorNote": "Found by a language model, not a pattern. Checked in the user's prompt and the data, never in instructions or schemas.",
+      "manageCustom": "Manage custom rules",
+      "ruleOff": "Off",
+      "modelSees": "What the model sees",
+      "testLiveDesc": "Type sample text to see what a model would receive under this policy. It updates as you type and as you change the rules.",
+      "testInputLabel": "Sample text",
+      "advancedTitle": "Advanced",
+      "sensitivityFor": "Sensitivity: {name}",
+      "sensitivityDesc": "Higher sensitivity catches more, and flags more text that is not personal data.",
+      "sensitivityHigh": "High: catches more",
+      "sensitivityBalanced": "Balanced",
+      "sensitivityLow": "Low: fewer false matches",
+      "sensitivityCustom": "Custom ({n})",
+      "entities": {
+        "PERSON": "Person name",
+        "LOCATION": "Location",
+        "ORGANIZATION": "Organization",
+        "NRP": "Nationality, religious or political group"
+      }
     },
     "adminPages": {
       "members": "Invite people to the workspace and manage their role, groups and access.",
@@ -4410,7 +4702,9 @@
       "readOnly": "Only an instance administrator can change this list on an instance with several organizations.",
       "duplicate": "This site is already in the list.",
       "invalidFormat": "Enter an address that starts with https://, without a path. For example: https://portal.example.com",
-      "publicNote": "Anyone can see these addresses: browsers receive them with every page."
+      "publicNote": "Anyone can see these addresses: browsers receive them with every page.",
+      "confirmRemoveTitle": "Remove this site?",
+      "confirmRemoveBody": "{site} will no longer be able to show BOW. Pages there that show BOW stop working right away."
     }
   },
   "data": {
@@ -4831,6 +5125,11 @@
     "setupGuideTitle": "Setup steps",
     "setupGuideCopy": "Copy",
     "setupGuideCopied": "Copied",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "No key is stored. Queries run as the Google identity configured on the server: an attached service account or a Workload Identity Federation configuration."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4927,10 +5226,21 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Document library name, or * for all visible libraries. Blank selects the default library in Modern REST mode only."
     },
+    "exchangeOnprem": {
+      "urlTitle": "Exchange server URL",
+      "urlDescription": "Address of your Exchange server, e.g. https://mail.example.com. The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out.",
+      "sharedTitle": "Shared mailboxes",
+      "sharedDescription": "Optional. Addresses of shared or team mailboxes to include, separated by commas, e.g. support@example.com, sales@example.com. Exchange decides who may open each one: people only see the mailboxes their account already has access to.",
+      "ownTitle": "Include the account's own mailbox",
+      "ownDescription": "Turn off when signing in with a service account whose own mailbox is not relevant. The first shared mailbox then becomes the default."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "qlikCloud": {
+      "appFilterDescription": "Optional comma-separated app names or IDs within the selected spaces. Empty includes all matching apps. Use IDs for names containing commas."
     },
     "qlikOnPrem": {
       "appFilterTitle": "App Filter",
@@ -5076,6 +5386,22 @@
     "madeWith": "Made with {brand}",
     "fork": "Fork"
   },
+  "sharedConversation": {
+    "loading": "Loading conversation…",
+    "signInTitle": "Sign in required",
+    "signInBody": "You need to sign in to view this conversation.",
+    "signIn": "Sign in",
+    "deniedTitle": "Access denied",
+    "deniedBody": "You don't have permission to view this conversation. Ask the owner to share it with you.",
+    "goHome": "Go home",
+    "notFoundTitle": "Conversation not found",
+    "notFoundBody": "This conversation may have been unshared or doesn't exist.",
+    "byAuthor": "by {name}",
+    "fork": "Fork",
+    "forking": "Forking…",
+    "loadOlder": "Load older messages",
+    "poweredBy": "Powered by {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Command rules require a remote shell tool.",
     "shell_rules.invalid": "Invalid command rules.",
@@ -5120,6 +5446,9 @@
     "connection.table_preview_failed": "Preview failed: {reason}",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
+    "system_logs.instance_admin_required": "Only an instance administrator can use system logs.",
+    "system_logs.invalid_range": "The start time must be before the end time.",
+    "system_logs.delete_failed": "The log files in {directory} could not be deleted. Check that the directory exists and is writable.",
     "verification.invalid": "Invalid or expired verification token",
     "body.invalid_json": "Invalid JSON body",
     "organization.not_found": "Organization not found",
@@ -5240,7 +5569,28 @@
     "frame_ancestors.too_many": "You can list at most {max} sites.",
     "connection.query_not_found": "Query not found on this connection.",
     "connection.query_finished": "This query has already finished ({status}).",
-    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit."
+    "connection.query_not_killable": "This query can't be stopped from BOW: its client enforces its own time limit.",
+    "connection.slack_channels_not_slack": "Channel selection is only available for Slack connections.",
+    "connection.slack_channels_too_many": "At most {max} channels per agent.",
+    "connection.slack_channels_not_ids": "These aren't Slack channel ids: {ids}",
+    "connection.slack_channels_unavailable": "Slack didn't answer: {detail}",
+    "review_item.not_found": "Review item not found",
+    "agent_import.invalid_bundle": "This file is not a valid agent export bundle.",
+    "agent_import.name_taken": "An agent named “{name}” already exists.",
+    "agent_import.no_connection": "Map at least one connection to import the agent.",
+    "agent_import.failed": "The agent could not be imported.",
+    "account_link_required": "An account with this email already exists. Ask your administrator to link it.",
+    "invite_link_required": "This sign-in method cannot accept your invitation. Use the invite link from your email, or ask your administrator.",
+    "integration.connected_elsewhere": "This account is already connected to another organization on this deployment. Disconnect it there first.",
+    "organization.multiple_not_enabled": "This deployment allows only one organization.",
+    "organization.create_instance_admin_required": "Only an instance administrator can create an organization.",
+    "organization.create_license_required": "Creating another organization requires an enterprise license.",
+    "organization.name_required": "Enter a name for the organization.",
+    "organization.name_too_long": "The organization name can be at most {max} characters.",
+    "organization.name_taken": "An organization named “{name}” already exists.",
+    "organization.signup_domains_instance_admin_required": "Only an instance administrator can assign sign-up domains to an organization.",
+    "organization.signup_domain_claimed": "The domain {domain} is already assigned to another organization.",
+    "organization.member_instance_admin": "This account is an instance administrator. Only an instance administrator can add it to an organization."
   },
   "email": {
     "dashboardShare": {
@@ -5999,7 +6349,8 @@
       "toastDeleted": "Test case deleted",
       "toastCreated": "Test case created",
       "toastDeleteFailed": "Failed to delete test case",
-      "saveFailed": "Couldn't save the test case"
+      "saveFailed": "Couldn't save the test case",
+      "runFailed": "Test case saved, but the run couldn't start"
     },
     "filter": {
       "allSuites": "All suites",
@@ -7893,6 +8244,23 @@
     "modelDesc": "Each viewer's default follows their group and the organization (and Auto routing when it is on). A model a viewer can't use falls back to their default.",
     "bubbleUsesAgents": "The agents above"
   },
+  "dashboardDelete": {
+    "action": "Delete",
+    "title": "Delete this dashboard?",
+    "titleDoc": "Delete this document?",
+    "titleSlides": "Delete this presentation?",
+    "body": "{title} and all of its versions will be deleted. The conversations it was made in are kept.",
+    "publishedWarning": "It is published: its link will stop working for everyone who has it.",
+    "sharedWarning": "It is shared: everyone it is shared with loses access.",
+    "scheduleWarning": "Its scheduled refresh stops, and subscribers get no more emails.",
+    "confirm": "Delete",
+    "deleted": "{title} was deleted",
+    "failed": "Could not delete it",
+    "settingsTitle": "Delete this dashboard",
+    "settingsTitleDoc": "Delete this document",
+    "settingsTitleSlides": "Delete this presentation",
+    "settingsDesc": "Removes it and all of its versions for everyone. You will be asked to confirm."
+  },
   "dashboardStart": {
     "title": "No dashboard here yet",
     "subtitle": "Create one in this conversation, or keep working on one you can edit.",
@@ -8156,7 +8524,12 @@
     "updateFailed": "Failed to update permissions",
     "addIncomplete": "Some memberships or permissions could not be saved. Review the member list and retry.",
     "added": "Members added",
-    "addFailed": "Failed to add members"
+    "addFailed": "Failed to add members",
+    "inherited": "Inherited access",
+    "inheritedHint": "These people and groups reach this agent through a folder or connection. Change their access at the source.",
+    "viaFolder": "Via folder {name}",
+    "viaConnection": "Via connection {name}",
+    "inheritedHidden": "Others may have access through a folder or connection you don't manage."
   },
   "productUpdates": {
     "checkbox": "Send me product updates",
@@ -8247,5 +8620,155 @@
       "stale": "The worker running this query stopped responding; its slot was released.",
       "busy": "No slot opened in time: the connection was at its concurrent-query limit."
     }
+  },
+  "slackChannels": {
+    "button": "Channels",
+    "title": "Slack channels for this agent",
+    "subtitle": "Choose which Slack channels this agent reads.",
+    "allChannels": "All my channels",
+    "allChannelsHint": "Every channel each person belongs to.",
+    "selectedChannels": "Only selected channels",
+    "connectRequired": "Sign in with Slack on this connection to choose channels.",
+    "searchPlaceholder": "Search channels",
+    "notYourChannel": "not in your Slack",
+    "noMatch": "No channels match.",
+    "selectedCount": "{n} selected",
+    "includeDms": "Include direct messages",
+    "includeDmsHint": "Also read each person's DMs and group DMs.",
+    "membershipNote": "Each person still sees only the channels they belong to.",
+    "saveFailed": "Couldn't save the channels",
+    "saved": "Channels saved",
+    "summaryAll": "Reads all channels and DMs",
+    "summaryAllNoDms": "Reads all channels, no DMs",
+    "summarySome": "Reads {names}",
+    "summarySomeWithDms": "Reads {names} and DMs",
+    "loadFailed": "Couldn't load this agent's channels. Close and try again.",
+    "privateChannel": "Private channel",
+    "privateCount": "{n} private channel | {n} private channels"
+  },
+  "agentClone": {
+    "menu": "Clone agent",
+    "titleFor": "Clone {name}",
+    "name": "Name",
+    "description": "Description",
+    "defaultName": "Copy of {name}",
+    "alwaysIncluded": "Always included:",
+    "always": {
+      "settings": "Settings",
+      "tables": "Tables",
+      "tools": "Tools",
+      "prompts": "Prompts",
+      "files": "Files"
+    },
+    "parts": {
+      "instructions": "Instructions",
+      "access": "Access"
+    },
+    "choices": {
+      "copy": "Copy",
+      "link": "Share",
+      "none": "None",
+      "sameAccess": "Same people",
+      "onlyMe": "Only me"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Its own copies, edited separately",
+        "link": "Same instructions; edits show on both",
+        "none": "Global instructions only"
+      },
+      "access": {
+        "same": "Same people and permissions",
+        "only_me": "Only you, until you share it"
+      }
+    },
+    "footnote": "Saved queries, evals, lists, conversations and dashboards aren't cloned. The new agent starts in Training (in development if this one is).",
+    "submit": "Clone",
+    "cloning": "Cloning…",
+    "nameTaken": "An agent with this name already exists.",
+    "instructionsChanged": "Instructions changed while cloning. Try again.",
+    "linkBlocked": "These instructions are also used by agents or folders you don't manage, so they can't be shared. Copy them instead, or ask someone who manages them.",
+    "linkPending": "These instructions have changes waiting for approval, so they can't be shared yet. Approve or reject those changes first, or copy the instructions instead.",
+    "notInFolder": "You don't manage the folder of {name}, so the new agent was created at the top level.",
+    "done": "Created {name}",
+    "failed": "Couldn't clone the agent"
+  },
+  "agentImport": {
+    "title": "Import Agent",
+    "subtitle": "Recreate an agent from an export zip: its tables, instructions, evals and saved queries.",
+    "stepUpload": "Upload",
+    "stepConnections": "Connections",
+    "stepReview": "Review",
+    "stepTables": "Tables",
+    "dropHere": "Drop the agent export zip here, or click to choose",
+    "dropHint": "The .zip downloaded with Export agent",
+    "reading": "Reading bundle…",
+    "mapTitle": "Map connections",
+    "mapHint": "The bundle names connections from the environment it came from. Pick the connection to use here for each one.",
+    "tablesInBundle": "{n} tables in bundle",
+    "toolsInBundle": "{n} tools",
+    "searchConnections": "Search connections…",
+    "skipConnection": "Skip this connection",
+    "willSkip": "Skipped — its tables and tools are left out",
+    "noAccess": "You cannot build agents on this connection",
+    "indexingPending": "This connection is still indexing — tables apply once it finishes",
+    "allTablesFound": "All {n} tables found",
+    "someTablesFound": "{found} of {total} tables found",
+    "showMissing": "which are missing?",
+    "autoMatched": "matched by name",
+    "createConnection": "Create new connection",
+    "continue": "Continue",
+    "back": "Back",
+    "mapAtLeastOne": "Map at least one connection",
+    "nameLabel": "Agent name",
+    "nameTaken": "An agent named “{name}” already exists — choose another name",
+    "nameRenamed": "An agent named “{name}” already exists, so the import gets a new name",
+    "whatToImport": "What to import",
+    "tablesLine": "{n} active tables on {conns} connection(s)",
+    "includeInstructions": "{n} instructions ({folders} folders)",
+    "includeEvals": "{n} eval suites ({cases} cases)",
+    "includeQueries": "{n} saved queries",
+    "includeStarters": "{n} conversation starters",
+    "publishLabel": "Publish imported instructions",
+    "publishHint": "Off: instructions and queries arrive as drafts for review. On: each keeps its exported status.",
+    "skippedConnections": "Skipped: {names}",
+    "membersLeftOut": "{n} member(s) from the bundle do not exist here and will be left out",
+    "importButton": "Import agent",
+    "doneTitle": "“{name}” was imported",
+    "doneLine": "{tables} active tables · {instructions} instructions · {evals} eval suites · {queries} saved queries",
+    "finish": "Finish",
+    "openAgent": "Open agent",
+    "previewFailed": "Could not read the bundle",
+    "importFailed": "Import failed",
+    "bundleWarnings": "{n} file(s) in the bundle were skipped",
+    "chipConnections": "{n} connections",
+    "chipTables": "{n} tables",
+    "chipInstructions": "{n} instructions",
+    "chipEvals": "{n} evals",
+    "chipQueries": "{n} queries"
+  },
+  "markdownTable": {
+    "title": "Table",
+    "copyFailed": "Could not copy table"
+  },
+  "createOrganization": {
+    "title": "Create organization",
+    "description": "A separate organization with its own members, data and settings.",
+    "nameLabel": "Name",
+    "namePlaceholder": "e.g. Finance",
+    "nameRequired": "Enter a name.",
+    "adminEmailLabel": "First admin email",
+    "optional": "Optional",
+    "adminEmailPlaceholder": "name{'@'}company.com",
+    "adminEmailHint": "We'll send this person an invite to join as an admin. You'll be an admin too.",
+    "adminEmailInvalid": "Enter a valid email address.",
+    "submit": "Create organization",
+    "created": "Organization “{name}” created",
+    "switching": "Switching to it…",
+    "inviteSent": "An invite was sent to {email}.",
+    "inviteNoSmtp": "Email is not set up, so no invite was sent to {email}. Copy the invite link from the Members page.",
+    "inviteNotSent": "The invite to {email} could not be sent. Invite them again from the Members page.",
+    "adminAdded": "{email} was added as an admin.",
+    "failed": "Could not create the organization."
   }
 }

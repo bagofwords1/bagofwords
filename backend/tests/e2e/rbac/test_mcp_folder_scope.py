@@ -452,3 +452,145 @@ def test_a_pending_curator_change_does_not_block_other_authors(world):
     assert made.get("success") and not made["requires_approval"], made
     # ...and the curator's suggestion is still waiting, untouched.
     assert _detail(world, world.admin, shared)["pending_review"]
+
+
+# ── missing_folder_rules: a report that uses a folder's agents without the
+# folder's rules says so; applies_in / in_effect say where a rule reaches ──
+
+
+def _missing(out):
+    """Folder → rule count the response says the report does NOT apply."""
+    return {e["folder_id"]: e["rule_count"] for e in (out.get("missing_folder_rules") or [])}
+
+
+def _folder_with_rule(world, name="db-app"):
+    """A folder with two agents, a Viewer on it, and one live folder rule."""
+    folder = world.folder(name)
+    prod, dev = world.agent(f"{name} prod", folder), world.agent(f"{name} dev", folder)
+    analyst = world.user()
+    world.share(folder, analyst, "Viewer")
+    rule = world.mcp(world.admin, "create_instruction", {
+        "text": f"In {name}, merchant 7 is the QA merchant; exclude it from every total.",
+        "folder_ids": [folder]})
+    assert rule.get("success"), rule
+    return folder, prod, dev, analyst, rule
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("scope", ["one_agent", "two_agents", "title_only"])
+def test_a_report_outside_the_folder_names_the_folder_rules_it_misses(world, scope):
+    """Folder rules apply only in folder-scoped reports. A report pinned to
+    the folder's agents, or a title-only report, runs without them, and both
+    create_report and get_context name the folder whose rules are missing."""
+    folder, prod, dev, analyst, rule = _folder_with_rule(world)
+    args = {"one_agent": {"data_source_ids": [prod]}, "two_agents": {"data_source_ids": [prod, dev]},
+            "title_only": {}}[scope]
+
+    made = world.mcp(analyst, "create_report", {"title": "totals", **args})
+    assert _missing(made).get(folder, 0) >= 1, made
+    ctx = world.mcp(analyst, "get_context", {"report_id": made["report_id"]})
+    assert _missing(ctx["scope"]).get(folder, 0) >= 1, ctx["scope"]
+    assert rule["instruction_id"] not in {i["id"] for i in ctx["instructions"]}
+
+
+@pytest.mark.e2e
+def test_a_folder_scoped_report_applies_the_rules_and_misses_nothing(world):
+    folder, _prod, _dev, analyst, rule = _folder_with_rule(world)
+
+    scoped = world.mcp(analyst, "create_report", {"title": "totals", "agent_folder_ids": [folder]})
+    assert folder not in _missing(scoped)
+    ctx = world.mcp(analyst, "get_context", {"report_id": scoped["report_id"]})
+    assert folder not in _missing(ctx["scope"])
+    assert rule["instruction_id"] in {i["id"] for i in ctx["instructions"]}
+
+
+@pytest.mark.e2e
+def test_a_rule_that_is_switched_off_is_not_reported_missing(world):
+    folder, prod, _dev, analyst, rule = _folder_with_rule(world)
+    world.mcp(world.admin, "edit_instruction", {"instruction_id": rule["instruction_id"], "status": "inactive"})
+
+    made = world.mcp(analyst, "create_report", {"title": "totals", "data_source_ids": [prod]})
+    assert made.get("report_id") and folder not in _missing(made), made
+
+
+@pytest.mark.e2e
+def test_a_direct_grant_on_an_agent_reveals_nothing_about_its_folder(world):
+    private = world.folder("Executive")
+    kpis = world.agent("exec kpis", private)
+    world.mcp(world.admin, "create_instruction", {"text": "Exec KPIs are board-confidential.", "folder_ids": [private]})
+    guest = world.user()
+    world.api(world.admin, "POST", f"data_sources/{kpis}/members",
+              {"principal_type": "user", "principal_id": guest["user_id"]})
+
+    out = world.mcp(guest, "create_report", {"title": "kpis", "data_source_ids": [kpis]})
+    assert out.get("report_id") and not _missing(out) and "Executive" not in json.dumps(out), out
+    ctx = world.mcp(guest, "get_context", {"report_id": out["report_id"]})
+    assert not _missing(ctx["scope"]) and "Executive" not in json.dumps(ctx["scope"]), ctx["scope"]
+
+
+@pytest.mark.e2e
+def test_the_missing_folder_list_is_capped(world, monkeypatch):
+    """A report spanning many folders names at most the limit, so the
+    response stays bounded however many folders the org has."""
+    from app.ai.tools.mcp import create_report
+    monkeypatch.setattr(create_report, "MISSING_FOLDER_RULES_LIMIT", 2)
+    agents = []
+    for i in range(3):
+        folder = world.folder(f"team-{i}")
+        agents.append(world.agent(f"team-{i} prod", folder))
+        assert world.mcp(world.admin, "create_instruction", {
+            "text": f"Team {i} reports revenue net of refunds, always.", "folder_ids": [folder]}).get("success")
+
+    made = world.mcp(world.admin, "create_report", {"title": "all teams", "data_source_ids": agents})
+    assert len(made["missing_folder_rules"]) == 2, made
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("scope", ["agents", "folder_and_agents"])
+def test_a_failing_folder_rule_lookup_does_not_fail_report_creation(world, monkeypatch, scope):
+    """The missing-rules note is advice. If it can't be computed the report
+    is still returned, so the client never retries into a duplicate."""
+    from app.ai.tools.mcp import create_report
+
+    async def broken(*_a, **_k):
+        raise RuntimeError("rule store unavailable")
+    _folder, prod, _dev, _analyst, _rule = _folder_with_rule(world)
+    args = {"data_source_ids": [prod]}
+    if scope == "folder_and_agents":
+        args["agent_folder_ids"] = [world.folder("other")]
+    # Fault injection on the advisory lookup only: the rule loader itself is
+    # also what a folder-scoped report needs to be created at all.
+    monkeypatch.setattr(create_report, "missing_folder_rules", broken)
+
+    made = world.mcp(world.admin, "create_report", {"title": "totals", **args})
+    assert "_error" not in made and made.get("report_id"), made
+    assert "missing_folder_rules" not in made
+
+
+@pytest.mark.e2e
+def test_in_effect_follows_the_rules_state_for_admin_and_curator(world):
+    """applies_in describes placement; in_effect says whether the rule reaches
+    any report right now. A curator's new rule waits for approval, and a rule
+    switched off applies nowhere until it is switched on again."""
+    folder = world.folder("Ops")
+    curator = world.user()
+    world.grant_role(curator, [{"resource_type": "folder", "resource_id": folder, "permissions": ["manage_instructions"]}])
+
+    live = world.mcp(world.admin, "create_instruction", {
+        "text": "Weeks start on Monday for every ops metric.", "folder_ids": [folder]})
+    assert live.get("success") and not live["requires_approval"], live
+    assert live["in_effect"] is True and live["applies_in"]
+
+    waiting = world.mcp(curator, "create_instruction", {
+        "text": "Ops totals exclude internal test accounts.", "folder_ids": [folder]})
+    assert waiting.get("success") and waiting["requires_approval"], waiting
+    assert waiting["in_effect"] is False
+    assert waiting["applies_in"] != live["applies_in"]
+
+    off = world.mcp(world.admin, "edit_instruction", {"instruction_id": live["instruction_id"], "status": "inactive"})
+    assert off.get("success") and off["in_effect"] is False, off
+    on = world.mcp(world.admin, "edit_instruction", {"instruction_id": live["instruction_id"], "status": "active"})
+    assert on.get("success") and on["in_effect"] is True, on
+    assert on["applies_in"] != off["applies_in"]
+
+

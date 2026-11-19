@@ -226,6 +226,18 @@
                   <span>{{ selectedDataSource?.data_shape === 'tools' ? $t('data.toolsLabel') : $t('data.schemaDiscovery') }}</span>
                 </li>
               </ol>
+              <!-- A source that is each person's own once they sign in themselves
+                   (a mailbox): offer it as a connector for everyone, like the
+                   sign-in integrations do. Not shown for a shared account. -->
+              <CreatePublicAgentToggle
+                v-if="offersPersonalConnector && !createdConnection"
+                v-model:enabled="createConnector"
+                v-model:name="connectorName"
+                :title="selectedDataSource?.title"
+                noun="connection"
+                class="mb-5"
+                data-test="personal-connector-toggle"
+              />
               <p v-if="formState.busy" class="text-sm text-gray-500 mb-4">{{ $t('data.setupConnecting') }}</p>
               <div v-if="formState.error" role="alert" class="text-sm text-red-600 break-words whitespace-pre-wrap mb-4">{{ formState.error }}</div>
               <p v-if="createdConnection && indexingState?.status === 'failed'" class="text-sm text-gray-500 mb-3">{{ $t('data.setupSavedDiscoveryFailed') }}</p>
@@ -369,7 +381,33 @@ async function testAgain() {
   }
 }
 const connectionForm = ref<InstanceType<typeof ConnectForm> | null>(null)
-const formState = ref({ busy: false, error: '', warning: '' })
+const formState = ref<{ busy: boolean; error: string; warning: string; requireUserAuth?: boolean }>({ busy: false, error: '', warning: '' })
+// Personal-connector types (registry `personal_connector`) with "each user
+// signs in" switched on: also create the org-wide connector for it.
+const createConnector = ref(true)
+const connectorName = ref('')
+const offersPersonalConnector = computed(() =>
+  !!selectedDataSource.value?.personal_connector && !!formState.value.requireUserAuth)
+
+async function createPersonalConnector(connection: any) {
+  const title = selectedDataSource.value?.title
+  try {
+    const { error } = await createPublicAgent(connection.id, {
+      name: connectorName.value || connection.name || title,
+      type: connection.type,
+      authModes: connection.allowed_user_auth_modes,
+    })
+    if (error.value) throw error.value
+    toast.add({
+      title: t('data.integrationReady'),
+      description: t('data.integrationReadyDesc', { name: connection.name || title }),
+      color: 'green',
+    })
+  } catch (e: any) {
+    // The connection itself was saved; only the connector failed (e.g. a duplicate name).
+    toast.add({ title: t('data.integrationAgentFailed'), description: e?.data?.detail || String(e), color: 'yellow' })
+  }
+}
 function primaryAction() {
   if (createdConnection.value && indexingState.value?.status !== 'failed') finishConnect()
   else connectionForm.value?.connect()
@@ -637,10 +675,19 @@ function backToSelect() {
   mcpPrefill.value = null
   customApiPrefill.value = null
   formDirty.value = false
+  createConnector.value = true
+  connectorName.value = ''
   step.value = 'select'
 }
 
 function handleConnectionSuccess(connection: any) {
+  // First save of a personal-connector type with "each user signs in" on:
+  // also create the org-wide connector. Before the branches below, because
+  // live sources skip indexing and return early.
+  if (!createdConnection.value && offersPersonalConnector.value && createConnector.value
+      && (connection?.auth_policy ?? 'user_required') === 'user_required') {
+    createPersonalConnector(connection)
+  }
   // Tool-provider connections (OneDrive, Google Drive, etc.) have no schema
   // to index — close the modal as soon as the save succeeds, same as MCP.
   if (SKIP_INDEXING_TYPES.value.some((t: any) => t.type === connection?.type)) {

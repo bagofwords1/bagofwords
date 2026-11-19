@@ -34,13 +34,14 @@ class FrameAncestorsUpdate(BaseModel):
     origins: List[Annotated[str, Field(max_length=2048)]] = Field(default_factory=list, max_length=svc.MAX_ORIGINS * 2)
 
 
-def _can_edit(user: User) -> bool:
-    return not settings.bow_config.features.allow_multiple_organizations or bool(user.is_superuser)
+async def _can_edit(db: AsyncSession, user: User) -> bool:
+    from app.core.instance_admin import is_instance_settings_admin
+    return await is_instance_settings_admin(db, user)
 
 
 async def _status(db: AsyncSession, user: User) -> FrameAncestorsStatus:
     return FrameAncestorsStatus(
-        origins=await svc.get_origins(db), can_edit=_can_edit(user)
+        origins=await svc.get_origins(db), can_edit=await _can_edit(db, user)
     )
 
 
@@ -79,7 +80,7 @@ async def update_frame_ancestors(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    if not _can_edit(current_user):
+    if not await _can_edit(db, current_user):
         raise HTTPException(
             status_code=403,
             detail="Only an instance administrator can change the allowed sites on a multi-organization instance",

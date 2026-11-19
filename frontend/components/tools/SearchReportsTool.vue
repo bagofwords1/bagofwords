@@ -1,29 +1,18 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <div
-      class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400"
-      :class="{ 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300': reports.length }"
-      @click="toggleCollapsed"
-    >
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-        <span>Searching reports{{ queryLabel ? ` for ${queryLabel}` : '' }}…</span>
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon
-          v-if="reports.length"
-          :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-          class="w-3 h-3 me-1.5 text-ink-muted rtl-flip"
-        />
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">Searched reports{{ queryLabel ? ` for ${queryLabel}` : '' }}</span>
-        <span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total }} {{ total === 1 ? 'match' : 'matches' }}</span>
-      </span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-magnifying-glass" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">Searching reports{{ queryLabel ? ` for ${queryLabel}` : '' }}…</template>
+      <template v-else>Searched reports{{ queryLabel ? ` for ${queryLabel}` : '' }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span v-if="total > 0" class="ms-1.5 text-chat-3 text-ink-muted">· {{ total }} {{ total === 1 ? 'match' : 'matches' }}</span></template></div>
 
     <!-- Results list -->
-    <div v-if="reports.length && !isCollapsed" class="text-chat-2 text-gray-600 dark:text-gray-400">
+    <div v-if="reports.length && toolHeaderExpanded" class="text-chat-2 text-gray-600 dark:text-gray-400">
       <ul class="ms-1 space-y-0.5 leading-snug">
         <li v-for="(item, idx) in reports" :key="item.id || idx">
           <div class="flex items-center py-1 px-1 rounded">
@@ -47,10 +36,16 @@
     <div v-if="status !== 'running' && !reports.length" class="text-chat-2 text-ink-muted ms-1">
       No reports found.
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 
 interface ToolExecution {
@@ -95,15 +90,5 @@ const total = computed<number>(() => {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

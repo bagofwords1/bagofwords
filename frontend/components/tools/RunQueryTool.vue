@@ -1,40 +1,19 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header (always collapsible, collapsed by default) -->
-    <Transition name="fade" appear>
-      <div
-        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="detailsCollapsed = !detailsCollapsed"
-      >
-        <Icon
-          :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-          class="w-3 h-3 me-1 text-ink-muted rtl-flip"
-        />
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-play-circle" class="w-3 h-3 me-1 text-ink-muted" />
-          {{ runningLabel }}
-        </span>
-        <span
-          v-else
-          class="flex items-center"
-          :class="hasError ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'"
-        >
-          <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
-          <Icon v-else name="heroicons-play-circle" class="w-3 h-3 me-1 text-ink-muted" />
-          <span class="align-middle">{{ statusLabel }}</span>
-          <UTooltip v-if="isCached" :text="t('tools.runQuery.cachedHint')">
-            <Icon name="heroicons-bolt" class="w-2.5 h-2.5 ms-1 text-amber-500 flex-shrink-0" />
-          </UTooltip>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-chart-bar" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ runningLabel }}</template>
+      <template v-else>{{ statusLabel }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- Result preview. Rendered from THIS run's rows, and kept that way:
          the preview recognises a run_query execution and re-requests the same
          slice whenever it refreshes, rather than falling back to the query's
          saved snapshot. -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed && isSuccess && hasData">
+      <div v-if="toolHeaderExpanded && isSuccess && hasData">
         <ToolWidgetPreview
           :tool-execution="enhancedExecution"
           :readonly="readonly"
@@ -46,19 +25,25 @@
     </Transition>
 
     <!-- Missing parameters: what the agent still needs from the user -->
-    <div v-if="!detailsCollapsed && missingParams.length" class="ms-4 mt-1 text-chat-2 text-gray-500 dark:text-gray-400">
+    <div v-if="toolHeaderExpanded && missingParams.length" class="ms-4 mt-1 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ t('tools.runQuery.needsValues') }}
       <span class="font-medium">{{ missingParams.map((p: any) => p.name).join(', ') }}</span>
     </div>
 
     <!-- Error -->
-    <div v-if="!detailsCollapsed && hasError" class="ms-4 mt-1 text-chat-2 text-red-500">
+    <div v-if="toolHeaderExpanded && hasError" class="ms-4 mt-1 text-chat-2 text-red-500">
       {{ errorMessage }}
+    </div>
+  
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 
@@ -185,18 +170,6 @@ const enhancedExecution = computed<any>(() => {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }

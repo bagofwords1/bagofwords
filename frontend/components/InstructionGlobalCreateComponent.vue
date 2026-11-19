@@ -274,10 +274,19 @@
                 <!-- Scope (read-only) -->
                 <div class="space-y-2 text-xs">
                     <!-- Data Agents -->
-                    <div class="flex items-start gap-1.5">
+                    <div data-testid="instruction-scope-agents" class="flex items-start gap-1.5">
                         <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.fields.agents') }}</span>
-                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">{{ $t('instructionGlobalCreate.allAgents') }}</span>
-                        <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
+                        <span v-if="isGlobalScope" class="text-gray-700">{{ $t('instructionGlobalCreate.allAgents') }}</span>
+                        <div v-else-if="instructionFolders.length > 0 || getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
+                            <div
+                                v-for="folder in instructionFolders"
+                                :key="folder.id"
+                                data-testid="instruction-scope-folder"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs text-gray-700"
+                            >
+                                <Icon name="heroicons:folder" class="w-3 h-3 text-ink-muted" />
+                                {{ folder.name }}
+                            </div>
                             <div
                                 v-for="ds in getSelectedDataSourceObjects"
                                 :key="ds.id"
@@ -650,7 +659,11 @@
                         class="w-full"
                     >
                         <template #label>
-                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
+                            <span v-if="isAllDataSourcesSelected && instructionFolders.length > 0" class="flex items-center gap-1 text-xs text-gray-700">
+                                <Icon name="heroicons:folder" class="w-3 h-3 text-ink-muted" />
+                                <span class="truncate max-w-[140px]">{{ instructionFolders.map(f => f.name).join(', ') }}</span>
+                            </span>
+                            <span v-else-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
                             <span v-else-if="selectedDataSources.length === 0" class="text-ink-muted text-xs">{{ $t('instructionGlobalCreate.fields.sources') }}</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
                                 <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" :icon-token="getSelectedDataSourceObjects[0]?.icon_token" :icon="getSelectedDataSourceObjects[0]?.icon" class="h-3" />
@@ -1277,6 +1290,23 @@ const isAllDataSourcesSelected = computed(() => {
 
 const getSelectedDataSourceObjects = computed(() => {
     return availableDataSources.value.filter(ds => selectedDataSources.value.includes(ds.id))
+})
+
+// Shared folders the instruction is filed under. A folder-scoped instruction
+// carries no agents of its own (`data_sources` is empty, `scope_mode` is
+// 'targeted'), so an empty agent list alone does not mean "all agents".
+const instructionFolders = computed<{ id: string; name: string }[]>(() => {
+    const inst = fullInstruction.value || props.instruction
+    return Array.isArray(inst?.folders) ? inst.folders : []
+})
+
+// Org-wide only when nothing narrows it: no agents, no folders, and the server
+// did not mark it targeted. A new (unsaved) instruction has neither field, so
+// it keeps the previous behavior.
+const isGlobalScope = computed(() => {
+    if (!isAllDataSourcesSelected.value || instructionFolders.value.length > 0) return false
+    const inst = fullInstruction.value || props.instruction
+    return inst?.scope_mode !== 'targeted'
 })
 
 const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))

@@ -35,6 +35,7 @@ from app.ai.code_execution.sandbox.config import DEFAULT_MAX_RESULT_MB
 from app.ai.code_execution.sandbox.namespace import (
     CLIENTS_GLOBAL,
     BrowserHelper,
+    ClientsDict,
     ListsHelper,
     SandboxFile,
     build_loadable_closures,
@@ -213,7 +214,10 @@ def _apply_landlock(job: Dict[str, Any]) -> Dict[str, Any]:
 
 def _run_data_job(job: Dict[str, Any], rpc: _Rpc):
     excel_files = [SandboxFile(a) for a in (job.get("files") or [])]
-    clients = {key: _RemoteClient(rpc, key) for key in (job.get("client_keys") or [])}
+    clients = ClientsDict(
+        {key: _RemoteClient(rpc, key) for key in (job.get("client_keys") or [])},
+        job.get("client_aliases") or {},
+    )
     http = _RemoteHttp(rpc) if job.get("http_enabled") else None
     lists = ListsHelper(
         lambda name, records: rpc.call("lists_submit", list=name, records=json_safe(records)),

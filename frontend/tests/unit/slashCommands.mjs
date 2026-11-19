@@ -13,9 +13,20 @@ for (const text of ['/compactor', '/etc/hosts is broken', 'please /compact', 'co
 }
 assert.equal(parseSlashCommand('/compact   focus on churn ').args, 'focus on churn')
 
+// /clear takes no arguments: only the bare word is the command; anything after
+// it makes the message an ordinary prompt for the agent.
+for (const text of ['/clear', '  /clear ', '/CLEAR']) {
+  assert.deepEqual(parseSlashCommand(text), { name: 'clear', args: '' }, text)
+}
+for (const text of ['/clear the filters on this chart', '/clearly wrong', 'please /clear']) {
+  assert.equal(parseSlashCommand(text), null, text)
+}
+
 // --- the menu: only while the command word is being typed --------------------
 
-assert.deepEqual(matchingSlashCommands('/').map(c => c.name), ['compact'])
+assert.deepEqual(matchingSlashCommands('/').map(c => c.name), ['compact', 'clear'])
+assert.deepEqual(matchingSlashCommands('/c').map(c => c.name), ['compact', 'clear'])
+assert.deepEqual(matchingSlashCommands('/cl').map(c => c.name), ['clear'])
 assert.deepEqual(matchingSlashCommands('/co').map(c => c.name), ['compact'])
 assert.deepEqual(matchingSlashCommands('/compact').map(c => c.name), ['compact'])
 assert.deepEqual(matchingSlashCommands('/compact focus'), [])

@@ -41,7 +41,7 @@ from app.ai.code_execution.duckdb_guard import check_duckdb_file_query, inspect_
 from app.ai.code_execution.sql_guard import ReadOnlyViolation
 from app.ai.code_execution.table_scope import TableScopeViolation
 from app.ai.prompt_formatters import Table
-from app.data_sources.clients._duckdb_lockdown import lock_down
+from app.data_sources.clients._duckdb_lockdown import lock_connection
 from app.data_sources.clients.csv_client import CSVClient
 from app.data_sources.clients.pbix_client import PBIXClient
 from app.data_sources.clients.powerbi_report_server_client import PowerBIReportServerClient
@@ -622,7 +622,7 @@ def test_a_locked_connection_reads_its_own_files_only(tmp_path, outside):
     con = duckdb.connect(":memory:")
     try:
         _view_over(con, own)
-        lock_down(con, allowed_paths=[str(own)])
+        lock_connection(con, paths=[str(own)])
         assert con.execute("SELECT sum(amount) FROM a").fetchone()[0] == 60
         for sql in (
             f"SELECT * FROM read_csv_auto('{_sq(outside)}')",
@@ -644,16 +644,79 @@ def test_a_locked_connection_reads_its_own_files_only(tmp_path, outside):
         con.close()
 
 
+def _scan_a_python_frame(con):
+    frame_in_scope = _SALES  # noqa: F841  (what a replacement scan would read)
+    return con.execute("SELECT sum(amount) FROM frame_in_scope").fetchone()[0]
+
+
+def test_a_locked_connection_reaches_no_python_object_and_shows_secrets_redacted():
+    unlocked = duckdb.connect(":memory:")
+    con = duckdb.connect(":memory:")
+    try:
+        # Control: an unlocked session reads a DataFrame in the caller's scope.
+        assert _scan_a_python_frame(unlocked) == 60
+        lock_connection(con)
+        assert con.execute(
+            "SELECT current_setting('python_enable_replacements'), current_setting('allow_unredacted_secrets')"
+        ).fetchone() == (False, False)
+        with pytest.raises(duckdb.CatalogException):
+            _scan_a_python_frame(con)
+        for sql in ("SET python_enable_replacements = true", "SET allow_unredacted_secrets = true"):
+            with pytest.raises(duckdb.Error):
+                con.execute(sql)
+    finally:
+        unlocked.close()
+        con.close()
+
+
+def test_external_access_off_alone_keeps_python_objects_out_of_reach():
+    # What a second connection to a database file engine locked elsewhere
+    # relies on: it cannot set python_enable_replacements itself.
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute("SET enable_external_access = false")
+        assert con.execute("SELECT current_setting('python_enable_replacements')").fetchone() == (True,)
+        with pytest.raises(duckdb.CatalogException):
+            _scan_a_python_frame(con)
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("setting,value", [("python_enable_replacements", True),
+                                           ("allow_unredacted_secrets", True)])
+def test_a_lock_that_reads_back_a_python_object_or_secret_setting_on_is_a_refusal(setting, value):
+    class _ReadsBack:
+        def __init__(self, con):
+            self._con = con
+
+        def execute(self, sql, *args):
+            result = self._con.execute(sql, *args)
+            if "current_setting('allowed_directories')" not in sql:
+                return result
+            row = list(result.fetchone())
+            row[{"python_enable_replacements": 5, "allow_unredacted_secrets": 6}[setting]] = value
+            return SimpleNamespace(fetchone=lambda: tuple(row))
+
+    con = duckdb.connect(":memory:")
+    try:
+        with pytest.raises(RuntimeError, match=rf"{_LOCK_REFUSED} \({setting}\)"):
+            lock_connection(_ReadsBack(con))
+    finally:
+        con.close()
+
+
 def test_lock_down_that_cannot_lock_raises():
     con = duckdb.connect(":memory:", config={"lock_configuration": True})
     try:
         with pytest.raises(RuntimeError):
-            lock_down(con, allowed_paths=["/nowhere.csv"])
+            lock_connection(con, paths=["/nowhere.csv"])
     finally:
         con.close()
 
 
 _LOCK_REFUSED = "Refusing to query files without the engine locked"
+# lock_connection's keyword for each setting it locks.
+_KWARG = {"allowed_paths": "paths", "allowed_directories": "directories"}
 # A path DuckDB cannot take: its NUL ends the quoted literal.
 _UNSETTABLE = "/a" + chr(0) + "b/"
 
@@ -664,7 +727,7 @@ def test_a_setting_duckdb_cannot_take_is_refused_under_its_own_name(setting, loc
     con = duckdb.connect(":memory:", config={"lock_configuration": True} if locked else {})
     try:
         with pytest.raises(RuntimeError, match=rf"{_LOCK_REFUSED} \({setting}\)"):
-            lock_down(con, **{setting: [_UNSETTABLE]})
+            lock_connection(con, **{_KWARG[setting]: [_UNSETTABLE]})
     finally:
         con.close()
 
@@ -691,15 +754,15 @@ def test_any_statement_of_lock_down_that_fails_is_a_refusal(tmp_path):
         return duckdb.connect(":memory:")
 
     counting = _FailsOnCall(fresh())
-    lock_down(counting, allowed_paths=[str(own)], allowed_directories=[f"{tmp_path}/"])
+    lock_connection(counting, paths=[str(own)], directories=[f"{tmp_path}/"])
     counting._con.close()
     assert counting.calls > 0
     for fail_at in range(counting.calls):
         con = fresh()
         try:
             with pytest.raises(RuntimeError, match=_LOCK_REFUSED):
-                lock_down(_FailsOnCall(con, fail_at), allowed_paths=[str(own)],
-                          allowed_directories=[f"{tmp_path}/"])
+                lock_connection(_FailsOnCall(con, fail_at), paths=[str(own)],
+                          directories=[f"{tmp_path}/"])
         finally:
             con.close()
 
@@ -728,7 +791,7 @@ def test_a_lock_that_reads_back_null_is_a_refusal(setting):
     con = duckdb.connect(":memory:")
     try:
         with pytest.raises(RuntimeError, match=rf"{_LOCK_REFUSED} \({setting}\)"):
-            lock_down(_ReadsBackNull(con, setting))
+            lock_connection(_ReadsBackNull(con, setting))
     finally:
         con.close()
 

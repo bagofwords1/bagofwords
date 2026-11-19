@@ -55,6 +55,12 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
   - `config.oidcProviders[]`: Okta, Entra/Azure AD, Auth0, etc. Supports
     group sync (`syncGroups`, `groupClaim`, `resolveGroupNames` for Entra
     UUID-to-name resolution via Microsoft Graph).
+    `orgMapping` (group -> organization and role) and `trustEmailForLinking`
+    are optional and rendered only when set.
+  - `config.superuserEmails`: instance administrators, emitted as
+    `BOW_SUPERUSER_EMAILS` only when non-empty.
+  - `config.security`: written into bow-config's `security:` section as given
+    (application setting names); omitted when empty.
   - `config.ldap`: LDAP / Active Directory bind, user/group search, periodic
     sync, optional auto-provisioning. Bind password is Secret-only.
 - **ServiceAccount**

@@ -231,7 +231,11 @@ _NAMING_FALLBACK = {
 # read-only only by a server option; each client checks its text with a
 # pattern that is not a reading of its engine's grammar
 # (_document_schema.ensure_single_select).
-_AWAITING_DECISION: set[str] = {"CassandraClient", "CouchbaseClient", "DynamodbClient"}
+_AWAITING_DECISION: set[str] = {
+    "CassandraClient", "CouchbaseClient", "DynamodbClient",
+    # New on main (search text and message ids), not reviewed yet.
+    "SlackMessagesClient", "ExchangeOnpremClient",
+}
 
 
 @pytest.fixture(scope="module")
@@ -738,12 +742,19 @@ def test_the_network_directory_refuses_sql_outside_one_select_over_its_selected_
             client.execute_query(refused)
     assert not (root / "out.csv").exists()
 
-    # What the text checks pass, the locked engine still stops: a file
-    # named as a table, and a Python object the module can see.
+    # A file named as a table: the text checks refuse it (the engine-tree
+    # check reads it as a string in a relation position), and with them out
+    # of the way the locked engine still stops it.
     (root / "data.csv").write_text("v\n1\n")
     path = str(root / "data.csv").replace("'", "''")
-    with pytest.raises(duckdb.PermissionException):
+    with pytest.raises(ReadOnlyViolation):
         client.execute_query(f"SELECT * FROM '{path}'")
+    from app.ai.code_execution import sql_guard
+
+    with monkeypatch.context() as unchecked:
+        unchecked.setattr(sql_guard, "check_sql", lambda sql, dialect, **kwargs: None)
+        with pytest.raises(duckdb.PermissionException):
+            client.execute_query(f"SELECT * FROM '{path}'")
 
     # Settings stay out of reach; the documented discovery reads still work.
     for refused in ("SELECT name, setting FROM pg_settings","SELECT * FROM pg_catalog.pg_settings"):

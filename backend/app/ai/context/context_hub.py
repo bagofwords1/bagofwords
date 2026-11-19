@@ -748,7 +748,8 @@ class ContextHub:
         try:
             from sqlalchemy import select
             from app.models.completion import Completion
-            result = await self.db.execute(
+            from app.services.context_compaction_service import ContextCompactionService
+            stmt = (
                 select(Completion.prompt)
                 .where(
                     Completion.report_id == self.report.id,
@@ -758,6 +759,13 @@ class ContextHub:
                 .order_by(Completion.created_at.desc())
                 .limit(max_messages)
             )
+            # After /clear the old topic must not steer instruction matching.
+            cleared_at = await ContextCompactionService.clear_boundary_created_at(
+                self.db, str(self.report.id)
+            )
+            if cleared_at is not None:
+                stmt = stmt.where(Completion.created_at > cleared_at)
+            result = await self.db.execute(stmt)
             parts: list[str] = []
             for (prompt,) in result.all():
                 content = prompt.get("content") if isinstance(prompt, dict) else None
@@ -817,9 +825,17 @@ class ContextHub:
         ]
 
     def _apply_mcp_catalog(self) -> None:
+        self.apply_mcp_catalog_to(self._mcp_sections())
+
+    def apply_mcp_catalog_to(self, sections) -> None:
+        """Apply the run's MCP catalog to schema sections built outside the
+        hub (set_report_agents / search_agents render their own), so every
+        listing of MCP tools the model sees agrees with its tool list."""
         available = getattr(self, "_mcp_available", None)
         gateway = getattr(self, "_mcp_gateway", False)
-        for ds in self._mcp_sections():
+        for ds in sections or []:
+            if not hasattr(ds, "mcp_tools"):
+                continue
             try:
                 ds.native_mcp = not gateway
                 if available is None:

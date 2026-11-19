@@ -483,6 +483,7 @@ def test_group_draft_access_and_public_projection_are_enforced_per_row(
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop  # the revoked cases request from an executor thread
 @pytest.mark.parametrize("provider_failure", ["success", "failure", "revoked", "file_revoked"])
 def test_streaming_uses_authorized_operation_and_preserves_text(
     artifact_api, monkeypatch, create_llm_provider_and_models, provider_failure, caplog, tmp_path
@@ -603,6 +604,7 @@ def test_streaming_uses_authorized_operation_and_preserves_text(
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop
 def test_concurrent_writers_cannot_exceed_quota_or_duplicate_retry(artifact_api):
     from concurrent.futures import ThreadPoolExecutor
 

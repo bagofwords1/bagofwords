@@ -330,6 +330,16 @@ RIGS = {
 # catalog lookup that sends the text as a value, not as a statement), then
 # runs the text.
 LOOKS_UP_A_TABLE_FIRST = {"Db2Client", "TeradataClient"}
+# A DuckDB connection first asks its own session which relations it serves
+# (`_duckdb_lockdown.session_relations`, fixed text of its own), then runs
+# the text.
+READS_ITS_SESSION_CATALOG_FIRST = {
+    "DuckDBClient": [
+        "SELECT database_name, schema_name, table_name FROM duckdb_tables() "
+        "UNION ALL SELECT database_name, schema_name, view_name FROM duckdb_views()",
+        "SELECT current_database(), current_schema()",
+    ],
+}
 COVERED_ELSEWHERE = {
     "VerticaClient": "tests/unit/test_vertica_client.py",
     "PostgresqlClient": "tests/integrations/test_exact_text_send_live.py",
@@ -354,6 +364,8 @@ def test_the_driver_receives_exactly_the_checked_text(family, monkeypatch):
     client.execute_query(checked)
     if family in LOOKS_UP_A_TABLE_FIRST:
         assert sent[-1] == checked and sent.count(checked) == 1
+    elif family in READS_ITS_SESSION_CATALOG_FIRST:
+        assert sent == READS_ITS_SESSION_CATALOG_FIRST[family] + [checked]
     else:
         assert sent == [checked]
 
@@ -387,17 +399,23 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
             return getattr(self.con, name)
 
     checked = ensure_read_only(client, query)
-    # Only the client's own `import duckdb` sees the recording module; the
-    # DuckDB guard keeps its module (and the connection it builds) to itself.
+    # Only a module that imports duckdb while the query runs sees the
+    # recording module (every name but `connect` is DuckDB's own); the DuckDB
+    # guard keeps its module (and the connection it builds) to itself.
+    recording = SimpleNamespace(**{name: getattr(duckdb, name) for name in dir(duckdb) if not name.startswith("__")})
+    recording.connect = lambda *a, **k: Recording(real_connect(*a, **k))
     with monkeypatch.context() as patch:
-        patch.setitem(sys.modules, "duckdb", SimpleNamespace(
-            connect=lambda *a, **k: Recording(real_connect(*a, **k))))
+        patch.setitem(sys.modules, "duckdb", recording)
         client.execute_query(checked)
     assert sent[-1] == checked and sent.count(checked) == 1
-    # The views, then the engine lock, then the query.
-    assert all(s.startswith("CREATE ") for s in sent[:-5])
-    assert [s.split("=")[0] for s in sent[-5:-1]] == [
-        "SET temp_directory", "SET python_enable_replacements", "SET enable_external_access", "SET lock_configuration"]
+    # The views, then the engine lock (whether it is locked already, the
+    # settings, their read-back), then the query.
+    lock = [s.split("=")[0].strip() for s in sent[-9:-3]]
+    assert all(s.startswith("CREATE ") for s in sent[:-10])
+    assert sent[-10] == "SELECT current_setting('lock_configuration')"
+    assert lock == ["SET temp_directory", "SET allowed_paths", "SET python_enable_replacements",
+                    "SET allow_unredacted_secrets", "SET enable_external_access", "SET lock_configuration"]
+    assert all(s.startswith("SELECT ") and "current_" in s for s in sent[-3:-1])
 
 
 @pytest.mark.parametrize("query_options", [None, "timeoutMs=1000"])

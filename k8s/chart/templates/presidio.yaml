@@ -1,0 +1,93 @@
+{{- /*
+Optional Presidio analyzer for PII protection (enterprise): detects names,
+locations and organizations in prompts. Off by default. The app reaches it
+through BOW_PII_PRESIDIO_URL (set in config.yaml). Its labels deliberately
+differ from the app's selector labels so the app Service never routes to it.
+*/ -}}
+{{- if .Values.pii.presidio.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "bowapp.name" . }}-presidio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "bowapp.name" . }}-presidio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: pii-detector
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.pii.presidio.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "bowapp.name" . }}-presidio
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "bowapp.name" . }}-presidio
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: pii-detector
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: presidio-analyzer
+          image: "{{ .Values.pii.presidio.image.repository }}:{{ .Values.pii.presidio.image.tag }}"
+          imagePullPolicy: {{ .Values.pii.presidio.image.pullPolicy }}
+          env:
+            - name: PORT
+              value: "3000"
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          # The NLP model loads at startup; give it time before the first probe.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+          {{- with .Values.pii.presidio.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.pii.presidio.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.pii.presidio.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "bowapp.name" . }}-presidio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "bowapp.name" . }}-presidio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: pii-detector
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ include "bowapp.name" . }}-presidio
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+{{- end }}

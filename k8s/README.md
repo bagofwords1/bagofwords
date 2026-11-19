@@ -238,6 +238,46 @@ version:
 --set config.database.idleSessionTimeoutMs=600000   # 10 minutes; PostgreSQL 14+
 ```
 
+### Several organizations on one deployment
+
+One organization per department, everyone signing in through the same identity
+provider. Full guide: `docs/guides/multiple-organizations.md`.
+
+```yaml
+# values.yaml
+config:
+  secretRef: bowapp-secrets       # contains BOW_OIDC_ENTRA_CLIENT_SECRET
+  authMode: sso_only
+  allowMultipleOrganizations: true
+  allowUninvitedSignups: false
+
+  # Instance administrators: the only people who can create organizations.
+  superuserEmails:
+    - it-admin@company.com
+
+  security:
+    block_private_outbound: true
+
+  oidcProviders:
+    - name: entra
+      issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
+      clientId: "<entra-client-id>"
+      clientSecret: "${BOW_OIDC_ENTRA_CLIENT_SECRET}"
+      clientAuthMethod: post
+      groupClaim: groups
+      # Group -> organization, applied at each sign-in. Prefer object ids.
+      orgMapping:
+        - group: "<finance group object id>"
+          organization: "Finance"     # organization id, or exact name
+          role: member                # member (default) | admin
+        - group: "<hr group object id>"
+          organization: "HR"
+```
+
+Create the organizations first (top-left menu → **Create organization**, as an
+instance administrator); a rule for an organization that does not exist yet is
+skipped. Creating more than one organization needs an Enterprise license.
+
 ### Microsoft Entra (Azure AD) with group sync
 
 ```yaml

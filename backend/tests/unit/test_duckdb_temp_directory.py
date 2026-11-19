@@ -5,9 +5,9 @@ Contract:
   off. By default that is `.tmp` under the working directory, shared by every
   in-memory session of the process, so one session could read what another
   spilled there;
-- every lock helper (`lock_query_session`, used by accelerated data, the
-  network directory's file tables and Iceberg, and `lock_down`, used by the
-  file and DuckDB connections) turns the temp directory off before it locks,
+- every lock helper (`lock_query_session`, used by accelerated data and
+  the network directory's file tables, and `lock_connection`, used by the
+  file and DuckDB connections and Iceberg) turns the temp directory off before it locks,
   so a locked engine reaches no temp directory, its own or another
   session's. Spilling to disk is off on those engines;
 - accelerated data and the network directory refuse a read of the temp
@@ -20,7 +20,7 @@ from __future__ import annotations
 import duckdb
 import pytest
 
-from app.data_sources.clients._duckdb_lockdown import lock_down
+from app.data_sources.clients._duckdb_lockdown import lock_connection
 from app.data_sources.fast.fast_client import FastQueryClient, lock_query_session
 from tests.unit.test_duckdb_parse_time_access import _network_dir
 
@@ -50,7 +50,7 @@ def planted(tmp_path, monkeypatch):
 
 
 def _lock_down(con):
-    lock_down(con)
+    lock_connection(con)
 
 
 @pytest.mark.parametrize("lock", [lock_query_session, _lock_down], ids=["lock_query_session", "lock_down"])

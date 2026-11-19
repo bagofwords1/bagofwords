@@ -346,6 +346,11 @@ class GetContextTool(MCPTool):
             from app.ai.tools.mcp.create_report import report_scope
             scope = await report_scope(db, organization, user, report)
             scope["effective_agent_ids"] = [str(d.id) for d in data_sources]
+            from app.ai.tools.mcp.create_report import missing_folder_rules, missing_folder_rules_hint
+            missing = await missing_folder_rules(db, organization, user, report, data_sources)
+            if missing:
+                scope["missing_folder_rules"] = missing
+                scope["missing_folder_rules_hint"] = missing_folder_rules_hint(missing)
         except Exception:
             logger.exception("get_context: describing the report scope failed")
 

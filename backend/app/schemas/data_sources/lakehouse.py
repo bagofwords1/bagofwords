@@ -112,7 +112,7 @@ class IcebergConfig(BaseModel):
     extra_properties: str | None = Field(
         None,
         title="Extra Catalog Properties (JSON)",
-        description='Advanced: extra PyIceberg catalog / FileIO properties, e.g. {"adls.account-name": "acme"}.',
+        description='Advanced: extra PyIceberg catalog / FileIO properties, e.g. {"adls.account-name": "acme"}. Implementation keys (py-io-impl, py-catalog-impl, …) accept only classes that ship with PyIceberg.',
         json_schema_extra={"ui:type": "textarea"},
     )
 

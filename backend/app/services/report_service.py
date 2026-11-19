@@ -152,12 +152,13 @@ class ReportService:
         if visibility == 'internal':
             if user is None:
                 raise HTTPException(status_code=401, detail="Authentication required")
-            stmt = select(Membership).where(
+            stmt = select(Membership.id).where(
                 Membership.user_id == user.id,
                 Membership.organization_id == report.organization_id,
-            )
+                Membership.deleted_at.is_(None),
+            ).limit(1)
             result = await db.execute(stmt)
-            if not result.scalar_one_or_none():
+            if result.first() is None:
                 raise HTTPException(status_code=403, detail="Access denied")
             return
 
@@ -167,6 +168,11 @@ class ReportService:
             # Owner always has access
             if str(user.id) == str(report.user_id):
                 return
+            # A share only counts for someone who still belongs to the
+            # report's organization.
+            from app.core.permission_resolver import principal_belongs_to_org
+            if not await principal_belongs_to_org(db, user, str(report.organization_id)):
+                raise HTTPException(status_code=403, detail="Access denied")
             share_type = 'artifact' if visibility_field == 'artifact_visibility' else 'conversation'
             # Granted directly, or through membership of a shared group.
             user_group_ids = self._user_group_ids_subquery(user.id, report.organization_id)
@@ -183,6 +189,22 @@ class ReportService:
             if not result.scalar_one_or_none():
                 raise HTTPException(status_code=403, detail="Access denied")
             return
+
+    @staticmethod
+    async def _live_member_ids(db: AsyncSession, organization_id, user_ids) -> set[str]:
+        """The subset of ``user_ids`` holding a live membership in the organization."""
+        from app.models.membership import Membership
+        ids = [str(u) for u in (user_ids or []) if u]
+        if not ids:
+            return set()
+        rows = (await db.execute(
+            select(Membership.user_id).where(
+                Membership.user_id.in_(ids),
+                Membership.organization_id == str(organization_id),
+                Membership.deleted_at.is_(None),
+            )
+        )).all()
+        return {str(r[0]) for r in rows}
 
     @staticmethod
     async def _is_report_org_admin(db: AsyncSession, user, report: Report) -> bool:
@@ -378,6 +400,25 @@ class ReportService:
             unknown = [g for g in shared_group_ids if g not in valid_ids]
             if unknown:
                 raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
+
+        # User grants must reference live members of the report's own
+        # organization. An id that already holds a share here but is no longer
+        # a member (the dialog re-sends the whole list) is dropped, not refused.
+        if shared_user_ids:
+            shared_user_ids = [str(u) for u in shared_user_ids]
+            member_ids = await self._live_member_ids(db, report.organization_id, shared_user_ids)
+            not_members = [u for u in shared_user_ids if u not in member_ids]
+            if not_members:
+                already_shared = {str(r[0]) for r in (await db.execute(
+                    select(ReportShare.user_id).where(
+                        ReportShare.report_id == report_id,
+                        ReportShare.share_type == share_type,
+                        ReportShare.user_id.in_(not_members),
+                    )
+                )).all()}
+                if any(u not in already_shared for u in not_members):
+                    raise HTTPException(status_code=400, detail="Unknown user in shared_user_ids")
+                shared_user_ids = [u for u in shared_user_ids if u in member_ids]
 
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, visibility == 'public')
@@ -708,8 +749,19 @@ class ReportService:
             )).all()
             member_counts = {str(gid): cnt for gid, cnt in count_rows}
 
+        report_org_id = (await db.execute(
+            select(Report.organization_id).where(Report.id == str(report_id))
+        )).scalar_one_or_none()
+        member_ids = await self._live_member_ids(
+            db, report_org_id, [s.user_id for s in shares if s.user_id]
+        )
+
         out = []
         for s in shares:
+            # A share held by someone outside the organization grants nothing
+            # and is not listed (nor is their name or email).
+            if s.user_id and str(s.user_id) not in member_ids:
+                continue
             entry = {
                 "id": str(s.id),
                 "principal_type": "group" if s.group_id else "user",
@@ -1048,6 +1100,18 @@ class ReportService:
         del report_data.data_sources
         project_id = report_data.project_id
         del report_data.project_id
+        # A report can only be tied to an external platform (Slack, Teams,
+        # email) of its own organization.
+        if report_data.external_platform_id:
+            from app.models.external_platform import ExternalPlatform
+            owned_platform = (await db.execute(
+                select(ExternalPlatform).where(
+                    ExternalPlatform.id == str(report_data.external_platform_id),
+                    ExternalPlatform.organization_id == str(organization.id),
+                )
+            )).scalar_one_or_none()
+            if owned_platform is None:
+                raise HTTPException(status_code=404, detail="External platform not found")
         # Mode is optional on create; None must not reach the ORM (it would
         # write NULL past the column default). Gated below once the effective
         # agent list is known (project defaults may fill it in).
@@ -1846,11 +1910,12 @@ class ReportService:
             from app.models.membership import Membership
             from app.models.report_share import ReportShare
             member = (await db.execute(
-                select(Membership).where(
+                select(Membership.id).where(
                     Membership.user_id == current_user.id,
                     Membership.organization_id == report.organization_id,
-                )
-            )).scalar_one_or_none()
+                    Membership.deleted_at.is_(None),
+                ).limit(1)
+            )).first()
             if not member:
                 shared = (await db.execute(
                     select(ReportShare).where(
@@ -4337,6 +4402,9 @@ class ReportService:
             block_data = {
                 "id": b.id,
                 "block_index": b.block_index,
+                # Steers render above the first block with loop_index >= the
+                # steer's steering_loop_index.
+                "loop_index": b.loop_index,
                 "status": b.status,
                 "content": redact_text_display(b.content),
                 "reasoning": redact_text_display(b.reasoning),
@@ -4408,6 +4476,12 @@ class ReportService:
                 "prompt": redact_prompt_display(without_request_metadata(c.prompt)) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
+                # Steering rows ("Send now" while the agent ran) render inside
+                # their parent turn, above the step that picked them up.
+                "message_type": c.message_type,
+                "parent_id": c.parent_id,
+                "steering_applied_at": c.steering_applied_at.isoformat() if c.steering_applied_at else None,
+                "steering_loop_index": c.steering_loop_index,
             }
             sanitized_completions.append(completion_data)
         

@@ -235,6 +235,38 @@ class BrowserHelper:
 CLIENTS_GLOBAL = "db_clients"
 
 
+class ClientsDict(dict):
+    """The clients dict handed to generated code.
+
+    A plain dict of the current client keys, plus the keys the clients had
+    before their agent or connection was renamed (`former`: old key ->
+    current key). A former key answers a direct lookup -- `ds_clients[old]`,
+    `.get(old)`, `old in ds_clients` -- and nothing else: iteration, `len`,
+    `.keys()`, `.values()` and `.items()` see the current keys only, so code
+    that walks every client reaches each one once, as before the rename.
+    """
+
+    def __init__(self, clients: Optional[Dict] = None, former: Optional[Dict[str, str]] = None):
+        super().__init__(clients or {})
+        self.former = {old: current for old, current in (former or {}).items()
+                       if not dict.__contains__(self, old) and dict.__contains__(self, current)}
+
+    def __missing__(self, key):
+        current = self.former.get(key) if isinstance(key, str) else None
+        if current is None:
+            raise KeyError(key)
+        return dict.__getitem__(self, current)
+
+    def get(self, key, default=None):
+        if dict.__contains__(self, key):
+            return dict.__getitem__(self, key)
+        current = self.former.get(key) if isinstance(key, str) else None
+        return dict.__getitem__(self, current) if current is not None else default
+
+    def __contains__(self, key):
+        return dict.__contains__(self, key) or (isinstance(key, str) and key in self.former)
+
+
 # What generated code can ask for by parameter name (invoke_generate_df).
 # Every run -- the agent's and each re-run of saved code -- must be able to
 # hand each of these over when the org allows it (test_sandbox_helpers).

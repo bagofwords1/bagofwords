@@ -1,40 +1,21 @@
 <template>
-  <div class="mt-1">
-    <div
-      class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400"
-      :class="{ 'cursor-pointer select-none': canExpand }"
-      @click="canExpand && (expanded = !expanded)"
-    >
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.getEvalRun.reading') }}
-      </span>
-      <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-document-magnifying-glass" class="w-3 h-3 me-1 text-purple-400" />
-        <span class="align-middle">{{ t('tools.getEvalRun.read') }}</span>
-        <span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-chat-3 font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span>
-        <span v-if="total > 0" class="ms-1.5 text-chat-3 text-gray-500 dark:text-gray-400">
-          <!-- dir=ltr: keep "finished / total" from bidi-reversing under RTL -->
-          <span dir="ltr">{{ finished }} / {{ total }}</span>
-          <span v-if="passed > 0" class="ms-1 text-green-700">· {{ t('tools.getEvalRun.pass', { count: passed }) }}</span>
-          <span v-if="failed > 0" class="ms-1 text-red-700">· {{ t('tools.getEvalRun.fail', { count: failed }) }}</span>
-        </span>
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">{{ message || t('tools.getEvalRun.notFound') }}</span>
-      </span>
-
-      <!-- Expand/collapse affordance — only when there are per-case rows to show -->
-      <Icon
-        v-if="canExpand"
-        :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-        class="w-3 h-3 ms-1 text-ink-muted"
-      />
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-clipboard-document-check" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.getEvalRun.reading') }}</template>
+      <template v-else-if="success">{{ t('tools.getEvalRun.read') }}</template>
+      <template v-else>{{ t('tools.getEvalRun.notFound') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else-if="success"><span class="ms-1.5 inline-flex px-1.5 py-0.5 rounded-full text-chat-3 font-medium" :class="runStatusClass(runStatus)">{{ runStatus }}</span><span v-if="total > 0" class="ms-1.5 text-chat-3 text-gray-500 dark:text-gray-400"><span dir="ltr">{{ finished }} / {{ total }}</span><span v-if="passed > 0" class="ms-1 text-green-700">· {{ t('tools.getEvalRun.pass', { count: passed }) }}</span><span v-if="failed > 0" class="ms-1 text-red-700">· {{ t('tools.getEvalRun.fail', { count: failed }) }}</span></span></template>
+      <template v-else></template></div>
+      <p v-if="message" class="mb-2 text-chat-3 text-ink-muted break-words">{{ message }}</p>
+      
 
     <!-- Compare summary (compare_to_previous=true) -->
-    <div v-if="compareSummary && expanded" class="mb-1 ms-1 flex items-center gap-1.5 text-chat-3">
+    <div v-if="compareSummary && toolHeaderExpanded" class="mb-1 ms-1 flex items-center gap-1.5 text-chat-3">
       <Icon name="heroicons:arrows-right-left" class="w-3 h-3 text-ink-muted" />
       <span class="text-gray-500 dark:text-gray-400">{{ t('tools.getEvalRun.vsPrevious') }}</span>
       <span class="inline-flex px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800">{{ t('tools.getEvalRun.fixed', { count: compareSummary.fixed || 0 }) }}</span>
@@ -42,7 +23,7 @@
     </div>
 
     <!-- Per-case rows (collapsed by default) -->
-    <ul v-if="cases.length && expanded" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
+    <ul v-if="cases.length && toolHeaderExpanded" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1 space-y-1 leading-snug">
       <li v-for="c in cases" :key="c.case_id" class="flex items-center py-0.5 px-1 rounded">
         <!-- A case captured mid-run stays mid-run in a transcript: a static
              glyph, not a spinner that implies work still happening. -->
@@ -55,16 +36,22 @@
     </ul>
 
     <!-- The run page is authenticated; a shared link's reader cannot open it. -->
-    <div v-if="!readonly && runId && expanded" class="mt-1 text-chat-2 text-ink-muted ms-1">
+    <div v-if="!readonly && runId && toolHeaderExpanded" class="mt-1 text-chat-2 text-ink-muted ms-1">
       <NuxtLink :to="`/evals/runs/${runId}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.getEvalRun.openRun') }}
       </NuxtLink>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 
@@ -231,14 +218,5 @@ function caseStatusColor(s: string): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

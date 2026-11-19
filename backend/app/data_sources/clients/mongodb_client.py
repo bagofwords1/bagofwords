@@ -133,24 +133,52 @@ class MongodbClient(DataSourceClient):
         For standard MongoDB: mongodb://user:pass@host:port/database?authSource=admin
         For Atlas (SRV): mongodb+srv://user:pass@host/database?retryWrites=true&w=majority
         """
-        from urllib.parse import quote_plus
-        
+        from urllib.parse import quote_plus, urlencode
+        from app.data_sources.clients._sa_url import clean_host, clean_port
+
+        host, database, options = self._parts()
         if self.use_srv:
-            # MongoDB Atlas / SRV format (no port, TLS is automatic)
-            if self.user and self.password:
-                user = quote_plus(self.user)
-                password = quote_plus(self.password)
-                return f"mongodb+srv://{user}:{password}@{self.host}/{self.database_name}?retryWrites=true&w=majority"
-            return f"mongodb+srv://{self.host}/{self.database_name}?retryWrites=true&w=majority"
-        
-        # Standard MongoDB format
+            scheme, netloc = "mongodb+srv", host
+            # Atlas / SRV format: no port, TLS is automatic.
+            options.setdefault("retryWrites", "true")
+            options.setdefault("w", "majority")
+        else:
+            scheme, netloc = "mongodb", f"{host}:{clean_port(self.port)}"
+        auth = ""
         if self.user and self.password:
-            user = quote_plus(self.user)
-            password = quote_plus(self.password)
-            auth_source = self.auth_source if self.auth_source else "admin"
-            return f"mongodb://{user}:{password}@{self.host}:{self.port}/{self.database_name}?authSource={auth_source}"
-        return f"mongodb://{self.host}:{self.port}/{self.database_name}"
-    
+            auth = f"{quote_plus(self.user)}:{quote_plus(self.password)}@"
+            if not self.use_srv:
+                options.setdefault("authSource", str(self.auth_source if self.auth_source else "admin"))
+        uri = f"{scheme}://{auth}{netloc}/{quote_plus(database)}"
+        return uri + ("?" + urlencode(options, quote_via=quote_plus) if options else "")
+
+    # Options that name a file on this server follow the local path policy.
+    _PATH_OPTIONS = frozenset({"tlscafile", "tlscertificatekeyfile", "tlscrlfile"})
+
+    def _parts(self):
+        """(host list, database name, URI options).
+
+        Every field is encoded or checked so none can change another. Saved
+        connections may carry URI options after the database name or the host
+        (``db?replicaSet=rs0``, ``h1,h2/?replicaSet=rs0``); those are parsed
+        here once and re-encoded. The host may be a comma-separated seed list.
+        """
+        from app.data_sources.clients._sa_url import clean_host, split_database_options
+
+        raw_host = str(self.host or "")
+        host_part = raw_host.split("/", 1)[0].split("?", 1)[0]
+        host_options = raw_host.partition("?")[2]
+        hosts = [clean_host(h) for h in host_part.split(",")]
+        if not hosts or not all(hosts):
+            raise ValueError("A MongoDB host is required.")
+        options: dict = {}
+        database = str(self.database_name or "")
+        for text in ("x?" + host_options if host_options else "x", database):
+            name, found = split_database_options(
+                text, kind="MongoDB", host=host_part, denied=frozenset(), path_options=self._PATH_OPTIONS)
+            options.update({k: (v[-1] if isinstance(v, tuple) else v) for k, v in found.items()})
+        return ",".join(hosts), name or "", options
+
     @contextmanager
     def connect(self) -> Generator:
         """Context manager for MongoDB connection."""
@@ -169,7 +197,7 @@ class MongodbClient(DataSourceClient):
             else:
                 # For standard connections, use the tls setting
                 client = MongoClient(uri, tls=self.tls, **timeout_opts)
-            yield client[self.database_name]
+            yield client[self._parts()[1]]
         finally:
             if client:
                 client.close()
