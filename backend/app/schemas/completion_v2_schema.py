@@ -209,6 +209,11 @@ class CompletionV2Schema(BaseModel):
     report_id: str
     # 'steering' for user messages injected into a running completion
     message_type: Optional[str] = None
+    # Steering rows: when the agent picked the steer up and the first loop step
+    # that acted on it (render above the first block with loop_index >= it).
+    # None while pending or never picked up.
+    steering_applied_at: Optional[datetime] = None
+    steering_loop_index: Optional[int] = None
 
     agent_execution_id: Optional[str] = None
     # Wall-clock time of the agent execution behind this completion, stamped when

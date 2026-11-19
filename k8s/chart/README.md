@@ -1,6 +1,6 @@
 # bagofwords
 
-![Version: 3.2.0](https://img.shields.io/badge/Version-3.2.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
+![Version: 3.3.0](https://img.shields.io/badge/Version-3.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.1](https://img.shields.io/badge/AppVersion-1.0.1-informational?style=flat-square)
 
 BOW - a new ai data tool
 
@@ -111,6 +111,15 @@ BOW - a new ai data tool
 | networkPolicy.enabled | bool | `false` |  |
 | networkPolicy.ingress | list | `[]` |  |
 | nodeSelector | object | `{}` | Node selector for the app pod. Does NOT affect the bundled PostgreSQL pod (use postgresql.primary.nodeSelector for that). |
+| pii.presidio.enabled | bool | `false` | Deploy the Presidio analyzer next to the app. |
+| pii.presidio.image.pullPolicy | string | `"IfNotPresent"` |  |
+| pii.presidio.image.repository | string | `"mcr.microsoft.com/presidio-analyzer"` |  |
+| pii.presidio.image.tag | string | `"2.2.362"` |  |
+| pii.presidio.nodeSelector | object | `{}` |  |
+| pii.presidio.replicaCount | int | `1` |  |
+| pii.presidio.resources | object | `{}` |  |
+| pii.presidio.tolerations | list | `[]` |  |
+| pii.presidio.url | string | `""` | URL of an existing Presidio analyzer service (overrides the bundled one). |
 | podAnnotations | object | `{}` | Annotations added to every pod (not the Deployment metadata). |
 | podDisruptionBudget.enabled | bool | `false` |  |
 | podDisruptionBudget.minAvailable | string | `"50%"` |  |

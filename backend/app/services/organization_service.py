@@ -14,6 +14,7 @@ from app.schemas.organization_schema import (
     MembershipImportSummary,
     MembershipImportReport,
     MEMBERSHIP_NOTE_MAX_LENGTH,
+    ORGANIZATION_NAME_MAX_LENGTH,
 )
 from app.schemas.organization_settings_schema import OrganizationSettingsCreate
 from app.services.organization_settings_service import OrganizationSettingsService
@@ -35,7 +36,10 @@ from app.settings.logging_config import get_logger
 from app.core.telemetry import telemetry, derive_org_domain
 from app.core.user_lifecycle import (
     deactivate_user_if_orphaned,
+    is_instance_admin_account,
+    may_attach_existing_account,
     reactivate_user_for_membership,
+    revoke_member_org_access,
 )
 
 logger = get_logger(__name__)
@@ -55,14 +59,42 @@ class OrganizationService:
 
     async def create_organization(self, db: AsyncSession, organization_data: OrganizationCreate, current_user: User) -> OrganizationSchema:
 
-        total_orgs = await db.execute(select(Organization))
-        total_orgs = total_orgs.scalars().all().__len__()
-        if total_orgs > 0 and not settings.bow_config.features.allow_multiple_organizations:
-            raise HTTPException(status_code=400, detail="You cannot create more than one organization")
-        
-        organization = Organization(**organization_data.dict())
+        from app.core.instance_admin import additional_organization_refusal, organization_count
+        from app.errors import ErrorCode
+        from sqlalchemy.exc import IntegrityError
+
+        # The first organization of a deployment is free for any signed-in
+        # user (first-run). Every later one is an instance-level decision.
+        if await organization_count(db) > 0:
+            refusal = additional_organization_refusal(current_user)
+            if refusal is not None:
+                raise refusal
+
+        name = (organization_data.name or "").strip()
+        if not name:
+            raise AppError.bad_request(ErrorCode.ORGANIZATION_NAME_REQUIRED, "Organization name is required")
+        if len(name) > ORGANIZATION_NAME_MAX_LENGTH:
+            raise AppError.bad_request(
+                ErrorCode.ORGANIZATION_NAME_TOO_LONG,
+                f"Organization name must be at most {ORGANIZATION_NAME_MAX_LENGTH} characters",
+                max=ORGANIZATION_NAME_MAX_LENGTH,
+            )
+        name_taken = AppError.conflict(
+            ErrorCode.ORGANIZATION_NAME_TAKEN, "An organization with this name already exists", name=name,
+        )
+        if (await db.execute(select(Organization.id).where(Organization.name == name))).first():
+            raise name_taken
+
+        first_admin_email = (organization_data.first_admin_email or "").strip().lower() or None
+
+        organization = Organization(name=name, description=organization_data.description)
         db.add(organization)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Lost a race for the same (unique) name.
+            await db.rollback()
+            raise name_taken
         await db.refresh(organization)
 
         # Telemetry: organization created
@@ -102,7 +134,33 @@ class OrganizationService:
             # A default skill is a convenience — never a reason org creation fails.
             logger.exception("default skill install failed for new org %s", organization.id)
 
-        return OrganizationSchema.from_orm(organization)
+        result = OrganizationSchema.from_orm(organization)
+        if first_admin_email:
+            result.first_admin_invite_status = await self._invite_first_admin(
+                db, str(organization.id), first_admin_email, current_user
+            )
+        return result
+
+    async def _invite_first_admin(self, db: AsyncSession, organization_id: str, email: str, current_user: User) -> str:
+        """Invite ``email`` as an admin of a just-created organization, through
+        the same path as the members page. The organization already exists, so
+        a failed invite is reported in the status instead of failing creation;
+        the creator can send it again from the members page."""
+        if email == (getattr(current_user, "email", "") or "").strip().lower():
+            return "already_member"
+        try:
+            membership = await self.add_member(
+                db,
+                MembershipCreate(organization_id=organization_id, email=email, role="admin"),
+                current_user,
+            )
+        except Exception:
+            await db.rollback()
+            logger.warning("first admin invite failed for new org %s", organization_id, exc_info=True)
+            return "not_invited"
+        if membership.user_id:
+            return "added"
+        return membership.invite_email_status or "skipped_no_smtp"
 
     async def _assign_system_role(self, db: AsyncSession, org_id: str, user_id: str, role_name: str) -> None:
         """Assign a system role to a user via role_assignments (RBAC path)."""
@@ -407,13 +465,43 @@ class OrganizationService:
         # Store the email for invitation before potentially setting it to None
         invitation_email = membership_data.email
 
+        # An existing account joins by accepting an invite, like a new address
+        # would, whenever this organization may not place it here on its own
+        # (see may_attach_existing_account). The caller adding themselves —
+        # creating an organization — is its own consent. An unknown account id
+        # is left to the insert, as before.
+        is_self = lambda u: str(u.id) == str(getattr(current_user, "id", ""))  # noqa: E731
+        target = user
+        if target is None and membership_data.user_id:
+            target = await db.get(User, str(membership_data.user_id))
+        if target is not None and not is_self(target):
+            if is_instance_admin_account(target) and not getattr(current_user, "is_superuser", False):
+                from app.errors import ErrorCode
+                raise AppError.forbidden(
+                    ErrorCode.ORGANIZATION_MEMBER_INSTANCE_ADMIN,
+                    "This account is an instance administrator. Only an instance "
+                    "administrator can add it to an organization.",
+                )
+            if not await may_attach_existing_account(db, target, org_id):
+                target_email = (target.email or "").strip().lower()
+                if user is None and await self._is_email_already_in_organization(
+                    db, target_email, membership_data.organization_id
+                ):
+                    raise HTTPException(status_code=400, detail="Already a member with this email")
+                user = None
+                membership_data.user_id = None
+                membership_data.email = target_email
+                invitation_email = target_email
+            else:
+                user = target
+
         if user:
             membership_data.user_id = user.id
             membership_data.email = None
             # Re-inviting someone who was deactivated when their last membership
             # was removed restores their login — that reversibility is the whole
             # reason removal deactivates instead of deleting.
-            await reactivate_user_for_membership(db, str(user.id))
+            await reactivate_user_for_membership(db, str(user.id), org_id)
 
         membership = Membership(**membership_data.dict(exclude={"role_ids", "group_ids"}))
         if membership.user_id is None:
@@ -501,6 +589,7 @@ class OrganizationService:
             select(Organization, Membership.role)
             .join(Membership)
             .where(Membership.user_id == current_user.id)
+            .where(Membership.deleted_at.is_(None))
         )
         results = result.all()
         org_ids = [org.id for org, _ in results]
@@ -597,6 +686,9 @@ class OrganizationService:
             # Memory is per user per org: removing the membership deletes it.
             from app.services.memory_service import memory_service
             await memory_service.delete_for_membership(db, str(organization_id), str(membership.user_id))
+            # Roles, groups, grants, API keys and triggers held here end with
+            # the membership, so a later re-invite starts from the invited role.
+            await revoke_member_org_access(db, str(organization_id), str(membership.user_id))
         else:
             # Pending invite: clean up any pre-assigned RBAC keyed by this
             # membership. Done explicitly (not via FK cascade) so it holds on
@@ -1035,11 +1127,15 @@ class OrganizationService:
         user = user.scalar_one_or_none()
         if user:
             membership = await db.execute(select(Membership).where(Membership.user_id == user.id, Membership.organization_id == organization_id))
-            membership = membership.scalar_one_or_none()
-            return membership
+            membership = membership.scalars().first()
+            if membership:
+                return membership
+            # A registered user can also hold a pending invite here (they
+            # belong to another organization and have not accepted yet), so
+            # fall through to the email check instead of answering "no".
 
         email_membership = await db.execute(select(Membership).where(func.lower(Membership.email) == email_norm, Membership.organization_id == organization_id))
-        email_membership = email_membership.scalar_one_or_none()
+        email_membership = email_membership.scalars().first()
         if email_membership:
             return email_membership 
         
@@ -1111,7 +1207,7 @@ class OrganizationService:
 
     async def get_organization_members(self, db: AsyncSession, current_user: User, organization: Organization) -> List[UserSchema]:
         # should get list of users via membership table
-        result = await db.execute(select(Membership).where(Membership.organization_id == organization.id))
+        result = await db.execute(select(Membership).where(Membership.organization_id == organization.id, Membership.deleted_at.is_(None)))
         memberships = result.scalars().all()
         user_ids = [membership.user_id for membership in memberships if membership.user_id is not None]
         result = await db.execute(select(User).where(User.id.in_(user_ids)))

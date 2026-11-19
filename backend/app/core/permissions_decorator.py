@@ -96,8 +96,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             query_id = all_args.get('query_id')  # For routes with object_id parameter
             artifact_id = all_args.get('artifact_id')  # For routes with object_id parameter
             entity_id = all_args.get('entity_id')  # For routes with object_id parameter
+            platform_id = all_args.get('platform_id')  # ExternalPlatform routes
 
-            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id or artifact_id or entity_id
+            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id or artifact_id or entity_id or platform_id
         
 
             if not all([user, organization, db]):
@@ -317,6 +318,41 @@ _RESOURCE_PARAM_MAP = {
 }
 
 
+def _resource_model(resource_type: str):
+    """ORM model for a resource type whose rows carry `organization_id`."""
+    if resource_type == "data_source":
+        from app.models.data_source import DataSource
+        return DataSource
+    if resource_type == "connection":
+        from app.models.connection import Connection
+        return Connection
+    if resource_type == "folder":
+        from app.models.folder import Folder
+        return Folder
+    return None
+
+
+async def _has_foreign_resource(db, org_id: str, resource_type: str, resource_ids) -> bool:
+    """True when any of `resource_ids` names a row of another organization.
+
+    Role and org-level permissions are granted inside one organization, so
+    they never extend to another organization's resources — this runs before
+    every allow tier. Ids with no row at all are left to the caller (history
+    snapshots legitimately reference rows that were since deleted).
+    """
+    model = _resource_model(resource_type)
+    ids = [str(r) for r in (resource_ids or []) if r]
+    if model is None or not ids:
+        return False
+    row = await db.execute(
+        select(model.id).where(
+            model.id.in_(ids),
+            model.organization_id != str(org_id),
+        ).limit(1)
+    )
+    return row.first() is not None
+
+
 def requires_resource_permission(resource_type: str, permission: str):
     """
     Decorator for resource-level permission checks.
@@ -361,8 +397,14 @@ def requires_resource_permission(resource_type: str, permission: str):
             # Org membership check (Membership for humans, ServiceAccount for SAs)
             if not await principal_belongs_to_org(db, user, organization.id):
                 await _audit_access_denied(db, user, organization, permission, func.__name__, "not_a_member",
-                                           getattr(model, "__tablename__", None) if model else None, object_id)
+                                           resource_type, all_args.get(_RESOURCE_PARAM_MAP[resource_type]))
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
+
+            _route_resource_id = all_args.get(_RESOURCE_PARAM_MAP[resource_type])
+            if await _has_foreign_resource(db, organization.id, resource_type, [_route_resource_id]):
+                await _audit_access_denied(db, user, organization, permission, func.__name__,
+                                           "resource_not_in_organization", resource_type, _route_resource_id)
+                raise HTTPException(status_code=404, detail="Resource not found")
 
             if resource_type == "data_source":
                 from app.services.connected_application_service import agent_ceiling
@@ -442,6 +484,11 @@ async def check_resource_permissions(
     """
     if not resource_ids:
         return
+
+    # Before any allow tier: an admin role or org-level permission is scoped
+    # to `org_id` and never covers another organization's resources.
+    if await _has_foreign_resource(db, org_id, resource_type, resource_ids):
+        raise HTTPException(status_code=404, detail="Resource not found")
 
     if resource_type == "data_source":
         from app.services.connected_application_service import agent_ceiling

@@ -72,6 +72,14 @@ data:
   {{- end }}
   {{- end }}
 
+  # PII detection service (names / locations): an external analyzer URL wins;
+  # otherwise the bundled Presidio analyzer when pii.presidio.enabled.
+  {{- if .Values.pii.presidio.url }}
+  BOW_PII_PRESIDIO_URL: {{ .Values.pii.presidio.url | quote }}
+  {{- else if .Values.pii.presidio.enabled }}
+  BOW_PII_PRESIDIO_URL: {{ printf "http://%s-presidio.%s.svc:3000" (include "bowapp.name" .) .Release.Namespace | quote }}
+  {{- end }}
+
   # Sensitive values: emit to ConfigMap only when set as a literal (not a ${VAR} placeholder).
   # Recommended pattern is to provide these via config.secretRef; see README.md.
   {{- if and .Values.config.encryptionKey (not (hasPrefix "${" .Values.config.encryptionKey)) }}

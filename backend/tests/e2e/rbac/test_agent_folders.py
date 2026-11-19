@@ -526,6 +526,7 @@ def test_folder_role_levels_and_agent_exceptions(
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop
 def test_folder_revoke_racing_instruction_create(test_client, bootstrap_admin, invite_user_to_org):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier

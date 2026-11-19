@@ -2,6 +2,7 @@ from app.data_sources.clients.progress import discovery_progress, discovery_item
 from app.data_sources.clients.base import DataSourceClient
 
 import os
+import re
 import ssl
 
 import oracledb
@@ -17,6 +18,31 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
+from app.data_sources.clients._sa_url import (
+    build_url, clean_port, connect_with_legacy_decoding, effective_url, render,
+)
+
+
+# A service name may carry CONNECT_DATA options the form has no field for,
+# written the way they continue the descriptor: orcl)(SERVER=DEDICATED or
+# orcl)(INSTANCE_NAME=orcl1. Only these session-routing options are accepted.
+_SERVICE_NAME_WITH_OPTIONS = re.compile(
+    r"[\w.$#-]+(\)\((SERVER|INSTANCE_NAME|UR|POOL_CONNECTION_CLASS|POOL_PURITY)=[\w.$#-]+)+", re.I
+)
+
+
+def _descriptor_value(value, label: str) -> str:
+    """A value that is safe inside an Oracle connect descriptor.
+
+    The driver assembles ``(DESCRIPTION=(ADDRESS=...)(CONNECT_DATA=...))`` from
+    the host and service name, so neither may carry descriptor syntax.
+    """
+    value = "" if value is None else str(value).strip()
+    if label == "service name" and _SERVICE_NAME_WITH_OPTIONS.fullmatch(value):
+        return value
+    if any(c in value for c in "()=\"\'") or any(ord(c) < 32 for c in value):
+        raise ValueError(f"The {label} contains characters that are not allowed.")
+    return value
 
 
 def init_thick_mode_if_available() -> bool:
@@ -78,12 +104,21 @@ class OracledbClient(DataSourceClient):
                     self._schemas.append(up)
 
     @cached_property
-    def oracle_uri(self):
-        uri = (
-            f"oracle+oracledb://{self.user}:{self.password}@"
-            f"{self.host}:{self.port}/?service_name={self.service_name}"
+    def _sa_url(self):
+        return build_url(
+            "oracle+oracledb",
+            username=self.user,
+            password=self.password,
+            host=_descriptor_value(self.host, "host"),
+            port=self.port,
+            query={"service_name": _descriptor_value(self.service_name, "service name")},
         )
-        return uri
+
+    @property
+    def oracle_uri(self):
+        """Identity string (pool key, dialect detection) of the URL the
+        engine is built from."""
+        return render(effective_url(self._sa_url))
 
     def _connect_args(self) -> dict:
         """Extra DBAPI connect arguments for TCPS (TLS) connections.
@@ -98,8 +133,9 @@ class OracledbClient(DataSourceClient):
             return {}
         args = {
             "dsn": (
-                f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(HOST={self.host})(PORT={self.port}))"
-                f"(CONNECT_DATA=(SERVICE_NAME={self.service_name})))"
+                f"(DESCRIPTION=(ADDRESS=(PROTOCOL=TCPS)(HOST={_descriptor_value(self.host, 'host')})"
+                f"(PORT={clean_port(self.port)}))"
+                f"(CONNECT_DATA=(SERVICE_NAME={_descriptor_value(self.service_name, 'service name')})))"
             )
         }
         if not self.verify_ssl:
@@ -116,8 +152,10 @@ class OracledbClient(DataSourceClient):
         """Yield a connection to an Oracle database."""
         conn = None
         try:
-            engine = get_engine(self.oracle_uri, connect_args=self._connect_args())
-            conn = engine.connect()
+            conn = connect_with_legacy_decoding(
+                self._sa_url,
+                lambda url: get_engine(url, connect_args=self._connect_args()).connect(),
+            )
             # Set current schema if provided (Oracle has no search_path; use first schema)
             if self._schemas:
                 current_schema = self._schemas[0]

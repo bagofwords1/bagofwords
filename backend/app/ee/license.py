@@ -38,6 +38,8 @@ TIER_FEATURES = {
         "rls",
         "data_encryption",
         "audit_log_streams",
+        # Creating an organization beyond the first one (the first is free).
+        "multi_org",
     ],
 }
 

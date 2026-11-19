@@ -692,6 +692,18 @@ class AgentReliabilityService:
     # Scheduling (fire-and-forget from triggers)
     # =====================================================================
 
+    async def will_check(self, db: AsyncSession, organization, data_source, trigger: str) -> bool:
+        """Whether a scheduled run for ``trigger`` would actually evaluate
+        anything: the same up-front gates as ``run_automation`` (the trigger's
+        stage autonomy is not off, and the agent has active evals). Lets a
+        caller say "a check started" only when one will."""
+        policy = await self.resolve_policy(db, organization, data_source)
+        stage = _TRIGGER_STAGE.get(trigger)
+        if stage is not None and policy.stage(stage) == AUTONOMY_OFF:
+            return False
+        return bool(await self.list_agent_eval_case_ids(
+            db, str(organization.id), str(data_source.id), suite_ids=policy.suite_ids))
+
     def schedule(self, *, organization_id: str, data_source_id: str, trigger: str, changed_hint: Optional[str] = None, user_id: Optional[str] = None) -> None:
         """Fire the loop in the background with its own DB session. Safe to call
         from request handlers / post-commit hooks. Never blocks the caller."""

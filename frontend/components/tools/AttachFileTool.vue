@@ -1,19 +1,14 @@
 <template>
-  <div class="mt-1">
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-paper-clip" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>Attaching {{ requestedCount }} file{{ requestedCount === 1 ? '' : 's' }}…</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-paper-clip" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>Attached {{ attachedCount }} file{{ attachedCount === 1 ? '' : 's' }} to the report</span>
-          <span v-if="failedCount" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span>
-        </span>
-      </div>
-    </Transition>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">Attaching {{ requestedCount }} file{{ requestedCount === 1 ? '' : 's' }}…</template>
+      <template v-else>Attached {{ attachedCount }} file{{ attachedCount === 1 ? '' : 's' }} to the report</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span v-if="failedCount" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-yellow-50 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-500">{{ failedCount }} failed</span></template></div>
 
     <Transition name="fade" appear>
       <div v-if="files.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
@@ -45,10 +40,16 @@
     </Transition>
 
     <div v-if="status !== 'running' && !files.length && errorMessage" class="text-chat-2 text-red-600 mt-1">{{ errorMessage }}</div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon, FILE_SOURCE_TYPES } from '~/composables/useToolConnectionIcon'
@@ -90,13 +91,6 @@ function humanSize(n: number): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

@@ -283,7 +283,8 @@ def test_generated_demo_dataset_opens_on_a_pod_that_did_not_generate_it(uploads,
     import sqlite3
     from app.data_sources.clients.sqlite_client import SqliteClient
 
-    db = uploads / "demo_data" / str(uuid.uuid4()) / f"{uuid.uuid4()}.sqlite"
+    org_id = str(uuid.uuid4())
+    db = uploads / "demo_data" / org_id / f"{uuid.uuid4()}.sqlite"
     db.parent.mkdir(parents=True)
     con = sqlite3.connect(db)
     con.execute("CREATE TABLE orders (id INTEGER, amount REAL)")
@@ -293,5 +294,10 @@ def test_generated_demo_dataset_opens_on_a_pod_that_did_not_generate_it(uploads,
     storage.persist(db)
 
     os.remove(db)  # pod B
-    df = SqliteClient(database=str(db)).execute_query("SELECT SUM(amount) AS total FROM orders")
+    # A generated dataset is readable by the organization it was generated for;
+    # the services bind that organization when they build the client.
+    from app.data_sources.clients._duckdb_lockdown import bind_organization
+
+    client = bind_organization(SqliteClient(database=str(db)), org_id)
+    df = client.execute_query("SELECT SUM(amount) AS total FROM orders")
     assert float(df.iloc[0]["total"]) == 29.5

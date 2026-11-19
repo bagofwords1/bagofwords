@@ -60,11 +60,14 @@ def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
     `ds_clients` in any form other than a literal key (a computed key, an
     alias, `.items()`), counts as NOT reaching only usable clients.
     """
-    from app.services.client_keys import literal_client_keys
+    from app.services.client_keys import literal_client_keys, with_former_keys
 
     keys = literal_client_keys(code)
     if not keys:
         return False
+    # A key spelled with a former name reaches its client too (the run adds
+    # those keys the same way).
+    clients = with_former_keys(clients)
     return all(k in clients for k in keys)
 
 
@@ -88,9 +91,9 @@ def _failure_keeps_code(error: BaseException, code: str, clients: dict) -> bool:
     missing = _missing_key(error)
     if not isinstance(missing, str):
         return False
-    from app.services.client_keys import literal_client_keys
+    from app.services.client_keys import literal_client_keys, with_former_keys
 
-    return missing not in clients and missing not in (literal_client_keys(code) or [])
+    return missing not in with_former_keys(clients) and missing not in (literal_client_keys(code) or [])
 
 
 def _missing_key(error: BaseException):
@@ -257,7 +260,10 @@ class ForkService:
 
         from app.models.membership import Membership
         membership_result = await db.execute(
-            select(Membership.organization_id).where(Membership.user_id == user.id)
+            select(Membership.organization_id).where(
+                Membership.user_id == user.id,
+                Membership.deleted_at.is_(None),
+            )
         )
         user_org_ids = {str(row[0]) for row in membership_result.all()}
         if str(report.organization_id) not in user_org_ids:
@@ -323,8 +329,14 @@ class ForkService:
         report_id: str,
         user: User,
         title: Optional[str] = None,
+        organization=None,
     ) -> Report:
-        """Fork a report, creating a new report with duplicated assets."""
+        """Fork a report, creating a new report with duplicated assets.
+
+        ``organization`` is the organization the request acts in (the one its
+        permission was checked against); the fork is created in the report's
+        organization, so the two must be the same.
+        """
         # 1. Load original report with all relationships
         result = await db.execute(
             select(Report)
@@ -340,6 +352,8 @@ class ForkService:
         )
         original = result.unique().scalar_one_or_none()
         if not original:
+            raise HTTPException(status_code=404, detail="Report not found")
+        if organization is not None and str(original.organization_id) != str(organization.id):
             raise HTTPException(status_code=404, detail="Report not found")
 
         # Must be published, have conversation sharing enabled, or live in a

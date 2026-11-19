@@ -156,6 +156,10 @@ jobs:
         TESTING: "true"
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
+        # The -m ai tests have not been validated on the shared per-test
+        # test_client loop (tests/fixtures/client.py): keep them on one
+        # event loop per request.
+        BOW_TEST_PER_REQUEST_LOOP: "1"
       run: |
         uv run pytest -s -m ai --db=${{ matrix.db }} --disable-warnings --timeout=600 --timeout-method=thread
 

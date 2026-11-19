@@ -53,7 +53,7 @@ from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
 from app.models.usage_policy import UsageEvent
 from app.models.instruction_build import InstructionBuild
-from app.services.folder_monitoring import agent_links, detail_condition
+from app.services.folder_monitoring import agent_links, detail_condition, reports_in_scope, visible_runs
 from app.models.report_data_source_association import report_data_source_association
 from app.models.data_source import DataSource
 from app.models.group import Group
@@ -151,7 +151,8 @@ class ConsoleService:
             return []
         return [u_id.strip() for u_id in user_ids.split(',') if u_id.strip()]
 
-    def _reports_of_data_sources(self, data_source_ids: List[str], scope_ids: Optional[List[str]] = None):
+    def _reports_of_data_sources(self, data_source_ids: List[str], scope_ids: Optional[List[str]] = None,
+                                 enforce_scope: bool = True):
         """Subquery of the report ids a request may read, or None for "no filter".
 
         Two different rules, deliberately:
@@ -159,43 +160,60 @@ class ConsoleService:
         * the caller's agent filter is ANY-of — "runs involving Marketing"
           naturally includes a report that also used Support;
         * the caller's security scope is ALL-of — a report is only readable when
-          every agent it draws on is in scope. A trace replays the whole
-          conversation and nothing below the report is attributed to an agent,
-          so a joint report can't be shown to someone who manages only one of
-          its agents without leaking the other's queries and results.
+          every run in it reached only agents in scope (see
+          folder_monitoring.reports_in_scope). This covers Auto reports too:
+          each run records the agents it was given, so an Auto run whose user
+          could only reach managed agents is attributable to their manager.
+
+        A scoped caller's filter defaults to all of their agents
+        (ConsoleScope.resolve_ids); that narrows nothing the scope doesn't, and
+        applying it as ANY-of would drop an Auto run that never queried an
+        agent, so it is skipped. A narrower filter also matches the agents a run
+        was given — for scoped callers only, whose every visible run is confined
+        to their agents; org-wide it would file each Auto run under every agent
+        its user could reach.
 
         ``scope_ids`` None means org-wide, where only the filter applies.
+        ``enforce_scope=False``: the caller applies the scope per run instead
+        (``_visible_runs``) and only wants the filter here.
         """
-        assoc = agent_links()
-        if not data_source_ids and scope_ids is None:
-            return None
-        q = select(assoc.c.report_id)
+        if scope_ids is not None and data_source_ids and set(data_source_ids) >= set(scope_ids):
+            data_source_ids = []
+        selected = None
         if data_source_ids:
-            q = q.where(assoc.c.data_source_id.in_(data_source_ids))
-        if scope_ids is not None:
-            # Drop any report that also draws on an agent outside the scope.
-            # Reports with no agent never match the first clause, so they're
-            # excluded too — nothing attributes them to a managed agent.
-            q = q.where(
-                assoc.c.data_source_id.in_(scope_ids),
-                ~assoc.c.report_id.in_(
-                    select(assoc.c.report_id).where(assoc.c.data_source_id.notin_(scope_ids))
-                ),
-            )
-        return q
+            assoc = agent_links(include_exposure=scope_ids is not None)
+            selected = select(assoc.c.report_id).where(assoc.c.data_source_id.in_(data_source_ids))
+        if scope_ids is None or not enforce_scope:
+            return selected
+        q = select(Report.id).where(Report.id.in_(reports_in_scope(scope_ids)))
+        return q.where(Report.id.in_(selected)) if selected is not None else q
 
-    def _reports_in_scope(self, params: MetricsQueryParams):
-        """``_reports_of_data_sources`` for a request's params."""
+    def _reports_in_scope(self, params: MetricsQueryParams, run_level: bool = False):
+        """``_reports_of_data_sources`` for a request's params.
+
+        ``run_level=True`` leaves the security scope out of the report filter:
+        the caller lists individual runs and applies ``_visible_runs`` instead,
+        which can show the in-scope start of a report whose later turns
+        reached an agent the caller doesn't manage.
+        """
         selected = self._reports_of_data_sources(
             self._parse_data_source_ids(params.data_source_ids),
             self._parse_data_source_ids(params.scope_data_source_ids)
             if params.scope_data_source_ids is not None else None,
+            enforce_scope=not run_level,
         )
         readable = getattr(params, "_folder_report_ids", [])
         if readable is None:
             return selected
         reports = select(Report.id).where(detail_condition(Report.id, readable))
         return reports.where(Report.id.in_(selected)) if selected is not None else reports
+
+    def _visible_runs(self, params: MetricsQueryParams):
+        """Runs the caller's security scope admits (None = org-wide); see
+        folder_monitoring.visible_runs."""
+        if params.scope_data_source_ids is None:
+            return None
+        return visible_runs(self._parse_data_source_ids(params.scope_data_source_ids))
 
 
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
@@ -2168,8 +2186,15 @@ class ConsoleService:
         organization: Organization,
         report_id: str,
         viewer_id: Optional[str] = None,
+        visible_run_ids: Optional[set] = None,
     ) -> ConversationTraceResponse:
         """Return a whole report conversation as ordered user→assistant turns.
+
+        ``visible_run_ids`` (None = all) limits the turns to those a scoped
+        agent manager may see (ConsoleScope.visible_run_ids). Every per-turn
+        detail below is derived from the kept rows; ``hidden_turns`` says how
+        many were withheld so the modal can say so instead of pretending the
+        conversation ended.
 
         Each turn carries diagnosis badges (status, tool counts, feedback,
         scores, duration) so the conversation-first trace modal can render the
@@ -2222,6 +2247,11 @@ class ConsoleService:
             .order_by(AgentExecution.created_at.asc())
         )
         rows = (await db.execute(rows_q)).all()
+        hidden_turns = 0
+        if visible_run_ids is not None:
+            keep = {str(r) for r in visible_run_ids}
+            hidden_turns = sum(1 for r in rows if str(r.ae_id) not in keep)
+            rows = [r for r in rows if str(r.ae_id) in keep]
 
         ae_ids = [r.ae_id for r in rows]
         completion_ids = [r.completion_id for r in rows if r.completion_id]
@@ -2366,6 +2396,11 @@ class ConsoleService:
             return tail
 
         checkins = await self._report_checkins(db, organization, str(report.id))
+        if visible_run_ids is not None:
+            # A check-in belongs to the run it triggered; one we can't tie to a
+            # visible run may carry a hidden turn's findings.
+            kept_completions = {str(r.completion_id) for r in rows if r.completion_id}
+            checkins = [c for c in checkins if c.run_completion_id and str(c.run_completion_id) in kept_completions]
         checkin_by_run = {c.run_completion_id: c.id for c in checkins if c.run_completion_id}
         memory_by_ae = await self._turn_memory_sections(db, rows, ae_ids, viewer_id)
 
@@ -2448,6 +2483,10 @@ class ConsoleService:
                 _turn_usage_scope_clause(),
             )
         )
+        if visible_run_ids is not None:
+            # Partial view: only the shown turns' usage (records carry their
+            # run id; older unattributed ones can't be placed and are left out).
+            usage_q = usage_q.where(LLMUsageRecord.agent_execution_id.in_([str(a) for a in ae_ids] or [""]))
         usage_tokens, usage_cost = (await db.execute(usage_q)).one()
         total_llm_tokens = int(usage_tokens or 0) or None
         total_llm_cost_usd = round(float(usage_cost or 0), 6) or None
@@ -2474,6 +2513,7 @@ class ConsoleService:
             total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
             checkins=checkins,
+            hidden_turns=hidden_turns,
         )
 
     async def _report_checkins(self, db: AsyncSession, organization: Organization, report_id: str) -> list:
@@ -2604,7 +2644,7 @@ class ConsoleService:
         if security_data_source_ids is not None and params.scope_data_source_ids is None:
             params = params.model_copy()
             params._folder_report_ids = []
-        reports_in_scope = self._reports_in_scope(params)
+        reports_in_scope = self._reports_in_scope(params, run_level=True)
         if reports_in_scope is not None:
             base_query = base_query.where(AgentExecution.report_id.in_(reports_in_scope))
 
@@ -2612,7 +2652,8 @@ class ConsoleService:
         if parsed_user_ids:
             base_query = base_query.where(AgentExecution.user_id.in_(parsed_user_ids))
 
-        # Security boundary: reports drawing ONLY on agents the caller manages.
+        # Security boundary: runs that reached ONLY agents the caller manages,
+        # with no earlier turn in the report that reached another one.
         # `params.scope_data_source_ids` covers HTTP callers (set by
         # ConsoleScope); `security_data_source_ids` is the equivalent for
         # in-process callers such as the training agent's list tool.
@@ -2620,9 +2661,7 @@ class ConsoleService:
         if scope_ids is None and params.scope_data_source_ids is not None:
             scope_ids = self._parse_data_source_ids(params.scope_data_source_ids)
         if scope_ids is not None:
-            base_query = base_query.where(
-                AgentExecution.report_id.in_(self._reports_of_data_sources([], scope_ids))
-            )
+            base_query = base_query.where(AgentExecution.id.in_(visible_runs(scope_ids)))
 
         total_q = select(func.count()).select_from(base_query.subquery())
         total_res = await db.execute(total_q)
@@ -2909,12 +2948,16 @@ class ConsoleService:
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 
-        # Build data source filter subquery if needed
-        ds_filter_subquery = self._reports_in_scope(params)
+        # Build data source filter subquery if needed. Counts runs, so the
+        # security scope applies per run (see _visible_runs).
+        ds_filter_subquery = self._reports_in_scope(params, run_level=True)
+        runs_in_scope = self._visible_runs(params)
 
         def apply_common_filters(query):
             if ds_filter_subquery is not None:
                 query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+            if runs_in_scope is not None:
+                query = query.where(AgentExecution.id.in_(runs_in_scope))
             if parsed_user_ids:
                 query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
             return query

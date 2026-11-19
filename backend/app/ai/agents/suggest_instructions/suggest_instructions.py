@@ -1,3 +1,4 @@
+from app.ai.llm.pii.context import pii_context
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 import logging
 
@@ -171,7 +172,7 @@ Longer example:
 - Instruction: {{"title": "NET_REVENUE_CALC", "text": "Authoritative Net Revenue (NR) Calculation — SaaS. Include only invoice_lines with line_type IN ('recurring','usage'), is_trial=false; recognize revenue pro‑rata over service_start → service_end; convert to USD using daily EOD spot; exclude VAT/taxes and processor fees; allocate refunds/credits to original service days; stop recognition at cancellation_effective_at; clamp per‑day NR to ≥ 0 after discounts.", "category": "general", "confidence": 0.95}}
 
 Context:
-  {instructions_context}
+  {pii_context(instructions_context)}
   {history_summary}
   {messages_context if messages_context else 'No recent messages'}
   <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>

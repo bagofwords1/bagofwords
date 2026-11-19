@@ -429,9 +429,25 @@ async def respond_to_mcp_tool_confirmation(
     from app.ai.tools.confirmation import KIND_BUILTIN_TOOL
     _ANSWERABLE_KINDS = {KIND_MCP_TOOL_POLICY, KIND_BUILTIN_TOOL}
 
+    # The completion in the path must be one of the request's organization
+    # (through its report). A principal bound to several organizations answers
+    # a run only from the organization that run belongs to; anything else is
+    # answered like an unknown confirmation.
+    from sqlalchemy import select
+    from app.models.completion import Completion as _Completion
+    completion_org_id = (await db.execute(
+        select(Report.organization_id)
+        .join(_Completion, _Completion.report_id == Report.id)
+        .where(_Completion.id == str(completion_id))
+    )).scalar_one_or_none()
+    if completion_org_id is not None and str(completion_org_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+
     confirmations = ToolConfirmationService()
     row = await confirmations.get(db, confirmation_id)
     if row is not None:
+        if row.organization_id and str(row.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if row.kind not in _ANSWERABLE_KINDS:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if not confirmations.may_respond(

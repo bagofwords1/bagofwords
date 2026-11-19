@@ -111,7 +111,11 @@ class AgentYamlService:
         yaml_text: str,
         *,
         dry_run: bool = False,
+        create_overrides: Optional[Dict[str, Any]] = None,
     ) -> ApplyResult:
+        """``create_overrides`` are extra ``DataSourceCreate`` fields used only
+        when the agent is created (e.g. ``folder_id`` / ``kind`` from the import
+        wizard). They are not part of the manifest, so an update ignores them."""
         errors: List[ApplyError] = []
         warnings: List[ApplyWarning] = []
 
@@ -207,7 +211,8 @@ class AgentYamlService:
         # 9. Create or update
         if existing is None:
             ds, post_warnings = await self._create_agent(
-                db, organization, current_user, manifest, resolved
+                db, organization, current_user, manifest, resolved,
+                create_overrides=create_overrides,
             )
             warnings.extend(post_warnings)
             return ApplyResult(
@@ -393,6 +398,8 @@ class AgentYamlService:
         current_user: User,
         manifest: AgentManifest,
         resolved: _Resolved,
+        *,
+        create_overrides: Optional[Dict[str, Any]] = None,
     ) -> Tuple[DataSource, List[ApplyWarning]]:
         warnings: List[ApplyWarning] = []
 
@@ -416,6 +423,7 @@ class AgentYamlService:
             is_public=manifest.is_public,
             use_llm_sync=manifest.use_llm_sync,
             member_user_ids=user_member_ids,
+            **(create_overrides or {}),
         )
         # create_data_source raises HTTPException on duplicate name —
         # we've already guarded that path, but let any other failure
@@ -937,8 +945,21 @@ class AgentYamlService:
         )
         grants = {(g.principal_type, g.principal_id): list(g.permissions or []) for g in g_q.scalars().all()}
 
+        # Only principals of the agent's own organization are named in the
+        # export; a membership row pointing anywhere else is left out.
+        from app.services.rbac_service import principals_in_org
+        org_principals = {
+            ptype: await principals_in_org(
+                db, str(ds.organization_id), ptype,
+                [m.principal_id for m in memberships if m.principal_type == ptype],
+            )
+            for ptype in (PRINCIPAL_TYPE_USER, PRINCIPAL_TYPE_GROUP)
+        }
+
         owner_id = str(ds.owner_user_id) if ds.owner_user_id else None
         for m in memberships:
+            if str(m.principal_id) not in org_principals.get(m.principal_type, set()):
+                continue
             # Skip the implicit owner row from the YAML (it's always present
             # and re-added automatically on create).
             if m.principal_type == PRINCIPAL_TYPE_USER and m.principal_id == owner_id:
@@ -1144,6 +1165,7 @@ class ManifestResolver:
             .join(Membership, Membership.user_id == User.id)
             .where(
                 Membership.organization_id == str(self.org.id),
+                Membership.deleted_at.is_(None),
                 User.email.in_(emails),
             )
         )

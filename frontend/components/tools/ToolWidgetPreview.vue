@@ -1,20 +1,22 @@
 <template>
-  <div class="widget-container" :class="{ 'widget-container--expanded': expanded }" :data-testid="expanded ? 'data-panel' : undefined">
+  <div class="widget-container" :class="{ 'widget-container--expanded': expanded, 'widget-container--compact': compact }" :data-testid="expanded ? 'data-panel' : undefined">
     <!-- Widget header with title and toggle. In the side panel there is
          nothing to collapse: the header stays pinned at the top as the
          card's toolbar while the result scrolls beneath it. -->
-    <div class="widget-header" :class="{ 'widget-header--expanded': expanded }" @click="toggleCollapsed">
+    <div class="widget-header" :class="{ 'widget-header--expanded': expanded || compact }" @click="toggleCollapsed">
       <div class="flex items-center justify-between w-full min-w-0">
         <div class="flex items-center min-w-0">
-          <Icon v-if="!expanded" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
-          <Icon v-else :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-ink-muted flex-shrink-0" />
+          <!-- Leading content from the host (e.g. a citation's number) -->
+          <slot name="header-prefix" />
+          <Icon v-if="!expanded && !compact" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
+          <Icon v-else-if="expanded" :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-ink-muted flex-shrink-0" />
           <h3 class="widget-title truncate" :class="{ 'text-sm': expanded }">{{ widgetTitle }}</h3>
           <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-chat-3 text-ink-muted inline-flex items-center gap-1">
             <img src="/assets/logo-128.png" class="w-3 h-3 object-contain" alt="" />
             {{ t('tools.createData.bowSource') }}
           </span>
           <button
-            v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
+            v-if="queryId && canRunCustomCode && (canEdit || !readonly) && !compact"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-ink-muted rounded transition-colors flex items-center"
             :title="t('tools.widgetPreview.editQueryCode')"
@@ -24,7 +26,7 @@
           </button>
         </div>
         <div class="flex items-center gap-3">
-          <UTooltip v-if="queryId" :text="t('tools.widgetPreview.copyIdTooltip')">
+          <UTooltip v-if="queryId && !compact" :text="t('tools.widgetPreview.copyIdTooltip')">
             <button
               @click.stop="copyQueryId"
               class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 font-mono transition-colors"
@@ -54,7 +56,7 @@
               <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5" />
             </button>
           </UTooltip>
-          <UTooltip v-if="hasChartForDownload" :text="t('tools.widgetPreview.downloadPng')">
+          <UTooltip v-if="hasChartForDownload && !compact" :text="t('tools.widgetPreview.downloadPng')">
             <button
               @click.stop="downloadChartPNG"
               class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
@@ -63,7 +65,7 @@
             </button>
           </UTooltip>
           <UDropdown
-            v-if="hasDataForDownload"
+            v-if="hasDataForDownload && !compact"
             :items="downloadItems"
             :popper="{ placement: 'bottom-end' }"
             :ui="{ width: 'w-48', item: { padding: 'px-2.5 py-1.5' } }"
@@ -93,7 +95,7 @@
 
     <!-- Collapsible content -->
     <Transition name="slide-fade">
-      <div v-if="!isCollapsed" class="widget-content" :class="{ 'widget-content--expanded': expanded }">
+      <div v-if="!isCollapsed" class="widget-content" :class="{ 'widget-content--expanded': expanded, 'widget-content--compact': compact }">
         <!-- Error / empty state when step has an error -->
         <template v-if="hasStepError">
           <div class="min-h-[80px] flex items-center text-xs text-ink-muted">
@@ -104,7 +106,7 @@
           <!-- Params value bar: what this snapshot ran with + try other
                values in place. Viewer-mode runs only — the shared snapshot
                changes through the editor's Save, never from here. -->
-          <div v-if="cardParamSpecs.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
+          <div v-if="cardParamSpecs.length && !compact" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
             <label v-for="spec in editableCardSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
               <span class="text-2xs">{{ spec.label || spec.name }}</span>
               <select v-if="cardParamOptions[spec.name] && spec.type !== 'list'" v-model="cardParamValues[spec.name]"
@@ -133,7 +135,7 @@
           </div>
 
           <!-- Tab Navigation -->
-          <div v-if="showTabs" class="flex border-b border-gray-100 dark:border-gray-800 mb-2">
+          <div v-if="showTabs" class="widget-tabs flex border-b border-gray-100 dark:border-gray-800 mb-2">
             <button
               v-if="showVisual"
               @click="activeTab = 'chart'"
@@ -173,7 +175,7 @@
           </div>
 
           <!-- Filter Row (above chart) - uses shared filter system, hidden on code tab -->
-          <div v-if="hasData && visualizationId && reportId && activeTab !== 'code'" class="flex justify-end mb-2">
+          <div v-if="hasData && visualizationId && reportId && activeTab !== 'code' && !compact" class="flex justify-end mb-2">
             <VisualizationFilter
               :report-id="reportId"
               :visualization-id="visualizationId"
@@ -215,7 +217,7 @@
                     </template>
                   </Suspense>
                 </div>
-                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" :class="expanded ? 'h-full' : 'h-[340px]'">
+                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" :class="compact ? 'h-[190px]' : (expanded ? 'h-full' : 'h-[340px]')">
                   <Suspense>
                     <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                     <template #fallback>
@@ -289,7 +291,7 @@
                        rendered an empty box for that beat. The local Suspense
                        gives that wait a spinner; ClientOnly's fallback covers
                        the SSR/hydration pass before it. -->
-                  <div class="relative rounded overflow-hidden border border-gray-200 dark:border-gray-700" :class="expanded ? 'flex-1 min-h-[250px]' : 'h-[250px]'">
+                  <div class="relative rounded overflow-hidden border border-gray-200 dark:border-gray-700" :class="expanded ? 'flex-1 min-h-[250px]' : (compact ? 'h-[170px]' : 'h-[250px]')">
                     <ClientOnly>
                       <Suspense>
                         <MonacoEditor
@@ -473,6 +475,13 @@ const props = defineProps<{
   canExpand?: boolean
   /** Rendering inside that side panel: full width, full height, no collapse. */
   expanded?: boolean
+  /**
+   * A small read-only glance at the result (e.g. a citation's hover preview):
+   * the same title, tabs, chart, grid and code, at reduced heights and without
+   * the collapse toggle, filters, parameter bar, edit, copy-id and download
+   * controls. Pair with `readonly`.
+   */
+  compact?: boolean
   // Show the Edit button even in readonly mode (readonly hides the whole
   // bottom action bar; hosts like the Data modal want edit without the bar)
   canEdit?: boolean
@@ -1112,6 +1121,7 @@ const isMetricCardType = computed(() => {
 // Adjust height for compact metric cards - dynamically based on content
 const chartHeightClass = computed(() => {
   if (isMetricCardType.value) return 'flex items-start'
+  if (props.compact) return 'h-[190px]'
   return props.expanded ? 'h-full' : 'h-[340px]'
 })
 
@@ -1244,6 +1254,7 @@ const tableHasRows = computed(() => {
 
 const tableHeightClass = computed(() => {
   if (!tableHasRows.value) return 'min-h-[80px]'
+  if (props.compact) return 'h-[200px]'
   return props.expanded ? 'h-full' : 'h-[400px]'
 })
 
@@ -1266,7 +1277,7 @@ watch([showVisual, hasData, hasCode], () => {
 }, { immediate: true })
 
 function toggleCollapsed() {
-  if (props.expanded) return
+  if (props.expanded || props.compact) return
   isCollapsed.value = !isCollapsed.value
 }
 
@@ -1662,6 +1673,25 @@ onMounted(() => {
 
 .widget-content {
   @apply p-3;
+}
+
+/* Compact mode: the host (a popover) supplies the frame. */
+.widget-container--compact {
+  @apply mt-0 mb-0 border-0 shadow-none bg-transparent;
+}
+.widget-content--compact {
+  @apply p-2 overflow-y-auto;
+  max-height: 300px;
+}
+/* A glance has no use for the grid's paging bar; the full result has it. */
+.widget-content--compact :deep(.ag-paging-panel) {
+  display: none;
+}
+.widget-content--compact .widget-tabs {
+  @apply mb-1.5;
+}
+.widget-content--compact .widget-tabs > button {
+  @apply px-2 py-1 text-2xs;
 }
 
 /* Side-panel mode: the same card, sized to the pane the way a document is

@@ -12,8 +12,14 @@ export interface BowNotification {
   link?: string | null
   subject?: Record<string, any>
   actor_user_id?: string | null
+  // Who caused it (the sharer, the requester…); null for system producers.
+  actor?: { id: string; name: string | null } | null
   read: boolean
   dismissed: boolean
+  // The source closed (review item resolved, or dismissed from the Review feed).
+  resolved?: boolean
+  resolution?: 'resolved' | 'dismissed' | null
+  resolved_at?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -74,6 +80,13 @@ export const useNotifications = () => {
     try { await useMyFetch(`/api/notifications/${id}/read`, { method: 'POST', body: { read } }) } catch {}
   }
 
+  // Clear every handled (resolved) row from this user's inbox. Personal.
+  async function dismissResolved() {
+    items.value = items.value.filter(i => !i.resolved)
+    recomputeUnread()
+    try { await useMyFetch('/api/notifications/dismiss-resolved', { method: 'POST' }) } catch {}
+  }
+
   async function markAllRead(source?: string | null) {
     items.value.forEach(i => { if (!source || i.source === source) i.read = true })
     recomputeUnread()
@@ -89,6 +102,6 @@ export const useNotifications = () => {
   return {
     isOpen, items, unread, loading, error,
     open, close, toggle,
-    fetchCount, fetchItems, markRead, markAllRead, dismiss,
+    fetchCount, fetchItems, markRead, markAllRead, dismiss, dismissResolved,
   }
 }

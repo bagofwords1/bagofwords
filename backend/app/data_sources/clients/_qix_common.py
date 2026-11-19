@@ -245,11 +245,15 @@ def build_tables_from_rest_metadata(
     space_name = app.get("space_name") or ""
     app_key = app_key_for(app)
 
+    business_tables = {t.get("name") for t in metadata.get("tables") or [] if not t.get("is_system")}
+
     # Build an index: table name -> list of (field_name, tags)
     fields_by_table: Dict[str, List[Dict[str, Any]]] = {}
     for field in metadata.get("fields") or []:
-        src_tables = field.get("srcTables") or []
+        src_tables = field.get("src_tables") or []
         for t in src_tables:
+            if t not in business_tables:
+                continue
             fields_by_table.setdefault(t, []).append({
                 "name": field.get("name") or "",
                 "tags": field.get("tags") or [],
@@ -261,11 +265,15 @@ def build_tables_from_rest_metadata(
     key_to_tables: Dict[str, List[str]] = {}
     for field in metadata.get("fields") or []:
         if "$key" in (field.get("tags") or []):
-            for t in field.get("srcTables") or []:
+            for t in field.get("src_tables") or []:
+                if t not in business_tables:
+                    continue
                 key_to_tables.setdefault(field.get("name") or "", []).append(t)
 
     tables: List[Table] = []
     for tbl in metadata.get("tables") or []:
+        if tbl.get("is_system"):
+            continue
         tbl_name = tbl.get("name") or ""
         if not tbl_name:
             continue
@@ -310,7 +318,7 @@ def build_tables_from_rest_metadata(
                     "spaceId": app.get("space_id"),
                     "spaceName": space_name,
                     "tableName": tbl_name,
-                    "rowCount": tbl.get("rows"),
+                    "rowCount": tbl.get("no_of_rows"),
                     "source": "rest_metadata",
                 }
             },

@@ -20,13 +20,14 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select, and_, func
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.notification import (
     Notification,
     SEVERITY_INFO, SEVERITY_RANK,
-    SOURCE_REVIEW, SOURCE_SHARE,
+    SOURCE_REVIEW, SOURCE_SHARE, RESOLUTIONS, RESOLVED_VISIBLE_DAYS,
 )
 from app.core.permission_resolver import get_user_ids_with_permission
 
@@ -47,11 +48,24 @@ def to_dict(n: Notification) -> Dict[str, Any]:
         "link": n.link,
         "subject": n.subject_json or {},
         "actor_user_id": str(n.actor_user_id) if n.actor_user_id else None,
+        "actor": _actor(n),
         "read": n.read_at is not None,
         "dismissed": n.dismissed_at is not None,
+        "resolved": n.resolved_at is not None,
+        "resolution": n.resolution if n.resolved_at is not None else None,
+        "resolved_at": n.resolved_at.isoformat() if n.resolved_at else None,
         "created_at": n.created_at.isoformat() if n.created_at else None,
         "updated_at": n.updated_at.isoformat() if n.updated_at else None,
     }
+
+
+def _actor(n: Notification) -> Optional[Dict[str, Any]]:
+    """Who caused it, when the read path loaded the relationship (``actor`` is
+    lazy="noload", so an unloaded row just reports no actor)."""
+    a = n.__dict__.get("actor")
+    if a is None:
+        return None
+    return {"id": str(a.id), "name": getattr(a, "name", None) or getattr(a, "email", None)}
 
 
 def _safe_to_dict(n: Notification) -> Dict[str, Any]:
@@ -74,8 +88,12 @@ def _safe_to_dict(n: Notification) -> Dict[str, Any]:
             "link": getattr(n, "link", None),
             "subject": {},
             "actor_user_id": None,
+            "actor": None,
             "read": getattr(n, "read_at", None) is not None,
             "dismissed": getattr(n, "dismissed_at", None) is not None,
+            "resolved": getattr(n, "resolved_at", None) is not None,
+            "resolution": None,
+            "resolved_at": None,
             "created_at": None,
             "updated_at": None,
         }
@@ -133,11 +151,21 @@ class InboxService:
                 if SEVERITY_RANK.get(severity, 9) < SEVERITY_RANK.get(existing.severity, 9):
                     existing.severity = severity  # escalate, never downgrade
                 existing.read_at = None
+                # The condition is back: a row the team had closed is open again.
+                existing.resolved_at = None
+                existing.resolution = None
+                if isinstance(existing.subject_json, dict) and "handled" in existing.subject_json:
+                    existing.subject_json = {k: v for k, v in existing.subject_json.items() if k != "handled"}
                 existing.updated_at = now
                 out.append(existing)
                 continue
 
-            if existing is not None and existing.dismissed_at is not None:
+            # A row the team closed (resolved_at) that the user then cleared is
+            # the end of that event; a notification for a different source (a
+            # new review item, e.g. the next schema change) is a new event.
+            new_event = (existing is not None and existing.resolved_at is not None
+                         and source_id is not None and existing.source_id != str(source_id))
+            if existing is not None and existing.dismissed_at is not None and not new_event:
                 # Dismissed → respect it unless the resurface window has elapsed.
                 if resurface_after_hours is None:
                     continue
@@ -288,7 +316,7 @@ class InboxService:
 
     # ---- read --------------------------------------------------------------
     async def list_for_user(
-        self, db: AsyncSession, user, *,
+        self, db: AsyncSession, user, organization, *,
         source: Optional[str] = None,
         unread: Optional[bool] = None,
         include_dismissed: bool = False,
@@ -296,10 +324,15 @@ class InboxService:
     ) -> Dict[str, Any]:
         clauses = [
             Notification.user_id == str(user.id),
+            Notification.organization_id == str(organization.id),
             Notification.deleted_at.is_(None),
         ]
         if not include_dismissed:
             clauses.append(Notification.dismissed_at.is_(None))
+            # A handled notification stays (greyed) for a week, then drops out
+            # of the list on its own; the row stays for dedup.
+            cutoff = datetime.utcnow() - timedelta(days=RESOLVED_VISIBLE_DAYS)
+            clauses.append(or_(Notification.resolved_at.is_(None), Notification.resolved_at >= cutoff))
         if source:
             clauses.append(Notification.source == source)
         if unread is True:
@@ -309,6 +342,7 @@ class InboxService:
 
         rows = (await db.execute(
             select(Notification).where(and_(*clauses))
+            .options(selectinload(Notification.actor))
             .order_by(Notification.created_at.desc()).limit(limit)
         )).scalars().all()
         # Newest-first (recency DESC), with severity only as a tiebreaker for
@@ -333,7 +367,9 @@ class InboxService:
             except Exception:  # noqa: BLE001 — any unrepresentable datetime
                 return 0.0
         try:
+            # Handled (resolved) rows stay visible but sink below open ones.
             rows.sort(key=lambda r: (
+                r.resolved_at is not None,
                 -_ts(r.created_at),
                 SEVERITY_RANK.get(r.severity, 9),
             ))
@@ -346,10 +382,76 @@ class InboxService:
             "unread": unread_n,
         }
 
-    async def count_unread(self, db: AsyncSession, user) -> Dict[str, int]:
+    # ---- source sync -------------------------------------------------------
+    async def resolve_for_sources(
+        self, db: AsyncSession, source_ids: List[str], resolution: str, *,
+        how: Optional[str] = None, by_user_id: Optional[str] = None,
+    ) -> int:
+        """Mark every recipient's notification for these source rows (e.g. the
+        ReviewItems that just closed) as resolved and read.
+
+        Joins the caller's transaction (flush, no commit) so the source's state
+        change and its notifications land together. A row already resolved
+        keeps its first resolution.
+        """
+        if resolution not in RESOLUTIONS:
+            raise ValueError(f"unknown resolution: {resolution}")
+        ids = [str(s) for s in (source_ids or []) if s]
+        if not ids:
+            return 0
+        rows = (await db.execute(
+            select(Notification).where(and_(
+                Notification.source_id.in_(ids),
+                Notification.deleted_at.is_(None),
+                Notification.resolved_at.is_(None),
+            ))
+        )).scalars().all()
+        now = datetime.utcnow()
+        # Who handled it and how — what the inbox shows next to "Handled".
+        by_name = None
+        if by_user_id:
+            from app.models.user import User
+            u = await db.get(User, str(by_user_id))
+            by_name = (getattr(u, "name", None) or getattr(u, "email", None)) if u else None
+        info = {"how": how, "by_user_id": str(by_user_id) if by_user_id else None,
+                "by_name": by_name, "at": now.isoformat()}
+        for n in rows:
+            n.resolved_at = now
+            n.resolution = resolution
+            n.read_at = n.read_at or now
+            # Fresh dict so the JSON column is marked dirty.
+            n.subject_json = {**(n.subject_json or {}), "handled": info}
+        if rows:
+            await db.flush()
+        return len(rows)
+
+    async def dismiss_resolved(self, db: AsyncSession, user, organization) -> int:
+        """Clear every handled notification from this user's inbox at once
+        ("Clear handled"). Personal, like the per-row ✕: other recipients and
+        the Review item are untouched. Scoped to one organization: a person in
+        several has a separate inbox in each."""
+        rows = (await db.execute(
+            select(Notification).where(and_(
+                Notification.user_id == str(user.id),
+                Notification.organization_id == str(organization.id),
+                Notification.deleted_at.is_(None),
+                Notification.dismissed_at.is_(None),
+                Notification.resolved_at.isnot(None),
+            ))
+        )).scalars().all()
+        now = datetime.utcnow()
+        for n in rows:
+            n.dismissed_at = now
+            n.read_at = n.read_at or now
+        if rows:
+            await db.commit()
+        return len(rows)
+
+    async def count_unread(self, db: AsyncSession, user, organization) -> Dict[str, int]:
         n = (await db.execute(
             select(func.count(Notification.id)).where(and_(
                 Notification.user_id == str(user.id),
+                Notification.organization_id == str(organization.id),
                 Notification.deleted_at.is_(None),
                 Notification.dismissed_at.is_(None),
                 Notification.read_at.is_(None),
@@ -357,26 +459,30 @@ class InboxService:
         )).scalar_one()
         return {"unread": int(n or 0)}
 
-    async def _get_own(self, db, user, notification_id) -> Optional[Notification]:
+    async def _get_own(self, db, user, organization, notification_id) -> Optional[Notification]:
+        # A notification belongs to one recipient in one organization; a
+        # person in several organizations has a separate inbox in each.
         return (await db.execute(
             select(Notification).where(and_(
                 Notification.id == str(notification_id),
                 Notification.user_id == str(user.id),
+                Notification.organization_id == str(organization.id),
                 Notification.deleted_at.is_(None),
             ))
         )).scalar_one_or_none()
 
-    async def mark_read(self, db, user, notification_id, read: bool = True) -> Optional[Notification]:
-        n = await self._get_own(db, user, notification_id)
+    async def mark_read(self, db, user, organization, notification_id, read: bool = True) -> Optional[Notification]:
+        n = await self._get_own(db, user, organization, notification_id)
         if n is None:
             return None
         n.read_at = datetime.utcnow() if read else None
         await db.commit(); await db.refresh(n)
         return n
 
-    async def mark_all_read(self, db, user, source: Optional[str] = None) -> int:
+    async def mark_all_read(self, db, user, organization, source: Optional[str] = None) -> int:
         clauses = [
             Notification.user_id == str(user.id),
+            Notification.organization_id == str(organization.id),
             Notification.deleted_at.is_(None),
             Notification.dismissed_at.is_(None),
             Notification.read_at.is_(None),
@@ -391,8 +497,8 @@ class InboxService:
             await db.commit()
         return len(rows)
 
-    async def dismiss(self, db, user, notification_id) -> Optional[Notification]:
-        n = await self._get_own(db, user, notification_id)
+    async def dismiss(self, db, user, organization, notification_id) -> Optional[Notification]:
+        n = await self._get_own(db, user, organization, notification_id)
         if n is None:
             return None
         n.dismissed_at = datetime.utcnow()

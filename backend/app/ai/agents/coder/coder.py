@@ -1,3 +1,4 @@
+from app.ai.llm.pii.context import pii_context
 import logging
 import time
 from typing import Callable, Optional
@@ -447,7 +448,7 @@ class Coder:
         Use the previous messages to understand the user's intent/context and the data model to generate the correct dataframe.
 
         **Organization Instructions** (authored by the user; apply them):
-        {instructions_context}
+        {pii_context(instructions_context)}
 
         **Context and Inputs**:
         - Current Time: {self._time_context()}
@@ -465,7 +466,7 @@ class Coder:
 
         - Provided Schemas (Ground Truth):
         <ground_truth_schemas>
-        {schemas}
+        {pii_context(schemas)}
         </ground_truth_schemas>
 
         - Mentions:
@@ -888,7 +889,7 @@ class Coder:
             Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
             that produces a Pandas DataFrame grounded only in the provided schemas and resources.
             **Organization Instructions** (authored by the user; apply them):
-            {instructions_context}
+            {pii_context(instructions_context)}
 
             {_sandbox_rules_section()}
 
@@ -1008,11 +1009,11 @@ class Coder:
 
             - Provided Schemas (Ground Truth):
             <ground_truth_schemas>
-            {schemas}
+            {pii_context(schemas)}
             </ground_truth_schemas>
 
             - Resources:
-            {resources_context}
+            {pii_context(resources_context)}
 
             - Files:
             {files_context}
@@ -1154,14 +1155,14 @@ class Coder:
         </user_prompt>
 
         - Instructions:
-        {instructions_context}
+        {pii_context(instructions_context)}
 
         - Resources:
-        {resources_context}
+        {pii_context(resources_context)}
 
         - Schemas (already available; do not query information_schema):
         <schemas>
-        {schemas}
+        {pii_context(schemas)}
         </schemas>
 
         - Files:
@@ -1306,7 +1307,7 @@ class Coder:
         COMPLETE dataset the request asks for and returns it as a pandas DataFrame.
 
         **Organization Instructions** (authored by the user; apply them):
-        {instructions_context}
+        {pii_context(instructions_context)}
 
         **Context and Inputs**:
         - Current Time: {self._time_context()}
@@ -1318,7 +1319,7 @@ class Coder:
 
         - Schemas (already available; do not query information_schema):
         <schemas>
-        {schemas}
+        {pii_context(schemas)}
         </schemas>
 
         - Files:
