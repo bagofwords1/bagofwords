@@ -872,19 +872,26 @@ class UserManager(BaseUserManager[User, str]):
                     Membership.deleted_at.is_(None),
                 )
             )).scalars().first()
+            # Read now: a failed audit may roll the session back (expiring them).
+            user_id, membership_id = str(user.id), (str(membership.id) if membership else None)
             try:
                 from app.ee.audit.service import audit_service
                 await audit_service.log(
                     db=session,
                     organization_id=organization_id,
                     action="member.invite_accepted",
-                    user_id=str(user.id),
+                    user_id=user_id,
                     resource_type="membership",
-                    resource_id=str(membership.id) if membership else None,
+                    resource_id=membership_id,
                     details={"email": user.email},
                 )
             except Exception:
-                pass
+                logger.warning(
+                    "invite accept: could not audit member.invite_accepted for user %s in org %s",
+                    user_id, organization_id, exc_info=True,
+                    extra={"organization_id": organization_id, "user_id": user_id,
+                           "membership_id": membership_id},
+                )
             # The invite's groups feed the row filters compiled for them:
             # results they stored here before (a re-added member) that this
             # outdates are purged, once the acceptance is committed and audited.

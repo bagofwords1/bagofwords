@@ -335,6 +335,8 @@ async def materialize_pending_rbac(
     from app.models.usage_policy import UsagePolicyAssignment
 
     org_id = membership.organization_id
+    # Read before the savepoint: a rolled-back one may expire what it wrote.
+    membership_id = membership.id
     # Flush the CALLER's own pending writes (invite claim, OAuth link, ...) to the
     # OUTER transaction first. With autoflush on, the first query inside the
     # savepoint below would otherwise pull those writes into the savepoint and
@@ -421,8 +423,15 @@ async def materialize_pending_rbac(
             await db.flush()
     except Exception:
         # Never block the caller if pending-RBAC tables aren't present
-        # (pre-migration) or a conversion hits a transient conflict.
-        pass
+        # (pre-migration) or a conversion hits a transient conflict; but the
+        # invite's roles, groups and quotas were dropped, so say which.
+        logger.warning(
+            "materialize_pending_rbac: could not move invite %s's roles, groups and quotas "
+            "to user %s in org %s",
+            membership_id, user_id, org_id, exc_info=True,
+            extra={"organization_id": str(org_id), "membership_id": str(membership_id),
+                   "user_id": str(user_id)},
+        )
     else:
         if gained_groups:
             # Their groups feed the row filters compiled for them: the

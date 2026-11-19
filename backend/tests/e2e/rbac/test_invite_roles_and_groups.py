@@ -281,8 +281,9 @@ def test_attaching_an_account_directly_into_groups_purges_its_outdated_results(
 
 def _keep_groups(user_id, group_ids):
     """The account holds these groups without a membership: what a member
-    removed before removal ended their groups still holds. Written directly:
-    no public path leaves a removed member their groups any more."""
+    removed before removal ended their groups still holds, and what an LDAP
+    sync leaves a directory member whose membership the seat cap skipped.
+    Written directly, as those legacy removals predate this database."""
     import asyncio
 
     from app.dependencies import async_session_maker
@@ -331,6 +332,55 @@ def test_reinviting_an_account_into_groups_it_still_holds_purges_nothing(
     _accept_invite(test_client, admin["token"], org_id, wider.json()["id"], other["token"])
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]], [other["user_id"]]]
     assert member_purges[1]["organization_id"] == org_id
+
+
+@pytest.mark.e2e
+def test_an_invite_whose_rbac_cannot_move_is_logged_not_raised(org, test_client, monkeypatch, caplog):
+    """Claiming the invite must not fail the sign-in or acceptance that claims
+    it, but a failure that drops the invite's roles, groups and quotas is
+    logged with which invite and account it was."""
+    import asyncio
+    import logging
+    from unittest import mock
+
+    from sqlalchemy import select
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    import app.core.permission_resolver as resolver
+    from app.dependencies import async_session_maker
+    from app.models.membership import Membership
+
+    admin, org_id = org["admin"], org["org_id"]
+    invite = _invite(test_client, admin["token"], org_id, email=_email(),
+                     group_ids=[org["groups"][0]["id"]])
+    assert invite.status_code == 200, invite.json()
+    user_id = str(uuid.uuid4())
+
+    def no_such_table(self):
+        raise OperationalError("SAVEPOINT", {}, Exception("no such table: role_assignments"))
+
+    async def claim():
+        async with async_session_maker() as db:
+            membership = await db.scalar(select(Membership).where(Membership.id == invite.json()["id"]))
+            # The pending-RBAC tables are missing (pre-migration): the
+            # database refuses the conversions' savepoint.
+            with mock.patch.object(AsyncSession, "begin_nested", no_such_table):
+                await resolver.materialize_pending_rbac(db, membership, user_id)
+
+    monkeypatch.setattr(resolver.logger, "disabled", False)
+    caplog.set_level(logging.WARNING, logger=resolver.__name__)
+    resolver.logger.addHandler(caplog.handler)
+    try:
+        asyncio.run(claim())  # does not raise
+    finally:
+        resolver.logger.removeHandler(caplog.handler)
+
+    (logged,) = {id(r): r for r in caplog.records
+                 if r.name == resolver.__name__ and r.levelno == logging.WARNING}.values()
+    assert (logged.organization_id, logged.membership_id, logged.user_id) == (
+        str(org_id), invite.json()["id"], user_id)
+    assert logged.exc_info and logged.exc_info[0] is OperationalError
 
 
 # ── All-or-nothing ────────────────────────────────────────────────────────

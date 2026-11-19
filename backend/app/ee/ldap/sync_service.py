@@ -141,8 +141,10 @@ class LDAPGroupSyncService:
 
         await db.commit()
         # One purge for the members whose groups changed (none: nothing),
-        # after the sync committed.
+        # after the sync committed: those its directory groups changed, and
+        # those an invite it claimed gave groups they did not hold.
         from app.services import viewer_result_freshness
+        changed_members |= viewer_result_freshness.take_claimed_members(db, organization_id=str(organization_id))
         await viewer_result_freshness.purge_members_results(
             db, organization_id=str(organization_id), user_ids=changed_members)
         logger.info(

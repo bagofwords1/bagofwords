@@ -137,6 +137,51 @@ def test_joining_by_an_invite_with_groups_purges_the_accounts_results_there(
 
 
 @pytest.mark.e2e
+def test_an_admission_rolled_back_leaves_no_claimed_invite_to_purge(
+    test_client, create_user, login_user, whoami, entra, member_purges, monkeypatch
+):
+    """The admission claims the invite, then its commit loses a race and is
+    rolled back: the exchange is refused, and the session it ran in has no
+    claimed member left to purge (a later purge on it purges nothing)."""
+    from sqlalchemy.exc import IntegrityError
+
+    import app.core.permission_resolver as resolver
+    import app.services.entra_admission as admission
+    import app.services.viewer_result_freshness as freshness
+
+    with feature("allow_multiple_organizations", True):
+        _, _, info = setup_app(test_client, create_user, login_user, whoami, entra)
+        app_b, headers_b, org_b = _second_organization_with_app(test_client, create_user, login_user, whoami, entra)
+        group = test_client.post(f"/api/organizations/{org_b}/groups", headers=headers_b,
+                                 json={"name": f"team-{uuid.uuid4().hex[:6]}"})
+        assert group.status_code == 200, group.text
+        invited = test_client.post(
+            f"/api/organizations/{org_b}/members", headers=headers_b,
+            json={"organization_id": org_b, "email": info["email"], "role": "member",
+                  "group_ids": [group.json()["id"]]},
+        )
+        assert invited.status_code == 200, invited.text
+
+        async def concurrent_duplicate(*args, **kwargs):
+            raise IntegrityError("INSERT role_assignments", {}, Exception("duplicate"))
+
+        real = admission.resolve_or_admit
+
+        async def then_purge_what_is_left(db, *args, **kwargs):
+            try:
+                return await real(db, *args, **kwargs)
+            finally:
+                await freshness.purge_claimed_members(db)
+
+        monkeypatch.setattr(resolver, "ensure_system_role_assignment", concurrent_duplicate)
+        monkeypatch.setattr(admission, "resolve_or_admit", then_purge_what_is_left)
+        refused = exchange(test_client, app_b, entra[3]())
+
+    assert refused.status_code == 503, refused.text
+    assert member_purges == []
+
+
+@pytest.mark.e2e
 def test_email_match_without_the_identity_link_is_still_refused(test_client, create_user, login_user, whoami, entra):
     with feature("allow_multiple_organizations", True):
         _, _, info = setup_app(test_client, create_user, login_user, whoami, entra)

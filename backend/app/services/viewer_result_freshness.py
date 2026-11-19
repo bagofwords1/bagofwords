@@ -350,7 +350,10 @@ ID_CHUNK = 1000
 # of the same member, connection or relation.
 PURGE_BUDGET_SECONDS = 10.0
 # The budget of a purge someone's own request waits on as they work: their
-# sign-in (OIDC group sync) or the identity provider's directory push (SCIM).
+# sign-in (OIDC group sync, an SSO sign-in or OIDC org mapping that claims an
+# invite), their chat onboarding (auto_provision_user_for_org), an Entra token
+# exchange that claims an invite, or the identity provider's directory push
+# (SCIM users and groups).
 QUICK_PURGE_BUDGET_SECONDS = 2.0
 _clock = time.monotonic
 
@@ -609,6 +612,7 @@ async def purge_quietly(db, purge, *, budget_seconds: Optional[float] = None, **
         logger.info("viewer_results.purge_skipped", extra={"purge": name})
         return 0
     seconds = PURGE_BUDGET_SECONDS if budget_seconds is None else budget_seconds
+    context = _log_context(kwargs)
 
     async def run() -> int:
         budget = _PurgeBudget(seconds)
@@ -621,17 +625,33 @@ async def purge_quietly(db, purge, *, budget_seconds: Optional[float] = None, **
                     await own.rollback()
                     raise
         except Exception:
-            logger.exception("viewer_results.purge_failed", extra={"purge": name})
+            logger.exception("viewer_results.purge_failed", extra={"purge": name, **context})
             return 0
         if budget.exhausted:
             logger.warning("viewer_results.purge_budget_exhausted",
-                           extra={"purge": name, "budget_seconds": seconds, "deleted": n, **budget.counts})
+                           extra={"purge": name, "budget_seconds": seconds, "deleted": n, **context,
+                                  **budget.counts})
         return n
 
     task, cancelled = await run_to_the_end(run())
     if cancelled:
         raise asyncio.CancelledError()
     return task.result()
+
+
+# Member ids a purge's log names; past these, their count says the rest.
+LOGGED_IDS = 20
+
+
+def _log_context(kwargs: dict) -> dict:
+    """What a purge's failure or spent-budget log names: the ids it was given
+    (an organization, a connection, a relation), and its members' count with
+    the first LOGGED_IDS of them."""
+    context = {k: v for k, v in kwargs.items() if k.endswith("_id") and isinstance(v, str)}
+    if isinstance(kwargs.get("user_ids"), list):
+        context["user_count"] = len(kwargs["user_ids"])
+        context["user_ids"] = kwargs["user_ids"][:LOGGED_IDS]
+    return context
 
 
 async def _purge_members(db, *, organization_id: str, user_ids: list) -> int:
@@ -648,7 +668,8 @@ async def _purge_members(db, *, organization_id: str, user_ids: list) -> int:
             n += await purge_viewer_results(db, user_id=user_id, organization_id=organization_id)
         except Exception:
             await db.rollback()
-            logger.exception("viewer_results.purge_failed", extra={"purge": "purge_viewer_results"})
+            logger.exception("viewer_results.purge_failed", extra={
+                "purge": "purge_viewer_results", "organization_id": str(organization_id), "user_id": str(user_id)})
         _budget_count(members_purged=done)
     return n
 
@@ -678,6 +699,22 @@ def note_claimed_groups(db, *, organization_id: str, user_id: str) -> None:
     not hold (permission_resolver.materialize_pending_rbac): the claim's
     caller purges them with purge_claimed_members once it commits."""
     db.info.setdefault(_CLAIMED_GROUPS, {}).setdefault(str(organization_id), set()).add(str(user_id))
+
+
+def take_claimed_members(db, *, organization_id: str) -> set:
+    """The members noted on `db` for `organization_id`, their notes cleared:
+    for a caller that runs that organization's one purge itself (LDAP and
+    OIDC group sync) once it commits."""
+    return (db.info.get(_CLAIMED_GROUPS) or {}).pop(str(organization_id), set())
+
+
+def discard_claimed_members(db, *, organization_id: Optional[str] = None) -> None:
+    """A rollback undid the claims noted on `db` (for `organization_id`, or
+    all of them): there is nothing of theirs to purge."""
+    if organization_id is None:
+        db.info.pop(_CLAIMED_GROUPS, None)
+    else:
+        take_claimed_members(db, organization_id=organization_id)
 
 
 async def purge_claimed_members(db, *, budget_seconds: Optional[float] = None) -> None:

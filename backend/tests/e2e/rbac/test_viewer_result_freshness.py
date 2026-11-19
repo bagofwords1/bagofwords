@@ -1057,6 +1057,8 @@ def test_a_purge_that_runs_out_of_time_stops_and_the_group_delete_succeeds(
     (spent,) = {id(r): r for r in caplog.records
                 if r.getMessage() == "viewer_results.purge_budget_exhausted"}.values()
     assert (spent.purge, spent.deleted, spent.members, spent.members_purged) == ("_purge_members", 2, 3, 1)
+    # It names whose purge it was.
+    assert (spent.organization_id, spent.user_count, spent.user_ids) == (str(admin["org_id"]), 3, members)
 
 
 # ── the purge never clears or deletes a result a run just rewrote ───────
