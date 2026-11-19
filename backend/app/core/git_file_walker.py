@@ -116,6 +116,31 @@ def _looks_like_snowflake_semantic(content: str) -> bool:
     return 'base_table:' in content or 'semantic_view:' in content
 
 
+def is_repo_file(path, repo_root) -> bool:
+    """True when ``path`` is a regular file that really lives inside
+    ``repo_root``.
+
+    A repository is content we do not control: a link in it can name any file
+    on the server. Indexing reads only regular files, and only where the fully
+    resolved path stays under the clone (a linked parent directory counts too).
+    """
+    try:
+        path = Path(path)
+        if path.is_symlink() or not path.is_file():
+            return False
+        root = os.path.realpath(repo_root)
+        real = os.path.realpath(path)
+        return os.path.commonpath([root, real]) == root
+    except (OSError, ValueError):
+        return False
+
+
+def repo_glob(repo_root, pattern: str) -> List[Path]:
+    """``Path(repo_root).glob(pattern)`` limited to files ``is_repo_file`` accepts."""
+    root = Path(repo_root)
+    return [p for p in root.glob(pattern) if is_repo_file(p, root)]
+
+
 def walk_repo_files(
     repo_path: str,
     repo_name: str,
@@ -132,7 +157,7 @@ def walk_repo_files(
     repo_root = Path(repo_path)
 
     # Detect dbt project
-    is_dbt_project = (repo_root / 'dbt_project.yml').is_file()
+    is_dbt_project = is_repo_file(repo_root / 'dbt_project.yml', repo_root)
 
     # Load .bowignore patterns (if present)
     bowignore_spec = _load_bowignore(repo_root)
@@ -151,6 +176,12 @@ def walk_repo_files(
             ext = fpath.suffix.lower()
 
             if ext not in ALLOWED_EXTENSIONS:
+                continue
+
+            if not is_repo_file(fpath, repo_root):
+                continue
+
+            if fpath.relative_to(repo_root).as_posix() == "bow/.bow-manifest.json":
                 continue
 
             # .bowignore check (before expensive I/O)
@@ -196,7 +227,7 @@ def walk_repo_files(
 def _load_bowignore(repo_root: Path) -> Optional[pathspec.PathSpec]:
     """Load .bowignore from the repo root, returning a PathSpec or None."""
     bowignore_path = repo_root / ".bowignore"
-    if not bowignore_path.is_file():
+    if not is_repo_file(bowignore_path, repo_root):
         return None
     try:
         lines = bowignore_path.read_text(encoding="utf-8").splitlines()

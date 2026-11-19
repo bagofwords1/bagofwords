@@ -51,6 +51,10 @@
                     {{ compactNum(data.routing.routed_calls || 0) }} / {{ compactNum(data.routing.total_calls || 0) }}
                     {{ $t('monitoring.cost.kpiSavedSub') }} ({{ Math.round((data.routing.routed_share || 0) * 100) }}%)
                 </div>
+                <!-- Upfront picks by a decision model (their cost is already netted out). -->
+                <div v-if="data.routing.decision_calls" class="text-xs text-emerald-600/80 mt-0.5" data-testid="cost-routing-decisions">
+                    {{ $t('monitoring.cost.kpiDecisions', { n: compactNum(data.routing.decision_calls), cost: '$' + formatNum(data.routing.decision_cost_usd || 0, (data.routing.decision_cost_usd || 0) < 0.01 ? 4 : 2) }) }}
+                </div>
             </div>
         </div>
 
@@ -208,6 +212,8 @@ interface RoutingSavings {
     routed_calls: number
     total_calls: number
     routed_share: number
+    decision_calls?: number
+    decision_cost_usd?: number
 }
 interface CostMetrics {
     group_by: string

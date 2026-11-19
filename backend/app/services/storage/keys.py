@@ -19,8 +19,9 @@ UPLOADS_ROOT = BACKEND_DIR / "uploads"
 #   pdfs         re-rendered for every export and served by the same request
 #   artifact_js  content-addressed compile cache, rebuilt on a miss
 #   filecache    version-keyed read cache that fails open to a live read
+#   system-logs  Settings → System logs files; each pod's own, never a bucket copy
 # Everything else under uploads/ is mirrored to the object store.
-LOCAL_ONLY_AREAS = frozenset({"repo_cache", "pdfs", "artifact_js", "filecache", ".storage-tmp"})
+LOCAL_ONLY_AREAS = frozenset({"repo_cache", "pdfs", "artifact_js", "filecache", ".storage-tmp", "system-logs"})
 
 PathLike = str | os.PathLike
 

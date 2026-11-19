@@ -463,9 +463,13 @@ class ExternalPlatformManager:
         scope = await self.platform_service.resolve_scope_agent_ids(
             db, platform_id, routing_channel_id
         )
-        if not scope:
+        if scope is None:
             return data_source_ids
-        return [dsid for dsid in data_source_ids if str(dsid) in scope]
+        permitted = [dsid for dsid in data_source_ids if str(dsid) in scope]
+        if not permitted:
+            from fastapi import HTTPException
+            raise HTTPException(403, "No available agents in this channel")
+        return permitted
 
     async def _get_or_create_conversation_report(
         self,
@@ -654,6 +658,10 @@ class ExternalPlatformManager:
                 print(f"Failed to send access-revoked DM: {e}")
             return {"success": False, "error": "User is not a member of this organization"}
 
+        # The message is handled as this member in this organization.
+        from app.core.request_org import set_request_organization_id
+        set_request_organization_id(str(organization.id))
+
         # Extract thread context from processed data
         thread_ts = processed_data.get("thread_ts")
         message_ts = processed_data.get("message_ts")
@@ -831,7 +839,7 @@ class ExternalPlatformManager:
         # WhatsApp, both of which reuse a report across messages (Slack DMs/
         # channels mint a fresh report per top-level message) and only when
         # reusing an existing report (a freshly created one is already current).
-        if platform_type in ("teams", "whatsapp", "google_chat") and report is not None and not created:
+        if report is not None and not created:
             from app.services.report_service import ReportService
             if channel_type == "channel":
                 fresh = await self.data_source_service.get_public_data_sources(db, organization, channel=platform_type)

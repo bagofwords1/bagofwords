@@ -1,38 +1,36 @@
 <template>
-  <div class="mt-1">
-    <Transition name="fade" appear>
-      <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">
-            <template v-if="modelTitle">{{ modelTitle }}</template>
-            <template v-else>{{ t('tools.webFetch.fetching') }}<span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template>
-          </span>
-        </span>
-        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-green-500" />
-          <span>{{ modelTitle || t('tools.webFetch.fetched') }}</span>
-          <span v-if="displayUrl && !modelTitle" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
-          <span v-if="statusCode" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">{{ statusCode }}</span>
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-globe-alt" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>{{ t('tools.webFetch.failed') }}</span>
-          <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span>
-        </span>
-      </div>
-    </Transition>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-globe-alt" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">
+      <template v-if="modelTitle">{{ modelTitle }}</template>
+      <template v-else>{{ t('tools.webFetch.fetching') }}</template></template>
+      <template v-else-if="isSuccess">{{ modelTitle || t('tools.webFetch.fetched') }}</template>
+      <template v-else>{{ t('tools.webFetch.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'">
+      <template v-if="modelTitle"></template>
+      <template v-else><span v-if="displayUrl" dir="ltr" class="ms-1">{{ displayUrl }}</span></template></template>
+      <template v-else-if="isSuccess"><span v-if="displayUrl && !modelTitle" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span><span v-if="statusCode" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">{{ statusCode }}</span></template>
+      <template v-else><span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[320px] text-gray-600 dark:text-gray-400">{{ displayUrl }}</span></template></div>
 
     <div v-if="!isSuccess && status !== 'running' && errorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ errorMessage }}
+    </div>
+  
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
 
 const { t } = useResponseI18n()
 
@@ -87,16 +85,6 @@ const errorMessage = computed<string>(() => {
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;
 }

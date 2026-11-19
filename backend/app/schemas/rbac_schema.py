@@ -151,6 +151,7 @@ class ResourceGrantUpdate(BaseModel):
 
 
 class ResourceGrantSchema(ResourceGrantCreate):
+    principal_type: Literal["user", "group", "role"]
     id: str
     organization_id: str
 

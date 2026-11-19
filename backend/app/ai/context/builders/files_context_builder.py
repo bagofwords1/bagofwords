@@ -115,10 +115,11 @@ def decide_file_tiers(
 
 
 class FilesContextBuilder:
-    def __init__(self, db: AsyncSession, organization: Organization, report: Report, head_completion=None, data_sources=None):
+    def __init__(self, db: AsyncSession, organization: Organization, report: Report, head_completion=None, data_sources=None, user=None):
         self.db = db
         self.organization = organization
         self.report = report
+        self.user = user
         self.head_completion = head_completion
         # The run's agents: their library files are listed live (see
         # app/ai/context/agent_files.py), not only the ones snapshotted onto
@@ -169,14 +170,10 @@ class FilesContextBuilder:
         except Exception as e:
             logger.warning(f"[files_context] mention lookup failed: {e}")
         try:
-            from app.models.report_file_association import report_file_association
-            result = await self.db.execute(
-                select(report_file_association.c.file_id).where(
-                    report_file_association.c.report_id == str(self.report.id),
-                    report_file_association.c.completion_id == cid,
-                )
-            )
-            forced |= {str(row[0]) for row in result.fetchall()}
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(self.db, [cid])
+            forced |= {str(f.id) for f in attached.get(cid, [])}
         except Exception as e:
             logger.warning(f"[files_context] turn-attachment lookup failed: {e}")
         return forced
@@ -201,6 +198,9 @@ class FilesContextBuilder:
         from app.ai.context.agent_files import agent_library_files, merge_files
 
         library = agent_library_files(self.data_sources, getattr(self.organization, "id", None))
+        from app.services.folder_knowledge import report_folder_files
+        folder_files = await report_folder_files(self.db, self.organization, self.user, self.report)
+        library = merge_files(library, folder_files)
         files = merge_files(files, library)
 
         if not files:

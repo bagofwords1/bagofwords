@@ -70,3 +70,14 @@ A future full QA pass should expand these into behavioral flow rows.
 | Shared artifacts | Anonymous reader sees published rows and no drafts/edit controls | `/r/:id` | Existing sharing + scoped records | Resource policy tests; `public-blog.mjs` | 2026-10-02 | Passed |
 | Inspection | Browse schemas/records and inspect view counts without editing | Artifact dialog | Runtime read APIs + `/analytics` | Resource API tests; screenshots | 2026-10-02 | Passed; Hebrew checked |
 | Publication | Pin shared UI while preserving resource data and UI history | Authoring tools | `/artifacts/:id/runtime/publication` | Resource API tests | 2026-10-02 | Passed PostgreSQL |
+
+## Shared folders in Knowledge Explorer
+
+| Area | Flow | Route | API | Automated coverage | Last QA | Result |
+|---|---|---|---|---|---|---|
+| Roles | Add a searchable folder path, choose Can query or Can manage, save and reopen | /settings/members?tab=roles | /api/organizations/{id}/roles | shared-folders.spec.ts | 2026-11-14 | Verified in Chromium |
+| Agents | Drag an agent to a nested folder or organization root and preview access | /agents | /api/folders/items/agent/{id}/placement | shared-folders.spec.ts | 2026-11-14 | Real pointer drag and persisted destination |
+| Completions | Resolve the current folder scope and focus across 300 agents | /reports/{id} | /api/reports/{id}/completions | test_agent_folders.py | 2026-11-14 | Captured actual planner prompts at the model boundary |
+| Agents | Create, rename, move, browse and share a folder | /agents | /api/folders | test_agent_folders.py and shared-folders.spec.ts | 2026-11-14 | Exercised with admin, Can query and Can manage |
+| Reporting | Select a folder as report scope and retain explicit agent pins on legacy reports | /reports/new | /api/reports | test_agent_folders.py and agent-scope.spec.ts | 2026-11-14 | Selector, API round-trip and runtime roster checked |
+| Evals | Run a case on an inherited agent | /evals/runs/[id] | /api/tests/runs | test_rbac_evals.py and run-evals-modal.spec.ts | 2026-11-14 | Live group Manager run passed, Viewer denied |

@@ -47,6 +47,7 @@ async def _get_current_membership(
         select(Membership).where(
             Membership.user_id == user.id,
             Membership.organization_id == organization.id,
+            Membership.deleted_at.is_(None),
         )
     )
     return result.scalars().first()
@@ -62,9 +63,12 @@ async def get_user_profile(current_user: User = Depends(current_user), db: Async
     # Build the (detached-safe) response, then release the pooled DB connection
     # before FastAPI serializes/sends it — whoami runs on every navigation, so
     # holding the connection through serialization is a real pool cost.
+    from app.core.instance_admin import can_create_additional_organization, is_instance_settings_admin
     payload = UserProfileSchema(
         **user_data,
-        organizations=organizations
+        organizations=organizations,
+        can_create_organization=can_create_additional_organization(current_user),
+        is_instance_settings_admin=await is_instance_settings_admin(db, current_user),
     )
     await release_request_db(db)
     return payload
@@ -196,6 +200,7 @@ async def get_member_viewer_context(
         select(Membership).where(
             Membership.user_id == user_id,
             Membership.organization_id == organization.id,
+            Membership.deleted_at.is_(None),
         )
     )
     membership = result.scalars().first()
@@ -307,6 +312,19 @@ class UserDefaultAgentsSchema(BaseModel):
     # agent_focus_common.report_selection_is_auto). Listing every agent here
     # would instead freeze today's roster.
     data_source_ids: list[str] = Field(default_factory=list)
+    agent_folder_ids: list[str] = Field(default_factory=list)
+
+
+async def _pinnable_folders(db, user, org, ids):
+    if not ids:
+        return []
+    from app.models.folder import Folder
+    from app.core.permission_resolver import resolve_permissions
+    rights = await resolve_permissions(db, user.id, org.id)
+    live = set(await db.scalars(select(Folder.id).where(
+        Folder.organization_id == org.id, Folder.deleted_at.is_(None), Folder.id.in_(ids))))
+    return [fid for fid in dict.fromkeys(ids)
+            if fid in live and rights.has_resource_permission("folder", fid, "view")]
 
 
 @router.get("/users/me/default_agents", response_model=UserDefaultAgentsSchema)
@@ -325,7 +343,8 @@ async def get_my_default_agents(
     ids = await data_source_service.filter_pinnable_data_source_ids(
         db, stored, current_user, organization
     )
-    return UserDefaultAgentsSchema(data_source_ids=ids)
+    folders = await _pinnable_folders(db, current_user, organization, membership.default_agent_folder_ids if membership else [])
+    return UserDefaultAgentsSchema(data_source_ids=ids, agent_folder_ids=folders)
 
 
 @router.put("/users/me/default_agents", response_model=UserDefaultAgentsSchema)
@@ -350,8 +369,10 @@ async def update_my_default_agents(
     # Store [] rather than NULL for a deliberate Auto: both read as Auto, and
     # keeping the row distinguishable helps when debugging a user's scope.
     membership.default_data_source_ids = ids
+    folders = await _pinnable_folders(db, current_user, organization, payload.agent_folder_ids)
+    membership.default_agent_folder_ids = folders
     await db.commit()
-    return UserDefaultAgentsSchema(data_source_ids=ids)
+    return UserDefaultAgentsSchema(data_source_ids=ids, agent_folder_ids=folders)
 
 
 _AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB upload cap

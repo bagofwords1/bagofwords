@@ -35,6 +35,7 @@ class AgentIconTokenMixin(BaseModel):
 
 class DataSourceSummarySchema(BaseModel):
     """Minimal DataSource schema for summaries."""
+    folder_path: Optional[str] = None
     id: str
     name: str
     type: Optional[str] = None  # Computed from connection
@@ -96,6 +97,24 @@ class DataSourceMembershipSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DataSourceInheritedPrincipal(BaseModel):
+    """A principal that reaches the agent through a folder or connection grant."""
+    principal_type: str  # "user" | "group" | "role"
+    principal_id: str
+    principal_name: Optional[str] = None
+    principal_email: Optional[str] = None
+    access: str  # "query" | "manage"
+    source_type: str  # "folder" | "connection"
+    source_id: str
+    source_name: str
+
+
+class DataSourceInheritedAccess(BaseModel):
+    principals: List[DataSourceInheritedPrincipal] = []
+    # Inherited access exists that this viewer is not allowed to enumerate.
+    hidden: bool = False
 
 
 class DataSourceMembershipCreate(BaseModel):
@@ -282,6 +301,10 @@ class DataSourceBase(BaseModel):
 
 class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     """Full DataSource (Domain) schema with nested connection info."""
+    folder_id: str | None = None
+    folder_path: str | None = None
+    inherited_folder_name: str | None = None
+    inherited_folder_role: str | None = None
     class Config:
         from_attributes = True
     id: str
@@ -342,7 +365,11 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
 
 
 class DataSourceListItemSchema(AgentIconTokenMixin):
+    limited_access: bool = False
     """List item schema for DataSource with nested connection info."""
+
+    can_move_from_folder: bool = False
+    folder_id: str | None = None
     id: str
     name: str
     description: Optional[str]
@@ -407,6 +434,8 @@ class DataSourceCreate(DataSourceBase):
     2. Link to existing connection: Provide connection_id (single connection)
     3. Link to multiple connections: Provide connection_ids (array)
     """
+
+    folder_id: str | None = None
     # "agent" (New agent flow) or "connector" (the connector forms' "make
     # available to everyone" checkbox). Omitted → derived from the connections.
     kind: Optional[Literal["agent", "connector"]] = None

@@ -28,6 +28,7 @@
           <UIcon name="i-heroicons-cloud-arrow-up" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           {{ $t('agentsPage.pushToGit') }}
         </button>
+        <WorldViewSwitch v-if="isWorldEnabled" active="tree" />
         <button
           class="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-xs font-medium whitespace-nowrap text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
           @click="openAllInstructions()"
@@ -49,6 +50,10 @@
               <button v-if="canCreateAgent" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" @click="showNewAgent = true; close()">
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newAgent') }}</span><span class="block text-2xs text-ink-muted">{{ $t('agentsPage.newAgentDesc') }}</span></span>
+              </button>
+              <button v-if="canCreateAgent" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" data-testid="menu-import-agent" @click="showImportAgent = true; close()">
+                <UIcon name="i-heroicons-arrow-up-tray" class="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.importAgent') }}</span><span class="block text-2xs text-ink-muted">{{ $t('agentsPage.importAgentDesc') }}</span></span>
               </button>
             </div>
           </template>
@@ -109,6 +114,7 @@
             <div v-for="grp in pendingGroups" :key="grp.id">
               <div class="px-2 py-1 flex items-center gap-1.5 text-2xs font-semibold text-gray-500 dark:text-gray-400">
                 <DataSourceIcon v-if="grp.type || grp.icon || grp.icon_token" :type="grp.type" :connector-key="grp.connector_key" :icon-token="grp.icon_token" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
+                <UIcon v-else-if="grp.isFolder" name="i-heroicons-folder" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
                 <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
                 <span v-text-dir class="flex-1 truncate">{{ grp.name }}</span>
                 <span class="text-ink-muted tabular-nums">{{ grp.rows.length }}</span>
@@ -147,7 +153,11 @@
           </template>
         </div>
 
-        <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <!-- Every drop target (top-level folders, the "Agents" root header,
+             instruction folders) sits near the top, so a drag that starts low
+             in a long list scrolls the tree when it nears an edge. -->
+        <div v-show="!pendingView && !searchResults" ref="treeScroll" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5"
+          @dragover.capture="treeAutoScroll.onDragOver" @dragenter.capture="treeAutoScroll.onDragOver" @dragleave="treeAutoScroll.onDragLeave" @drop.capture="treeAutoScroll.stop">
           <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" v-bind="rootDropzoneAttrs(GLOBAL_SCOPE)" :count="globalCount" :addable="canAddInstrFor()" :folderable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate({ global: true })" @folder="newDirectory(GLOBAL_SCOPE)">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-sm text-ink-muted" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
@@ -166,6 +176,15 @@
             <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-ink-muted shrink-0" />
             <span class="flex-1 text-start truncate">{{ $t('agentsPage.skills') }}</span>
             <span v-if="skillCount" class="shrink-0 text-2xs text-ink-muted tabular-nums">{{ skillCount }}</span>
+          </button>
+          <!-- Review: the shared queue of things an agent manager should look
+               at (schema changes, suggestions, quality signals). Shown while
+               there is something open, or while it is the open view. -->
+          <button v-if="reviewCount || reviewView" type="button" data-testid="review-button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0" :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openReview()">
+            <span class="w-3 shrink-0"></span>
+            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-ink-muted shrink-0" />
+            <span class="flex-1 text-start truncate">{{ $t('reviewFeed.title') }}</span>
+            <span v-if="reviewCount" class="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 text-2xs font-semibold tabular-nums flex items-center justify-center">{{ reviewCount }}</span>
           </button>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
@@ -210,20 +229,22 @@
           </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
-          <div class="px-2 pt-1 pb-1 flex items-center justify-between">
-            <span class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('agentsPage.agentsSection') }}</span>
+          <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded" :show-all="showAllAgents"
+            :active-folder="folderPaneVisible ? selectedFolder : null" :active-agent="agentView?.agentId || panelView?.agentId"
+            @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event; folderSuiteId = undefined; folderSection = undefined"
+            @create="(parentId) => openDirModal(parentId ? 'subfolder' : 'create', GLOBAL_SCOPE, { kind: 'agent-folder', parentId })">
+            <template #header>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
               <label class="flex items-center gap-1 text-2xs text-ink-muted cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
                 <span>{{ $t('data.showAllAgents') }}</span>
               </label>
             </UTooltip>
-          </div>
-
-          <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-sm text-ink-muted px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
-
-          <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            </template>
+            <template #agent="{ agent }">
+            <TreeGroup :dragging-agent="folderExplorer?.dragged?.id === agent.id" :drag-agent="canManageAgent(agent.id) && folderExplorer?.canDrag(agent)"
+              @agent-drag="folderExplorer?.startDrag($event, agent)" @agent-drag-end="folderExplorer?.endDrag()"
+              :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <!-- Content sections need a queryable agent, so they stay hidden while
@@ -362,7 +383,8 @@
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
               </button>
             </TreeGroup>
-          </template>
+            </template>
+          </AgentFolders>
         </div>
 
         <!-- Connections footer. The icon preview is the only flexible part: it
@@ -416,7 +438,7 @@
         </button>
         <!-- Review feed -->
         <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
-          <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
+          <ReviewFeed :key="(reviewView.agentId || 'all') + ':' + (reviewView.itemId || '')" :agents="agents" :initial-agent-id="reviewView.agentId" :focus-item-id="reviewView.itemId" @close="closeReview" @count="fetchReviewCount()" @open-instruction="openInstructionFromReview" />
           <div v-if="reviewNavLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px]">
             <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
@@ -445,6 +467,11 @@
                     <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon-token="agentDetail.icon_token" :icon="agentDetail.icon" class="h-7 w-7" />
                   </div>
                   <h2 dir="auto" class="break-words text-lg font-semibold leading-7 text-gray-900 dark:text-white">{{ agentDetail?.name || agentViewName }}</h2>
+                  <button v-if="agentDetail?.folder_path" data-testid="agent-location" type="button"
+                    class="mt-1 inline-flex max-w-full items-center gap-1 text-xs text-ink-muted hover:text-ink"
+                    :title="$t('sharedFolders.viewFolder')" @click="folderExplorer?.open(agentDetail.folder_id)">
+                    <UIcon name="i-heroicons-folder" class="shrink-0" /><span class="truncate">{{ agentDetail.folder_path }}</span>
+                  </button>
                   <div v-if="editingDesc || agentDetail?.description || agentCanUpdate" class="mx-auto mt-1.5 max-w-sm">
                     <input v-text-dir v-if="editingDesc" ref="descInputRef" v-model="descForm" type="text" :aria-label="$t('agentsPage.addDescription')" :placeholder="$t('agentsPage.addDescription')" class="w-full border-b border-blue-400 bg-transparent py-1 text-center text-sm text-gray-600 outline-none dark:text-gray-300" @keydown.enter="saveDesc" @keydown.escape="cancelDesc" @blur="saveDesc" />
                     <button v-else-if="agentCanUpdate" type="button" dir="auto" class="rounded px-1 text-sm leading-5 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" @click="startEditDesc">{{ agentDetail?.description || $t('agentsPage.addDescription') }}</button>
@@ -606,26 +633,13 @@
                  over titles AND bodies (the tree only has titles). Rows are the
                  same InstrLeaf as the tree, so status/pending/load-mode read
                  the same, and a click opens the instruction in this pane. -->
-            <div v-if="panelView.kind === 'instructions'" :key="'instructions-' + panelView.agentId" class="flex flex-col h-full min-h-0" data-testid="agent-instructions-panel">
-              <div class="shrink-0 px-3 pt-3 pb-2 flex items-center gap-2">
-                <div class="relative flex-1">
-                  <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted" />
-                  <input ref="panelSearchInput" :value="agentSearch[panelView.agentId] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" data-testid="agent-instructions-search" class="w-full h-8 ps-8 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-ink-subtle dark:placeholder:text-gray-500" :class="agentSearch[panelView.agentId] ? 'pe-8' : 'pe-2'" @input="onAgentSearch(panelView.agentId, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(panelView.agentId, '')" />
-                  <button v-if="agentSearch[panelView.agentId]" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-ink-muted hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(panelView.agentId, '')">
-                    <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <span v-if="!panelInstructionsLoading" class="text-xs tabular-nums text-ink-muted shrink-0" data-testid="agent-instructions-count">{{ panelInstructions.length }}</span>
-                <button v-if="canAddInstrFor(panelView.agentId)" type="button" class="h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1 shrink-0" @click="openCreate({ agentId: panelView.agentId })"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.addShort') }}</button>
-              </div>
-              <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-3 space-y-0.5">
-                <div v-if="panelInstructionsLoading" class="flex items-center gap-2 h-8 text-sm text-ink-muted" style="padding-inline-start:20px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
-                <template v-else>
-                  <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
-                  <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
-                </template>
-              </div>
-            </div>
+            <ScopedInstructionsPanel v-if="panelView.kind === 'instructions'" ref="panelSearchInput"
+              :key="'instructions-' + panelView.agentId" :search="agentSearch[panelView.agentId] || ''"
+              :count="panelInstructions.length" :loading="panelInstructionsLoading" :can-add="canAddInstrFor(panelView.agentId)"
+              @search="onAgentSearch(panelView.agentId, $event)" @add="openCreate({agentId:panelView.agentId})">
+              <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
+              <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
+            </ScopedInstructionsPanel>
             <AgentQueriesPanel
               v-else-if="panelView.kind === 'queries'"
               :key="'queries-' + panelView.agentId"
@@ -735,7 +749,7 @@
             </div>
             <div class="flex items-center gap-1.5">
               <span v-if="savingMeta" class="text-2xs text-ink-muted">{{ $t('agentsPage.saving') }}</span>
-              <template v-if="reviewMode && canEditDetail && reviewHunks.total">
+              <template v-if="reviewMode && canReviewDetail && reviewHunks.total">
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-2xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('reject')"><UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 text-ink-muted" />{{ $t('agentsPage.rejectAll') }}</button>
                 <button class="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-2xs font-medium hover:bg-emerald-100 dark:hover:bg-emerald-500/20 disabled:opacity-40 transition-colors" :disabled="reviewHunks.busy" @click="resolveAllHunks('accept')"><UIcon :name="reviewHunks.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5', { 'animate-spin': reviewHunks.busy }]" />{{ $t('agentsPage.acceptAll') }}</button>
                 <span class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
@@ -754,7 +768,7 @@
                 <button v-if="!creating && canEditDetail" class="h-7 px-3 rounded-md text-red-600 dark:text-red-400 text-xs font-medium hover:bg-red-50 dark:hover:bg-red-500/10 disabled:opacity-50" :disabled="deleting || saving" :title="$t('agentsPage.tipDeleteInstruction')" @click="deleteInstruction"><span class="inline-flex items-center gap-1"><UIcon :name="deleting ? 'i-heroicons-arrow-path' : 'i-heroicons-trash'" :class="['w-3.5 h-3.5', { 'animate-spin': deleting }]" />{{ deleting ? $t('agentsPage.deleting') : $t('agentsPage.delete') }}</span></button>
                 <span v-if="!creating && canEditDetail" class="w-px h-4 bg-gray-200 dark:bg-gray-700 mx-0.5"></span>
                 <button class="h-7 px-3 rounded-md text-gray-500 dark:text-gray-400 text-xs hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="cancelEdit">{{ $t('agentsPage.cancel') }}</button>
-                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
+                <button class="h-7 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50" :disabled="saving || !scopeSelection.length" @click="save">{{ saving ? $t('agentsPage.saving') : (creating ? $t('agentsPage.create') : $t('agentsPage.save')) }}</button>
               </template>
             </div>
           </div>
@@ -774,7 +788,7 @@
               :key="detail.id"
               ref="trackedChangesRef"
               :instruction-id="detail.id"
-              :can-approve="canEditDetail"
+              :can-approve="canReviewDetail"
               hide-header
               @state="onReviewState"
               @changed="reloadAfterResolve"
@@ -798,7 +812,7 @@
                 <span v-if="diff.buildId && hunkCount" class="text-2xs text-ink-muted shrink-0 tabular-nums">· {{ hunkCount === 1 ? $t('agentsPage.changeCountOne', { n: hunkCount }) : $t('agentsPage.changeCountMany', { n: hunkCount }) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <template v-if="diff.buildId && canEditDetail">
+                <template v-if="diff.buildId && canReviewDetail">
                   <button class="inline-flex items-center px-2 py-1 rounded-md text-2xs font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="rejectAll">{{ resolving === 'reject-all' ? $t('agentsPage.rejecting') : $t('agentsPage.rejectAll') }}</button>
                   <button class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-800/70 border border-gray-150 dark:border-gray-700 text-2xs font-medium text-gray-700 dark:text-gray-300 disabled:opacity-40 transition-colors" :disabled="resolving !== null || !hunkCount" @click="acceptAll"><UIcon :name="resolving === 'all' ? 'i-heroicons-arrow-path' : 'i-heroicons-check'" :class="['w-3.5 h-3.5 text-green-600', { 'animate-spin': resolving === 'all' }]" />{{ resolving === 'all' ? $t('agentsPage.accepting') : $t('agentsPage.acceptAll') }}</button>
                 </template>
@@ -882,7 +896,7 @@
           <div v-else class="flex-1 flex flex-col min-h-0">
             <!-- Pending-change banner: only when there are EFFECTIVE changes to
                  review (a rebased-no-op pending build must not raise it). -->
-            <button v-if="canEditDetail && !editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
+            <button v-if="canReviewDetail && !editing && !creating && pendingViews.length" type="button" class="shrink-0 flex items-center gap-2 px-4 sm:px-8 py-2 border-b border-amber-100 dark:border-amber-500/30 bg-amber-50/60 dark:bg-amber-500/10 text-start hover:bg-amber-50 dark:hover:bg-amber-500/20 transition-colors" @click="viewSuggestion(pendingViews[0].build)">
               <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
               <span class="text-xs text-amber-800 dark:text-amber-300">{{ pendingViews.length === 1 ? $t('agentsPage.pendingOne') : $t('agentsPage.pendingMany', { n: pendingViews.length }) }}</span>
               <span class="ms-auto text-2xs font-medium text-amber-700 dark:text-amber-400 inline-flex items-center gap-0.5 shrink-0">{{ $t('agentsPage.review') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3 rtl:rotate-180" /></span>
@@ -903,7 +917,7 @@
                      anything that schema lacked (a table, a link, a rule) was
                      dropped before it could ever be painted. -->
                 <div class="prose-instruction">
-                  <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
+                  <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="globalDraft && !draft.folder_ids.length && !draft.data_source_ids.length" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
                   <InstructionText v-else :key="(detail?.id || 'new') + '-view'" :text="draft.text" :references="detailTextRefs" :prose="true" :markdown="true" />
                 </div>
                 <p v-if="editing" class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(draft.text)) }) }}</p>
@@ -935,10 +949,13 @@
                 <!-- Category -->
                 <KSelect v-if="metaEditable" v-model="draft.category" :options="categoryOpts" :placeholder="$t('agentsPage.general')" @update:modelValue="onMetaChange" />
                 <span v-else class="inline-flex items-center px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs font-medium">{{ h.formatCategory(detail.category) }}</span>
-                <!-- Agents -->
-                <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
+                <AgentScopeMenu v-if="metaEditable" :selected="scopeSelection" :folders="instructionFolderOptions" :options="agentOptsForDraft"
+                  :placeholder="$t('sharedFolders.chooseScope')" :first-label="useCan('manage_instructions') ? $t('agentsPage.allAgentsPlaceholder') : undefined"
+                  first-icon="i-heroicons-globe-alt" :first-selected="scopeSelection.includes('global')" @first="!globalDraft && selectScope(['global'])"
+                  @select="id => selectScope(scopeSelection.includes(id) ? scopeSelection.filter(v => v !== id) : [...scopeSelection, id])" />
                 <template v-else>
-                  <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
+                  <span v-for="folder in detail.folders" :key="folder.id" class="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 text-2xs"><UIcon name="i-heroicons-folder" />{{ folder.name }}</span>
+                  <span v-if="detail.scope_mode !== 'targeted' && (detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-ink-muted" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
                   <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-2xs"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                 </template>
                 <!-- Folder (cosmetic placement), one per scope. Picking a
@@ -1028,6 +1045,10 @@
           </div>
         </template>
 
+        <FolderKnowledge v-else-if="selectedFolder && folderExplorer?.current" :folders="folderExplorer.folders" :access-revision="folderExplorer.accessRevision" @share="folderExplorer.openMemberAccess(selectedFolder, $event)" @deleted="folderExplorer.afterDelete(); folderKnowledgeRevision++" :key="selectedFolder + (folderSection || '')" :section="folderSection" :agents="folderAgents" @agent="openAgent" @section="folderSection = $event" :folder="folderExplorer.current" :suite-id="folderSuiteId" @changed="folderKnowledgeRevision++" @create-instruction="openCreate({ folderId: $event })" @file="openFile" @instruction="openInstructionById">
+          <template #instruction="{ item }"><InstrLeaf :ins="item" :indent="0" snippet /></template>
+          <template #empty="{search, canAdd}"><EmptyHint :text="search ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!search && canAdd" :pad="20" @add="openCreate({folderId:selectedFolder!})" /></template>
+        </FolderKnowledge>
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1130,7 +1151,9 @@
       @changed="onConnModalChanged"
     />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
-    <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
+    <NewAgentWizardModal :folder-id="selectedFolder" v-model="showNewAgent" @finished="onNewAgentFinished" />
+    <AgentCloneModal v-model="showCloneAgent" :agent="cloneSource" @finished="onCloneFinished" />
+    <ImportAgentWizardModal :folder-id="selectedFolder" v-model="showImportAgent" @finished="onImportAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
@@ -1186,12 +1209,15 @@
           <p v-else class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ $t('agentsPage.dirDeleteConfirm', { name: dirModal.dir?.name }) }}</p>
         </template>
         <template v-else>
+          <p v-if="dirModal.kind === 'agent-folder' && dirModal.parentId" class="mt-1 truncate text-xs text-ink-muted">
+            {{ folderExplorer?.folders.find((folder: any) => folder.id === dirModal.parentId)?.name }}
+          </p>
           <input v-text-dir
             ref="dirModalInput"
             v-model="dirModal.name"
             type="text"
             :placeholder="dirModal.kind === 'suite' ? $t('agentsPage.suiteNamePrompt') : $t('agentsPage.dirNamePrompt')"
-            maxlength="100"
+            :maxlength="dirModal.kind === 'agent-folder' ? 160 : 100"
             class="mt-3 w-full h-9 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500 rounded-md px-2.5 focus:outline-none focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-500/40"
           />
         </template>
@@ -1209,6 +1235,8 @@
 </template>
 
 <script setup lang="ts">
+import WorldViewSwitch from "~/components/world/WorldViewSwitch.vue"
+import {treeDragSource, treeDropTarget} from '~/utils/treeDragStyles'
 import { h as createElement } from 'vue'
 import InstructionTrackedChanges from '~/components/instructions/InstructionTrackedChanges.vue'
 import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
@@ -1225,6 +1253,7 @@ import PublishStatusControl from '~/components/datasources/PublishStatusControl.
 import InstructionAnalysisPanel from '~/components/InstructionAnalysisPanel.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import AgentIconPicker from '~/components/AgentIconPicker.vue'
+import { buildAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import KSelect from '~/components/KSelect.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import AllInstructionsModal from '~/components/instructions/AllInstructionsModal.vue'
@@ -1235,6 +1264,8 @@ import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
+import AgentCloneModal from '~/components/AgentCloneModal.vue'
+import ImportAgentWizardModal from '~/components/ImportAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
@@ -1261,7 +1292,7 @@ const { t, locale } = useI18n()
 // Training mode is the per-agent admin capability: gated on the org setting plus
 // manage_instructions on the currently-open agent (a per-DS `manage` grant
 // implies it; full_admin bypasses). Mirrors the backend gate.
-const { isTrainingModeEnabled } = useOrgSettings()
+const { isTrainingModeEnabled, isWorldEnabled } = useOrgSettings()
 const agentCanStartTraining = computed(() => {
   const id = agentView.value?.agentId
   return isTrainingModeEnabled.value && !!id && useCan('manage_instructions', { type: 'data_source', id })
@@ -1286,10 +1317,25 @@ const loadingGroups = ref<Set<string>>(new Set())
 // while a search is active, which swaps the tree for a flat results view.
 const searchResults = ref<{ agents: any[]; instructions: Instruction[] } | null>(null)
 const searching = ref(false)
+const folderKnowledgeRevision = ref(0)
+const folderSuiteId = ref<string>()
+type FolderSection = 'instructions' | 'files' | 'evals'
+const folderSection = ref<FolderSection>()
+function pickFolderKnowledge(folderId: string, kind: FolderSection, item?: {id:string, name:string}) {
+  folderExplorer.value?.open(folderId)
+  folderSection.value = kind
+  if (!item) return
+  if (kind === 'evals') folderSuiteId.value = item.id
+  else if (kind === 'instructions') openInstructionById(item.id)
+  else openFile({id:item.id, filename:item.name})
+}
+const folderExplorer = ref<any>(null)
+const selectedFolder = ref<string | null>(null)
 const agents = ref<any[]>([])
 // Show a spinner in the agents tree until the first load completes. Stays true
 // through later refreshes, which update the list silently.
 const agentsLoaded = ref(false)
+const folderAgents = computed(() => agents.value.filter(agent => agent.folder_id === selectedFolder.value))
 // "Self Learning" per-agent automation modal (opened from the agent header).
 const showSelfLearning = ref(false)
 function onSelfLearningSaved() { toast.add({ title: t('agentsPage.toastSelfLearningSaved'), color: 'green' }) }
@@ -1380,8 +1426,8 @@ const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
 // Live per-user sources: no path scope to show — they read with the user's own access.
-const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'teams_messages'])
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'kms_lighthouse', 'teams_messages'])
+const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages', 'slack_messages'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'exchange_onprem', 'kms_lighthouse', 'teams_messages', 'slack_messages'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
@@ -1437,7 +1483,7 @@ const detailScopes = computed(() => {
   const agents = (ins.data_sources || [])
   const scopes = agents.length
     ? agents.map((d: any) => ({ scope: String(d.id), scopeLabel: d.name }))
-    : [{ scope: GLOBAL_SCOPE, scopeLabel: t('agentsPage.globalInstructions') }]
+    : ins.scope_mode === 'targeted' ? [] : [{ scope: GLOBAL_SCOPE, scopeLabel: t('agentsPage.globalInstructions') }]
   return scopes.flatMap(s => {
     const dirs = dirsForScope(s.scope)
     // No folders in this scope => nothing to choose between; stay out of the way.
@@ -1456,7 +1502,7 @@ const detailScopes = computed(() => {
 const ensureDirScopes = async (ins: Instruction | null) => {
   if (!ins) return
   const agents = (ins.data_sources || [])
-  const scopes = agents.length ? agents.map((d: any) => String(d.id)) : [GLOBAL_SCOPE]
+  const scopes = agents.length ? agents.map((d: any) => String(d.id)) : ins.scope_mode === 'targeted' ? [] : [GLOBAL_SCOPE]
   await Promise.all(scopes.filter(s => !dirState.value[s]).map(s => loadDirectories(s)))
 }
 // Fetch (or refresh) the folder tree + placements for one scope.
@@ -1479,7 +1525,7 @@ type DirModalMode = 'create' | 'subfolder' | 'rename' | 'delete'
 // Eval suites reuse this dialog rather than window.prompt. They are the same
 // interaction — name a container in the tree — and a native prompt next to a
 // styled tree was jarring, unstyleable and gave no way to report a 403.
-type DirModalKind = 'dir' | 'suite'
+type DirModalKind = 'dir' | 'suite' | 'agent-folder'
 const dirModal = ref<{ open: boolean; mode: DirModalMode; kind: DirModalKind; scope: string; parentId: string | null; dir: Dir | null; suite: any | null; name: string; busy: boolean }>(
   { open: false, mode: 'create', kind: 'dir', scope: GLOBAL_SCOPE, parentId: null, dir: null, suite: null, name: '', busy: false }
 )
@@ -1520,6 +1566,13 @@ const submitDirModal = async () => {
   if (m.mode !== 'delete' && !name) return
   dirModal.value = { ...m, busy: true }
   try {
+    if (m.kind === 'agent-folder') {
+      const { error } = await useMyFetch('/folders', {method: 'POST', body: {name, parent_id: m.parentId}})
+      if (error.value) throw new Error(error.value.data?.detail || error.value.message)
+      await folderExplorer.value?.folderCreated(m.parentId)
+      closeDirModal()
+      return
+    }
     if (m.kind === 'suite') {
       await submitSuiteModal(m, name)
       closeDirModal()
@@ -1601,6 +1654,10 @@ const startDragCase = (scope: string, caseId: string, e: DragEvent) => {
   try { e.dataTransfer?.setData('text/plain', caseId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
 }
 const endDrag = () => { drag.value = null; dropTarget.value = null }
+// Auto-scroll the tree for both drag kinds: instruction/folder/case drags
+// (drag above) and agent drags (owned by AgentFolders).
+const treeScroll = ref<HTMLElement | null>(null)
+const treeAutoScroll = useDragAutoScroll(treeScroll, { active: () => !!drag.value || !!folderExplorer.value?.dragged })
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
 const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
   const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
@@ -1941,8 +1998,8 @@ const editing = ref(false)
 const creating = ref(false)
 const saving = ref(false)
 const deleting = ref(false)
-const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; label_ids: string[]; references: any[]; applicable_modes: string[]; applicable_channels: string[] }>(
-  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], label_ids: [], references: [], applicable_modes: [], applicable_channels: [] }
+const draft = reactive<{ title: string; description: string; text: string; kind: string; load_mode: string; status: string; category: string; data_source_ids: string[]; folder_ids: string[]; label_ids: string[]; references: any[]; applicable_modes: string[]; applicable_channels: string[] }>(
+  { title: '', description: '', text: '', kind: 'instruction', load_mode: 'always', status: 'published', category: 'general', data_source_ids: [], folder_ids: [], label_ids: [], references: [], applicable_modes: [], applicable_channels: [] }
 )
 const kindOpts = computed(() => [{ value: 'instruction', label: t('agentsPage.optInstruction') }, { value: 'skill', label: t('agentsPage.optSkill') }])
 // Mode/channel scoping options (empty selection = applies everywhere)
@@ -2148,7 +2205,7 @@ const loadEditOpts = computed(() => {
 })
 const sourceOpts = computed(() => [{ value: 'user', label: t('agentsPage.optSourceUser') }, { value: 'ai', label: t('agentsPage.optSourceAi') }, { value: 'git', label: t('agentsPage.optSourceGit') }])
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
-const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
+const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type, folderId: a.folder_id })))
 // The instruction may be scoped to agents missing from /data_sources/active
 // (deactivated by a failed connection test, or not visible to this user).
 // Merge those in from the instruction payload — which carries their names —
@@ -2163,10 +2220,32 @@ const agentOptsForDraft = computed(() => {
   // Agents already on the instruction stay in the list so their chip renders by
   // name rather than a raw id, and stays individually removable.
   for (const ds of ((detail.value?.data_sources || []) as any[])) {
-    if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type })
+    if (!opts.some(o => o.value === ds.id)) opts.push({ value: ds.id, label: ds.name, type: ds.type, folderId: ds.folder_id })
   }
   return opts
 })
+
+const globalDraft = ref(false)
+const draftOwnerFolder = ref<string | null>(null)
+type ScopeFolder = { id: string, name: string, parent_id?: string, capabilities: string[] }
+const curatableFolders = computed(() => ((folderExplorer.value?.folders || []) as ScopeFolder[])
+  .filter(folder => folder.capabilities.includes('manage_instructions')))
+const instructionFolderOptions = computed(() => buildAgentFolderOptions((folderExplorer.value?.folders || []) as ScopeFolder[],
+  f => f.capabilities.includes('manage_instructions')))
+const scopeSelection = computed(() => {
+  const targets = [...draft.folder_ids.map(id => 'folder:' + id), ...draft.data_source_ids]
+  return targets.length || !globalDraft.value ? targets : ['global']
+})
+function selectScope(values: string[]) {
+  const chooseGlobal = values.includes('global') && !scopeSelection.value.includes('global')
+  const targets = chooseGlobal ? [] : values.filter(v => v !== 'global')
+  // An empty selection is an unfinished draft. Global always requires an explicit choice.
+  if (!targets.length && !chooseGlobal && !editing.value && !creating.value) return
+  globalDraft.value = chooseGlobal
+  draft.folder_ids = targets.filter(v => v.startsWith('folder:')).map(v => v.slice(7))
+  draft.data_source_ids = targets.filter(v => !v.startsWith('folder:'))
+  onMetaChange()
+}
 
 // Primary instruction toggle — only meaningful when the instruction is scoped to
 // exactly one agent. `primary_for` (from the API) lists data sources whose
@@ -2312,6 +2391,12 @@ const agentLandingActions = computed(() => {
   if (!id) return []
   const groups: any[][] = [[{ label: t('agentsPage.connections'), icon: 'i-heroicons-link', click: () => openAgentCard(id) }]]
   if (agentCanUpdate.value) groups.push([
+    ...(folderExplorer.value?.canDrag(agents.value.find(a => a.id === id)) ? [{
+      label: t('sharedFolders.moveAgent'), icon: 'i-heroicons-folder', click: () => folderExplorer.value?.moveAgent(id),
+    }] : []),
+    ...(agents.value.find(a => a.id === id)?.folder_id && canManageAgent(id) ? [{
+      label: t('sharedFolders.inherit'), icon: 'i-heroicons-lock-closed', click: () => folderExplorer.value?.openAgentAccess(id),
+    }] : []),
     { label: t('agentsPage.settings'), icon: 'i-heroicons-cog-6-tooth', click: () => openAgentSection('settings', id) },
     { label: t('agentsPage.manageConnections'), icon: 'i-heroicons-circle-stack', click: () => openConnModal(id) },
     { label: t('agentLanding.editStarters'), icon: 'i-heroicons-chat-bubble-left-ellipsis', click: openEditStarters },
@@ -2321,10 +2406,26 @@ const agentLandingActions = computed(() => {
     { label: t('agentsPage.startTraining'), icon: 'i-heroicons-academic-cap', click: () => startTrainingSessionForAgent(id) },
   ])
   if (agentCanUpdate.value) groups.push([
+    // The server also checks the right to build an agent on this agent's connections.
+    ...(canCreateAgent.value ? [{ label: t('agentClone.menu'), icon: 'i-heroicons-document-duplicate', click: () => openCloneAgent(id) }] : []),
     { label: t('agentLanding.download'), icon: 'i-heroicons-arrow-down-tray', disabled: exportingInstructions.value, click: () => exportAgentInstructions(id) },
   ])
   return groups
 })
+const showCloneAgent = ref(false)
+const cloneSource = ref<{ id: string; name: string; description?: string | null } | null>(null)
+// A clone arrives with instructions: refresh the tree counts too, then open
+// it like a new agent.
+const onCloneFinished = async (id: string) => {
+  await fetchCounts()
+  await onNewAgentFinished(id)
+}
+const openCloneAgent = (id: string) => {
+  const a = (agentDetail.value?.id === id ? agentDetail.value : null) || agents.value.find(x => x.id === id)
+  if (!a) return
+  cloneSource.value = { id, name: a.name, description: a.description }
+  showCloneAgent.value = true
+}
 
 // inline-edit state
 const editingDesc = ref(false); const descForm = ref(''); const descInputRef = ref<HTMLInputElement | null>(null)
@@ -2577,7 +2678,7 @@ const onUploadInput = async (e: Event) => {
 
 // Clear every right-pane mode (preview / diff / tables-tools panel / agent view / detail)
 // ── Review feed (center-pane view) ──────────────────────
-const reviewView = ref<null | { agentId: string | null }>(null)
+const reviewView = ref<null | { agentId: string | null; itemId?: string | null }>(null)
 const reviewCount = ref(0)
 const fetchReviewCount = async () => {
   try { const { data } = await useMyFetch<any>('/api/review/count', { method: 'GET' }); reviewCount.value = data.value?.open || 0 } catch {}
@@ -2588,9 +2689,11 @@ const clearRightPane = () => {
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
-const openReview = (agentId: string | null = null) => {
+// Opened from the tree's Review row, or deep-linked from a notification:
+// /agents/review[/<item>] (all agents) and /agents/<id>/review[/<item>].
+const openReview = (agentId: string | null = null, itemId: string | null = null) => {
   clearRightPane()
-  reviewView.value = { agentId }
+  reviewView.value = { agentId, itemId }
 }
 // Open an instruction (from a Review item) and surface its pending diff.
 // Resolve the instruction BEFORE swapping panes so the Review feed → detail
@@ -2686,12 +2789,13 @@ const loadPendingChanges = async () => {
 // collapse into one synthetic "Global" group. Each group keeps a stable label
 // and icon so the flat list reads like the tree's agent sections.
 const pendingGroups = computed(() => {
-  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; icon?: string | null; icon_token?: string | null; rows: Instruction[] }>()
+  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; icon?: string | null; icon_token?: string | null; isFolder?: boolean; rows: Instruction[] }>()
   // The pending_only list is served by the same optimistic sweep as the dots —
   // hide rows the authoritative pass has since proven resolved.
   for (const ins of pendingRows.value.filter(r => canEditInstruction(r) && !verifiedNotPending.value.has(r.id))) {
     const dss = ins.data_sources || []
-    if (!dss.length) {
+    const folders = (ins as any).folders || []
+    if (!dss.length && !folders.length) {
       const key = '__global__'
       if (!map.has(key)) map.set(key, { id: key, name: t('agentsPage.globalInstructions'), type: undefined, rows: [] })
       map.get(key)!.rows.push(ins)
@@ -2702,6 +2806,14 @@ const pendingGroups = computed(() => {
           map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, icon_token: agent?.icon_token ?? (ds as any).icon_token, connector_key: agent?.connector_key, rows: [] })
         }
         map.get(ds.id)!.rows.push(ins)
+      }
+      // Folder-scoped instructions (a folder link, no specific agents) belong
+      // under their folder here too — not the global bucket, which only holds
+      // instructions with neither an agent nor a folder.
+      for (const f of folders) {
+        const key = 'folder:' + f.id
+        if (!map.has(key)) map.set(key, { id: key, name: f.name, isFolder: true, rows: [] })
+        map.get(key)!.rows.push(ins)
       }
     }
   }
@@ -2742,6 +2854,7 @@ const showConnectionsModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showNewAgent = ref(false)
+const showImportAgent = ref(false)
 const showAddMCP = ref(false)
 const showAddCustomAPI = ref(false)
 
@@ -2774,6 +2887,12 @@ const onNewAgentFinished = async (id: string) => {
   await fetchAgents()
   expand('agent:' + id, true)
   openAgent(id)
+}
+// Import wizard finished: same landing as a new agent (refresh + open it).
+const onImportAgentFinished = async (id: string) => {
+  showImportAgent.value = false
+  await onNewAgentFinished(id)
+  fetchCounts()
 }
 const toolsRefreshKey = ref(0)
 // When a connection is created from an agent's Tools panel, link it to that agent.
@@ -2848,11 +2967,15 @@ const { showTopBanner, bannerHeight } = useTopBanner()
 // so we show one at a time. `detailOpen` is true whenever the detail pane has
 // something to show; `backToTree` clears every detail state to return to the tree.
 const { isMobile } = useMobile()
-const detailOpen = computed(() => !!(
-  reviewView.value || agentView.value || panelView.value ||
+const otherPaneVisible = computed(() => !!(
+  reviewView.value || agentView.value || panelView.value || evalCaseView.value ||
   previewFile.value || detail.value || creating.value || queryView.value
 ))
+const folderPaneVisible = computed(() => !!selectedFolder.value && !otherPaneVisible.value)
+const detailOpen = computed(() => otherPaneVisible.value || folderPaneVisible.value)
 const backToTree = () => {
+  selectedFolder.value = null
+  closeEvalCase()
   closeReview()
   closeAgentView()
   closePanel()
@@ -2872,13 +2995,14 @@ const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', a
   onPanelRowClick(kind, agentId)
 }
 // perms
-const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
+const canApprove = computed(() => useCanAny('manage_instructions', 'data_source') || useCanAny('manage', 'folder'))
 // Editing/deleting a specific instruction requires manage_instructions on EVERY
 // agent it is attached to (global => org-level), mirroring the backend's
 // all-attached-agents rule. A per-agent manager viewing an instruction shared
 // with agents they don't control sees it read-only. Ported from PR #732.
 const canEditInstruction = (instr: any) => useCanManageInstruction(instr)
 const canEditDetail = computed(() => canEditInstruction(detail.value))
+const canReviewDetail = computed(() => detail.value?.can_review_scope ?? canEditDetail.value)
 // Populate the pending-review index only for users who can review something.
 // Permissions arrive asynchronously after mount, so a watcher is more reliable
 // than a one-shot mounted hook. Losing the permission clears draft-derived UI.
@@ -2891,7 +3015,7 @@ watch(canApprove, (allowed) => {
 }, { immediate: true })
 // POST /instructions is manage_instructions (org-wide or per-agent) — the same
 // tier that reviews suggestions, so the header "New" affordance follows it.
-const canCreateInstruction = canApprove
+const canCreateInstruction = computed(() => canApprove.value || curatableFolders.value.length > 0)
 // Tree "+" affordances mirror the backend create gates: global instructions
 // need the org-level perm; per-agent rows also accept a per-agent grant.
 const canAddInstrFor = (id?: string) => id ? useCan('manage_instructions', { type: 'data_source', id }) : useCan('manage_instructions')
@@ -3173,7 +3297,7 @@ const onReviewEmpty = () => { reviewEmpty.value = true }
 const reviewHunks = ref<{ total: number; busy: boolean }>({ total: 0, busy: false })
 const onReviewState = (s: { total: number; busy: boolean }) => { reviewHunks.value = s }
 const resolveAllHunks = (mode: 'accept' | 'reject') => trackedChangesRef.value?.resolveAll?.(mode)
-const reviewMode = computed(() => canEditDetail.value && !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
+const reviewMode = computed(() => canReviewDetail.value && !!detail.value && !creating.value && !editing.value && !(diff.value && diff.value.versionId) && pendingBuilds.value.length > 0 && !reviewEmpty.value)
 const mergedReviewCount = computed(() => pendingViews.value.reduce((n: number, v: any) => n + v.hunks.length, 0))
 // Interleave every build's hunks onto the current text, ordered by position.
 const mergedSegments = computed(() => {
@@ -3575,24 +3699,19 @@ const fetchAll = async () => {
 // open its flat list is refreshed too, so a just-resolved instruction drops out
 // instead of lingering until the next enter.
 const refreshLists = async () => {
+  folderKnowledgeRevision.value++
   await fetchAll()
   if (canApprove.value) await loadPendingChanges()
 }
 const fetchAgents = async () => {
   try {
-    // include_unconnected=true so members also see user_required (OBO) agents
-    // they haven't connected yet — otherwise they can never reach the Connect
-    // flow (parity with the legacy /agents page). show_all is an admin-only
-    // toggle that surfaces every agent in the org (admin_only entries flagged).
-    const query: Record<string, any> = { include_unconnected: true }
-    if (showAllAgents.value) query.show_all = true
-    const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
+    const { data } = await useMyFetch<any[]>('/data_sources', { method: 'GET', query: {show_all: showAllAgents.value} })
     agents.value = (data.value || [])
       // Connectors (each person's own accounts/tools — mail, Teams, MCP apps)
       // are not agents: they live in the prompt box's connectors menu and the
       // Browse connectors modal, not in the knowledge tree.
       .filter((d: any) => d?.kind !== 'connector')
-      .map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+      .map((d: any) => ({ id: d.id, folder_id: d.folder_id, can_move_from_folder: d.can_move_from_folder, limited_access: d.limited_access, name: d.name, type: d.type, icon: d.icon, icon_token: d.icon_token, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
       // Alphabetical by name. The server returns no explicit order, so sort
       // here; pass the app's i18n locale (not the browser default) so the
       // order matches the UI language, and fold case/accents via sensitivity.
@@ -3768,7 +3887,7 @@ const listFor = (kind: string) => {
   let base = allInstructions.value
   if (kind === 'skills') base = base.filter(i => (i as any).kind === 'skill')
   else if (kind === 'pending') base = base.filter(isPending)
-  else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0 && (i as any).kind !== 'skill')
+  else if (kind === 'global') base = base.filter(i => i.scope_mode !== 'targeted' && (i.data_sources || []).length === 0 && (i as any).kind !== 'skill')
   return applyFilters(base)
 }
 // An agent's Instructions node lists EVERY instruction attached to it, table-
@@ -3839,7 +3958,7 @@ const openInstruction = async (ins: Instruction) => {
   if (canEditDetail.value) await Promise.all([loadPending(ins.id), loadVersions(ins.id)])
 }
 // The metadata half of the draft — what the bottom chips edit and autosave.
-const META_FIELDS = ['kind', 'load_mode', 'status', 'category', 'data_source_ids', 'label_ids', 'references', 'applicable_modes', 'applicable_channels'] as const
+const META_FIELDS = ['kind', 'load_mode', 'status', 'category', 'data_source_ids', 'folder_ids', 'label_ids', 'references', 'applicable_modes', 'applicable_channels'] as const
 type MetaField = typeof META_FIELDS[number]
 const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
   kind: (ins as any).kind || 'instruction',
@@ -3847,6 +3966,7 @@ const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
   status: ins.status || 'published',
   category: ins.category || 'general',
   data_source_ids: (ins.data_sources || []).map(d => d.id),
+  folder_ids: (ins.folders || []).map(f => f.id),
   label_ids: (ins.labels || []).map((l: any) => l.id),
   references: (ins.references || []).map((r: any) => ({ object_type: r.object_type, object_id: String(r.object_id), relation_type: r.relation_type || 'scope', display_text: r.display_text || r.object?.name || String(r.object_id), column_name: r.column_name || null })),
   applicable_modes: sanitizeModes((ins as any).applicable_modes),
@@ -3854,6 +3974,7 @@ const draftMetaFrom = (ins: Instruction): Pick<typeof draft, MetaField> => ({
 })
 const syncDraft = (ins: Instruction) => {
   draft.title = ins.title || ''; draft.description = (ins as any).description || ''; draft.text = ins.text || ''
+  globalDraft.value = ins.scope_mode !== 'targeted' && !ins.data_sources?.length
   Object.assign(draft, draftMetaFrom(ins))
   // Surface the Advanced section when this instruction is already scoped.
   showAdvanced.value = draft.applicable_modes.length > 0 || draft.applicable_channels.length > 0
@@ -3863,16 +3984,20 @@ const syncDraft = (ins: Instruction) => {
 // the agent whose pane is open, else the one whose sub-panel is. Read BEFORE
 // closeAgentView() below clears it.
 const currentAgentId = () => agentView.value?.agentId || panelView.value?.agentId || null
-const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: string; global?: boolean }) => {
+const openCreate = (scope?: { agentId?: string; folderId?: string; tableId?: string; tableName?: string; global?: boolean }) => {
   // An explicit agent wins; `global: true` (the Global instructions group's own
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
-  const agentId = scope?.global ? null : (scope?.agentId || currentAgentId())
+  const folderId = scope?.folderId || (!scope?.agentId && !scope?.global && folderPaneVisible.value ? selectedFolder.value : null)
+  const agentId = scope?.global || folderId ? null : (scope?.agentId || currentAgentId())
   closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); closeQuery(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
   showAdvanced.value = false
+  draftOwnerFolder.value = folderId
+  draft.folder_ids = folderId && curatableFolders.value.some(f => f.id === folderId) ? [folderId] : []
+  globalDraft.value = !folderId && !agentId && useCan('manage_instructions')
   draft.data_source_ids = agentId ? [agentId] : []
   draft.label_ids = []
   draft.references = scope?.tableId ? [{ object_type: 'datasource_table', object_id: scope.tableId, relation_type: 'scope', display_text: scope.tableName }] : []
@@ -3899,6 +4024,7 @@ const deleteInstruction = async () => {
   try {
     const { error } = await useMyFetch(`/api/instructions/${id}`, { method: 'DELETE' })
     if (error.value) throw new Error((error.value as any)?.data?.detail || (error.value as any)?.message || 'Delete failed')
+    folderKnowledgeRevision.value++
     toast.add({ title: t('agentsPage.toastDeleted'), color: 'green' })
     allInstructions.value = allInstructions.value.filter(i => i.id !== id)
     editing.value = false; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
@@ -3912,10 +4038,15 @@ const save = async () => {
   saving.value = true
   try {
     const body: any = { title: draft.title || null, description: draft.description || null, text: draft.text, kind: draft.kind, load_mode: draft.load_mode, status: draft.status, category: draft.category, data_source_ids: draft.data_source_ids, label_ids: draft.label_ids, references: draft.references, applicable_modes: draft.applicable_modes, applicable_channels: draft.applicable_channels }
+    if (!scopeSelection.value.length) return
+    if (creating.value || !sameValue(draft.folder_ids, detail.value?.folders?.map(f => f.id) || [])) body.folder_ids = draft.folder_ids
+    if (!creating.value && JSON.stringify(draft.data_source_ids) === JSON.stringify(detail.value?.data_sources?.map(d => d.id) || [])) delete body.data_source_ids
     if (creating.value) {
-      const endpoint = draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
+      if (draftOwnerFolder.value && draft.folder_ids.includes(draftOwnerFolder.value)) body.owner_folder_id = draftOwnerFolder.value
+      const endpoint = draft.folder_ids.length || draft.data_source_ids.length ? '/api/instructions' : '/api/instructions/global'
       const { data, error } = await useMyFetch<Instruction>(endpoint, { method: 'POST', body })
-      if (error.value) throw new Error((error.value as any)?.message || 'Create failed')
+      if (error.value) throw new Error(error.value.data?.detail || error.value.message || 'Create failed')
+      folderKnowledgeRevision.value++
       toast.add({ title: t('agentsPage.toastCreated'), color: 'green' })
       creating.value = false; editing.value = false; draft.references = []
       // Insert the new instruction in place (no full list re-fetch / flicker);
@@ -3935,7 +4066,7 @@ const save = async () => {
         // collapsed (or never-loaded) group would otherwise swallow it.
         const dsIds = (createdRow.data_sources || []).map((d: any) => String(d.id))
         if (dsIds.length) dsIds.forEach(id => { expand('agent:' + id, true); expand('instr:' + id, true) })
-        else expand('global', true)
+        else if (createdRow.scope_mode !== 'targeted') expand('global', true)
         openInstruction(createdRow)
       } else {
         await refreshLists()
@@ -3944,6 +4075,7 @@ const save = async () => {
       await settleMeta()
       const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'PUT', body })
       if (error.value) throw new Error((error.value as any)?.message || 'Save failed')
+      folderKnowledgeRevision.value++
       toast.add({ title: t('agentsPage.toastSaved'), color: 'green' }); editing.value = false
       // Update just this instruction in place — no full list re-fetch, so the
       // tree keeps its scroll/expanded state (no page-refresh feel).
@@ -4218,15 +4350,18 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
-  emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
+  props: { draggingAgent: Boolean, dragAgent: Boolean, label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  emits: ['agentDrag', 'agentDragEnd', 'toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
     // label text opens the panel (`@label`); otherwise the whole row toggles.
     return () => createElement('div', {}, [
       createElement('div', {
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0', props.dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : (props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'), props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer'],
-        style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0', props.dropActive ? 'bg-blue-50 dark:bg-blue-500/10 ring-1 ring-blue-300 dark:ring-blue-500/40' : (props.active ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300'), props.disabled ? 'opacity-90' : 'hover:bg-gray-100 dark:hover:bg-gray-800/70', props.dragAgent ? treeDragSource : 'cursor-pointer', props.draggingAgent && 'opacity-50'],
+        style: { ...(props.dragAgent ? { WebkitUserDrag: 'element' } : {}), paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
+        draggable: props.dragAgent || undefined,
+        onDragstart: props.dragAgent ? (event: DragEvent) => emit('agentDrag', event) : undefined,
+        onDragend: props.dragAgent ? () => emit('agentDragEnd') : undefined,
         onClick: () => { if (!props.disabled && !props.labelClickable) emit('toggle') },
         onDragover: props.onDropzone ? (e: DragEvent) => (props.onDragover as any)?.(e) : undefined,
         onDragleave: props.onDropzone ? (e: DragEvent) => (props.onDragleave as any)?.(e) : undefined,
@@ -4293,7 +4428,7 @@ const InstrLeaf = defineComponent({
         role: 'button',
         tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 rounded-md text-sm transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 rounded-md text-sm transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? treeDragSource : ''],
         // WebkitUserDrag: Safari refuses to start a drag on a plain element
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
@@ -4353,7 +4488,10 @@ const DirNode = defineComponent({
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
         dropTarget.value = dropKey
       }
+      // An agent drag (no `drag` here) passes through untouched: the agent row
+      // around this folder is itself a drop zone for the agent tree.
       const onDragleave = (e: DragEvent) => {
+        if (!drag.value) return
         e.stopPropagation()
         // Ignore moves between this folder's own descendants (prevents flicker);
         // only clear when the cursor actually leaves the folder subtree.
@@ -4362,10 +4500,10 @@ const DirNode = defineComponent({
         if (rt && ct?.contains?.(rt)) return
         if (dropTarget.value === dropKey) dropTarget.value = null
       }
-      const onDrop = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
+      const onDrop = (e: DragEvent) => { if (!drag.value) return; e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
       const header = createElement('div', {
         draggable: props.canManage ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0 cursor-pointer', dropActive ? 'bg-blue-100 dark:bg-blue-500/20 ring-1 ring-inset ring-blue-400 dark:ring-blue-500/50 text-blue-800 dark:text-blue-200' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
+        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0 cursor-pointer', dropActive ? treeDropTarget : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
         style: { paddingInlineStart: (6 + indent * 14) + 'px', paddingInlineEnd: '8px', ...(props.canManage ? { WebkitUserDrag: 'element' } : {}) },
         onClick: toggle,
         onDragstart: props.canManage ? (e: DragEvent) => { e.stopPropagation(); startDragDir(scope, dir.id, e) } : undefined,
@@ -4416,6 +4554,7 @@ const SuiteNode = defineComponent({
         },
         onDragleave: () => { if (dropTarget.value === key()) dropTarget.value = null },
         onDrop: (e: DragEvent) => {
+          if (!drag.value) return // agent drag: let the agent tree take it
           e.preventDefault(); e.stopPropagation()
           const d = drag.value
           dropTarget.value = null
@@ -4536,6 +4675,8 @@ const explorerUrl = (): string => {
   // /agents/global-evals rather than /agents//global-evals.
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
+  if (folderPaneVisible.value && selectedFolder.value) return `/agents/folders/${selectedFolder.value}`
+  if (reviewView.value) return '/agents/' + [reviewView.value.agentId, 'review', reviewView.value.itemId].filter(Boolean).join('/')
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
@@ -4550,13 +4691,19 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, queryView, listView, listRowView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, selectedFolder, queryView, listView, listRowView, reviewView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
   const raw = route.params.slug
   const seg = (Array.isArray(raw) ? raw : (raw ? [raw] : [])).filter(Boolean) as string[]
   if (seg.length === 0) return
+  if (seg[0] === 'folders' && seg[1]) {
+    if (selectedFolder.value !== seg[1] && folderExplorer.value?.folders.some((f: ScopeFolder) => f.id === seg[1])) {
+      folderExplorer.value.open(seg[1])
+    }
+    return
+  }
   // /agents/instructions/<id>
   if (seg[0] === 'instructions' && seg[1]) {
     const insId = seg[1]
@@ -4592,6 +4739,13 @@ const restoreFromRoute = () => {
       .catch(() => {})
     return
   }
+  // /agents/review[/<item>] — the Review feed across all agents (global items
+  // live here too), optionally focused on one item.
+  if (seg[0] === 'review') {
+    const itemId = seg[1] || null
+    if (!reviewView.value || reviewView.value.agentId || reviewView.value.itemId !== itemId) openReview(null, itemId)
+    return
+  }
   // /agents/global-evals — org-wide evals view, not bound to an agent
   if (seg[0] === 'global-evals') {
     if (panelView.value?.kind !== 'global-evals') openGlobalEvals()
@@ -4606,6 +4760,14 @@ const restoreFromRoute = () => {
   const panel = seg[1] as (typeof PANEL_KINDS)[number] | undefined
   const agent = agents.value.find(a => a.id === agentId)
   if (!agent) return
+  // /agents/<id>/review[/<item>] — the Review feed for one agent.
+  if (seg[1] === 'review') {
+    const itemId = seg[2] || null
+    if (reviewView.value?.agentId === agentId && reviewView.value?.itemId === itemId) return
+    expand('agent:' + agentId, true)
+    openReview(agentId, itemId)
+    return
+  }
   // /agents/<id>/<panel>
   if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
     if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
@@ -4622,6 +4784,9 @@ const restoreFromRoute = () => {
   openAgent(agentId)
 }
 watch(() => route.params.slug, () => restoreFromRoute())
+watch(() => folderExplorer.value?.folders, () => {
+  if (location.pathname.startsWith('/agents/folders/')) restoreFromRoute()
+})
 
 // ── Activity sparkline + total tasks (org-wide, last 14 days) ───────────
 const activitySeries = ref<number[]>([])

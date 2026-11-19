@@ -544,3 +544,18 @@ def test_per_card_statements_do_not_grow(migrated_corpus, corpus_rows, test_clie
     assert slope <= SHARED_SLOPE_BEFORE, (at_n, at_2n, slope)
     reasons = {r for card in large["dashboards"] for r in card["access"]["reasons"]}
     assert {"group", "project"} <= reasons, reasons
+
+
+@pytest.mark.e2e
+def test_card_carries_the_dashboards_description(corpus, corpus_rows, test_client):
+    """The hover blurb (dashdesc01) set in settings rides on the card, so the
+    list can show it beside the full name; a dashboard without one stays None."""
+    sales = own(corpus_rows, corpus, SALES)
+    stock = own(corpus_rows, corpus, STOCK)
+    resp = test_client.put(f"/api/artifacts/{sales}/settings", headers=as_(corpus, "owner"),
+                           json={"description": "  Quarterly sales by region  "})
+    assert resp.status_code == 200, resp.text
+
+    cards = _cards(test_client, corpus, "owner", filter="my")
+    assert cards[sales]["description"] == "Quarterly sales by region"
+    assert cards[stock]["description"] is None

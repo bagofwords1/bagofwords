@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from uuid import UUID
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -10,12 +10,34 @@ from app.schemas.base import OptionalUTCDatetime
 # prompt overhead negligible.
 MEMBERSHIP_NOTE_MAX_LENGTH = 500
 
-class OrganizationCreate(BaseModel):
+ORGANIZATION_NAME_MAX_LENGTH = 100
+
+class OrganizationBase(BaseModel):
     name: str
     description: Optional[str] = None
 
-class OrganizationSchema(OrganizationCreate):
+class OrganizationCreate(OrganizationBase):
+    # Optional: invite this address as an admin of the new organization. It is
+    # an ordinary invite (same email, same acceptance) as one sent from the
+    # members page. The creator joins as admin either way.
+    first_admin_email: Optional[EmailStr] = None
+
+    @field_validator("first_admin_email", mode="before")
+    @classmethod
+    def _blank_first_admin_email_is_none(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            return v or None
+        return v
+
+class OrganizationSchema(OrganizationBase):
     id: str
+    # Set only in the response to a creation that asked for a first admin:
+    # "sent" | "failed" | "skipped_no_smtp" (invite email outcome), "added"
+    # (the address already had an account that could be attached directly),
+    # "already_member" (it is the creator) or "not_invited" (the invite could
+    # not be created; the organization was).
+    first_admin_invite_status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -33,6 +55,13 @@ class MembershipCreate(BaseModel):
     # {"qlik_user_id": "dana"}); consumed by connection identity mappings.
     # Validated by services/member_attributes.normalize_custom_attributes.
     custom_attributes: Optional[Dict[str, str]] = None
+    # Roles (system or custom) and groups to give the new member, applied in
+    # the same transaction as the invite. When role_ids is non-empty it wins
+    # over `role` (which is then derived from it for the legacy column).
+    # Groups need the enterprise `custom_roles` feature. Request-only: these
+    # are not columns on Membership.
+    role_ids: Optional[List[str]] = None
+    group_ids: Optional[List[str]] = None
 
 class MembershipUpdate(BaseModel):
     role: Optional[str] = None

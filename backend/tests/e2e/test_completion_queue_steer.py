@@ -185,6 +185,11 @@ def test_queue_while_running_then_remove_and_steer(
     assert steering["role"] == "user"
     assert steering["message_type"] == "steering"
     assert steering["parent_id"] == system["id"]
+    # Not picked up by the (hung) agent: no pickup position, so the chat
+    # falls back to placing it by its server send time.
+    assert steering["steering_applied_at"] is None
+    assert steering["steering_loop_index"] is None
+    assert body["created_at"]
 
     # Steering with nothing to say is rejected
     r = test_client.post(
@@ -236,7 +241,7 @@ def _drive_dispatcher(report_id, prev_system_id, portal=None):
             pending = [
                 task for task in asyncio.all_tasks()
                 if task is not asyncio.current_task()
-                and task.get_coro().__qualname__.endswith("CompletionService._run_dispatched_agent")
+                and getattr(task.get_coro(), "__qualname__", "").endswith("CompletionService._run_dispatched_agent")
             ]
             if not pending:
                 return
@@ -278,7 +283,7 @@ def _wait_for_automatic_queue_drain(portal, first_head_id, timeout=30.0):
             workers = [
                 task for task in asyncio.all_tasks()
                 if task is not asyncio.current_task()
-                and task.get_coro().__qualname__.endswith("CompletionService._run_dispatched_agent")
+                and getattr(task.get_coro(), "__qualname__", "").endswith("CompletionService._run_dispatched_agent")
             ]
             if first_system is not None and first_system.status != "in_progress" and not workers:
                 return
@@ -956,7 +961,7 @@ def _settle_queue_work(portal, timeout=30.0):
         while asyncio.get_running_loop().time() < deadline:
             pending = [t for t in asyncio.all_tasks()
                        if t is not asyncio.current_task() and not t.done()
-                       and t.get_coro().__qualname__.endswith(names)]
+                       and getattr(t.get_coro(), "__qualname__", "").endswith(names)]
             if not pending:
                 return
             await asyncio.wait(pending, timeout=deadline - asyncio.get_running_loop().time())
@@ -1125,3 +1130,78 @@ def test_failed_mcp_turn_leaves_the_reports_queue_paused(
     assert any(c["id"] == queued_id and c["status"] == "queued" for c in comps), \
         "the queue must stay paused after a failed MCP turn"
     assert not [c for c in comps if c["role"] == "system" and c["parent_id"] == queued_id]
+
+
+@pytest.mark.e2e
+def test_steer_records_the_step_that_picked_it_up(
+    monkeypatch, live_client, create_report, create_user, login_user, whoami,
+    create_llm_provider_and_models, set_visibility,
+):
+    """A steer sent mid-run is stamped with the loop step that first acted on
+    it; the report API and the public share API both expose that position, and
+    it points at a step that actually ran, so either page can render the steer
+    above it instead of at the bottom of the turn."""
+    token, org_id = _setup_org_with_model(
+        monkeypatch, create_user, login_user, whoami, create_llm_provider_and_models
+    )
+    first_call, _, release, _ = _hold_first_provider_call(monkeypatch)
+    report = create_report(title=f"steer-pos-{uuid.uuid4().hex[:8]}", user_token=token, org_id=org_id, data_sources=[])
+
+    try:
+        r = live_client.post(
+            f"/api/reports/{report['id']}/completions?background=true",
+            json={"prompt": {"content": "summarize this quarter", "mentions": [{}]}},
+            headers=_headers(token, org_id),
+        )
+        assert r.status_code == 200, r.text
+        system = next(c for c in r.json()["completions"] if c["role"] == "system")
+        assert first_call.wait(timeout=20), "the run never reached the provider boundary"
+
+        r = live_client.post(
+            f"/api/completions/{system['id']}/steer",
+            json={"content": "use last quarter, not this one"},
+            headers=_headers(token, org_id),
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "steered"
+        steer_id = r.json()["completion_id"]
+        sent_at = datetime.fromisoformat(r.json()["created_at"])
+
+        # Still pending while the agent is blocked mid-planning.
+        steer = next(c for c in _get_completions(live_client, report["id"], token, org_id) if c["id"] == steer_id)
+        assert steer["steering_loop_index"] is None
+    finally:
+        release.set()
+
+    def _finished():
+        comps = _get_completions(live_client, report["id"], token, org_id)
+        sys_row = next(c for c in comps if c["id"] == system["id"])
+        return comps if sys_row["status"] not in ("in_progress", "queued") else None
+
+    comps = _wait_until(_finished, timeout=30)
+    assert comps, "the steered run never finished"
+
+    steer = next(c for c in comps if c["id"] == steer_id)
+    loop_index = steer["steering_loop_index"]
+    assert isinstance(loop_index, int), steer
+    assert steer["steering_applied_at"] is not None
+    assert datetime.fromisoformat(steer["steering_applied_at"]) >= sent_at
+
+    sys_row = next(c for c in comps if c["id"] == system["id"])
+    block_loops = [b.get("loop_index") for b in sys_row.get("completion_blocks") or []]
+    assert any(li is not None and li >= loop_index for li in block_loops), (
+        f"steer anchored at loop {loop_index} but the turn has no such step: {block_loops}"
+    )
+
+    # The public share link carries the same placement data.
+    share_token = set_visibility(
+        report["id"], "conversation", "public", user_token=token, org_id=org_id
+    ).json()["conversation_share_token"]
+    r = live_client.get(f"/api/c/{share_token}")
+    assert r.status_code == 200, r.text
+    public = {c["id"]: c for c in r.json()["completions"]}
+    assert public[steer_id]["message_type"] == "steering"
+    assert public[steer_id]["parent_id"] == system["id"]
+    assert public[steer_id]["steering_loop_index"] == loop_index
+    public_loops = [b.get("loop_index") for b in public[system["id"]]["completion_blocks"]]
+    assert any(li is not None and li >= loop_index for li in public_loops), public_loops

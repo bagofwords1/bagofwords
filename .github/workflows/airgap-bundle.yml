@@ -96,7 +96,9 @@ jobs:
           docker pull --platform "$PLATFORM" caddy:2.10-alpine
 
           docker tag "${DOCKER_IMAGE}:${IMAGE_TAG}" "${DOCKER_IMAGE}:${VERSION}"
-          docker save \
+          # --platform: with the containerd image store, a cross-arch pull only
+          # fetches that platform's content; save must not ask for the host's.
+          docker save --platform "$PLATFORM" \
             "${DOCKER_IMAGE}:${VERSION}" \
             postgres:16-alpine \
             caddy:2.10-alpine \
@@ -118,10 +120,11 @@ jobs:
       # shipped as-is from upstream and not scanned here.
       - name: Export bow image for scanning
         env:
+          PLATFORM: ${{ matrix.platform }}
           VERSION: ${{ inputs.version }}
         run: |
           mkdir -p scan-images
-          docker save "${DOCKER_IMAGE}:${VERSION}" -o scan-images/bow.tar
+          docker save --platform "$PLATFORM" "${DOCKER_IMAGE}:${VERSION}" -o scan-images/bow.tar
 
       - name: Trivy gate bow (HIGH/CRITICAL)
         id: gate_bow

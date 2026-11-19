@@ -553,6 +553,8 @@ happen only through check-ins' `notify` criteria.
 
 Follow `.agents/skills/sandbox-feedback-loop/SKILL.md`.
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip this block (venv, `TESTING`, database and Playwright browsers are set up; this `uv sync` would drop the venv's `kerberos` extra, and the browsers are not in `/opt/pw-browsers`). See the root `AGENTS.md`, "DevBox".
+
 ```bash
 cd backend && pip install uv && uv sync --frozen --extra dev
 export TESTING=true BOW_DATABASE_URL="sqlite:///db/app.db"; mkdir -p db
@@ -637,6 +639,9 @@ both `--db=sqlite` and `--db=postgres`.
 tools/agent/boot_stack.sh
 cd backend && uv run python ../tools/agent/seed_org.py
 ```
+
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip both lines; the stack is running and seeded, LLM included (`bow-stack status`). See the root `AGENTS.md`, "DevBox".
+
 
 1. **Agent dream:**
    - Turn on `enable_agent_dreaming`, and set a seeded agent's Self-Learning mode

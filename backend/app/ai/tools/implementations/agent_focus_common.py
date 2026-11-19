@@ -39,6 +39,7 @@ async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
         .options(selectinload(DataSource.connections))
         .where(
             DataSource.organization_id == str(organization.id),
+            DataSource.deleted_at.is_(None),
             DataSource.is_active == True,  # noqa: E712
             DataSource.publish_status != "disabled",
         )
@@ -47,6 +48,10 @@ async def accessible_agents(db, organization: Any, user: Any) -> List[Any]:
     rows = list((await db.execute(stmt)).scalars().all())
     from app.services.connected_application_service import filter_agents
     rows = await filter_agents(db, rows, organization.id)
+    from app.services.data_source_service import DataSourceService
+    from app.core.permission_resolver import resolve_permissions
+    rights = await resolve_permissions(db, str(user.id), str(organization.id)) if user else None
+    rows = [ds for ds in rows if DataSourceService.lifecycle_visible(ds, rights)]
     if user is None:
         return [ds for ds in rows if getattr(ds, "is_public", False)]
     is_admin, member_ids = await get_accessible_data_source_ids(
@@ -174,6 +179,16 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
     # would hand a shared-dashboard chat far more than the owner shared.
     if agent_ids is None and not attached and getattr(report, "report_type", "regular") == "artifact_chat":
         return []
+    from app.services.folder_service import load_report_folders, training_curator_only
+    if agent_ids is not None and getattr(report, "agent_folder_id", None):
+        from app.services.folder_service import require_report_folder
+        curator_only = False
+        for fid in await load_report_folders(db, report):
+            await require_report_folder(db, organization, user, fid, getattr(report, "mode", None))
+            if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
+                curator_only = True
+        if curator_only:
+            return []
     if agent_ids is not None:
         # A run with its own agents (a scheduled task's selection): exactly
         # those, re-checked against what the running user can use today. Like a
@@ -182,6 +197,23 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         reachable = await accessible_agents(db, organization, user)
         agents = [a for a in reachable if str(a.id) in wanted]
         agents += [ds for ds in reachable if str(ds.id) not in wanted and _is_personal_connector(ds)]
+    elif getattr(report, "agent_folder_id", None):
+        from app.services.folder_service import visible_branch
+        branch = set()
+        queryable = False
+        for fid in await load_report_folders(db, report):
+            if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
+                continue
+            queryable = True
+            branch.update(await visible_branch(db, organization.id, getattr(user, "id", None), fid))
+        if not queryable and not attached:
+            return []
+        chosen = {a.id for a in attached}
+        agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
+        agents, _ = await DataSourceService().filter_user_usable_data_sources(db, agents, user)
+        if not agents:
+            from fastapi import HTTPException
+            raise HTTPException(409, "No available agents in this folder")
     elif attached:
         # A pinned selection is used as pinned, MCP tools included, so pinning
         # still narrows what a run offers. The person's OWN connectors (mail,
@@ -190,11 +222,16 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         # signed into gets no client and AgentV2 drops it. Shared-key
         # connectors (an org-wide MCP) follow the selection like any agent.
         chosen = {str(ds.id) for ds in attached}
+        reachable = await accessible_agents(db, organization, user)
+        visible_pins = [ds for ds in reachable if str(ds.id) in chosen]
+        if not visible_pins:
+            from fastapi import HTTPException
+            raise HTTPException(409, "A selected agent is unavailable")
         personal = [
-            ds for ds in await accessible_agents(db, organization, user)
+            ds for ds in reachable
             if str(ds.id) not in chosen and _is_personal_connector(ds)
         ]
-        agents = attached + personal
+        agents = visible_pins + personal
     else:
         agents = await accessible_agents(db, organization, user)
     if exclude_personal_connectors:
@@ -221,10 +258,35 @@ def scope_report_to_run_agents(report: Any, agents: List[Any]) -> None:
     set_committed_value(report, "focused_data_source_ids", focus or None)
 
 
+def run_agents_context(agents: Any, report: Any) -> tuple:
+    """``(run_agent_ids, pinned_agent_ids)`` for construct_clients: the run's
+    agents and the ones the report pins — what the chat tools and the planner
+    note scope a shared Slack connection by."""
+    return ([str(a.id) for a in (agents or [])],
+            [str(d.id) for d in (getattr(report, "data_sources", None) or [])])
+
+
+async def construct_agent_clients(svc, db, ds: Any, user: Any, *, where: str,
+                                  run_agents: Optional[tuple] = None) -> Dict[str, Any]:
+    """Build one agent's clients per connection, for run start and for agents
+    attached mid-run alike. A connection that cannot be set up gets a stand-in
+    client (see construct_clients) and is logged; when every connection fails,
+    construct_clients raises."""
+    connection_errors: list = []
+    extra = {"run_agents": run_agents} if run_agents is not None else {}
+    clients = await svc.construct_clients(db, ds, user, connection_errors=connection_errors, **extra) or {}
+    for ce in connection_errors:
+        logger.warning(
+            "%s: connection %s on %s unavailable for this run — %s",
+            where, ce.get("connection_name"), getattr(ds, "name", "?"), ce.get("error"),
+        )
+    return clients
+
+
 async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
                              data_source_service: Any = None,
                              agent_ids: Optional[List[str]] = None,
-                             exclude_personal_connectors: bool = False) -> Tuple[List[Any], Dict[str, Any]]:
+                             exclude_personal_connectors: bool = False, folder_ids=None) -> Tuple[List[Any], Dict[str, Any]]:
     """``(agents, clients)`` for a run — the working set and its query clients.
 
     An agent the user cannot reach 403s inside ``construct_clients``; it is
@@ -234,20 +296,108 @@ async def prepare_run_agents(db, organization: Any, user: Any, report: Any,
     from app.services.data_source_service import DataSourceService
     from fastapi import HTTPException
 
+    if folder_ids:
+        from app.models.report import ReportAdditionalFolder
+        from app.services.folder_service import load_report_folders, require_report_folder, validate_scope_folders
+        from sqlalchemy.orm.attributes import set_committed_value
+        for fid in await load_report_folders(db, report):
+            await require_report_folder(db, organization, user, fid, report.mode)
+        await validate_scope_folders(db, organization.id, user.id, folder_ids)
+        if report.mode == "training":
+            from app.services.report_service import ReportService
+            await ReportService()._assert_can_enter_training_mode(db, user, organization, agent_ids or [], folder_ids)
+        set_committed_value(report, "agent_folder_id", folder_ids[0])
+        set_committed_value(report, "additional_folders", [ReportAdditionalFolder(folder_id=fid) for fid in folder_ids[1:]])
+        wanted = set(agent_ids or [])
+        pins = [ds for ds in await accessible_agents(db, organization, user) if ds.id in wanted] if wanted else []
+        set_committed_value(report, "data_sources", pins)
+        agent_ids = None
     svc = data_source_service or DataSourceService()
     agents = await resolve_run_agents(db, organization, user, report, agent_ids=agent_ids,
                                       exclude_personal_connectors=exclude_personal_connectors)
-    if agent_ids is not None and report is not None:
+    eval_targets = getattr(report, "eval_target_ids", None)
+    if getattr(report, "report_type", None) == "test" and eval_targets is not None:
+        from app.core.permissions_decorator import require_org_permission, check_resource_permissions
+        from app.models.eval import TestResult, TestCase, TestSuite
+        from app.models.report_data_source_association import report_data_source_association
+        persisted_pins = set(await db.scalars(
+            select(report_data_source_association.c.data_source_id)
+            .where(report_data_source_association.c.report_id == report.id)
+        ))
+        pinned_eval = bool(persisted_pins)
+        origin = await db.scalar(select(TestResult.folder_id).where(TestResult.report_id == report.id))
+        if getattr(report, "agent_folder_id", None) or origin:
+            from app.services.folder_knowledge import require_capability
+            from app.models.folder import folder_eval_suites
+            fid = report.agent_folder_id or origin
+            await require_capability(db, organization, user, fid, "view")
+            await require_capability(db, organization, user, fid, "manage_evals")
+            suite = await db.scalar(select(TestSuite).join(TestCase).join(TestResult, TestResult.case_id == TestCase.id)
+                                    .join(folder_eval_suites, folder_eval_suites.c.suite_id == TestSuite.id)
+                                    .where(TestResult.report_id == report.id, folder_eval_suites.c.folder_id == fid,
+                                           TestSuite.organization_id == organization.id, TestSuite.deleted_at.is_(None),
+                                           TestCase.deleted_at.is_(None), TestCase.status == "active"))
+            if not suite or not eval_targets:
+                raise HTTPException(409, "Folder eval scope changed")
+            if report.agent_folder_id and not pinned_eval and set(eval_targets) != {a.id for a in agents}:
+                raise HTTPException(409, "Folder eval scope changed")
+            if suite.owner_folder_id:
+                await require_capability(db, organization, user, suite.owner_folder_id, "manage_evals")
+            elif report.agent_folder_id and not pinned_eval:
+                await require_org_permission(db, user.id, organization.id, "manage_evals")
+            if pinned_eval or not report.agent_folder_id:
+                from types import SimpleNamespace
+                branch = await resolve_run_agents(db, organization, user, SimpleNamespace(agent_folder_id=fid, data_sources=[]))
+                if not set(eval_targets) <= {a.id for a in branch}:
+                    raise HTTPException(409, "An eval target is unavailable in this folder")
+        if eval_targets and (pinned_eval or not getattr(report, "agent_folder_id", None)):
+            await check_resource_permissions(db, user.id, organization.id, "data_source", eval_targets, "manage_evals")
+            allowed = set(eval_targets)
+            usable, _ = await svc.filter_user_usable_data_sources(db, agents, user)
+            agents = [a for a in usable if a.id in allowed]
+            if persisted_pins != allowed or {a.id for a in agents} != allowed:
+                raise HTTPException(409, "An eval target is unavailable")
+            if origin and not report.agent_folder_id:
+                from sqlalchemy.orm.attributes import set_committed_value
+                set_committed_value(report, "agent_folder_id", origin)
+                set_committed_value(report, "additional_folders", [])
+        elif not eval_targets:
+            await require_org_permission(db, user.id, organization.id, "manage_evals")
+    if report is not None and (agent_ids is not None or getattr(report, "agent_folder_id", None)):
         scope_report_to_run_agents(report, agents)
+    elif report is not None and report.data_sources:
+        # AgentV2 also reads the report roster directly. Keep its manual pins
+        # aligned with this run without pinning personal connectors or writing
+        # the filtered selection back to the shared report.
+        visible_ids = {agent.id for agent in agents}
+        pins = [agent for agent in report.data_sources if agent.id in visible_ids]
+        if len(pins) != len(report.data_sources):
+            scope_report_to_run_agents(report, pins)
+    if getattr(report, "agent_folder_id", None):
+        from app.services.folder_service import record_output_scope
+        await record_output_scope(db, report.id, [a.id for a in agents])
+        from app.services.folder_knowledge import record_knowledge_scope
+        await record_knowledge_scope(db, report, organization, user)
     clients: Dict[str, Any] = {}
     for ds in agents:
+        # Each connection on its own: one that cannot be set up for this user
+        # (an unreachable server, a missing sign-in) gets a stand-in client
+        # that raises its real error when used, instead of taking the agent's
+        # other connections — and every MCP tool on the agent — out of the run.
+        # When every connection fails, construct_clients still raises.
         try:
-            clients.update(await svc.construct_clients(db, ds, user) or {})
+            agent_clients = await construct_agent_clients(
+                svc, db, ds, user, where="run agents", run_agents=run_agents_context(agents, report))
+            if eval_targets and ds.connections and not agent_clients:
+                raise HTTPException(409, "An eval target is unavailable")
+            clients.update(agent_clients)
         except HTTPException as e:
-            if e.status_code != 403:
+            if eval_targets or e.status_code != 403:
                 raise
             logger.warning("run agents: skipping %s — %s", getattr(ds, "name", "?"), e.detail)
         except Exception:
+            if eval_targets:
+                raise
             logger.exception("run agents: client construction failed for %s", getattr(ds, "name", "?"))
     return agents, clients
 
@@ -261,6 +411,16 @@ async def resolve_candidate_agents(
     mode the selection is the whole candidate pool — agents outside it are out
     of scope entirely.
     """
+    if getattr(report, "agent_folder_id", None):
+        agents = await resolve_run_agents(db, organization, user, report)
+        if getattr(report, "report_type", None) == "test" and report.eval_target_ids is not None:
+            allowed = set(report.eval_target_ids)
+            agents = [agent for agent in agents if agent.id in allowed]
+        if mode == "training":
+            from app.core.permission_resolver import resolve_permissions
+            rights = await resolve_permissions(db, str(user.id), str(organization.id))
+            agents = [a for a in agents if rights.has_resource_permission("data_source", str(a.id), MANAGE_PERMISSION)]
+        return agents, "folder", {str(ds.id) for ds in agents}
     if mode == "training":
         from app.core.permission_resolver import get_ds_ids_with_permission
         from app.models.data_source import DataSource
@@ -274,6 +434,8 @@ async def resolve_candidate_agents(
             .options(selectinload(DataSource.connections))
             .where(DataSource.organization_id == str(organization.id))
         )
+        if attached_ids:
+            stmt = stmt.where(DataSource.id.in_(attached_ids))
         if not is_admin:
             if not ds_ids:
                 return [], "managed", attached_ids
@@ -294,14 +456,21 @@ async def resolve_candidate_agents(
 
     # Manual: the user's selection is a hard scope — no other agents are
     # searched or proposed. The user widens it from the agent selector.
-    return attached, "attached", attached_ids
+    visible = [a for a in await accessible_agents(db, organization, user) if str(a.id) in attached_ids]
+    return visible, "attached", {str(a.id) for a in visible}
 
 
-async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any]) -> str:
+async def render_agents_full(db, organization: Any, report: Any, user: Any, data_sources: List[Any],
+                             context_hub: Any = None) -> str:
     """Full tables/tools schema + always-on instructions for the given agents —
     the same shape an attached agent's eager context has. Used by search_agents
     results AND set_report_agents success observations, so the planner can act
-    on the schema immediately even if the rendered context lags a turn."""
+    on the schema immediately even if the rendered context lags a turn.
+
+    ``context_hub``: the run's hub. Its MCP catalog is applied to the rendered
+    sections, so MCP tools are listed only when the run can call them (with
+    their deferred flag and policy) — never "in your tool list" for an agent
+    whose connection could not be set up for this run."""
     import logging
     logger = logging.getLogger(__name__)
     if not data_sources:
@@ -312,9 +481,25 @@ async def render_agents_full(db, organization: Any, report: Any, user: Any, data
         from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
         builder = SchemaContextBuilder(db, data_sources, organization, report, user=user)
         ctx = await builder.build(with_stats=True, data_source_ids=ds_ids)
+        unavailable: List[str] = []
+        if context_hub is not None and hasattr(context_hub, "apply_mcp_catalog_to"):
+            sections = list(getattr(ctx, "data_sources", None) or [])
+            had_tools = {id(s): bool(getattr(s, "mcp_tools", None)) for s in sections}
+            context_hub.apply_mcp_catalog_to(sections)
+            unavailable = [
+                getattr(getattr(s, "info", None), "name", None) or "?"
+                for s in sections if had_tools.get(id(s)) and not getattr(s, "mcp_tools", None)
+            ]
         schema_xml = ctx.render_combined(top_k_per_ds=10, index_limit=1000)
         if schema_xml:
             parts.append(schema_xml)
+        if unavailable:
+            parts.append(
+                "<note>MCP tools of " + ", ".join(unavailable) + " are not in your tool list at this "
+                "step. For an agent that just joined this run they are added from the next step; "
+                "otherwise a connection could not be set up for this run, or its tools are off. "
+                "Call an MCP tool only once it is listed in <mcp_tools>.</note>"
+            )
     except Exception:
         logger.exception("render_agents_full: schema render failed")
     try:
@@ -345,8 +530,18 @@ async def user_can_focus_agent(
             "data_source", str(ds_id), MANAGE_PERMISSION
         )
 
-    from app.core.permission_resolver import user_can_access_data_source
+    from app.core.permission_resolver import user_can_access_data_source, resolve_permissions
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import DataSourceService
 
+    agent = await db.scalar(select(DataSource).where(DataSource.id == ds_id,
+        DataSource.organization_id == str(organization.id), DataSource.deleted_at.is_(None),
+        DataSource.is_active.is_(True), DataSource.publish_status != "disabled"))
+    if agent is None:
+        return False
+    rights = await resolve_permissions(db, str(user.id), str(organization.id)) if user else None
+    if not DataSourceService.lifecycle_visible(agent, rights):
+        return False
     return await user_can_access_data_source(
         db, str(user.id) if user else "", str(organization.id), None, ds_id=str(ds_id)
     )

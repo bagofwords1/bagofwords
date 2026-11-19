@@ -37,7 +37,7 @@ async def list_notifications(
     organization: Organization = Depends(get_current_organization),
 ):
     return await inbox_service.list_for_user(
-        db, current_user, source=source, unread=unread,
+        db, current_user, organization, source=source, unread=unread,
         include_dismissed=include_dismissed,
     )
 
@@ -48,7 +48,7 @@ async def count_notifications(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await inbox_service.count_unread(db, current_user)
+    return await inbox_service.count_unread(db, current_user, organization)
 
 
 @router.post("/notifications/read-all")
@@ -58,8 +58,19 @@ async def read_all_notifications(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    n = await inbox_service.mark_all_read(db, current_user, source=body.source)
+    n = await inbox_service.mark_all_read(db, current_user, organization, source=body.source)
     return {"ok": True, "marked": n}
+
+
+@router.post("/notifications/dismiss-resolved")
+async def dismiss_resolved_notifications(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Clear handled notifications from the caller's own inbox."""
+    n = await inbox_service.dismiss_resolved(db, current_user, organization)
+    return {"ok": True, "dismissed": n}
 
 
 @router.post("/notifications/{notification_id}/read")
@@ -70,7 +81,7 @@ async def read_notification(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    n = await inbox_service.mark_read(db, current_user, notification_id, body.read)
+    n = await inbox_service.mark_read(db, current_user, organization, notification_id, body.read)
     return {"ok": n is not None}
 
 
@@ -81,5 +92,5 @@ async def dismiss_notification(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    n = await inbox_service.dismiss(db, current_user, notification_id)
+    n = await inbox_service.dismiss(db, current_user, organization, notification_id)
     return {"ok": n is not None}

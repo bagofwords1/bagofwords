@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Integer, Float, JSON, Boolean, ForeignKey, Text
+from sqlalchemy import Column, String, DateTime, Integer, Float, JSON, Boolean, ForeignKey, Text, Index, Table
 from sqlalchemy.orm import relationship
 from app.ee.encryption import EncryptedText
 from .base import BaseSchema
@@ -12,6 +12,9 @@ class AgentExecution(BaseSchema):
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=True)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True)
+
+    starting_folder_id = Column(String(36), nullable=True)
+    starting_folder_ids = Column(JSON, nullable=True)
 
     # Status and timing
     status = Column(String, nullable=False, default='in_progress')
@@ -88,3 +91,23 @@ class AgentExecution(BaseSchema):
     instructions = relationship('Instruction', back_populates='agent_execution', lazy='select')
 
 
+
+folder_execution_agents = Table(
+    "folder_execution_agents", BaseSchema.metadata,
+    Column("execution_id", String(36), ForeignKey("agent_executions.id", ondelete="CASCADE"), primary_key=True),
+    Column("agent_id", String(36), primary_key=True),
+    Index("ix_folder_execution_agents_agent", "agent_id", "execution_id"),
+)
+
+
+# Every agent a run was GIVEN (its working set: Auto's resolved roster, a manual
+# selection, a folder branch, plus agents attached mid-run) — not only the ones
+# it queried. The run's context snapshots carry the schema of each of them, so
+# monitoring treats this as the run's exposure: a scoped agent manager may see a
+# run only when every agent here is one they manage. See folder_monitoring.
+execution_exposed_agents = Table(
+    "execution_exposed_agents", BaseSchema.metadata,
+    Column("execution_id", String(36), ForeignKey("agent_executions.id", ondelete="CASCADE"), primary_key=True),
+    Column("agent_id", String(36), primary_key=True),
+    Index("ix_execution_exposed_agents_agent", "agent_id", "execution_id"),
+)

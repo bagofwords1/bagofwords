@@ -1,26 +1,14 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ t('tools.createAgent.creating', { name: args.name || '' }) }}</span>
-        </span>
-        <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
-          <span class="align-middle">{{ t('tools.createAgent.created') }}</span>
-        </span>
-        <span v-else-if="needsSelection" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-chat-bubble-left-right" class="w-3 h-3 me-1 text-blue-400" />
-          <span class="align-middle">{{ t('tools.createAgent.needsSelection') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span class="align-middle">{{ t('tools.createAgent.failed') }}</span>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-user-group" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.createAgent.creating', { name: args.name || '' }) }}</template>
+      <template v-else-if="succeeded">{{ t('tools.createAgent.created') }}</template>
+      <template v-else-if="needsSelection">{{ t('tools.createAgent.needsSelection') }}</template>
+      <template v-else>{{ t('tools.createAgent.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (needsSelection)" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- Selection menu (needs_selection): compact chips, the clarify question follows. -->
     <div v-if="needsSelection && selectionGroups.length" class="ms-1 mb-1 flex items-center gap-1 flex-wrap">
@@ -161,10 +149,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, onMounted, ref, watch } from 'vue'
@@ -202,7 +196,7 @@ const connections = computed<string[]>(() => Array.isArray(result.value?.connect
 const unresolved = computed<string[]>(() => Array.isArray(result.value?.unresolved) ? result.value.unresolved : [])
 const requiresConnect = computed<boolean>(() => !!result.value?.requires_user_connect)
 
-const FILE_TYPES = ['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'kms_lighthouse', 'teams_messages']
+const FILE_TYPES = ['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'exchange_onprem', 'kms_lighthouse', 'teams_messages', 'slack_messages']
 const TOOL_TYPES = ['mcp', 'custom_api', 'remote_ssh', 'remote_smb']
 
 // Live agent state
@@ -305,13 +299,6 @@ watch(succeeded, (ok) => { if (ok) loadAgentState() })
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 /* Keep the embedded selectors compact inside the chat card. */

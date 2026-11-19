@@ -181,6 +181,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | PostHog | Business app |
 | Priority ERP | Business app |
 | Outlook Mail | Business app |
+| Exchange Server (on-prem) mail | Business app |
 | Gmail | Business app |
 | Browser (scoped web pages) | Web |
 | Elasticsearch | Search and observability |

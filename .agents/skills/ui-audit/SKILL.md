@@ -68,6 +68,24 @@ most "the UI did nothing" findings, and it is where a silent 403 shows up. The d
 `backend/db/agent.db`, disposable by design, which matters because **this skill clicks
 destructive controls**. Never point an audit at a database whose contents you care about.
 
+**DevBox (`BOW_SANDBOX_DEVBOX=1`) — check `echo $BOW_SANDBOX_DEVBOX` first.** If it is `1`,
+skip the block above: `bow-stack` already runs backend :8000 and frontend :3000 (`nuxt dev`),
+and the admin, org, Claude 4.5 Haiku and the demo data source are provisioned. Instead:
+
+```bash
+source tools/agent/devbox_env.sh   # BOW_EMAIL/BOW_PASSWORD = the DevBox admin; sweep.mjs reads them
+bow-stack status                   # both healthy
+```
+
+- The admin is **not** `admin@example.com` / `Password123!`; it is the DevBox admin above.
+  Seed the second role with `references/roles.md` (it covers the DevBox).
+- Logs: `bow-stack logs backend` (`$BOW_WORKSPACE/run/backend.log`), not `/tmp/bow-agent`.
+- The database is `$BOW_DATABASE_URL` (SQLite path in `$BOW_SQLITE_DB`), the DevBox's own
+  persistent one. Destructive clicks are fine there; `bow-stack reset-db` restores a clean,
+  re-provisioned database afterwards (not an empty one: it re-seeds the demo data source).
+- Don't set `PLAYWRIGHT_BROWSERS_PATH`; `sweep.mjs` falls back to Playwright's default
+  browsers, which is where the DevBox has them.
+
 ## Phase 1 — Inventory (browser, read-only)
 
 `scripts/sweep.mjs` visits each route without clicking anything and records the final URL

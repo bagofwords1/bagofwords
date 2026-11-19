@@ -71,6 +71,12 @@ class ErrorCode(str, Enum):
     CONNECTION_CREDENTIALS_REQUIRED = "connection.credentials_required"
     CONNECTION_ADMIN_REQUIRED = "connection.admin_required"
 
+    # Agent bundle import (the zip produced by "Export agent")
+    AGENT_IMPORT_INVALID_BUNDLE = "agent_import.invalid_bundle"
+    AGENT_IMPORT_NAME_TAKEN = "agent_import.name_taken"
+    AGENT_IMPORT_NO_CONNECTION = "agent_import.no_connection"
+    AGENT_IMPORT_FAILED = "agent_import.failed"
+
     # Licensing / features
     FEATURE_LOCKED = "feature.locked"
     ENTERPRISE_REQUIRED = "license.enterprise_required"
@@ -84,6 +90,7 @@ class ErrorCode(str, Enum):
 
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
+    REVIEW_ITEM_NOT_FOUND = "review_item.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     DASHBOARD_NOT_PUBLISHED = "dashboard.not_published"
@@ -122,6 +129,10 @@ class ErrorCode(str, Enum):
     ACCESS_REQUEST_ALREADY_DECIDED = "access_request.already_decided"
     FILE_NOT_FOUND = "file.not_found"
     FILE_IN_USE = "file.in_use"
+    # System logs (Settings → System logs) are instance-wide
+    SYSTEM_LOGS_INSTANCE_ADMIN_REQUIRED = "system_logs.instance_admin_required"
+    SYSTEM_LOGS_INVALID_RANGE = "system_logs.invalid_range"
+    SYSTEM_LOGS_DELETE_FAILED = "system_logs.delete_failed"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
     DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
@@ -134,6 +145,10 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_LOGIN_PAUSED = "connection.kms_login_paused"
     CONNECTION_KMS_SESSION_REFUSED = "connection.kms_session_refused"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
+    # Connection Queries view (query_executions)
+    CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"
+    CONNECTION_QUERY_FINISHED = "connection.query_finished"
+    CONNECTION_QUERY_NOT_KILLABLE = "connection.query_not_killable"
     TABLE_PREVIEW_UNSUPPORTED = "connection.table_preview_unsupported"
     TABLE_PREVIEW_FAILED = "connection.table_preview_failed"
     USER_NOT_FOUND = "user.not_found"
@@ -146,6 +161,18 @@ class ErrorCode(str, Enum):
     INSTRUCTION_LABEL_NOT_FOUND = "instruction.label_not_found"
     INSTRUCTION_DIRECTORY_NOT_FOUND = "instruction.directory_not_found"
     INTEGRATION_NOT_FOUND = "integration.not_found"
+    INTEGRATION_CONNECTED_ELSEWHERE = "integration.connected_elsewhere"
+
+    # Organizations
+    ORGANIZATION_MULTIPLE_NOT_ENABLED = "organization.multiple_not_enabled"
+    ORGANIZATION_CREATE_INSTANCE_ADMIN_REQUIRED = "organization.create_instance_admin_required"
+    ORGANIZATION_CREATE_LICENSE_REQUIRED = "organization.create_license_required"
+    ORGANIZATION_NAME_REQUIRED = "organization.name_required"
+    ORGANIZATION_NAME_TOO_LONG = "organization.name_too_long"
+    ORGANIZATION_NAME_TAKEN = "organization.name_taken"
+    ORGANIZATION_SIGNUP_DOMAINS_INSTANCE_ADMIN_REQUIRED = "organization.signup_domains_instance_admin_required"
+    ORGANIZATION_SIGNUP_DOMAIN_CLAIMED = "organization.signup_domain_claimed"
+    ORGANIZATION_MEMBER_INSTANCE_ADMIN = "organization.member_instance_admin"
 
     # User memory
     MEMORY_DISABLED = "memory.disabled"
@@ -198,6 +225,14 @@ class ErrorCode(str, Enum):
 
     SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"
 
+    # Sites allowed to frame BOW (Settings → General)
+    FRAME_ANCESTORS_INVALID = "frame_ancestors.invalid"
+    FRAME_ANCESTORS_TOO_MANY = "frame_ancestors.too_many"
+
     # Connections
     CONNECTION_CONFIG_INVALID = "connection.config_invalid"
     CONNECTION_ATHENA_MODE_SWITCH = "connection.athena_mode_switch"
+    SLACK_CHANNELS_NOT_SLACK = "connection.slack_channels_not_slack"
+    SLACK_CHANNELS_TOO_MANY = "connection.slack_channels_too_many"
+    SLACK_CHANNELS_NOT_IDS = "connection.slack_channels_not_ids"
+    SLACK_CHANNELS_UNAVAILABLE = "connection.slack_channels_unavailable"

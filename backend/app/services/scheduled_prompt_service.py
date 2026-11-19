@@ -7,6 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
 
+from app.models.report import report_folder_ids
 from app.models.scheduled_prompt import ScheduledPrompt
 from app.models.report import Report
 from app.models.user import User
@@ -14,6 +15,7 @@ from app.models.organization import Organization
 from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate, ScheduledPromptUpdate
 from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.services.notification_service import notification_service
+from app.services.scheduled_task_naming import synced_report_title, task_display_name
 from app.settings.config import settings
 from app.core.telemetry import telemetry
 
@@ -174,6 +176,8 @@ class ScheduledPromptService:
         await self.ensure_can_manage(db, report, current_user, organization)
 
         subscribers = [s.model_dump() for s in data.notification_subscribers] if data.notification_subscribers else None
+        from app.services.folder_service import validate_scope_folders
+        task_folders = await validate_scope_folders(db, organization.id, current_user.id, data.agent_folder_ids)
         task_agents = await self._resolve_task_agents(db, data.data_source_ids, current_user, organization)
 
         sp = ScheduledPrompt(
@@ -186,12 +190,18 @@ class ScheduledPromptService:
             is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
-            data_source_ids=task_agents,
+            data_source_ids=task_agents, agent_folder_ids=task_folders,
         )
         if data.cron_schedule is None and data.run_once_at is None:
             raise HTTPException(status_code=400, detail="Provide cron_schedule or run_once_at")
         _apply_schedule(sp, data.cron_schedule, data.run_once_at)
         _ensure_one_time_not_past(sp)
+        # Name the host report after the task (the "New task" flow creates it
+        # with a generic placeholder), unless someone already named it.
+        report_title = synced_report_title(
+            report.title, None, task_display_name(sp.title, sp.prompt, report.title))
+        if report_title:
+            report.title = report_title
         db.add(sp)
         await db.commit()
         await db.refresh(sp)
@@ -230,11 +240,21 @@ class ScheduledPromptService:
         sp = await self._get_or_404(db, scheduled_prompt_id)
         await self._ensure_can_manage_prompt(db, sp, current_user, organization)
 
+        host_report = await db.get(Report, sp.report_id)
+        previous_name = task_display_name(sp.title, sp.prompt, host_report.title if host_report else None)
         if data.prompt is not None:
             sp.prompt = data.prompt
         if data.title is not None:
             # An explicit empty string clears the title (falls back to report title).
             sp.title = data.title.strip() or None
+        if host_report is not None:
+            # Renaming the task renames its report, unless the user renamed the
+            # report to something of their own.
+            report_title = synced_report_title(
+                host_report.title, previous_name,
+                task_display_name(sp.title, sp.prompt, host_report.title))
+            if report_title:
+                host_report.title = report_title
         _apply_schedule(sp, data.cron_schedule, data.run_once_at)
         reactivated = data.is_active is True and not sp.is_active
         if data.is_active is not None:
@@ -251,6 +271,9 @@ class ScheduledPromptService:
             sp.spawn_new_report = data.spawn_new_report
         if data.notification_subscribers is not None:
             sp.notification_subscribers = [s.model_dump() for s in data.notification_subscribers]
+        if data.agent_folder_ids is not None:
+            from app.services.folder_service import validate_scope_folders
+            sp.agent_folder_ids = await validate_scope_folders(db, organization.id, sp.user_id, data.agent_folder_ids)
         if data.data_source_ids is not None:
             # Checked against the task's owner: their access is what the runs use.
             owner = await db.get(User, sp.user_id) or current_user
@@ -566,6 +589,10 @@ class ScheduledPromptService:
                 self._remove_job(sp.id)
                 return
 
+            # The run executes as this member in this organization.
+            from app.core.request_org import set_request_organization_id
+            set_request_organization_id(str(organization.id))
+
             # Routing: spawn_new_report = fresh dated report per run (clean
             # snapshot, no context growth), else run in the host report
             # (default — keeps cross-run memory for trend commentary).
@@ -591,6 +618,7 @@ class ScheduledPromptService:
                     scheduled_prompt_id=sp.id,
                     # The task's own agents. A spawned run report is created
                     # with them attached, so it needs no override.
+                    run_folder_ids=sp.agent_folder_ids if target_report is report else None,
                     run_data_source_ids=(
                         list(sp.data_source_ids)
                         if sp.data_source_ids and target_report is report else None
@@ -621,7 +649,7 @@ class ScheduledPromptService:
                     db,
                     kind="task",
                     automation_id=str(sp.id),
-                    automation_name=sp.title or report.title or "Scheduled task",
+                    automation_name=task_display_name(sp.title, sp.prompt, report.title) or "Scheduled task",
                     owner=user,
                     organization=organization,
                     outcome=outcome,
@@ -685,11 +713,13 @@ class ScheduledPromptService:
         from app.schemas.report_schema import ReportCreate
 
         ds_ids = (
-            [str(i) for i in sp.data_source_ids] if sp.data_source_ids
+            [str(i) for i in (sp.data_source_ids or [])] if sp.data_source_ids or sp.agent_folder_ids
             else [str(ds.id) for ds in (host_report.data_sources or [])]
         )
+        folders = sp.agent_folder_ids or ([] if sp.data_source_ids else report_folder_ids(host_report))
         run_date = datetime.utcnow().strftime("%b %d, %Y")
-        title = f"{sp.title or host_report.title or 'Scheduled run'} — {run_date}"
+        name = task_display_name(sp.title, sp.prompt, host_report.title) or "Scheduled run"
+        title = f"{name} — {run_date}"
 
         # Stay in the host report's project so a schedule that lives in a
         # project keeps its dated runs there instead of scattering them to the
@@ -700,7 +730,7 @@ class ScheduledPromptService:
             try:
                 report_schema = await ReportService().create_report(
                     db=db,
-                    report_data=ReportCreate(title=title, files=[], data_sources=ds_ids,
+                    report_data=ReportCreate(title=title, files=[], agent_folder_ids=folders, data_sources=ds_ids,
                                              project_id=str(host_report.project_id)),
                     current_user=user,
                     organization=organization,
@@ -713,7 +743,7 @@ class ScheduledPromptService:
         if report_schema is None:
             report_schema = await ReportService().create_report(
                 db=db,
-                report_data=ReportCreate(title=title, files=[], data_sources=ds_ids),
+                report_data=ReportCreate(title=title, files=[], agent_folder_ids=folders, data_sources=ds_ids),
                 current_user=user,
                 organization=organization,
             )
@@ -754,7 +784,10 @@ class ScheduledPromptService:
             for b in reversed(blocks):
                 content = getattr(b, 'content', None)
                 if content:
-                    summary["last_content"] = content
+                    # The email/notification renders plain text: drop
+                    # `{{cite:…}}` markers (they're chips only on the web).
+                    from app.ai.citations import strip_citations
+                    summary["last_content"] = strip_citations(content)
                     break
 
         return summary

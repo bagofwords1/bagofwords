@@ -42,6 +42,8 @@ class InstructionVersion(BaseSchema):
     references_json = Column(JSON, nullable=True)
     
     # List of data source IDs: ["ds_1", "ds_2"]
+    scope_mode = Column(String(16), nullable=True)
+    folder_ids = Column(JSON, nullable=True)
     data_source_ids = Column(JSON, nullable=True)
     
     # List of label IDs: ["label_1", "label_2"]

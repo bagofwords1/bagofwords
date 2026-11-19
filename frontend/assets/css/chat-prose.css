@@ -1,0 +1,39 @@
+/* Shared answer typography for reports and shared conversations. */
+.markdown-wrapper .markdown-content {
+  color: rgb(var(--bow-chat-ink-rgb));
+  font-size: var(--bow-chat-font-size);
+  line-height: var(--bow-chat-line-height);
+  font-weight: 400;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.markdown-wrapper .markdown-content :is(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
+  line-height: inherit;
+  overflow-wrap: normal;
+  word-break: normal;
+  unicode-bidi: plaintext;
+}
+.markdown-wrapper .markdown-content :is(strong, b, .strong-node) { font-weight: 600; }
+.markdown-wrapper .markdown-content :is(p, ul, ol) { margin-block: 0; }
+.markdown-wrapper .markdown-content > .node-slot { margin-block: 0; }
+.markdown-wrapper .markdown-content > .node-slot + .node-slot { margin-block-start: 0.9em; }
+.markdown-wrapper .markdown-content > .node-slot + .node-slot[data-node-type="table"],
+.markdown-wrapper .markdown-content > .node-slot[data-node-type="table"] + .node-slot { margin-block-start: 1em; }
+.markdown-wrapper .markdown-content ul { list-style-type: disc; }
+.markdown-wrapper .markdown-content ol { list-style-type: decimal; }
+.markdown-wrapper .markdown-content li { margin-block: 0; }
+.markdown-wrapper .markdown-content li + li { margin-block-start: 0.25em; }
+.markdown-wrapper .markdown-content li :is(ul, ol) { margin-block-start: 0.25em; }
+.markdown-wrapper .markdown-content li p { margin-block: 0; }
+.markdown-wrapper .markdown-content li .node-slot + .node-slot { margin-block-start: 0.25em; }
+.markdown-wrapper .markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  font-weight: 600;
+  line-height: 1.35;
+  margin-block: 0;
+}
+.markdown-wrapper .markdown-content h1 { font-size: 1.5em; }
+.markdown-wrapper .markdown-content h2 { font-size: 1.25em; }
+.markdown-wrapper .markdown-content h3 { font-size: 1.125em; }
+.markdown-wrapper .markdown-content :is(h4, h5, h6) { font-size: 1em; }
+.markdown-wrapper .markdown-content > .node-slot + .node-slot:is([data-node-type="heading"]) { margin-block-start: 1.4em; }
+.markdown-wrapper .markdown-content :is(a, code) { overflow-wrap: anywhere; }

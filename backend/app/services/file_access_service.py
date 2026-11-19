@@ -84,7 +84,13 @@ async def visible_files_clause(
     if await is_full_admin(db, user, organization):
         return ordinary
 
-    conditions = [File.user_id == str(user.id)]
+    conditions = [(File.user_id == str(user.id)) & File.owner_folder_id.is_(None)]
+
+    rights = await resolve_permissions(db, str(user.id), str(organization.id))
+    folders = [rid for (kind, rid), perms in rights.resource_permissions.items()
+               if kind == "folder" and perms & {"manage_files", "view", "manage"}]
+    if folders:
+        conditions.append(File.owner_folder_id.in_(folders))
 
     ds_ids = await _accessible_data_source_ids(db, user, organization)
     if ds_ids:
@@ -166,7 +172,7 @@ async def user_can_view_file(
     if file.source_kind == 'artifact_resource':
         return False  # Only artifact-scoped services can authorize/decrypt these bytes.
     # 1. Their own upload.
-    if str(file.user_id or "") == str(user.id):
+    if not file.owner_folder_id and str(file.user_id or "") == str(user.id):
         return True
     if await is_full_admin(db, user, organization):
         return True
@@ -180,6 +186,10 @@ async def _reachable_without_embeds(
     db: AsyncSession, user: User, organization: Organization, file: File
 ) -> bool:
     """Rules 2-4."""
+    if file.owner_folder_id:
+        rights = await resolve_permissions(db, str(user.id), str(organization.id))
+        if any(rights.has_resource_permission("folder", file.owner_folder_id, p) for p in ("view", "manage_files")):
+            return True
     # 2. Agent library.
     ds_ids = {str(r[0]) for r in (await db.execute(
         select(data_source_file_association.c.data_source_id).where(
@@ -218,6 +228,37 @@ def _embedded_ids(content) -> set[str]:
     return ids
 
 
+async def revoked_embeds(db: AsyncSession, artifact_ids) -> dict[str, set[str]]:
+    """Per artifact: file ids no version of it may share any more.
+
+    edit_artifact's remove_file_ids records ``detached_file_ids`` on the new
+    version. A file detached by any version stays revoked for the whole
+    artifact (older versions still list it under ``files``) until the latest
+    completed version attaches it again.
+    """
+    from app.models.artifact import ArtifactVersion
+
+    ids = {str(a) for a in artifact_ids or () if a}
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(ArtifactVersion.artifact_id, ArtifactVersion.version, ArtifactVersion.status, ArtifactVersion.content)
+        .where(ArtifactVersion.artifact_id.in_(list(ids)), ArtifactVersion.deleted_at.is_(None))
+    )).all()
+    detached: dict[str, set[str]] = {}
+    latest: dict[str, tuple] = {}
+    for artifact_id, version, status, content in rows:
+        aid = str(artifact_id)
+        if isinstance(content, dict) and content.get("detached_file_ids"):
+            detached.setdefault(aid, set()).update(str(f) for f in content.get("detached_file_ids") or [])
+        if status == "completed" and (aid not in latest or (version or 0) > latest[aid][0]):
+            latest[aid] = (version or 0, content)
+    return {
+        aid: gone - _embedded_ids(latest.get(aid, (0, {}))[1])
+        for aid, gone in detached.items()
+    }
+
+
 async def _embedded_in_viewable_artifact(
     db: AsyncSession, user: User, organization: Organization, file: File
 ) -> bool:
@@ -234,7 +275,7 @@ async def _embedded_in_viewable_artifact(
     # open are scanned (plus the caller's own), so a request never walks every
     # artifact in the org.
     rows = (await db.execute(
-        select(ArtifactVersion.report_id, ArtifactVersion.content)
+        select(ArtifactVersion.report_id, ArtifactVersion.artifact_id, ArtifactVersion.content)
         .join(Report, Report.id == ArtifactVersion.report_id)
         .where(
             ArtifactVersion.organization_id == str(organization.id),
@@ -253,7 +294,9 @@ async def _embedded_in_viewable_artifact(
             ),
         )
     )).all()
-    report_ids = {str(rid) for rid, content in rows if str(file.id) in _embedded_ids(content)}
+    embeds = [(str(rid), str(aid)) for rid, aid, content in rows if str(file.id) in _embedded_ids(content)]
+    revoked = await revoked_embeds(db, {aid for _, aid in embeds}) if embeds else {}
+    report_ids = {rid for rid, aid in embeds if str(file.id) not in revoked.get(aid, set())}
     if not report_ids:
         return False
 
@@ -276,7 +319,7 @@ async def _owner_can_view_file(
     db: AsyncSession, owner: User, organization: Organization, file: File
 ) -> bool:
     """Rules 1-4 for the report owner (never rule 5, so embeds can't chain)."""
-    if str(file.user_id or "") == str(owner.id) or await is_full_admin(db, owner, organization):
+    if (not file.owner_folder_id and str(file.user_id or "") == str(owner.id)) or await is_full_admin(db, owner, organization):
         return True
     return await _reachable_without_embeds(db, owner, organization, file)
 

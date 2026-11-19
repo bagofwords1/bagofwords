@@ -77,7 +77,14 @@ async def agent_ceiling(db, organization_id):
     ).execution_options(populate_existing=True))).scalar_one_or_none()
     if app is None:
         return set()
-    return None if app.agent_ids is None else set(app.agent_ids)
+    return await _application_agents(db, app)
+
+
+async def _application_agents(db, app):
+    if app.agent_ids is None and not app.agent_folder_ids:
+        return None
+    from app.services.folder_service import allowed_folder_agents
+    return set(app.agent_ids or []) | await allowed_folder_agents(db, app.organization_id, app.agent_folder_ids)
 
 
 async def filter_agents(db, agents, organization_id):
@@ -92,7 +99,12 @@ async def instruction_targets(db, organization_id):
         ConnectedApplication.organization_id == str(organization_id),
         ConnectedApplication.deleted_at.is_(None),
     ).order_by(ConnectedApplication.name))).scalars().all()
-    return [dict(id=str(a.id), name=a.name, enabled=bool(a.enabled), agent_ids=a.agent_ids) for a in apps]
+    targets = []
+    for app in apps:
+        ids = await _application_agents(db, app)
+        targets.append(dict(id=str(app.id), name=app.name, enabled=bool(app.enabled),
+                            agent_ids=sorted(ids) if ids is not None else None))
+    return targets
 
 
 async def validate_instruction_channels(db, organization_id, channels):

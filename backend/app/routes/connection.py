@@ -158,8 +158,8 @@ async def _user_can_access_connection(
     from app.core.permission_resolver import user_can_access_data_source
     org_id = str(connection.organization_id) if getattr(connection, 'organization_id', None) else None
     for ds in (connection.data_sources or []):
-        if getattr(ds, "is_public", False):
-            return True
+        # Public data sources are open to members of the owning organization
+        # only; user_can_access_data_source enforces that binding.
         if org_id and await user_can_access_data_source(db, str(user.id), org_id, ds):
             return True
     return False
@@ -186,6 +186,12 @@ async def list_connections(
     resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
     is_admin = FULL_ADMIN in resolved.org_permissions or resolved.has_org_permission("manage_connections")
 
+    # None ⇒ admin, every attached agent is viewable. A set ⇒ the agent ids a
+    # member may view, used both to filter the list and to narrow each
+    # connection's `data_source_ids` below (so a picker never hands a browse/
+    # search call a private agent id the member can't view — that would 403 and
+    # show an empty drive).
+    viewable_ds_ids: Optional[set[str]] = None
     if not is_admin:
         granted_conn_ids = {
             rid for (rtype, rid) in resolved.resource_permissions
@@ -203,6 +209,7 @@ async def list_connections(
             )
         )
         accessible_ds_ids = granted_ds_ids | {str(r) for (r,) in public_ds_rows.all()}
+        viewable_ds_ids = accessible_ds_ids
 
         def _conn_visible(c):
             if str(c.id) in granted_conn_ids:
@@ -400,6 +407,10 @@ async def list_connections(
             ),
             agent_count=len(conn.data_sources) if conn.data_sources else 0,
             agent_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
+            data_source_ids=[
+                str(ds.id) for ds in (conn.data_sources or [])
+                if viewable_ds_ids is None or str(ds.id) in viewable_ds_ids
+            ],
             indexing=indexing_payload.model_dump() if indexing_payload else None,
             user_status=user_status_payload,
             connector_key=_conn_connector_key(conn),
@@ -533,6 +544,9 @@ async def get_connection(
                     "user", "username", "principal", "oauth_tenant_id", "oauth_client_id",
                     # Qlik on-prem: which account the certificate acts as.
                     "user_directory", "user_id",
+                    # Keyless Google auth: which service account is impersonated,
+                    # and the marker, so an unchanged form sends no credentials.
+                    "target_service_account", "use_application_default_credentials",
                     # What DCR discovery derived from the server, so the edit
                     # form can show "Detected: …" next to the override field.
                     "discovered_scopes", "scopes_source",
@@ -2129,3 +2143,86 @@ async def update_tool(
         input_schema=tool.input_schema,
         output_schema=tool.output_schema,
     )
+
+
+# ── Queries view: what BOW is running / has run on this connection ──────────
+# Connection managers only (manage_connection on this connection, or the
+# org-level manage_connections permission). See app/data_sources/query_executions.py.
+
+
+@router.get("/{connection_id}/queries")
+@requires_resource_permission('connection', 'manage_connection')
+async def list_connection_queries(
+    connection_id: str,
+    scope: str = "history",
+    status: Optional[str] = None,
+    user_id: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Running queries (``scope=running``) or a page of the query history.
+
+    Every item is the exact query BOW sent to the source — rendered SQL or the
+    native query, never the generated Python — with who and what issued it,
+    how long it waited for a slot and ran, and how it ended.
+    """
+    from app.services import query_execution_service
+
+    statuses = [s.strip() for s in (status or "").split(",") if s.strip()]
+    return await query_execution_service.list_queries(
+        db, organization, connection_id,
+        scope="running" if scope == "running" else "history",
+        statuses=statuses or None,
+        user_id=user_id,
+        search=(search or None),
+        limit=limit,
+        offset=offset,
+        viewer=current_user,
+    )
+
+
+@router.post("/{connection_id}/queries/{query_execution_id}/kill")
+@requires_resource_permission('connection', 'manage_connection')
+async def kill_connection_query(
+    connection_id: str,
+    query_execution_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Cancel a queued or running query. The source is asked to stop it.
+
+    The worker that runs the query notices within about a second (at once if
+    it is this worker), cancels the statement at the source, and the run that
+    issued it gets a terminal "cancelled by a connection admin" error — it is
+    not retried.
+    """
+    from app.services import query_execution_service
+
+    item, requested = await query_execution_service.kill_query(
+        db, organization, connection_id, query_execution_id, current_user,
+    )
+    if not requested:
+        # A repeat click, someone else's kill already on record, or closing a
+        # dead worker's row: nothing was killed by this call, so no audit entry.
+        return item
+    try:
+        await audit_service.log(
+            db=db, organization_id=str(organization.id), action="connection.query_killed",
+            user_id=str(current_user.id), resource_type="connection", resource_id=str(connection_id),
+            details={
+                "query_execution_id": str(query_execution_id),
+                "status": item.get("status"),
+                "query_user_id": (item.get("user") or {}).get("id"),
+                "report_id": item.get("report_id"),
+            },
+            request=request,
+        )
+    except Exception:
+        pass
+    return item

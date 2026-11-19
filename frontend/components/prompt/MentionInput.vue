@@ -92,6 +92,7 @@
               <DataSourceIcon v-else-if="category.name === 'connectors'" :type="item.icon_type" :connector-key="item.connector_key" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <DataSourceIcon v-else-if="category.name === 'data_sources' && item.icon_token" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <Icon v-else-if="category.name === 'data_sources'" name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <Icon v-else-if="category.name === 'folders'" name="heroicons-folder" class="size-3.5 shrink-0 text-ink-muted" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'instructions'" name="heroicons-document-text" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
@@ -253,7 +254,7 @@ const { t, locale: i18nLocale } = useI18n({ useScope: 'global' })
 
 interface MentionItem {
   id: string
-  type: 'data_source' | 'datasource_table' | 'file' | 'entity' | 'prompt' | 'instruction'
+  type: 'folder' | 'data_source' | 'datasource_table' | 'file' | 'entity' | 'prompt' | 'instruction'
   name: string
   subtitle?: string
   icon_type?: string
@@ -306,9 +307,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  folderOptions: { type: Array as () => {id:string, path:string}[], default: () => [] },
   categories: {
     type: Array as () => string[],
-    default: () => ['data_sources', 'connectors', 'instructions', 'skills', 'prompts', 'files', 'entities']
+    default: () => ['data_sources', 'folders', 'connectors', 'instructions', 'skills', 'prompts', 'files', 'entities']
   },
   selectedDataSourceIds: {
     type: Array as () => string[],
@@ -530,6 +532,7 @@ const showCategoryList = computed(() =>
 // per-item icons used in the item view.
 function categoryIcon(name: string): string {
   switch (name) {
+    case 'folders': return 'heroicons-folder'
     case 'data_sources': return 'heroicons-cube'
     case 'instructions': return 'heroicons-document-text'
     case 'skills': return 'heroicons-sparkles'
@@ -1238,6 +1241,7 @@ function mergePromptMentionsIntoState(groups: { name: string, items: any[] }[]) 
     ...promptMentions.value.map(m => String(m.id)),
   ])
   const GROUP_TO_TYPE: Record<string, MentionItem['type']> = {
+    'FOLDERS': 'folder',
     'DATA SOURCES': 'data_source',
     'TABLES': 'datasource_table',
     'FILES': 'file',
@@ -1422,6 +1426,8 @@ function buildMentionGroups(selected: MentionItem[]) {
     }
   }
 
+  const folders = selected.filter(item => item.type === 'folder').map(({id, name}) => ({id, name}))
+  if (folders.length) groups.push({name: 'FOLDERS', items: folders})
   if (files.length) groups.push({ name: 'FILES', items: files })
   if (dataSources.length) groups.push({ name: 'DATA SOURCES', items: dataSources })
   if (tables.length) groups.push({ name: 'TABLES', items: tables })
@@ -1477,9 +1483,12 @@ const promptCategoryItems = ref<MentionItem[]>([])
 // Assemble the top-level mention categories in display order:
 // Agents, Instructions, Skills, Prompts, Files, Queries. The (hidden) 'tables'
 // category is only reachable by drilling into an agent.
+watch(() => props.folderOptions, () => rebuildCategories())
 function rebuildCategories() {
   allCategories.value = [
     { name: 'data_sources', label: t('mentionInput.categories.dataSources'), items: agentCategoryItems.value },
+    ...(props.folderOptions.length ? [{name: 'folders', label: t('sharedFolders.title'),
+      items: props.folderOptions.map(f => ({id:f.id, type:'folder' as const, name:f.path}))}] : []),
     { name: 'connectors', label: t('mentionInput.categories.connectors'), items: connectorCategoryItems.value },
     { name: 'instructions', label: t('mentionInput.categories.instructions'), items: instructionCategoryItems.value },
     { name: 'skills', label: t('mentionInput.categories.skills'), items: skillCategoryItems.value },

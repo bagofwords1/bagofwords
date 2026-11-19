@@ -405,7 +405,7 @@ async def fork_report(
 ):
     """Fork a published/shared report into the current user's workspace."""
     new_report = await fork_service.fork_report(
-        db, report_id, current_user, title=body.title,
+        db, report_id, current_user, title=body.title, organization=organization,
     )
     # A fork of a delegated source lands with its queries empty — no rows and
     # no SQL — and is filled in by running them under the forker's own
@@ -662,7 +662,23 @@ async def get_public_conversation(
         if report_obj:
             eligibility = await fork_service.check_eligibility(db, report_obj, user)
             result["fork_eligibility"] = eligibility.to_dict()
+            # The share page renders outside the app layout, so it never learns
+            # the org's language on its own: an anonymous viewer of a Hebrew
+            # org's conversation would get an English, LTR page. Hand it the
+            # sharing org's effective locale (org override → system default).
+            # A viewer's personal choice still wins on the client.
+            result["locale"] = await _org_effective_locale(db, str(report_obj.organization_id))
     return result
+
+
+async def _org_effective_locale(db: AsyncSession, organization_id: str) -> str:
+    from app.models.organization_settings import OrganizationSettings
+    i18n = app_settings.bow_config.i18n
+    cfg = (await db.execute(
+        select(OrganizationSettings.config).where(OrganizationSettings.organization_id == organization_id)
+    )).scalar_one_or_none()
+    candidate = cfg.get("locale") if isinstance(cfg, dict) else None
+    return candidate if candidate in i18n.enabled_locales else i18n.default_locale
 
 
 @router.get("/r/{report_id}/files/{file_id}/embed_token")
@@ -692,11 +708,16 @@ async def get_public_file_embed_token(
     artifacts = (await db.execute(
         select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
     )).scalars().all()
-    embedded = any(
-        isinstance(a.content, dict)
+    from app.services.file_access_service import revoked_embeds
+    holders = {
+        str(a.artifact_id) for a in artifacts
+        if isinstance(a.content, dict)
         and any(str(f.get("id")) == file_id for f in (a.content.get("files") or []) if isinstance(f, dict))
-        for a in artifacts
-    )
+    }
+    revoked = await revoked_embeds(db, holders) if holders else {}
+    # A file detached from the artifact (remove_file_ids) isn't shared through
+    # its older versions either.
+    embedded = any(file_id not in revoked.get(aid, set()) for aid in holders)
     if not embedded:
         raise HTTPException(status_code=404, detail="File not found")
 

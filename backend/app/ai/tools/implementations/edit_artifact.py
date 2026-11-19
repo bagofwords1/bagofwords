@@ -9,7 +9,6 @@ planner can correct in its own loop — the planner IS the repair loop here.
 """
 
 import logging
-import re
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
@@ -28,25 +27,15 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors
+from app.ai.tools.implementations._artifact_refs import (
+    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors,
+    file_reference_errors, bow_file_literal_ids, normalize_file_id,
+)
+from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
 from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_version
 
 logger = logging.getLogger(__name__)
-
-# A literal id on a <BowFile>: id="x", id='x', id={"x"}, id={`x`}. An id held in
-# a variable can't be resolved here and is left to the runtime's placeholder.
-_BOW_FILE_ID = re.compile(r"""<BowFile\b[^>]*?\sid\s*=\s*\{?\s*["'`]([^"'`]+)["'`]""")
-
-
-def _bow_file_ids(code: str) -> set[str]:
-    return {file_id for file_id in _BOW_FILE_ID.findall(code or "") if "${" not in file_id}
-
-
-def _attachable_type(content_type: Optional[str]) -> bool:
-    media_type = (content_type or "").split(";", 1)[0].strip().lower()
-    return media_type.startswith("image/") or media_type == "application/pdf"
-
 
 class EditArtifactTool(Tool):
     """Mechanical find/replace edits on a page or slides artifact — no inner LLM."""
@@ -69,7 +58,7 @@ class EditArtifactTool(Tool):
                 "you exactly what to correct — fix the ops and call again. If the current code is not in your "
                 "context, call read_artifact first. For a from-scratch redesign, author new source and call "
                 "create_artifact with `code`. To show a file the artifact does not have yet (a new logo, for example), add its "
-                "<BowFile id=\"...\" /> in the ops AND pass its id in `file_ids`. For slides, ops edit the python-pptx script; "
+                "<BowFile id=\"...\" /> in the ops AND pass its id in `file_ids`; to stop showing one (a replaced logo), delete its <BowFile> and pass its id in `remove_file_ids`, so viewers can no longer open it, through this or any earlier version of the artifact. For slides, ops edit the python-pptx script; "
                 "validation = the script executes and saves a deck."
             ),
             category="action",
@@ -112,27 +101,6 @@ class EditArtifactTool(Tool):
                 "observation": obs,
             },
         )
-
-    async def _attachable_files(self, db, *, user, report, organization, file_ids: List[str]) -> Dict[str, Dict[str, Any]]:
-        """The requested files this run may attach, as content.files entries.
-
-        Attaching makes a file readable by everyone who can view the artifact,
-        and the ids come from the model, so they go through the same check as
-        create_artifact. A failed check attaches nothing.
-        """
-        from app.models.file import File
-        from app.services.file_access_service import run_viewable_file_ids
-
-        try:
-            allowed = await run_viewable_file_ids(db, user=user, report=report, organization=organization, file_ids=file_ids)
-            rows = (await db.execute(select(File).where(File.id.in_(list(allowed))))).scalars().all()
-        except Exception as e:
-            logger.warning(f"edit_artifact: failed to resolve file_ids: {e}")
-            return {}
-        return {
-            str(f.id): {"id": str(f.id), "content_type": f.content_type or "application/octet-stream", "filename": f.filename}
-            for f in rows if _attachable_type(f.content_type)
-        }
 
     @with_automatic_artifact_check
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
@@ -183,16 +151,42 @@ class EditArtifactTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "applying_edits", "ops": len(data.edits)})
         from app.ai.tools.implementations.edit_artifact_legacy import _find_closest_match
 
+        # Ids the model miscopied are matched to the visualization they
+        # nearly spell: new ones among this report's, removed ones among the
+        # artifact's own. A new id that names nothing fails here, with the
+        # ids that would work, instead of being saved as a dead reference.
+        from app.ai.tools.implementations._viz_ids import (
+            apply_id_corrections, correct_code_viz_refs, ensure_available, resolve_visualization_ids,
+        )
+        _report_id = str(artifact.report_id) if artifact.report_id else None
+        added = await resolve_visualization_ids(db, _report_id, data.visualization_ids)
+        dropped = await resolve_visualization_ids(
+            db, _report_id, data.remove_visualization_ids, pool=existing_viz_ids,
+        )
+        if added.unresolved:
+            problem = " ".join(added.unresolved_messages())
+            yield self._fail(
+                artifact, "visualization_not_found", problem,
+                {
+                    "visualization_ids": added.unresolved,
+                    "available_visualizations": await ensure_available(db, _report_id, added),
+                    "remediation": added.remediation(),
+                },
+            )
+            return
+        id_notes = added.correction_notes() + dropped.correction_notes()
+
         # Merge viz ids: (existing − removed) + new — same semantics as edit_artifact.
-        removed = {str(v) for v in (data.remove_visualization_ids or [])}
+        removed = set(dropped.ids)
         merged_viz_ids = [v for v in existing_viz_ids if v not in removed]
-        for vid in (data.visualization_ids or []):
-            if str(vid) not in merged_viz_ids and str(vid) not in removed:
-                merged_viz_ids.append(str(vid))
+        for vid in added.ids:
+            if vid not in merged_viz_ids and vid not in removed:
+                merged_viz_ids.append(vid)
 
         working = code
         for i, op in enumerate(data.edits):
-            find, replace = op.find, op.replace
+            # New code carries the same miscopied id as the id list did.
+            find, replace = op.find, apply_id_corrections(op.replace, added.corrections)
             # The agent may quote code it saw before the working copy was
             # migrated (older context still binding positionally), so run the
             # same codemod over the op. `find` describes the stored code →
@@ -226,17 +220,42 @@ class EditArtifactTool(Tool):
                 )
             return
         new_code = working
+        if artifact.mode == "page":
+            # The id list can be right while the new code carries the slip.
+            new_code = correct_code_viz_refs(new_code, merged_viz_ids)
+            # Deterministic repairs (module statements, names wrongly taken
+            # from React): each removes something that cannot work in the
+            # page runtime, so working code is left byte-for-byte.
+            from app.ai.tools.implementations._artifact_refs import normalize_page_code
+            new_code, _repair_notes = normalize_page_code(new_code)
+            id_notes.extend(_repair_notes)
 
-        # Merge embedded files: existing + new. Every requested id must resolve;
-        # the same answer for missing, forbidden and wrong-type ids reveals
-        # nothing about files this user can't see.
-        merged_files: List[Dict[str, Any]] = list(content.get("files") or [])
-        attached_ids = {str(f.get("id")) for f in merged_files if isinstance(f, dict)}
-        requested_file_ids = list(dict.fromkeys(str(f) for f in (data.file_ids or []) if str(f) not in attached_ids))
+        # Embedded files: existing, minus removals, plus new. Ids are compared
+        # normalised. Every requested id must resolve; the same answer for
+        # missing, forbidden and wrong-type ids reveals nothing about files
+        # this user can't see.
+        merged_files: List[Dict[str, Any]] = [f for f in content.get("files") or [] if isinstance(f, dict)]
+        previously_attached = {str(f.get("id")) for f in merged_files}
+        removed_file_ids = {normalize_file_id(f) for f in data.remove_file_ids or [] if str(f or "").strip()}
+        if removed_file_ids:
+            merged_files = [f for f in merged_files if normalize_file_id(f.get("id")) not in removed_file_ids]
+        attached_ids = {normalize_file_id(f.get("id")) for f in merged_files}
+        requested_file_ids = [
+            fid for fid in dict.fromkeys(normalize_file_id(f) for f in data.file_ids or [] if str(f or "").strip())
+            if fid not in attached_ids
+        ]
         if requested_file_ids:
-            attachable = await self._attachable_files(
-                db, user=user, report=report, organization=runtime_ctx.get("organization"), file_ids=requested_file_ids,
-            )
+            try:
+                attachable = await attachable_files(
+                    db, user=user, report=report, organization=runtime_ctx.get("organization"), file_ids=requested_file_ids,
+                )
+            except FileLookupFailed:
+                yield self._fail(
+                    artifact, "file_lookup_failed",
+                    "Could not look up the requested files (a temporary error). Nothing was applied.",
+                    {"file_ids": requested_file_ids, "remediation": "Call edit_artifact again with the same arguments."},
+                )
+                return
             refused = [fid for fid in requested_file_ids if fid not in attachable]
             if refused:
                 yield self._fail(
@@ -249,15 +268,22 @@ class EditArtifactTool(Tool):
             attached_ids.update(requested_file_ids)
 
         # A <BowFile> for a file that isn't attached renders "File not found"
-        # while the render check still passes. References the artifact already
-        # had are left alone, so an unrelated edit isn't blocked by them.
+        # while the render check still passes. References that were already
+        # broken before this edit are left alone, so an unrelated edit isn't
+        # blocked by them; a file removed in this edit must lose its tag too.
         if artifact.mode == "page":
-            unattached = sorted(_bow_file_ids(new_code) - _bow_file_ids(code) - attached_ids)
-            if unattached:
+            already_broken = bow_file_literal_ids(code) - previously_attached
+            file_errors = file_reference_errors(new_code, {"files": merged_files}, ignore_ids=already_broken)
+            if file_errors:
+                unattached = sorted(bow_file_literal_ids(new_code) - {str(f.get("id")) for f in merged_files} - already_broken)
+                removed_but_shown = [fid for fid in unattached if normalize_file_id(fid) in removed_file_ids]
                 yield self._fail(
-                    artifact, "file_not_attached",
-                    f"The edits add <BowFile id=\"{unattached[0]}\" /> but that file is not attached to the artifact.",
-                    {"file_ids": unattached, "remediation": "Call edit_artifact again with the same edits and this id in `file_ids`."},
+                    artifact, "file_not_attached", file_errors[0],
+                    {"file_ids": unattached, "remediation": (
+                        "Delete the <BowFile> tags for the files you are removing."
+                        if removed_but_shown else
+                        "Call edit_artifact again with the same edits and this id in `file_ids`."
+                    )},
                 )
                 return
 
@@ -379,14 +405,18 @@ class EditArtifactTool(Tool):
                 screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
                 fatal = self._create_tool.fatal_render_errors(render_errors)
                 if fatal:
+                    from app.ai.tools.implementations._artifact_refs import render_error_hint
+                    _fix_hint = render_error_hint(fatal[0])
                     yield self._fail(
                         artifact, "render_failed",
                         f"The edited code fails to render: {fatal[0]}",
-                        {"render_errors": render_errors, "remediation": "Fix the ops to resolve the render error and retry."},
+                        {"render_errors": render_errors, "remediation": (
+                            (f"{_fix_hint} " if _fix_hint else "")
+                            + "Fix the ops to resolve the render error and retry.")},
                     )
                     return
             except Exception as e:
-                logger.warning(f"edit_artifact: render validation unavailable, persisting unvalidated: {e}")
+                logger.error(f"edit_artifact: render check unavailable, saving WITHOUT a render check: {e}")
 
         # Persist as the next version (stored rows are never rewritten).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
@@ -397,6 +427,12 @@ class EditArtifactTool(Tool):
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if merged_files:
             new_content["files"] = merged_files
+        # Files this edit detached. The access checks treat a file as revoked
+        # for this artifact (every version, not just this one) once a version
+        # detaches it, until a later version attaches it again.
+        detached_now = sorted(fid for fid in removed_file_ids if fid in {normalize_file_id(i) for i in previously_attached})
+        if detached_now:
+            new_content["detached_file_ids"] = detached_now
         # The runtime generation travels with the row: a legacy artifact stays
         # legacy across edits (its code was written for that look); a themed
         # one stays themed.
@@ -492,6 +528,9 @@ class EditArtifactTool(Tool):
         # An edit can add a cut dataset, so the planner hears about it here too.
         partial_data = partial_data_used(artifact_data.get("visualizations", []), new_code) if artifact.mode == "page" else []
 
+        # False when a page was saved without being rendered (no usable
+        # browser on this server): the chat card and the model are told.
+        render_checked = bool(screenshot_b64) if artifact.mode == "page" else None
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -508,6 +547,7 @@ class EditArtifactTool(Tool):
                     # card show the same Diff badge as historical edits.
                     "diff_applied": True,
                     "code": new_code,
+                    **({"render_checked": render_checked} if render_checked is not None else {}),
                 },
                 "observation": {
                     **review_images,
@@ -515,7 +555,7 @@ class EditArtifactTool(Tool):
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified. "
-                        + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + ("Render validated. " if render_checked is not False else self._create_tool.RENDER_UNCHECKED_NOTE.strip() + " ")
                         + partial_data_warning(partial_data)
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
@@ -525,6 +565,8 @@ class EditArtifactTool(Tool):
                     "version": new_artifact.version,
                     "diff_applied": True,
                     "applied_ops": len(data.edits),
+                    **({"render_checked": False} if render_checked is False else {}),
+                    **({"warnings": id_notes} if id_notes else {}),
                 },
             },
         )

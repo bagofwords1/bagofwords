@@ -22,6 +22,8 @@ import re
 import time
 from typing import AsyncIterator, Callable, List, Optional
 
+from app.ai.llm.toolcall_args import repair_mangled_arguments
+
 logger = logging.getLogger(__name__)
 
 # Matches the (possibly unterminated) value of the "title" argument inside a
@@ -128,6 +130,21 @@ from .planner_state_v3 import PlannerStateV3
 from .prompt_builder_v3 import PromptBuilderV3
 
 
+def _pii_scoped_system(v3_input) -> str:
+    """The system prompt as sent to the LLM.
+
+    The chat system prompt is platform directives and org settings, so PII
+    rules leave it as is (app.ai.llm.pii.context). The sub-agent and knowledge
+    system prompts also carry text derived from the run (the parent's goal,
+    trigger conditions), so they stay in PII scope. Marked here, at the call,
+    so the built PlannerInputV3 itself stays marker-free."""
+    from app.ai.llm.pii.context import pii_context
+
+    if (v3_input.mode or "chat") in ("subagent", "knowledge"):
+        return v3_input.system
+    return pii_context(v3_input.system)
+
+
 def _dump_planner_input(v3_input) -> None:
     """Append the exact system / user / tools payload to BOW_PLANNER_DUMP_FILE.
 
@@ -145,13 +162,17 @@ def _dump_planner_input(v3_input) -> None:
         from datetime import datetime, timezone
 
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        from app.ai.llm.pii.context import strip_markers
+
         with open(path, "a") as fh:
-            fh.write(_json.dumps({
+            # PII context markers never reach a provider, so they are not part
+            # of the payload either.
+            fh.write(strip_markers(_json.dumps({
                 "ts": datetime.now(timezone.utc).isoformat(),
                 "system": v3_input.system,
                 "messages": v3_input.messages,
                 "tools": v3_input.tools,
-            }, default=str) + "\n")
+            }, default=str, ensure_ascii=False)) + "\n")
     except Exception:
         pass
 
@@ -185,6 +206,28 @@ class PlannerV3:
             t.name: (t.category or ("research" if t.research_accessible else "action"))
             for t in (tool_catalog or [])
         }
+
+    def _repair_arguments(self, tool_name: str, arguments: dict) -> dict:
+        """Arguments as the model meant them when a tool-call parser split them.
+
+        Some models (Gemma 4 via vLLM's ``gemma4`` parser) occasionally quote a
+        string without their delimiter, and the parser returns valid JSON with
+        members glued together or quotes kept in a value. Repaired here, where
+        each call becomes an Action, so the tool, the persisted ToolExecution and
+        the replayed transcript all carry the same arguments.
+        """
+        schema = next((t.schema for t in (self.tool_catalog or []) if t.name == tool_name), None)
+        try:
+            repaired, fields = repair_mangled_arguments(arguments, schema)
+        except Exception:
+            logger.debug("tool-call argument repair failed for %r", tool_name, exc_info=True)
+            return arguments
+        if fields:
+            logger.warning(
+                "tool-call arguments for %r repaired (a string was quoted without the "
+                "model's delimiter): %s", tool_name, ", ".join(fields),
+            )
+        return repaired
 
     async def execute(
         self,
@@ -231,6 +274,7 @@ class PlannerV3:
         record_counters: dict[str, _RecordCounter] = {}  # tool_use_id -> submit_<list> progress
         stop_reason: Optional[str] = None
         raw_stop_reason: Optional[str] = None
+        content_filter_categories: list[str] = []
         # Stream forensics: how many events of each type the adapter surfaced.
         # A stream can legally end with nothing but a stop + usage (provider
         # refusals, stop reasons or content-block types the adapter doesn't
@@ -247,7 +291,7 @@ class PlannerV3:
             async for evt in self.llm.inference_stream_v2(
                 model_id=None,  # LLM facade resolves from self.llm.model
                 messages=messages,
-                system=v3_input.system,
+                system=_pii_scoped_system(v3_input),
                 tools=tools,
                 images=v3_input.images,
                 thinking=thinking,
@@ -395,7 +439,7 @@ class PlannerV3:
                     finished = Action(
                         type="tool_call",
                         name=evt.name,
-                        arguments=evt.input or {},
+                        arguments=self._repair_arguments(evt.name, evt.input or {}),
                         # Keep the provider's id and any opaque signature —
                         # a transcript has to replay exactly what was issued.
                         id=evt.id or None,
@@ -430,6 +474,7 @@ class PlannerV3:
                 if isinstance(evt, MessageStopEvent):
                     stop_reason = evt.stop_reason
                     raw_stop_reason = getattr(evt, "raw_stop_reason", None) or evt.stop_reason
+                    content_filter_categories = list(getattr(evt, "content_filter_categories", None) or [])
                     continue
 
                 if isinstance(evt, UsageEvent):
@@ -493,6 +538,38 @@ class PlannerV3:
             cache_read_tokens=final_cache_read_tokens,
             cache_creation_tokens=final_cache_creation_tokens,
         )
+
+        # The provider's safety filter cut the response (OpenAI / Azure
+        # finish_reason "content_filter", normalized to "other" upstream).
+        # Whatever text or partial tool calls came before the cut are not a
+        # valid turn, and finalizing them as "success" hides the cause from the
+        # user. Surface it as a classified content_filter LLM error:
+        # the agent fails the turn at once, naming the filter.
+        if final_decision.error is None and (raw_stop_reason or "").strip().lower() == "content_filter":
+            from app.ai.llm.errors import LLMError
+            _model = getattr(self.llm, "model", None)
+            _llm_error = LLMError(
+                code="content_filter",
+                provider=getattr(getattr(_model, "provider", None), "provider_type", None) or "unknown",
+                model=getattr(_model, "model_id", None),
+                summary=(
+                    f"The model provider's content filter blocked this turn ({', '.join(content_filter_categories)})"
+                    if content_filter_categories
+                    else "The model provider's content filter blocked this turn"
+                ),
+                provider_message="finish_reason=content_filter",
+            ).to_dict()
+            final_decision.analysis_complete = False
+            final_decision.error = PlannerError(
+                code="stream_error",
+                message="The model provider's content filter blocked this turn (finish_reason=content_filter)",
+                details={
+                    "llm_error": _llm_error,
+                    "stop_reason": stop_reason,
+                    "raw_stop_reason": raw_stop_reason,
+                    "content_filter_categories": content_filter_categories,
+                },
+            )
 
         # A stream that produced NO semantic output — no text, no reasoning,
         # no tool call, no web search — is never a valid planner turn, whatever

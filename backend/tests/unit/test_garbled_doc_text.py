@@ -219,7 +219,11 @@ def cache_in_tmp(tmp_path, monkeypatch):
 
 async def _run_read(tool_input, runtime_ctx, client):
     from unittest.mock import AsyncMock, patch
+    from types import SimpleNamespace
     from app.ai.tools.implementations.read_file import ReadFileTool
+    # resolve_file_client stamps the connection it resolved on the client; the
+    # content cache is keyed on that connection's id.
+    client._bow_connection = SimpleNamespace(id=tool_input.get("connection_id"))
     with patch(
         "app.ai.tools.implementations.read_file.resolve_file_client",
         new=AsyncMock(return_value=(client, None)),

@@ -160,6 +160,13 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # TeradataClient: the primary index is Teradata's distribution key and the
     # cheapest join path; `kind` says view vs table. Neither is in the name.
     "teradata": ("kind", "primary_index", "primary_index_unique"),
+    # Qlik Engine clients: `Master Items` and `Sheets/<title>` entries are not
+    # physical tables. `objectType` says which kind of entry the agent is
+    # reading (data tables carry none), and a sheet's description is the
+    # author's own statement of what the sheet answers — `Table.description`
+    # is not persisted with the catalog, so this is the only place it renders.
+    "qlik_sense_onprem": ("objectType", "sheetDescription"),
+    "qlik_sense": ("objectType", "sheetDescription"),
 }
 
 
@@ -765,17 +772,21 @@ class TablesSchemaContext(ContextSection):
             # Per-user OAuth sources: the sample/count above (if any) reflect the
             # querying user's own account, and discovery is always live — so tell
             # the model not to treat an empty scope as "no files".
-            if fs.type == "teams_messages":
+            if fs.type in ("teams_messages", "slack_messages"):
                 inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
-                # Chat vocabulary, never file tools: a Teams connection backs
-                # only search_chat_messages / list_chat_messages /
-                # read_chat_thread (see GraphTeamsClient.capabilities).
+                # Chat vocabulary, never file tools: a Teams or Slack connection
+                # backs only search_chat_messages / list_chat_messages /
+                # read_chat_thread (see GraphTeamsClient / SlackMessagesClient
+                # capabilities).
+                chats = "DMs" if fs.type == "slack_messages" else "chats"
                 inner.append(xml_tag(
                     "auth",
                     "per-user — searched live as the signed-in user; they see only "
-                    "the channels and chats they belong to. Nothing is indexed, so "
+                    f"the channels and {chats} they belong to. Nothing is indexed, so "
                     "an empty count here does NOT mean no messages."
                 ))
+                if fs.note:
+                    inner.append(xml_tag("note", xml_escape(fs.note)))
                 inner.append(xml_tag(
                     "holds",
                     "the team's conversations — decisions, reported numbers, metric "
@@ -793,6 +804,33 @@ class TablesSchemaContext(ContextSection):
                     "lists the channels and chats). Cite the Link: URL of the thread you used."
                 ))
                 attrs = {"name": fs.name, "type": fs.type, "kind": "messages"}
+                if fs.connection_id:
+                    attrs["id"] = fs.connection_id
+                return xml_tag("connection", "\n".join(inner), attrs)
+            if fs.type == "exchange_onprem":
+                inner = [x for x in inner if not x.startswith("<index ")]  # live: no catalog
+                # Same mail vocabulary as the cloud mailboxes, but the identity
+                # is the connection's Windows account and the connection may
+                # span several mailboxes.
+                inner.append(xml_tag(
+                    "auth",
+                    xml_escape(fs.note) if fs.note else (
+                        "read live with this connection's Windows account. Nothing is "
+                        "indexed, so an empty count here does NOT mean no mail."
+                    )
+                ))
+                inner.append(xml_tag(
+                    "usage",
+                    "list_emails with list_folders=true to see the mailboxes and folders · "
+                    "search_email to find messages (keywords, from:, subject:) — with no "
+                    "folder it searches every mailbox on the connection · list_emails to "
+                    "browse a time window or unread mail — with no folder it covers the "
+                    "whole default mailbox, with a mailbox address as the folder it covers "
+                    "that mailbox · read_email to open one. A non-default mailbox's "
+                    "folders are prefixed with its address. Cite the message's Link: URL "
+                    "when one is shown."
+                ))
+                attrs = {"name": fs.name, "type": fs.type, "kind": "mailbox"}
                 if fs.connection_id:
                     attrs["id"] = fs.connection_id
                 return xml_tag("connection", "\n".join(inner), attrs)
@@ -933,6 +971,8 @@ class TablesSchemaContext(ContextSection):
 
             # Build data_source attributes
             ds_attrs = {"name": self.info.name, "id": self.info.id}
+            if self.info.folder_path:
+                ds_attrs["folder_path"] = self.info.folder_path
             # Only include type if single connection (for backward compatibility)
             if not has_multi_connection and not self.file_scopes and self.info.type:
                 ds_attrs["type"] = self.info.type
@@ -1405,6 +1445,8 @@ class TablesSchemaContext(ContextSection):
                 "name": ds.info.name,
                 "id": ds.info.id,
             }
+            if item_tag != "connector" and ds.info.folder_path:
+                attrs["folder_path"] = ds.info.folder_path
             if item_tag != "connector":
                 attrs["total_tables"] = str(len(getattr(ds, 'tables', []) or []))
             # Only include type for single-connection (backward compatibility)

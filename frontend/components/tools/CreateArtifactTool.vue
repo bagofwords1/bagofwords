@@ -1,40 +1,25 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Main Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">{{ runningLabel }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-ink-muted">{{ runningLabel }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ errorLabel }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.createArtifact.create') }}</span>
-
-      <!-- Mode Badge -->
-      <span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span>
-      <Transition name="fade-in" appear>
-        <span
-          v-if="artifactMode"
-          :class="[
-            'ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium',
-            artifactMode === 'slides'
-              ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
-              : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
-          ]"
-        >
-          {{ artifactMode === 'slides' ? t('tools.createArtifact.slides') : t('tools.createArtifact.dashboard') }}
-        </span>
-      </Transition>
-
-      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ runningLabel }}</template>
+      <template v-else-if="status === 'success'">{{ successLabel }}</template>
+      <template v-else-if="status === 'stopped'">{{ runningLabel }}</template>
+      <template v-else-if="status === 'error'">{{ errorLabel }}</template>
+      <template v-else>{{ t('tools.createArtifact.create') }}</template>
+      <template v-if="artifactMode">{{ artifactMode === 'slides' ? t('tools.createArtifact.slides') : t('tools.createArtifact.dashboard') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span><span
+        v-if="notRenderChecked"
+        data-testid="not-render-checked"
+        class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700"
+        :title="t('tools.createArtifact.notRenderCheckedDesc')"
+      >{{ t('tools.createArtifact.notRenderChecked') }}</span><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Expanded content -->
-    <template v-if="!isCollapsed">
+    <template v-if="toolHeaderExpanded">
       <!-- Plan prompt -->
       <div v-if="artifactPrompt" class="mt-0.5 ms-[18px] text-chat-2 text-ink-muted max-w-lg">
         <span>{{ t('tools.createArtifact.plan') }}</span>
@@ -57,6 +42,10 @@
         >
           {{ viz.title }}
         </span>
+      </div>
+
+      <div v-if="notRenderChecked" class="mt-1 ms-[18px] text-chat-2 text-amber-700 dark:text-amber-500 max-w-lg">
+        {{ t('tools.createArtifact.notRenderCheckedDesc') }}
       </div>
 
       <!-- Stopped/Error message -->
@@ -173,7 +162,7 @@
             <span v-else>{{ artifactMode === 'slides' ? t('tools.createArtifact.presentation') : t('tools.createArtifact.dashboard') }}</span>
           </div>
           <button
-            v-if="createdArtifact && !isCollapsed"
+            v-if="createdArtifact && toolHeaderExpanded"
             @click.stop="copyArtifactId"
             class="flex items-center gap-0.5 text-chat-3 text-ink-muted hover:text-gray-600 dark:hover:text-gray-400 font-mono mt-0.5"
             :title="t('tools.createArtifact.copyIdTooltip')"
@@ -186,10 +175,16 @@
       </div>
     </div>
     </template>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
@@ -324,6 +319,12 @@ const successLabel = computed(() => artifactMode.value === 'slides' ? t('tools.c
 const errorLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.failedPresentation') : t('tools.createArtifact.failedDashboard'))
 const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error))
 
+// The page was saved without being rendered on the server, so a tick alone
+// would promise more than was checked.
+const notRenderChecked = computed(() =>
+  status.value === 'success' && (props.toolExecution.result_json as any)?.render_checked === false
+)
+
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''
   const seconds = (props.toolExecution.duration_ms / 1000).toFixed(1)
@@ -362,15 +363,4 @@ async function copyArtifactId() {
 .fade-enter-from,
 .fade-leave-to { opacity: 0; }
 
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-  font-weight: 400;
-  opacity: 1;
-}
 </style>

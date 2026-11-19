@@ -42,6 +42,9 @@ def smart_instructions_on_demand(organization_settings) -> bool:
 logger = logging.getLogger(__name__)
 
 
+from app.services.folder_knowledge import instruction_scope
+
+
 class InstructionContextBuilder:
     """
     Helper for fetching instructions that should be supplied to the LLM.
@@ -95,12 +98,13 @@ class InstructionContextBuilder:
     # Untitled catalog entries show this many chars of the body as their title.
     CATALOG_SNIPPET_LEN = 140
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None, application_id: Optional[str] = None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None, data_source_ids: Optional[List[str]] = None, mode: Optional[str] = None, channel: Optional[str] = None, application_id: Optional[str] = None, folder_id: str | list[str] | None = None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
         self.organization_settings = organization_settings
         self.data_source_ids = data_source_ids
+        self.folder_id = folder_id
         # Current request mode ('chat' | 'training' | ...) and delivery
         # channel ('app' | 'slack' | 'teams' | 'email' | 'mcp' | ...). Used to
         # honor per-instruction applicable_modes / applicable_channels scoping.
@@ -199,7 +203,7 @@ class InstructionContextBuilder:
             Matching Instruction ORM objects.
         """
         stmt = (
-            select(Instruction)
+            select(Instruction).where(instruction_scope(self.data_source_ids, self.folder_id))
             .where(Instruction.status == status)
             .where(Instruction.organization_id == self.organization.id)
             .where(Instruction.deleted_at.is_(None))
@@ -239,7 +243,7 @@ class InstructionContextBuilder:
             Instructions that should always be loaded.
         """
         stmt = (
-            select(Instruction)
+            select(Instruction).where(instruction_scope(data_source_ids, self.folder_id))
             .options(
                 selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(Instruction.labels),
@@ -265,16 +269,6 @@ class InstructionContextBuilder:
 
         result = await self.db.execute(stmt)
         instructions = result.scalars().all()
-
-        # Filter by data sources: include global instructions (no data sources assigned)
-        # and instructions associated with the specified data sources
-        if data_source_ids is not None:
-            filtered = []
-            for inst in instructions:
-                inst_ds_ids = {str(ds.id) for ds in inst.data_sources} if inst.data_sources else set()
-                if not inst_ds_ids or inst_ds_ids.intersection(data_source_ids):
-                    filtered.append(inst)
-            instructions = filtered
 
         # Filter by current request mode/channel scoping
         instructions = [
@@ -333,6 +327,7 @@ class InstructionContextBuilder:
                 and_(
                     BuildContent.build_id == build.id,
                     BuildContent.instruction_id.in_(instruction_ids),
+                    BuildContent.instruction.has(instruction_scope(self.data_source_ids, self.folder_id)),
                 )
             )
         )
@@ -348,17 +343,12 @@ class InstructionContextBuilder:
             version = content.instruction_version
             if not instruction or not version:
                 continue
-            if instruction.status != "published":
+            if instruction.deleted_at or instruction.status != "published" or not self._passes_mode_channel(version.applicable_modes, version.applicable_channels):
                 continue
             if version.load_mode == "disabled":
                 continue
             if load_mode_filter and version.load_mode != load_mode_filter:
                 continue
-            # Apply data source filtering
-            if self.data_source_ids is not None:
-                inst_ds_ids = {str(ds.id) for ds in instruction.data_sources} if instruction.data_sources else set()
-                if inst_ds_ids and not inst_ds_ids.intersection(self.data_source_ids):
-                    continue
             all_ids.append(str(instruction.id))
             valid_entries.append((content, instruction, version, build))
 
@@ -398,7 +388,7 @@ class InstructionContextBuilder:
     ) -> List[InstructionItem]:
         """Fallback: load instructions directly when no build exists."""
         stmt = (
-            select(Instruction)
+            select(Instruction).where(instruction_scope(self.data_source_ids, self.folder_id))
             .options(
                 selectinload(Instruction.data_sources).options(lazyload("*")),
                 selectinload(Instruction.labels),
@@ -425,10 +415,8 @@ class InstructionContextBuilder:
 
         items: List[InstructionItem] = []
         for inst in instructions:
-            if self.data_source_ids is not None:
-                inst_ds_ids = {str(ds.id) for ds in inst.data_sources} if inst.data_sources else set()
-                if inst_ds_ids and not inst_ds_ids.intersection(self.data_source_ids):
-                    continue
+            if inst.load_mode == "disabled" or not self._passes_mode_channel(inst.applicable_modes, inst.applicable_channels):
+                continue
             inst_id = str(inst.id)
             items.append(InstructionItem(
                 id=inst_id,
@@ -442,7 +430,7 @@ class InstructionContextBuilder:
                 usage_count=usage_counts.get(inst_id),
             ))
 
-        return items
+        return await self._filter_items_by_table_accessibility(items)
 
     async def search_instructions(
         self,
@@ -493,6 +481,7 @@ class InstructionContextBuilder:
                     Instruction.organization_id == self.organization.id,
                     Instruction.deleted_at.is_(None),
                     Instruction.load_mode == "intelligent",
+                    instruction_scope(data_source_ids, self.folder_id),
                     # Skills are advertised via the catalog, never auto-loaded.
                     Instruction.kind != "skill",
                 )
@@ -507,13 +496,6 @@ class InstructionContextBuilder:
 
         result = await self.db.execute(stmt)
         all_instructions = result.scalars().all()
-
-        # Filter by data sources
-        if data_source_ids is not None:
-            all_instructions = [
-                inst for inst in all_instructions
-                if not inst.data_sources or {str(ds.id) for ds in inst.data_sources}.intersection(data_source_ids)
-            ]
 
         # Filter by current request mode/channel scoping
         all_instructions = [
@@ -750,7 +732,7 @@ class InstructionContextBuilder:
         accessibility is applied so out-of-scope skills aren't advertised.
         """
         stmt = (
-            select(Instruction)
+            select(Instruction).where(instruction_scope(data_source_ids, self.folder_id))
             .options(
                 selectinload(Instruction.data_sources).options(lazyload("*")),
             )
@@ -870,6 +852,7 @@ class InstructionContextBuilder:
                 .where(
                     and_(
                         InstructionBuild.id == build_id,
+                        InstructionBuild.organization_id == str(self.organization.id),
                         InstructionBuild.deleted_at == None,
                     )
                 )
@@ -933,17 +916,7 @@ class InstructionContextBuilder:
         # Data-source scope: keep global instructions (no association rows) and
         # those attached to one of the report's data sources. Mirrors the old
         # Python set-intersection exactly, in SQL.
-        if data_source_ids is not None:
-            has_any_ds = exists().where(
-                instruction_data_source_association.c.instruction_id == Instruction.id
-            )
-            in_scope_ds = exists().where(
-                and_(
-                    instruction_data_source_association.c.instruction_id == Instruction.id,
-                    instruction_data_source_association.c.data_source_id.in_(data_source_ids),
-                )
-            )
-            stmt = stmt.where(or_(~has_any_ds, in_scope_ds))
+        stmt = stmt.where(instruction_scope(data_source_ids, self.folder_id))
 
         contents_result = await self.db.execute(stmt)
         contents = contents_result.unique().scalars().all()
@@ -1317,6 +1290,7 @@ class InstructionContextBuilder:
                     and_(
                         BuildContent.build_id == build.id,
                         BuildContent.instruction_id.in_(missing_ids),
+                        BuildContent.instruction.has(instruction_scope(self.data_source_ids, self.folder_id)),
                     )
                 )
             )
@@ -1363,6 +1337,7 @@ class InstructionContextBuilder:
                 .where(
                     and_(
                         Instruction.id.in_(missing_ids),
+                        instruction_scope(self.data_source_ids, self.folder_id),
                         Instruction.organization_id == self.organization.id,
                         Instruction.status == "published",
                         Instruction.deleted_at.is_(None),

@@ -5,9 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, release_request_db
 from typing import Literal, Optional, List, Union
 
+from pydantic import BaseModel
+
 from app.ee.audit.service import audit_service
 
 from app.models.user import User
+from app.models.data_source_connection_setting import DataSourceConnectionSetting  # noqa: F401  (registers DataSource.connection_settings)
 from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
@@ -16,7 +19,8 @@ from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate, DataSourceListItemSchema
 from app.schemas.table_prompt_schema import TablePromptsResponse
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
-from app.schemas.data_source_schema import DataSourceMembershipSchema
+from app.schemas.data_source_schema import DataSourceMembershipSchema, DataSourceInheritedAccess
+from app.schemas.agent_clone_schema import AgentCloneIn, AgentCloneOut
 from app.errors.redact import redact_error
 from app.schemas.datasource_table_schema import (
     DataSourceTableSchema,
@@ -215,6 +219,21 @@ async def update_data_source(
 ):
     return await data_source_service.update_data_source(db, data_source_id, organization, data_source, current_user)
 
+async def _schema_reader_permissions(db, organization, user, data_source_id):
+    from sqlalchemy import select
+
+    rights = await resolve_permissions(db, str(user.id), str(organization.id))
+    agent = (await db.execute(select(
+        DataSource.id, DataSource.publish_status, DataSource.reliability_status,
+    ).where(
+        DataSource.id == data_source_id, DataSource.organization_id == organization.id,
+        DataSource.deleted_at.is_(None),
+    ))).one_or_none()
+    if agent is None or not data_source_service.lifecycle_visible(agent, rights):
+        raise HTTPException(404, "Data source not found")
+    return rights
+
+
 @router.get("/data_sources/{data_source_id}/schema", response_model=list)
 @requires_resource_permission('data_source', 'view')
 async def get_data_source_schema(
@@ -224,6 +243,7 @@ async def get_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    await _schema_reader_permissions(db, organization, current_user, data_source_id)
     result = await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
     await audit_service.log(
         db=db, organization_id=str(organization.id), action="data_source.schema_viewed", user_id=str(current_user.id),
@@ -256,7 +276,7 @@ async def get_data_source_full_schema(
     # deselected: to a reader the agent is its active tables, and the rest is the
     # manager's private working set. Readers therefore get the selected tables
     # only, and cannot widen that with `selected_state=unselected`.
-    resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+    resolved = await _schema_reader_permissions(db, organization, current_user, data_source_id)
     restrict_to_active = not resolved.has_resource_permission(
         "data_source", str(data_source_id), "manage"
     )
@@ -439,6 +459,7 @@ async def refresh_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    await _schema_reader_permissions(db, organization, current_user, data_source_id)
     return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataIndexingJobSchema)
@@ -489,6 +510,20 @@ async def get_data_source_members(
     current_user: User = Depends(current_user)
 ):
     return await data_source_service.get_data_source_members(db, data_source_id, organization, current_user)
+
+@router.get("/data_sources/{data_source_id}/inherited_access", response_model=DataSourceInheritedAccess)
+@requires_resource_permission('data_source', 'view')
+async def get_data_source_inherited_access(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Principals that reach this agent through a folder or connection grant
+    rather than a grant on the agent (which is what /members lists)."""
+    from app.services.agent_inherited_access import inherited_agent_access
+    return await inherited_agent_access(db, organization, current_user, data_source_id)
+
 
 @router.post("/data_sources/{data_source_id}/members", response_model=DataSourceMembershipSchema)
 @requires_resource_permission('data_source', 'manage')
@@ -583,6 +618,17 @@ async def get_domain_connections(
     from app.schemas.data_source_registry import get_entry
     _status_svc = UserDataSourceCredentialsService()
 
+    network_ids = [str(conn.id) for conn in connections if conn.type == "network_dir"]
+    indexed_dirs = set()
+    if network_ids:
+        from sqlalchemy import select
+        from app.models.connection_table import ConnectionTable
+        indexed_dirs = set((await db.scalars(select(ConnectionTable.connection_id).where(
+            ConnectionTable.connection_id.in_(network_ids),
+            ConnectionTable.name == "indexed_files",
+            ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_(True),
+        ))).all())
+
     def _catalog_shape(conn):
         try:
             entry = get_entry(conn.type)
@@ -608,6 +654,7 @@ async def get_domain_connections(
             "name": conn.name,
             "type": conn.type,
             **_catalog_shape(conn),
+            "has_file_tables": str(conn.id) in indexed_dirs,
             "is_active": conn.is_active,
             "config": _safe_config(conn),
             "auth_policy": conn.auth_policy,
@@ -631,6 +678,157 @@ async def _attached_connection(db: AsyncSession, data_source_id: str, connection
     if conn is None:
         raise HTTPException(status_code=404, detail="Connection not attached to this agent")
     return conn
+
+
+async def _agent_scope_overrides(db: AsyncSession, data_source_id: str, conn) -> Optional[dict]:
+    """This agent's narrowing of a shared connection, as client config
+    overrides (today: the Slack channel scope). None for other types."""
+    if getattr(conn, "type", None) != "slack_messages":
+        return None
+    from app.services.slack_channel_scope import client_overrides, get_scope
+    return client_overrides(await get_scope(db, data_source_id, str(conn.id)))
+
+
+async def _agent_scope_kwargs(db: AsyncSession, data_source_id: str, conn) -> dict:
+    """``construct_client`` kwargs for this agent's narrowing — empty for every
+    type that has none, so those calls stay exactly as they were."""
+    overrides = await _agent_scope_overrides(db, data_source_id, conn)
+    return {"config_overrides": overrides} if overrides else {}
+
+
+class SlackChannelRef(BaseModel):
+    id: str
+    # Ignored on save: the name and privacy are read from Slack (see
+    # put_channel_scope), never taken from the request.
+    name: str = ""
+
+
+class SlackChannelScope(BaseModel):
+    allowed_channels: List[SlackChannelRef] = []
+    include_direct_messages: bool = True
+
+
+def _require_slack(conn) -> None:
+    from app.errors import AppError, ErrorCode
+    if getattr(conn, "type", None) != "slack_messages":
+        raise AppError.bad_request(
+            ErrorCode.SLACK_CHANNELS_NOT_SLACK, "Channel selection is only available for Slack connections")
+
+
+async def _callers_slack_channels(db: AsyncSession, conn, user) -> Optional[List[dict]]:
+    """The caller's own Slack channels, live: ``[{id, name, is_private}]``,
+    or None when they haven't signed in with Slack. DMs are left out."""
+    import asyncio
+    from app.errors import AppError, ErrorCode
+    from app.services.connection_service import ConnectionService
+    try:
+        client = await ConnectionService().construct_client(
+            db, conn, user, config_overrides={"include_direct_messages": False})
+    except HTTPException as he:
+        if he.status_code in (401, 403):
+            return None  # not signed in with Slack yet
+        raise AppError(ErrorCode.SLACK_CHANNELS_UNAVAILABLE, "Slack connection unavailable",
+                       status_code=502, params={"detail": redact_error(he.detail)})
+    except Exception as e:
+        # Anything else is a real failure, not "sign in": say so.
+        raise AppError(ErrorCode.SLACK_CHANNELS_UNAVAILABLE, f"Slack connection unavailable: {redact_error(e)}",
+                       status_code=502, params={"detail": redact_error(e)})
+    if not getattr(client, "access_token", None):
+        return None
+    try:
+        rows = await asyncio.to_thread(client.list_conversations)
+    except Exception as e:
+        raise AppError(ErrorCode.SLACK_CHANNELS_UNAVAILABLE, f"Slack didn't answer: {redact_error(e)}",
+                       status_code=502, params={"detail": redact_error(e)})
+    return [
+        {"id": r["channel_id"], "name": r.get("channel") or r["name"].lstrip("#"),
+         "is_private": r.get("kind") == "private channel"}
+        for r in rows if r.get("kind") in ("channel", "private channel")
+    ]
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/channel-scope")
+@requires_resource_permission('data_source', 'view')
+async def get_channel_scope(
+    data_source_id: str,
+    connection_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Which Slack channels this agent reads (empty = all of the user's), and
+    whether it also reads the user's DMs. Private channels come back without
+    their name: whoever can view the agent sees this, member of them or not."""
+    from app.services.slack_channel_scope import get_scope, redact_private_names
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    _require_slack(conn)
+    return redact_private_names(await get_scope(db, data_source_id, connection_id))
+
+
+@router.put("/data_sources/{data_source_id}/connections/{connection_id}/channel-scope")
+@requires_resource_permission('data_source', 'manage')
+async def put_channel_scope(
+    data_source_id: str,
+    connection_id: str,
+    body: SlackChannelScope,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Set the agent's Slack channels (by Slack channel id — a rename never
+    breaks it) and DM choice. It only narrows: each user still reads only the
+    channels they belong to.
+
+    Each channel's name and whether it is private come from the saving
+    manager's own Slack, never from the request; a channel they aren't in
+    keeps what was recorded when it was chosen, and one never seen counts
+    as private (its name is then never shown)."""
+    from app.errors import AppError, ErrorCode
+    from app.services.slack_channel_scope import MAX_CHANNELS, get_scope, redact_private_names, set_scope
+    from app.data_sources.clients.slack_messages_client import SCOPE_CHANNEL_ID_RE
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    _require_slack(conn)
+    if len(body.allowed_channels) > MAX_CHANNELS:
+        raise AppError.bad_request(
+            ErrorCode.SLACK_CHANNELS_TOO_MANY, f"At most {MAX_CHANNELS} channels per agent", max=MAX_CHANNELS)
+    bad = [c.id for c in body.allowed_channels if not SCOPE_CHANNEL_ID_RE.match(c.id or "")]
+    if bad:
+        # Ids only: a name would match by name and break on a rename.
+        raise AppError.bad_request(
+            ErrorCode.SLACK_CHANNELS_NOT_IDS, f"Not Slack channel ids: {', '.join(bad[:5])}",
+            ids=", ".join(bad[:5]))
+    live = {}
+    if body.allowed_channels:
+        live = {c["id"]: c for c in (await _callers_slack_channels(db, conn, current_user) or [])}
+    before = {c["id"]: c for c in (await get_scope(db, data_source_id, connection_id))["allowed_channels"]}
+    channels = [
+        live.get(c.id) or before.get(c.id) or {"id": c.id, "name": "", "is_private": True}
+        for c in body.allowed_channels
+    ]
+    saved = await set_scope(db, data_source_id, connection_id, {
+        "allowed_channels": channels, "include_direct_messages": body.include_direct_messages})
+    return redact_private_names(saved)
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/conversations")
+@requires_resource_permission('data_source', 'view')
+async def list_connection_conversations(
+    data_source_id: str,
+    connection_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """The caller's Slack channels, live, for the agent's channel picker —
+    every channel they belong to (not narrowed by the agent's current choice,
+    so a choice can be widened again). DMs are not listed: they are one
+    switch, not a per-conversation choice."""
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    _require_slack(conn)
+    channels = await _callers_slack_channels(db, conn, current_user)
+    if channels is None:
+        return {"connect_required": True, "reason": "Sign in with Slack to choose channels.", "channels": []}
+    return {"connect_required": False, "channels": sorted(channels, key=lambda c: c["name"].lower())}
 
 
 @router.get("/data_sources/{data_source_id}/connections/{connection_id}/files")
@@ -662,13 +860,15 @@ async def list_connection_files(
         from app.schemas.data_source_registry import get_entry
         _entry = get_entry(conn.type)
         nouns = list(_entry.catalog_nouns) if _entry.catalog_nouns else None
-        live = _entry.catalog_ownership == "per_user" and _entry.type in {
-            "outlook_mail", "gmail_mail", "teams_messages",
-        }
+        live = (
+            _entry.catalog_ownership == "per_user"
+            and _entry.type in {"outlook_mail", "gmail_mail", "teams_messages", "slack_messages"}
+        ) or _entry.type == "exchange_onprem"
     except Exception:
         nouns, live = None, False
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, **await _agent_scope_kwargs(db, data_source_id, conn))
         entries = await client.alist_files(recursive=True)
     except HTTPException as he:
         # Per-user OAuth sources raise 403 when the caller hasn't linked their
@@ -709,6 +909,68 @@ async def list_connection_files(
         "preview_supported": hasattr(client, "read_raw_bytes"),
         "catalog_nouns": nouns,
         "live": live,
+    }
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/files/search")
+@requires_resource_permission('data_source', 'view')
+async def search_connection_files(
+    data_source_id: str,
+    connection_id: str,
+    q: str,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Type-to-search a file connection's files — the live-provider search that
+    backs the prompt-box file picker's Drive/OneDrive sections.
+
+    Mirrors `list_connection_files` (same access gate, same construct_client,
+    same structured "connect required" state), but runs the provider's own
+    name+content search (`search_files`) instead of a full scope walk, so the
+    picker can match a filename as the user types. Only sources that declare
+    SEARCH_FILES back this; others return an empty result rather than erroring,
+    so the picker can offer a plain browse fallback.
+    """
+    from app.services.connection_service import ConnectionService
+    from app.data_sources.clients.base import Capability
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    query = (q or "").strip()
+    if not query:
+        return {"connection_id": str(connection_id), "files": [], "total": 0,
+                "limit": limit, "query": query}
+    effective_limit = max(1, min(limit, 100))
+    try:
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, **await _agent_scope_kwargs(db, data_source_id, conn))
+        if Capability.SEARCH_FILES not in getattr(client, "capabilities", set()):
+            return {"connection_id": str(connection_id), "files": [], "total": 0,
+                    "limit": effective_limit, "query": query, "search_supported": False}
+        results = await client.asearch_files(query)
+    except HTTPException as he:
+        # Per-user OAuth sources raise 403 when the caller hasn't linked their
+        # account — surface the same structured "connect required" state the
+        # browse endpoint uses so the picker prompts sign-in, not an error.
+        detail = str(getattr(he, "detail", "") or "")
+        if he.status_code == 403 and "connect" in detail.lower():
+            return {"connection_id": str(connection_id), "connect_required": True,
+                    "reason": detail, "files": [], "total": 0,
+                    "limit": effective_limit, "query": query}
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to search files: {redact_error(e)}")
+    files = [f for f in (results or []) if not f.get("is_folder")]
+    page = files[:effective_limit]
+    return {
+        "connection_id": str(connection_id),
+        "files": [{"id": f.get("id"), "name": f.get("name"), "path": f.get("path"),
+                   "size": f.get("size"), "modified_at": f.get("modified_at"),
+                   "mime_type": f.get("mime_type"), "web_url": f.get("web_url")} for f in page],
+        "total": len(files),
+        "limit": effective_limit,
+        "has_more": len(files) > effective_limit,
+        "query": query,
     }
 
 
@@ -783,7 +1045,8 @@ async def get_connection_file_content(
 
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
+        client = await ConnectionService().construct_client(
+            db, conn, current_user, **await _agent_scope_kwargs(db, data_source_id, conn))
     except HTTPException:
         # e.g. the 403 "connect your account" of a per-user connection.
         raise
@@ -949,6 +1212,43 @@ import asyncio as _asyncio
 from collections import defaultdict as _defaultdict
 _bundle_export_locks: dict[str, "_asyncio.Lock"] = _defaultdict(_asyncio.Lock)
 _BUNDLE_EXPORT_TIMEOUT_SECONDS = 60
+
+
+@router.post("/data_sources/{data_source_id}/clone", response_model=AgentCloneOut, status_code=201)
+@requires_resource_permission('data_source', 'manage')
+async def clone_data_source(
+    data_source_id: str,
+    payload: AgentCloneIn,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Create a new agent from this one: the same connections, tables, tool
+    policies, prompts and files, plus its instructions copied, shared or left
+    out, and either the same people or only the caller. One transaction:
+    nothing is created if any part fails.
+
+    Needs ``manage`` on this agent and the right to build an agent on its
+    connections (the same check as creating one)."""
+    from sqlalchemy import select as _select
+
+    from app.models.domain_connection import domain_connection
+    from app.services.agent_clone_service import clone_agent
+
+    connection_ids = [str(c) for c in (await db.execute(
+        _select(domain_connection.c.connection_id).where(domain_connection.c.data_source_id == str(data_source_id))
+    )).scalars().all()]
+    if connection_ids:
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            "connection", connection_ids, "create_data_sources",
+        )
+    else:
+        await require_org_permission(db, str(current_user.id), str(organization.id), "create_data_source")
+    clone_id, summary = await clone_agent(db, organization, current_user, data_source_id, payload, request=request)
+    created = await data_source_service.get_data_source(db, clone_id, organization, current_user)
+    return AgentCloneOut(data_source=created, summary=summary)
 
 
 @router.get("/data_sources/{data_source_id}/instructions/export")

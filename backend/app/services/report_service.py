@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload, lazyload, noload
+from app.models.report import report_folder_ids
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.schemas.project_schema import ProjectMiniSchema
@@ -151,12 +152,13 @@ class ReportService:
         if visibility == 'internal':
             if user is None:
                 raise HTTPException(status_code=401, detail="Authentication required")
-            stmt = select(Membership).where(
+            stmt = select(Membership.id).where(
                 Membership.user_id == user.id,
                 Membership.organization_id == report.organization_id,
-            )
+                Membership.deleted_at.is_(None),
+            ).limit(1)
             result = await db.execute(stmt)
-            if not result.scalar_one_or_none():
+            if result.first() is None:
                 raise HTTPException(status_code=403, detail="Access denied")
             return
 
@@ -166,6 +168,11 @@ class ReportService:
             # Owner always has access
             if str(user.id) == str(report.user_id):
                 return
+            # A share only counts for someone who still belongs to the
+            # report's organization.
+            from app.core.permission_resolver import principal_belongs_to_org
+            if not await principal_belongs_to_org(db, user, str(report.organization_id)):
+                raise HTTPException(status_code=403, detail="Access denied")
             share_type = 'artifact' if visibility_field == 'artifact_visibility' else 'conversation'
             # Granted directly, or through membership of a shared group.
             user_group_ids = self._user_group_ids_subquery(user.id, report.organization_id)
@@ -182,6 +189,22 @@ class ReportService:
             if not result.scalar_one_or_none():
                 raise HTTPException(status_code=403, detail="Access denied")
             return
+
+    @staticmethod
+    async def _live_member_ids(db: AsyncSession, organization_id, user_ids) -> set[str]:
+        """The subset of ``user_ids`` holding a live membership in the organization."""
+        from app.models.membership import Membership
+        ids = [str(u) for u in (user_ids or []) if u]
+        if not ids:
+            return set()
+        rows = (await db.execute(
+            select(Membership.user_id).where(
+                Membership.user_id.in_(ids),
+                Membership.organization_id == str(organization_id),
+                Membership.deleted_at.is_(None),
+            )
+        )).all()
+        return {str(r[0]) for r in rows}
 
     @staticmethod
     async def _is_report_org_admin(db: AsyncSession, user, report: Report) -> bool:
@@ -377,6 +400,25 @@ class ReportService:
             unknown = [g for g in shared_group_ids if g not in valid_ids]
             if unknown:
                 raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
+
+        # User grants must reference live members of the report's own
+        # organization. An id that already holds a share here but is no longer
+        # a member (the dialog re-sends the whole list) is dropped, not refused.
+        if shared_user_ids:
+            shared_user_ids = [str(u) for u in shared_user_ids]
+            member_ids = await self._live_member_ids(db, report.organization_id, shared_user_ids)
+            not_members = [u for u in shared_user_ids if u not in member_ids]
+            if not_members:
+                already_shared = {str(r[0]) for r in (await db.execute(
+                    select(ReportShare.user_id).where(
+                        ReportShare.report_id == report_id,
+                        ReportShare.share_type == share_type,
+                        ReportShare.user_id.in_(not_members),
+                    )
+                )).all()}
+                if any(u not in already_shared for u in not_members):
+                    raise HTTPException(status_code=400, detail="Unknown user in shared_user_ids")
+                shared_user_ids = [u for u in shared_user_ids if u in member_ids]
 
         from app.services.bow_source_access import assert_shareable
         await assert_shareable(db, report.id, visibility == 'public')
@@ -707,8 +749,19 @@ class ReportService:
             )).all()
             member_counts = {str(gid): cnt for gid, cnt in count_rows}
 
+        report_org_id = (await db.execute(
+            select(Report.organization_id).where(Report.id == str(report_id))
+        )).scalar_one_or_none()
+        member_ids = await self._live_member_ids(
+            db, report_org_id, [s.user_id for s in shares if s.user_id]
+        )
+
         out = []
         for s in shares:
+            # A share held by someone outside the organization grants nothing
+            # and is not listed (nor is their name or email).
+            if s.user_id and str(s.user_id) not in member_ids:
+                continue
             entry = {
                 "id": str(s.id),
                 "principal_type": "group" if s.group_id else "user",
@@ -772,6 +825,7 @@ class ReportService:
             select(Report)
             .options(
                 lazyload("*"),
+                selectinload(Report.additional_folders),
                 # UserSchema serializes external_user_mappings — load it, the
                 # top-level wildcard turned User's own eager defaults off too.
                 selectinload(Report.user).selectinload(User.external_user_mappings),
@@ -819,6 +873,8 @@ class ReportService:
         app_version = await self._detect_app_version(db, report.id)
 
         report_schema = ReportSchema(
+            agent_folder_id=report.agent_folder_id,
+            agent_folder_ids=report_folder_ids(report),
             id=report.id,
             title=report.title,
             status=report.status,
@@ -966,7 +1022,7 @@ class ReportService:
         db: AsyncSession,
         current_user: User,
         organization: Organization,
-        training_ds_ids: list[str],
+        training_ds_ids: list[str], folder_id: str | list[str] | None = None,
     ) -> None:
         """Gate for putting a report into training mode.
 
@@ -1012,7 +1068,12 @@ class ReportService:
                 for ds in training_ds_ids
             )
         )
-        if not can_train and not training_ds_ids:
+        if folder_id:
+            folders = [folder_id] if isinstance(folder_id, str) else folder_id
+            can_train = all(resolved.has_resource_permission("folder", fid, "manage_instructions") for fid in folders) and (
+                not training_ds_ids or can_train
+            )
+        if not can_train and not training_ds_ids and not folder_id:
             # Agent managers can train against BOW history without attaching
             # a business source. The source applies their manage scope.
             from app.core.console_access import resolve_console_scope
@@ -1028,12 +1089,29 @@ class ReportService:
             )
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
+        folders = list(dict.fromkeys(report_data.agent_folder_ids if report_data.agent_folder_ids is not None
+                                    else ([report_data.agent_folder_id] if report_data.agent_folder_id else [])))
+        from app.services.folder_service import require_report_folder
+        for fid in folders:
+            await require_report_folder(db, organization, current_user, fid, report_data.mode)
         file_uuids = report_data.files or []
         del report_data.files
         data_source_ids = report_data.data_sources or []
         del report_data.data_sources
         project_id = report_data.project_id
         del report_data.project_id
+        # A report can only be tied to an external platform (Slack, Teams,
+        # email) of its own organization.
+        if report_data.external_platform_id:
+            from app.models.external_platform import ExternalPlatform
+            owned_platform = (await db.execute(
+                select(ExternalPlatform).where(
+                    ExternalPlatform.id == str(report_data.external_platform_id),
+                    ExternalPlatform.organization_id == str(organization.id),
+                )
+            )).scalar_one_or_none()
+            if owned_platform is None:
+                raise HTTPException(status_code=404, detail="External platform not found")
         # Mode is optional on create; None must not reach the ORM (it would
         # write NULL past the column default). Gated below once the effective
         # agent list is known (project defaults may fill it in).
@@ -1048,7 +1126,8 @@ class ReportService:
         del report_data.reasoning_effort
 
         # Create the report object
-        report = Report(**report_data.dict())
+        report = Report(**report_data.model_dump(exclude={"agent_folder_ids", "agent_folder_id"}))
+        report.set_scope_folders(folders)
         # Creating inside a project requires view access on it (member-level).
         # Project defaults (agents/files) are copied onto the new report here —
         # they then flow through the exact same access filters as explicitly
@@ -1063,7 +1142,7 @@ class ReportService:
             # Project default agents apply only when the creator didn't pick
             # agents explicitly — an explicit selection overrides the defaults
             # instead of being union-ed with them.
-            if not data_source_ids:
+            if not data_source_ids and report.agent_folder_id is None:
                 data_source_ids = await project_service.get_default_data_source_ids(db, project.id)
             # Project FILES are not copied: they are inherited live at
             # context-build time (FilesContextBuilder / file tools), so
@@ -1075,7 +1154,7 @@ class ReportService:
         # request leaves no half-created chat report behind.
         if requested_mode == 'training':
             await self._assert_can_enter_training_mode(
-                db, current_user, organization, [str(x) for x in data_source_ids]
+                db, current_user, organization, [str(x) for x in data_source_ids], folders
             )
         report.mode = requested_mode
         # Same gate as ReportUpdate.model_id: the creator must actually be able
@@ -1230,16 +1309,23 @@ class ReportService:
             report.theme_name = report_data.theme_name
         if hasattr(report_data, 'theme_overrides') and report_data.theme_overrides is not None:
             report.theme_overrides = report_data.theme_overrides
-        # Persist mode update if present in payload
-        if hasattr(report_data, 'mode') and report_data.mode is not None:
-            if report_data.mode == 'training':
-                if report_data.data_sources is not None:
-                    training_ds_ids = [str(x) for x in report_data.data_sources]
-                else:
-                    training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
-                await self._assert_can_enter_training_mode(
-                    db, current_user, organization, training_ds_ids
-                )
+        scope_changed = bool({"agent_folder_ids", "agent_folder_id", "data_sources"} & report_data.model_fields_set)
+        if report_data.agent_folder_ids is not None:
+            folders = list(dict.fromkeys(report_data.agent_folder_ids))
+        elif "agent_folder_id" in report_data.model_fields_set:
+            folders = [report_data.agent_folder_id] if report_data.agent_folder_id else []
+        elif report_data.data_sources is not None:
+            folders = []
+        else:
+            folders = report_folder_ids(report)
+        if scope_changed:
+            from app.services.folder_service import require_report_folder
+            for fid in folders:
+                await require_report_folder(db, organization, current_user, fid, report_data.mode or report.mode)
+        if (scope_changed or report_data.mode is not None) and (report_data.mode or report.mode) == "training":
+            ids = report_data.data_sources if scope_changed else [ds.id for ds in report.data_sources]
+            await self._assert_can_enter_training_mode(db, current_user, organization, ids or [], folders)
+        if report_data.mode is not None:
             report.mode = report_data.mode
         # Persist report-level LLM override if present in payload.
         #   None          -> field omitted, leave the current value untouched
@@ -1304,6 +1390,11 @@ class ReportService:
             from app.services.artifact_service import follow_conversation_project
             await follow_conversation_project(db, [str(report.id)], report.project_id)
 
+        if scope_changed:
+            report.set_scope_folders(folders)
+            report.focused_data_source_ids = None
+            if report_data.data_sources is None:
+                report_data.data_sources = []
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             # Snapshot the user-VISIBLE scope before the change — never name a
@@ -1819,11 +1910,12 @@ class ReportService:
             from app.models.membership import Membership
             from app.models.report_share import ReportShare
             member = (await db.execute(
-                select(Membership).where(
+                select(Membership.id).where(
                     Membership.user_id == current_user.id,
                     Membership.organization_id == report.organization_id,
-                )
-            )).scalar_one_or_none()
+                    Membership.deleted_at.is_(None),
+                ).limit(1)
+            )).first()
             if not member:
                 shared = (await db.execute(
                     select(ReportShare).where(
@@ -1868,7 +1960,26 @@ class ReportService:
         connection_errors: list = []
         # Auto (an unattached report) resolves like the interactive path — the
         # credential user's accessible agents — instead of to an empty set.
-        run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        attached = list(getattr(report, "data_sources", None) or [])
+        try:
+            run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        except HTTPException as e:
+            # None of the report's agents is usable by this identity. That is
+            # a per-source outcome for the viewer gate, not a failed run.
+            if e.status_code != 409 or not attached:
+                raise
+            run_agents = []
+        # A pinned agent this identity can't use (no access, deleted or
+        # disabled) is left out of the run. Name it, so the gate can offer
+        # "ask an admin" instead of showing a silently broken dashboard.
+        running = {str(ds.id) for ds in run_agents}
+        for data_source in attached:
+            if str(data_source.id) not in running:
+                from app.services.access_errors import NO_ACCESS_CODE
+                data_source_errors.append({
+                    "data_source": data_source.name, "data_source_id": str(data_source.id),
+                    "code": NO_ACCESS_CODE, "error": "You do not have access to this data source",
+                })
         for data_source in run_agents:
             try:
                 # Rows filter for the viewer whose result this is, also when
@@ -2472,6 +2583,7 @@ class ReportService:
             select(Report)
             .options(
                 lazyload("*"),
+                selectinload(Report.additional_folders),
                 # UserSchema serializes external_user_mappings — load it, the
                 # top-level wildcard turned User's own eager defaults off too.
                 selectinload(Report.user).selectinload(User.external_user_mappings),
@@ -4290,6 +4402,9 @@ class ReportService:
             block_data = {
                 "id": b.id,
                 "block_index": b.block_index,
+                # Steers render above the first block with loop_index >= the
+                # steer's steering_loop_index.
+                "loop_index": b.loop_index,
                 "status": b.status,
                 "content": redact_text_display(b.content),
                 "reasoning": redact_text_display(b.reasoning),
@@ -4361,6 +4476,12 @@ class ReportService:
                 "prompt": redact_prompt_display(without_request_metadata(c.prompt)) if c.role == "user" else None,
                 "completion_blocks": c_blocks if c.role == "system" else [],
                 "created_at": c.created_at.isoformat() if c.created_at else None,
+                # Steering rows ("Send now" while the agent ran) render inside
+                # their parent turn, above the step that picked them up.
+                "message_type": c.message_type,
+                "parent_id": c.parent_id,
+                "steering_applied_at": c.steering_applied_at.isoformat() if c.steering_applied_at else None,
+                "steering_loop_index": c.steering_loop_index,
             }
             sanitized_completions.append(completion_data)
         

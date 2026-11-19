@@ -175,11 +175,14 @@ class EditArtifactMCPTool(MCPTool):
             ).model_dump()
 
         # Merge viz IDs
+        # A miscopied id is matched to the visualization of this report it
+        # nearly spells (see _viz_ids).
+        from app.ai.tools.implementations._viz_ids import resolve_visualization_ids
         merged_viz_ids = list(existing_viz_ids)
-        if input_data.visualization_ids:
-            for vid in input_data.visualization_ids:
-                if vid not in merged_viz_ids:
-                    merged_viz_ids.append(vid)
+        added = await resolve_visualization_ids(db, str(report.id), input_data.visualization_ids)
+        for vid in added.ids:
+            if vid not in merged_viz_ids:
+                merged_viz_ids.append(vid)
 
         # Fetch visualizations
         visualizations: List[Dict[str, Any]] = []

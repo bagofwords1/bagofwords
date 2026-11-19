@@ -1,8 +1,8 @@
 from datetime import datetime
-from sqlalchemy import Column, String, ForeignKey, Boolean, JSON, DateTime
+from sqlalchemy import Column, String, ForeignKey, Boolean, JSON, DateTime, Table
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
-from app.models.base import BaseSchema
+from app.models.base import Base, BaseSchema
 
 
 from app.models.report_data_source_association import report_data_source_association
@@ -11,8 +11,31 @@ from app.models.report_share import ReportShare  # noqa: F401
 from app.models.report_star import ReportStar  # noqa: F401
 from app.models.project import Project  # noqa: F401
 
+class ReportAdditionalFolder(Base):
+    __tablename__ = "report_additional_folders"
+    report_id = Column(String(36), ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True)
+    folder_id = Column(String(36), primary_key=True)
+
+
+def report_folder_ids(report):
+    primary = getattr(report, "agent_folder_id", None)
+    if not primary:
+        return []
+    return [primary, *(row.folder_id for row in getattr(report, "additional_folders", ()))]
+
+
 class Report(BaseSchema):
     __tablename__ = 'reports'
+    eval_target_ids = Column(JSON, nullable=True)
+    agent_folder_id = Column(String(36), nullable=True)
+
+    additional_folders = relationship(ReportAdditionalFolder, lazy="selectin", cascade="all, delete-orphan",
+                                      order_by=ReportAdditionalFolder.folder_id)
+
+    def set_scope_folders(self, ids):
+        self.agent_folder_id = ids[0] if ids else None
+        existing = {row.folder_id: row for row in self.additional_folders}
+        self.additional_folders = [existing.get(fid) or ReportAdditionalFolder(folder_id=fid) for fid in ids[1:]]
 
     title = Column(String, index=True, nullable=False, unique=False, default="")
     slug = Column(String, index=True, nullable=False, unique=True)
@@ -185,3 +208,19 @@ class Report(BaseSchema):
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")
     stars = relationship("ReportStar", back_populates="report", lazy="selectin")
+
+
+# Agent IDs survive agent deletion so historical output fails closed.
+folder_report_sources = Table(
+    "folder_report_sources", Base.metadata,
+    Column("report_id", String(36), ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True),
+    Column("agent_id", String(36), primary_key=True),
+)
+
+folder_report_knowledge = Table(
+    "folder_report_knowledge", Base.metadata,
+    Column("report_id", String(36), ForeignKey("reports.id", ondelete="CASCADE"), primary_key=True),
+    Column("folder_id", String(36), primary_key=True),
+    Column("kind", String(16), primary_key=True),
+    Column("item_id", String(36), primary_key=True),
+)

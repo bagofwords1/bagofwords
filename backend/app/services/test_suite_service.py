@@ -65,6 +65,7 @@ class TestSuiteService:
         which is what the authoring dropdown wants.
         """
         stmt = select(TestSuite).where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+        stmt = stmt.where(TestSuite.owner_folder_id.is_(None))
         if data_source_id:
             stmt = stmt.where(TestSuite.data_source_id == str(data_source_id))
         elif scope == "global":
@@ -182,7 +183,9 @@ class TestSuiteService:
                     provider_name.lower(),
                     str(model_name).lower(),
                 )
-            for m in sorted(models or [], key=_sort_key):
+            # The judge reads and grades text; image-generation models can't.
+            models = [m for m in (models or []) if not getattr(m, 'supports_image_generation', False)]
+            for m in sorted(models, key=_sort_key):
                 try:
                     provider_name = getattr(getattr(m, 'provider', None), 'name', None) or getattr(m, 'provider', None) or ''
                 except Exception:
@@ -266,6 +269,7 @@ class TestSuiteService:
             select(LLMModel, LLMProvider)
             .join(LLMModel.provider)
             .where(LLMModel.organization_id == str(organization_id))
+            .where(LLMModel.model_kind != "decision")
         )
         rows = [
             (model, provider)

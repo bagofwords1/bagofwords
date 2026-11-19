@@ -1,25 +1,20 @@
 <template>
-  <div class="mt-1 text-chat-2">
-    <div class="flex items-center text-gray-700 dark:text-gray-300">
-      <Icon name="heroicons-view-columns" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
-      <span v-if="showApprovalCard" class="tool-shimmer">Waiting for your approval…</span>
-      <span v-else-if="status === 'running'" class="tool-shimmer">Setting agent focus…</span>
-      <!-- The status row talks about AGENTS (the report's context), so it
-           carries the neutral agent cube — the connector logo stays on the
-           approval card below, where identifying the source matters. -->
-      <span v-else-if="names.length" class="flex items-center min-w-0">
-        <span class="flex-shrink-0">{{ addedNames.length ? 'Added' : 'Focused on' }}</span>
-        <span v-for="n in names" :key="n" class="ms-1.5 flex items-center gap-1 min-w-0">
-          <Icon name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-          <span class="font-medium truncate">{{ n }}</span>
-        </span>
-        <span v-if="addedNames.length" class="ms-1 flex-shrink-0">to the report</span>
-      </span>
-      <span v-else-if="approval && !approval.approved">
-        {{ approval.timed_out ? 'Agent request timed out' : 'Agent request declined' }}
-      </span>
-      <span v-else>Cleared agent focus — back to Auto</span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-user-group" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="showApprovalCard">Waiting for your approval…</template>
+      <template v-else-if="isRunning">Setting agent focus…</template>
+      <template v-else-if="names.length">{{ addedNames.length ? 'Added' : 'Focused on' }}</template>
+      <template v-else-if="approval && !approval.approved">{{ approval.timed_out ? 'Agent request timed out' : 'Agent request declined' }}</template>
+      <template v-else>Cleared agent focus — back to Auto</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (showApprovalCard)" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="showApprovalCard"></template>
+      <template v-else-if="isRunning"></template>
+      <template v-else-if="names.length"><span v-for="n in names" :key="n" class="ms-1.5 flex items-center gap-1 min-w-0"><Icon name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" /><span class="font-medium truncate">{{ n }}</span></span><span v-if="addedNames.length" class="ms-1 flex-shrink-0">to the report</span></template>
+      <template v-else-if="approval && !approval.approved"></template>
+      <template v-else></template></div>
 
     <!-- Approval: one quiet line, not a warning banner -->
     <div
@@ -50,12 +45,19 @@
       </div>
       <div v-if="confReason" class="mt-0.5 text-chat-2 text-ink-muted truncate">{{ confReason }}</div>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref, watch } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { isToolRunning } from '~/utils/toolOutcome'
 
 const props = defineProps<{
   toolExecution: {
@@ -69,6 +71,8 @@ const props = defineProps<{
 }>()
 
 const status = computed<string>(() => props.toolExecution?.status || '')
+// Live stream says 'running'; a row loaded after reload says 'in_progress'.
+const isRunning = computed(() => isToolRunning(status.value))
 const names = computed<string[]>(() => {
   const rj: any = props.toolExecution?.result_json || {}
   return Array.isArray(rj.focused_agent_names) ? rj.focused_agent_names : []
@@ -103,7 +107,7 @@ watch(names, (v) => {
 const showApprovalCard = computed(() =>
   !!confirmation.value?.confirmation_id &&
   !responded.value &&
-  status.value === 'running' &&
+  isRunning.value &&
   ['awaiting_confirmation', 'awaiting_approval'].includes(props.toolExecution?.progress_stage || ''))
 
 const { markConfirmationAnswered } = useToolConfirmations()
@@ -129,11 +133,5 @@ async function respond(approvedChoice: boolean) {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

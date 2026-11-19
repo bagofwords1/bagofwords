@@ -15,15 +15,40 @@ DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 200_000
 
 LLM_MODEL_DETAILS = [
     {
+        # https://developers.openai.com/api/docs/models/gpt-6.2-sol
+        "name": "GPT-6.2 Sol",
+        "model_id": "gpt-6.2-sol",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 10.00
+    },
+    {
+        # https://developers.openai.com/api/docs/models/gpt-6.2-astra
+        "name": "GPT-6.2 Astra",
+        "model_id": "gpt-6.2-astra",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 8.00,
+        "output_cost_per_million_tokens_usd": 40.00
+    },
+    {
         # https://developers.openai.com/api/docs/models/gpt-6-astra
         "name": "GPT-6 Astra",
         "model_id": "gpt-6-astra",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        # Selectable, but not the default: Astra is 5x Terra's input price and
-        # ~4x its output price, so switching every org's default on upgrade is
-        # a cost decision, not a catalog one.
         "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
@@ -33,8 +58,6 @@ LLM_MODEL_DETAILS = [
     },
     {
         # https://developers.openai.com/api/docs/models/gpt-6-sol
-        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra;
-        # GPT-6.1 Terra holds the provider default.
         "name": "GPT-6 Sol",
         "model_id": "gpt-6-sol",
         "provider_type": "openai",
@@ -68,14 +91,13 @@ LLM_MODEL_DETAILS = [
     {
         # https://openai.com/index/introducing-gpt-6-1-terra/
         # Successor to GPT-5.6 Terra at half its price: $1/$5, cached input
-        # $0.05 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES). Provider
-        # default, taking over from GPT-5.6 Terra at half the price.
+        # $0.05 — 0.05x (pricing._OPENAI_READ_RATE_OVERRIDES).
         "name": "GPT-6.1 Terra",
         "model_id": "gpt-6.1-terra",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
@@ -98,6 +120,28 @@ LLM_MODEL_DETAILS = [
         "max_output_tokens": 128000,
         "input_cost_per_million_tokens_usd": 0.10,
         "output_cost_per_million_tokens_usd": 0.50
+    },
+    {
+        # https://developers.openai.com/api/docs/guides/decisions
+        # Decision model (typed questions in, probabilities out — never chat).
+        # Same wire id as the chat GPT-6 Luna above, served on POST /v1/decisions;
+        # the catalog key differs so the two rows never collide. Input-only
+        # pricing: Decisions charges $0.10/M uncached input, output is free.
+        "name": "GPT-6 Luna Decisions",
+        "model_id": "gpt-6-luna-decisions",
+        "provider_type": "openai",
+        "model_kind": "decision",
+        "api_model_id": "gpt-6-luna",
+        "decision_format": "openai",
+        "max_questions": 400,
+        "question_types": ["predicate", "choice", "score"],
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "input_cost_per_million_tokens_usd": 0.10,
+        "output_cost_per_million_tokens_usd": 0.0
     },
     {
         "name": "GPT-5.6 Sol",
@@ -488,6 +532,28 @@ LLM_MODEL_DETAILS = [
     # enablement before it resolves at all, and they carry no list price we can
     # report. The OpenAI-compatible transport that serves them is still wired
     # (see LLM._build_vertex_client) — add one as a custom model to use it.
+    # TypeSafe Jev — decision-only provider (System One). Pinned release, not
+    # the moving `jev-latest` alias, so behavior changes only with a catalog
+    # update. Source: https://docs.typesafe.ai/models.md — $0.042 per million
+    # input tokens ($42/Btok), output free; 64k context per request (262k with
+    # the long-context header); no separate limit on the number of questions.
+    {
+        "name": "Jev 1.14",
+        "model_id": "jev-1.14.0",
+        "provider_type": "typesafe",
+        "model_kind": "decision",
+        "decision_format": "systemone",
+        "max_questions": 1000,
+        "question_types": ["predicate", "choice", "score"],
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": False,
+        "context_window_tokens": 64000,
+        "input_cost_per_million_tokens_usd": 0.042,
+        "output_cost_per_million_tokens_usd": 0.0
+    },
     # Image-generation models (produce images), not chat models. Gated by
     # supports_image_generation; consumed by LLM.generate_image / the
     # generate_image tool, which prefers them in this order. They replace
@@ -549,6 +615,11 @@ class LLMModel(BaseSchema):
     # = admin-set (e.g. marking a custom model as an image model), persisted across
     # catalog re-syncs. `supports_image_generation` above is the resolved value.
     supports_image_generation_override = Column(Boolean, nullable=True)
+    # "chat" (default) or "decision". Decision models answer typed questions with
+    # calibrated probabilities (POST /v1/decisions or /v1/systemone) and are never
+    # offered for chat: every chat-model query filters on this. Settings for the
+    # decision wire format live in ``config`` (see app.ai.llm.decisions).
+    model_kind = Column(String(16), nullable=False, default="chat", server_default="chat")
     # Token limits
     context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
     # Manual admin override for the context window. NULL = follow the catalog (LLM_MODEL_DETAILS);
@@ -570,6 +641,10 @@ class LLMModel(BaseSchema):
     provider = relationship("LLMProvider", back_populates="models", lazy="selectin")
     organization_id = Column(String, ForeignKey('organizations.id'), nullable=False)
     organization = relationship("Organization", back_populates="llm_models", lazy="selectin")
+
+    @property
+    def is_decision(self) -> bool:
+        return (self.model_kind or "chat") == "decision"
 
     # Pricing helpers -----------------------------------------------------
     def _get_static_details(self) -> dict | None:

@@ -51,7 +51,7 @@ def _drain(agen):
 
 # ── Capability: every level maps onto something the model accepts ────────
 
-@pytest.mark.parametrize("detail", [d for d in LLM_MODEL_DETAILS if not d.get("supports_image_generation")],
+@pytest.mark.parametrize("detail", [d for d in LLM_MODEL_DETAILS if not d.get("supports_image_generation") and d.get("model_kind", "chat") == "chat"],
                          ids=lambda d: f"{d['provider_type']}:{d['model_id']}")
 @pytest.mark.parametrize("level", USER_EFFORTS)
 def test_every_catalog_level_runs_as_an_accepted_effort(detail, level):

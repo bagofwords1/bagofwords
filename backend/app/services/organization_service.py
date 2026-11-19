@@ -14,6 +14,7 @@ from app.schemas.organization_schema import (
     MembershipImportSummary,
     MembershipImportReport,
     MEMBERSHIP_NOTE_MAX_LENGTH,
+    ORGANIZATION_NAME_MAX_LENGTH,
 )
 from app.schemas.organization_settings_schema import OrganizationSettingsCreate
 from app.services.organization_settings_service import OrganizationSettingsService
@@ -35,7 +36,10 @@ from app.settings.logging_config import get_logger
 from app.core.telemetry import telemetry, derive_org_domain
 from app.core.user_lifecycle import (
     deactivate_user_if_orphaned,
+    is_instance_admin_account,
+    may_attach_existing_account,
     reactivate_user_for_membership,
+    revoke_member_org_access,
 )
 
 logger = get_logger(__name__)
@@ -55,14 +59,42 @@ class OrganizationService:
 
     async def create_organization(self, db: AsyncSession, organization_data: OrganizationCreate, current_user: User) -> OrganizationSchema:
 
-        total_orgs = await db.execute(select(Organization))
-        total_orgs = total_orgs.scalars().all().__len__()
-        if total_orgs > 0 and not settings.bow_config.features.allow_multiple_organizations:
-            raise HTTPException(status_code=400, detail="You cannot create more than one organization")
-        
-        organization = Organization(**organization_data.dict())
+        from app.core.instance_admin import additional_organization_refusal, organization_count
+        from app.errors import ErrorCode
+        from sqlalchemy.exc import IntegrityError
+
+        # The first organization of a deployment is free for any signed-in
+        # user (first-run). Every later one is an instance-level decision.
+        if await organization_count(db) > 0:
+            refusal = additional_organization_refusal(current_user)
+            if refusal is not None:
+                raise refusal
+
+        name = (organization_data.name or "").strip()
+        if not name:
+            raise AppError.bad_request(ErrorCode.ORGANIZATION_NAME_REQUIRED, "Organization name is required")
+        if len(name) > ORGANIZATION_NAME_MAX_LENGTH:
+            raise AppError.bad_request(
+                ErrorCode.ORGANIZATION_NAME_TOO_LONG,
+                f"Organization name must be at most {ORGANIZATION_NAME_MAX_LENGTH} characters",
+                max=ORGANIZATION_NAME_MAX_LENGTH,
+            )
+        name_taken = AppError.conflict(
+            ErrorCode.ORGANIZATION_NAME_TAKEN, "An organization with this name already exists", name=name,
+        )
+        if (await db.execute(select(Organization.id).where(Organization.name == name))).first():
+            raise name_taken
+
+        first_admin_email = (organization_data.first_admin_email or "").strip().lower() or None
+
+        organization = Organization(name=name, description=organization_data.description)
         db.add(organization)
-        await db.commit()
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Lost a race for the same (unique) name.
+            await db.rollback()
+            raise name_taken
         await db.refresh(organization)
 
         # Telemetry: organization created
@@ -102,7 +134,33 @@ class OrganizationService:
             # A default skill is a convenience — never a reason org creation fails.
             logger.exception("default skill install failed for new org %s", organization.id)
 
-        return OrganizationSchema.from_orm(organization)
+        result = OrganizationSchema.from_orm(organization)
+        if first_admin_email:
+            result.first_admin_invite_status = await self._invite_first_admin(
+                db, str(organization.id), first_admin_email, current_user
+            )
+        return result
+
+    async def _invite_first_admin(self, db: AsyncSession, organization_id: str, email: str, current_user: User) -> str:
+        """Invite ``email`` as an admin of a just-created organization, through
+        the same path as the members page. The organization already exists, so
+        a failed invite is reported in the status instead of failing creation;
+        the creator can send it again from the members page."""
+        if email == (getattr(current_user, "email", "") or "").strip().lower():
+            return "already_member"
+        try:
+            membership = await self.add_member(
+                db,
+                MembershipCreate(organization_id=organization_id, email=email, role="admin"),
+                current_user,
+            )
+        except Exception:
+            await db.rollback()
+            logger.warning("first admin invite failed for new org %s", organization_id, exc_info=True)
+            return "not_invited"
+        if membership.user_id:
+            return "added"
+        return membership.invite_email_status or "skipped_no_smtp"
 
     async def _assign_system_role(self, db: AsyncSession, org_id: str, user_id: str, role_name: str) -> None:
         """Assign a system role to a user via role_assignments (RBAC path)."""
@@ -359,18 +417,26 @@ class OrganizationService:
         Only org bootstrap (the creator becoming the first admin, before any
         membership exists to resolve) passes ``False``.
         """
+        org_id = str(membership_data.organization_id)
+        role_ids = list(dict.fromkeys(membership_data.role_ids or []))
+        group_ids = list(dict.fromkeys(membership_data.group_ids or []))
+
         # Resolve the org-wide default when the caller didn't pick a role
         # explicitly (the "Add member" modal pre-fills from here; an API caller
         # that omits role gets the org default). Falls back to "member".
-        if not (membership_data.role or "").strip():
+        if not role_ids and not (membership_data.role or "").strip():
             from app.services.organization_settings_service import resolve_default_member_role
-            membership_data.role = await resolve_default_member_role(
-                db, str(membership_data.organization_id)
-            )
+            membership_data.role = await resolve_default_member_role(db, org_id)
+
+        # Validate every role and group up front, before anything is written,
+        # so a bad id or a denied grant leaves no half-made invite behind.
+        invite_roles = await self._resolve_invite_roles(db, org_id, membership_data, role_ids)
+        invite_groups = await self._resolve_invite_groups(db, org_id, group_ids)
 
         if enforce_role_guard:
-            await self._assert_can_invite_with_role(
-                db, str(membership_data.organization_id), current_user, membership_data.role or "member"
+            await self._assert_can_invite_with_access(
+                db, org_id, current_user, membership_data.role or "member",
+                invite_roles, invite_groups,
             )
         #check if email is already a user
         # if it is, add user_id to membership and remove email
@@ -399,15 +465,45 @@ class OrganizationService:
         # Store the email for invitation before potentially setting it to None
         invitation_email = membership_data.email
 
+        # An existing account joins by accepting an invite, like a new address
+        # would, whenever this organization may not place it here on its own
+        # (see may_attach_existing_account). The caller adding themselves —
+        # creating an organization — is its own consent. An unknown account id
+        # is left to the insert, as before.
+        is_self = lambda u: str(u.id) == str(getattr(current_user, "id", ""))  # noqa: E731
+        target = user
+        if target is None and membership_data.user_id:
+            target = await db.get(User, str(membership_data.user_id))
+        if target is not None and not is_self(target):
+            if is_instance_admin_account(target) and not getattr(current_user, "is_superuser", False):
+                from app.errors import ErrorCode
+                raise AppError.forbidden(
+                    ErrorCode.ORGANIZATION_MEMBER_INSTANCE_ADMIN,
+                    "This account is an instance administrator. Only an instance "
+                    "administrator can add it to an organization.",
+                )
+            if not await may_attach_existing_account(db, target, org_id):
+                target_email = (target.email or "").strip().lower()
+                if user is None and await self._is_email_already_in_organization(
+                    db, target_email, membership_data.organization_id
+                ):
+                    raise HTTPException(status_code=400, detail="Already a member with this email")
+                user = None
+                membership_data.user_id = None
+                membership_data.email = target_email
+                invitation_email = target_email
+            else:
+                user = target
+
         if user:
             membership_data.user_id = user.id
             membership_data.email = None
             # Re-inviting someone who was deactivated when their last membership
             # was removed restores their login — that reversibility is the whole
             # reason removal deactivates instead of deleting.
-            await reactivate_user_for_membership(db, str(user.id))
+            await reactivate_user_for_membership(db, str(user.id), org_id)
 
-        membership = Membership(**membership_data.dict())
+        membership = Membership(**membership_data.dict(exclude={"role_ids", "group_ids"}))
         if membership.user_id is None:
             # Pending (unregistered) invite → stamp a 14-day expiry on the invite
             # link. invite_token is auto-generated by the model default. Invites
@@ -421,6 +517,13 @@ class OrganizationService:
             # instead of a 500 from the partial unique index.
             from app.core.permission_resolver import insert_membership_if_absent
             membership, _created = await insert_membership_if_absent(db, membership)
+
+        # Chosen roles and groups ride in the same commit as the membership.
+        # A registered user is addressed as a 'user' principal; a pending
+        # invite as its membership (rewritten onto the user at registration).
+        if invite_roles or invite_groups:
+            await db.flush()
+            await self._stage_invite_access(db, org_id, membership, invite_roles, invite_groups)
 
         await db.commit()
         await db.refresh(membership)
@@ -470,8 +573,9 @@ class OrganizationService:
                 membership_with_user.invite_token,
             )
 
-        # Create RBAC role_assignment if user_id is set
-        if membership_with_user.user_id and membership_data.role:
+        # Create RBAC role_assignment if user_id is set (legacy single-role
+        # path; explicit role_ids were already assigned above).
+        if membership_with_user.user_id and membership_data.role and not invite_roles:
             await self._assign_system_role(db, membership_data.organization_id, membership_with_user.user_id, membership_data.role)
 
         schema = MembershipSchema.from_orm(membership_with_user)
@@ -485,6 +589,7 @@ class OrganizationService:
             select(Organization, Membership.role)
             .join(Membership)
             .where(Membership.user_id == current_user.id)
+            .where(Membership.deleted_at.is_(None))
         )
         results = result.all()
         org_ids = [org.id for org, _ in results]
@@ -581,6 +686,9 @@ class OrganizationService:
             # Memory is per user per org: removing the membership deletes it.
             from app.services.memory_service import memory_service
             await memory_service.delete_for_membership(db, str(organization_id), str(membership.user_id))
+            # Roles, groups, grants, API keys and triggers held here end with
+            # the membership, so a later re-invite starts from the invited role.
+            await revoke_member_org_access(db, str(organization_id), str(membership.user_id))
         else:
             # Pending invite: clean up any pre-assigned RBAC keyed by this
             # membership. Done explicitly (not via FK cascade) so it holds on
@@ -723,23 +831,164 @@ class OrganizationService:
             db, organization_id, actor_id, permissions=role_perms, action="member.role_change"
         )
 
-    async def _assert_can_invite_with_role(
-        self, db: AsyncSession, organization_id: str, current_user: Optional[User], role: str,
+    async def _resolve_invite_roles(
+        self, db: AsyncSession, organization_id: str, membership_data: MembershipCreate,
+        role_ids: List[str],
+    ) -> list:
+        """Roles an invite assigns as RBAC rows, validated; sets the legacy ``role``.
+
+        - ``role_ids`` given: every id must be a live system role or one of this
+          org's roles (else 404). The legacy ``Membership.role`` column is set to
+          the "primary" one: ``admin`` if chosen, else the first built-in, else
+          the first role's name. A non-built-in name there is inert: the invite
+          accept path only materializes built-ins from it.
+        - Only the legacy ``role`` string: a built-in name keeps the existing
+          path (returns ``[]``). A name matching one of the org's custom roles is
+          turned into that role, so it is actually granted instead of being
+          silently dropped. Any other name is rejected.
+        """
+        from app.models.role import Role
+        from app.errors import ErrorCode
+        from app.core.permission_resolver import resolve_assignable_system_role
+        from sqlalchemy import or_
+
+        if role_ids:
+            rows = (await db.execute(
+                select(Role).where(
+                    Role.id.in_(role_ids),
+                    or_(Role.organization_id == organization_id, Role.organization_id.is_(None)),
+                    Role.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            by_id = {r.id: r for r in rows}
+            missing = [rid for rid in role_ids if rid not in by_id]
+            if missing:
+                raise AppError.not_found(ErrorCode.ROLE_NOT_FOUND, "Role not found")
+            roles = [by_id[rid] for rid in role_ids]
+
+            def builtin(r):
+                return r.overrides_system_role or (r.name if r.is_system else None)
+
+            builtins = [builtin(r) for r in roles if builtin(r)]
+            if "admin" in builtins:
+                membership_data.role = "admin"
+            elif builtins:
+                membership_data.role = builtins[0]
+            else:
+                membership_data.role = roles[0].name
+            return roles
+
+        role_name = (membership_data.role or "member").strip()
+        if await resolve_assignable_system_role(db, organization_id, role_name):
+            return []
+        custom = (await db.execute(
+            select(Role).where(
+                Role.organization_id == organization_id,
+                Role.name == role_name,
+                Role.deleted_at.is_(None),
+            )
+        )).scalars().first()
+        if custom is None:
+            raise AppError.not_found(ErrorCode.ROLE_NOT_FOUND, "Role not found")
+        return [custom]
+
+    async def _resolve_invite_groups(
+        self, db: AsyncSession, organization_id: str, group_ids: List[str],
+    ) -> list:
+        """Groups an invite joins, validated (enterprise-gated, like the group routes)."""
+        if not group_ids:
+            return []
+        from app.ee.license import has_feature
+        from app.errors import ErrorCode
+        from app.services.rbac_service import rbac_service
+
+        if not has_feature("custom_roles"):
+            raise AppError.forbidden(ErrorCode.ENTERPRISE_REQUIRED, "Groups require an enterprise license")
+        # _get_editable_group 404s an unknown group and refuses a SCIM-managed one.
+        return [await rbac_service._get_editable_group(db, organization_id, gid) for gid in group_ids]
+
+    async def _assert_can_invite_with_access(
+        self, db: AsyncSession, organization_id: str, current_user: Optional[User],
+        role: str, roles: list, groups: list,
     ) -> None:
         """Same grant rule as ``_assert_can_set_member_role``, for a new membership.
 
-        The invited role is materialized into a RoleAssignment immediately (an
-        existing user) or on invite acceptance (a pending email), so inviting
-        as ``admin`` is granting ``full_admin_access``. Denials are audited as
-        ``member.invite.denied``; full admins pass unrestricted.
+        Everything the invite confers counts: the chosen roles (or the legacy
+        built-in role) and every role/grant carried by the chosen groups. The
+        roles are materialized immediately (an existing user) or on invite
+        acceptance (a pending email), so inviting as ``admin`` is granting
+        ``full_admin_access``. Denials are audited as ``member.invite.denied``;
+        full admins pass unrestricted.
         """
         from app.services.rbac_service import rbac_service
 
         actor_id = str(current_user.id) if current_user is not None else None
-        role_perms = await self._system_role_permissions(db, role)
+        if actor_id is None:
+            return
+        permissions: set = set()
+        resource_grants: list = []
+        if roles:
+            for r in roles:
+                permissions.update(r.permissions or [])
+            grants_by_role = await rbac_service._fetch_role_grants(db, [r.id for r in roles])
+            for grants in grants_by_role.values():
+                resource_grants.extend(grants)
+        else:
+            permissions.update(await self._system_role_permissions(db, role))
+        for g in groups:
+            permissions.update(await rbac_service._group_role_permissions(db, organization_id, g.id))
+            resource_grants.extend(await rbac_service._group_resource_grants(db, organization_id, g.id))
         await rbac_service._assert_can_grant(
-            db, organization_id, actor_id, permissions=role_perms, action="member.invite"
+            db, organization_id, actor_id,
+            permissions=sorted(permissions), resource_grants=resource_grants,
+            action="member.invite",
         )
+
+    async def _stage_invite_access(
+        self, db: AsyncSession, organization_id: str, membership: Membership,
+        roles: list, groups: list,
+    ) -> None:
+        """Add the invite's role assignments and group memberships (no commit).
+
+        A re-added user can still hold user-principal rows from an earlier
+        membership (removal only clears pending-principal rows), so existing
+        rows are skipped rather than tripping the unique constraints.
+        """
+        from app.models.role_assignment import RoleAssignment
+        from app.models.group_membership import GroupMembership
+
+        if membership.user_id:
+            principal_type, principal_id = "user", str(membership.user_id)
+            group_col = GroupMembership.user_id
+        else:
+            principal_type, principal_id = "membership", str(membership.id)
+            group_col = GroupMembership.membership_id
+
+        held_roles = set((await db.execute(
+            select(RoleAssignment.role_id).where(
+                RoleAssignment.organization_id == organization_id,
+                RoleAssignment.principal_type == principal_type,
+                RoleAssignment.principal_id == principal_id,
+                RoleAssignment.deleted_at.is_(None),
+            )
+        )).scalars().all())
+        for r in roles:
+            if r.id not in held_roles:
+                db.add(RoleAssignment(
+                    organization_id=organization_id, role_id=r.id,
+                    principal_type=principal_type, principal_id=principal_id,
+                ))
+
+        held_groups = set((await db.execute(
+            select(GroupMembership.group_id).where(group_col == principal_id)
+        )).scalars().all())
+        for g in groups:
+            if g.id in held_groups:
+                continue
+            if principal_type == "user":
+                db.add(GroupMembership(group_id=g.id, user_id=principal_id))
+            else:
+                db.add(GroupMembership(group_id=g.id, membership_id=principal_id))
 
     async def update_member(self,db: AsyncSession, membership_id: str, organization_id: str, membership_data: MembershipUpdate, current_user: User, organization: Organization) -> MembershipSchema:
         from app.core.permission_resolver import assert_full_admin_exists
@@ -878,11 +1127,15 @@ class OrganizationService:
         user = user.scalar_one_or_none()
         if user:
             membership = await db.execute(select(Membership).where(Membership.user_id == user.id, Membership.organization_id == organization_id))
-            membership = membership.scalar_one_or_none()
-            return membership
+            membership = membership.scalars().first()
+            if membership:
+                return membership
+            # A registered user can also hold a pending invite here (they
+            # belong to another organization and have not accepted yet), so
+            # fall through to the email check instead of answering "no".
 
         email_membership = await db.execute(select(Membership).where(func.lower(Membership.email) == email_norm, Membership.organization_id == organization_id))
-        email_membership = email_membership.scalar_one_or_none()
+        email_membership = email_membership.scalars().first()
         if email_membership:
             return email_membership 
         
@@ -954,7 +1207,7 @@ class OrganizationService:
 
     async def get_organization_members(self, db: AsyncSession, current_user: User, organization: Organization) -> List[UserSchema]:
         # should get list of users via membership table
-        result = await db.execute(select(Membership).where(Membership.organization_id == organization.id))
+        result = await db.execute(select(Membership).where(Membership.organization_id == organization.id, Membership.deleted_at.is_(None)))
         memberships = result.scalars().all()
         user_ids = [membership.user_id for membership in memberships if membership.user_id is not None]
         result = await db.execute(select(User).where(User.id.in_(user_ids)))

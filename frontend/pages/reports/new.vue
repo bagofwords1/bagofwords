@@ -25,7 +25,8 @@
 				<ReportEmptyState
 					v-else
 					:mode="currentMode"
-					:available-agents="availableAgents"
+					 :available-folders="availableFolders" :folder-ids="folderIds" @toggle-folder="promptBoxRef?.chooseFolder($event)" @auto="promptBoxRef?.chooseAuto()"
+                    :available-agents="availableAgents"
 					:current-agents="currentAgents"
 					:agents-are-auto="agentsAreAuto"
 					@toggle-agent="toggleAgentSelection"
@@ -37,12 +38,14 @@
 		<!-- Composer: same container as the report view. -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-chat']">
-				<PromptBoxV2
+				<PromptBoxV2 allow-folder-scope
+                    @update:available-folders="availableFolders = $event" @update:folder-ids="folderIds = $event"
 					ref="promptBoxRef"
 					:project="draftProject"
 					:projectSelectable="true"
 					:initialSelectedDataSources="initialAgents"
 					:initialMode="initialMode"
+                    :initial-folder-ids="initialFolders"
 					:textareaContent="prefill"
 					:compact="isExcel"
 					@update:modelValue="(v: string) => prefill = v"
@@ -77,6 +80,7 @@ import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import { useExcel } from '~/composables/useExcel'
+import { projectDefaultSelection } from '~/utils/agentSelection'
 
 definePageMeta({
 	layout: 'default',
@@ -86,7 +90,7 @@ definePageMeta({
 
 const route = useRoute()
 const { isExcel } = useExcel()
-const { agents, selectedAgentObjects, effectiveAgentObjects } = useAgent()
+const { agents, selectedAgentObjects, selectedFolders } = useAgent()
 const { projects, fetchProjects } = useProjects()
 
 // ── Draft context, all carried in the query string ──────────────────────
@@ -117,8 +121,9 @@ const draftProject = computed(() => {
 // Which agents the composer opens with:
 // - ?agents= — an entry point that named a scope (the agent page). Explicit,
 //   so it overrides project defaults server-side.
-// - inside a project — nothing, which is Auto, which the backend fills with
-//   the project's default agents. Same payload the project page used to POST.
+// - inside a project — the project's default agents, shown checked so the
+//   picker says what the report will run against (see projectSeedAgents
+//   below). A project with no defaults stays on Auto.
 // - otherwise — the agents the user pinned workspace-wide, empty under Auto.
 // Picks made here ride on the created report only; unlike the home page this
 // never writes back to the user's saved selection, since a draft opened for
@@ -129,22 +134,59 @@ const draftProject = computed(() => {
 // and misses agents created since. Dropping the id would leave the selection
 // empty — which is Auto — and a prompt sent then would create an Auto report.
 // The selector fills in the full object from its own fetch (alignSelection).
+const initialFolders = computed(() => {
+    if (typeof route.query.folder === 'string' && route.query.folder) return [route.query.folder]
+    return projectId.value || agentIds.value.length ? [] : [...selectedFolders.value]
+})
 const initialAgents = computed(() => {
+	if (route.query.folder) return []
 	if (agentIds.value.length) {
 		const byId = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
 		return agentIds.value.map(id => byId.get(String(id)) || { id })
 	}
-	if (projectId.value) return []
+	if (projectId.value) return projectSeedAgents.value
 	return selectedAgentObjects.value
 })
+const projectSeedAgents = ref<any[]>([])
 
 // Live state published by the prompt box, exactly as the report view consumes
 // it — the empty state renders the selection, the box owns it.
 const promptBoxRef = ref<any>(null)
 const currentAgents = ref<any[]>([])
+const availableFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
+const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 const agentsAreAuto = ref(false)
 const currentMode = ref<'chat' | 'training'>(initialMode.value)
+
+// Project default agents for a draft opened inside a project. Applied once,
+// and only while the user hasn't picked anything yet — a pick made before the
+// fetch lands must not be overwritten. Intersected with the agents this user
+// can see (availableAgents), so a default never puts an agent they can't use
+// into an explicit selection. Seeding only sets the box's starting selection:
+// the draft has no report, so nothing is persisted, and the user's saved
+// default is written only by a real toggle inside the opened report.
+const projectDefaultIds = ref<string[]>([])
+const projectSeedApplied = ref(false)
+watch(projectId, async (pid) => {
+	projectDefaultIds.value = []
+	projectSeedAgents.value = []
+	projectSeedApplied.value = false
+	if (!pid || agentIds.value.length || route.query.folder) return
+	try {
+		const resp: any = await useMyFetch(`/projects/${pid}`, { method: 'GET' })
+		if (projectId.value !== pid) return
+		const ds = (resp.data?.value as any)?.data_sources || []
+		projectDefaultIds.value = ds.map((d: any) => String(d.id))
+	} catch { projectDefaultIds.value = [] }
+}, { immediate: true })
+watch([projectDefaultIds, availableAgents], () => {
+	if (projectSeedApplied.value) return
+	if (!projectDefaultIds.value.length || !availableAgents.value.length) return
+	projectSeedApplied.value = true
+	if (currentAgents.value.length || folderIds.value.length) return
+	projectSeedAgents.value = projectDefaultSelection(projectDefaultIds.value, availableAgents.value)
+})
 
 // Route the click back through the prompt box's selector so the empty-state
 // picker and the dropdown stay one selection.
@@ -165,7 +207,7 @@ const showInstructionsModal = ref(false)
 // the create fails (the box toasts and keeps the text for a retry).
 const pendingPrompt = ref<{ text: string } | null>(null)
 const instructionPanelAgents = computed(() => [
-	...(currentAgents.value.length ? currentAgents.value : (effectiveAgentObjects.value || [])),
+	...agentsInSelection(availableAgents.value, currentAgents.value.map(a => a.id), folderIds.value, availableFolders.value),
 	{ id: '__global__', name: 'Global', isGlobal: true },
 ])
 

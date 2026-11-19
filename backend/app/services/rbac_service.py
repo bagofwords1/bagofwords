@@ -39,6 +39,60 @@ CUSTOMIZABLE_SYSTEM_ROLES = frozenset({"member"})
 RESERVED_ROLE_NAMES = frozenset({"member", "admin"})
 
 
+async def principals_in_org(db: AsyncSession, org_id: str, principal_type: str, principal_ids) -> set:
+    """The subset of ``principal_ids`` that belong to the organization.
+
+    - ``user``: a live membership, or a service account of the organization.
+    - ``group``: a live group of the organization.
+    - ``role``: a role of the organization, or a built-in (system) role.
+    - ``membership``: a membership row (pending invite) of the organization.
+    """
+    ids = [str(p) for p in (principal_ids or []) if p]
+    if not ids:
+        return set()
+    org_id = str(org_id)
+    if principal_type == "user":
+        from app.models.service_account import ServiceAccount
+        members = await db.execute(
+            select(Membership.user_id).where(
+                Membership.user_id.in_(ids),
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            )
+        )
+        accounts = await db.execute(
+            select(ServiceAccount.user_id).where(
+                ServiceAccount.user_id.in_(ids),
+                ServiceAccount.organization_id == org_id,
+                ServiceAccount.deleted_at.is_(None),
+            )
+        )
+        return {str(r[0]) for r in members.all()} | {str(r[0]) for r in accounts.all()}
+    if principal_type == "group":
+        stmt = select(Group.id).where(
+            Group.id.in_(ids), Group.organization_id == org_id, Group.deleted_at.is_(None),
+        )
+    elif principal_type == "role":
+        stmt = select(Role.id).where(
+            Role.id.in_(ids),
+            or_(Role.organization_id == org_id, Role.organization_id.is_(None)),
+            Role.deleted_at.is_(None),
+        )
+    elif principal_type == "membership":
+        stmt = select(Membership.id).where(
+            Membership.id.in_(ids), Membership.organization_id == org_id, Membership.deleted_at.is_(None),
+        )
+    else:
+        return set()
+    return {str(r[0]) for r in (await db.execute(stmt)).all()}
+
+
+async def assert_principal_in_org(db: AsyncSession, org_id: str, principal_type: str, principal_id: str) -> None:
+    """404 unless the principal belongs to the organization."""
+    if str(principal_id) not in await principals_in_org(db, org_id, principal_type, [principal_id]):
+        raise HTTPException(status_code=404, detail=f"{str(principal_type).capitalize()} not found")
+
+
 class RBACService:
 
     # ── Escalation guard ─────────────────────────────────────────────────
@@ -54,6 +108,19 @@ class RBACService:
         that are a subset of their own effective permissions. ``actor_id=None``
         means an internal/system caller and skips the check.
         """
+        from app.models.folder import Folder
+
+        folders = [g for g in resource_grants if g.resource_type == "folder"]
+        if folders:
+            ids = {g.resource_id for g in folders}
+            existing = set(await db.scalars(select(Folder.id).where(
+                Folder.organization_id == org_id, Folder.deleted_at.is_(None), Folder.id.in_(ids)
+            )))
+            if existing != ids:
+                raise HTTPException(403, "Folder unavailable")
+            from app.core.permissions_registry import RESOURCE_PERMISSIONS
+            if any(not g.permissions or set(g.permissions) - set(RESOURCE_PERMISSIONS["folder"]) for g in folders):
+                raise HTTPException(422, "Invalid folder access level")
         if actor_id is None:
             return
         resolved = await resolve_permissions(db, actor_id, org_id)
@@ -61,6 +128,8 @@ class RBACService:
             return
         missing = sorted({p for p in permissions if not resolved.has_org_permission(p)})
         for g in resource_grants:
+            if g.resource_type == "folder" and not resolved.has_resource_permission("folder", g.resource_id, "manage"):
+                missing.append("folder.manage")
             for p in g.permissions or []:
                 if not resolved.has_resource_permission(g.resource_type, g.resource_id, p):
                     missing.append(f"{g.resource_type}:{g.resource_id}:{p}")
@@ -124,7 +193,7 @@ class RBACService:
 
     # ── Roles ────────────────────────────────────────────────────────────
 
-    async def list_roles(self, db: AsyncSession, org_id: str, include_system: bool = True) -> List[RoleSchema]:
+    async def list_roles(self, db: AsyncSession, org_id: str, include_system: bool = True, actor_id: Optional[str] = None) -> List[RoleSchema]:
         conditions = [Role.deleted_at.is_(None)]
         if include_system:
             conditions.append(
@@ -149,6 +218,11 @@ class RBACService:
         # Bulk fetch role-scoped resource grants
         role_ids = [r.id for r in roles]
         grants_by_role = await self._fetch_role_grants(db, role_ids)
+        if actor_id and any(g.resource_type == "folder" for grants in grants_by_role.values() for g in grants):
+            rights = await resolve_permissions(db, actor_id, org_id)
+            for grants in grants_by_role.values():
+                grants[:] = [g for g in grants if g.resource_type != "folder"
+                             or rights.has_resource_permission("folder", g.resource_id, "manage")]
         return [self._role_to_schema(r, grants_by_role.get(r.id, [])) for r in roles]
 
 
@@ -245,6 +319,10 @@ class RBACService:
             flag_modified(role, "permissions")
 
         if data.resource_grants is not None:
+            previous = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
+            await self._assert_can_grant(db, org_id, actor_id, resource_grants=[
+                grant for grant in previous if grant.resource_type == "folder"
+            ], action="role.update")
             await self._sync_role_grants(db, org_id, role.id, data.resource_grants)
 
         await db.commit()
@@ -367,7 +445,7 @@ class RBACService:
             is_deletable=(not role.is_system) and not is_override,
         )
 
-    async def delete_role(self, db: AsyncSession, org_id: str, role_id: str) -> None:
+    async def delete_role(self, db: AsyncSession, org_id: str, role_id: str, actor_id: Optional[str] = None) -> None:
         role = await self._get_role(db, org_id, role_id)
         if role.is_system:
             raise HTTPException(status_code=403, detail="Cannot delete system roles")
@@ -383,6 +461,10 @@ class RBACService:
         if isinstance(role.permissions, list) and FULL_ADMIN in role.permissions:
             await assert_full_admin_exists(db, org_id, exclude_role_id=role_id)
 
+        previous = (await self._fetch_role_grants(db, [role.id])).get(role.id, [])
+        await self._assert_can_grant(db, org_id, actor_id, resource_grants=[
+            grant for grant in previous if grant.resource_type == "folder"
+        ], action="role.delete")
         # Drop role-scoped resource grants
         await db.execute(
             delete(ResourceGrant).where(
@@ -688,6 +770,9 @@ class RBACService:
         # already has a user_id is rejected as stale.
         if data.principal_type == "membership":
             await self._get_pending_membership(db, org_id, data.principal_id)
+        else:
+            # Users and groups must belong to this organization.
+            await assert_principal_in_org(db, org_id, data.principal_type, data.principal_id)
 
         # Check for duplicate
         existing = await db.execute(
@@ -728,7 +813,7 @@ class RBACService:
             role=RoleSchema.model_validate(role) if role else None,
         )
 
-    async def delete_role_assignment(self, db: AsyncSession, org_id: str, assignment_id: str) -> None:
+    async def delete_role_assignment(self, db: AsyncSession, org_id: str, assignment_id: str, actor_id: Optional[str] = None) -> None:
         result = await db.execute(
             select(RoleAssignment)
             .options(selectinload(RoleAssignment.role))
@@ -742,6 +827,10 @@ class RBACService:
         if not assignment:
             raise HTTPException(status_code=404, detail="Role assignment not found")
 
+        grants = (await self._fetch_role_grants(db, [assignment.role_id])).get(assignment.role_id, [])
+        await self._assert_can_grant(db, org_id, actor_id, resource_grants=[
+            grant for grant in grants if grant.resource_type == "folder"
+        ], action="role.unassign")
         # Check lockout if removing a role with full_admin_access from a direct user
         if assignment.principal_type == "user" and assignment.role:
             perms = assignment.role.permissions or []
@@ -780,6 +869,9 @@ class RBACService:
     async def create_resource_grant(
         self, db: AsyncSession, org_id: str, data: ResourceGrantCreate
     ) -> ResourceGrantSchema:
+        # The principal must belong to this organization.
+        await assert_principal_in_org(db, org_id, data.principal_type, data.principal_id)
+
         # Check for duplicate
         existing = await db.execute(
             select(ResourceGrant).where(

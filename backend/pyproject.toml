@@ -160,6 +160,10 @@ dev = [
     "ty>=0.0.51,<0.1",
     "moto[s3]>=5.2.5,<5.3",
 ]
+pii = [
+    "en-core-web-sm",
+    "presidio-analyzer>=2.2.360,<3",
+]
 
 [tool.uv]
 # Security constraints for transitive dependencies (not directly imported).
@@ -182,10 +186,12 @@ dev = [
 # timeout) and GHSA-2g87-pp6c-29x5 (High, unbounded memory/CPU use), both fixed
 # in 3.14.4. aiohttp is pulled in transitively (e.g. via SDK clients).
 # dnspython < 2.9.0 is affected by SNYK-PYTHON-DNSPYTHON-21433565 (High, Uncontrolled
-# Recursion), fixed in 2.9.0. dnspython is pulled in transitively (email-validator ->
+# Recursion), fixed in 2.9.0; dnspython < 2.9.2 is additionally affected by
+# SNYK-PYTHON-DNSPYTHON-22549580 (High, Allocation of Resources Without Limits or
+# Throttling), fixed in 2.9.2. dnspython is pulled in transitively (email-validator ->
 # fastapi-mail / fastapi-users, and pymongo); every current dependent allows 2.9.x
 # (email-validator requires >= 2.0.0, pymongo requires >= 1.16.0, < 3.0.0).
-constraint-dependencies = ["pyasn1>=0.6.5", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2", "aiohttp>=3.14.4", "dnspython>=2.9.0"]
+constraint-dependencies = ["pyasn1>=0.6.5", "anyio>=4.14.2", "urllib3>=2.8.0", "mako>=1.4.2", "aiohttp>=3.14.4", "dnspython>=2.9.2"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail
@@ -198,6 +204,9 @@ constraint-dependencies = ["pyasn1>=0.6.5", "anyio>=4.14.2", "urllib3>=2.8.0", "
 # The connector only uses FileLock(path, timeout=, thread_local=), BaseFileLock,
 # Timeout and the context manager, which filelock 4 keeps.
 override-dependencies = ["cryptography>=50.0.0,<51", "filelock>=4.2.1,<5"]
+
+[tool.uv.sources]
+en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [build-system]
 requires = ["hatchling"]

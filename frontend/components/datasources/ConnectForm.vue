@@ -121,9 +121,10 @@
             {{ reentryNotice }}
           </div>
 
-          <div v-if="authOptions.length > 1" class="connection-auth-selector w-48 mb-2">
+          <div v-if="authOptions.length > 1" class="connection-auth-selector w-72 max-w-full mb-2">
             <USelectMenu v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
           </div>
+          <p v-if="authDescription && authOptions.length > 1" class="text-xs text-ink-muted mb-2" data-testid="auth-description">{{ authDescription }}</p>
 
           <!-- Locked state: show masked fields -->
           <div v-if="credentialsLocked && showSystemCredentialFields">
@@ -556,9 +557,21 @@ const credentialFields = computed(() => {
   return Object.entries(credsSchema.properties).map(([field_name, schema]: any) => ({ field_name, ...schema }))
 })
 
-// Core credential fields (exclude oauth_* fields)
+// Core credential fields (exclude oauth_* fields). A field marked ui:hidden is
+// a fixed marker the auth method carries (e.g. "use the server's identity"):
+// it is still sent with its schema default, there is just nothing to edit.
 const coreCredentialFields = computed(() => {
-  return credentialFields.value.filter((f: any) => !f.field_name.startsWith('oauth_'))
+  return credentialFields.value.filter((f: any) => !f.field_name.startsWith('oauth_') && f['ui:hidden'] !== true)
+})
+
+// One line of help for auth methods that are set up outside this form. The
+// server sends an English default; the locale catalog wins when it has
+// `data.authDescriptions.<type>.<auth>`.
+const authDescription = computed(() => {
+  const auth = selectedAuth.value
+  if (!auth) return ''
+  const k = `data.authDescriptions.${selectedType.value}.${auth}`
+  return te(k) ? t(k) : String(fields.value?.auth?.by_auth?.[auth]?.description || '')
 })
 
 // Fields an admin may bind to a member attribute under per-user auth.
@@ -663,6 +676,10 @@ async function fetchFields() {
         is_public.value = typeof iv.is_public === 'boolean' ? iv.is_public : is_public.value
         require_user_auth.value = (iv.auth_policy === 'user_required')
         selectedAuth.value = iv.config?.auth_type || selectedAuth.value
+        // The saved method may no longer be offered (one the operator has
+        // since turned off). Fall back to the default so the fields shown and
+        // the method sent agree, and the admin can move the connection off it.
+        if (authMeta?.by_auth && selectedAuth.value && !(selectedAuth.value in authMeta.by_auth)) selectedAuth.value = authMeta.default || undefined
         memberBindings.value = { ...(iv.member_bindings || {}) }
         // Exclude auth_type from hydrated config to avoid sending it during tests
         const { auth_type: _ignoredAuthType, ...restConfig } = (iv.config || {})
@@ -751,7 +768,17 @@ function cleanCredentials(creds: Record<string, any>): Record<string, any> {
 }
 
 function editedCredentials() {
-  return Object.fromEntries(Object.entries(cleanCredentials(formData.credentials)).filter(([key, value]) => value !== savedCredentialValues.value[key]))
+  const edited: Record<string, any> = Object.fromEntries(Object.entries(cleanCredentials(formData.credentials)).filter(([key, value]) => value !== savedCredentialValues.value[key]))
+  // A blank box normally means "keep what is saved" (that is how secrets stay
+  // untouched). A visible, non-secret field the admin emptied is different: it
+  // had a value on screen and they removed it, so say so with an explicit null.
+  for (const field of coreCredentialFields.value) {
+    const key = field.field_name
+    const saved = savedCredentialValues.value[key]
+    const current = (formData.credentials as any)[key]
+    if (!isSecretField(field) && typeof saved === 'string' && saved !== '' && (current == null || current === '')) edited[key] = null
+  }
+  return edited
 }
 
 // Blank inputs are stripped by cleanCredentials, so a required-but-empty field
@@ -823,8 +850,8 @@ function validateRemoteSetup(): string | null {
 
 const formElement = ref<HTMLFormElement | null>(null)
 const submitError = ref('')
-watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged], () => {
-  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value })
+watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged, require_user_auth], () => {
+  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value, requireUserAuth: require_user_auth.value })
 })
 defineExpose({ connect: () => formElement.value?.requestSubmit(), test: testConnection })
 

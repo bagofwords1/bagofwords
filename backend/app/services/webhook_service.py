@@ -258,6 +258,8 @@ class WebhookService:
             is_active=data.is_active,
         )
         wh.set_secret(secret)
+        from app.services.folder_service import validate_scope_folders
+        wh.agent_folder_ids = await validate_scope_folders(db, organization.id, current_user.id, data.agent_folder_ids)
         wh.data_sources = ds_rows
         db.add(wh)
         await db.commit()
@@ -336,10 +338,12 @@ class WebhookService:
         )
         return str(project.id)
 
-    async def _get_owned_trigger_or_404(self, db, trigger_id, current_user: User) -> Webhook:
-        """Owner-scoped lookup. 404 (not 403) for other users' triggers — no existence leak."""
+    async def _get_owned_trigger_or_404(self, db, trigger_id, current_user: User, organization: Organization) -> Webhook:
+        """Owner-scoped lookup within the request's organization. 404 (not 403)
+        for other users' or other organizations' triggers — no existence leak."""
         res = await db.execute(select(Webhook).where(
             Webhook.id == trigger_id,
+            Webhook.organization_id == str(organization.id),
             Webhook.report_id.is_(None),
             Webhook.deleted_at.is_(None),
         ))
@@ -349,8 +353,11 @@ class WebhookService:
         return wh
 
     async def update_trigger(self, db, trigger_id, data: TriggerUpdate, current_user: User, organization: Organization) -> WebhookSchema:
-        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user, organization)
         payload = data.model_dump(exclude_unset=True)
+        if "agent_folder_ids" in payload:
+            from app.services.folder_service import validate_scope_folders
+            payload["agent_folder_ids"] = await validate_scope_folders(db, organization.id, current_user.id, payload["agent_folder_ids"])
         ds_ids = payload.pop("data_source_ids", None)
         ds_rows = await self._validate_trigger_spec(
             db, current_user, organization,
@@ -370,10 +377,10 @@ class WebhookService:
         await db.refresh(wh)
         return self._to_schema(wh)
 
-    async def get_trigger(self, db, trigger_id, current_user: User) -> WebhookSchema:
+    async def get_trigger(self, db, trigger_id, current_user: User, organization: Organization) -> WebhookSchema:
         """Single owner-scoped trigger — the setup UI polls this while waiting
         for the first delivery to land."""
-        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user, organization)
         run_count = (await db.execute(
             select(func.count()).select_from(Report).where(
                 Report.webhook_id == str(wh.id), Report.deleted_at.is_(None)
@@ -381,12 +388,12 @@ class WebhookService:
         )).scalar() or 0
         return self._to_schema(wh, run_count=run_count)
 
-    async def delete_trigger(self, db, trigger_id, current_user: User) -> None:
-        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+    async def delete_trigger(self, db, trigger_id, current_user: User, organization: Organization) -> None:
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user, organization)
         wh.deleted_at = datetime.utcnow()
         await db.commit()
 
-    async def rotate_trigger_secret(self, db, trigger_id, current_user: User) -> WebhookSchema:
+    async def rotate_trigger_secret(self, db, trigger_id, current_user: User, organization: Organization) -> WebhookSchema:
         """Rotate the trigger's credentials.
 
         In ``url_token`` mode the delivery URL *is* the credential, so rotating
@@ -395,7 +402,7 @@ class WebhookService:
         sender has to be re-pointed). HMAC/header modes keep their URL stable and
         only get a fresh secret.
         """
-        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user, organization)
         secret = Webhook.generate_secret()
         wh.set_secret(secret)
         if wh.auth_mode == "url_token":
@@ -404,9 +411,9 @@ class WebhookService:
         await db.refresh(wh)
         return self._to_schema(wh, secret=secret)
 
-    async def get_trigger_runs(self, db, trigger_id, current_user: User, page: int = 1, limit: int = 20) -> TriggerRunListResponse:
+    async def get_trigger_runs(self, db, trigger_id, current_user: User, organization: Organization, page: int = 1, limit: int = 20) -> TriggerRunListResponse:
         """Run history: the sessions this trigger spawned, newest first."""
-        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user)
+        wh = await self._get_owned_trigger_or_404(db, trigger_id, current_user, organization)
         base = select(Report).where(
             Report.webhook_id == str(wh.id),
             Report.deleted_at.is_(None),
@@ -592,6 +599,26 @@ class WebhookService:
                 wh = await db.get(Webhook, webhook_id)
                 if not wh or wh.deleted_at or not wh.is_active:
                     return
+                # A delivery runs AS the webhook's creator. While they are not
+                # an active member of the organization the delivery is skipped.
+                # The webhook itself is left as it is, so deliveries resume if
+                # their membership returns.
+                from app.core.permission_resolver import principal_can_act_in_org
+                owner = await db.get(User, wh.user_id)
+                if not await principal_can_act_in_org(db, owner, str(wh.organization_id)):
+                    reason = "The owner is not an active member of the organization"
+                    logger.warning(
+                        "Webhook %s: delivery skipped. %s (owner %s, org %s).",
+                        webhook_id, reason, wh.user_id, wh.organization_id,
+                    )
+                    # Note the outcome on the captured delivery the owner sees.
+                    if isinstance(wh.last_event, dict):
+                        wh.last_event = {**wh.last_event, "acted": False, "skipped_reason": reason}
+                        await db.commit()
+                    return
+                # The delivery runs as this member in this organization.
+                from app.core.request_org import set_request_organization_id
+                set_request_organization_id(str(wh.organization_id))
                 adapter = WebhookAdapterFactory.create(wh.source)
                 delivery_id = adapter.event_id(headers, payload)
                 norm = adapter.normalize(headers, payload)
@@ -806,7 +833,7 @@ class WebhookService:
             try:
                 report_schema = await ReportService().create_report(
                     db=db,
-                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids,
+                    report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids, agent_folder_ids=wh.agent_folder_ids or [],
                                              project_id=str(wh.project_id)),
                     current_user=user,
                     organization=organization,
@@ -819,7 +846,7 @@ class WebhookService:
         if report_schema is None:
             report_schema = await ReportService().create_report(
                 db=db,
-                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids),
+                report_data=ReportCreate(title=title, files=[], data_sources=trigger_ds_ids, agent_folder_ids=wh.agent_folder_ids or []),
                 current_user=user,
                 organization=organization,
             )

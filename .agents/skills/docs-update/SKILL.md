@@ -26,6 +26,10 @@ changed configuration. Skip for internal refactors.
    tools/agent/boot_stack.sh && cd backend && uv run python ../tools/agent/seed_org.py --demo
    cd ../frontend && node ../tools/agent/capture.mjs http://localhost:3000/<page> shot.png
    ```
+   Check `echo $BOW_SANDBOX_DEVBOX` first. If it is `1` (DevBox), skip the
+   `boot_stack.sh` / `seed_org.py` line: the stack is running and already seeded
+   with the admin, org, LLM and demo data source (`bow-stack status` to check).
+   Run only the `capture.mjs` line, from `frontend/`.
    Stage them under `docs/screenshots/pending-changes/<page-slug>/` in this
    repo so they're reviewable alongside the docs PR. Match the style of
    existing docs images (clean seeded data, 1440px wide, no dev toolbars).

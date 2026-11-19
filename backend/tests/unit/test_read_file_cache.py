@@ -10,6 +10,7 @@ caching as before.
 """
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -25,9 +26,11 @@ def _long_text(lines: int = 2000) -> str:
 class _FakeFileClient:
     """Minimal file client for the tool: async read + cheap version token."""
 
-    def __init__(self, text: str):
+    def __init__(self, text: str, connection_id: str = "C1"):
         self._text = text
         self.read_calls = 0
+        # resolve_file_client stamps the connection it resolved on the client.
+        self._bow_connection = SimpleNamespace(id=connection_id)
 
     async def aread_file(self, file_id, sheet=None, **_):
         self.read_calls += 1
@@ -99,3 +102,39 @@ async def test_complete_render_still_caches_and_serves(cache_root):
     assert second["output"]["text"] == text
     # Second call was a cache hit — the source was only read once.
     assert client.read_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cache_follows_the_resolved_connection_not_the_id_the_caller_typed(cache_root):
+    """Any string resolves to one of the run's own connections, so the string
+    itself must never pick the cache entry: two different connections asked
+    for with the same id do not share content, and one connection asked for
+    under two different ids does."""
+    first = _FakeFileClient("content of the first connection\n", connection_id="conn-one")
+    second = _FakeFileClient("content of the second connection\n", connection_id="conn-two")
+
+    async def _read(client, typed_id):
+        with patch(
+            "app.ai.tools.implementations.read_file.resolve_file_client",
+            new=AsyncMock(return_value=(client, None)),
+        ):
+            return (await _run(ReadFileTool(), {"connection_id": typed_id, "file_id": "a.txt"}))["output"]["text"]
+
+    assert await _read(first, "conn-one") == "content of the first connection\n"
+    # Same typed id, same file id and version, but a different connection.
+    assert await _read(second, "conn-one") == "content of the second connection\n"
+    assert second.read_calls == 1
+    # The first connection under another name is still a cache hit.
+    assert await _read(first, "its display name") == "content of the first connection\n"
+    assert first.read_calls == 1
+
+
+@pytest.mark.parametrize("owner", ["../../outside", "/abs/elsewhere", "a/b", "..", "x" * 300])
+def test_cache_entries_stay_under_the_cache_root(cache_root, owner):
+    _file_cache.write(owner, "a.txt", "v1", rendered={"content_type": "text", "text": "kept"})
+    assert _file_cache.read(owner, "a.txt", "v1")["rendered"]["text"] == "kept"
+    root = cache_root.resolve()
+    written = [p.resolve() for p in cache_root.parent.rglob("meta.json")]
+    assert written and all(root in p.parents for p in written)
+    # Exactly <root>/<owner dir>/<entry dir>/meta.json: no extra path segments.
+    assert all(len(p.relative_to(root).parts) == 3 for p in written)

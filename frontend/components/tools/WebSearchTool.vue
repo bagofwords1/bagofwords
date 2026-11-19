@@ -1,39 +1,24 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Header row: status + primary query. Clickable to expand when there's
          more to show (sources, extra queries, or a no-results note). -->
-    <div
-      class="flex items-center text-chat-2"
-      :class="expandable ? 'cursor-pointer select-none' : ''"
-      @click="expandable && (expanded = !expanded)"
-    >
-      <Icon
-        v-if="expandable"
-        :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-        class="w-3 h-3 me-1 text-ink-muted shrink-0"
-      />
-      <span v-if="status === 'in_progress' || status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-ink-muted" />
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-magnifying-glass" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'in_progress' || status === 'running'">
         Searching the web
-        <span v-if="displayQuery" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">"{{ displayQuery }}"</span>
-      </span>
-      <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-green-500" />
-        <span>Searched the web</span>
-        <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span>
-      </span>
-      <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-        <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1.5 text-orange-500" />
-        <span>Web search failed</span>
-        <span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span>
-      </span>
-      <span v-if="sources.length" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">
-        · {{ sources.length }} {{ sources.length === 1 ? 'source' : 'sources' }}
-      </span>
-    </div>
+        </template>
+      <template v-else-if="isSuccess">Searched the web</template>
+      <template v-else>Web search failed</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'in_progress' || status === 'running'"><span v-if="displayQuery" class="ms-1 truncate max-w-[320px] text-gray-500 dark:text-gray-400">"{{ displayQuery }}"</span></template>
+      <template v-else-if="isSuccess"><span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span></template>
+      <template v-else><span v-if="displayQuery" class="ms-1 truncate max-w-[360px] text-gray-600 dark:text-gray-400">"{{ displayQuery }}"</span></template><span v-if="sources.length" class="ms-1.5 text-chat-3 text-ink-muted shrink-0">
+        · {{ sources.length }} {{ sources.length === 1 ? 'source' : 'sources' }}</span></div>
 
     <!-- Expanded detail -->
-    <div v-if="expanded" class="mt-1.5 ms-4 space-y-1">
+    <div v-if="toolHeaderExpanded" class="mt-1.5 ms-4 space-y-1">
       <!-- Additional queries the provider ran -->
       <div v-if="extraQueries.length" class="space-y-0.5">
         <div v-for="(q, i) in extraQueries" :key="`q${i}`" class="text-chat-2 text-ink-muted truncate max-w-[380px]">"{{ q }}"</div>
@@ -57,10 +42,16 @@
 
       <div v-else-if="isSuccess" class="text-chat-2 text-ink-muted">No results found</div>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 
 interface ToolExecution {
@@ -111,15 +102,5 @@ function hostOf(url: string): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

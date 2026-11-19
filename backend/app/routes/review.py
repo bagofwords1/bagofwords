@@ -13,6 +13,7 @@ from app.core.auth import current_user
 from app.dependencies import get_async_db, get_current_organization
 from app.models.organization import Organization
 from app.models.user import User
+from app.errors import AppError, ErrorCode
 from app.services.review_service import review_service
 
 router = APIRouter(tags=["review"])
@@ -28,11 +29,13 @@ class ResolveBody(BaseModel):
 
 
 class ReadAllBody(BaseModel):
+    folder_id: Optional[str] = None
     agent_id: Optional[str] = None
 
 
 @router.get("/review")
 async def list_review(
+    folder_id: Optional[str] = Query(None),
     agent_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None, description="comma-separated"),
     type: Optional[str] = Query(None, description="comma-separated"),
@@ -46,7 +49,7 @@ async def list_review(
         return [s for s in (v.split(",") if v else []) if s] or None
     return await review_service.list_items(
         db, organization, current_user,
-        agent_id=agent_id,
+        agent_id=agent_id, folder_id=folder_id,
         statuses=_split(status),
         types=_split(type),
         severities=_split(severity),
@@ -70,7 +73,7 @@ async def read_all_review(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    n = await review_service.mark_all_read(db, organization, current_user, agent_id=body.agent_id)
+    n = await review_service.mark_all_read(db, organization, current_user, agent_id=body.agent_id, folder_id=body.folder_id)
     return {"ok": True, "marked": n}
 
 
@@ -95,6 +98,19 @@ async def dismiss_review(
 ):
     item = await review_service.dismiss(db, organization, current_user, item_id)
     return {"ok": item is not None}
+
+
+@router.get("/review/{item_id}/training-context")
+async def review_training_context(
+    item_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    ctx = await review_service.training_context(db, organization, current_user, item_id)
+    if ctx is None:
+        raise AppError.not_found(ErrorCode.REVIEW_ITEM_NOT_FOUND, "Review item not found")
+    return ctx
 
 
 @router.post("/review/{item_id}/resolve")

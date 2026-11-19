@@ -72,7 +72,6 @@ def _agent_metadata_from_execution(ae) -> Dict[str, Any]:
 from app.models.eval import TestSuite, TestCase, TestRun, TestResult
 from app.core.eval_scope import agent_scope_clause
 from app.models.report import Report
-from app.services.report_service import ReportService
 from app.models.completion import Completion
 from app.services.completion_service import CompletionService
 from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
@@ -235,27 +234,33 @@ class TestRunService:
                 force_global=True,
             )
 
-    async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None) -> Report:
+    async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None, folder_id=None, pin_targets=False) -> Report:
         slug = f"testrun-{uuid.uuid4().hex[:12]}"
         report = Report(
             title=title,
             slug=slug,
             status="draft",
             report_type="test",
+            eval_target_ids=list(ds_ids or []),
+            agent_folder_id=folder_id,
             user_id=user_id,
             organization_id=organization_id,
         )
+        from app.models.data_source import DataSource
+        from sqlalchemy.orm import lazyload
+        requested = set(ds_ids or [])
+        agents = []
+        if requested and (pin_targets or not folder_id):
+            agents = list(await db.scalars(select(DataSource).options(lazyload("*")).where(
+                DataSource.organization_id == organization_id, DataSource.id.in_(requested),
+                DataSource.deleted_at.is_(None), DataSource.is_active.is_(True),
+                DataSource.publish_status != "disabled",
+            )))
+            if {agent.id for agent in agents} != requested:
+                raise HTTPException(409, "An eval target is unavailable")
+        report.data_sources = agents
         db.add(report)
-        await db.commit()
-        await db.refresh(report)
-        # Associate data sources like regular reports
-        try:
-            if ds_ids:
-                svc = ReportService()
-                await svc._associate_data_sources_with_report(db, report, [str(x) for x in ds_ids if x])
-                await db.refresh(report, ["data_sources"])
-        except Exception:
-            pass
+        await db.flush()
         return report
 
     async def _create_head_completion(self, db: AsyncSession, report_id: str, organization, current_user, prompt: Dict[str, Any]) -> Completion:
@@ -316,7 +321,22 @@ class TestRunService:
 
         return head
 
-    async def create_run(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, trigger_reason: Optional[str] = "manual", build_id: Optional[str] = None) -> TestRun:
+    async def _require_org_build(self, db: AsyncSession, organization, build_id: Optional[str]) -> None:
+        """A caller-supplied instruction build must belong to the organization."""
+        if not build_id:
+            return
+        from app.models.instruction_build import InstructionBuild
+        owned = await db.scalar(
+            select(InstructionBuild.id).where(
+                InstructionBuild.id == str(build_id),
+                InstructionBuild.organization_id == str(organization.id),
+            )
+        )
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Build not found")
+
+    async def create_run(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, trigger_reason: Optional[str] = "manual", build_id: Optional[str] = None, folder_id: Optional[str] = None) -> TestRun:
+        await self._require_org_build(db, organization, build_id)
         # Resolve cases set
         if not case_ids or len(case_ids) == 0:
             raise HTTPException(status_code=400, detail="case_ids is required")
@@ -328,8 +348,35 @@ class TestRunService:
         # (minimal guard: just ensure suites exist in org)
         suite_ids_set = set()
         for c in cases:
-            _ = await self._get_suite(db, str(organization.id), str(c.suite_id))
+            suite = await self._get_suite(db, str(organization.id), str(c.suite_id))
+            if suite.owner_folder_id and not folder_id:
+                raise HTTPException(409, "Select a folder to run this suite")
+            if folder_id and (c.deleted_at or c.status != "active" or c.fixtures_json):
+                raise HTTPException(409, "Case is unavailable for folder routing")
             suite_ids_set.add(str(c.suite_id))
+
+        roster = []
+        if folder_id:
+            from types import SimpleNamespace
+            from app.services.folder_knowledge import require_capability
+            from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
+            from app.routes.test import _require_case_authority
+            from app.models.folder import folder_eval_suites
+            await require_capability(db, organization, current_user, folder_id, "manage_evals")
+            roster = sorted(a.id for a in await resolve_run_agents(db, organization, current_user,
+                            SimpleNamespace(agent_folder_id=folder_id, data_sources=[])))
+            linked = set(await db.scalars(select(folder_eval_suites.c.suite_id).where(
+                folder_eval_suites.c.folder_id == folder_id)))
+            if not suite_ids_set <= linked or len(cases) != len(set(case_ids)):
+                raise HTTPException(404, "Suite unavailable")
+            for case in cases:
+                suite = await db.get(TestSuite, case.suite_id)
+                if suite.owner_folder_id:
+                    await require_capability(db, organization, current_user, suite.owner_folder_id, "manage_evals")
+                if case.data_source_ids_json or not suite.owner_folder_id:
+                    await _require_case_authority(db, current_user, organization, case)
+                if not set(case.data_source_ids_json or []) <= set(roster):
+                    raise HTTPException(409, "An eval target is unavailable in this folder")
 
         # Build human-readable run title
         title: str
@@ -363,14 +410,18 @@ class TestRunService:
             build_id=resolved_build_id,
         )
         db.add(run)
-        await db.commit()
-        await db.refresh(run)
+        await db.flush()
 
         # Create placeholder TestResult per case (with stub report + head completion)
         created_results: List[Tuple[TestResult, TestCase]] = []
         for case in cases:
             report_title = f"Test Run · {case.name}"
-            report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title, ds_ids=case.data_source_ids_json)
+            use_folder_roster = folder_id and not case.data_source_ids_json
+            targets = roster if use_folder_roster else list(case.data_source_ids_json or [])
+            report = await self._create_stub_report(
+                db, str(organization.id), str(current_user.id), report_title,
+                ds_ids=targets, folder_id=folder_id, pin_targets=bool(case.data_source_ids_json),
+            )
             head = await self._create_head_completion(db, str(report.id), organization, current_user, prompt=case.prompt_json or {})
 
             # Build initial result_json snapshot from case expectations
@@ -395,6 +446,8 @@ class TestRunService:
                 result_json = None
 
             result = TestResult(
+                data_source_ids_json=targets,
+                folder_id=folder_id,
                 run_id=str(run.id),
                 case_id=str(case.id),
                 head_completion_id=str(head.id),
@@ -405,6 +458,13 @@ class TestRunService:
             db.add(result)
             created_results.append((result, case))
         await db.commit()
+        # Load the run's eager `build` relationship before it is serialized.
+        # The object was built in this session, so `build` was never loaded;
+        # TestRunSchema reads `build_number`, which touches it, and a lazy load
+        # during response validation raises MissingGreenlet — a 500 for every
+        # run started in an org that has a main build (the run itself was
+        # already committed). create_run_batch refreshes the same way.
+        await db.refresh(run)
         for result, _case in created_results:
             await db.refresh(result)
 
@@ -449,7 +509,7 @@ class TestRunService:
             _ = await self._get_suite(db, organization_id, str(sid))
         return run
 
-    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20, data_source_id: Optional[str] = None, scope: Optional[str] = None) -> List[TestRun]:
+    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20, data_source_id: Optional[str] = None, scope: Optional[str] = None, folder_id: Optional[str] = None) -> List[TestRun]:
         # TestRun has no organization_id column — scope through the
         # results → cases → suites chain on EVERY branch. The unfiltered
         # branch used to be a bare select(TestRun), leaking other orgs' run
@@ -461,6 +521,8 @@ class TestRunService:
             .join(TestSuite, TestSuite.id == TestCase.suite_id)
             .where(TestSuite.organization_id == str(organization_id))
         )
+        if folder_id:
+            stmt = stmt.where(TestResult.folder_id == folder_id)
         if status:
             stmt = stmt.where(TestRun.status == status)
         if suite_id:
@@ -741,7 +803,7 @@ class TestRunService:
         """
         res = await db.execute(
             select(TestSuite)
-            .where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None))
+            .where(TestSuite.organization_id == str(organization_id), TestSuite.deleted_at.is_(None), TestSuite.owner_folder_id.is_(None))
             .order_by(TestSuite.created_at.desc())
         )
         suites = res.scalars().all()
@@ -793,16 +855,20 @@ class TestRunService:
         origin_user_id: Optional[str] = None,
         wake_on_finish: bool = False,
     ) -> tuple[TestRun, List[TestResult]]:
+        await self._require_org_build(db, organization, build_id)
         # Resolve cases from inputs
         cases = await self._resolve_cases_inputs(db, str(organization.id), case_ids, suite_id)
         if not cases:
             raise HTTPException(status_code=400, detail="No test cases found")
 
+        has_folder_suite = await db.scalar(select(TestSuite.id).where(TestSuite.id.in_({c.suite_id for c in cases}),
+                                                TestSuite.owner_folder_id.is_not(None)).limit(1))
+        if has_folder_suite:
+            raise HTTPException(409, "Select a folder to run this suite")
         # Seed case fixtures before resolving the build — seeding can promote
         # a new main build, and the run must execute against it.
         await self._apply_case_fixtures(db, organization, current_user, cases)
 
-        requested_case_ids = {str(c.id) for c in cases}
         in_progress_runs = await self._org_in_progress_runs(db, str(organization.id))
 
         # Resolve build_id up front (provided, else current main) so dedupe
@@ -815,14 +881,15 @@ class TestRunService:
         # Dedupe: an identical run (same build, same case set) already executing
         # is returned instead of duplicated — this also absorbs tool retries.
         for existing in in_progress_runs:
+            if existing.requested_by_user_id != str(current_user.id):
+                continue
             if str(existing.build_id or "") != str(resolved_build_id or ""):
                 continue
-            existing_case_ids = set(
-                (await db.execute(
-                    select(TestResult.case_id).where(TestResult.run_id == str(existing.id))
-                )).scalars().all()
-            )
-            if {str(x) for x in existing_case_ids} == requested_case_ids:
+            prior = await db.execute(select(TestResult.case_id, TestResult.data_source_ids_json).where(
+                TestResult.run_id == str(existing.id)))
+            prior_targets = {cid: sorted(ids) if ids is not None else None for cid, ids in prior}
+            targets = {case.id: sorted(case.data_source_ids_json or []) for case in cases}
+            if prior_targets == targets:
                 # Adopt the wake request so the asking conversation still gets
                 # notified when the already-running run finishes.
                 if wake_on_finish and origin_report_id and not getattr(existing, "wake_on_finish", False):
@@ -950,6 +1017,7 @@ class TestRunService:
                 )
 
             result = TestResult(
+                data_source_ids_json=list(case.data_source_ids_json or []),
                 run_id=str(run.id),
                 case_id=str(case.id),
                 head_completion_id=str(head_id) if head_id else str(uuid.uuid4()),  # fallback placeholder
@@ -2338,7 +2406,8 @@ class TestRunService:
 
             # Central queue for multiplexed events
             central_queue: "asyncio.Queue[tuple[str, SSEEvent]]" = asyncio.Queue()
-            await start_pending_with_queues(central_queue)
+            if run.requested_by_user_id == str(current_user.id):
+                await start_pending_with_queues(central_queue)
 
             # Track terminal state based on completion.finished/error
             terminal = {"pass", "fail", "error", "stopped", "success"}

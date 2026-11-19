@@ -23,6 +23,7 @@ class LLMUsageRecorderService:
         cache_creation_tokens: int = 0,
         cache_write_5m_tokens: int = 0,
         cache_write_1h_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         reasoning_tokens: int = 0,
         organization_id: str | None = None,
         user_id: str | None = None,
@@ -34,17 +35,13 @@ class LLMUsageRecorderService:
     ) -> LLMUsageRecord:
 
         provider_type = llm_model.provider.provider_type if llm_model.provider else ""
-        # A write with no TTL breakdown predates the split (or came from a
-        # client that does not report it): bill it at the 5-minute rate, which
-        # is the API default and never over-charges.
-        if cache_creation_tokens and not (cache_write_5m_tokens or cache_write_1h_tokens):
-            cache_write_5m_tokens = cache_creation_tokens
         input_cost = self._calc_input_cost(
             llm_model, prompt_tokens, cache_read_tokens, cache_creation_tokens, provider_type,
             cache_write_5m_tokens=cache_write_5m_tokens,
             cache_write_1h_tokens=cache_write_1h_tokens,
+            cache_write_12h_tokens=cache_write_12h_tokens,
         )
-        output_cost = self._calc_output_cost(llm_model, completion_tokens)
+        output_cost = self._calc_output_cost(llm_model, completion_tokens, prompt_tokens)
 
         # Org is always knowable from the model itself; fall back to it when the
         # caller didn't supply explicit attribution. The other dimensions stay
@@ -90,6 +87,7 @@ class LLMUsageRecorderService:
         provider_type: str = "",
         cache_write_5m_tokens: int = 0,
         cache_write_1h_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
     ) -> float:
         """Input cost, with cached tokens priced by MODEL FAMILY and TTL.
 
@@ -110,18 +108,22 @@ class LLMUsageRecorderService:
             cache_write_5m_tokens = cache_creation_tokens
         return pricing.cached_input_cost(
             rate_per_million=float(rate),
+            cache_creation_tokens=cache_creation_tokens,
             prompt_tokens=tokens,
             cache_read_tokens=cache_read_tokens,
             cache_write_5m_tokens=cache_write_5m_tokens,
             cache_write_1h_tokens=cache_write_1h_tokens,
+            cache_write_12h_tokens=cache_write_12h_tokens,
             provider_type=provider_type,
             model_id=getattr(llm_model, "model_id", None),
         )
 
     @staticmethod
-    def _calc_output_cost(llm_model: LLMModel, tokens: int) -> float:
+    def _calc_output_cost(llm_model: LLMModel, tokens: int, prompt_tokens: int = 0) -> float:
         rate = llm_model.get_output_cost_rate()
         if not tokens or rate is None:
             return 0.0
+        if pricing.long_context_pricing(getattr(llm_model, "model_id", None), prompt_tokens):
+            rate *= 1.5
         return (tokens / 1_000_000) * float(rate)
 

@@ -32,6 +32,14 @@ async def can_read(db, access, user, *, check_revision=True):
             Report.id.in_(reports), Report.id.in_(_reports_in_scope(scope.data_source_ids))))).scalars())
         if not set(reports).issubset(visible):
             return False
+    if check_revision and access.get("report_ids"):
+        from app.services.folder_monitoring import historic_folder_reports, can_open
+        folders = await db.scalars(select(Report).options(lazyload("*")).where(
+            Report.organization_id == org.id, Report.id.in_(access["report_ids"]),
+            Report.id.in_(historic_folder_reports())))
+        for report in folders:
+            if not await can_open(db, report, user, org, scope.data_source_ids):
+                return False
     return True
 
 
@@ -152,7 +160,21 @@ async def guard_route(db, user, kwargs, organization=None):
         if not await can_read(db, access, user):
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Entity not found")
+    from app.services.folder_service import can_read_folder_output
     for rid in report_ids:
+        # lazyload("*"): this runs on every request that names a report, and
+        # Report declares lazy="selectin" on every relationship, so a plain
+        # get hydrates the whole graph (widgets, queries, every step version).
+        # The folder check reads scalar columns and loads its own folders. A
+        # report loaded only for this check leaves the session again, so the
+        # route's own db.get(Report, ...) still loads it the usual way.
+        loaded_here = db.sync_session.identity_key(Report, rid) not in db.identity_map
+        report = await db.get(Report, rid, options=[lazyload("*")])
+        readable = report is None or await can_read_folder_output(db, report, user)
+        if report is not None and loaded_here:
+            db.expunge(report)
+        if not readable:
+            raise AppError.not_found(ErrorCode.REPORT_NOT_FOUND)
         await assert_read(db, await report_access(db, rid), user)
 
 
@@ -161,7 +183,24 @@ async def visible_reports_clause(db, organization_id, user):
     rows = (await db.execute(select(Report.id, Report.bow_source_access)
         .where(Report.organization_id == str(organization_id), Report.bow_source_access.isnot(None)))).all()
     denied = [rid for rid, access in rows if access and not await can_read(db, access, user)]
-    return Report.id.notin_(denied)
+    from app.core.derived_access import visible_data_source_ids
+    from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
+    from app.models.report import folder_report_sources as sources
+    from sqlalchemy import and_, or_
+    rights = await resolve_permissions(db, user.id, organization_id)
+    if FULL_ADMIN in rights.org_permissions:
+        return Report.id.notin_(denied)
+    visible = await visible_data_source_ids(db, user, await db.get(Organization, organization_id))
+    folder_ids = [fid for (kind, fid), roles in rights.resource_permissions.items()
+                  if kind == "folder" and "view" in roles]
+    used = select(sources.c.report_id).where(sources.c.report_id == Report.id).exists()
+    hidden_source = select(sources.c.report_id).where(sources.c.report_id == Report.id,
+                                                       sources.c.agent_id.notin_(visible)).exists()
+    from app.models.report import ReportAdditionalFolder
+    hidden_folder = select(ReportAdditionalFolder.report_id).where(ReportAdditionalFolder.report_id == Report.id,
+        ReportAdditionalFolder.folder_id.notin_(folder_ids)).exists()
+    return and_(Report.id.notin_(denied), ~hidden_source, ~hidden_folder,
+                or_(used, Report.agent_folder_id.is_(None), Report.agent_folder_id.in_(folder_ids)))
 
 
 async def install_entity_client(db, organization, user, entity, clients):

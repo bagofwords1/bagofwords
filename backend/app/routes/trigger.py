@@ -41,7 +41,7 @@ async def get_trigger(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await webhook_service.get_trigger(db, trigger_id, current_user)
+    return await webhook_service.get_trigger(db, trigger_id, current_user, organization)
 
 
 @router.post("/triggers", response_model=WebhookSchema)
@@ -58,6 +58,7 @@ async def create_trigger(
             db=db, organization_id=organization.id, action="trigger.created",
             user_id=current_user.id, resource_type="webhook", resource_id=wh.id,
             details={"source": wh.source, "mode": wh.mode,
+                     "agent_folder_ids": wh.agent_folder_ids or [],
                      "data_source_ids": [d.id for d in wh.data_sources]},
             request=request,
         )
@@ -96,7 +97,7 @@ async def rotate_trigger_secret(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    wh = await webhook_service.rotate_trigger_secret(db, trigger_id, current_user)
+    wh = await webhook_service.rotate_trigger_secret(db, trigger_id, current_user, organization)
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="trigger.secret_rotated",
@@ -116,7 +117,7 @@ async def delete_trigger(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    await webhook_service.delete_trigger(db, trigger_id, current_user)
+    await webhook_service.delete_trigger(db, trigger_id, current_user, organization)
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="trigger.deleted",
@@ -136,4 +137,4 @@ async def get_trigger_runs(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await webhook_service.get_trigger_runs(db, trigger_id, current_user, page=page, limit=limit)
+    return await webhook_service.get_trigger_runs(db, trigger_id, current_user, organization, page=page, limit=limit)

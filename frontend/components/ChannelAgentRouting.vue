@@ -21,17 +21,9 @@
           <div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.integrations.channels.routing.connectionDefaultDesc') }}</div>
         </div>
         <UIcon v-if="savedKey==='__default__'" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
-        <USelectMenu
-          v-model="defaultSel"
-          :options="allAgents"
-          multiple
-          searchable
-          option-attribute="name"
-          value-attribute="id"
-          :placeholder="$t('settings.integrations.channels.routing.pickerPlaceholder')"
-          class="w-48 shrink-0"
-          @change="saveDefault"
-        />
+        <AgentScopeMenu :selected="defaultSel || []" :folders="folders" :options="allAgents" class="w-48 shrink-0"
+              :placeholder="$t('prompt.modelAuto')" :first-label="$t('prompt.modelAuto')" :first-selected="!defaultSel?.length"
+              @select="id => setSelection('', id)" @first="setSelection('')" />
       </div>
 
       <!-- Discovered channels -->
@@ -54,17 +46,9 @@
               <div class="text-[11px] font-mono text-gray-400 truncate">{{ ch.external_channel_id }}</div>
             </div>
             <UIcon v-if="savedKey===ch.external_channel_id" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
-            <USelectMenu
-              v-model="channelSel[ch.external_channel_id]"
-              :options="allAgents"
-              multiple
-              searchable
-              option-attribute="name"
-              value-attribute="id"
-              :placeholder="$t('settings.integrations.channels.routing.pickerPlaceholder')"
-              class="w-48 shrink-0"
-              @change="() => saveChannel(ch)"
-            />
+            <AgentScopeMenu :selected="channelSel[ch.external_channel_id] || []" :folders="folders" :options="allAgents" class="w-48 shrink-0"
+              :placeholder="$t('prompt.modelAuto')" :first-label="$t('prompt.modelAuto')" :first-selected="!channelSel[ch.external_channel_id]?.length"
+              @select="id => setSelection(ch.external_channel_id, id)" @first="setSelection(ch.external_channel_id)" />
           </div>
         </div>
       </div>
@@ -73,6 +57,7 @@
 </template>
 
 <script setup lang="ts">
+import { loadAgentFolderOptions, channelScopePayload, channelScopeValues } from '~/composables/useAgentFolderOptions'
   import { ref, watch, onMounted } from 'vue'
 
   // Shared "Channel -> agent routing" panel for any external connection that
@@ -89,7 +74,8 @@
   const toast = useToast()
   const { t } = useI18n()
 
-  const allAgents = ref<any[]>([])
+  const folders = ref<Awaited<ReturnType<typeof loadAgentFolderOptions>>>([])
+const allAgents = ref<any[]>([])
   const agentsLoading = ref(false)
   const channelsLoading = ref(false)
   const channels = ref<any[]>([])
@@ -108,7 +94,8 @@
     const res = await useMyFetch('/api/data_sources', { query: { show_all: true } })
     agentsLoading.value = false
     if (res.status.value === 'success') {
-      allAgents.value = (((res.data.value as any) || []) as any[]).map((d) => ({ id: d.id, name: d.name }))
+      folders.value = await loadAgentFolderOptions()
+      allAgents.value = (((res.data.value as any) || []) as any[]).map((d) => ({ value: d.id, label: d.name, type: d.type, folderId: d.folder_id }))
     }
   }
 
@@ -120,10 +107,10 @@
     channelsLoading.value = false
     if (res.status.value === 'success') {
       const data = res.data.value as any
-      defaultSel.value = (data?.default_agent_ids || []) as string[]
+      defaultSel.value = channelScopeValues(data?.default_agent_ids, data?.default_folder_ids)
       channels.value = (data?.channels || []) as any[]
       const map: Record<string, string[]> = {}
-      for (const ch of channels.value) map[ch.external_channel_id] = (ch.agent_ids || []) as string[]
+      for (const ch of channels.value) map[ch.external_channel_id] = channelScopeValues(ch.agent_ids, ch.agent_folder_ids)
       channelSel.value = map
     }
   }
@@ -136,13 +123,24 @@
     const id = props.integrationId
     if (!id) return false
     const q = channel ? `?channel=${encodeURIComponent(channel)}` : ''
-    const res = await useMyFetch(`/api/settings/integrations/${id}/agents${q}`, { method: 'PUT', body: { agent_ids: agentIds } })
+    const res = await useMyFetch(`/api/settings/integrations/${id}/agents${q}`, { method: 'PUT', body: channelScopePayload(agentIds) })
     return res.status.value === 'success'
   }
 
   // Autosave on selection change (USelectMenu emits `change` only on user
   // action, not on the programmatic v-model set during load). A brief inline
   // check confirms the save; only failures raise a toast.
+  function setSelection(channel: string, id?: string) {
+    const values = (channel ? channelSel.value[channel] : defaultSel.value) || []
+    const next = id ? (values.includes(id) ? values.filter(v => v !== id) : [...values, id]) : []
+    if (channel) {
+      channelSel.value[channel] = next
+      saveChannel({external_channel_id: channel})
+    } else {
+      defaultSel.value = next
+      saveDefault()
+    }
+  }
   async function saveDefault() {
     const ok = await putScope('', defaultSel.value)
     if (ok) _flagSaved('__default__')

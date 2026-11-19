@@ -1,28 +1,19 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div
-        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleDetails"
-      >
-        <Icon :name="detailsCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-document-text" class="w-3 h-3 me-1 text-ink-muted" />
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">
           Writing CSV…
-        </span>
-        <span v-else class="flex items-center" :class="hasError ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'">
-          <Icon v-if="hasError" name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-red-500" />
-          <Icon v-else name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-          <span class="align-middle">{{ statusLabel }}</span>
-        </span>
-        <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-      </div>
-    </Transition>
+        </template>
+      <template v-else>{{ statusLabel }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Collapsible details -->
     <Transition name="fade">
-      <div v-if="!detailsCollapsed" class="ms-4 text-chat-2 text-gray-600 dark:text-gray-400 space-y-2">
+      <div v-if="toolHeaderExpanded" class="ms-4 text-chat-2 text-gray-600 dark:text-gray-400 space-y-2">
         <!-- Error -->
         <div v-if="errorMessage" class="text-red-500">{{ errorMessage }}</div>
 
@@ -56,10 +47,16 @@
         @openDataPanel="$emit('openDataPanel', $event)"
       />
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref } from 'vue'
@@ -172,18 +169,6 @@ function toggleDetails() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }

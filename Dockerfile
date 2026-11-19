@@ -36,7 +36,15 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install locked main deps into the venv; dev group excluded from image.
 # The kerberos extra (python-gssapi) enables per-user constrained delegation
 # (S4U) for on-prem SQL Server SSO; it builds against libkrb5-dev above.
-RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos
+#
+# INSTALL_PII_EXTRA=true also installs the optional `pii` extra: Presidio and a
+# small English spaCy model, for detecting names and locations inside the
+# backend workers (enterprise PII protection). Off by default — it adds about
+# 150 MB and is not needed for pattern rules or when a Presidio service is used
+# (`pii.presidio_url`). Build with: --build-arg INSTALL_PII_EXTRA=true
+ARG INSTALL_PII_EXTRA=false
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos \
+    $( [ "$INSTALL_PII_EXTRA" = "true" ] && echo "--extra pii" )
 
 # pyspark is used only as a Spark Connect client (gRPC to a remote cluster), so
 # its ~250 bundled JVM jars (324 MB) never run — the image has no Java. They
@@ -128,7 +136,7 @@ ARG APT_REFRESH=2026-11-11
 RUN echo "apt refresh: ${APT_REFRESH}" && \
     apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client tini libpq5 vim-tiny && \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client tini libpq5 vim-tiny tshark libseccomp2 && \
     # Kerberos runtime for Windows Integrated auth to SQL Server: GSSAPI libs
     # for the ODBC driver / python-gssapi, plus kinit/klist for keytab ops.
     # Mount /etc/krb5.conf and a keytab (see docs/sql-server-kerberos.md).

@@ -14,8 +14,6 @@ from sqlalchemy.orm import selectinload
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.services.artifact_payload import partial_data_used, partial_data_warning, row_count_fields
 from app.ai.tools.base import Tool
-from app.models.file import File
-from app.models.report_file_association import report_file_association
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +108,10 @@ class CreateArtifactTool(Tool):
         try:
             from playwright.async_api import async_playwright
         except ImportError:
+            logger.error(
+                "Artifact render check unavailable — dashboards are being saved WITHOUT a render "
+                "check until this is fixed: Playwright is not installed."
+            )
             return None, []
 
         js_errors: list[str] = []
@@ -186,7 +188,13 @@ class CreateArtifactTool(Tool):
                 finally:
                     os.unlink(tmp.name)
         except Exception as e:
-            logger.warning(f"Preview screenshot failed: {e}")
+            # Callers save the artifact anyway and report it as not
+            # render-checked (RENDER_UNCHECKED_NOTE); this line is what an
+            # operator finds when asking why broken dashboards get saved.
+            logger.error(
+                "Artifact render check unavailable — dashboards are being saved WITHOUT a render "
+                f"check until this is fixed (set BOW_CHROMIUM_EXECUTABLE to a working Chromium): {e}"
+            )
             return None, js_errors
 
     async def _generate_thumbnail_background(
@@ -237,13 +245,10 @@ class CreateArtifactTool(Tool):
         images: List[ImageInput] = []
         try:
             # Query files associated with this completion that are images
-            result = await db.execute(
-                select(File)
-                .join(report_file_association, report_file_association.c.file_id == File.id)
-                .where(report_file_association.c.completion_id == head_completion_id)
-                .where(File.content_type.startswith("image/"))
-            )
-            image_files = result.scalars().all()
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(db, [str(head_completion_id)], images_only=True)
+            image_files = attached.get(str(head_completion_id), [])
 
             for f in image_files:
                 if not f.path:
@@ -395,6 +400,15 @@ class CreateArtifactTool(Tool):
     # stubborn defect can't consume the whole tool timeout — after this the
     # tool returns a structured failure and the planner decides.
     MAX_RENDER_REPAIR_ATTEMPTS = 5
+
+    # Appended to the observation of a page that was saved without a render:
+    # the model must not report an unrendered page as working.
+    RENDER_UNCHECKED_NOTE = (
+        " NOT RENDER-CHECKED: this server could not start its browser, so the code was saved "
+        "without being rendered and may fail when opened. Do NOT tell the user it works or "
+        "renders correctly. Say it was saved without a render check and ask them to open it "
+        "and report any error."
+    )
 
     @staticmethod
     def fatal_render_errors(errors: List[str]) -> List[str]:
@@ -750,12 +764,17 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             # downloaded) must not fail artifact creation — pass through
             # unvalidated, exactly like the missing-Playwright fallback.
             logger.warning(f"Render validation unavailable (thumbnail HTML build failed): {e}")
+            # The <BowFile> check reads only the code and the attached files,
+            # so it still applies: an unattached file shows "File not found".
+            from app.ai.tools.implementations._artifact_refs import file_reference_errors
+            file_errors = file_reference_errors(code, artifact_data) if mode == "page" else []
             yield {
                 "code": code,
-                "clean": True,
+                "clean": not (strict and file_errors),
                 "screenshot": None,
-                "errors": [],
+                "errors": list(file_errors) if strict else [],
                 "repair_attempts": 0,
+                "params_wiring_errors": file_errors,
                 "validation_skipped": True,
             }
             return
@@ -767,10 +786,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # The viz-reference contract rides along too: a reference to a viz that
         # isn't in the payload (or a payload viz the code never renders) is a
         # silent-wrong-data defect no screenshot can catch.
-        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors, chart_prop_errors, file_reference_errors
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
         if mode == "page":
-            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data)
+            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data) + chart_prop_errors(code, artifact_data) + file_reference_errors(code, artifact_data)
 
         original_code = code
         original_screenshot = screenshot
@@ -805,7 +824,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
-                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data)
+                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data) + chart_prop_errors(candidate, artifact_data) + file_reference_errors(candidate, artifact_data)
 
         if strict and not fatal and wiring:
             # Strict (planner-authored) mode: contract errors are as fatal as
@@ -1040,6 +1059,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         from app.models.query import Query
         from app.models.step import Step
         report_id = str(report.id) if report else None
+        # A miscopied id (an extra or missing character, a lost tail) is
+        # matched to the one visualization of this report it nearly spells,
+        # and the same slip is corrected in the authored code.
+        from app.ai.tools.implementations._viz_ids import (
+            apply_id_corrections, correct_code_viz_refs, ensure_available, resolve_visualization_ids,
+        )
+        viz_resolution = await resolve_visualization_ids(db, report_id, data.visualization_ids)
+        requested_viz_ids = viz_resolution.ids
+        warnings.extend(viz_resolution.correction_notes())
+        if data.code and viz_resolution.corrections:
+            data.code = apply_id_corrections(data.code, viz_resolution.corrections)
+        # Why each id that cannot be used was refused, in words a person can act on.
+        viz_problems: List[str] = []
+        viz_fetch_failed = False
         try:
             # populate_existing=True forces SQLAlchemy to refresh objects from DB
             # rather than returning stale identity-map copies (e.g. query.steps or
@@ -1050,7 +1083,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     selectinload(Visualization.query).selectinload(Query.default_step),
                     selectinload(Visualization.query).selectinload(Query.steps),
                 )
-                .where(Visualization.id.in_(data.visualization_ids))
+                .where(Visualization.id.in_(requested_viz_ids))
                 .execution_options(populate_existing=True)
             )
             fetched_vizs = {str(v.id): v for v in result.scalars().all()}
@@ -1058,17 +1091,22 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             logger.exception("Failed to batch-fetch visualizations")
             fetched_vizs = {}
             warnings.append(f"Error fetching visualizations: {str(e)}")
+            viz_problems.append("The visualizations could not be loaded (a temporary error).")
+            viz_fetch_failed = True
 
         # Process each requested viz in order, validating and building entries
-        for viz_id in data.visualization_ids:
+        for viz_id in requested_viz_ids:
             viz = fetched_vizs.get(viz_id)
             if viz is None:
-                warnings.append(f"Visualization {viz_id} not found")
+                if not viz_fetch_failed:
+                    warnings.append(f"Visualization {viz_id} not found")
+                    viz_problems.append(f"Visualization {viz_id} was not found in this report.")
                 continue
 
             # Validate viz belongs to the report
             if report_id and str(viz.report_id) != report_id:
                 warnings.append(f"Visualization {viz_id} does not belong to this report")
+                viz_problems.append(f"Visualization {viz_id} does not belong to this report.")
                 continue
 
             # Get the step with data (prefer default_step, fallback to latest step)
@@ -1091,6 +1129,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     f"has_default_step={_has_default}, steps_count={_steps_len}"
                 )
                 warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
+                viz_problems.append(
+                    f"Visualization \"{viz.title or 'Untitled'}\" ({viz_id}) has no successful result "
+                    f"(its step status is '{step_status or 'unknown'}')."
+                )
                 continue
 
             # Get data directly from step (like frontend does). Generation and
@@ -1164,53 +1206,80 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # Only files the run's user may see: embedding a file makes it readable
         # by everyone who can view the artifact. Stored on the artifact content
         # so the frontend can fetch + inject them for the <BowFile> component.
+        # The same rule as edit_artifact (_artifact_files): images and PDFs the
+        # run's user may see; every requested id must resolve, with one answer
+        # for missing, forbidden and wrong-type ids.
         included_files: List[Dict[str, Any]] = []
-        requested_file_ids = getattr(data, "file_ids", None) or []
+        from app.ai.tools.implementations._artifact_refs import normalize_file_id
+        requested_file_ids = list(dict.fromkeys(
+            normalize_file_id(f) for f in getattr(data, "file_ids", None) or [] if str(f or "").strip()
+        ))
         if requested_file_ids:
+            from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
+            file_error: Optional[Dict[str, Any]] = None
             try:
-                from app.services.file_access_service import run_viewable_file_ids
-                allowed = await run_viewable_file_ids(
-                    db, user=user, report=report, organization=organization,
-                    file_ids=[str(f) for f in requested_file_ids],
+                attachable = await attachable_files(
+                    db, user=user, report=report, organization=organization, file_ids=requested_file_ids,
                 )
-                file_result = await db.execute(select(File).where(File.id.in_(list(allowed))))
-                fetched_files = {str(f.id): f for f in file_result.scalars().all()}
-            except Exception as e:
-                logger.warning(f"create_artifact: failed to fetch files: {e}")
-                fetched_files = {}
-            for fid in requested_file_ids:
-                f = fetched_files.get(str(fid))
-                if f is None:
-                    warnings.append(f"File {fid} not found or not accessible")
-                    continue
-                included_files.append({
-                    "id": str(f.id),
-                    "content_type": f.content_type or "application/octet-stream",
-                    "filename": f.filename,
-                })
+                refused = [fid for fid in requested_file_ids if fid not in attachable]
+                if refused:
+                    file_error = {
+                        "type": "file_not_attachable",
+                        "message": f"Cannot attach file {refused[0]}: it does not exist, you cannot access it, or it is not an image or PDF.",
+                        "file_ids": refused,
+                        "remediation": "Pass only ids of images or PDFs from the conversation's files.",
+                    }
+            except FileLookupFailed:
+                file_error = {
+                    "type": "file_lookup_failed",
+                    "message": "Could not look up the requested files (a temporary error). Nothing was created.",
+                    "file_ids": requested_file_ids,
+                    "remediation": "Call create_artifact again with the same arguments.",
+                }
+            if file_error:
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {"success": False, "error": file_error["message"]},
+                        "observation": {"summary": f"Failed to create artifact: {file_error['message']}", "error": file_error},
+                    },
+                )
+                return
+            included_files = [attachable[fid] for fid in requested_file_ids]
 
         # Explicit analytical/file references must resolve. A page that requests
         # neither may be a static site or a resource-backed application.
         if (data.visualization_ids or data.file_ids) and not visualizations and not included_files and data.mode != "slides":
+            # Say which id failed and why, and hand back the ids that would
+            # work, so the retry is a copy from this error.
+            available = await ensure_available(db, report_id, viz_resolution)
+            problem_text = " ".join(viz_problems) or "None of the requested visualizations could be used."
+            remediation = viz_resolution.remediation()
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
                     "output": {
                         "success": False,
-                        "error": "No valid visualizations found. All requested visualization_ids were either not found, don't belong to this report, or have non-success step status.",
+                        "error": problem_text,
                     },
                     "observation": {
                         "summary": "Failed to create artifact: no valid visualizations resolved",
                         "error": {
                             "type": "no_valid_visualizations",
-                            "message": "None of the requested visualization_ids could be used. Ensure visualizations exist, belong to this report, and have successful step status.",
+                            "message": f"{problem_text} {remediation}",
                             "requested_ids": data.visualization_ids,
                             "warnings": warnings,
+                            "available_visualizations": available,
+                            "remediation": remediation,
                         },
                     },
                 },
             )
             return
+
+        # The id list can be right while the code carries the slip.
+        if data.code and included_viz_ids:
+            data.code = correct_code_viz_refs(data.code, included_viz_ids)
 
         # Build visualization profiles (privacy-aware)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_profiles"})
@@ -1439,6 +1508,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             code = self._extract_code(_raw, mode=data.mode) or _raw
         else:
             code = self._extract_code(buffer, mode=data.mode)
+
+        # Deterministic repairs (module statements, names wrongly taken from
+        # React): each removes something that cannot work in the page runtime,
+        # so they also hold where no browser can render.
+        if data.mode == "page":
+            from app.ai.tools.implementations._artifact_refs import normalize_page_code
+            code, _repair_notes = normalize_page_code(code)
+            warnings.extend(_repair_notes)
 
         # ═══════════════════════════════════════════════════════════════════════
         # Mode-specific processing: slides uses python-pptx, page skips to save
@@ -1775,6 +1852,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             is_parse_failure = bool(render_errors) and all(e.startswith("[parse]") for e in render_errors)
             fatal_errors = self.fatal_render_errors(render_errors)
             first_error = fatal_errors[0] if fatal_errors else (render_errors[0] if render_errors else "unknown render error")
+            # The browser names the symptom; say what to change.
+            from app.ai.tools.implementations._artifact_refs import render_error_hint
+            _fix_hint = None if is_parse_failure else render_error_hint(first_error)
             failure_observation: Dict[str, Any] = {
                 "summary": (
                     f"Artifact '{data.title or 'Untitled'}' failed to parse (syntax error — "
@@ -1790,7 +1870,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "render_errors": render_errors,
                     "repair_attempts": repair_attempts,
                     "remediation": (
-                        "The code does not render. Fix it yourself against the exact error(s) above "
+                        (f"{_fix_hint} " if _fix_hint else "")
+                        + "The code does not render. Fix it yourself against the exact error(s) above "
                         "and call create_artifact again with the corrected `code` (a failed create "
                         "persists nothing); simplify the layout if the errors persist."
                     ),
@@ -1849,6 +1930,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             available=await artifact_verification_available(runtime_ctx, str(artifact.id)),
         )
         output["verification_hint"] = verification_hint
+        # False when the page was saved without being rendered (no usable
+        # browser on this server): the chat card says so instead of a plain tick.
+        render_checked = bool(screenshot_base64) if data.mode == "page" else None
+        if render_checked is not None:
+            output["render_checked"] = render_checked
 
         # Add UI preview fields (similar to read_artifact)
         code_lines = code.count('\n') + 1 if code else 0
@@ -1894,7 +1980,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 )
         elif data.mode == "page":
             if not screenshot_base64:
-                summary_msg += ". Static render preview unavailable; interactions have not been checked."
+                summary_msg += "." + self.RENDER_UNCHECKED_NOTE
             elif repair_attempts:
                 summary_msg += f". Render validation passed after {repair_attempts} in-tool repair attempt(s)."
             else:
@@ -1924,6 +2010,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
+        if render_checked is False:
+            observation["render_checked"] = False
         if render_errors:
             observation["render_errors"] = render_errors
         if repair_attempts:
@@ -2742,6 +2830,12 @@ Now create the dashboard:"""
 
         # Check if code already has an App function/component
         if re.search(r'function\s+App\s*\(', code) or re.search(r'(?:const|let|var)\s+App\s*=', code):
+            return code
+        # A page that mounts itself, or exports its root under another name
+        # (`export default ArtistDashboard`), already has a component: wrapping
+        # it inside a new App that returns nothing would render a blank page.
+        from app.ai.tools.implementations._artifact_refs import _MOUNTS_RE, exported_root
+        if _MOUNTS_RE.search(code) or exported_root(code):
             return code
 
         # Extract inner code between script tags

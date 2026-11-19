@@ -64,7 +64,7 @@
 
       <p v-if="authMode !== 'sso_only' && !setupRequired" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.alreadyHaveAccount') }}
-        <NuxtLink to="/users/sign-in" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
+        <NuxtLink :to="signInLink" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signIn') }}
         </NuxtLink>
       </p>
@@ -104,6 +104,10 @@ const email = ref('');
 const password = ref('');
 const inviteToken = ref('');
 const error_message = ref('')
+// Someone who already has an account takes the invite with them to sign-in.
+const signInLink = computed(() => inviteToken.value
+  ? { path: '/users/sign-in', query: { invite_token: inviteToken.value } }
+  : '/users/sign-in')
 
 // Shape of an entry in /api/settings -> oidc_providers. `label` and `brand`
 // are derived server-side so the button can show a real product name and logo
@@ -268,6 +272,9 @@ try {
     isSubmitting.value = false
     return
   }
+
+  // Registration consumed the invite; nothing is left to accept after sign-in.
+  try { sessionStorage.removeItem('bow.pendingInviteToken') } catch (_) {}
 
   // Add automatic login after successful registration
   await signInWithCredentials(email.value, password.value)

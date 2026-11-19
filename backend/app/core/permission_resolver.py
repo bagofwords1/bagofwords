@@ -474,6 +474,25 @@ async def insert_membership_if_absent(db: AsyncSession, membership):
         return existing, False
 
 
+def live_pending_invite():
+    """SQL predicate for an invite that can still be claimed: a membership row
+    nobody holds yet, not removed, and not past ``invite_expires_at``.
+
+    Every path that turns an invite into a membership — by email or by link —
+    uses this, so an expired invite is never claimed; it stays pending until
+    an admin resends it (which opens a new window). Invites written before
+    expiry existed have no ``invite_expires_at`` and do not expire.
+    """
+    from datetime import datetime
+    from app.models.membership import Membership
+
+    return and_(
+        Membership.user_id.is_(None),
+        Membership.deleted_at.is_(None),
+        or_(Membership.invite_expires_at.is_(None), Membership.invite_expires_at > datetime.utcnow()),
+    )
+
+
 async def claim_pending_invite(db: AsyncSession, user, org_id: str):
     """Attach an open email invite to ``user`` instead of creating a second row.
 
@@ -487,8 +506,8 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
 
     Returns the claimed ``Membership`` (with its role assignment ensured and
     pending RBAC materialized), or ``None`` when there is no open invite to claim.
-    Expiry is intentionally ignored — this mirrors ``_attach_open_memberships``,
-    which claims invites regardless of ``invite_expires_at``. Does NOT commit.
+    An expired invite is not claimed (``live_pending_invite``, the same rule
+    as ``_attach_open_memberships``). Does NOT commit.
 
     An invite is always admin intent, so ``directory_provider`` is deliberately
     left as-is (NULL for a hand-issued invite): stamping it would make an
@@ -508,8 +527,7 @@ async def claim_pending_invite(db: AsyncSession, user, org_id: str):
         select(Membership).where(
             func.lower(Membership.email) == email,
             Membership.organization_id == str(org_id),
-            Membership.user_id.is_(None),
-            Membership.deleted_at.is_(None),
+            live_pending_invite(),
         ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc()).limit(1)
     )).scalars().first()
     if invite is None:
@@ -609,6 +627,7 @@ async def _resolve_permissions_inner(
         .join(Group, Group.id == GroupMembership.group_id)
         .where(
             GroupMembership.user_id == user_id,
+            GroupMembership.deleted_at.is_(None), Group.deleted_at.is_(None),
             Group.organization_id == org_id,
         )
     )
@@ -774,6 +793,9 @@ async def _resolve_permissions_inner(
     for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
         resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
 
+    from app.services.folder_service import expand_folder_permissions
+    await expand_folder_permissions(db, org_id, resource_permissions)
+
     # Agent ownership is authoritative: data_sources.owner_user_id holds the
     # `manage` tier on their own agent even when the owner grant row is
     # missing (legacy creation paths, pre-backfill rows, failed writes).
@@ -877,8 +899,8 @@ async def resolve_permissions_bulk(
             select(Group.organization_id, GroupMembership.group_id,
                    Group.default_llm_model_id, Group.small_default_llm_model_id)
             .join(Group, Group.id == GroupMembership.group_id)
-            .where(GroupMembership.user_id == user_id,
-                   Group.organization_id.in_(org_ids))
+            .where(GroupMembership.user_id == user_id, GroupMembership.deleted_at.is_(None),
+                   Group.deleted_at.is_(None), Group.organization_id.in_(org_ids))
         )).all()
         groups_by_org: dict[str, list] = {}
         group_defaults_by_org: dict[str, list] = {}
@@ -996,6 +1018,8 @@ async def resolve_permissions_bulk(
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             for model_id in _group_default_model_ids(group_defaults_by_org.get(org_id, [])):
                 res_perms.setdefault(("llm_model", model_id), set()).add("use")
+            from app.services.folder_service import expand_folder_permissions
+            await expand_folder_permissions(db, org_id, res_perms)
             result[org_id] = ResolvedPermissions(
                 org_permissions=expand_org_permissions(org_perms[org_id]),
                 resource_permissions=res_perms,
@@ -1260,6 +1284,49 @@ async def get_user_ids_with_permission(
     return out
 
 
+async def _user_id_belongs_to_org(db: AsyncSession, user_id: str, org_id: str) -> bool:
+    """``principal_belongs_to_org`` for callers that hold only a user id.
+
+    Covers both bindings (Membership for humans, a live ServiceAccount row for
+    service accounts) and is memoized on the session like the RBAC memo, so the
+    public-data-source check costs one small query per (user, org) per request.
+    """
+    try:
+        memo = db.info.setdefault("_org_binding_memo", {})
+    except Exception:
+        memo = None
+    if not isinstance(memo, dict):
+        memo = None
+    key = (user_id, org_id)
+    if memo is not None and key in memo:
+        return memo[key]
+
+    from app.models.membership import Membership
+    from app.models.service_account import ServiceAccount
+
+    bound = (await db.execute(
+        select(Membership.id).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == org_id,
+            Membership.deleted_at.is_(None),
+        ).limit(1)
+    )).first() is not None
+    if not bound:
+        bound = (await db.execute(
+            select(ServiceAccount.id).where(
+                ServiceAccount.user_id == user_id,
+                ServiceAccount.organization_id == org_id,
+                ServiceAccount.disabled_at.is_(None),
+                ServiceAccount.deleted_at.is_(None),
+            ).limit(1)
+        )).first() is not None
+    # Only a positive answer is cached: a binding created later in the same
+    # session (org bootstrap) must be seen.
+    if memo is not None and bound:
+        memo[key] = bound
+    return bound
+
+
 async def user_can_access_data_source(
     db: AsyncSession, user_id: str, org_id: str, ds, ds_id: str = None,
 ) -> bool:
@@ -1269,8 +1336,15 @@ async def user_can_access_data_source(
     target = str(ds_id) if ds_id is not None else (str(ds.id) if ds is not None else None)
     if ceiling is not None and target not in ceiling:
         return False
+    # A data source is only ever accessible inside its own organization:
+    # neither the public shortcut nor an admin role in `org_id` extends to a
+    # data source that belongs to a different one.
+    ds_org_id = getattr(ds, 'organization_id', None) if ds is not None else None
+    if isinstance(ds_org_id, str) and ds_org_id != str(org_id):
+        return False
+    # "Public" means open to every member of the owning organization.
     if ds is not None and getattr(ds, 'is_public', False):
-        return True
+        return await _user_id_belongs_to_org(db, str(user_id), str(org_id))
     is_admin, accessible = await get_accessible_data_source_ids(db, user_id, org_id)
     if is_admin:
         return True

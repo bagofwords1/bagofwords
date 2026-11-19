@@ -136,6 +136,42 @@ async def compact_report_context(
     return result
 
 
+@router.post("/api/reports/{report_id}/context/clear")
+@requires_permission('create_reports', model=Report, owner_only=True)
+async def clear_report_context(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """/clear in the composer: start a fresh agent context. Nothing is
+    deleted — earlier turns stay in the transcript behind a "Context cleared"
+    divider, but the agent no longer sees them (no summary, no protected
+    opening exchange). No LLM call. Idle-only, like /compact: 409 while an
+    agent execution is streaming or a compaction is running on this report."""
+    from sqlalchemy import select
+    from app.services.context_compaction_service import context_compaction_service, ContextCompactionService
+
+    report_res = await db.execute(select(Report).filter(Report.id == report_id))
+    report = report_res.scalar_one_or_none()
+    if not report or str(report.organization_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    if await ContextCompactionService.is_report_busy(db, report_id):
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+
+    result = await context_compaction_service.clear(db, report)
+    if result.get("status") == "already_running":
+        raise HTTPException(status_code=409, detail="Context compaction is in progress on this report; try again when it finishes.")
+    if result.get("status") == "busy":
+        raise HTTPException(status_code=409, detail="An agent run is in progress on this report; try again when it finishes.")
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("message", "Clear failed"))
+
+    result["can_compact"] = (await ContextCompactionService.get_ui_state(db, report_id))["can_compact"]
+    return result
+
+
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports', model=Report, owner_only=True)
 async def create_completion(
@@ -393,9 +429,25 @@ async def respond_to_mcp_tool_confirmation(
     from app.ai.tools.confirmation import KIND_BUILTIN_TOOL
     _ANSWERABLE_KINDS = {KIND_MCP_TOOL_POLICY, KIND_BUILTIN_TOOL}
 
+    # The completion in the path must be one of the request's organization
+    # (through its report). A principal bound to several organizations answers
+    # a run only from the organization that run belongs to; anything else is
+    # answered like an unknown confirmation.
+    from sqlalchemy import select
+    from app.models.completion import Completion as _Completion
+    completion_org_id = (await db.execute(
+        select(Report.organization_id)
+        .join(_Completion, _Completion.report_id == Report.id)
+        .where(_Completion.id == str(completion_id))
+    )).scalar_one_or_none()
+    if completion_org_id is not None and str(completion_org_id) != str(organization.id):
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
+
     confirmations = ToolConfirmationService()
     row = await confirmations.get(db, confirmation_id)
     if row is not None:
+        if row.organization_id and str(row.organization_id) != str(organization.id):
+            raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if row.kind not in _ANSWERABLE_KINDS:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
         if not confirmations.may_respond(

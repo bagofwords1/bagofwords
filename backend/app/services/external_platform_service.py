@@ -17,9 +17,105 @@ from app.schemas.external_platform_schema import (
     EmailConfig
 )
 from app.core.telemetry import telemetry
+from app.errors import AppError, ErrorCode
+import logging
+
+logger = logging.getLogger(__name__)
+
+# The identifiers an inbound webhook/socket event is routed by, per platform
+# type. They must name one platform across the whole deployment, not just
+# within an organization.
+_ROUTING_KEYS = {
+    "slack": ("team_id", "app_id"),
+    "teams": ("tenant_id", "app_id"),
+    "whatsapp": ("phone_number_id",),
+}
+
+
+def _routing_key(platform_type: str, config: Optional[dict]) -> Optional[tuple]:
+    """The platform's inbound routing key, or None when it is incomplete."""
+    fields = _ROUTING_KEYS.get(platform_type)
+    if not fields:
+        return None
+    values = tuple(str((config or {}).get(f) or "").strip().lower() for f in fields)
+    return values if all(values) else None
+
+
+def slack_app_id_from_app_token(app_token: Optional[str]) -> Optional[str]:
+    """App-level tokens embed their app id: ``xapp-<n>-<APP_ID>-…``."""
+    parts = (app_token or "").split("-")
+    if len(parts) >= 4 and parts[0] == "xapp" and parts[2][:1] == "A":
+        return parts[2]
+    return None
+
 
 class ExternalPlatformService:
-    
+
+    async def _assert_not_connected_elsewhere(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_type: str,
+        config: Optional[dict],
+        secrets: Optional[dict] = None,
+    ) -> None:
+        """Refuse a connection whose inbound routing key another organization
+        already holds: its events could not be told apart from theirs.
+
+        ``secrets`` are credential values that identify the same external
+        account on their own (e.g. a Slack bot token), used when an older
+        platform has no complete routing key recorded. Platforms of the same
+        organization are not considered — those keep their own checks.
+        """
+        key = _routing_key(platform_type, config)
+        secrets = {k: v for k, v in (secrets or {}).items() if v}
+        if key is None and not secrets:
+            return
+        stmt = select(ExternalPlatform).where(
+            ExternalPlatform.platform_type == platform_type,
+            ExternalPlatform.organization_id != organization_id,
+        )
+        for other in (await db.execute(stmt)).scalars().all():
+            clash = key is not None and _routing_key(platform_type, other.platform_config) == key
+            if not clash and secrets:
+                try:
+                    other_creds = other.decrypt_credentials() or {}
+                except Exception:
+                    other_creds = {}
+                clash = any(other_creds.get(k) == v for k, v in secrets.items())
+            if clash:
+                logger.warning(
+                    "Refused %s connection for organization %s: already connected to organization %s",
+                    platform_type, organization_id, other.organization_id,
+                )
+                raise AppError.conflict(
+                    ErrorCode.INTEGRATION_CONNECTED_ELSEWHERE,
+                    "This account is already connected to another organization on this deployment",
+                )
+
+    async def _resolve_slack_app_id(
+        self, bot_token: str, bot_id: Optional[str], app_token: Optional[str]
+    ) -> Optional[str]:
+        """Best-effort Slack app id for a new connection (None if unknown)."""
+        app_id = slack_app_id_from_app_token(app_token)
+        if app_id or not bot_id:
+            return app_id
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    "https://slack.com/api/bots.info",
+                    params={"bot": bot_id},
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                )
+                data = response.json()
+                if response.status_code == 200 and data.get("ok"):
+                    return (data.get("bot") or {}).get("app_id")
+        except Exception:
+            pass
+        return None
+
     async def create_platform(
         self, 
         db: AsyncSession, 
@@ -39,6 +135,10 @@ class ExternalPlatformService:
                 detail=f"{platform_data.platform_type} platform already exists for this organization"
             )
         
+        await self._assert_not_connected_elsewhere(
+            db, organization.id, platform_data.platform_type, platform_data.platform_config
+        )
+
         # Create platform
         platform = ExternalPlatform(
             organization_id=organization.id,
@@ -210,12 +310,21 @@ class ExternalPlatformService:
         result = await db.execute(stmt)
         return {str(row) for row in result.scalars().all()}
 
+    async def folder_scope_map(self, db, platform_id):
+        from app.models.external_platform_agent import platform_folder_scopes as scopes
+        rows = await db.execute(select(scopes.c.external_channel_id, scopes.c.folder_id).where(
+            scopes.c.platform_id == platform_id))
+        result = {}
+        for channel, fid in rows:
+            result.setdefault(channel, []).append(fid)
+        return result
+
     async def resolve_scope_agent_ids(
         self,
         db: AsyncSession,
         platform_id: str,
         routing_channel_id: Optional[str] = None,
-    ) -> Set[str]:
+    ) -> Optional[Set[str]]:
         """Resolve the effective agent scope for an incoming message.
 
         Most-specific wins: if ``routing_channel_id`` is given and that channel
@@ -225,13 +334,16 @@ class ExternalPlatformService:
         caller's list — it is intersected with the user's own access downstream.
         """
 
-        if routing_channel_id:
-            channel_scope = await self.get_scope_agent_ids(
-                db, platform_id, routing_channel_id
-            )
-            if channel_scope:
-                return channel_scope
-        return await self.get_scope_agent_ids(db, platform_id, "")
+        folders = await self.folder_scope_map(db, platform_id)
+        for channel in dict.fromkeys([routing_channel_id or "", ""]):
+            agents = await self.get_scope_agent_ids(db, platform_id, channel)
+            if folders.get(channel):
+                from app.services.folder_service import allowed_folder_agents
+                org_id = await db.scalar(select(ExternalPlatform.organization_id).where(ExternalPlatform.id == platform_id))
+                return agents | await allowed_folder_agents(db, org_id, folders[channel])
+            if agents:
+                return agents
+        return None
 
     async def filter_org_data_source_ids(
         self, db: AsyncSession, organization_id: str, data_source_ids: List[str]
@@ -269,6 +381,7 @@ class ExternalPlatformService:
         platform: ExternalPlatform,
         data_source_ids: List[str],
         external_channel_id: str = "",
+        folder_ids=None,
     ) -> Set[str]:
         """Replace one scope key's agent set with ``data_source_ids``.
 
@@ -281,6 +394,13 @@ class ExternalPlatformService:
         """
 
         channel_key = external_channel_id or ""
+        from app.models.external_platform_agent import platform_folder_scopes as scopes
+        if folder_ids is not None:
+            await db.execute(delete(scopes).where(scopes.c.platform_id == platform.id,
+                                                  scopes.c.external_channel_id == channel_key))
+            if folder_ids:
+                await db.execute(scopes.insert(), [dict(platform_id=platform.id, external_channel_id=channel_key,
+                                                        folder_id=fid) for fid in folder_ids])
         await db.execute(
             delete(ExternalPlatformAgent).where(
                 and_(
@@ -428,6 +548,15 @@ class ExternalPlatformService:
         
         # Update fields
         if platform_data.platform_config is not None:
+            # Only when the routing key itself changes, so platforms that
+            # already share one keep accepting unrelated config edits.
+            new_key = _routing_key(platform.platform_type, platform_data.platform_config)
+            if new_key is not None and new_key != _routing_key(
+                platform.platform_type, platform.platform_config
+            ):
+                await self._assert_not_connected_elsewhere(
+                    db, organization.id, platform.platform_type, platform_data.platform_config
+                )
             platform.platform_config = platform_data.platform_config
         if platform_data.is_active is not None:
             platform.is_active = platform_data.is_active
@@ -861,6 +990,16 @@ class ExternalPlatformService:
             "connection_mode": connection_mode,
             "auto_link_by_email": auto_link_by_email,
         }
+        # The app id tells apart several Slack apps installed in one workspace
+        # (one per organization) when routing inbound events.
+        app_id = await self._resolve_slack_app_id(bot_token, test_result.get("bot_id"), app_token)
+        if app_id:
+            platform_config["app_id"] = app_id
+
+        await self._assert_not_connected_elsewhere(
+            db, organization.id, "slack", platform_config,
+            secrets={"bot_token": bot_token, "app_token": app_token},
+        )
 
         # Create credentials
         credentials = {
@@ -932,6 +1071,7 @@ class ExternalPlatformService:
             "app_id": app_id,
             "auto_link_by_email": auto_link_by_email,
         }
+        await self._assert_not_connected_elsewhere(db, organization.id, "teams", platform_config)
 
         credentials = {
             "app_id": app_id,
@@ -1177,6 +1317,10 @@ class ExternalPlatformService:
                     detail="This WhatsApp number is already connected to this organization",
                 )
 
+        await self._assert_not_connected_elsewhere(
+            db, organization.id, "whatsapp", {"phone_number_id": phone_number_id}
+        )
+
         info = test_result.get("info", {})
         platform_config = {
             "phone_number_id": phone_number_id,
@@ -1290,7 +1434,8 @@ class ExternalPlatformService:
                                 "id": data.get("team_id"),
                                 "name": data.get("team")
                             },
-                            "bot_user": data.get("user")
+                            "bot_user": data.get("user"),
+                            "bot_id": data.get("bot_id"),
                         }
                     else:
                         return {"success": False, "error": data.get("error", "Unknown error")}

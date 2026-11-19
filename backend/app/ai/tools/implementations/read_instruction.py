@@ -27,6 +27,7 @@ import re
 
 from sqlalchemy import select, and_, func
 
+from app.models.report import report_folder_ids
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.read_instruction import (
@@ -183,6 +184,8 @@ class ReadInstructionTool(Tool):
                         Instruction.user_id == str(user.id),
                     ),
                 )
+            from app.services.folder_knowledge import instruction_scope
+            folder_id = report_folder_ids(runtime_ctx.get("report"))
             stmt = (
                 select(
                     Instruction.id,
@@ -195,6 +198,7 @@ class ReadInstructionTool(Tool):
                     and_(
                         Instruction.organization_id == organization.id,
                         status_clause,
+                        instruction_scope(data_source_ids, folder_id),
                         Instruction.deleted_at.is_(None),
                         func.lower(Instruction.id).like(prefix + "%"),
                     )
@@ -230,8 +234,9 @@ class ReadInstructionTool(Tool):
             builder = InstructionContextBuilder(
                 db,
                 organization,
-                current_user=user,
-                data_source_ids=data_source_ids,
+                current_user=user, folder_id=folder_id,
+                data_source_ids=data_source_ids, mode=runtime_ctx.get("mode") or "chat",
+                channel=getattr(getattr(runtime_ctx.get("context_hub"), "instruction_builder", None), "channel", None) or "app",
             )
             items = await builder.load_instructions_by_ids([full_id], load_mode_filter=None)
 
@@ -462,7 +467,10 @@ class ReadInstructionTool(Tool):
         if context_hub is not None:
             ib = getattr(context_hub, "instruction_builder", None)
             if ib is not None:
-                return True, getattr(ib, "data_source_ids", None)
+                ids = getattr(ib, "data_source_ids", None)
+                if getattr(runtime_ctx.get("report"), "agent_folder_id", None):
+                    return True, ids or []
+                return True, ids
             data_sources = getattr(context_hub, "data_sources", None)
             if data_sources is not None:
                 return True, [str(ds.id) for ds in data_sources]

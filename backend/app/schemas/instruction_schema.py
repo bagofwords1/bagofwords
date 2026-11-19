@@ -160,6 +160,10 @@ class InstructionBulkResponse(BaseModel):
 
 # Simplified schema without complex computed properties
 class InstructionSchema(InstructionBase):
+    scope_mode: str = "global"
+    folders: list[dict[str, str]] = Field(default_factory=list)
+    can_manage_scope: bool | None = None
+    can_review_scope: bool | None = None
     id: str
     user_id: Optional[str] = None
     organization_id: str
@@ -236,6 +240,11 @@ class InstructionListItemSchema(BaseModel):
     truncating at the page limit. Bodies come from `GET /instructions/{id}` when
     a row is opened; hunks already came from `/review-hunks` that way.
     """
+    scope_mode: str = "global"
+    #: Shared folders this instruction is filed under (id + name). A folder-scoped
+    #: rule carries no agents, so the pending/review grouping needs this to file it
+    #: under its folder instead of the global bucket.
+    folders: list[dict[str, str]] = Field(default_factory=list)
     id: str
     title: Optional[str] = None
     #: Body prefix — the tree label falls back to it when `title` is unset.
@@ -290,6 +299,8 @@ class InstructionListItemSchema(BaseModel):
 
 class InstructionListSchema(BaseModel):
     """Schema for listing instructions without full relationships"""
+    scope_mode: str = "global"
+    folders: list[dict[str, str]] = Field(default_factory=list)
     id: str
     text: str
     status: str

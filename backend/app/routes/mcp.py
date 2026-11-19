@@ -62,6 +62,10 @@ async def mcp_auth(
         # via their ServiceAccount row.
         from app.core.permission_resolver import assert_principal_belongs_to_org
         await assert_principal_belongs_to_org(db, user, org.id)
+        # Same as get_current_organization: the organization this request is
+        # for, read by response schemas and organization-context guards.
+        from app.core.request_org import set_request_organization_id
+        set_request_organization_id(str(org.id))
         return user, org
 
     # 1. Try JWT
@@ -155,7 +159,13 @@ async def _holds_permission_anywhere(db: AsyncSession, user: User, organization:
     """True if the user holds ``permission`` org-wide or on at least one agent."""
     from app.core.permission_resolver import get_ds_ids_with_permission
     is_org_wide, ds_ids = await get_ds_ids_with_permission(db, str(user.id), str(organization.id), permission)
-    return is_org_wide or bool(ds_ids)
+    if is_org_wide or ds_ids:
+        return True
+    if permission in {"manage_evals", "manage_instructions"}:
+        from app.core.permission_resolver import resolve_permissions
+        rights = await resolve_permissions(db, user.id, organization.id)
+        return rights.has_any_resource_permission(permission, "folder")
+    return False
 
 
 class JsonRpcRequest(BaseModel):

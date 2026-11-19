@@ -37,6 +37,8 @@
             data-testid="dashboard-filters-popover"
         >
             <div class="space-y-3">
+                <AgentFolderFilter :agents="facets?.agents || []" :selected="state.agents"
+                    @select="ids => emit('update', { agents: ids })" />
                 <!-- Agent (multi) -->
                 <div class="flex items-center justify-between gap-3">
                     <span class="text-xs text-ink-muted">{{ t('dashboards.filters.agent') }}</span>

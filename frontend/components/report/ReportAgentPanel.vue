@@ -5,7 +5,7 @@
       <div v-if="visibleAgents.length === 0" class="text-xs text-ink-muted italic text-center py-4">
         {{ $t('reportAgent.noAgents') }}
       </div>
-      <div v-else-if="visibleAgents.length === 1" class="flex items-center gap-2">
+      <div v-else-if="visibleAgents.length === 1 && !visibleAgents[0]?.folder_id" class="flex items-center gap-2">
         <button v-if="showClose" @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-800/70 p-1 rounded">
           <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
@@ -26,10 +26,11 @@
           @click="dropdownOpen = !dropdownOpen"
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors bg-white/80 dark:bg-gray-900/80"
         >
-          <Icon v-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
+          <Icon v-if="selectedFolder" name="heroicons:folder" class="size-5 text-ink-muted" />
+          <Icon v-else-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
           <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type" :connector-key="(selectedAgent as any).connector_key" :icon-token="selectedAgent.icon_token" :icon="selectedAgent.icon" class="h-5 flex-shrink-0" />
           <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
-            {{ selectedAgent?.name || $t('reportAgent.selectAgent') }}
+            {{ selectedFolder?.path || selectedAgent?.name || $t('reportAgent.selectAgent') }}
           </span>
           <Icon name="heroicons:chevron-down" class="w-4 h-4 text-ink-muted flex-shrink-0 transition-transform" :class="{ 'rotate-180': dropdownOpen }" />
         </button>
@@ -42,22 +43,24 @@
           leave-to-class="opacity-0 scale-95"
         >
           <div v-if="dropdownOpen" class="absolute z-10 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg overflow-hidden">
-            <button
-              v-for="agent in visibleAgents"
-              :key="agent.id"
+            <AgentFolderChoices :agents="visibleAgents" @select="(ids, folder) => { selectedFolder = {...folder, ids}; dropdownOpen = false }" :selected-folders="selectedFolder ? [selectedFolder.id] : []">
+              <template #agent="{agent: agent, parentPath}">
+                <button
               @click="selectAgent(agent.id)"
               class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 dark:text-gray-300'"
             >
               <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
               <DataSourceIcon v-else :type="agent.type" :connector-key="(agent as any).connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-4 flex-shrink-0" />
-              <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
+              <span class="truncate flex-1 text-start font-medium">{{ agent.name }}<small v-if="parentPath" class="block truncate text-2xs text-ink-muted">{{ parentPath }}</small></span>
               <span
                 v-if="stageBadge(agent)"
                 :class="['flex-shrink-0 text-2xs rounded border px-1 py-0.5', stageBadge(agent)?.badge]"
               >{{ stageBadge(agent)?.label }}</span>
               <Icon v-if="selectedAgentId === agent.id" name="heroicons:check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
             </button>
+              </template>
+            </AgentFolderChoices>
           </div>
         </Transition>
         </div>
@@ -83,8 +86,14 @@
       </button>
     </div>
 
+    <div v-if="selectedFolder" class="overflow-auto p-3">
+      <button v-for="agent in visibleAgents.filter(a => selectedFolder?.ids.includes(a.id))" :key="agent.id"
+        class="flex w-full items-center gap-2 rounded px-2 py-2 text-start text-sm hover:bg-surface-muted" @click="selectAgent(agent.id)">
+        <DataSourceIcon :type="agent.type" class="size-4" />{{ agent.name }}
+      </button>
+    </div>
     <!-- Tabs -->
-    <div v-if="selectedAgent" class="border-b border-gray-200 dark:border-gray-800 px-4 flex-shrink-0">
+    <div v-if="selectedAgent && !selectedFolder" class="border-b border-gray-200 dark:border-gray-800 px-4 flex-shrink-0">
       <nav class="-mb-px flex space-x-4">
         <button
           v-for="tab in tabs"
@@ -104,7 +113,7 @@
     </div>
 
     <!-- Tab content -->
-    <div v-if="selectedAgent" class="flex-1 min-h-0 overflow-y-auto p-4 bg-white dark:bg-gray-900">
+    <div v-if="selectedAgent && !selectedFolder" class="flex-1 min-h-0 overflow-y-auto p-4 bg-white dark:bg-gray-900">
       <!-- Overview tab -->
       <div v-if="activeTab === 'overview'" class="space-y-5">
         <div v-if="!selectedAgentDetails" class="flex items-center justify-center py-10">
@@ -554,7 +563,7 @@ const BuildExplorerModal = defineAsyncComponent(() => import('~/components/instr
 const { t } = useI18n()
 
 const props = defineProps<{
-  agents: Array<{ id: string; name: string; type?: string; connections?: any[]; publish_status?: string; reliability_status?: string }>
+  agents: Array<{ id: string; folder_id?: string; name: string; type?: string; connections?: any[]; publish_status?: string; reliability_status?: string }>
   showClose?: boolean
 }>()
 
@@ -609,6 +618,7 @@ const openBuildExplorer = (bid: string) => {
 // Dropdown state
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
+const selectedFolder = ref<{id: string, path: string, ids: string[]} | null>(null)
 const selectedAgentId = ref<string | null>(null)
 // Editing the selected agent (tables, starters, …) requires `manage` on that
 // data source (full_admin bypasses; otherwise a per-resource `manage` grant).
@@ -860,6 +870,7 @@ function instructionDsIconToken(ds: any): string | null | undefined {
 }
 
 function selectAgent(agentId: string) {
+  selectedFolder.value = null
   selectedAgentId.value = agentId
   dropdownOpen.value = false
   // Global has only the instructions tab; never leave activeTab on overview/etc.

@@ -466,6 +466,13 @@
                                             <span class="text-base text-gray-600 dark:text-gray-400 font-medium">Custom</span>
                                         </div>
                                     </template>
+                                    <!-- TypeSafe: logo plus a hint that it serves decision models only. -->
+                                    <template v-else-if="provider.type === 'typesafe'">
+                                        <div class="flex flex-col items-center leading-tight" data-testid="provider-tile-typesafe">
+                                            <LLMProviderIcon provider="typesafe" class="w-24 h-6" />
+                                            <span class="text-2xs text-ink-muted mt-1">{{ $t('settings.llms.decision.providerTileHint') }}</span>
+                                        </div>
+                                    </template>
                                     <!-- Other providers: show logo -->
                                     <LLMProviderIcon v-else :provider="provider.type" class="w-20 h-10" />
                                 </button>

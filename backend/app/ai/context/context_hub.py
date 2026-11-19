@@ -78,6 +78,7 @@ from .sections.resources_section import ResourcesSection
 from .sections.code_section import CodeSection
 from .builders.mention_context_builder import MentionContextBuilder
 from .builders.entity_context_builder import EntityContextBuilder
+from app.models.report import report_folder_ids
 from app.ai.utils.token_counter import count_tokens
 
 
@@ -431,6 +432,7 @@ class ContextHub:
             # filter is dead code in the agent path: instructions that only
             # reference tables the caller cannot see would still be injected.
             current_user=self.user,
+            folder_id=report_folder_ids(self.report),
             organization_settings=self.organization_settings,
             data_source_ids=[str(ds.id) for ds in self.data_sources] if self.data_sources else None,
             mode=_mode,
@@ -439,7 +441,7 @@ class ContextHub:
         )
         self.code_builder = CodeContextBuilder(self.db, self.organization)
         self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)
-        self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion, data_sources=self.data_sources)
+        self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, user=self.user, head_completion=self.head_completion, data_sources=self.data_sources)
         
         # New builders (port from agent.py)
         self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings, mode=self.mode)
@@ -746,7 +748,8 @@ class ContextHub:
         try:
             from sqlalchemy import select
             from app.models.completion import Completion
-            result = await self.db.execute(
+            from app.services.context_compaction_service import ContextCompactionService
+            stmt = (
                 select(Completion.prompt)
                 .where(
                     Completion.report_id == self.report.id,
@@ -756,6 +759,13 @@ class ContextHub:
                 .order_by(Completion.created_at.desc())
                 .limit(max_messages)
             )
+            # After /clear the old topic must not steer instruction matching.
+            cleared_at = await ContextCompactionService.clear_boundary_created_at(
+                self.db, str(self.report.id)
+            )
+            if cleared_at is not None:
+                stmt = stmt.where(Completion.created_at > cleared_at)
+            result = await self.db.execute(stmt)
             parts: list[str] = []
             for (prompt,) in result.all():
                 content = prompt.get("content") if isinstance(prompt, dict) else None
@@ -815,9 +825,17 @@ class ContextHub:
         ]
 
     def _apply_mcp_catalog(self) -> None:
+        self.apply_mcp_catalog_to(self._mcp_sections())
+
+    def apply_mcp_catalog_to(self, sections) -> None:
+        """Apply the run's MCP catalog to schema sections built outside the
+        hub (set_report_agents / search_agents render their own), so every
+        listing of MCP tools the model sees agrees with its tool list."""
         available = getattr(self, "_mcp_available", None)
         gateway = getattr(self, "_mcp_gateway", False)
-        for ds in self._mcp_sections():
+        for ds in sections or []:
+            if not hasattr(ds, "mcp_tools"):
+                continue
             try:
                 ds.native_mcp = not gateway
                 if available is None:
@@ -972,7 +990,8 @@ class ContextHub:
             getattr(self.instruction_builder, "channel", None),
             getattr(self.instruction_builder, "application_id", None),
         )
-        instr_cached = _INSTRUCTIONS_CACHE.get(instr_key)
+        exact_folder = getattr(self.instruction_builder, "folder_id", None)
+        instr_cached = None if exact_folder else _INSTRUCTIONS_CACHE.get(instr_key)
 
         async def _build_or_get_instructions():
             if instr_cached is not None and (now - instr_cached[0]) < _INSTRUCTIONS_CACHE_TTL_S:
@@ -985,7 +1004,8 @@ class ContextHub:
             _hub_logger.info(
                 f"[context_hub:prime_static] instructions done (cache miss) +{(time.monotonic()-t)*1000:.0f}ms"
             )
-            _INSTRUCTIONS_CACHE[instr_key] = (time.monotonic(), built)
+            if not exact_folder:
+                _INSTRUCTIONS_CACHE[instr_key] = (time.monotonic(), built)
             return built
 
         # Static builders share self.db too, so they run serially for the same

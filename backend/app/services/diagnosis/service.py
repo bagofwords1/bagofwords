@@ -22,7 +22,7 @@ from app.models.connection import Connection
 from app.models.data_source import DataSource
 from app.models.domain_connection import domain_connection
 from app.models.report import Report
-from app.models.report_data_source_association import report_data_source_association as assoc
+from app.services.folder_monitoring import agent_links, detail_condition, execution_links, reports_in_scope, visible_runs
 from app.models.table_usage_event import TableUsageEvent as TUE
 from app.models.tool_execution import ToolExecution as TE
 from app.models.user import User
@@ -36,6 +36,9 @@ from app.services.diagnosis.compiler import (
 )
 from app.services.diagnosis.constants import STALE_AFTER
 from app.services.diagnosis.grammar import QueryError, mentions_field, parse
+
+assoc = agent_links()
+run_agents = execution_links()
 from app.services.diagnosis.rollup import pending_clause
 
 MAX_LIMIT = 100
@@ -60,6 +63,8 @@ class RunQueryParams:
     sort_dir: str = "desc"
     include: Set[str] = field(default_factory=lambda: {"items", "summary", "histogram", "tools"})
 
+    folder_report_ids: Optional[Iterable[str]] = ()
+
 
 class BadQuery(Exception):
     """A query that does not parse; carries the parser's structured error."""
@@ -73,6 +78,7 @@ class BadRequest(Exception):
     def __init__(self, message: str):
         super().__init__(message)
         self.detail = {"code": "bad_request", "message": message}
+
 
 
 def _utc_naive(dt: Optional[datetime]) -> Optional[datetime]:
@@ -91,19 +97,9 @@ def _dialect(db: AsyncSession) -> str:
 
 
 def _reports_in_scope(scope_ids: Optional[List[str]]):
-    """Reports drawing ONLY on agents in scope (mirrors
+    """Reports whose every run is in scope (mirrors
     ConsoleService._reports_of_data_sources with no caller filter)."""
-    if scope_ids is None:
-        return None
-    return (
-        select(assoc.c.report_id)
-        .where(
-            assoc.c.data_source_id.in_(scope_ids),
-            ~assoc.c.report_id.in_(
-                select(assoc.c.report_id).where(assoc.c.data_source_id.notin_(scope_ids))
-            ),
-        )
-    )
+    return reports_in_scope(scope_ids)
 
 
 def _one_line(text: Optional[str], limit: int) -> Optional[str]:
@@ -147,13 +143,16 @@ class DiagnosisService:
         if end < start:
             raise BadRequest("end must be after start")
         clauses: List[Any] = [
+            detail_condition(AE.report_id, p.folder_report_ids),
             AE.organization_id == str(org_id),
             AE.created_at >= start,
             AE.created_at <= end,
         ]
-        reports = _reports_in_scope(scope_ids)
-        if reports is not None:
-            clauses.append(AE.report_id.in_(reports))
+        # Per run: an in-scope run stays visible even when a LATER turn of its
+        # report reached an agent outside scope (folder_monitoring.visible_runs).
+        runs = visible_runs(scope_ids)
+        if runs is not None:
+            clauses.append(AE.id.in_(runs))
         if not mentions_field(ast, "eval"):
             clauses.append(AE.is_eval_run == False)  # noqa: E712
         return clauses
@@ -265,7 +264,7 @@ class DiagnosisService:
         agents: Dict[str, List[Dict[str, Any]]] = {}
         turns: Dict[str, int] = {}
         if report_ids:
-            agents = await self._agents_for_reports(db, report_ids)
+            agents = await self._agents_for_runs(db, [r.id for r in rows])
             for rid, n in (await db.execute(
                 select(AE.report_id, func.count(AE.id))
                 .where(AE.report_id.in_(report_ids), AE.is_eval_run == False)  # noqa: E712
@@ -310,7 +309,7 @@ class DiagnosisService:
                 "platform": r.platform or "web",
                 "origin_app": request_origin.describe(*origin_of(r), origin_names),
                 "user": {"id": str(r.user_id) if r.user_id else None, "name": r.user_name, "email": r.user_email},
-                "agents": agents.get(str(r.report_id), []),
+                "agents": agents.get(str(r.id), []),
                 "report": {
                     "id": str(r.report_id) if r.report_id else None,
                     "title": r.report_title,
@@ -345,18 +344,18 @@ class DiagnosisService:
             next_cursor = self._encode_cursor(sort_value, str(last.id))
         return {"items": items, "next_cursor": next_cursor, "total": total}
 
-    async def _agents_for_reports(self, db, report_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    async def _agents_for_runs(self, db, run_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
         """Agents per report as the UI renders them: name plus what the
         DataSourceIcon needs (type of the first connection, connector key,
         custom icon). One query; a data source with several connections
         keeps the first."""
         from app.schemas.data_source_schema import _connector_key_from_config
         rows = (await db.execute(
-            select(assoc.c.report_id, DataSource.id, DataSource.name, DataSource.icon, Connection.type, Connection.config)
-            .join(DataSource, DataSource.id == assoc.c.data_source_id)
+            select(run_agents.c.execution_id, DataSource.id, DataSource.name, DataSource.icon, Connection.type, Connection.config)
+            .join(DataSource, DataSource.id == run_agents.c.data_source_id)
             .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
             .outerjoin(Connection, Connection.id == domain_connection.c.connection_id)
-            .where(assoc.c.report_id.in_(report_ids))
+            .where(run_agents.c.execution_id.in_(run_ids))
             .order_by(DataSource.name, Connection.created_at)
         )).all()
         out: Dict[str, List[Dict[str, Any]]] = {}
@@ -521,15 +520,15 @@ class DiagnosisService:
     # tool calls for a page of runs
     # ------------------------------------------------------------------
     async def tool_calls(
-        self, db: AsyncSession, organization_id: str, scope_ids: Optional[List[str]], run_ids: Iterable[str]
+        self, db: AsyncSession, organization_id: str, scope_ids: Optional[List[str]], run_ids: Iterable[str], folder_report_ids=()
     ) -> Dict[str, List[Dict[str, Any]]]:
         ids = [str(r) for r in run_ids][:MAX_LIMIT]
         if not ids:
             return {}
-        visible = select(AE.id).where(AE.organization_id == str(organization_id), AE.id.in_(ids))
-        reports = _reports_in_scope(scope_ids)
-        if reports is not None:
-            visible = visible.where(AE.report_id.in_(reports))
+        visible = select(AE.id).where(detail_condition(AE.report_id, folder_report_ids), AE.organization_id == str(organization_id), AE.id.in_(ids))
+        runs = visible_runs(scope_ids)
+        if runs is not None:
+            visible = visible.where(AE.id.in_(runs))
         stmt = (
             select(TE)
             .where(TE.agent_execution_id.in_(visible))
@@ -608,8 +607,8 @@ class DiagnosisService:
             stmt = (
                 select(DataSource.name, func.count(func.distinct(AE.id)))
                 .select_from(AE)
-                .join(assoc, assoc.c.report_id == AE.report_id)
-                .join(DataSource, DataSource.id == assoc.c.data_source_id)
+                .join(run_agents, run_agents.c.execution_id == AE.id)
+                .join(DataSource, DataSource.id == run_agents.c.data_source_id)
                 .where(AE.id.in_(matched))
                 .group_by(DataSource.name)
             )

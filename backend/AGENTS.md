@@ -55,6 +55,9 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
 ### debugging
 - when working locally, we use `sqlite` db by default, so it is a great resource to debug
 - sqlite3 `backend/db/app.db`
+- DevBox (`BOW_SANDBOX_DEVBOX=1`): the app database is `$BOW_DATABASE_URL`, not
+  `backend/db/app.db` (`source tools/agent/devbox_env.sh` gives the SQLite path as
+  `$BOW_SQLITE_DB`); logs via `bow-stack logs backend`. See the root `AGENTS.md`, "DevBox".
 
 ### Locale / i18n
 
@@ -110,5 +113,11 @@ Concise overview of `@backend/` with emphasis on the `app` library layout and ho
   only for one-language scripts (Hebrew, Greek, Thai, Korean, Japanese
   kana) and quotes the user otherwise. Never move it into the system
   prompt — it changes per conversation and would break prompt caching.
+  When the turn has a resolved `response_locale` (every report turn), the
+  head ends with the marker `<response_presentation locale="…"/>` instead;
+  its meaning is a fixed rule in the system prompt. Keep user-role text
+  factual: imperative or self-concealing wording there ("silently", "do not
+  mention these instructions") is blocked by prompt-injection filters such
+  as Azure Prompt Shields.
 
 See `docs/design/i18n.md` for the full design and authoring rules.

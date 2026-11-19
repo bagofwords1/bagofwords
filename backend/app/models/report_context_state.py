@@ -43,3 +43,8 @@ class ReportContextState(BaseSchema):
     degraded = Column(Boolean, nullable=False, default=False, server_default=false())
     last_tokens_before = Column(Integer, nullable=True, default=None)
     last_tokens_after = Column(Integer, nullable=True, default=None)
+    # /clear boundaries: completion ids after which the user cleared the
+    # context, oldest first. The newest is a hard boundary — nothing at or
+    # before it reaches the agent, not even the protected opening exchange.
+    # The transcript renders a "Context cleared" divider after each one.
+    clear_boundaries = Column(JSON, nullable=True, default=None)

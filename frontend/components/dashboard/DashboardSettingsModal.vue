@@ -69,6 +69,16 @@
                                 <p v-if="!rename" class="text-2xs text-ink-muted mt-1">{{ capabilities?.includes('transfer') ? tm('dashboardSettings.renameInConversation', artifactMode) : $t('dashboardSettings.ownerOnly') }}</p>
                             </div>
 
+                            <!-- A short blurb shown to readers on hover, beside the full
+                                 name. Optional; saved on the same Save as the link name. -->
+                            <div data-testid="settings-description">
+                                <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1.5" for="dashboard-settings-description">{{ $t('dashboardSettings.descriptionTitle') }}</label>
+                                <textarea v-text-dir id="dashboard-settings-description" v-model="descriptionDraft" rows="3" maxlength="2000" :disabled="!canSettings"
+                                    :placeholder="tm('dashboardSettings.descriptionPlaceholder', artifactMode)"
+                                    class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-60 resize-y" />
+                                <p class="text-2xs text-ink-muted mt-1">{{ $t('dashboardSettings.descriptionHelp') }}</p>
+                            </div>
+
                             <div data-testid="settings-link">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('dashboardSettings.linkTitle') }}</div>
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 mb-1.5">{{ tm('dashboardSettings.linkDesc', artifactMode) }}</p>
@@ -230,6 +240,20 @@
                                     <HistoryOwner :dashboard-id="dashboardId" :mode="artifactMode" @transferred="onTransferred" />
                                 </div>
                             </div>
+
+                            <!-- Delete: the owner's alone (the server's `delete` capability). -->
+                            <div v-if="capabilities?.includes('delete')" class="pt-4 border-t border-gray-200 dark:border-gray-700" data-testid="settings-delete">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ tm('dashboardDelete.settingsTitle', artifactMode) }}</div>
+                                        <p class="text-2xs text-ink-muted mt-0.5">{{ $t('dashboardDelete.settingsDesc') }}</p>
+                                    </div>
+                                    <UButton color="red" variant="soft" size="xs" icon="i-heroicons-trash" class="shrink-0"
+                                        data-testid="settings-delete-button" @click="deleteOpen = true">
+                                        {{ $t('dashboardDelete.action') }}
+                                    </UButton>
+                                </div>
+                            </div>
                         </section>
 
                         <!-- What viewers get -->
@@ -283,6 +307,8 @@
                                             </span>
                                         </label>
                                         <div v-if="agentsMode === 'limited'" class="ms-6 space-y-1" data-testid="agents-choices">
+                                            <AgentFolderFilter :agents="agentChoices" :selected="chatAgentIds" :disabled="!canSettings"
+                                                @select="ids => chatAgentIds = [...new Set([...chatAgentIds, ...ids])]" />
                                             <label v-for="agent in agentChoices" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
                                                 <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="!canSettings" />
                                                 <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
@@ -390,6 +416,7 @@
             </div>
         </div>
     </UModal>
+    <DeleteDashboardModal v-model="deleteOpen" :dashboard="deletable" @deleted="onDeleted" />
 </template>
 
 <script setup lang="ts">
@@ -400,6 +427,7 @@ import HistoryRefreshes from './history/HistoryRefreshes.vue'
 import DashboardAccessPanel from './DashboardAccessPanel.vue'
 import DashboardEmbedPanel from './DashboardEmbedPanel.vue'
 import HistoryOwner from './history/HistoryOwner.vue'
+import DeleteDashboardModal from '~/components/dashboards/DeleteDashboardModal.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
@@ -419,7 +447,7 @@ const props = defineProps<{
     title?: string
     rename?: (title: string) => Promise<boolean>
 }>()
-const emit = defineEmits<{ (e: 'saved', settings: any): void; (e: 'history-changed'): void }>()
+const emit = defineEmits<{ (e: 'saved', settings: any): void; (e: 'history-changed'): void; (e: 'deleted', id: string): void }>()
 
 const { t } = useI18n()
 const { tm } = useArtifactWording()
@@ -606,6 +634,18 @@ const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
 // ---- Owner ----
 const ownerId = ref<string | null>(null)
+// ---- Delete (the owner's): what the confirmation warns about, as loaded.
+const deleteOpen = ref(false)
+const loadedState = ref<{ published: boolean; visibility: string | null; cron: string | null }>({ published: false, visibility: null, cron: null })
+const deletable = computed(() => ({
+    id: props.dashboardId, title: props.title, mode: props.artifactMode,
+    published: loadedState.value.published, visibility: loadedState.value.visibility,
+    cron_schedule: loadedState.value.cron,
+}))
+function onDeleted(id: string) {
+    isOpen.value = false
+    emit('deleted', id)
+}
 const ownerPerson = computed(() => members.value.find(m => m.id === ownerId.value) || null)
 const transferOpen = ref(false)
 async function onTransferred() {
@@ -617,6 +657,9 @@ async function onTransferred() {
 // ---- Name ----
 const nameDraft = ref('')
 const nameChanged = computed(() => !!props.rename && !!nameDraft.value.trim() && nameDraft.value.trim() !== (props.title || ''))
+
+// ---- Description (saved with the rest, via the settings endpoint) ----
+const descriptionDraft = ref('')
 
 // ---- Link name ----
 const slugDraft = ref('')
@@ -653,10 +696,7 @@ const saved = ref<Record<string, any>>({})
 function chatIdsPayload(): string[] | null {
     if (bubbleDataOnly.value) return []
     if (agentsMode.value === 'auto') return ['*']
-    const all = agentChoices.value.map(a => a.id)
-    const picked = chatAgentIds.value.filter(id => all.includes(id))
-    // Nothing picked is not a limit: back to Auto (["*"] resets it server-side).
-    return picked.length ? picked : ['*']
+    return [...chatAgentIds.value]
 }
 
 function current(): Record<string, any> {
@@ -673,6 +713,7 @@ function current(): Record<string, any> {
         chat_model_id: chatModelId.value === INHERIT_MODEL ? '' : chatModelId.value,
         shared_run_identity: runAsCreator.value ? 'creator' : 'viewer',
         slug: slugDraft.value.trim(),
+        description: descriptionDraft.value.trim(),
     }
 }
 const changes = computed(() => {
@@ -707,6 +748,8 @@ async function load() {
         subscribers.value = (st.notification_subscribers || []).map((x: any) => ({ ...x }))
         const status = (statusRes.data.value || {}) as any
         lastRunAt.value = status.published ? (status.last_run?.at || null) : (report.last_run_at || null)
+        loadedState.value = { published: !!status.published, visibility: ((sharingRes.data.value || {}) as any).visibility || null,
+            cron: st.cron_schedule || null }
 
         includeDataTab.value = st.include_data_tab !== false
         showWidgetInfo.value = st.show_widget_info === true
@@ -724,7 +767,8 @@ async function load() {
             orgAgents.value = (((data.value as any[]) || [])).map((a: any) => ({ id: String(a.id), name: a.name }))
         }).catch(() => {})
         chatModelId.value = st.chat_model_id || INHERIT_MODEL
-        chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
+        // Image-generation models can't chat; the server also rejects them.
+        chatModels.value = ((modelsRes.data.value as any[]) || []).filter((m: any) => !m?.supports_image_generation).map((m: any) => ({
             id: m.id, name: m.name || m.model_id, provider: m.provider?.name, isDefault: !!m.is_default,
         }))
         runAsCreator.value = st.shared_run_identity === 'creator'
@@ -732,6 +776,7 @@ async function load() {
         hasUserScoped.value = !!report.has_user_scoped
         slugDraft.value = st.slug || ''
         savedSlug.value = st.slug || null
+        descriptionDraft.value = st.description || ''
         nameDraft.value = props.title || ''
         saved.value = current()
     } catch (e) {

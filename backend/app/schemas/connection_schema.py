@@ -153,6 +153,10 @@ class ConnectionSchema(BaseModel):
     data_shape: str = "tables"
     # Registry catalog_nouns override ([singular, plural]), when the entry has one.
     catalog_nouns: Optional[List[str]] = None
+    # Ids of the data sources (agents) this connection backs. The prompt-box
+    # file picker needs a (data_source_id, connection_id) pair to call the
+    # per-connection file search / attach endpoints.
+    data_source_ids: List[str] = []
 
     class Config:
         from_attributes = True

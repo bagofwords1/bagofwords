@@ -203,6 +203,132 @@ export function resolveDirTree<R>(roots: DirNode<R>[], docCounts: DirCounts, opt
   return docDir
 }
 
+// ─── Direction for a whole chat message ──────────────────────────────────────
+// A reply is one message even when tool calls split it into several rendered
+// blocks. Deciding per block let a block holding only a table of English
+// names (or SQL column headers) flip LTR inside a Hebrew answer, and let the
+// saved response language override text that was plainly the other script.
+// The message decides once, from its prose, and every block, table, list and
+// tool card in it takes that direction.
+
+export interface MarkdownDirCounts {
+  /** Paragraphs, headings and quotes: the sentences the model wrote. */
+  prose: DirCounts
+  /** List items: often names and short labels. */
+  lists: DirCounts
+  /** Table rows: data (names, column headers), the weakest signal. */
+  tables: DirCounts
+}
+
+const FENCE_LINE = /^\s{0,3}(```|~~~)/
+const LIST_LINE = /^\s*(?:[-*+]|\d+[.)])\s+/
+const TABLE_LINE = /^\s*\|/
+
+function addCounts(into: DirCounts, from: DirCounts): DirCounts {
+  into.rtl += from.rtl
+  into.ltr += from.ltr
+  return into
+}
+
+/**
+ * Word counts of markdown source, split by the kind of line they sit on. Code
+ * (fenced blocks — an unclosed fence while streaming — and inline spans), link
+ * targets, URLs and HTML tags don't vote: they are identifiers, not prose.
+ */
+export function markdownDirCounts(markdown: string | null | undefined): MarkdownDirCounts {
+  const out: MarkdownDirCounts = {
+    prose: { rtl: 0, ltr: 0 },
+    lists: { rtl: 0, ltr: 0 },
+    tables: { rtl: 0, ltr: 0 },
+  }
+  let inFence = false
+  for (const raw of (markdown || '').split('\n')) {
+    if (FENCE_LINE.test(raw)) { inFence = !inFence; continue }
+    if (inFence) continue
+    const line = raw
+      .replace(/`[^`\n]*`?/g, ' ')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)?/g, '$1')
+      .replace(/\bhttps?:\/\/\S+/g, ' ')
+      .replace(/<[^>]*>/g, ' ')
+    const bucket = TABLE_LINE.test(line) || (line.match(/\|/g) || []).length >= 2
+      ? out.tables
+      : LIST_LINE.test(line) ? out.lists : out.prose
+    countDirWords(line, bucket)
+  }
+  return out
+}
+
+/**
+ * The counts a message votes with: its prose when there is enough of it,
+ * otherwise prose and lists, and only as a last resort the tables too.
+ */
+export function messageDirCounts(texts: Array<string | null | undefined>): MarkdownDirCounts {
+  const out: MarkdownDirCounts = { prose: { rtl: 0, ltr: 0 }, lists: { rtl: 0, ltr: 0 }, tables: { rtl: 0, ltr: 0 } }
+  for (const text of texts) {
+    const c = markdownDirCounts(text)
+    addCounts(out.prose, c.prose)
+    addCounts(out.lists, c.lists)
+    addCounts(out.tables, c.tables)
+  }
+  return out
+}
+
+export function messageVoteCounts(texts: Array<string | null | undefined>): DirCounts {
+  const { prose, lists, tables } = messageDirCounts(texts)
+  const total = (c: DirCounts) => c.rtl + c.ltr
+  if (total(prose) >= ROOT_MIN_WORDS) return prose
+  const withLists = addCounts({ ...prose }, lists)
+  if (total(withLists) >= ROOT_MIN_WORDS) return withLists
+  return addCounts(withLists, tables)
+}
+
+export interface MessageDirInput {
+  /** Markdown of every visible answer block in the message (not reasoning). */
+  texts: Array<string | null | undefined>
+  /** Direction of the saved response language, once the server announced it. */
+  saved?: TextDir | null
+  /** Direction of the question the message answers. */
+  question?: TextDir | null
+  /** The UI direction: used only when there is neither a prior nor text. */
+  fallback?: TextDir | null
+}
+
+// An LTR prior gives way once RTL words are the majority of the prose. LTR
+// prose rarely carries RTL words, so a majority means the model wrote RTL.
+export const MESSAGE_RTL_MAJORITY = 0.5
+
+/**
+ * One direction for a chat message.
+ *  - The prior is the saved response language, else the question's direction.
+ *    It holds until the prose has more than a sentence's worth of words
+ *    (SHORT_CONTAINER_WORDS), so a Hebrew answer neither opens LTR on
+ *    "**Revenue**" nor flips while its first English stretch streams in.
+ *  - After that the prose (never lists or tables: names and data say nothing
+ *    about the answer's language) can overrule it, leaning RTL both ways because RTL
+ *    prose embeds Latin identifiers and the reverse is rare: an RTL prior
+ *    turns LTR only when the prose is almost entirely Latin; an LTR prior
+ *    turns RTL once RTL words are the majority. So a saved language that
+ *    disagrees with plainly Hebrew prose loses.
+ *  - Without a prior, the prose votes once it has a few words; before that
+ *    the UI direction stands in.
+ */
+export function decideMessageDir(input: MessageDirInput): TextDir {
+  const prior = input.saved ?? input.question ?? null
+  if (prior) {
+    // Only sentences can overrule a prior: a list of names or a table of data
+    // says nothing about the language the answer is written in.
+    const prose = messageDirCounts(input.texts).prose
+    const total = prose.rtl + prose.ltr
+    if (total <= SHORT_CONTAINER_WORDS) return prior
+    const share = prose.rtl / total
+    if (prior === 'rtl') return share < CONTAINER_MINORITY_SHARE ? 'ltr' : 'rtl'
+    return share >= MESSAGE_RTL_MAJORITY ? 'rtl' : 'ltr'
+  }
+  const counts = messageVoteCounts(input.texts)
+  if (counts.rtl + counts.ltr < ROOT_MIN_WORDS) return input.fallback ?? decideDir(counts) ?? 'ltr'
+  return decideDir(counts) ?? input.fallback ?? 'ltr'
+}
+
 // Locales whose UI direction is RTL — used as the direction fallback for empty
 // inputs, where there is no content to derive a direction from (same set as
 // PromptBoxV2's MentionInput).
