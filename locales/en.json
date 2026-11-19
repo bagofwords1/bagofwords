@@ -1797,6 +1797,24 @@
         "contextShared": "The app shared what you selected with the assistant."
       }
     },
+    "remoteOp": {
+      "read_file": {
+        "running": "Reading {name}…",
+        "done": "Read {name}"
+      },
+      "list_directory": {
+        "running": "Listing {name}…",
+        "done": "Listed {name}"
+      },
+      "search_file": {
+        "running": "Searching {name} for “{text}”…",
+        "done": "Searched {name} for “{text}”"
+      },
+      "system_status": {
+        "running": "Checking server status…",
+        "done": "Checked server status"
+      }
+    },
     "answerQuestion": {
       "thought": "Thought about answer"
     },

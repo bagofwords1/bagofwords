@@ -12,13 +12,14 @@
       >
         <span v-if="isRunning" class="flex items-center gap-1">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ runningLabel }}</span>
+          <span class="tool-shimmer" :title="remoteOpPath || undefined">{{ runningLabel }}</span>
         </span>
         <span v-else class="text-gray-600 dark:text-gray-400 flex items-center gap-1">
-          <DataSourceIcon v-if="connectionIcon" :type="connectionIcon.type" :connector-key="connectionIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
+          <Icon v-if="remoteOp" :name="remoteOpIcon" class="w-3 h-3 me-1 shrink-0 text-ink-muted" data-testid="remote-op-icon" />
+          <DataSourceIcon v-else-if="connectionIcon" :type="connectionIcon.type" :connector-key="connectionIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <McpIcon v-else-if="isMcpFamily" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-server-stack" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ doneLabel }}</span>
+          <span :title="remoteOpPath || undefined">{{ doneLabel }}</span>
           <span v-if="duration" class="text-ink-muted ms-1">{{ duration }}</span>
           <Icon
             :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -384,6 +385,51 @@ const isShell = computed(() => args.value.tool_name === 'execute_shell' && (
   connectionIcon.value?.type === 'remote_ssh' || shellPermissions.value
 ))
 
+// Read-only operations of a remote-server (SSH/SMB) connection. They run
+// through execute_mcp like any MCP tool, but read like file reads: "Read
+// app.log · web-01", not "read_file · web-01" under a terminal icon. The
+// terminal glyph stays reserved for execute_shell (RemoteShellTool).
+const REMOTE_OPS = ['read_file', 'list_directory', 'search_file', 'system_status'] as const
+type RemoteOp = typeof REMOTE_OPS[number]
+const REMOTE_OP_ICONS: Record<RemoteOp, string> = {
+  read_file: 'heroicons-document-text',
+  list_directory: 'heroicons-folder-open',
+  search_file: 'heroicons-document-magnifying-glass',
+  system_status: 'heroicons-server',
+}
+const remoteOp = computed<RemoteOp | null>(() => {
+  const type = resultJson.value.connection_type || connectionIcon.value?.type
+  if (type !== 'remote_ssh' && type !== 'remote_smb') return null
+  const name = args.value.tool_name
+  return (REMOTE_OPS as readonly string[]).includes(name) ? name as RemoteOp : null
+})
+const remoteOpIcon = computed(() => remoteOp.value ? REMOTE_OP_ICONS[remoteOp.value] : '')
+const remoteOpPath = computed<string>(() => {
+  const p = args.value.arguments?.path
+  return remoteOp.value && typeof p === 'string' ? p : ''
+})
+// Basename of a POSIX, Windows or share-relative path; a bare root keeps its
+// full form so "/" or "C:\\" still says something.
+function pathTail(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, '')
+  const tail = trimmed.split(/[\\/]/).pop()
+  return tail || p
+}
+// File, search text and server are LTR fragments inside a possibly RTL
+// sentence; first-strong isolates keep "קורא את app.log…" from reordering.
+const isolate = (v: string) => `\u2068${v}\u2069`
+const remoteOpLabel = (phase: 'running' | 'done') => {
+  const op = remoteOp.value
+  if (!op) return ''
+  const a = args.value.arguments || {}
+  const base = t(`tools.remoteOp.${op}.${phase}`, {
+    name: isolate(pathTail(remoteOpPath.value) || '…'),
+    text: isolate(typeof a.text === 'string' ? a.text : ''),
+  })
+  const server = resultJson.value.execution_target?.server || resultJson.value.connection_name
+  return server ? `${base} · ${isolate(server)}` : base
+}
+
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms
   if (!ms) return ''
@@ -409,6 +455,7 @@ const runningLabel = computed(() => {
     return t('tools.mcp.autoReviewing', { name: args.value.tool_name || 'tool' })
   }
   if (modelTitle.value) return modelTitle.value
+  if (remoteOp.value) return remoteOpLabel('running')
   if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
     const label = args.value.tool_name || resultJson.value.connection_name || 'MCP tool'
@@ -439,6 +486,7 @@ const doneLabel = computed(() => {
       return t('tools.mcp.failed', { name: connName })
     }
     if (modelTitle.value) return modelTitle.value
+    if (remoteOp.value) return remoteOpLabel('done')
     // The tool that ran, with its connection: "find_artist · music-store".
     const called = args.value.tool_name
     const connName = resultJson.value.connection_name

@@ -1699,6 +1699,24 @@
         "contextShared": "La aplicación compartió tu selección con el asistente."
       }
     },
+    "remoteOp": {
+      "read_file": {
+        "running": "Leyendo {name}…",
+        "done": "Leído {name}"
+      },
+      "list_directory": {
+        "running": "Listando {name}…",
+        "done": "Listado {name}"
+      },
+      "search_file": {
+        "running": "Buscando “{text}” en {name}…",
+        "done": "Buscado “{text}” en {name}"
+      },
+      "system_status": {
+        "running": "Comprobando el estado del servidor…",
+        "done": "Estado del servidor comprobado"
+      }
+    },
     "answerQuestion": {
       "thought": "Pensó la respuesta"
     },
