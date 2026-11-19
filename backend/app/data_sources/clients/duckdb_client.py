@@ -102,9 +102,9 @@ class DuckDBClient(DataSourceClient):
 
         A setting can be read back by any query (`current_setting`,
         `duckdb_settings()`); a secret is used to sign requests and is shown
-        redacted. Requests are signed the same way either way. The key covers
-        s3:// and, as the settings did, gs:// (HMAC keys through the
-        S3-compatible API).
+        redacted. Requests are signed the same way either way. The URL style
+        and TLS settings above still apply. The key covers s3:// and, as the
+        settings did, gs:// (HMAC keys through the S3-compatible API).
         """
         # A secret without a region signs with an empty one; the settings
         # path used the session default.
@@ -115,7 +115,7 @@ class DuckDBClient(DataSourceClient):
         ]
         if self.session_token:
             fields.append(f"SESSION_TOKEN {self._sql_literal(self.session_token)}")
-        s3_fields = fields + [f"REGION {self._sql_literal(region)}", "URL_STYLE 'path'", "USE_SSL true"]
+        s3_fields = fields + [f"REGION {self._sql_literal(region)}"]
         con.execute(f"CREATE OR REPLACE TEMPORARY SECRET bow_s3 (TYPE s3, {', '.join(s3_fields)})")
         con.execute(f"CREATE OR REPLACE TEMPORARY SECRET bow_gcs (TYPE gcs, {', '.join(fields)})")
 
