@@ -113,7 +113,7 @@ def downgrade_test_db_to_base() -> None:
 # code at head reads their tables and columns, so a corpus stopped before the
 # data migration gets them too: their upgrade() runs on its own, unstamped,
 # and is idempotent, so a later `upgrade head` finds it done.
-SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01", "pubkeep01", "auditcontract01", "conndownalert01", "connalertmode01", "connalertstate01", "dashlist01", "dashlist02", "schedagents01", "roleovr01", "ctxcomp02", "dskind01", "cqruns01", "shwinfo01", "artpopup01", "dashacc01", "folder01", "folder02", "folder03", "folder04", "folder05", "folder06", "folder07", "folder08", "folder10", "folder11", "folder12", "decmodel01", "dashdesc01", "queryexec01", "queryexec02", "queryexec03", "ctxclear01", "toolconfte01", "slackchan01", "permmode01", "permmode02")
+SCHEMA_ONLY_AFTER_DATA_MIGRATION = ("collab01", "refhist01", "connfail01", "hostapp01", "activity01", "embedmrg01", "credit01", "origin01", "payload01", "connapps01", "pubkeep01", "auditcontract01", "conndownalert01", "connalertmode01", "connalertstate01", "dashlist01", "dashlist02", "schedagents01", "roleovr01", "ctxcomp02", "dskind01", "cqruns01", "shwinfo01", "artpopup01", "dashacc01", "folder01", "folder02", "folder03", "folder04", "folder05", "folder06", "folder07", "folder08", "folder10", "folder11", "folder12", "decmodel01", "dashdesc01", "queryexec01", "queryexec02", "queryexec03", "ctxclear01", "toolconfte01", "slackchan01", "steerat01", "notifres01", "exposed01", "formernames01", "permmode01", "permmode02")
 
 
 # Later revisions that add columns to the tables connapps01 creates. A test
@@ -174,6 +174,23 @@ def apply_schema_only_revisions(url: str) -> None:
         engine.dispose()
 
 
+DATA_MIGRATION_REVISION = "dashfc08"
+
+
+def _stamped_past_data_migration(script: ScriptDirectory, heads: tuple[str, ...]) -> bool:
+    """True when the data migration is in the stamped history of `heads`.
+
+    Then every schema-only revision above it is stamped too (or not applied
+    at all), and `alembic downgrade` undoes them itself -- running their
+    downgrade() by hand first would undo them twice. Read from the revision
+    graph, so a migration added on top of the head needs no list update here.
+    """
+    if not heads:
+        return False
+    applied = {rev.revision for rev in script.iterate_revisions(heads, "base")}
+    return DATA_MIGRATION_REVISION in applied
+
+
 def remove_schema_only_revisions(url: str) -> None:
     """Undo apply_schema_only_revisions before a downgrade below the data
     migration (their downgrade is idempotent too)."""
@@ -184,7 +201,7 @@ def remove_schema_only_revisions(url: str) -> None:
     try:
         with engine.begin() as conn:
             context = MigrationContext.configure(conn)
-            if set(context.get_current_heads()) & set(SCHEMA_ONLY_AFTER_DATA_MIGRATION):
+            if _stamped_past_data_migration(script, context.get_current_heads()):
                 return  # stamped: alembic's own downgrade undoes them
             with Operations.context(context):
                 for revision in reversed(SCHEMA_ONLY_AFTER_DATA_MIGRATION):

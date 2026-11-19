@@ -42,6 +42,13 @@ class Completion(BaseSchema):
 
     # message type
     message_type = Column(String, nullable=False, default='ai_completion')
+
+    # Steering rows only (message_type='steering'): when the agent picked the
+    # steer up, and the loop step that first acted on it. The chat renders the
+    # steer right above the first block with loop_index >= steering_loop_index.
+    # NULL while pending / never picked up -> send-time placement.
+    steering_applied_at = Column(DateTime, nullable=True, default=None)
+    steering_loop_index = Column(Integer, nullable=True, default=None)
     role = Column(String, nullable=False, default='system')
 
     # report

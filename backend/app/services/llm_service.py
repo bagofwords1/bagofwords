@@ -2520,8 +2520,12 @@ class LLMService:
         for model in models:
             # If model has an ID, update existing model
             if model.id:
+                # Only this provider's own models can be edited through it.
                 db_model = await db.execute(
-                    select(LLMModel).filter(LLMModel.id == model.id)
+                    select(LLMModel).filter(
+                        LLMModel.id == model.id,
+                        LLMModel.provider_id == provider.id,
+                    )
                 )
                 db_model = db_model.scalar_one_or_none()
 

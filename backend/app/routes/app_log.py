@@ -1,10 +1,6 @@
 """Settings → System logs: read and clear the server's own log files.
 
-These are the deployment's own logs, not an organization's data, so access
-follows the instance license (``app/ee/routes.py``): an organization admin
-(``full_admin_access``), and on an instance that allows more than one
-organization, where anyone can create an org and become its admin, only an
-instance superuser.
+Only instance superusers may access these deployment-wide logs.
 
 The files are on disk (``app_log_service``), so every read runs in a thread
 to keep the event loop free.
@@ -31,18 +27,18 @@ from app.schemas.app_log_schema import (
 )
 from app.services import app_log_service as svc
 
-router = APIRouter(tags=["system-logs"])
 logger = logging.getLogger(__name__)
 
 
-def _ensure_instance_admin(user: User) -> None:
-    from app.settings.config import settings
-
-    if settings.bow_config.features.allow_multiple_organizations and not user.is_superuser:
+async def require_log_admin(user: User = Depends(current_user)) -> None:
+    if not user.is_superuser or user.is_service_account:
         raise AppError.forbidden(
             ErrorCode.SYSTEM_LOGS_INSTANCE_ADMIN_REQUIRED,
-            "Only an instance administrator can use system logs on a multi-organization instance",
+            "Only an instance administrator can use system logs",
         )
+
+
+router = APIRouter(tags=["system-logs"], dependencies=[Depends(require_log_admin)])
 
 
 def _naive_utc(value: Optional[datetime]) -> Optional[datetime]:
@@ -95,7 +91,6 @@ async def list_system_logs(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    _ensure_instance_admin(current_user)
     start, end = _naive_utc(start), _naive_utc(end)
     if start and end and start > end:
         raise AppError.bad_request(ErrorCode.SYSTEM_LOGS_INVALID_RANGE, "start must be before end")
@@ -128,7 +123,6 @@ async def get_system_logs_status(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    _ensure_instance_admin(current_user)
     return await asyncio.to_thread(_status)
 
 
@@ -139,7 +133,6 @@ async def delete_system_logs(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    _ensure_instance_admin(current_user)
     try:
         deleted = await asyncio.to_thread(svc.delete_all)
     except OSError as e:

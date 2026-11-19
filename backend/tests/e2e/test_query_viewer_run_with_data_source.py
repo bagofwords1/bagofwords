@@ -158,6 +158,7 @@ def test_viewer_run_builds_clients_for_a_report_with_data_sources(
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop
 def test_concurrent_first_viewer_runs_share_one_cache_slot(
     dynamic_sqlite_db, create_data_source, create_report, create_user,
     login_user, whoami, test_client, monkeypatch,

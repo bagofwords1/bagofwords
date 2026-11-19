@@ -17,6 +17,7 @@ from app.schemas.organization_settings_schema import (
     DefaultMemberRoleSchema,
 )
 from datetime import datetime
+from typing import List, Optional
 import logging
 import os
 import hashlib
@@ -236,8 +237,30 @@ class OrganizationSettingsService:
 
             # Handle top-level feature updates
             pii_changed = False
+            # Audit entries for PII policy / provider assignment changes.
+            pii_audit_entries: list = []
             for key, value_update in update_data['config'].items():
                 if key != 'ai_features':
+                    # Workspace settings (Settings → General). Merged over the
+                    # stored object so a page that saves one field at a time
+                    # never resets the others, and validated so an empty AI
+                    # analyst name is a 400 instead of being stored. The icon
+                    # fields belong to the icon endpoints, which validate and
+                    # store the file; this writer keeps whatever they stored.
+                    if key == 'general':
+                        if not isinstance(value_update, dict):
+                            raise HTTPException(status_code=400, detail="Invalid general settings payload.")
+                        stored = dict(current_config.get('general') or {})
+                        incoming = {k: v for k, v in value_update.items() if k not in ('icon_key', 'icon_url')}
+                        try:
+                            validated = OrganizationSettingsConfig.GeneralConfig(**{**stored, **incoming})
+                        except Exception as e:
+                            raise HTTPException(status_code=400, detail=f"Invalid general settings: {e}")
+                        merged = {**stored, **validated.dict()}
+                        if current_config.get('general') != merged:
+                            current_config['general'] = merged
+                            config_changed = True
+                        continue
                     # PII protection (enterprise). Validated + normalized via the
                     # schema; custom rule regexes are compiled so a bad pattern is
                     # rejected at save time rather than silently skipped at runtime.
@@ -251,10 +274,19 @@ class OrganizationSettingsService:
                             raise HTTPException(status_code=400, detail="Invalid PII protection payload.")
                         from app.schemas.organization_settings_schema import PiiProtectionConfig
                         from app.ai.llm.pii.redactor import validate_pattern
+                        from app.ai.llm.pii import policy as pii_policy
                         existing = current_config.get('pii_protection') or {}
-                        merged = {**existing, **value_update}
                         try:
+                            pii_policy.validate_update(value_update, existing)
+                            merged = pii_policy.apply_update(existing, value_update)
+                            merged["provider_policies"] = await self._resolve_pii_provider_policies(
+                                db, organization, merged["provider_policies"],
+                                pii_policy.normalize(existing)["provider_policies"],
+                            )
                             validated = PiiProtectionConfig(**merged)
+                            self._require_pii_detector_for(merged, pii_policy.normalize(existing))
+                        except HTTPException:
+                            raise
                         except Exception as e:
                             raise HTTPException(status_code=400, detail=f"Invalid PII protection config: {e}")
                         for rule in validated.custom_rules:
@@ -270,7 +302,10 @@ class OrganizationSettingsService:
                                         status_code=400,
                                         detail=f"Rule '{rule.name}': {err}"
                                     )
-                        normalized = validated.dict()
+                        normalized = validated.model_dump()
+                        pii_audit_entries = pii_policy.diff_for_audit(
+                            pii_policy.normalize(existing), pii_policy.normalize(normalized)
+                        )
                         if current_config.get('pii_protection') != normalized:
                             current_config['pii_protection'] = normalized
                             config_changed = True
@@ -515,8 +550,82 @@ class OrganizationSettingsService:
                     )
                 except Exception:
                     pass
+                # Policies decide what each provider receives, so each change
+                # gets its own audit entry (ids, names and changed settings only).
+                for _entry in pii_audit_entries:
+                    try:
+                        await audit_service.log(
+                            db=db,
+                            organization_id=str(organization.id),
+                            action=_entry["action"],
+                            user_id=str(current_user.id),
+                            resource_type="organization_settings",
+                            resource_id=str(settings.id),
+                            details=_entry["details"],
+                        )
+                    except Exception:
+                        pass
 
         return settings
+
+    @staticmethod
+    def _require_pii_detector_for(merged: dict, previous: dict) -> None:
+        """Turning a detector rule (names, locations…) on needs a detector on
+        this instance. Without one the rule could only ever refuse every
+        request (or silently do nothing), so the save says so instead. A rule
+        that was already on is left alone: an instance whose detector went away
+        must still be able to save other settings."""
+        newly_on = []
+        for pid, pol in (merged.get("policies") or {}).items():
+            before = ((previous.get("policies") or {}).get(pid) or {}).get("detector_overrides") or {}
+            for entity, opts in (pol.get("detector_overrides") or {}).items():
+                if opts.get("enabled") and not (before.get(entity) or {}).get("enabled"):
+                    newly_on.append(entity)
+        if not newly_on:
+            return
+        from app.ai.llm.pii.detectors import detector_status
+        if not detector_status()["available"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Invalid PII protection config: detecting names, locations or organizations needs a "
+                    "PII detector. Install the backend's 'pii' extra or set pii.presidio_url."
+                ),
+            )
+
+    async def _resolve_pii_provider_policies(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        requested: dict,
+        previously_stored: dict,
+    ) -> dict:
+        """Keep only assignments for this org's live LLM providers.
+
+        A newly assigned provider id that is not one of them is rejected (a typo
+        or another org's provider). A stored assignment whose provider has since
+        been deleted is dropped quietly, so it never blocks unrelated saves.
+        """
+        if not requested:
+            return {}
+        from app.models.llm_provider import LLMProvider
+
+        result = await db.execute(
+            select(LLMProvider.id).filter(
+                LLMProvider.organization_id == organization.id,
+                LLMProvider.id.in_(list(requested.keys())),
+                LLMProvider.deleted_at == None,  # noqa: E711
+            )
+        )
+        live = {str(pid) for pid in result.scalars().all()}
+        stored = set((previously_stored or {}).keys())
+        unknown = [pid for pid in requested if pid not in live and pid not in stored]
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid PII protection config: unknown LLM provider in the policy assignments.",
+            )
+        return {pid: pol for pid, pol in requested.items() if pid in live}
 
     async def set_general_icon(
         self,
@@ -680,6 +789,54 @@ class OrganizationSettingsService:
             auto_invite_role=str(raw.get("auto_invite_role") or "member"),
         )
 
+    @staticmethod
+    def _admitting_domains(policy: dict) -> set:
+        """Domains a stored signup policy currently admits (none while disabled)."""
+        if not (policy or {}).get("enabled"):
+            return set()
+        return {str(d).strip().lower() for d in (policy.get("allowed_domains") or []) if isinstance(d, str)}
+
+    async def _assert_may_claim_signup_domains(
+        self, db: AsyncSession, organization: Organization, current_user: User,
+        *, stored: dict, enabled: bool, domains: list,
+    ) -> None:
+        """On a deployment with several organizations, which organization an
+        email domain joins is an instance-level decision: only an instance
+        administrator may make a policy admit a new domain, and a domain
+        belongs to at most one organization. Removing domains, disabling the
+        policy and changing the role stay with the organization's admins.
+        Single-organization deployments are unaffected."""
+        from app.errors import AppError, ErrorCode
+        from app.settings.config import settings as app_settings
+
+        if not app_settings.bow_config.features.allow_multiple_organizations:
+            return
+        added = (set(domains) if enabled else set()) - self._admitting_domains(stored)
+        if not added:
+            return
+        if not getattr(current_user, "is_superuser", False):
+            raise AppError.forbidden(
+                ErrorCode.ORGANIZATION_SIGNUP_DOMAINS_INSTANCE_ADMIN_REQUIRED,
+                "Only an instance administrator can assign sign-up domains to an organization.",
+            )
+        others = await db.execute(
+            select(OrganizationSettings)
+            .join(Organization, Organization.id == OrganizationSettings.organization_id)
+            .where(
+                OrganizationSettings.organization_id != organization.id,
+                Organization.deleted_at.is_(None),
+            )
+        )
+        for other in others.scalars().all():
+            taken = added & self._admitting_domains((other.config or {}).get("signup_policy") or {})
+            if taken:
+                domain = sorted(taken)[0]
+                raise AppError.conflict(
+                    ErrorCode.ORGANIZATION_SIGNUP_DOMAIN_CLAIMED,
+                    f"The domain {domain} is already assigned to another organization.",
+                    domain=domain,
+                )
+
     async def update_signup_policy(
         self,
         db: AsyncSession,
@@ -743,6 +900,12 @@ class OrganizationSettingsService:
         settings = await self.get_settings(db, organization, current_user)
         if settings.config is None:
             settings.config = {}
+
+        await self._assert_may_claim_signup_domains(
+            db, organization, current_user,
+            stored=(settings.config or {}).get("signup_policy") or {},
+            enabled=bool(policy.enabled), domains=normalized_domains,
+        )
 
         current_config = dict(settings.config)
         current_config["signup_policy"] = {

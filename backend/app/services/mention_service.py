@@ -56,8 +56,24 @@ class MentionService:
                     pass
                 db_mentions.append(await self.create_mention(db, m, completion))
 
+            # Every other mention id is client-supplied too: keep only the
+            # ones that belong to the completion's organization. The rest are
+            # dropped silently, like an unviewable file.
+            from app.models.data_source import DataSource
+            from app.models.datasource_table import DataSourceTable
+            from app.models.entity import Entity
+            from app.models.instruction import Instruction
+
+            org_id = await self._completion_organization_id(db, completion)
+            ds_ok = await self._ids_in_organization(db, DataSource, groups.get("DATA SOURCES", []), org_id)
+            table_ok = await self._ids_in_organization(db, DataSourceTable, groups.get("TABLES", []), org_id)
+            entity_ok = await self._ids_in_organization(db, Entity, groups.get("ENTITIES", []), org_id)
+            instruction_ok = await self._ids_in_organization(db, Instruction, groups.get("INSTRUCTIONS", []), org_id)
+
             # DATA SOURCES
             for ds_mention in groups.get("DATA SOURCES", []):
+                if str(ds_mention.get("id")) not in ds_ok:
+                    continue
                 m = MentionCreate(
                     completion_id=completion.id,
                     report_id=completion.report_id,
@@ -69,6 +85,8 @@ class MentionService:
 
             # TABLES
             for table_mention in groups.get("TABLES", []):
+                if str(table_mention.get("id")) not in table_ok:
+                    continue
                 m = MentionCreate(
                     completion_id=completion.id,
                     report_id=completion.report_id,
@@ -80,6 +98,8 @@ class MentionService:
 
             # ENTITIES
             for entity_mention in groups.get("ENTITIES", []):
+                if str(entity_mention.get("id")) not in entity_ok:
+                    continue
                 m = MentionCreate(
                     completion_id=completion.id,
                     report_id=completion.report_id,
@@ -91,6 +111,8 @@ class MentionService:
 
             # INSTRUCTIONS (instructions + skills — kind lives on the row)
             for instruction_mention in groups.get("INSTRUCTIONS", []):
+                if str(instruction_mention.get("id")) not in instruction_ok:
+                    continue
                 m = MentionCreate(
                     completion_id=completion.id,
                     report_id=completion.report_id,
@@ -104,6 +126,33 @@ class MentionService:
 
         return db_mentions
     
+    async def _completion_organization_id(self, db: AsyncSession, completion: Completion) -> Optional[str]:
+        from app.models.report import Report
+
+        org_id = (await db.execute(
+            select(Report.organization_id).where(Report.id == completion.report_id)
+        )).scalar_one_or_none()
+        return str(org_id) if org_id else None
+
+    async def _ids_in_organization(self, db: AsyncSession, model, items, org_id: Optional[str]) -> set:
+        """The ids among `items` whose row belongs to `org_id`. Tables carry no
+        organization of their own; theirs is their data source's."""
+        ids = {str(i.get("id")) for i in (items or []) if isinstance(i, dict) and i.get("id")}
+        if not ids or not org_id:
+            return set()
+        from app.models.data_source import DataSource
+        from app.models.datasource_table import DataSourceTable
+
+        if model is DataSourceTable:
+            stmt = (
+                select(DataSourceTable.id)
+                .join(DataSource, DataSource.id == DataSourceTable.datasource_id)
+                .where(DataSourceTable.id.in_(ids), DataSource.organization_id == org_id)
+            )
+        else:
+            stmt = select(model.id).where(model.id.in_(ids), model.organization_id == org_id)
+        return {str(r[0]) for r in (await db.execute(stmt)).all()}
+
     async def create_mention(self, db: AsyncSession, mention: MentionCreate, completion: Completion) -> Mention:
         db_mention = Mention(**mention.dict())
         db.add(db_mention)

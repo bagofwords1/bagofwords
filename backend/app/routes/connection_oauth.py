@@ -129,6 +129,14 @@ async def _ensure_connection_access(
 ) -> None:
     """Raise 403 if the user doesn't have access to this connection."""
     from app.routes.connection import _user_can_access_connection, _is_org_admin, _can_manage_connection
+    from app.core.permission_resolver import principal_belongs_to_org
+    # These routes carry no X-Organization-Id (the callback is a provider
+    # redirect), so the organization comes from the connection itself: the
+    # caller must be bound to it. Answered like an unknown id.
+    if not connection.organization_id or not await principal_belongs_to_org(
+        db, user, connection.organization_id
+    ):
+        raise HTTPException(status_code=404, detail="Connection not found")
     org = connection.organization
     is_admin = await _is_org_admin(db, user, org) if org else False
     if is_admin:

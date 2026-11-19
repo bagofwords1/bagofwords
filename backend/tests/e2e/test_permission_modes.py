@@ -677,15 +677,18 @@ def test_allow_all_does_not_apply_to_scheduled_or_webhook_turns(env, test_client
 
 # ── Runs started with an API key ────────────────────────────────────────────
 
-def _api_key_headers(env, create_api_key):
+def _api_key_headers(env, create_api_key, sent_as="header"):
     key = create_api_key(env.token, env.org_id, name=f"perm-{uuid.uuid4().hex[:6]}")["key"]
-    return {"X-API-Key": key, "X-Organization-Id": str(env.org_id)}
+    credential = {"X-API-Key": key} if sent_as == "header" else {"Authorization": f"Bearer {key}"}
+    return {**credential, "X-Organization-Id": str(env.org_id)}
 
 
-def test_allow_all_does_not_apply_to_an_api_run(env, create_api_key):
+# Both ways an API key can be sent are the same kind of run.
+@pytest.mark.parametrize("sent_as", ["header", "bearer"])
+def test_allow_all_does_not_apply_to_an_api_run(env, create_api_key, sent_as):
     env.org_setting(allow_all_enabled=True)
     env.set_mode("allow_all")
-    out = env.call_as(_api_key_headers(env, create_api_key), "delete_branch", branch="feature-x")
+    out = env.call_as(_api_key_headers(env, create_api_key, sent_as), "delete_branch", branch="feature-x")
     assert not out.ran and not out.prompted
 
 

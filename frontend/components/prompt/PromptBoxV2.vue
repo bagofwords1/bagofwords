@@ -1,5 +1,5 @@
 <template>
-    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
+    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'px-3 pt-2 pb-2 sm:px-4'">
         <!-- Allow all is on for this report: say so for as long as it is. -->
         <div
             v-if="allowAllActive"
@@ -21,7 +21,7 @@
              only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="(isThinking || hasBackgroundTasks) && props.report_id"
+                v-if="((isThinking && (!hideWorkingIndicator || isAwaitingInput)) || hasBackgroundTasks) && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
                 data-testid="status-row"
@@ -30,17 +30,15 @@
                     <Icon name="heroicons:hand-raised" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
                     <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
                 </template>
-                <template v-else-if="isThinking">
-                    <Spinner class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
-                    <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                    <span class="text-ink-muted tabular-nums">{{ thinkingElapsedLabel }}</span>
+                <template v-else-if="isThinking && !hideWorkingIndicator">
+                    <span class="h-3 w-3 rounded-full bg-ink" role="status" :aria-label="$t('prompt.thinking')" />
                 </template>
                 <!-- Background sub-agents: independent of the working label — the
                      parent can be idle while children run (docs/design/sub-agents.md A9). -->
                 <BackgroundTasksIndicator
                     v-if="hasBackgroundTasks"
                     :waves="props.backgroundWaves as any[]"
-                    :has-working-label="isThinking"
+                    :has-working-label="isThinking && (!hideWorkingIndicator || isAwaitingInput)"
                     @stopSubAgent="(id) => emit('stopSubAgent', id)"
                     @stopWave="(id) => emit('stopWave', id)"
                     @scrollToMessage="(id) => emit('scrollToMessage', id)"
@@ -262,7 +260,7 @@
             </div>
 
             <!-- Input area -->
-            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'" @keydown.capture="onComposerKeydown">
+            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-4 pb-5'" @keydown.capture="onComposerKeydown">
                 <!-- Instructions -->
                 <button
                 class="hidden"
@@ -288,7 +286,7 @@
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
-                    :rows="props.rows || (props.compact ? 1 : 2)"
+                    :rows="props.rows || 1"
                     :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
@@ -757,6 +755,8 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
+    // The transcript owns the active-run indicator when its message is present.
+    hideWorkingIndicator: Boolean,
     // Live sub-agent waves of the report (GET /reports/{id}/sub-agents → waves);
     // drives the background-tasks indicator next to the working counter.
     backgroundWaves: { type: Array, default: () => [] },
@@ -819,8 +819,7 @@ const props = defineProps({
     // floats at the bottom of the report; inside a modal it just makes the box
     // narrower than every other field.
     flush: { type: Boolean, default: false },
-    // Visible lines in the editor. 0 keeps the chat-view default (1 compact,
-    // else 2); the automation modals ask for a taller box because a standing
+    // Visible lines in the editor. 0 keeps the one-line chat-view default; the automation modals ask for a taller box because a standing
     // task is written once and read back later, not dashed off like a chat.
     rows: { type: Number, default: 0 },
     // Show the project chip without a report behind it: the pick is held in the
@@ -965,62 +964,12 @@ let dragCounter = 0 // Track enter/leave for nested elements
 // Thinking indicator: covers the whole run, from the moment the user submits
 // (isSubmitting) through the in-progress completion reported by the parent.
 const isThinking = computed(() => isSubmitting.value || !!props.latestInProgressCompletion)
-const thinkingStartedAt = ref<number | null>(null)
-const thinkingElapsedSeconds = ref(0)
-let thinkingTimer: ReturnType<typeof setInterval> | null = null
-
-// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
-// elapsed time is off by the local timezone offset.
-function parseServerTimestamp(v: any): number | null {
-    if (!v) return null
-    const s = String(v)
-    const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
-    return Number.isNaN(t) ? null : t
-}
-
-// immediate: also starts the timer when the component mounts mid-run
-// (e.g. page refresh while a completion is streaming). In that case the
-// parent passes the run's server-side start on latestInProgressCompletion
-// so the elapsed counter resumes from the true start instead of 0s.
-watch(isThinking, (active) => {
-    if (active) {
-        if (thinkingTimer) return // submit → in-progress handoff: keep counting
-        const serverStart = parseServerTimestamp((props.latestInProgressCompletion as any)?.startedAt)
-        thinkingStartedAt.value = serverStart ?? Date.now()
-        thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
-        thinkingTimer = setInterval(() => {
-            if (thinkingStartedAt.value !== null) {
-                thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
-            }
-        }, 1000)
-    } else {
-        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
-        thinkingStartedAt.value = null
-        thinkingElapsedSeconds.value = 0
-    }
-}, { immediate: true })
-
 const hasBackgroundTasks = computed(() => ((props.backgroundWaves as any[]) || []).some((w: any) =>
     ['collecting', 'running', 'firing'].includes(w?.status)
 ))
 
-const thinkingElapsedLabel = computed(() => {
-    const s = thinkingElapsedSeconds.value
-    if (s < 60) return `${s}s`
-    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
-})
-
 // Run is paused on a confirmation card — the agent isn't working, the user is.
 const isAwaitingInput = computed(() => !!(props.latestInProgressCompletion as any)?.awaitingInput)
-
-// "Thinking" until the completion streams its first visible output (the parent
-// passes hasFirstToken on latestInProgressCompletion), then "Working".
-const thinkingLabel = computed(() => {
-    const completion: any = props.latestInProgressCompletion
-    return completion?.hasFirstToken
-        ? t('prompt.working', 'Working')
-        : t('prompt.thinking', 'Thinking')
-})
 
 // Excel selection hint
 const { isExcel, excelSelection } = useExcel()
@@ -2364,7 +2313,6 @@ onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
     window.removeEventListener('keydown', handleEscKey)
     if (compactRO) { compactRO.disconnect(); compactRO = null }
-    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
@@ -2623,23 +2571,6 @@ onBeforeUnmount(() => window.removeEventListener('report:mutated', onReportAgent
 <style scoped>
 .placeholder-gray-400::placeholder { color: #9ca3af; }
 
-/* Shining "Thinking" label, à la Codex */
-.thinking-shimmer {
-    background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: thinking-shimmer 2s linear infinite;
-}
-/* RTL locales (he/ar): sweep the shine in reading direction, right to left. */
-[dir="rtl"] .thinking-shimmer {
-    animation-direction: reverse;
-}
-@keyframes thinking-shimmer {
-    0% { background-position: -100% 0; }
-    100% { background-position: 100% 0; }
-}
 .thinking-fade-enter-active, .thinking-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .thinking-fade-enter-from, .thinking-fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

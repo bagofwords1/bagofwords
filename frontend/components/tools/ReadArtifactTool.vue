@@ -1,37 +1,18 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Main Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-photo" class="w-3 h-3 me-1.5 text-blue-500" />
-      <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.readArtifact.reading') }}</span>
-      <span v-else-if="status === 'success'" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'stopped'" class="text-gray-700 dark:text-gray-300 italic">{{ t('tools.readArtifact.readingPast') }}</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">{{ t('tools.readArtifact.failed') }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.readArtifact.read') }}</span>
-
-      <!-- Mode Badge -->
-      <span
-        v-if="artifactMode && status === 'success'"
-        :class="[
-          'ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium',
-          artifactMode === 'slides'
-            ? 'bg-purple-100 dark:bg-purple-950 text-purple-700'
-            : 'bg-blue-100 dark:bg-blue-900/50 text-blue-700'
-        ]"
-      >
-        {{ artifactMode === 'slides' ? 'Slides' : 'Dashboard' }}
-      </span>
-
-      <!-- Version Badge -->
-      <span v-if="artifactVersion && status === 'success'" class="ms-1 text-chat-3 text-ink-muted">
-        v{{ artifactVersion }}
-      </span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.readArtifact.reading') }}</template>
+      <template v-else-if="status === 'success'">{{ successLabel }}</template>
+      <template v-else-if="status === 'stopped'">{{ t('tools.readArtifact.readingPast') }}</template>
+      <template v-else-if="status === 'error'">{{ t('tools.readArtifact.failed') }}</template>
+      <template v-else>{{ t('tools.readArtifact.read') }}</template>
+      <template v-if="artifactMode && status === 'success'">{{ artifactMode === 'slides' ? 'Slides' : 'Dashboard' }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="artifactVersion && status === 'success'" class="ms-1 text-chat-3 text-ink-muted">
+        v{{ artifactVersion }}</span></div>
 
     <!-- Error message -->
     <div v-if="status === 'error' && errorMessage" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
@@ -40,7 +21,7 @@
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && status === 'success'" class="mt-2 ms-4 space-y-2">
+      <div v-if="toolHeaderExpanded && status === 'success'" class="mt-2 ms-4 space-y-2">
         <!-- Artifact Info Card -->
         <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700 max-w-xs">
           <div
@@ -95,13 +76,18 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 
 interface Props {
   toolExecution: {
@@ -242,18 +228,6 @@ async function copyArtifactId() {
 .fade-leave-active { transition: opacity 0.25s ease; }
 .fade-enter-from,
 .fade-leave-to { opacity: 0; }
-
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-  font-weight: 400;
-  opacity: 1;
-}
 
 pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;

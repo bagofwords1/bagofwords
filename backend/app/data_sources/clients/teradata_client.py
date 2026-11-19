@@ -204,6 +204,12 @@ class TeradataClient(DataSourceClient):
         Also what `connection_service._invalidate_engine_pool` disposes when
         the connection is edited or deleted.
         """
+        return self._sa_url.render_as_string(hide_password=False)
+
+    @property
+    def _sa_url(self) -> URL:
+        """What the engine is built from: the object, so no field is re-parsed
+        out of the rendered string (see clients/_sa_url.py)."""
         return URL.create(
             teradata_dialect.DRIVERNAME,
             username=self.user or None,
@@ -211,7 +217,7 @@ class TeradataClient(DataSourceClient):
             host=self.host,
             port=self.port,
             database=self._databases[0] if self._databases else None,
-        ).render_as_string(hide_password=False)
+        )
 
     def _connect_args(self) -> dict[str, str]:
         """Driver parameters beyond the URI. Every value is a string, as the
@@ -236,7 +242,7 @@ class TeradataClient(DataSourceClient):
         """
         conn = None
         try:
-            engine = get_engine(self.teradata_uri, connect_args=self._connect_args())
+            engine = get_engine(self._sa_url, connect_args=self._connect_args())
             conn = engine.connect()
         except IndexingCancelled:
             raise

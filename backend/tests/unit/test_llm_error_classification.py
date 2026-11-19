@@ -459,3 +459,72 @@ class TestModelNotFound:
             exc = Exception(f"Error code: {status} - server error")
             exc.status_code = status
             assert classify(exc, provider="azure", model="m").code == expected
+
+
+# ── content filter ──────────────────────────────────────────────────────────
+# A provider safety filter rejects the same prompt every time. It must not
+# fall through to provider_error (retried, fallback-eligible), and the user
+# must be told which filter fired. The bodies below are the shapes production
+# actually produced: Azure's JSON relayed by LiteLLM, LiteLLM's own
+# ContentPolicyViolationError (Python-repr dict), and OpenAI's error code.
+
+_AZURE_PROMPT_SHIELD = (
+    "Error code: 400 - {'error': {'message': 'litellm.BadRequestError: AzureException BadRequestError - {\\n"
+    "  \"error\": {\\n    \"message\": \"The response was filtered due to the prompt triggering Azure OpenAI's "
+    "content management policy.\",\\n    \"type\": \"invalid_request_error\",\\n    \"param\": \"prompt\",\\n"
+    "    \"code\": \"content_filter\",\\n    \"content_filters\": [{\\n      \"blocked\": true,\\n"
+    "      \"source_type\": \"prompt\",\\n      \"content_filter_results\": {\\n"
+    "        \"hate\": {\"filtered\": false, \"severity\": \"safe\"},\\n"
+    "        \"jailbreak\": {\"detected\": true, \"filtered\": true}\\n      }\\n    }]\\n  }\\n}', 'code': '400'}}"
+)
+_LITELLM_POLICY_VIOLATION = (
+    "Error code: 400 - {'error': {'message': \"litellm.BadRequestError: litellm.ContentPolicyViolationError: "
+    "The response was filtered due to the prompt triggering Azure OpenAI's content management policy.\", "
+    "'type': 'invalid_request_error', 'code': '400', 'provider_specific_fields': {'innererror': "
+    "{'code': 'ResponsibleAIPolicyViolation', 'content_filter_result': {'hate': {'filtered': False, "
+    "'severity': 'safe'}, 'violence': {'filtered': True, 'severity': 'high'}, "
+    "'self_harm': {'filtered': False, 'severity': 'safe'}}}}}}"
+)
+_OPENAI_POLICY_VIOLATION = (
+    "Error code: 400 - {'error': {'message': 'Your request was rejected as a result of our safety system.', "
+    "'type': 'invalid_request_error', 'param': None, 'code': 'content_policy_violation'}}"
+)
+
+
+@pytest.mark.parametrize("body", [_AZURE_PROMPT_SHIELD, _LITELLM_POLICY_VIOLATION, _OPENAI_POLICY_VIOLATION],
+                         ids=["azure-prompt-shield", "litellm-policy-violation", "openai-policy-violation"])
+@pytest.mark.parametrize("provider", ["custom", "azure", "openai"])
+def test_content_filter_rejection_is_its_own_non_retryable_code(body, provider):
+    err = classify(_wrapped(provider, body), provider=provider, model="m")
+    assert err.code == "content_filter"
+    assert err.code not in _RETRYABLE_CODES
+    assert err.code not in FALLBACK_ELIGIBLE_CODES
+    assert err.provider_message  # the provider's own text is kept for the user
+
+
+@pytest.mark.parametrize("body, expected", [
+    (_AZURE_PROMPT_SHIELD, ["jailbreak"]),
+    (_LITELLM_POLICY_VIOLATION, ["violence"]),
+    (_OPENAI_POLICY_VIOLATION, []),
+])
+def test_content_filter_names_only_the_categories_that_fired(body, expected):
+    from app.ai.llm.errors import content_filter_categories
+
+    assert content_filter_categories(body) == expected
+    err = classify(_wrapped("custom", body), provider="custom", model="m")
+    for category in expected:
+        assert category in err.summary
+    for not_fired in ("hate", "self_harm"):
+        assert not_fired not in err.summary
+
+
+@pytest.mark.parametrize("body, expected_code", [
+    ("Error code: 400 - {'error': {'message': 'Unsupported value: temperature', 'code': 'unsupported_value'}}",
+     "provider_error"),
+    ("Error code: 400 - {'error': {'message': \"This model's maximum context length is 128000 tokens.\"}}",
+     "context_length"),
+])
+def test_other_400s_are_not_mistaken_for_a_content_filter(body, expected_code):
+    exc = _wrapped("custom", body)
+    exc.status_code = 400
+    assert classify(exc, provider="custom", model="m").code == expected_code

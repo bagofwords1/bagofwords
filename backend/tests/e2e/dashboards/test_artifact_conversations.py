@@ -705,7 +705,7 @@ def test_results_and_tool_titles_are_withheld_when_the_pii_settings_cannot_be_re
     def unreadable(_config):  # the loader's ruleset build: the org's PII rules cannot be loaded
         raise RuntimeError("ruleset failed to compile")
 
-    monkeypatch.setattr(loader, "build_redactor", unreadable)
+    monkeypatch.setattr(loader, "compile_config", unreadable)
     loader.invalidate()
     a, b = f"ann.{uuid.uuid4().hex[:8]}@example.com", f"bo.{uuid.uuid4().hex[:8]}@example.org"
     rows = [{"customer": f"Contact {a}", "sales": 12.5}]

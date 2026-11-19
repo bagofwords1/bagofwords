@@ -92,12 +92,20 @@ def _check_tool_provider_url(conn_type: str, config) -> None:
 
 def _check_network_dir_root(conn_type: str, config) -> None:
     """Save/test-time guard: a network_dir root must pass the root policy
-    (``security.network_dir_allowed_roots``). Enforced again in the client."""
+    (``security.network_dir_allowed_roots``). Enforced again in the client.
+    File-based connectors (duckdb, csv, qvd, pbix, sqlite) get their own
+    local-path policy here too."""
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     if conn_type != "network_dir":
+        from app.data_sources.clients._duckdb_lockdown import check_connection_config
+
+        try:
+            check_connection_config(conn_type, cfg)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return
     from app.data_sources.clients.network_dir_client import check_network_dir_root
 
-    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     root = (cfg.get("root_path") or "").strip() if isinstance(cfg.get("root_path"), str) else ""
     if not root:
         return
@@ -533,7 +541,8 @@ def _invalidate_engine_pool(connection) -> None:
         sig = _inspect.signature(ClientClass.__init__)
         params = {**(cfg or {}), **creds}
         allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
                      "oracle_uri", "trino_uri", "presto_uri", "teradata_uri", "db2_uri"):
             uri = getattr(client, attr, None)
@@ -2246,6 +2255,26 @@ class ConnectionService:
                 .execution_options(synchronize_session=False)
             )
 
+    async def _active_tables_by_agent(self, db: AsyncSession, connection: Connection) -> dict:
+        """``{agent_id: {table_name: columns}}`` for the tables each linked agent
+        has active on this connection. Read-only; feeds the schema-change diff.
+        (No try/except: a failed statement would poison the refresh transaction
+        on Postgres anyway, so let it surface like any other refresh error.)"""
+        import copy
+        from app.models.datasource_table import DataSourceTable
+        rows = (await db.execute(
+            select(DataSourceTable.datasource_id, DataSourceTable.name, DataSourceTable.columns)
+            .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
+            .where(
+                ConnectionTable.connection_id == str(connection.id),
+                DataSourceTable.is_active == True,  # noqa: E712
+            )
+        )).all()
+        out: dict = {}
+        for ds_id, name, columns in rows:
+            out.setdefault(str(ds_id), {})[name] = copy.deepcopy(list(columns or []))
+        return out
+
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
                              keep_fresh_tables: bool = True, diagnostics_hook=None, defer_file_conversion=False) -> List[ConnectionTable]:
@@ -2267,6 +2296,11 @@ class ConnectionService:
                 org_id=getattr(connection, "organization_id", None),
                 user_id=getattr(current_user, "id", None),
             ):
+                # What each linked agent actively uses BEFORE discovery: a table
+                # dropped upstream is pruned (with its agent rows) inside
+                # _refresh_schema, so the per-agent sync below could otherwise
+                # never report it as removed.
+                prior_active = await self._active_tables_by_agent(db, connection)
                 tables = await self._refresh_schema(
                     db, connection, current_user, progress_callback, introspection,
                     keep_fresh_tables, diagnostics_hook, **({"defer_file_conversion": True} if defer_file_conversion else {}),
@@ -2290,6 +2324,7 @@ class ConnectionService:
                     await DataSourceService().sync_domain_tables_from_connection(
                         db, agent, connection, max_auto_select=None,
                         commit=False, after_commit=notifications,
+                        prior_active_tables=prior_active.get(str(agent.id)),
                     )
                     self.last_synced_domains += 1
                 if progress_callback:
@@ -2979,7 +3014,8 @@ class ConnectionService:
         # time — every test, index, query and tool call builds through here.
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         if connection.type == "network_dir":
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):

@@ -10,11 +10,13 @@ import struct
 from contextlib import contextmanager
 from functools import cached_property
 from typing import Generator, List, Optional
+from urllib.parse import quote_plus
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 
 import pyodbc
 from app.data_sources.fk_reflection import attach_foreign_keys
+from app.data_sources.clients.mssql_client import _odbc_value
 
 # ODBC driver-manager pooling would hold server sessions open after close(),
 # under SQLAlchemy's pool; engine_pool disables it too, but this module dials
@@ -130,7 +132,7 @@ class MsFabricClient(DataSourceClient):
 
         placeholder = (
             f"mssql+pyodbc://fabric/?odbc_connect="
-            f"{self.server_hostname}%2F{self.database}"
+            f"{quote_plus(str(self.server_hostname))}%2F{quote_plus(str(self.database))}"
         )
         # Keyed additionally by the identity the token is minted for, so a
         # delegated (per-user) connection never shares a pool with another
@@ -173,8 +175,8 @@ class MsFabricClient(DataSourceClient):
         # extra breathing room against a cold-starting endpoint.
         conn_str = (
             f"DRIVER={{ODBC Driver 18 for SQL Server}};"
-            f"SERVER={self.server_hostname};"
-            f"DATABASE={self.database};"
+            f"SERVER={_odbc_value(self.server_hostname)};"
+            f"DATABASE={_odbc_value(self.database)};"
             f"Encrypt=yes;"
             f"TrustServerCertificate=no;"
             f"Connect Timeout={_LOGIN_TIMEOUT_SECONDS};"

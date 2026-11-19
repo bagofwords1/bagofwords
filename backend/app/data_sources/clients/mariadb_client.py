@@ -14,7 +14,13 @@ from app.ai.prompt_formatters import TableFormatter
 from app.data_sources.routines import build_routine_tables, mysql_variants, with_routines
 from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
-from urllib.parse import quote_plus
+from app.data_sources.clients._sa_url import (
+    MYSQL_DENIED_OPTIONS, MYSQL_PATH_OPTIONS, build_url, render, split_database_options,
+)
+
+# The driver must never answer a server's request for a local file, whatever
+# the connection fields contain.
+_CONNECT_ARGS = {"local_infile": False}
 
 
 class MariadbClient(DataSourceClient):
@@ -38,27 +44,35 @@ class MariadbClient(DataSourceClient):
         self.password = password
 
     @cached_property
-    def mariadb_uri(self):
-        # Updated URI to use pymysql
-        auth_part = ""
-        if self.user:
-            auth_part = quote_plus(self.user)
-            if self.password:
-                auth_part += f":{quote_plus(self.password)}"
-            auth_part += "@"
-        
-        uri = (
-            f"mysql+pymysql://{auth_part}"
-            f"{self.host}:{self.port}/{self.database}"
+    def _sa_url(self):
+        # "db?charset=utf8mb4": driver options after the name keep working,
+        # minus the ones that redirect the connection or touch local files.
+        database, options = split_database_options(
+            self.database, kind="MariaDB", host=self.host,
+            denied=MYSQL_DENIED_OPTIONS, path_options=MYSQL_PATH_OPTIONS,
         )
-        return uri
+        return build_url(
+            "mysql+pymysql",
+            username=self.user,
+            password=(self.password or None) if self.user else None,
+            host=self.host,
+            port=self.port,
+            database=database,
+            query=options,
+        )
+
+    @cached_property
+    def mariadb_uri(self):
+        """Identity string (pool key, dialect detection); the engine is built
+        from `_sa_url`."""
+        return render(self._sa_url)
 
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         """Yield a connection to a MariaDB database using pymysql."""
         conn = None
         try:
-            engine = get_engine(self.mariadb_uri)
+            engine = get_engine(self._sa_url, connect_args=dict(_CONNECT_ARGS))
             conn = engine.connect()
         except IndexingCancelled:
             raise

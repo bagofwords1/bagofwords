@@ -2,25 +2,25 @@
   <!-- A refused or failed memory call is the agent's business (it handles the
        error itself, e.g. a rule it applies instead of saving) — the report
        shows nothing for it; the trace keeps it. -->
-  <div v-if="status === 'running' || isSuccess" class="mt-1">
+  <div v-if="status === 'running' || isSuccess" class="min-w-0">
     <!-- Single-line, non-expandable status for create_memory / edit_memory /
          search_memory. Memory is private: we
          show only that it happened plus the agent's short title — never entry
          text, handles, tags or search results. Details live in the profile. -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400" data-testid="memory-tool">
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-bookmark" class="w-3 h-3 me-1.5 text-ink-muted" />
-        <span dir="auto" class="truncate max-w-[300px]">{{ label || runningFallback }}</span>
-      </span>
-      <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-        <Icon name="heroicons-bookmark" class="w-3 h-3 me-1.5 text-blue-500" />
-        <span dir="auto" class="truncate max-w-[300px]">{{ label || doneFallback }}</span>
-      </span>
-    </div>
+    <ToolCallHeader :expandable="false" :tool-execution="toolExecution" icon="heroicons-book-open" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ label || runningFallback }}</template>
+      <template v-else-if="isSuccess">{{ label || doneFallback }}</template></template>
+    </ToolCallHeader>
+    
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 
 interface Props {

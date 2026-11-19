@@ -1,54 +1,41 @@
 <template>
-  <div class="mt-1 mb-2" dir="auto">
-    <!-- Compact pill: clock + label + live countdown, X to cancel on the right -->
-    <div
-      class="inline-flex items-center gap-2 ps-2.5 pe-1.5 py-1 rounded-full border text-chat-2 transition-colors duration-150"
-      :class="cancelled
-        ? 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-ink-muted'
-        : 'border-sky-200 dark:border-sky-800 bg-sky-50/60 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300'"
-    >
-      <Icon
-        :name="cancelled ? 'heroicons-x-mark' : (elapsed ? 'heroicons-arrow-path' : 'heroicons-clock')"
-        class="w-3.5 h-3.5 flex-shrink-0"
-        :class="[cancelled ? 'text-ink-muted' : 'text-sky-500', elapsed && !cancelled ? 'animate-spin' : '']"
-      />
-
-      <!-- Cancelled -->
-      <span v-if="cancelled" class="font-medium">{{ t('tools.wait.cancelled') }}</span>
-
-      <!-- Transcript: the wait is a finished fact, not a countdown -->
-      <span v-else-if="readonly" class="font-medium">
-        {{ waitedMinutes ? t('tools.wait.waitedMinutes', { count: waitedMinutes }) : t('tools.wait.waited') }}
-      </span>
-
-      <!-- Elapsed → agent is resuming -->
-      <span v-else-if="elapsed" class="font-medium tool-shimmer">{{ t('tools.wait.resuming') }}</span>
-
-      <!-- Counting down -->
-      <template v-else>
-        <span class="font-medium">{{ t('tools.wait.waiting') }}</span>
-        <span class="tabular-nums font-semibold tracking-tight">{{ countdown }}</span>
-        <button
+  <div class="min-w-0" dir="auto">
+    <!-- The cancel action stays reachable while the details are collapsed. -->
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-clock" :expanded="toolHeaderExpanded" :running="!cancelled && !readonly" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="cancelled">{{ t('tools.wait.cancelled') }}</template>
+      <template v-else-if="readonly">{{ waitedMinutes ? t('tools.wait.waitedMinutes', { count: waitedMinutes }) : t('tools.wait.waited') }}</template>
+      <template v-else-if="elapsed">{{ t('tools.wait.resuming') }}</template>
+      <template v-else>{{ t('tools.wait.waiting') }} {{ countdown }}</template></template>
+      <template #actions>
+      <template v-if="cancelled"></template>
+      <template v-else-if="readonly"></template>
+      <template v-else-if="elapsed"></template>
+      <template v-else><button
           type="button"
           :title="t('tools.wait.cancel')"
           :aria-label="t('tools.wait.cancel')"
           :disabled="cancelling"
           @click="cancel"
           class="ms-0.5 w-5 h-5 flex items-center justify-center rounded-full text-sky-400 hover:text-white hover:bg-sky-500 disabled:opacity-40 transition-colors duration-100"
-        >
-          <Icon name="heroicons-x-mark" class="w-3.5 h-3.5" />
-        </button>
-      </template>
-    </div>
+        ><Icon name="heroicons-x-mark" class="w-3.5 h-3.5" /></button></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- The instruction that will run on resume (subtle, one line) -->
     <p v-if="reason && !cancelled" class="mt-1.5 ms-1 text-chat-2 text-ink-muted truncate max-w-md" dir="auto">
       {{ reason }}
     </p>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -144,16 +131,5 @@ async function cancel() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  background: linear-gradient(90deg, #0ea5e9 0%, #7dd3fc 50%, #0ea5e9 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 1.8s linear infinite;
-}
-@keyframes shimmer {
-  0% { background-position: -100% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

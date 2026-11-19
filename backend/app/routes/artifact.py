@@ -1022,20 +1022,3 @@ async def remove_visualization_from_dashboard(
         logger.warning("Failed to schedule thumbnail regeneration", exc_info=True)
 
     return ArtifactSchema.model_validate(new_artifact)
-
-
-# --- Confirmation endpoint ---
-
-class ConfirmationBody(PydanticBaseModel):
-    approved: bool
-    title: Optional[str] = None
-
-
-@router.post("/confirm/{confirmation_id}")
-async def confirm_artifact(confirmation_id: str, body: ConfirmationBody):
-    from app.ai.tools.confirmation import resolve_confirmation
-
-    resolved = resolve_confirmation(confirmation_id, body.model_dump())
-    if not resolved:
-        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
-    return {"status": "ok"}
