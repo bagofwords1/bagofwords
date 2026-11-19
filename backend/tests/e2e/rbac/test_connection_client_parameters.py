@@ -659,6 +659,42 @@ def test_every_server_identity_field_needs_an_admin_on_a_changed_destination(tes
     assert not failures, failures
 
 
+def _null_removal_cases():
+    """Destination credential fields of connectors where a null removes the saved value."""
+    from app.services.connection_destination import CREDENTIAL_DESTINATION_KEYS
+
+    cases = []
+    for conn_type in sorted(REGISTRY):
+        options = REGISTRY[conn_type].credentials_auth
+        if not options.exclusive_methods:
+            continue
+        for auth_type, variant in options.by_auth.items():
+            if "system" in variant.scopes:
+                cases.extend((conn_type, auth_type, key) for key in CREDENTIAL_DESTINATION_KEYS
+                             if key in variant.schema.model_fields)
+    return cases
+
+
+@pytest.mark.e2e
+def test_every_destination_credential_removed_with_a_null_is_a_destination_change(test_client, world, every_connector_allowed):
+    cases = _null_removal_cases()
+    assert cases, "the registry has connectors where a null removes a destination credential"
+    failures = []
+    for conn_type, auth_type, key in cases:
+        conn = _stored(test_client, world, conn_type, auth_type)
+        # Direct DB write: the value's own format is not under test.
+        _retain_credentials(conn["id"], {key: "saved-identity"})
+        for action in ("test", "put"):
+            body = {"credentials": {key: None}}
+            with _skip_network():
+                r = (_test if action == "test" else _put)(test_client, world, body, conn_id=conn["id"])
+            if r.status_code != 403 or r.json().get("error_code") not in (ADMIN_NEEDED, CREDENTIALS_NEEDED):
+                failures.append(f"{conn_type}/{auth_type}.{key} {action}: {r.status_code}")
+            if _stored_credentials(conn["id"]).get(key) != "saved-identity":
+                failures.append(f"{conn_type}/{auth_type}.{key} {action}: removed")
+    assert not failures, failures
+
+
 @pytest.mark.e2e
 def test_saving_a_server_identity_field_needs_an_admin(test_client, world, every_connector_allowed):
     conn = _stored(test_client, world, "aws_redshift", "userpass", extra_config={"host": "rs.example.com"})

@@ -413,18 +413,20 @@ def _saved_credentials(connection: Connection) -> Optional[dict]:
         return None
 
 
-def _merged_credentials(saved: dict, request_credentials: Any) -> dict:
-    """Blank values keep the saved ones, the same merge a test or a save performs."""
-    return {
-        **saved,
-        **{k: v for k, v in _as_dict(request_credentials).items() if v is not None and v != ""},
-    }
+def _merged_credentials(conn_type: Optional[str], saved: dict, request_credentials: Any) -> dict:
+    """The saved credentials with the request applied, by the merge a save or a
+    test performs: blank values keep the saved ones, and where a connector's
+    methods are exclusive a null removes the saved value."""
+    # Imported here: connection_service imports this module.
+    from app.services.connection_service import _merge_credential_changes
+
+    return _merge_credential_changes(conn_type, saved, _as_dict(request_credentials))
 
 
 def destination_changed(connection: Connection, effective_config: Any, request_credentials: Any) -> bool:
     saved_credentials = _saved_credentials(connection) or {}
     return destination_view(connection.type, connection.config, saved_credentials) != destination_view(
-        connection.type, effective_config, _merged_credentials(saved_credentials, request_credentials)
+        connection.type, effective_config, _merged_credentials(connection.type, saved_credentials, request_credentials)
     )
 
 
@@ -486,7 +488,7 @@ def credentials_after_auth_switch(connection: Connection, effective_config: Any,
     if saved is None:
         return None
     request = _as_dict(request_credentials)
-    merged = _merged_credentials(saved, request)
+    merged = _merged_credentials(connection.type, saved, request)
     before = destination_view(connection.type, connection.config, saved)
     after = destination_view(connection.type, effective_config, merged)
     if {k for k in set(before) | set(after) if before.get(k) != after.get(k)} != {"auth_type"}:
@@ -563,7 +565,7 @@ async def require_destination_binding(
         raise _admin_required("Members have saved logins for this connection, so only an organization admin can change its destination.")
 
     request_credentials = _as_dict(request_credentials)
-    merged = _merged_credentials(saved, request_credentials)
+    merged = _merged_credentials(connection.type, saved, request_credentials)
     new_auth = effective_auth_type(connection.type, effective_config, merged)
     variant = _variant(connection.type, new_auth)
     # Clients choose how to authenticate from which fields are present, so a

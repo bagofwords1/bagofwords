@@ -293,3 +293,25 @@ def test_the_impersonated_service_account_of_the_server_identity_is_a_destinatio
     config = {"project_id": "p", "dataset": "d", "auth_type": "adc"}
     connection = _SavedBigQuery(config, {"use_application_default_credentials": True, "target_service_account": "a@p.iam.gserviceaccount.com"})
     assert destination_changed(connection, config, {"target_service_account": "b@p.iam.gserviceaccount.com"})
+
+
+def test_removing_the_impersonated_service_account_with_a_null_is_a_destination_change():
+    """BigQuery's methods are exclusive, so a save or test drops a field sent as null."""
+    from app.services.connection_destination import destination_changed
+
+    config = {"project_id": "p", "dataset": "d", "auth_type": "adc"}
+    connection = _SavedBigQuery(config, {"use_application_default_credentials": True, "target_service_account": "a@p.iam.gserviceaccount.com"})
+    assert destination_changed(connection, config, {"target_service_account": None})
+    # A blank box still means "unchanged".
+    assert not destination_changed(connection, config, {"target_service_account": ""})
+
+
+def test_a_null_keeps_the_saved_value_where_methods_are_not_exclusive():
+    from app.services.connection_destination import destination_changed
+
+    class _SavedRedshift(_SavedBigQuery):
+        type = "aws_redshift"
+
+    config = {"host": "rs.example.com", "port": 5439, "database": "d", "auth_type": "userpass"}
+    connection = _SavedRedshift(config, {"user": "u", "password": "p", "role_arn": "arn:aws:iam::1:role/r"})
+    assert not destination_changed(connection, config, {"role_arn": None})
