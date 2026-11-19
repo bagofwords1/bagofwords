@@ -147,6 +147,8 @@
         "authMode": { "type": "string", "enum": ["hybrid", "local_only", "sso_only"] },
         "allowUninvitedSignups": { "type": "boolean" },
         "allowMultipleOrganizations": { "type": "boolean" },
+        "superuserEmails": { "type": "array", "items": { "type": "string" } },
+        "security": { "type": "object", "additionalProperties": true },
         "verifyEmails": { "type": "boolean" },
         "uvicornWorkers": { "type": ["string", "integer"] },
         "database": {
@@ -339,6 +341,33 @@
         "maxReplicas": { "type": "integer", "minimum": 1 },
         "targetCPUUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 },
         "targetMemoryUtilizationPercentage": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "pii": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "presidio": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "url": { "type": "string" },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repository": { "type": "string" },
+                "tag": { "type": "string" },
+                "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+              }
+            },
+            "replicaCount": { "type": "integer", "minimum": 1 },
+            "resources": { "type": "object" },
+            "nodeSelector": { "type": "object" },
+            "tolerations": { "type": "array" }
+          }
+        }
       }
     },
     "podDisruptionBudget": {

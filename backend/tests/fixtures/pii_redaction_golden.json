@@ -1,0 +1,331 @@
+{
+  "configs": {
+    "replace_default": {
+      "enabled": true,
+      "mode": "replace"
+    },
+    "block_default": {
+      "enabled": true,
+      "mode": "block"
+    },
+    "custom_and_overrides": {
+      "enabled": true,
+      "mode": "replace",
+      "builtin_overrides": {
+        "ipv4": {
+          "enabled": false
+        },
+        "email": {
+          "replacement": "<EMAIL>"
+        },
+        "us_ssn": {
+          "action": "block"
+        }
+      },
+      "custom_rules": [
+        {
+          "id": "emp",
+          "name": "Employee ID",
+          "patterns": [
+            "EMP-\\d{4}",
+            "E\\d{6}"
+          ],
+          "replacement": "[EMP]",
+          "enabled": true
+        },
+        {
+          "id": "off",
+          "name": "Disabled",
+          "patterns": [
+            "revenue"
+          ],
+          "replacement": "[X]",
+          "enabled": false
+        }
+      ]
+    },
+    "per_rule_block_custom": {
+      "enabled": true,
+      "mode": "replace",
+      "custom_rules": [
+        {
+          "id": "emp",
+          "name": "Employee ID",
+          "patterns": [
+            "EMP-\\d{4}"
+          ],
+          "action": "block"
+        }
+      ]
+    },
+    "disabled": {
+      "enabled": false,
+      "mode": "replace"
+    }
+  },
+  "cases": [
+    {
+      "config": "replace_default",
+      "text": "Reach the customer at john@acme.com or 415-555-1234.",
+      "result": "Reach the customer at [REDACTED_EMAIL] or [REDACTED_PHONE].",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "ssn 078-05-1120 and card 4111 1111 1111 1111, iban DE89370400440532013000",
+      "result": "ssn [REDACTED_SSN] and card [REDACTED_CC], iban [REDACTED_IBAN]",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "server 10.0.0.12 key AKIAIOSFODNN7EXAMPLE email a.b-c+d@sub.example.co.uk",
+      "result": "server [REDACTED_IP] key [REDACTED_AWS_KEY] email [REDACTED_EMAIL]",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "EMP-1234 and E123456 belong to Jane; phone +44 20 7946 0958",
+      "result": "EMP-1234 and E123456 belong to Jane; phone [REDACTED_PHONE]",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "nothing sensitive here, just revenue by month",
+      "result": "nothing sensitive here, just revenue by month",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "mixed: 4111-1111-1111-1111 call (212) 555-0199 now; ip 192.168.1.300",
+      "result": "mixed: [REDACTED_CC] call ([REDACTED_PHONE] now; ip 192.168.1.300",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "multi\nline\nfoo@bar.io\n555-123-4567\n",
+      "result": "multi\nline\n[REDACTED_EMAIL]\n[REDACTED_PHONE]\n",
+      "blocked": null
+    },
+    {
+      "config": "replace_default",
+      "text": "",
+      "result": "",
+      "blocked": null
+    },
+    {
+      "config": "block_default",
+      "text": "Reach the customer at john@acme.com or 415-555-1234.",
+      "result": null,
+      "blocked": [
+        "Email address",
+        "Phone number"
+      ]
+    },
+    {
+      "config": "block_default",
+      "text": "ssn 078-05-1120 and card 4111 1111 1111 1111, iban DE89370400440532013000",
+      "result": null,
+      "blocked": [
+        "Credit card number",
+        "IBAN (bank account)",
+        "US Social Security Number"
+      ]
+    },
+    {
+      "config": "block_default",
+      "text": "server 10.0.0.12 key AKIAIOSFODNN7EXAMPLE email a.b-c+d@sub.example.co.uk",
+      "result": null,
+      "blocked": [
+        "AWS access key ID",
+        "Email address",
+        "IP address (IPv4)"
+      ]
+    },
+    {
+      "config": "block_default",
+      "text": "EMP-1234 and E123456 belong to Jane; phone +44 20 7946 0958",
+      "result": null,
+      "blocked": [
+        "Phone number"
+      ]
+    },
+    {
+      "config": "block_default",
+      "text": "nothing sensitive here, just revenue by month",
+      "result": "nothing sensitive here, just revenue by month",
+      "blocked": null
+    },
+    {
+      "config": "block_default",
+      "text": "mixed: 4111-1111-1111-1111 call (212) 555-0199 now; ip 192.168.1.300",
+      "result": null,
+      "blocked": [
+        "Credit card number",
+        "Phone number"
+      ]
+    },
+    {
+      "config": "block_default",
+      "text": "multi\nline\nfoo@bar.io\n555-123-4567\n",
+      "result": null,
+      "blocked": [
+        "Email address",
+        "Phone number"
+      ]
+    },
+    {
+      "config": "block_default",
+      "text": "",
+      "result": "",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "Reach the customer at john@acme.com or 415-555-1234.",
+      "result": "Reach the customer at <EMAIL> or [REDACTED_PHONE].",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "ssn 078-05-1120 and card 4111 1111 1111 1111, iban DE89370400440532013000",
+      "result": null,
+      "blocked": [
+        "US Social Security Number"
+      ]
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "server 10.0.0.12 key AKIAIOSFODNN7EXAMPLE email a.b-c+d@sub.example.co.uk",
+      "result": "server 10.0.0.12 key [REDACTED_AWS_KEY] email <EMAIL>",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "EMP-1234 and E123456 belong to Jane; phone +44 20 7946 0958",
+      "result": "[EMP] and [EMP] belong to Jane; phone [REDACTED_PHONE]",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "nothing sensitive here, just revenue by month",
+      "result": "nothing sensitive here, just revenue by month",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "mixed: 4111-1111-1111-1111 call (212) 555-0199 now; ip 192.168.1.300",
+      "result": "mixed: [REDACTED_CC] call ([REDACTED_PHONE] now; ip 192.168.1.300",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "multi\nline\nfoo@bar.io\n555-123-4567\n",
+      "result": "multi\nline\n<EMAIL>\n[REDACTED_PHONE]\n",
+      "blocked": null
+    },
+    {
+      "config": "custom_and_overrides",
+      "text": "",
+      "result": "",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "Reach the customer at john@acme.com or 415-555-1234.",
+      "result": "Reach the customer at [REDACTED_EMAIL] or [REDACTED_PHONE].",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "ssn 078-05-1120 and card 4111 1111 1111 1111, iban DE89370400440532013000",
+      "result": "ssn [REDACTED_SSN] and card [REDACTED_CC], iban [REDACTED_IBAN]",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "server 10.0.0.12 key AKIAIOSFODNN7EXAMPLE email a.b-c+d@sub.example.co.uk",
+      "result": "server [REDACTED_IP] key [REDACTED_AWS_KEY] email [REDACTED_EMAIL]",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "EMP-1234 and E123456 belong to Jane; phone +44 20 7946 0958",
+      "result": null,
+      "blocked": [
+        "Employee ID"
+      ]
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "nothing sensitive here, just revenue by month",
+      "result": "nothing sensitive here, just revenue by month",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "mixed: 4111-1111-1111-1111 call (212) 555-0199 now; ip 192.168.1.300",
+      "result": "mixed: [REDACTED_CC] call ([REDACTED_PHONE] now; ip 192.168.1.300",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "multi\nline\nfoo@bar.io\n555-123-4567\n",
+      "result": "multi\nline\n[REDACTED_EMAIL]\n[REDACTED_PHONE]\n",
+      "blocked": null
+    },
+    {
+      "config": "per_rule_block_custom",
+      "text": "",
+      "result": "",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "Reach the customer at john@acme.com or 415-555-1234.",
+      "result": "Reach the customer at john@acme.com or 415-555-1234.",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "ssn 078-05-1120 and card 4111 1111 1111 1111, iban DE89370400440532013000",
+      "result": "ssn 078-05-1120 and card 4111 1111 1111 1111, iban DE89370400440532013000",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "server 10.0.0.12 key AKIAIOSFODNN7EXAMPLE email a.b-c+d@sub.example.co.uk",
+      "result": "server 10.0.0.12 key AKIAIOSFODNN7EXAMPLE email a.b-c+d@sub.example.co.uk",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "EMP-1234 and E123456 belong to Jane; phone +44 20 7946 0958",
+      "result": "EMP-1234 and E123456 belong to Jane; phone +44 20 7946 0958",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "nothing sensitive here, just revenue by month",
+      "result": "nothing sensitive here, just revenue by month",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "mixed: 4111-1111-1111-1111 call (212) 555-0199 now; ip 192.168.1.300",
+      "result": "mixed: 4111-1111-1111-1111 call (212) 555-0199 now; ip 192.168.1.300",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "multi\nline\nfoo@bar.io\n555-123-4567\n",
+      "result": "multi\nline\nfoo@bar.io\n555-123-4567\n",
+      "blocked": null
+    },
+    {
+      "config": "disabled",
+      "text": "",
+      "result": "",
+      "blocked": null
+    }
+  ]
+}

@@ -68,6 +68,7 @@ class ArtifactChatService:
             select(Membership.id).where(
                 Membership.user_id == str(user.id),
                 Membership.organization_id == str(organization_id),
+                Membership.deleted_at.is_(None),
             ).limit(1)
         )).scalar_one_or_none()
         return row is not None

@@ -103,15 +103,17 @@
             <!-- Workspace header. With a single org this is just a link home
                  (the only desktop path to '/'). With several, it doubles as the
                  org switcher and carries 'Home' as its first item so that path
-                 isn't lost. Users with one org see no switcher affordance. -->
-            <UDropdown v-if="hasMultipleOrgs" :items="organizationDropdownItems"
+                 isn't lost. Users with one org see no switcher affordance,
+                 unless they may create another organization: the menu is
+                 where "Create organization" lives. -->
+            <UDropdown v-if="showOrganizationMenu" :items="organizationDropdownItems"
               :popper="{ placement: isCollapsed ? 'right-start' : 'bottom-start' }" class="min-w-0"
               :ui="{ width: 'w-56', item: { size: 'text-sm', padding: 'px-2 py-1.5' } }">
               <template #item="{ item }">
                 <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="w-4 h-4 shrink-0 rounded object-contain" />
                 <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
                 <span v-else class="w-4 h-4 shrink-0"></span>
-                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+                <span class="truncate text-gray-700 dark:text-gray-200" :data-testid="item.testId || undefined">{{ item.label }}</span>
                 <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-ink-muted" />
               </template>
               <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
@@ -187,6 +189,21 @@
                 <span v-if="showText" class="font-medium">{{ $t('nav.newReport') }}</span>
               </template>
             </button>
+        </li>
+
+        <!-- Collapsed rail only: the expanded sidebar lists reports inline (and its
+             "Reports" header links to /reports), so the rail needs its own entry. -->
+        <li v-if="isCollapsed">
+          <NuxtLink to="/reports" :aria-label="$t('nav.reports')" :class="[
+            'flex items-center justify-center px-2.5 py-1.5 w-full rounded-md',
+            isRouteActive('/reports') ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+          ]">
+            <UTooltip :text="$t('nav.reports')" :popper="{ placement: tooltipPlacement }">
+              <span class="flex items-center justify-center w-5 h-5 text-base">
+                <UIcon name="i-heroicons-document-duplicate" />
+              </span>
+            </UTooltip>
+          </NuxtLink>
         </li>
 
         <template v-for="item in mainNavItems" :key="item.href">
@@ -293,7 +310,7 @@
             ]">
               <!-- Drop cue: the folder opens while a report hovers this row. -->
               <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
-              <span v-text-dir class="flex-1 truncate">{{ project.name }}</span>
+              <span v-text-dir class="flex-1 truncate" @mouseenter="showTitleTip($event, project.name)" @mouseleave="hideTitleTip">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
             <button
@@ -403,6 +420,8 @@
                     <span v-text-dir
                       class="flex-1 truncate"
                       :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
+                      @mouseenter="showTitleTip($event, report.title)"
+                      @mouseleave="hideTitleTip"
                     >{{ report.title || $t('reports.untitled') }}</span>
                   </NuxtLink>
                   <!-- Project membership: a thin color rule at the leading edge
@@ -628,6 +647,7 @@
   <McpModal v-if="showMcpModal" v-model="showMcpModal" />
 
   <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
+  <OrganizationCreateOrganizationModal v-if="canCreateOrganization" v-model="showCreateOrganizationModal" />
 
   <ChangelogModal v-model="showChangelogModal" />
 
@@ -653,6 +673,19 @@
         </button>
       </div>
     </div>
+  </Teleport>
+
+  <!-- Full-title tooltip for truncated sidebar report/project names. Teleported
+       so it escapes the sidebar's overflow clipping; sits beside the sidebar
+       (right in LTR, left in RTL) so it never covers neighbouring rows. -->
+  <Teleport to="body">
+    <div
+      v-if="titleTip"
+      v-text-dir
+      role="tooltip"
+      class="fixed z-[60] max-w-xs px-2 py-1 rounded-md shadow ring-1 ring-gray-200 dark:ring-gray-800 text-xs leading-snug break-words pointer-events-none bg-white text-gray-900 dark:bg-gray-900 dark:text-white"
+      :style="titleTip.style"
+    >{{ titleTip.text }}</div>
   </Teleport>
 
   <!-- Sidebar project actions: rename / delete (teleported like the report menu) -->
@@ -1478,6 +1511,36 @@
   const deleteOpen = ref(false)
   const deleting = ref(false)
 
+  // ── Full-title tooltip for truncated sidebar rows ─────────────────────
+  // Only shown when the title is actually clipped (scrollWidth > clientWidth),
+  // after a short delay, anchored to the row's outer edge so it reads as a
+  // continuation of the clipped label rather than covering the list.
+  const titleTip = ref<{ text: string; style: Record<string, string> } | null>(null)
+  let titleTipTimer: ReturnType<typeof setTimeout> | null = null
+  const hideTitleTip = () => {
+    if (titleTipTimer) { clearTimeout(titleTipTimer); titleTipTimer = null }
+    titleTip.value = null
+  }
+  const showTitleTip = (e: MouseEvent, text: string | null | undefined) => {
+    hideTitleTip()
+    const el = e.currentTarget as HTMLElement | null
+    if (!el || !text || draggingReport.value) return
+    if (el.scrollWidth <= el.clientWidth) return
+    titleTipTimer = setTimeout(() => {
+      const row = (el.closest('li') as HTMLElement | null) || el
+      const r = row.getBoundingClientRect()
+      const style: Record<string, string> = {
+        top: `${r.top + r.height / 2}px`,
+        transform: 'translateY(-50%)',
+      }
+      if (isRtl.value) style.right = `${window.innerWidth - r.left + 8}px`
+      else style.left = `${r.right + 8}px`
+      titleTip.value = { text, style }
+    }, 350)
+  }
+  watch([reportMenuOpen, projectMenuOpen, draggingReport, () => route.fullPath], hideTitleTip)
+  onBeforeUnmount(hideTitleTip)
+
   const openReportMenu = (e: MouseEvent, report: any) => {
     menuReport.value = report
     // Clamp so the 208px-wide menu never runs off the right/bottom edge.
@@ -1712,6 +1775,13 @@
   // link home and nothing hints that switching exists.
   const hasMultipleOrgs = computed<boolean>(() => userOrganizations.value.length > 1)
 
+  // Instance administrators on a licensed multi-organization deployment (the
+  // server decides and enforces; this only shows the entry point). They get
+  // the menu even with a single organization, or nobody could add the second.
+  const canCreateOrganization = computed<boolean>(() => (currentUser.value as any)?.can_create_organization === true)
+  const showOrganizationMenu = computed<boolean>(() => hasMultipleOrgs.value || canCreateOrganization.value)
+  const showCreateOrganizationModal = ref(false)
+
   const organizationDropdownItems = computed(() => {
     // whoami returns the orgs unordered (no ORDER BY on the membership join), so
     // sort here — otherwise the rows of a primary header control can reshuffle
@@ -1737,6 +1807,12 @@
         disabled: org.id === organization.value?.id,
         click: () => setOrganization(org.id),
       })),
+      ...(canCreateOrganization.value ? [[{
+        label: t('nav.createOrganization'),
+        icon: 'i-heroicons-plus',
+        testId: 'create-organization-menu-item',
+        click: () => { showCreateOrganizationModal.value = true },
+      }]] : []),
     ]
   })
 

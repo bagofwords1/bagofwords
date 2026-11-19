@@ -149,7 +149,10 @@
 <script setup lang="ts">
 definePageMeta({
   auth: true,
-  permissions: ['full_admin_access']
+  permissions: ['full_admin_access'],
+  middleware: () => {
+    if (useAuth().data.value?.is_superuser !== true) return navigateTo('/')
+  }
 })
 
 type LogEntry = {

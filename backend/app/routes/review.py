@@ -13,6 +13,7 @@ from app.core.auth import current_user
 from app.dependencies import get_async_db, get_current_organization
 from app.models.organization import Organization
 from app.models.user import User
+from app.errors import AppError, ErrorCode
 from app.services.review_service import review_service
 
 router = APIRouter(tags=["review"])
@@ -97,6 +98,19 @@ async def dismiss_review(
 ):
     item = await review_service.dismiss(db, organization, current_user, item_id)
     return {"ok": item is not None}
+
+
+@router.get("/review/{item_id}/training-context")
+async def review_training_context(
+    item_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    ctx = await review_service.training_context(db, organization, current_user, item_id)
+    if ctx is None:
+        raise AppError.not_found(ErrorCode.REVIEW_ITEM_NOT_FOUND, "Review item not found")
+    return ctx
 
 
 @router.post("/review/{item_id}/resolve")

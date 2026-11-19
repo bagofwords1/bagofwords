@@ -124,6 +124,7 @@ from app.routes import (
     prompt as prompt_routes,
     excel,
     agent_yaml,
+    agent_bundle_import,
     eval_yaml,
     data_source_tools,
     agent_lists,
@@ -223,6 +224,8 @@ fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_provi
 current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
+from app.routes import invite as invite_routes
+app.include_router(invite_routes.router, prefix="/api")
 app.include_router(user_memory.router, prefix="/api")
 
 # Determine auth mode
@@ -378,6 +381,7 @@ app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
 app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
+app.include_router(agent_bundle_import.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
@@ -504,6 +508,11 @@ async def startup_event():
     # so the first framed page after a restart is not refused.
     from app.services import frame_ancestors_service
     await frame_ancestors_service.warm()
+
+    # Instance administrators named in BOW_SUPERUSER_EMAILS (no-op when unset;
+    # idempotent across workers; never fatal).
+    from app.core.instance_admin import sync_superusers_at_startup
+    await sync_superusers_at_startup()
 
     # Object storage (storage.backend = s3 | azure): prove read/write/delete
     # before serving, so bad credentials fail the pod instead of every upload.

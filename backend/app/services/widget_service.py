@@ -38,20 +38,34 @@ class WidgetService:
             for widget in widgets
         ]
 
+    async def _get_org_widget(self, db_session, widget_id: str, organization: Organization) -> Widget:
+        """Load a widget only if its report belongs to `organization`; any
+        other id is answered like one that does not exist."""
+        stmt = select(Widget).join(Report, Report.id == Widget.report_id).filter(Widget.id == widget_id)
+        if organization is not None:
+            stmt = stmt.filter(Report.organization_id == organization.id)
+        widget = (await db_session.execute(stmt)).scalar_one_or_none()
+        if widget is None:
+            raise HTTPException(status_code=404, detail="Widget not found")
+        return widget
+
     async def get_widget_by_id(self, db_session, widget_id: str, current_user: User, organization: Organization) -> WidgetSchema:
         from app.ai.llm.pii.display import display_redaction
         from app.dependencies import async_session_maker
-        widget = await db_session.execute(select(Widget).filter(Widget.id == widget_id))
-        widget = widget.scalar_one_or_none()
+        widget = await self._get_org_widget(db_session, widget_id, organization)
         async with display_redaction(str(organization.id) if organization else None, async_session_maker):
             return WidgetSchema.from_orm(widget).copy(update={"last_step": await self._get_last_step(db_session, widget.id)})
 
     async def get_widget_by_id_and_step(self, db_session, widget_id: str, step_id: str, current_user: User, organization: Organization) -> WidgetSchema:
-        widget = await db_session.execute(select(Widget).filter(Widget.id == widget_id))
-        widget = widget.scalar_one_or_none()
+        widget = await self._get_org_widget(db_session, widget_id, organization)
 
-        step = await db_session.execute(select(Step).filter(Step.id == step_id))
+        # The step must be one of this widget's own.
+        step = await db_session.execute(
+            select(Step).filter(Step.id == step_id, Step.widget_id == widget.id)
+        )
         step = step.scalar_one_or_none()
+        if step is None:
+            raise HTTPException(status_code=404, detail="Step not found")
 
         step_schema = StepSchema.from_orm(step)
         from app.ai.llm.pii.display import load_and_redact_grid

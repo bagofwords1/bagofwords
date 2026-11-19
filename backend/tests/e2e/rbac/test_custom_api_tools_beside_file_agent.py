@@ -221,3 +221,54 @@ def test_an_unknown_mcp_name_is_refused_as_unknown_and_lists_the_callable_tools(
     assert "unknown_tool" in result, result
     assert f"mcp__{org['slug']}__get_cost_report" in result, result
     assert not items_api["seen"]
+
+
+# ── An API agent that builds no query client ─────────────────────────────
+#
+# Reported: with a SQL/file agent AND custom API / MCP agents on one report,
+# only the SQL/file agent worked; every API tool call came back as a tool the
+# run did not have. Each API agent worked when it was the only one selected.
+# A tool-provider agent is called through its own per-call client
+# (execute_mcp), so whether the run's query clients include it must not decide
+# whether its tools are offered — or the outcome depends on which OTHER agents
+# share the report.
+
+
+@pytest.fixture
+def sql_agent(test_client, org, create_data_source, dynamic_sqlite_db):
+    ds = create_data_source(name=f"sales {uuid.uuid4().hex[:4]}", type="sqlite",
+                            config={"database": dynamic_sqlite_db},
+                            user_token=org["admin"]["token"], org_id=org["org_id"])
+    return str(ds["id"])
+
+
+def _mark_connection_unhealthy(conn_id: str) -> None:
+    """Direct write: ``Connection.is_active`` is a health flag only a run of
+    failed background probes sets, which the API cannot produce on demand.
+    construct_clients skips such a connection, so its agent gets no query
+    client, while the connection's own tool calls still go through."""
+    from app.dependencies import async_session_maker
+    from app.models.connection import Connection
+
+    async def _run():
+        async with async_session_maker() as db:
+            conn = await db.get(Connection, conn_id)
+            conn.is_active = False
+            await db.commit()
+
+    asyncio.run(_run())
+
+
+@pytest.mark.parametrize("with_sql_agent", [False, True], ids=["api-agent-alone", "beside-a-sql-agent"])
+def test_api_tools_are_offered_whatever_other_agents_build_query_clients(
+        test_client, org, planner, items_api, sql_agent, with_sql_agent):
+    _mark_connection_unhealthy(org["api_conn"])
+    name = f"mcp__{org['slug']}__get_cost_report"
+    planner.queue = [(name, {"days": 30})]
+
+    _ask(test_client, org, [org["api_ds"], sql_agent] if with_sql_agent else [org["api_ds"]])
+
+    assert name in planner.requests[0], planner.requests[0]
+    assert items_api["seen"] and items_api["seen"][0].startswith("/cost"), items_api["seen"]
+    result = " ".join(planner.results)
+    assert "unknown_tool" not in result and "mismatch" not in result, result

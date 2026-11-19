@@ -80,6 +80,7 @@ import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
 import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import { useExcel } from '~/composables/useExcel'
+import { projectDefaultSelection } from '~/utils/agentSelection'
 
 definePageMeta({
 	layout: 'default',
@@ -120,8 +121,9 @@ const draftProject = computed(() => {
 // Which agents the composer opens with:
 // - ?agents= — an entry point that named a scope (the agent page). Explicit,
 //   so it overrides project defaults server-side.
-// - inside a project — nothing, which is Auto, which the backend fills with
-//   the project's default agents. Same payload the project page used to POST.
+// - inside a project — the project's default agents, shown checked so the
+//   picker says what the report will run against (see projectSeedAgents
+//   below). A project with no defaults stays on Auto.
 // - otherwise — the agents the user pinned workspace-wide, empty under Auto.
 // Picks made here ride on the created report only; unlike the home page this
 // never writes back to the user's saved selection, since a draft opened for
@@ -142,9 +144,10 @@ const initialAgents = computed(() => {
 		const byId = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
 		return agentIds.value.map(id => byId.get(String(id)) || { id })
 	}
-	if (projectId.value) return []
+	if (projectId.value) return projectSeedAgents.value
 	return selectedAgentObjects.value
 })
+const projectSeedAgents = ref<any[]>([])
 
 // Live state published by the prompt box, exactly as the report view consumes
 // it — the empty state renders the selection, the box owns it.
@@ -155,6 +158,35 @@ const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
 const agentsAreAuto = ref(false)
 const currentMode = ref<'chat' | 'training'>(initialMode.value)
+
+// Project default agents for a draft opened inside a project. Applied once,
+// and only while the user hasn't picked anything yet — a pick made before the
+// fetch lands must not be overwritten. Intersected with the agents this user
+// can see (availableAgents), so a default never puts an agent they can't use
+// into an explicit selection. Seeding only sets the box's starting selection:
+// the draft has no report, so nothing is persisted, and the user's saved
+// default is written only by a real toggle inside the opened report.
+const projectDefaultIds = ref<string[]>([])
+const projectSeedApplied = ref(false)
+watch(projectId, async (pid) => {
+	projectDefaultIds.value = []
+	projectSeedAgents.value = []
+	projectSeedApplied.value = false
+	if (!pid || agentIds.value.length || route.query.folder) return
+	try {
+		const resp: any = await useMyFetch(`/projects/${pid}`, { method: 'GET' })
+		if (projectId.value !== pid) return
+		const ds = (resp.data?.value as any)?.data_sources || []
+		projectDefaultIds.value = ds.map((d: any) => String(d.id))
+	} catch { projectDefaultIds.value = [] }
+}, { immediate: true })
+watch([projectDefaultIds, availableAgents], () => {
+	if (projectSeedApplied.value) return
+	if (!projectDefaultIds.value.length || !availableAgents.value.length) return
+	projectSeedApplied.value = true
+	if (currentAgents.value.length || folderIds.value.length) return
+	projectSeedAgents.value = projectDefaultSelection(projectDefaultIds.value, availableAgents.value)
+})
 
 // Route the click back through the prompt box's selector so the empty-state
 // picker and the dropdown stay one selection.

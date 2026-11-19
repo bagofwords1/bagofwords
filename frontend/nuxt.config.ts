@@ -110,6 +110,7 @@ export default defineNuxtConfig({
     // after it.
     '~/assets/css/tokens.css',
     '~/assets/css/instruction-prose.css',
+    '~/assets/css/chat-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
     '~/assets/css/data-table.css',

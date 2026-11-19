@@ -88,6 +88,7 @@ const original = ref<Policy>({ enabled: false, allowed_domains: [], auto_invite_
 
 const domainInput = ref('')
 const saving = ref(false)
+const { getErrorMessage } = useErrorMessage()
 const roles = ref<{ id: string; name: string }[]>([])
 
 const { settings: appSettings, fetchSettings } = useAppSettings()
@@ -160,7 +161,7 @@ async function save() {
             toast.add({ title: t('signupPolicy.toastSaved'), color: 'green' })
         }
     } catch (e: any) {
-        const msg = e?.data?.detail || e?.message || t('signupPolicy.toastFailed')
+        const msg = getErrorMessage(e, e?.data?.detail || e?.message || t('signupPolicy.toastFailed'))
         toast.add({ title: msg, color: 'red' })
     } finally {
         saving.value = false

@@ -203,6 +203,7 @@ class QueryService:
                 select(Membership).where(
                     Membership.user_id == str(caller.id),
                     Membership.organization_id == str(organization_id),
+                    Membership.deleted_at.is_(None),
                 )
             )).scalars().first()
             if m and str(getattr(m, "role", "")) in ("admin", "owner"):
@@ -219,6 +220,7 @@ class QueryService:
                 select(Membership.id).where(
                     Membership.user_id == str(target.id),
                     Membership.organization_id == str(organization_id),
+                    Membership.deleted_at.is_(None),
                 )
             )).first()
             if tm is None:
@@ -691,6 +693,18 @@ class QueryService:
             if getattr(request, "tool_execution_id", None):
                 from app.models.tool_execution import ToolExecution  # lazy import to avoid circulars at import time
                 te = await db.get(ToolExecution, str(request.tool_execution_id))
+                # Only a tool execution of this query's own report is updated.
+                if te is not None:
+                    from app.models.agent_execution import AgentExecution
+                    from app.models.completion import Completion
+                    ae = await db.get(AgentExecution, str(te.agent_execution_id))
+                    te_report_id = ae.report_id if ae is not None else None
+                    if ae is not None and not te_report_id:
+                        te_report_id = (await db.execute(
+                            select(Completion.report_id).where(Completion.id == ae.completion_id)
+                        )).scalar_one_or_none()
+                    if not te_report_id or str(te_report_id) != str(report_id):
+                        te = None
                 if te is not None:
                     te.created_step_id = str(step.id)
                     if not getattr(te, "created_widget_id", None):
@@ -866,11 +880,12 @@ class QueryService:
         if identity_mode == 'creator' and str(caller.id) != str(report.user_id) and not bow_access:
             from app.models.membership import Membership
             member = (await db.execute(
-                select(Membership).where(
+                select(Membership.id).where(
                     Membership.user_id == str(caller.id),
                     Membership.organization_id == str(report.organization_id),
-                )
-            )).scalar_one_or_none()
+                    Membership.deleted_at.is_(None),
+                ).limit(1)
+            )).first()
             if member is not None:
                 owner = await db.get(User, str(report.user_id))
                 if owner is not None:

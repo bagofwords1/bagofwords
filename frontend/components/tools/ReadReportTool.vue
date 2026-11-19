@@ -1,29 +1,20 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Main Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="status === 'success'" name="heroicons-document-text" class="w-3 h-3 me-1.5 text-blue-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">Reading report…</span>
-      <span v-else-if="status === 'success' && found" class="text-gray-700 dark:text-gray-300">{{ successLabel }}</span>
-      <span v-else-if="status === 'success' && !found" class="text-gray-700 dark:text-gray-300 italic">Report not found</span>
-      <span v-else-if="status === 'error'" class="text-gray-700 dark:text-gray-300">Failed to read report</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">Read report</span>
-
-      <span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-        {{ reportMode }}
-      </span>
-      <!-- Paging position, like read_file's window badge. -->
-      <span v-if="anyTruncated" class="ms-2 text-chat-3 text-yellow-600">{{ t('tools.readFile.truncated') }}</span>
-      <span v-if="windowLabel" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">Reading report…</template>
+      <template v-else-if="status === 'success' && found">{{ successLabel }}</template>
+      <template v-else-if="status === 'success' && !found">Report not found</template>
+      <template v-else-if="status === 'error'">Failed to read report</template>
+      <template v-else>Read report</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="reportMode && reportMode !== 'chat' && status === 'success' && found" class="ms-2 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ reportMode }}</span><span v-if="anyTruncated" class="ms-2 text-chat-3 text-yellow-600">{{ t('tools.readFile.truncated') }}</span><span v-if="windowLabel" class="ms-2 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span></div>
 
     <!-- Collapsible content -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && status === 'success' && found" class="mt-2 ms-4 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && status === 'success' && found" class="mt-2 ms-4 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
         <!-- Meta -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-gray-500 dark:text-gray-400">
           <span v-if="reportStatus" class="px-1 py-0.5 rounded" :class="reportStatus === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">{{ reportStatus }}</span>
@@ -64,12 +55,17 @@
     <div v-if="(status === 'error' || (status === 'success' && !found)) && message" class="mt-1 ms-4 text-chat-2 text-gray-500 dark:text-gray-400">
       {{ message }}
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 
 const { t } = useResponseI18n()
@@ -138,15 +134,4 @@ function truncate(text: string): string {
 .fade-enter-from,
 .fade-leave-to { opacity: 0; }
 
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-  font-weight: 400;
-  opacity: 1;
-}
 </style>

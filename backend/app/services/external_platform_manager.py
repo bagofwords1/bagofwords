@@ -658,6 +658,10 @@ class ExternalPlatformManager:
                 print(f"Failed to send access-revoked DM: {e}")
             return {"success": False, "error": "User is not a member of this organization"}
 
+        # The message is handled as this member in this organization.
+        from app.core.request_org import set_request_organization_id
+        set_request_organization_id(str(organization.id))
+
         # Extract thread context from processed data
         thread_ts = processed_data.get("thread_ts")
         message_ts = processed_data.get("message_ts")

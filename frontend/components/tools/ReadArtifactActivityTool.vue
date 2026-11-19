@@ -1,34 +1,21 @@
 <template>
-  <div class="mt-1">
-    <div
-      class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 min-w-0"
-      :class="{ 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300': canExpand }"
-      @click="canExpand && (isExpanded = !isExpanded)"
-    >
-      <span v-if="isRunning" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-signal" class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.readArtifactActivity.reading') }}
-      </span>
-      <template v-else>
-        <Icon name="heroicons-signal" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
-        <span class="text-gray-600 dark:text-gray-400 truncate">
-          {{ headline }}
-          <span v-if="countLabel" class="text-ink-muted ms-1">· {{ countLabel }}</span>
-          <span v-if="failures > 0" class="text-red-500 ms-1">· {{ t('tools.readArtifactActivity.failed', { n: failures }, failures) }}</span>
-        </span>
-        <Icon
-          v-if="canExpand"
-          :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-          class="w-3 h-3 ms-1 text-ink-muted rtl-flip flex-shrink-0"
-        />
-      </template>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="isRunning">{{ t('tools.readArtifactActivity.reading') }}</template>
+      <template v-else>{{ headline }}
+          </template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="isRunning"></template>
+      <template v-else><span v-if="countLabel" class="text-ink-muted ms-1">· {{ countLabel }}</span><span v-if="failures > 0" class="text-red-500 ms-1">· {{ t('tools.readArtifactActivity.failed', { n: failures }, failures) }}</span></template></div>
 
     <p v-if="!isRunning && errorMessage" class="ms-4 mt-0.5 text-chat-2 text-ink-muted">{{ errorMessage }}</p>
 
     <Transition name="slide">
       <div
-        v-if="isExpanded && canExpand"
+        v-if="toolHeaderExpanded && canExpand"
         class="mt-1.5 ms-4 max-h-48 overflow-auto rounded bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800"
         dir="ltr"
       >
@@ -48,10 +35,16 @@
         </ul>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 
@@ -108,13 +101,4 @@ const singleDetail = computed(() => {
 .slide-enter-from,
 .slide-leave-to { opacity: 0; transform: translateY(-4px); }
 
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-}
 </style>

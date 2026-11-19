@@ -256,3 +256,46 @@ def test_the_conversations_own_chat_drops_host_context(corpus, corpus_rows, test
                             headers=as_(corpus, "member")).status_code == 200
     prompt = seen[-1]["prompt"]
     assert "host_context" not in (prompt.platform_context or {})
+
+
+def _auto_roster(corpus, corpus_rows, aid, code):
+    """The chat roster of an Auto dashboard whose one chart runs `code`."""
+    for step in _rows(corpus_rows, "SELECT s.id FROM steps s JOIN queries q ON q.default_step_id = s.id "
+                                   "JOIN artifacts a ON a.published_release_id = q.artifact_release_id "
+                                   "WHERE a.id = :a", a=aid):
+        corpus_rows.update("steps", step["id"], code=code)
+    _, thread = _context(corpus, aid, "member")
+    return {r["data_source_id"] for r in _rows(
+        corpus_rows, "SELECT data_source_id FROM report_data_source_association WHERE report_id = :r",
+        r=thread["id"])}
+
+
+@pytest.mark.e2e
+def test_an_agents_former_name_joins_the_roster_only_as_a_client_key(corpus, corpus_rows, test_client):
+    """An Auto dashboard's chat talks to the agents its code uses. Code saved
+    before a rename spells the agent's former name in its client key, and
+    that still counts; the same word as a table name in another agent's SQL
+    does not pull the renamed agent in."""
+    aid = _chatty(corpus, corpus_rows, test_client, "auto_conv/dash")
+    sources = _rows(corpus_rows, "SELECT id, name FROM data_sources WHERE organization_id = :o ORDER BY name",
+                    o=corpus.cast.org_id)
+    # Two agents whose names do not contain one another.
+    used, renamed = next((a, b) for a in sources for b in sources
+                         if a["id"] != b["id"] and a["name"] not in b["name"] and b["name"] not in a["name"])
+    corpus_rows.update("data_sources", renamed["id"],
+                       previous_names=[{"name": "orders", "connection_id": None}])
+    others = {s["id"] for s in sources} - {used["id"], renamed["id"]}
+
+    as_a_table = (
+        "def generate_df(ds_clients, excel_files):\n"
+        f"    return ds_clients[{used['name'] + ':main'!r}].execute_query('SELECT * FROM orders')\n"
+    )
+    roster = _auto_roster(corpus, corpus_rows, aid, as_a_table)
+    assert used["id"] in roster and renamed["id"] not in roster and not (roster & others)
+
+    as_a_client_key = (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    return ds_clients['orders:main'].execute_query('SELECT 1')\n"
+    )
+    roster = _auto_roster(corpus, corpus_rows, aid, as_a_client_key)
+    assert roster == {renamed["id"]}

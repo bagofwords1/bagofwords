@@ -36,7 +36,15 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install locked main deps into the venv; dev group excluded from image.
 # The kerberos extra (python-gssapi) enables per-user constrained delegation
 # (S4U) for on-prem SQL Server SSO; it builds against libkrb5-dev above.
-RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos
+#
+# INSTALL_PII_EXTRA=true also installs the optional `pii` extra: Presidio and a
+# small English spaCy model, for detecting names and locations inside the
+# backend workers (enterprise PII protection). Off by default — it adds about
+# 150 MB and is not needed for pattern rules or when a Presidio service is used
+# (`pii.presidio_url`). Build with: --build-arg INSTALL_PII_EXTRA=true
+ARG INSTALL_PII_EXTRA=false
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-project --extra kerberos \
+    $( [ "$INSTALL_PII_EXTRA" = "true" ] && echo "--extra pii" )
 
 RUN mkdir -p /opt/duckdb_extensions && python -c "import duckdb; c=duckdb.connect(); c.execute(\"SET extension_directory='/opt/duckdb_extensions'\"); c.execute('INSTALL postgres')" \
     && chmod -R a+rX,go-w /opt/duckdb_extensions

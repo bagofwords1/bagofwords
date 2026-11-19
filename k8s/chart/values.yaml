@@ -285,6 +285,22 @@ config:
   allowUninvitedSignups: false
   # -- Allow multiple organizations (multi-tenant mode).
   allowMultipleOrganizations: false
+  # -- Instance administrators (email addresses). With multiple organizations
+  # enabled they are the only people who can create organizations. When set,
+  # the list is authoritative: people removed from it lose the role. Empty
+  # leaves existing instance administrators as they are.
+  superuserEmails: []
+  # superuserEmails:
+  #   - it-admin@company.com
+  # -- Server-wide `security:` settings, written into bow-config as given
+  # (use the setting names from the docs, e.g. `block_private_outbound`).
+  # Empty renders no `security:` section, so the app defaults apply.
+  security: {}
+  # security:
+  #   block_private_outbound: true
+  #   # Folders reserved for one organization's file connections.
+  #   organization_file_roots:
+  #     "<organization id>": ["/mnt/finance"]
   # -- Require users to verify their email address before logging in.
   verifyEmails: false
   # -- Number of Uvicorn worker processes. Leave empty to use Uvicorn's default.
@@ -366,6 +382,17 @@ config:
   #     groupClaim: groups
   #     # Entra returns group UUIDs; resolve display names via Microsoft Graph.
   #     resolveGroupNames: true
+  #     # Place people in organizations by group at each sign-in (needs
+  #     # `allowMultipleOrganizations` only when more than one organization is
+  #     # mapped). Prefer the group object id; role is member (default) or admin.
+  #     orgMapping:
+  #       - group: "5d1f8a52-0c11-4d6f-9a3e-6f0f6f1a0001"
+  #         organization: "Finance"        # organization id, or exact name
+  #         role: member
+  #       - "5d1f8a52-0c11-4d6f-9a3e-6f0f6f1a0002:HR:admin"   # compact form
+  #     # Link a first sign-in to an existing account by email: true | false.
+  #     # Leave unset for the automatic rule.
+  #     trustEmailForLinking: true
   oidcProviders: []
 
   # -- LDAP / Active Directory integration.
@@ -604,6 +631,34 @@ autoscaling:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
+
+##########################################################
+# PII detection (enterprise PII protection)
+##########################################################
+# Pattern rules (emails, cards, IDs…) need nothing here. Detecting names,
+# locations and organizations needs a Presidio analyzer:
+#   - `pii.presidio.enabled: true` runs one next to the app, or
+#   - `pii.presidio.url` points at an analyzer you run yourself (for example
+#     one serving a multilingual model). The URL wins when both are set.
+# The analyzer loads its language model into memory (about 1 GiB for the
+# default English model): size `resources` accordingly.
+pii:
+  presidio:
+    # -- Deploy the Presidio analyzer next to the app.
+    enabled: false
+    # -- URL of an existing Presidio analyzer service (overrides the bundled one).
+    url: ""
+    image:
+      repository: mcr.microsoft.com/presidio-analyzer
+      tag: "2.2.362"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    resources: {}
+    # resources:
+    #   requests: { cpu: 250m, memory: 1Gi }
+    #   limits: { memory: 2Gi }
+    nodeSelector: {}
+    tolerations: []
 
 ##########################################################
 # Pod Disruption Budget

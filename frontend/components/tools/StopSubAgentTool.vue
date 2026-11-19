@@ -1,22 +1,21 @@
 <template>
-  <div class="mt-1" dir="auto">
-    <div class="mb-1 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 min-w-0">
-      <span v-if="status === 'in_progress'" class="tool-shimmer flex items-center">
-        <Spinner class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.stopSubAgent.stopping') }}
-      </span>
-      <template v-else>
-        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
-        <span class="text-gray-700 dark:text-gray-300 truncate">{{ t('tools.stopSubAgent.stopped', { title: title }) }}</span>
-      </template>
-    </div>
+  <div class="min-w-0" dir="auto">
+    <ToolCallHeader :expandable="false" :tool-execution="toolExecution" icon="heroicons-user-group" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'in_progress'">{{ t('tools.stopSubAgent.stopping') }}</template>
+      <template v-else>{{ t('tools.stopSubAgent.stopped', { title: title }) }}</template></template>
+    </ToolCallHeader>
+    
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
 
 const { t } = useResponseI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any } }>()

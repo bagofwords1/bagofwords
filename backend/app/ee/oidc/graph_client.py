@@ -8,7 +8,11 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-GRAPH_MEMBER_OF_URL = "https://graph.microsoft.com/v1.0/me/memberOf"
+# Transitive on purpose. This list stands in for the token's ``groups`` claim
+# when the claim is omitted (group overage), and that claim carries nested
+# memberships. ``/me/memberOf`` returns direct memberships only, so a person
+# who is in a mapped group through a nested group would look like they left it.
+GRAPH_MEMBER_OF_URL = "https://graph.microsoft.com/v1.0/me/transitiveMemberOf"
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
 
 # Object types a ``groups`` claim can carry. Entra puts directory roles and
@@ -69,7 +73,11 @@ async def resolve_user_profile(
 
 
 async def resolve_group_names(access_token: str) -> Dict[str, Optional[str]]:
-    """Call MS Graph /me/memberOf to get group ID → displayName mapping.
+    """Call MS Graph /me/transitiveMemberOf to get group ID → displayName mapping.
+
+    Covers direct and nested memberships, like the ``groups`` claim it replaces
+    during overage. Any failed page raises, so the caller never acts on a
+    partial list.
 
     Requires a delegated token with GroupMember.Read.All permission.
 

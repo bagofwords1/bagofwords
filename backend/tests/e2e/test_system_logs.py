@@ -48,12 +48,20 @@ def _h(token, org_id):
 
 
 @pytest.fixture
-def admin(create_user, login_user, whoami):
+def org_admin(create_user, login_user, whoami):
     email = f"syslogs_{uuid.uuid4().hex[:10]}@test.com"
     create_user(email=email, password="Test1234!")
     token = login_user(email, "Test1234!")
     org_id = whoami(token)["organizations"][0]["id"]
     return {"token": token, "org_id": org_id, "email": email, "headers": _h(token, org_id)}
+
+
+@pytest.fixture
+def admin(org_admin, login_user, monkeypatch):
+    # Signing in applies the configured instance administrator list.
+    monkeypatch.setattr(bow_settings.bow_config.auth, "superuser_emails", [org_admin["email"]])
+    token = login_user(org_admin["email"], "Test1234!")
+    return {**org_admin, "headers": _h(token, org_admin["org_id"])}
 
 
 @pytest.fixture
@@ -278,30 +286,15 @@ def test_member_cannot_read_or_clear(test_client, admin, member):
     assert _logs(test_client, admin["headers"])["items"]
 
 
-def test_multi_org_instance_requires_instance_superuser(test_client, admin, monkeypatch):
-    monkeypatch.setattr(bow_settings.bow_config.features, "allow_multiple_organizations", True)
+@pytest.mark.parametrize("multi_org", [False, True])
+def test_org_admin_cannot_use_system_logs(test_client, org_admin, monkeypatch, multi_org):
+    monkeypatch.setattr(bow_settings.bow_config.features, "allow_multiple_organizations", multi_org)
 
     for method, url, kw in [
         ("get", "/api/system-logs", {}),
         ("get", "/api/system-logs/status", {}),
         ("delete", "/api/system-logs", {}),
     ]:
-        resp = getattr(test_client, method)(url, headers=admin["headers"], **kw)
+        resp = getattr(test_client, method)(url, headers=org_admin["headers"], **kw)
         assert resp.status_code == 403, (method, url)
         assert resp.json()["error_code"] == "system_logs.instance_admin_required"
-
-    # No API grants instance superuser (it is set when the instance is
-    # provisioned), so this one flag is set directly.
-    import asyncio
-    from sqlalchemy import update
-    from app.dependencies import async_session_maker
-    from app.models.user import User
-
-    async def _make_superuser():
-        async with async_session_maker() as db:
-            await db.execute(update(User).where(User.email == admin["email"]).values(is_superuser=True))
-            await db.commit()
-
-    asyncio.run(_make_superuser())
-    resp = test_client.get("/api/system-logs/status", headers=admin["headers"])
-    assert resp.status_code == 200, resp.json()

@@ -23,6 +23,8 @@ class Connection(BaseSchema):
     )
 
     name = Column(String, nullable=False)
+    # Names this connection used to have (app/models/former_names.py).
+    previous_names = Column(JSON, nullable=True)
     type = Column(String, nullable=False)  # e.g., 'snowflake', 'postgres', 'bigquery'
     config = Column(JSON, nullable=False)  # Non-secret connection parameters
     credentials = Column(Text, nullable=True)  # Encrypted credentials
@@ -262,3 +264,8 @@ class Connection(BaseSchema):
         fernet = Fernet(settings.bow_config.encryption_key)
         return json.loads(fernet.decrypt(self.credentials.encode()).decode())
 
+
+
+from app.models.former_names import track_former_names  # noqa: E402
+
+track_former_names(Connection)

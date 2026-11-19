@@ -11,35 +11,17 @@
   - Failed: the tool's message and the schema errors the agent was asked to fix.
 -->
 <template>
-  <div class="mt-1" data-testid="list-schema-tool">
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="phase === 'proposing'" class="tool-shimmer flex items-center min-w-0">
-          <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-ink-muted shrink-0" />
-          <span class="truncate" dir="auto">{{ isEdit ? t('tools.listSchema.proposingEdit', { name: listName }) : t('tools.listSchema.proposing', { name: listName }) }}</span>
-        </span>
-        <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
-          <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.listSchema.waitingReview') : (isEdit ? t('tools.listSchema.reviewEdit') : t('tools.listSchema.review')) }}</span>
-        </span>
-        <span v-else-if="phase === 'saving'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ t('tools.listSchema.saving') }}</span>
-        </span>
-        <span v-else-if="phase === 'done'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-list-bullet" class="w-3 h-3 me-1 text-emerald-500" />
-          <span>{{ isEdit ? t('tools.listSchema.updated') : t('tools.listSchema.created') }}</span>
-        </span>
-        <span v-else-if="phase === 'declined'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? t('tools.listSchema.timedOut') : t('tools.listSchema.declined') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ outputStatus === 'no_change' ? t('tools.listSchema.noChange') : t('tools.listSchema.failed') }}</span>
-        </span>
-      </div>
-    </Transition>
+  <div class="min-w-0" data-testid="list-schema-tool">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="phase === 'proposing'">{{ isEdit ? t('tools.listSchema.proposingEdit', { name: listName }) : t('tools.listSchema.proposing', { name: listName }) }}</template>
+      <template v-else-if="phase === 'review'">{{ readonly ? t('tools.listSchema.waitingReview') : (isEdit ? t('tools.listSchema.reviewEdit') : t('tools.listSchema.review')) }}</template>
+      <template v-else-if="phase === 'saving'">{{ t('tools.listSchema.saving') }}</template>
+      <template v-else-if="phase === 'done'">{{ isEdit ? t('tools.listSchema.updated') : t('tools.listSchema.created') }}</template>
+      <template v-else-if="phase === 'declined'">{{ outputStatus === 'timed_out' ? t('tools.listSchema.timedOut') : t('tools.listSchema.declined') }}</template>
+      <template v-else>{{ outputStatus === 'no_change' ? t('tools.listSchema.noChange') : t('tools.listSchema.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (phase === 'review')" class="tool-call-details w-full min-w-0 mt-2">
 
     <div v-if="phase === 'failed' && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat" dir="auto">
       {{ message }}
@@ -179,10 +161,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
@@ -335,13 +323,6 @@ async function respond(approved: boolean) {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

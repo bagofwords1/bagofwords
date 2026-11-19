@@ -189,7 +189,17 @@ class MSSQLClient(DataSourceClient):
         # "app" carries the per-identity pool discriminator under Kerberos SSO;
         # letting a user override it could re-open the cross-user pooling hole.
         "app",
+        # Keys that make the driver read connection settings from, write them
+        # to, or attach a file on this server.
+        "filedsn", "savefile", "attachdbfilename",
     }
+    # Under per-user delegation the service ticket is issued for another
+    # user: the service it is for must stay the one derived from host:port.
+    DELEGATION_PROTECTED_ODBC_KEYS = {"serverspn", "failoverpartnerspn"}
+    # Extra keywords that name another server (a mirroring partner, or an
+    # alias of SERVER). Allowed; app.core.egress checks their hosts like the
+    # main host.
+    HOST_ODBC_KEYS = ("failoverpartner", "failover_partner", "failover partner", "addr", "address")
 
     def __init__(self, host, port, database, user=None, password=None, schema: Optional[str] = None,
                  odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None,
@@ -287,7 +297,12 @@ class MSSQLClient(DataSourceClient):
         # skipping any that would override the security-sensitive keys above.
         for key, value in (self.additional_params or {}).items():
             k = str(key).strip()
-            if not k or k.lower() in self.PROTECTED_ODBC_KEYS:
+            if not k:
+                continue
+            if k.lower() in self.PROTECTED_ODBC_KEYS or (
+                self.kerberos_impersonate and k.lower() in self.DELEGATION_PROTECTED_ODBC_KEYS
+            ):
+                logger.warning("SQL Server: ignoring protected ODBC keyword %r in additional parameters", k)
                 continue
             if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _]*", k):
                 raise ValueError("Invalid ODBC keyword")
