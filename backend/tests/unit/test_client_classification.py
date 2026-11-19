@@ -723,13 +723,17 @@ def test_with_the_unsafe_setting_on_the_accelerated_client_and_the_network_direc
     from app.ai.code_execution import sql_guard
     from app.data_sources.clients._network_dir_tables import attach_catalog
     from app.data_sources.clients.network_dir_client import NetworkDirClient
+    from app.data_sources.fast import fast_client
     from app.services import storage
     from app.settings.config import settings
 
     monkeypatch.setattr(settings.bow_config.security, "unsafe_allow_unrestricted_file_connectors", True)
     outside = tmp_path / "outside.csv"
     outside.write_text("id\n7\n")
-    with pytest.raises(Exception, match="(?i)external access|disabled|permission"):
+    # The accelerated client's text checks off: only its engine lock is left.
+    monkeypatch.setattr(fast_client, "assert_no_blocked_calls", lambda sql: None)
+    monkeypatch.setattr(fast_client, "assert_no_blocked_introspection", lambda sql: None)
+    with pytest.raises(duckdb.PermissionException):
         custom_table.execute_query(f"SELECT * FROM read_csv('{outside}')")
 
     monkeypatch.setattr(storage, "UPLOADS_ROOT", tmp_path / "cache")

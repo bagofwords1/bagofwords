@@ -355,6 +355,19 @@ def inspect_duckdb_sql(sql: str) -> DuckdbStatement:
 _DENIED_FUNCTION = DENIED_FUNCTIONS["duckdb"]
 _ALLOWED_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+CTE_NAME_NOT_PLAIN = (
+    "A CTE on this connection needs a plain name made of letters, digits and underscores that "
+    "starts with a letter or an underscore. Rename the CTE and run the query again.")
+
+
+def is_plain_cte_name(name: str) -> bool:
+    """Whether a CTE may be named `name` on a DuckDB connection: ASCII
+    letters, digits and underscores, starting with a letter or an
+    underscore. The wrapper and the file connections' own check
+    (`_duckdb_lockdown.engine_tree_check`) apply this one rule."""
+    return _PLAIN_NAME.fullmatch(name) is not None
+
+
 # DuckDB's built-in catalog views a bare name can reach (duckdb_tables,
 # pg_settings, sqlite_master, pragma_database_list, ...), and the schemas
 # that hold the rest (information_schema.tables, pg_catalog.pg_class, ...).
@@ -408,10 +421,8 @@ def check_duckdb_reads(stmt: DuckdbStatement, check_table: Callable[[tuple[str, 
     # passes, whatever it shadows.
     if stmt.describes:
         raise describe_error
-    if any(not _PLAIN_NAME.fullmatch(name) for name in stmt.cte_names):
-        raise DuckdbQueryError(
-            "A CTE on this connection needs a plain name made of letters, digits and underscores that "
-            "starts with a letter or an underscore. Rename the CTE and run the query again.")
+    if any(not is_plain_cte_name(name) for name in stmt.cte_names):
+        raise DuckdbQueryError(CTE_NAME_NOT_PLAIN)
 
 
 def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready: Iterable[str] = ()) -> None:

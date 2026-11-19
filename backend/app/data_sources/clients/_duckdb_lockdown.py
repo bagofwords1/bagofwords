@@ -489,6 +489,14 @@ _LOCKING = threading.Lock()
 _DATABASE_FILE_SUFFIXES = ("", ".wal", ".wal.checkpoint", ".wal.recovery")
 
 
+# A database file's engine is shared by every connection to it in the
+# process, and keeps the locations the first one locked it to.
+_OTHER_CONNECTION_OTHER_LOCATIONS = (
+    "another open connection to the same database file uses different additional locations; "
+    "use the same additional locations on both connections, or let the other connection's "
+    "queries finish and try again")
+
+
 def _refused(setting: str, detail) -> RuntimeError:
     return RuntimeError(f"Refusing to query files without the engine locked ({setting}): {detail}")
 
@@ -551,6 +559,8 @@ def _check_read_back(con, paths: set, directories: set, database_path: Optional[
     ):
         if not ok:
             logger.warning("duckdb_lockdown.refused %s: the engine reads back %r", setting, value)
+            if not session_set and setting in ("allowed_paths", "allowed_directories"):
+                raise _refused(setting, _OTHER_CONNECTION_OTHER_LOCATIONS)
             raise _refused(setting, "the engine reads back other settings than this connection's")
 
 
@@ -726,18 +736,26 @@ def _statement_types(sql: str) -> list:
         _refuse("The statement could not be verified as a read. Only SELECT queries are allowed.")
 
 
+def _fold(name) -> str:
+    """`name` folded as DuckDB folds an identifier it compares: ASCII letters
+    only (`duckdb_guard.ascii_lower`)."""
+    from app.ai.code_execution.duckdb_guard import ascii_lower
+
+    return ascii_lower(str(name or ""))
+
+
 class SessionCatalog:
     """The tables and views a session really has, fully qualified, and the
     database and schema an unqualified name resolves in. Identifiers compare
-    case-insensitively, as DuckDB's do."""
+    case-insensitively, as DuckDB's do: only their ASCII letters fold."""
 
     def __init__(self, relations, database: str = "memory", schema: str = "main"):
-        self.relations = frozenset(tuple(str(p or "").lower() for p in r) for r in relations)
-        self.database = (database or "memory").lower()
-        self.schema = (schema or "main").lower()
+        self.relations = frozenset(tuple(_fold(p) for p in r) for r in relations)
+        self.database = _fold(database or "memory")
+        self.schema = _fold(schema or "main")
 
     def has(self, catalog: str, schema: str, name: str) -> bool:
-        catalog, schema, name = (catalog or "").lower(), (schema or "").lower(), (name or "").lower()
+        catalog, schema, name = _fold(catalog), _fold(schema), _fold(name)
         if catalog:
             return (catalog, schema or "main", name) in self.relations
         if schema:
@@ -774,7 +792,7 @@ def _check_relation(name: str, schema: str, catalog: str, relations, ctes,
     catalog, a non-plain identifier is left to the client's own check against
     its catalog (``deferred``), or refused when it looks like a path.
     """
-    lowered = (name or "").lower()
+    lowered = _fold(name)
     if not name:
         _refuse()
     if is_string:
@@ -846,6 +864,7 @@ def _walk_serialized(node, relations, ctes, sql: str = "", deferred: bool = Fals
 
 
 def _cte_names(node, out: set) -> set:
+    """The names of every CTE the statement defines, as written."""
     if isinstance(node, list):
         for item in node:
             _cte_names(item, out)
@@ -854,10 +873,20 @@ def _cte_names(node, out: set) -> set:
         if isinstance(cte_map, dict):
             for entry in cte_map.get("map") or []:
                 if isinstance(entry, dict) and entry.get("key"):
-                    out.add(str(entry["key"]).lower())
+                    out.add(str(entry["key"]))
         for value in node.values():
             _cte_names(value, out)
     return out
+
+
+def _plain_ctes(names) -> set:
+    """`names`, the CTEs a statement defines, folded; refused unless every
+    one is plain (`duckdb_guard.is_plain_cte_name`, the wrapper's rule)."""
+    from app.ai.code_execution.duckdb_guard import CTE_NAME_NOT_PLAIN, is_plain_cte_name
+
+    if not all(is_plain_cte_name(name) for name in names):
+        _refuse(CTE_NAME_NOT_PLAIN)
+    return {_fold(name) for name in names}
 
 
 def _check_pivot_statement(sql: str, relations, deferred: bool = False) -> None:
@@ -873,7 +902,7 @@ def _check_pivot_statement(sql: str, relations, deferred: bool = False) -> None:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except Exception:
         _refuse()
-    ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+    ctes = _plain_ctes({c.alias_or_name for c in tree.find_all(exp.CTE)})
     for node in tree.walk():
         if isinstance(node, exp.Table):
             if isinstance(node.this, exp.Func):
@@ -890,8 +919,9 @@ def engine_tree_check(sql: str, relations=None, deferred: bool = False) -> None:
     read whose relations and functions stay inside the session. ``relations``
     is the session's catalog (``session_relations``) when known. ``deferred``
     says the caller will run this check again with the catalog before the
-    statement executes. Raises ReadOnlyViolation; fails closed on anything it
-    cannot read."""
+    statement executes. A CTE must have a plain name, as on the wrapper
+    (`duckdb_guard.is_plain_cte_name`). Raises ReadOnlyViolation; fails
+    closed on anything it cannot read."""
     import duckdb
 
     kinds = _statement_types(sql)
@@ -927,7 +957,7 @@ def engine_tree_check(sql: str, relations=None, deferred: bool = False) -> None:
             _check_relation(m.group(2).strip(), "", "", relations, frozenset(), deferred=deferred)
             return
         _refuse("The statement could not be verified as a read. Only SELECT queries are allowed.")
-    _walk_serialized(tree, relations, _cte_names(tree, set()), sql, deferred)
+    _walk_serialized(tree, relations, _plain_ctes(_cte_names(tree, set())), sql, deferred)
 
 
 def check_user_sql(sql: str, *, hide_settings: bool = False, relations=None, deferred: bool = False) -> None:

@@ -1239,9 +1239,14 @@ def test_a_database_file_engine_locked_for_other_uris_is_refused_and_one_locked_
     with plain.connect() as first:
         with DuckDBClient(database=str(db)).connect() as same:
             assert same.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
-        with (pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"),
+        with (pytest.raises(RuntimeError, match="Refusing to query files without the engine locked") as refused,
               DuckDBClient(database=str(db), uris=f"{listed}/*.parquet").connect()):
             pass
+        # What the user can act on, and no path.
+        message = str(refused.value)
+        assert "another open connection to the same database file uses different additional locations" in message
+        assert "use the same additional locations" in message
+        assert str(tmp_path) not in message
         assert first.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
 
 
@@ -1355,6 +1360,54 @@ def test_a_quoted_name_that_is_a_file_beside_the_database_is_refused_without_ope
             client.execute_query(sql)
         assert "99" not in str(refused.value)
         assert "real.csv" not in opens()
+    finally:
+        opens.close()
+
+
+def test_on_its_own_the_database_file_client_refuses_a_cte_whose_name_is_not_plain(odd_names_db):
+    """The client's own check, with no wrapper in front of it: a statement
+    defining a CTE whose name is not plain is refused before it runs,
+    whatever else the statement names, and no file in the database's folder
+    is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    client = DuckDBClient(database=str(odd_names_db))
+    name = _quoted(odd_names_db.parent / "real.csv")
+    sql = f"SELECT b.id FROM (WITH {name} AS (SELECT 1 AS id) SELECT id FROM {name}) AS a, {name} AS b"
+    opens = _Opens(odd_names_db.parent)
+    try:
+        with pytest.raises(ReadOnlyViolation) as refused:
+            client.execute_query(sql)
+        assert "99" not in str(refused.value)
+        assert "real.csv" not in opens()
+    finally:
+        opens.close()
+    assert client.execute_query('WITH mine AS (SELECT id FROM "export.csv") SELECT id FROM mine')["id"][0] == 4
+
+
+def test_the_database_file_catalog_matches_names_as_the_engine_folds_them(tmp_path):
+    """A table whose name holds a letter outside ASCII is matched the way
+    the engine matches it: only its ASCII letters fold. A spelling that is
+    the same name only under a wider folding is not that table, and is
+    refused before it runs; no file in the database's folder is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    folder = _folder(tmp_path / "kdb")
+    (folder / "data.csv").write_text("id\n99\n")
+    db = folder / "store.duckdb"
+    con = duckdb.connect(str(db))
+    odd = str(folder / "data.csv").replace("/kdb/", "/" + chr(0x212A) + "db/")
+    con.execute(f"CREATE TABLE {_quoted(odd)} AS SELECT 1 AS id")
+    con.close()
+
+    client = DuckDBClient(database=str(db))
+    assert client.execute_query(f"SELECT id FROM {_quoted(odd)}")["id"][0] == 1
+    opens = _Opens(folder)
+    try:
+        with pytest.raises(ReadOnlyViolation) as refused:
+            client.execute_query(f"SELECT id FROM {_quoted(folder / 'data.csv')}")
+        assert "99" not in str(refused.value)
+        assert "data.csv" not in opens()
     finally:
         opens.close()
 
