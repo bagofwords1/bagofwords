@@ -199,37 +199,42 @@ def test_inviting_existing_account_applies_roles_and_groups(org, test_client, bo
 def test_inviting_existing_account_into_groups_purges_their_results_after_commit(
         org, test_client, bootstrap_admin, member_purges):
     """Their groups feed the row filters compiled for them: results they
-    stored here before (a re-added member) are purged once the invite has
-    committed and been audited. A pending invite has no results to purge."""
+    stored here before (a re-added member) are purged once they accept the
+    invite, after the acceptance has committed and been audited. An invite
+    nobody accepted yet has no results to purge."""
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")
     group_ids = [g["id"] for g in org["groups"]]
 
     resp = _invite(test_client, admin["token"], org_id, email=other["email"], group_ids=group_ids)
     assert resp.status_code == 200, resp.json()
+    pending = _invite(test_client, admin["token"], org_id, email=_email(), group_ids=group_ids)
+    assert pending.status_code == 200, pending.json()
+    assert member_purges == []
+
+    _accept_invite(test_client, admin["token"], org_id, resp.json()["id"], other["token"])
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]]]
     assert member_purges[0]["organization_id"] == org_id
     assert set(group_ids) <= member_purges[0]["groups"][other["user_id"]]
-    assert member_purges[0]["audits"][(resp.json()["id"], "member.invited")] == 1
-
-    pending = _invite(test_client, admin["token"], org_id, email=_email(), group_ids=group_ids)
-    assert pending.status_code == 200, pending.json()
-    assert len(member_purges) == 1
+    assert member_purges[0]["audits"][(resp.json()["id"], "member.invite_accepted")] == 1
 
 
 @pytest.mark.e2e
 def test_inviting_an_account_back_into_groups_purges_its_outdated_results(
         org, test_client, bootstrap_admin):
     """The real purge, end to end: a removed member's results here stay
-    stored; invited back into groups, their latest stays, cleared, and the
-    older ones are gone."""
+    stored; once they accept an invite back into groups, their latest stays,
+    cleared, and the older ones are gone. Results they hold in their other
+    organization are not touched."""
     from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
 
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")
     first = _invite(test_client, admin["token"], org_id, email=other["email"])
     assert first.status_code == 200, first.json()
+    _accept_invite(test_client, admin["token"], org_id, first.json()["id"], other["token"])
     step = seed_member_results_now(org_id, other["user_id"])
+    theirs = seed_member_results_now(other["org_id"], other["user_id"])
     removed = test_client.delete(f"/api/organizations/{org_id}/members/{first.json()['id']}",
                                  headers=_hdr(admin["token"], org_id))
     assert removed.status_code == 204, removed.text
@@ -238,16 +243,65 @@ def test_inviting_an_account_back_into_groups_purges_its_outdated_results(
     again = _invite(test_client, admin["token"], org_id, email=other["email"],
                     group_ids=[g["id"] for g in org["groups"]])
     assert again.status_code == 200, again.json()
+    assert again.json()["user_id"] is None
+    assert member_results_now(step) == untouched()
+    _accept_invite(test_client, admin["token"], org_id, again.json()["id"], other["token"])
     assert member_results_now(step) == purged()
+    assert member_results_now(theirs) == untouched()
+
+
+@pytest.mark.e2e
+def test_attaching_an_account_directly_into_groups_purges_its_outdated_results(
+        org, test_client, create_user, login_user, whoami, monkeypatch):
+    """On a single-organization deployment an account that belongs nowhere
+    else is attached by the invite itself: invited back into groups, its
+    outdated results are purged then, with no acceptance."""
+    from app.settings.config import settings as bow_settings
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
+
+    admin, org_id = org["admin"], org["org_id"]
+    email = _email("single")
+    first = _invite(test_client, admin["token"], org_id, email=email)
+    assert first.status_code == 200, first.json()
+    create_user(email=email, password="Test1234!")
+    user_id = whoami(login_user(email, "Test1234!"))["id"]
+    step = seed_member_results_now(org_id, user_id)
+    removed = test_client.delete(f"/api/organizations/{org_id}/members/{first.json()['id']}",
+                                 headers=_hdr(admin["token"], org_id))
+    assert removed.status_code == 204, removed.text
+    assert member_results_now(step) == untouched()
+
+    monkeypatch.setattr(bow_settings.bow_config.features, "allow_multiple_organizations", False)
+    again = _invite(test_client, admin["token"], org_id, email=email,
+                    group_ids=[g["id"] for g in org["groups"]])
+    assert again.status_code == 200, again.json()
+    assert again.json()["user_id"] == user_id
+    assert member_results_now(step) == purged()
+
+
+def _keep_groups(user_id, group_ids):
+    """The account holds these groups without a membership: what a member
+    removed before removal ended their groups still holds. Written directly:
+    no public path leaves a removed member their groups any more."""
+    import asyncio
+
+    from app.dependencies import async_session_maker
+    from app.models.group_membership import GroupMembership
+
+    async def run():
+        async with async_session_maker() as db:
+            db.add_all([GroupMembership(group_id=g, user_id=str(user_id)) for g in group_ids])
+            await db.commit()
+
+    asyncio.run(run())
 
 
 @pytest.mark.e2e
 def test_reinviting_an_account_into_groups_it_still_holds_purges_nothing(
         org, test_client, bootstrap_admin, create_group, member_purges):
-    """A removed member keeps their groups (removal clears a pending
-    invite's only): invited back into the same groups, theirs did not
-    change, so nothing is purged. Invited back with a group they did not
-    hold, it is."""
+    """An account that still holds the invite's groups: accepting the invite
+    changes none of theirs, so nothing is purged. Accepting one with a group
+    they did not hold purges them."""
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")
     group_ids = [g["id"] for g in org["groups"]]
@@ -255,22 +309,28 @@ def test_reinviting_an_account_into_groups_it_still_holds_purges_nothing(
 
     first = _invite(test_client, admin["token"], org_id, email=other["email"], group_ids=group_ids)
     assert first.status_code == 200, first.json()
+    _accept_invite(test_client, admin["token"], org_id, first.json()["id"], other["token"])
     assert len(member_purges) == 1
     removed = test_client.delete(f"/api/organizations/{org_id}/members/{first.json()['id']}", headers=h)
     assert removed.status_code == 204, removed.text
+    _keep_groups(other["user_id"], group_ids)
 
     again = _invite(test_client, admin["token"], org_id, email=other["email"], group_ids=group_ids)
     assert again.status_code == 200, again.json()
+    _accept_invite(test_client, admin["token"], org_id, again.json()["id"], other["token"])
     assert len(member_purges) == 1, "their groups did not change"
     removed = test_client.delete(f"/api/organizations/{org_id}/members/{again.json()['id']}", headers=h)
     assert removed.status_code == 204, removed.text
+    _keep_groups(other["user_id"], group_ids)
 
     new = create_group(name=_uniq("team"), user_token=admin["token"], org_id=org_id)
     assert new.status_code == 200, new.json()
     wider = _invite(test_client, admin["token"], org_id, email=other["email"],
                     group_ids=group_ids + [new.json()["id"]])
     assert wider.status_code == 200, wider.json()
+    _accept_invite(test_client, admin["token"], org_id, wider.json()["id"], other["token"])
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]], [other["user_id"]]]
+    assert member_purges[1]["organization_id"] == org_id
 
 
 # ── All-or-nothing ────────────────────────────────────────────────────────

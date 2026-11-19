@@ -668,6 +668,29 @@ async def purge_members_results(db, *, organization_id: str, user_ids: Iterable[
                             organization_id=str(organization_id), user_ids=members)
 
 
+# The members a claimed invite gave groups they did not hold, by organization,
+# noted on the session that claimed it until its caller purges them.
+_CLAIMED_GROUPS = "viewer_results_claimed_groups"
+
+
+def note_claimed_groups(db, *, organization_id: str, user_id: str) -> None:
+    """A claimed invite gave `user_id` groups in `organization_id` they did
+    not hold (permission_resolver.materialize_pending_rbac): the claim's
+    caller purges them with purge_claimed_members once it commits."""
+    db.info.setdefault(_CLAIMED_GROUPS, {}).setdefault(str(organization_id), set()).add(str(user_id))
+
+
+async def purge_claimed_members(db, *, budget_seconds: Optional[float] = None) -> None:
+    """After the claim of one or more invites has committed (an invite link
+    accepted, a sign-in, SCIM, chat onboarding, an Entra exchange): the
+    members noted on `db` are purged, each organization's in its own
+    purge_members_results, and the notes cleared. None noted: nothing."""
+    noted = db.info.pop(_CLAIMED_GROUPS, None) or {}
+    for organization_id in sorted(noted):
+        await purge_members_results(db, organization_id=organization_id, user_ids=noted[organization_id],
+                                    budget_seconds=budget_seconds)
+
+
 def wait_stamp() -> dict:
     """The stamp columns of a wait for input: none (never judged)."""
     return {"source_stamp": None, "source_refs": None}

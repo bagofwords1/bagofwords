@@ -450,6 +450,11 @@ class ScimUserService:
                     existing_user.scim_external_id = data.externalId
                 await db.commit()
                 await db.refresh(claimed)
+                # The invite's groups outdate results they stored here before
+                # (a re-added member); the directory push waits on it.
+                from app.services import viewer_result_freshness
+                await viewer_result_freshness.purge_claimed_members(
+                    db, budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
                 return _user_to_scim(existing_user, claimed, base_url)
 
             # Enforce the license seat cap before adding a new member. Checked after

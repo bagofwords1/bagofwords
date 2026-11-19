@@ -155,4 +155,10 @@ async def resolve_or_admit(db, service, client, config, claims):
     except (IntegrityError, OperationalError):
         await db.rollback()
         raise ExchangeError("temporarily_unavailable", "Concurrent user provisioning; retry", 503) from None
+    # The invite's groups outdate results the account stored there before (a
+    # re-added member); the exchange waits on it: short budget.
+    from app.services import viewer_result_freshness
+
+    await viewer_result_freshness.purge_claimed_members(
+        db, budget_seconds=viewer_result_freshness.QUICK_PURGE_BUDGET_SECONDS)
     return admitted_id

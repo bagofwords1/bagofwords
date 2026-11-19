@@ -20,6 +20,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from tests.e2e.org_isolation.identity_helpers import feature
 from tests.e2e.test_entra_token_exchange import entra, exchange, setup_app  # noqa: F401
+from tests.fixtures.member_purge_spy import member_purges  # noqa: F401 (fixture)
 
 
 def _second_organization_with_app(test_client, create_user, login_user, whoami, entra):
@@ -101,6 +102,38 @@ def test_linked_identity_joins_a_second_organization_that_invited_it(
         assert len([m for m in members if m.get("user_id") == info["id"]]) == 1
         assert not [m for m in members if (m.get("email") or "").lower() == info["email"].lower() and not m.get("user_id")]
         assert exchange(test_client, app_b, token).status_code == 200
+
+
+@pytest.mark.e2e
+def test_joining_by_an_invite_with_groups_purges_the_accounts_results_there(
+    test_client, create_user, login_user, whoami, entra, member_purges
+):
+    """The invite's groups feed the row filters compiled for the account:
+    results it stored in that organization before are purged once the
+    exchange that claimed the invite has committed (short budget: the
+    exchange waits on it)."""
+    import app.services.viewer_result_freshness as freshness
+
+    with feature("allow_multiple_organizations", True):
+        _, _, info = setup_app(test_client, create_user, login_user, whoami, entra)
+        app_b, headers_b, org_b = _second_organization_with_app(test_client, create_user, login_user, whoami, entra)
+        group = test_client.post(f"/api/organizations/{org_b}/groups", headers=headers_b,
+                                 json={"name": f"team-{uuid.uuid4().hex[:6]}"})
+        assert group.status_code == 200, group.text
+        invited = test_client.post(
+            f"/api/organizations/{org_b}/members", headers=headers_b,
+            json={"organization_id": org_b, "email": info["email"], "role": "member",
+                  "group_ids": [group.json()["id"]]},
+        )
+        assert invited.status_code == 200, invited.text
+        assert member_purges == []
+
+        assert exchange(test_client, app_b, entra[3]()).status_code == 200
+
+    assert [c["user_ids"] for c in member_purges] == [[info["id"]]]
+    assert member_purges[0]["organization_id"] == org_b
+    assert group.json()["id"] in member_purges[0]["groups"][info["id"]]  # committed
+    assert member_purges[0]["budget_seconds"] == freshness.QUICK_PURGE_BUDGET_SECONDS
 
 
 @pytest.mark.e2e
