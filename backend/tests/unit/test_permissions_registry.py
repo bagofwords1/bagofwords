@@ -140,3 +140,11 @@ def test_instructions_and_entities_are_separate_categories():
     assert "Entities" in PERMISSION_CATEGORIES
     assert PERMISSION_CATEGORIES["Instructions"] == ["manage_instructions"]
     assert PERMISSION_CATEGORIES["Entities"] == ["manage_entities"]
+
+
+def test_every_member_who_may_update_a_report_may_also_delete_it():
+    """`DELETE /artifacts/{id}` (one version) is gated on `delete_reports`,
+    where it was `update_reports`: no one loses it only while both stay
+    baseline -- granted to every member and absent from the role editor."""
+    assert {"update_reports", "delete_reports"} <= set(BASELINE_PERMISSIONS)
+    assert "delete_reports" in HIDDEN_PERMISSION_CATEGORIES["Reports"]

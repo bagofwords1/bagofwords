@@ -852,6 +852,7 @@ class InstructionContextBuilder:
                 .where(
                     and_(
                         InstructionBuild.id == build_id,
+                        InstructionBuild.organization_id == str(self.organization.id),
                         InstructionBuild.deleted_at == None,
                     )
                 )

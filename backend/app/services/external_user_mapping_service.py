@@ -228,7 +228,8 @@ class ExternalUserMappingService:
         stmt = select(User).join(Membership).where(
             and_(
                 func.lower(User.email) == normalized,
-                Membership.organization_id == organization_id
+                Membership.organization_id == organization_id,
+                Membership.deleted_at.is_(None),
             )
         )
         result = await db.execute(stmt)
@@ -273,11 +274,12 @@ class ExternalUserMappingService:
         stmt = select(User).join(Membership).where(
             and_(
                 User.id == app_user_id,
-                Membership.organization_id == organization_id
+                Membership.organization_id == organization_id,
+                Membership.deleted_at.is_(None),
             )
         )
         result = await db.execute(stmt)
-        user = result.scalar_one_or_none()
+        user = result.scalars().first()
         
         if not user:
             raise HTTPException(
@@ -342,6 +344,15 @@ class ExternalUserMappingService:
                 "platform_type": mapping.platform_type
             }
         
+        # A chat identity can only be linked to a member of the organization
+        # the link was issued for.
+        from app.core.permission_resolver import principal_belongs_to_org
+        if not await principal_belongs_to_org(db, current_user, mapping.organization_id):
+            return {
+                "success": False,
+                "error": "Your account is not a member of the organization this link belongs to",
+            }
+
         # Update mapping with user info
         mapping.app_user_id = current_user.id
         mapping.external_email = current_user.email

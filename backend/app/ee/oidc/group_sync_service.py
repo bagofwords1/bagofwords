@@ -299,7 +299,7 @@ async def _ensure_org_membership(
             if claimed is not None:
                 # Regaining a membership restores a login closed by
                 # app/core/user_lifecycle when the user's last one was removed.
-                await reactivate_user_for_membership(db, str(user_id))
+                await reactivate_user_for_membership(db, str(user_id), organization_id)
                 logger.info(
                     "OIDC group sync: claimed open invite as org membership for "
                     "user %s in org %s", user_id, organization_id
@@ -331,7 +331,7 @@ async def _ensure_org_membership(
             return
         # Regaining a membership restores a login closed by
         # app/core/user_lifecycle when the user's last one was removed.
-        await reactivate_user_for_membership(db, str(user_id))
+        await reactivate_user_for_membership(db, str(user_id), organization_id)
         # Give the user a real RBAC assignment (not just the legacy string).
         await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
         logger.info(

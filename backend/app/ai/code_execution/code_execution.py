@@ -1736,6 +1736,12 @@ class StreamingCodeExecutor:
                 captured_column_titles=_column_titles,
                 query_attribution=query_attribution,
             )
+            # Keys the clients had before their agent or connection was
+            # renamed: saved code that spells an old name still reaches them
+            # by direct lookup, while iteration sees each client once.
+            from app.ai.code_execution.sandbox.namespace import ClientsDict
+            from app.services.client_keys import former_key_map
+            wrapped_clients = ClientsDict(wrapped_clients, former_key_map(ds_clients))
 
             # Inject a sync HTTP client when the org allows web fetch in code.
             # The client owns concurrency internally so model code never
@@ -1824,6 +1830,7 @@ class StreamingCodeExecutor:
             loadables=loadables,
             params=params,
             client_keys=[str(k) for k in (wrapped_clients or {}).keys()],
+            client_aliases=dict(getattr(wrapped_clients, "former", None) or {}),
             http_enabled=http_client is not None,
             load_step_enabled=load_step_enabled,
             lists_enabled=lists_sink is not None,

@@ -1,19 +1,15 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-circle-stack" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ t('tools.listConnections.listing') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-circle-stack" class="w-3 h-3 me-1 text-ink-muted" />
-          <span class="align-middle">{{ t('tools.listConnections.listed') }}</span>
-          <span class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('tools.listConnections.count', { count: total }) }}</span>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.listConnections.listing') }}</template>
+      <template v-else>{{ t('tools.listConnections.listed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('tools.listConnections.count', { count: total }) }}</span></template></div>
 
     <!-- Connections list -->
     <Transition name="fade" appear>
@@ -55,10 +51,16 @@
     <div v-if="status !== 'running' && !connections.length" class="text-chat-2 text-ink-muted ms-1">
       {{ t('tools.listConnections.empty') }}
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 const { t } = useResponseI18n()
@@ -100,13 +102,6 @@ function countLabel(item: any): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

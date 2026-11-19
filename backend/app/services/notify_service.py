@@ -121,6 +121,7 @@ class NotifyService:
             select(Membership, User)
             .outerjoin(User, Membership.user_id == User.id)
             .where(Membership.organization_id == org_id)
+            .where(Membership.deleted_at.is_(None))
         )).all()
         member_map: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
         for m, u in rows:

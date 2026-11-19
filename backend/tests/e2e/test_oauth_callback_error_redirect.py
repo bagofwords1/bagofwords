@@ -15,7 +15,7 @@ from app.routes import auth as auth_routes
 
 pytestmark = pytest.mark.e2e
 
-ALLOWED_CODES = {"invitation_required", "oauth_email_missing", "oauth_login_failed"}
+ALLOWED_CODES = {"invitation_required", "oauth_email_missing", "oauth_login_failed", "account_link_required", "invite_link_required"}
 PAYLOADS = ['<img src=x onerror=alert(1)>', '"><script>alert(1)</script>', "Call +1-555-0100 to unlock"]
 
 

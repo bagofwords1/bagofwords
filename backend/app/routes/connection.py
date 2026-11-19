@@ -150,8 +150,8 @@ async def _user_can_access_connection(
     from app.core.permission_resolver import user_can_access_data_source
     org_id = str(connection.organization_id) if getattr(connection, 'organization_id', None) else None
     for ds in (connection.data_sources or []):
-        if getattr(ds, "is_public", False):
-            return True
+        # Public data sources are open to members of the owning organization
+        # only; user_can_access_data_source enforces that binding.
         if org_id and await user_can_access_data_source(db, str(user.id), org_id, ds):
             return True
     return False
@@ -536,6 +536,9 @@ async def get_connection(
                     "user", "username", "principal", "oauth_tenant_id", "oauth_client_id",
                     # Qlik on-prem: which account the certificate acts as.
                     "user_directory", "user_id",
+                    # Keyless Google auth: which service account is impersonated,
+                    # and the marker, so an unchanged form sends no credentials.
+                    "target_service_account", "use_application_default_credentials",
                     # What DCR discovery derived from the server, so the edit
                     # form can show "Detected: …" next to the override field.
                     "discovered_scopes", "scopes_source",

@@ -41,6 +41,7 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 from urllib.parse import quote_plus
+from app.data_sources.clients._sa_url import build_url, render
 import hashlib
 import logging
 import os
@@ -152,28 +153,33 @@ class TrinoClient(DataSourceClient):
         shared engine pool keys engines per identity; everything about *how*
         to connect (scheme, trust, role, source, timezone) goes through
         `connect_args`, which the pool keys on too."""
-        auth = ""
-        if self.access_token:
-            # A token may stand alone; `user` is then only an optional session
-            # user the server may ignore.
-            if self.user:
-                auth = f"{quote_plus(self.user)}@"
-        elif self.user:
-            auth = quote_plus(self.user)
-            # Credentials only travel over TLS. Over plain HTTP the driver
-            # (0.339+) refuses a password outright, and before that it sent it
-            # in the clear; a bare user is what an unauthenticated coordinator
-            # expects anyway.
-            if self.password and self.protocol == "https":
-                auth += f":{quote_plus(self.password)}"
-            auth += "@"
+        return render(self._sa_url)
+
+    @cached_property
+    def _sa_url(self):
+        """The URL object the engine is built from (see clients/_sa_url.py)."""
+        password = None
+        # A token may stand alone; `user` is then only an optional session
+        # user the server may ignore.
+        # Credentials only travel over TLS. Over plain HTTP the driver
+        # (0.339+) refuses a password outright, and before that it sent it
+        # in the clear; a bare user is what an unauthenticated coordinator
+        # expects anyway.
+        if not self.access_token and self.user and self.password and self.protocol == "https":
+            password = self.password
+        # The dialect url-decodes catalog and schema itself.
         path = quote_plus(self.catalog)
         if self._schemas:
             path += "/" + quote_plus(self._schemas[0])
-        uri = f"trino://{auth}{self.host}:{self.port}/{path}"
-        if self.access_token:
-            uri += f"?access_token={quote_plus(self.access_token)}"
-        return uri
+        return build_url(
+            "trino",
+            username=self.user,
+            password=password,
+            host=self.host,
+            port=self.port,
+            database=path,
+            query={"access_token": self.access_token} if self.access_token else None,
+        )
 
     def _ca_bundle_path(self) -> Optional[str]:
         """Materialise the pasted CA PEM once per content hash. The driver
@@ -213,7 +219,7 @@ class TrinoClient(DataSourceClient):
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
         conn = None
         try:
-            engine = get_engine(self.trino_uri, connect_args=self._connect_args())
+            engine = get_engine(self._sa_url, connect_args=self._connect_args())
             conn = engine.connect()
         except IndexingCancelled:
             raise

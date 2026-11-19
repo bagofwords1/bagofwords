@@ -6,7 +6,7 @@ into the registration flow (callers fire it best-effort).
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +33,40 @@ async def _accessible_agent_names(db, user_id: str, org_id: str) -> List[str]:
     return [d.name for d in visible if d.name]
 
 
-async def send_welcome_email(user_id: str) -> None:
-    """Send the welcome email. Safe to call fire-and-forget; swallows errors."""
+async def _welcome_organization_id(db, user_id: str, organization_id: Optional[str]):
+    """The one organization the welcome email speaks for.
+
+    The organization the caller says the user just joined, when the user really
+    is a live member of it. Otherwise the most recently created live
+    membership; memberships attached in the same moment are ordered by
+    organization id, so the choice never depends on row order.
+    """
+    from sqlalchemy import select
+    from app.models.membership import Membership
+
+    rows = (await db.execute(
+        select(Membership.organization_id).where(
+            Membership.user_id == user_id,
+            Membership.deleted_at.is_(None),
+        ).order_by(Membership.created_at.desc(), Membership.organization_id.asc())
+    )).scalars().all()
+    if organization_id and str(organization_id) in {str(r) for r in rows}:
+        return str(organization_id)
+    return rows[0] if rows else None
+
+
+async def send_welcome_email(user_id: str, organization_id: Optional[str] = None) -> None:
+    """Send the welcome email. Safe to call fire-and-forget; swallows errors.
+
+    One email per sign-up, for one organization: ``organization_id`` when the
+    caller knows which one the user just joined, else see
+    ``_welcome_organization_id``.
+    """
     try:
         from app.settings.config import settings
 
-        from sqlalchemy import select
         from app.dependencies import async_session_maker
         from app.models.user import User
-        from app.models.membership import Membership
         from app.services.notification_service import notification_service
         from app.services.email_client_resolver import is_outbound_available
         from app.services.email_copy import welcome_email as build_welcome_email
@@ -51,10 +76,7 @@ async def send_welcome_email(user_id: str) -> None:
             if not user or not getattr(user, "email", None):
                 return
 
-            membership = (await db.execute(
-                select(Membership).where(Membership.user_id == user_id)
-            )).scalars().first()
-            org_id = membership.organization_id if membership else None
+            org_id = await _welcome_organization_id(db, user_id, organization_id)
 
             agent_names = await _accessible_agent_names(db, user_id, org_id) if org_id else []
             recipient = user.email

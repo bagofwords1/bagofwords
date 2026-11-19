@@ -1,4 +1,4 @@
-"""Provider-neutral, mail-named agent tools for Gmail and Outlook mailboxes.
+"""Provider-neutral, mail-named agent tools for Gmail, Outlook and Exchange Server mailboxes.
 
 Native mail clients expose ``list_files`` / ``read_file`` / ``search_files``
 methods that return message-shaped results. Rather than expose the *file* tools
@@ -148,7 +148,8 @@ class _MailboxTool(Tool):
                 "output": {"success": True, "connection_id": data.connection_id,
                            "file_count": 0, "files": [], "folders": folders},
                 "observation": {
-                    "summary": f"Mailbox has {len(folders)} folder(s). Pass a path or id as folder_id.",
+                    "summary": f"Mailbox has {len(folders)} folder(s). Pass a path or id as folder_id."
+                               + (f" {result['note']}" if result.get("note") else ""),
                     "details": "\n".join(rows),
                     "success": True,
                 },
@@ -177,8 +178,15 @@ class _MailboxTool(Tool):
                 f'cursor="{cursor}" (keep going until no cursor is returned) before '
                 "concluding anything about the whole set."
             )
+        elif result.get("partial"):
+            # The source could not cover its whole scope: an exhausted cursor is
+            # the end of what was read, not of what exists.
+            summary += ". No more messages in the part that was read."
         else:
             summary += ". Complete: these are all the matching messages."
+        if result.get("note"):
+            # What the listing covered, when that is not a single folder.
+            summary += f" {result['note']}"
         observation: Dict[str, Any] = {"summary": summary, "success": True}
         if entries:
             observation["details"] = "\n".join(_email_row(e) for e in entries)
@@ -207,10 +215,13 @@ class ListEmailsTool(_MailboxTool):
         return ToolMetadata(
             name="list_emails",
             description=(
-                "List emails in a Gmail or Outlook / Microsoft 365 mailbox, newest "
-                "first. Filter server-side with folder_id (e.g. 'Ops', "
+                "List emails in a Gmail, Outlook / Microsoft 365 or Exchange Server "
+                "mailbox, newest first. Filter server-side with folder_id (e.g. 'Ops', "
                 "'Inbox/Telex In'), unread_only, received_after / received_before "
-                "(ISO-8601). Each row has id, subject, sender, received time, "
+                "(ISO-8601). An Exchange Server connection can hold several "
+                "mailboxes: with no folder_id it lists the default Inbox, and a "
+                "shared mailbox's folders carry its address as a prefix. "
+                "Each row has id, subject, sender, received time, "
                 "read state, folder and a body preview — usually enough to triage "
                 "without opening the message. Results are paged: when the summary "
                 "says INCOMPLETE, call again with the given cursor until no cursor "
@@ -223,7 +234,7 @@ class ListEmailsTool(_MailboxTool):
             output_schema=ListEmailsOutput.model_json_schema(),
             idempotent=True,
             timeout_seconds=90,
-            tags=["email", "gmail", "outlook", "mail", "inbox", "list", "folder", "unread"],
+            tags=["email", "gmail", "outlook", "exchange", "mail", "inbox", "list", "folder", "unread"],
             requires_capability="list_emails",
         )
 
@@ -244,7 +255,10 @@ class ListEmailsTool(_MailboxTool):
     async def _call(self, client, data) -> Dict[str, Any]:
         import asyncio
         if data.list_folders:
-            return {"folders": await asyncio.to_thread(client.list_mail_folders)}
+            folders = await asyncio.to_thread(client.list_mail_folders)
+            # A connection spanning several mailboxes says which ones it could not open.
+            note = getattr(client, "folders_note", None)
+            return {"folders": folders, "note": await asyncio.to_thread(note) if note else None}
         return await asyncio.to_thread(
             client.list_messages,
             folder=data.folder_id, unread_only=data.unread_only,
@@ -267,12 +281,13 @@ class ReadEmailTool(ReadFileTool):
         return ToolMetadata(
             name="read_email",
             description=(
-                "Read a full email from a Gmail or Outlook / Microsoft 365 mailbox and "
+                "Read a full email from a Gmail, Outlook / Microsoft 365 or Exchange "
+                "Server mailbox and "
                 "attach it to the conversation. Pass the message id (from "
                 "`list_emails` or `search_email`) as `file_id`, and the mailbox "
                 "connection as `connection_id`. Returns the message headers "
                 "(subject, from, to, date, and a `Link:` line with the message's "
-                "URL in Gmail or Outlook on the web) plus the body as plain "
+                "URL in Gmail or Outlook on the web, when the mailbox serves one) plus the body as plain "
                 "text, so you can quote and analyse it directly — cite the "
                 "`Link:` URL when pointing the user at the message, never the "
                 "opaque id. USE THIS — not read_file — to open a message "
@@ -283,7 +298,7 @@ class ReadEmailTool(ReadFileTool):
             output_schema=ReadFileOutput.model_json_schema(),
             idempotent=True,
             timeout_seconds=60,
-            tags=["email", "gmail", "outlook", "mail", "message", "read"],
+            tags=["email", "gmail", "outlook", "exchange", "mail", "message", "read"],
             requires_capability="read_email",
         )
 
@@ -299,10 +314,11 @@ class SearchEmailsTool(_MailboxTool):
         return ToolMetadata(
             name="search_email",
             description=(
-                "Search a Gmail or Outlook / Microsoft 365 mailbox with a "
-                "provider-native query. Outlook takes KQL over subject, body and "
-                "sender (`from:`, `subject:`, `OR`, quoted phrases); Gmail takes "
-                "inbox syntax (`from:`, `has:attachment`). Narrow with folder_id, "
+                "Search a Gmail, Outlook / Microsoft 365 or Exchange Server mailbox "
+                "with a provider-native query. Outlook and Exchange Server take "
+                "keywords over subject, body and sender (`from:`, `subject:`, `OR`, "
+                "quoted phrases); Gmail takes inbox syntax (`from:`, "
+                "`has:attachment`). Narrow with folder_id, "
                 "unread_only and received_after / received_before rather than "
                 "query terms. Rows carry sender, received time, read state and a "
                 "body preview. Paged like list_emails: follow the cursor until none "
@@ -315,7 +331,7 @@ class SearchEmailsTool(_MailboxTool):
             output_schema=SearchEmailsOutput.model_json_schema(),
             idempotent=True,
             timeout_seconds=90,
-            tags=["email", "gmail", "outlook", "mail", "message", "search"],
+            tags=["email", "gmail", "outlook", "exchange", "mail", "message", "search"],
             requires_capability="search_emails",
         )
 

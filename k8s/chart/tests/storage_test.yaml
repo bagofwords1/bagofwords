@@ -178,3 +178,19 @@ tests:
             persistentVolumeClaim:
               claimName: legacy-uploads
         template: deployment.yaml
+
+  - it: keeps system logs on the uploads volume by default
+    asserts:
+      - equal:
+          path: data.BOW_SYSTEM_LOGS_DIR
+          value: /app/backend/uploads/system-logs
+        template: config.yaml
+
+  - it: system logs directory can be overridden
+    set:
+      systemLogs.directory: /mnt/shared/bow-logs
+    asserts:
+      - equal:
+          path: data.BOW_SYSTEM_LOGS_DIR
+          value: /mnt/shared/bow-logs
+        template: config.yaml

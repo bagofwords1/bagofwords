@@ -4,6 +4,7 @@ import glob
 import re
 from pathlib import Path
 from collections import defaultdict
+from app.core.git_file_walker import repo_glob
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +30,7 @@ class LookMLResourceExtractor:
 
     def extract_all_resources(self):
         """Extract all LookML resources from the project directory."""
-        lookml_files = list(self.project_dir.glob('**/*.lkml'))
+        lookml_files = repo_glob(self.project_dir, '**/*.lkml')
         
         for lkml_file in lookml_files:
             try:

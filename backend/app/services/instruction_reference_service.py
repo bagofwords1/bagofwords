@@ -1,7 +1,9 @@
 from typing import List, Optional, Any
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_, delete, func
+from sqlalchemy import and_, delete, func, or_
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm.util import identity_key
 
 from app.models.instruction_reference import InstructionReference
@@ -10,6 +12,8 @@ from app.models.metadata_resource import MetadataResource
 from app.models.datasource_table import DataSourceTable
 from app.models.organization import Organization
 from app.models.connection_tool import ConnectionTool
+from app.models.data_source import DataSource
+from app.models.metadata_indexing_job import MetadataIndexingJob
 
 from app.schemas.instruction_reference_schema import (
     InstructionReferenceCreate,
@@ -24,14 +28,19 @@ class InstructionReferenceService:
         )
         res = await db.execute(stmt)
         items = res.scalars().all()
-        
+        organization_id = (
+            await db.execute(select(Instruction.organization_id).where(Instruction.id == instruction_id))
+        ).scalar_one_or_none()
+
         # Populate referenced objects for each item
         populated_items = []
         for item in items:
             item_data = InstructionReferenceSchema.from_orm(item).model_dump()
             
             # Fetch and add the referenced object
-            referenced_obj = await self._fetch_referenced_object(db, item.object_type, item.object_id)
+            referenced_obj = await self._fetch_referenced_object(
+                db, item.object_type, item.object_id, organization_id
+            )
             if referenced_obj:
                 if item.object_type == "metadata_resource":
                     from app.schemas.metadata_resource_schema import MetadataResourceSchema
@@ -108,22 +117,20 @@ class InstructionReferenceService:
     ) -> Any:
         # Validate object exists and belongs to org where applicable
         if ref.object_type == "metadata_resource":
-            q = select(MetadataResource).where(
-                and_(MetadataResource.id == ref.object_id)
-            )
+            q = _org_metadata_resources(organization.id).where(MetadataResource.id == ref.object_id)
             res = await db.execute(q)
             obj = res.scalar_one_or_none()
             if not obj:
-                raise ValueError("metadata_resource not found")
+                raise _invalid_reference("metadata_resource not found")
             
             # Validate data source constraint if specified
             if data_source_ids and obj.data_source_id not in data_source_ids:
-                raise ValueError(f"metadata_resource {ref.object_id} does not belong to the selected data sources")
+                raise _invalid_reference(f"metadata_resource {ref.object_id} does not belong to the selected data sources")
             
             return obj
                 
         elif ref.object_type == "datasource_table":
-            q = select(DataSourceTable).where(DataSourceTable.id == ref.object_id)
+            q = _org_datasource_tables(organization.id).where(DataSourceTable.id == ref.object_id)
             res = await db.execute(q)
             obj = res.scalar_one_or_none()
 
@@ -146,7 +153,7 @@ class InstructionReferenceService:
                 # De-dup, lowercase for case-insensitive comparison.
                 lowered = list({c.lower() for c in candidates if c})
                 if lowered:
-                    name_q = select(DataSourceTable).where(
+                    name_q = _org_datasource_tables(organization.id).where(
                         and_(
                             DataSourceTable.datasource_id.in_(data_source_ids),
                             func.lower(DataSourceTable.name).in_(lowered),
@@ -160,11 +167,11 @@ class InstructionReferenceService:
                         ref.object_id = obj.id
 
             if not obj:
-                raise ValueError("datasource_table not found")
+                raise _invalid_reference("datasource_table not found")
 
             # Validate data source constraint if specified
             if data_source_ids and obj.datasource_id not in data_source_ids:
-                raise ValueError(f"datasource_table {ref.object_id} does not belong to the selected data sources")
+                raise _invalid_reference(f"datasource_table {ref.object_id} does not belong to the selected data sources")
 
             return obj
         elif ref.object_type == "instruction":
@@ -178,7 +185,7 @@ class InstructionReferenceService:
             res = await db.execute(q)
             obj = res.scalar_one_or_none()
             if not obj:
-                raise ValueError("instruction not found")
+                raise _invalid_reference("instruction not found")
             return obj
         elif ref.object_type == "connection_tool":
             from app.models.connection import Connection
@@ -196,31 +203,89 @@ class InstructionReferenceService:
             res = await db.execute(q)
             obj = res.scalar_one_or_none()
             if not obj:
-                raise ValueError("connection_tool not found")
+                raise _invalid_reference("connection_tool not found")
             return obj
         else:
-            raise ValueError("unsupported object_type")
+            raise _invalid_reference("unsupported object_type")
     
-    async def _fetch_referenced_object(self, db: AsyncSession, object_type: str, object_id: str) -> Optional[Any]:
-        """Fetch the referenced object by type and ID."""
+    async def _fetch_referenced_object(
+        self, db: AsyncSession, object_type: str, object_id: str, organization_id: Optional[str]
+    ) -> Optional[Any]:
+        """Fetch the referenced object by type and ID.
+
+        The object must belong to ``organization_id`` (the organization of the
+        instruction holding the reference); anything else reads as missing.
+        """
+        if not organization_id:
+            return None
         try:
             if object_type == "metadata_resource":
-                q = select(MetadataResource).where(MetadataResource.id == object_id)
+                q = _org_metadata_resources(organization_id).where(MetadataResource.id == object_id)
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
             elif object_type == "datasource_table":
-                q = select(DataSourceTable).where(DataSourceTable.id == object_id)
+                q = _org_datasource_tables(organization_id).where(DataSourceTable.id == object_id)
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
             elif object_type == "instruction":
-                q = select(Instruction).where(Instruction.id == object_id)
+                q = select(Instruction).where(
+                    Instruction.id == object_id, Instruction.organization_id == organization_id
+                )
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
             elif object_type == "connection_tool":
-                q = select(ConnectionTool).where(ConnectionTool.id == object_id)
+                from app.models.connection import Connection
+                q = (
+                    select(ConnectionTool)
+                    .join(Connection, ConnectionTool.connection_id == Connection.id)
+                    .where(ConnectionTool.id == object_id, Connection.organization_id == organization_id)
+                )
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
         except Exception:
             return None
         return None
 
+
+def _invalid_reference(detail: str) -> HTTPException:
+    # A reference that cannot be resolved inside the organization is a client
+    # error, whether the id is unknown or belongs elsewhere.
+    return HTTPException(status_code=400, detail=detail)
+
+
+def _org_metadata_resources(organization_id: str):
+    """Metadata resources of one organization.
+
+    A resource belongs to its data source's organization. One indexed from an
+    organization-level repository has no data source; it is then placed by
+    its own organization, its owning instruction, or its indexing job.
+    """
+    owner = aliased(Instruction)
+    return (
+        select(MetadataResource)
+        .outerjoin(DataSource, MetadataResource.data_source_id == DataSource.id)
+        .outerjoin(owner, MetadataResource.instruction_id == owner.id)
+        .outerjoin(MetadataIndexingJob, MetadataResource.metadata_indexing_job_id == MetadataIndexingJob.id)
+        .where(
+            or_(
+                DataSource.organization_id == organization_id,
+                and_(
+                    MetadataResource.data_source_id.is_(None),
+                    or_(
+                        MetadataResource.organization_id == organization_id,
+                        owner.organization_id == organization_id,
+                        MetadataIndexingJob.organization_id == organization_id,
+                    ),
+                ),
+            )
+        )
+    )
+
+
+def _org_datasource_tables(organization_id: str):
+    """Data source tables of one organization (through their data source)."""
+    return (
+        select(DataSourceTable)
+        .join(DataSource, DataSourceTable.datasource_id == DataSource.id)
+        .where(DataSource.organization_id == organization_id)
+    )

@@ -1,28 +1,26 @@
 <template>
-  <div class="mt-1" dir="auto">
-    <div class="mb-1 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 min-w-0">
-      <span v-if="status === 'in_progress'" class="tool-shimmer flex items-center">
-        <Spinner class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.readSubAgent.reading') }}
-      </span>
-      <template v-else>
-        <Icon name="heroicons-eye" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
-        <span class="text-gray-700 dark:text-gray-300 truncate">
-          {{ t('tools.readSubAgent.checked', { title: title }) }}
-          <span class="text-ink-muted">· {{ t(`tools.delegate.status.${runStatus}`, runStatus) }}</span>
-          <span v-if="outcome" class="text-ink-muted">· {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<template v-if="confidence !== null"> {{ Math.round(confidence * 100) }}%</template></span>
-          <span v-if="stepsUsed !== null" class="text-ink-muted" dir="ltr">· {{ stepsUsed }} {{ t('tools.delegate.steps') }}</span>
-        </span>
-      </template>
-    </div>
+  <div class="min-w-0" dir="auto">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-user-group" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'in_progress'">{{ t('tools.readSubAgent.reading') }}</template>
+      <template v-else>{{ t('tools.readSubAgent.checked', { title: title }) }}
+          · {{ t(`tools.delegate.status.${runStatus}`, runStatus) }}<template v-if="outcome">· {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<template v-if="confidence !== null">{{ Math.round(confidence * 100) }}%</template></template>
+      <template v-if="stepsUsed !== null">· {{ stepsUsed }} {{ t('tools.delegate.steps') }}</template></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
     <p v-if="latest" class="ms-4 text-chat-2 text-ink-muted truncate" :title="latest">{{ t('tools.readSubAgent.latest') }}: {{ latest }}</p>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
-import Spinner from '~/components/Spinner.vue'
 
 const { t } = useResponseI18n()
 const props = defineProps<{ toolExecution: { status: string; result_json?: any; arguments_json?: any } }>()

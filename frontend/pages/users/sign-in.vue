@@ -179,7 +179,7 @@
   const email = ref('');
   const password = ref('');
 
-  const SSO_ERROR_CODES = ['saml_login_failed', 'invitation_required', 'oauth_email_missing', 'oauth_login_failed']
+  const SSO_ERROR_CODES = ['saml_login_failed', 'invitation_required', 'oauth_email_missing', 'oauth_login_failed', 'account_link_required', 'invite_link_required']
   const error_message = ref('')
   // Extract the signIn function from useAuth
   const { signIn, getSession } = useAuth();

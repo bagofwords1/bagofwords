@@ -349,8 +349,12 @@ async def get_pii_builtin_rules(
     so admins can enable/disable each and override its replacement token."""
     from app.ee.license import has_feature
     from app.ai.llm.pii.builtin_rules import BUILTIN_PII_RULES
+    from app.ai.llm.pii.detectors import detector_status
     return {
         "licensed": has_feature("pii_protection"),
+        # Names / locations / organizations need a detector (Presidio); the
+        # page offers those rules only when one is available on this instance.
+        "detector": detector_status(),
         "rules": [
             {
                 "id": r["id"],
@@ -372,8 +376,8 @@ async def test_pii_redaction(
     organization: Organization = Depends(get_current_organization),
 ):
     """Dry-run the org's PII rules against sample text so admins can preview
-    redaction from the settings page. Enterprise-gated. Accepts an optional
-    ``config`` override to preview unsaved changes; otherwise uses stored config.
+    redaction from the settings page. Enterprise-gated. Previews the unsaved
+    ``config`` it is given, for ``policy_id`` (Default when omitted).
 
     Returns the redacted text and a non-sensitive per-rule match summary.
     """
@@ -397,13 +401,18 @@ async def test_pii_redaction(
             if err:
                 raise HTTPException(status_code=400, detail=f"Rule '{rule.get('name', '')}': {err}")
 
-    # Preview mode always treats the feature as enabled for the test.
-    redactor = build_redactor({**pii_config, "enabled": True})
+    # Preview mode always treats the feature as enabled for the test, and runs
+    # the policy being edited (Default when none is named).
+    policy_id = payload.get("policy_id") if isinstance(payload.get("policy_id"), str) else None
+    redactor = build_redactor({**pii_config, "enabled": True}, policy_id)
     if redactor is None:
         return {"text": text, "matches": [], "blocked": False, "mode": "replace"}
 
     try:
-        redacted, result = redactor.apply(text)
+        # In a worker thread: a policy with detector rules runs a model (or an
+        # HTTP call) to scan the text.
+        import asyncio
+        redacted, result = await asyncio.to_thread(redactor.apply, text)
         return {
             "text": redacted,
             "matches": result.matches,
@@ -411,4 +420,8 @@ async def test_pii_redaction(
             "mode": redactor.mode,
         }
     except PiiPromptBlockedError as e:
-        return {"text": text, "matches": [{"name": n} for n in e.rule_names], "blocked": True, "mode": "block"}
+        from app.ai.llm.pii.redactor import PiiDetectorUnavailableError
+        return {
+            "text": text, "matches": [{"name": n} for n in e.rule_names], "blocked": True, "mode": "block",
+            "detector_unavailable": isinstance(e, PiiDetectorUnavailableError),
+        }

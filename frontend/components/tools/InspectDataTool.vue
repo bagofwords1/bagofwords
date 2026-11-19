@@ -1,69 +1,26 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center flex-wrap gap-1">
-          <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ t('tools.inspectData.inspecting') }}</span>
-          <Transition name="fade-in" appear>
-            <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap gap-1">
-              <template v-for="(group, gidx) in groupedTables" :key="gidx">
-                <span v-if="gidx > 0" class="text-gray-300 dark:text-gray-600">|</span>
-                <DataSourceIcon :icon-token="group.iconToken" class="h-2" />
-                <span class="inline-flex items-center flex-wrap" :title="group.title">
-                  <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
-                    <UIcon
-                      v-if="isCached(nm)"
-                      name="heroicons-bolt"
-                      class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
-                      title="Cached locally — this read did not query the source"
-                    />
-                    <bdi>{{ nm }}</bdi><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
-                  </span>
-                  <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-ink-muted">&nbsp;+{{ group.more }}</span></UTooltip>
-                </span>
-              </template>
-            </span>
-            <span v-else>{{ t('tools.inspectData.dataRunning') }}</span>
-          </Transition>
-          <span v-if="slotWait" class="text-ink-muted" data-testid="waiting-for-slot-header">· {{ slotWaitLabel }}</span>
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center flex-wrap gap-1">
-          <Icon name="heroicons-command-line" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ t('tools.inspectData.inspected') }}</span>
-          <Transition name="fade-in" appear>
-            <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap gap-1">
-              <template v-for="(group, gidx) in groupedTables" :key="gidx">
-                <span v-if="gidx > 0" class="text-gray-300 dark:text-gray-600">|</span>
-                <DataSourceIcon :icon-token="group.iconToken" class="h-2.5" />
-                <span class="inline-flex items-center flex-wrap" :title="group.title">
-                  <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
-                    <UIcon
-                      v-if="isCached(nm)"
-                      name="heroicons-bolt"
-                      class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
-                      title="Cached locally — this read did not query the source"
-                    />
-                    <bdi>{{ nm }}</bdi><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
-                  </span>
-                  <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-ink-muted">&nbsp;+{{ group.more }}</span></UTooltip>
-                </span>
-              </template>
-            </span>
-            <span v-else>{{ t('tools.inspectData.data') }}</span>
-          </Transition>
-          <span v-if="duration" class="text-ink-muted ms-1">{{ duration }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
-          />
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.inspectData.inspecting') }}<template v-if="groupedTables.length">
+      <template v-for="(group, gidx) in groupedTables">
+      <template v-if="gidx > 0">|</template>
+      <template v-for="(nm, nidx) in group.visible">{{ nm }}<template v-if="nidx < group.visible.length - 1">,&nbsp;</template></template>
+      <template v-if="group.more">&nbsp;+{{ group.more }}</template></template></template>
+      <template v-else>{{ t('tools.inspectData.dataRunning') }}</template>
+      <template v-if="slotWait">· {{ slotWaitLabel }}</template></template>
+      <template v-else>{{ t('tools.inspectData.inspected') }}<template v-if="groupedTables.length">
+      <template v-for="(group, gidx) in groupedTables">
+      <template v-if="gidx > 0">|</template>
+      <template v-for="(nm, nidx) in group.visible">{{ nm }}<template v-if="nidx < group.visible.length - 1">,&nbsp;</template></template>
+      <template v-if="group.more">&nbsp;+{{ group.more }}</template></template></template>
+      <template v-else>{{ t('tools.inspectData.data') }}</template></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span v-if="duration" class="text-ink-muted ms-1">{{ duration }}</span></template></div>
 
     <!-- Live progress while running -->
     <Transition name="slide">
@@ -90,7 +47,7 @@
 
     <!-- Expandable content (after completion) -->
     <Transition name="slide">
-      <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-1.5">
+      <div v-if="toolHeaderExpanded && status !== 'running'" class="mt-2 space-y-1.5">
         <!-- Code section -->
         <div v-if="code" class="group">
           <div
@@ -131,10 +88,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { useCachedTableNames } from '~/composables/useFastTable'

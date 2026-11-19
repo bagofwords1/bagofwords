@@ -7,10 +7,10 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
   expect(session.ok()).toBeTruthy()
   const headers = { authorization, 'X-Organization-Id': (await session.json()).organizations[0].id }
   const settings = await page.request.get('/api/organization/settings', { headers })
-  const general = (await settings.json()).config.general
+  const wasOn = (await settings.json()).config.show_world?.value === true
   const setEnabled = async (enabled: boolean) => {
     const result = await page.request.put('/api/organization/settings', {
-      headers, data: { config: { general: { ...general, show_world: enabled } } },
+      headers, data: { config: { show_world: { value: enabled } } },
     })
     expect(result.ok()).toBeTruthy()
   }
@@ -24,13 +24,17 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
     await expect(page).toHaveURL(/\/agents\/?$/)
     await expect(page.getByTestId('open-world')).toHaveCount(0)
 
-    await page.goto('/settings/general')
-    await page.getByRole('switch', { name: 'Show World in Agents' }).click()
+    // The toggle lives in AI settings and saves on change (no Save button).
+    await page.goto('/settings/ai_settings')
+    await page.getByTestId('ai-settings-search').fill('World view')
     const saved = page.waitForResponse(r => r.url().endsWith('/organization/settings') && r.request().method() === 'PUT')
-    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await page.getByTestId('ai-setting-show_world').getByRole('switch').click()
     expect((await saved).ok()).toBeTruthy()
 
-    await page.goto('/agents')
+    // Client-side navigation, no reload: the shared settings cache is updated.
+    // Settings pages show the admin nav, so leave it before opening Agents.
+    await page.getByRole('button', { name: 'Back to app' }).click()
+    await page.getByRole('link', { name: 'Agents' }).first().click()
     await page.getByTestId('open-world').click()
     await expect(page.getByTestId('open-world')).toHaveAttribute('aria-current', 'page')
     await page.getByRole('switch', { name: 'Usage', exact: true }).click()
@@ -49,6 +53,6 @@ test('enable World, explore a folder, and disable its deep link', async ({ page 
     await expect(page).toHaveURL(/\/agents\/?$/)
   } finally {
     await page.request.delete('/api/folders/' + id + '?mode=keep', { headers })
-    await setEnabled(general?.show_world === true)
+    await setEnabled(wasOn)
   }
 })

@@ -1,28 +1,17 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <div
-      class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-      @click="isExpanded = !isExpanded"
-    >
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-ink-muted" />
-        {{ t('tools.createNote.writing') }}
-      </span>
-      <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-        <Icon name="heroicons-pencil-square" class="w-3 h-3 me-1.5 text-amber-500" />
-        <span dir="auto" class="truncate max-w-[300px]">{{ t('tools.createNote.wrotePrefix', { text: title || t('tools.createNote.untitled') }) }}</span>
-        <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
-      </span>
-      <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-        <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-        <span>{{ t('tools.createNote.failed') }}</span>
-      </span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.createNote.writing') }}</template>
+      <template v-else-if="isSuccess">{{ t('tools.createNote.wrotePrefix', { text: title || t('tools.createNote.untitled') }) }}</template>
+      <template v-else>{{ t('tools.createNote.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- Expandable note content -->
     <Transition name="slide">
-      <div v-if="isExpanded && content" class="mt-2 ms-[18px]">
+      <div v-if="toolHeaderExpanded && content" class="mt-2 ms-[18px]">
         <div class="rounded-md border border-amber-100 dark:border-amber-950/60 bg-amber-50/40 dark:bg-amber-950/20 px-3 py-2">
           <div v-if="title" dir="auto" class="text-chat-2 font-medium text-amber-700 dark:text-amber-400 mb-1">{{ title }}</div>
           <div class="text-chat-2 text-gray-700 dark:text-gray-300 note-markdown">
@@ -31,10 +20,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref } from 'vue'

@@ -115,6 +115,11 @@ class BowSourceService:
         parsed = diagnosis_service._parse(q.query)
         ctx = diagnosis_service._ctx(p)
         base = diagnosis_service._base_where(str(organization.id), scope.data_source_ids, p, parsed.ast)
+        if not scope.is_org_wide:
+            # Whole reports only: results are revalidated per contributing
+            # report (bow_source_access.can_read), which cannot admit part of one.
+            from app.services.folder_monitoring import reports_in_scope
+            base.append(AE.report_id.in_(reports_in_scope(scope.data_source_ids)))
         from app.services.bow_source_access import visible_reports_clause
         base.append(await visible_reports_clause(db, organization.id, user))
         if exclude_report_id:

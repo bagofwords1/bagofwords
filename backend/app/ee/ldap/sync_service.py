@@ -357,7 +357,7 @@ class LDAPGroupSyncService:
             if user is not None and (user.email or "").strip().lower() in invited_emails:
                 claimed = await claim_pending_invite(db, user, organization_id)
                 if claimed is not None:
-                    await reactivate_user_for_membership(db, str(user_id))
+                    await reactivate_user_for_membership(db, str(user_id), organization_id)
                     logger.info(f"LDAP sync: claimed open invite as org membership for user {user_id} in org {organization_id}")
                     continue
 
@@ -380,7 +380,7 @@ class LDAPGroupSyncService:
             created += 1
             # Regaining a membership restores a login closed by
             # app/core/user_lifecycle when the user's last one was removed.
-            await reactivate_user_for_membership(db, str(user_id))
+            await reactivate_user_for_membership(db, str(user_id), organization_id)
             # Give the user a real RBAC assignment (not just the legacy string).
             await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")

@@ -59,6 +59,17 @@ def _invite(test_client, token, org_id, **body):
     )
 
 
+def _accept_invite(test_client, admin_token, org_id, membership_id, user_token):
+    """An account that already belongs to another organization joins by
+    accepting the invite link while signed in (it is never attached directly)."""
+    link = test_client.get(f"/api/organizations/{org_id}/members/{membership_id}/invite-link",
+                           headers=_hdr(admin_token, org_id))
+    assert link.status_code == 200, link.json()
+    resp = test_client.post("/api/invites/accept", json={"token": link.json()["token"]},
+                            headers={"Authorization": f"Bearer {user_token}"})
+    assert resp.status_code == 200, resp.json()
+
+
 def _members(test_client, token, org_id):
     resp = test_client.get(f"/api/organizations/{org_id}/members", headers=_hdr(token, org_id))
     assert resp.status_code == 200, resp.json()
@@ -164,8 +175,8 @@ def test_unknown_role_name_is_rejected(org, test_client):
 
 @pytest.mark.e2e
 def test_inviting_existing_account_applies_roles_and_groups(org, test_client, bootstrap_admin, whoami):
-    """An email with an account in another org is added as a registered member;
-    its roles and groups must land on the *user*, not be rejected."""
+    """An email with an account in another org gets an invite it must accept;
+    once accepted, its roles and groups land on the *user*, not be rejected."""
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")  # has an account + its own org
     group_ids = [g["id"] for g in org["groups"]]
@@ -173,7 +184,10 @@ def test_inviting_existing_account_applies_roles_and_groups(org, test_client, bo
     resp = _invite(test_client, admin["token"], org_id, email=other["email"],
                    role_ids=[org["custom_role"]["id"]], group_ids=group_ids)
     assert resp.status_code == 200, resp.json()
-    assert resp.json()["user_id"] == other["user_id"]
+    # Not attached on the admin's say-so: nothing is granted until they accept.
+    assert resp.json()["user_id"] is None
+    assert org_id not in {o["id"] for o in whoami(other["token"])["organizations"]}
+    _accept_invite(test_client, admin["token"], org_id, resp.json()["id"], other["token"])
 
     for gid in group_ids:
         assert other["user_id"] in _group_member_ids(test_client, admin["token"], org_id, gid)

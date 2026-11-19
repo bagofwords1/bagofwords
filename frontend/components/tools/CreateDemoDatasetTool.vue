@@ -1,34 +1,16 @@
 <template>
-  <div class="mt-1" data-testid="create-demo-dataset-tool">
+  <div class="min-w-0" data-testid="create-demo-dataset-tool">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-        <span v-if="phase === 'designing'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</span>
-        </span>
-        <span v-else-if="phase === 'review'" class="flex items-center text-gray-700 dark:text-gray-300">
-          <Icon name="heroicons-clipboard-document-check" class="w-3 h-3 me-1 text-blue-500" />
-          <span :class="readonly ? 'tool-shimmer' : ''">{{ readonly ? t('tools.createDemoDataset.waitingReview') : t('tools.createDemoDataset.review') }}</span>
-        </span>
-        <span v-else-if="phase === 'working'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">{{ workingLabel }}</span>
-        </span>
-        <span v-else-if="phase === 'created'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-sparkles" class="w-3 h-3 me-1 text-emerald-500" />
-          <span>{{ t('tools.createDemoDataset.created') }}</span>
-        </span>
-        <span v-else-if="phase === 'rejected'" class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-arrow-uturn-left" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ outputStatus === 'timed_out' ? t('tools.createDemoDataset.timedOut') : t('tools.createDemoDataset.rejected') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-          <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-amber-500" />
-          <span>{{ t('tools.createDemoDataset.failed') }}</span>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-chart-bar" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="phase === 'designing'">{{ t('tools.createDemoDataset.designing', { name: args.name || '' }) }}</template>
+      <template v-else-if="phase === 'review'">{{ readonly ? t('tools.createDemoDataset.waitingReview') : t('tools.createDemoDataset.review') }}</template>
+      <template v-else-if="phase === 'working'">{{ workingLabel }}</template>
+      <template v-else-if="phase === 'created'">{{ t('tools.createDemoDataset.created') }}</template>
+      <template v-else-if="phase === 'rejected'">{{ outputStatus === 'timed_out' ? t('tools.createDemoDataset.timedOut') : t('tools.createDemoDataset.rejected') }}</template>
+      <template v-else>{{ t('tools.createDemoDataset.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded || (phase === 'review')" class="tool-call-details w-full min-w-0 mt-2">
 
     <div v-if="phase === 'failed' && message" class="text-chat-2 text-gray-500 dark:text-gray-400 ms-1 mb-2 max-w-chat">
       {{ message }}
@@ -242,10 +224,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
@@ -470,13 +458,6 @@ function formatBytes(n: number): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>
