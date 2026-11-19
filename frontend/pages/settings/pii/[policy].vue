@@ -1,6 +1,11 @@
 <template>
     <div>
-        <SettingsLoading v-if="loading" />
+        <div v-if="!licensed" class="rounded-lg border border-amber-200 bg-amber-50/70 dark:bg-amber-950/40 dark:border-amber-900/60 p-5">
+            <div class="text-sm font-semibold text-amber-800 dark:text-amber-300">{{ $t('settings.pii.enterpriseTitle') }}</div>
+            <p class="text-sm text-amber-800/90 dark:text-amber-300/90 mt-1.5">{{ $t('settings.pii.enterpriseBody') }}</p>
+        </div>
+
+        <SettingsLoading v-else-if="loading" />
 
         <div v-else-if="!policy" data-testid="pii-policy-missing">
             <p class="text-sm text-ink-muted">{{ $t('settings.pii.policyNotFound') }}</p>
@@ -321,9 +326,8 @@ watch(testInput, scheduleTest)
 watch(() => [policy.value, pii.custom_rules], scheduleTest, { deep: true })
 onBeforeUnmount(() => { if (timer) clearTimeout(timer) })
 
-onMounted(() => {
-    // Unlicensed: the list page carries the enterprise notice.
-    if (!hasFeature('pii_protection')) return navigateTo('/settings/pii')
-    load()
-})
+// Unlicensed: the list page carries the enterprise notice. The licence loads
+// after a hard reload, so this is watched, not checked once on mount.
+const licensed = computed(() => hasFeature('pii_protection'))
+onMounted(load)
 </script>

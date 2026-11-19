@@ -90,8 +90,9 @@ if (shotsOnly) {
     await Promise.all([saved(), emailRow.getByTestId('pii-rule-toggle').click()]);
   }
   await Promise.all([saved(), emailRow.getByTestId('pii-rule-action').selectOption('mask')]);
-  const masked = await emailRow.getByTestId('pii-rule-example').innerText();
-  check('rule: mask example keeps the last 4', /jane@acme\.com → \*{4}@\*{2}e\.com/.test(masked) || /\*+.*\.com$/.test(masked), masked);
+  await page.waitForFunction(() => /\*/.test(document.querySelector('[data-rule="email"] [data-testid="pii-rule-example"]')?.textContent || ''), null, { timeout: 5000 }).catch(() => {});
+  const masked = (await emailRow.getByTestId('pii-rule-example').innerText()).replace(/\s+/g, ' ').trim();
+  check('rule: mask example keeps the last 4', masked === 'jane@acme.com → ****@***e.com', masked);
   await Promise.all([saved(), emailRow.getByTestId('pii-rule-action').selectOption('block')]);
   check('rule: block example', /Blocks the request/.test(await emailRow.getByTestId('pii-rule-example').innerText()));
 
