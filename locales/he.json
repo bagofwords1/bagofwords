@@ -5371,7 +5371,7 @@
     "connection.table_preview_failed": "התצוגה המקדימה נכשלה: {reason}",
     "data_source.not_found": "מקור הנתונים לא נמצא",
     "file.not_found": "הקובץ לא נמצא",
-    "system_logs.instance_admin_required": "במופע עם כמה ארגונים, רק מנהל המופע יכול להשתמש ביומני המערכת.",
+    "system_logs.instance_admin_required": "רק מנהל המופע יכול להשתמש ביומני המערכת.",
     "system_logs.invalid_range": "זמן ההתחלה חייב להיות לפני זמן הסיום.",
     "system_logs.delete_failed": "לא ניתן היה למחוק את קובצי היומן בתיקייה {directory}. בדקו שהתיקייה קיימת ושיש הרשאת כתיבה אליה.",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",

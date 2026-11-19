@@ -5433,7 +5433,7 @@
     "connection.table_preview_failed": "Preview failed: {reason}",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",
-    "system_logs.instance_admin_required": "Only an instance administrator can use system logs on an instance with multiple organizations.",
+    "system_logs.instance_admin_required": "Only an instance administrator can use system logs.",
     "system_logs.invalid_range": "The start time must be before the end time.",
     "system_logs.delete_failed": "The log files in {directory} could not be deleted. Check that the directory exists and is writable.",
     "verification.invalid": "Invalid or expired verification token",

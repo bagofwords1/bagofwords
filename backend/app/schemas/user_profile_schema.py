@@ -13,7 +13,7 @@ class UserProfileSchema(UserRead):
     # (instance administrator, multiple organizations enabled, licensed). The
     # UI uses it to show "Create organization"; the API enforces the same rule.
     can_create_organization: bool = False
-    # Whether this user may open instance-wide settings (license, system logs,
+    # Whether this user may open instance-wide settings (license,
     # product updates, sites allowed to frame the app): an instance
     # administrator, or anyone while the instance has and can have only one
     # organization (the per-organization permission still applies there).

@@ -4736,7 +4736,7 @@
     "connection.table_preview_failed": "Vorschau fehlgeschlagen: {reason}",
     "data_source.not_found": "Datenquelle nicht gefunden",
     "file.not_found": "Datei nicht gefunden",
-    "system_logs.instance_admin_required": "Auf einer Instanz mit mehreren Organisationen kann nur ein Instanzadministrator die Systemprotokolle verwenden.",
+    "system_logs.instance_admin_required": "Nur ein Instanzadministrator kann die Systemprotokolle verwenden.",
     "system_logs.invalid_range": "Die Startzeit muss vor der Endzeit liegen.",
     "system_logs.delete_failed": "Die Protokolldateien in {directory} konnten nicht gelöscht werden. Prüfen Sie, ob das Verzeichnis existiert und beschreibbar ist.",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",

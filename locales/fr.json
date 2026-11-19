@@ -4736,7 +4736,7 @@
     "connection.table_preview_failed": "Échec de l'aperçu : {reason}",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",
-    "system_logs.instance_admin_required": "Sur une instance à plusieurs organisations, seul un administrateur de l'instance peut utiliser les journaux système.",
+    "system_logs.instance_admin_required": "Seul un administrateur de l’instance peut utiliser les journaux système.",
     "system_logs.invalid_range": "L'heure de début doit être antérieure à l'heure de fin.",
     "system_logs.delete_failed": "Impossible de supprimer les fichiers journaux de {directory}. Vérifiez que le répertoire existe et qu'il est accessible en écriture.",
     "verification.invalid": "Jeton de vérification invalide ou expiré",
