@@ -93,18 +93,57 @@ ANONYMOUS = Identity()
 
 @dataclass
 class Filter:
-    """The compiled result of a policy against one identity."""
+    """The compiled result of a policy against one identity.
 
-    # None → no restriction; the artifact is served attached, without a copy.
+    Carries both halves of relation security: which rows (`allowed_values` /
+    `deny_all` / `column`) and which columns (`allowed_columns`). Either half
+    may be unrestricted independently — a relation can filter rows, project
+    columns, both, or neither.
+    """
+
+    # None → no row restriction; the artifact is served attached, without a copy.
     allowed_values: Optional[List[str]] = None
     # True → zero rows, whatever the values say.
     deny_all: bool = False
     column: Optional[str] = None
+    # None → every column. A list → the only columns the identity may see, in
+    # the relation's own column order. Column security projects to these at read
+    # time, in the same catalog that filters rows, so it cannot be bypassed.
+    allowed_columns: Optional[List[str]] = None
     reason: str = ""
 
     @property
     def unrestricted(self) -> bool:
-        return not self.deny_all and self.allowed_values is None
+        return (
+            not self.deny_all
+            and self.allowed_values is None
+            and self.allowed_columns is None
+        )
+
+    @property
+    def is_row_filtered(self) -> bool:
+        """Rows are governed — a value filter or a row-level deny."""
+        return self.deny_all or self.allowed_values is not None
+
+    @property
+    def is_column_filtered(self) -> bool:
+        """Columns are governed — a projection (list) or a column-level deny ([])."""
+        return self.allowed_columns is not None
+
+    @property
+    def column_denied(self) -> bool:
+        """Zero columns visible — every column restricted and none granted.
+
+        Kept distinct from ``deny_all`` (which is rows), so a preview can say
+        'no columns' without mislabelling it as a row policy, and vice versa.
+        """
+        return self.allowed_columns == []
+
+    @property
+    def is_empty(self) -> bool:
+        """Serves no useful data: no rows, or no columns. Both render as an
+        empty relation that still advertises its shape."""
+        return self.deny_all or self.column_denied
 
 
 UNRESTRICTED = Filter(reason="no policy")
@@ -308,3 +347,129 @@ def validate_policy(
             )
         if not str(grant.get("principal_id") or "").strip():
             raise ValueError(f"Grant {i + 1} names no principal.")
+
+
+# ---------------------------------------------------------------------------
+# Column-level security
+# ---------------------------------------------------------------------------
+#
+# The symmetry with rows is deliberate but not total. A row policy governs ONE
+# dimension (the filter column) and returns everything else about the row; a
+# column policy governs the named sensitive columns and returns everything else
+# about the row's shape. Both are fail-closed on what they govern: a row whose
+# identity does not resolve yields nothing, a restricted column that no grant
+# names is hidden.
+#
+# The one structural difference: rows have a `source` — an identity attribute
+# that resolves a per-user value automatically, so one rule serves everyone. A
+# column name is not a value that lives on the identity, so there is nothing to
+# resolve automatically; grants name the columns explicitly per principal.
+
+
+def compile_column_policy(
+    policy: Optional[Dict[str, Any]],
+    identity: Identity,
+    *,
+    available_columns: Sequence[str] = (),
+) -> Optional[List[str]]:
+    """The columns `identity` may see, in `available_columns` order.
+
+    Returns None when nothing is restricted (serve every column) and a list
+    otherwise. An empty list means no column is visible — either every column
+    is restricted and none granted, or the policy no longer fits the relation
+    (see fail-closed below); the caller maps that to a relation-level deny,
+    because a projection with no columns is not a query.
+
+    Never raises, and never widens: every way the policy can be malformed
+    resolves to *more* hidden. Names are normalised (stripped) so an API write
+    of `" Email"` protects `Email` rather than silently matching nothing.
+
+    **Fail closed on a shape change.** If any restricted name named in the
+    policy is no longer in the materialized relation, we deny the whole relation
+    rather than serve it — the column may have been renamed to one that would
+    now be exposed (e.g. `email` → `email_address`, same PII). This mirrors the
+    row compiler, which denies when its filter column vanishes.
+    """
+    if not policy:
+        return None
+
+    available = [str(c) for c in (available_columns or [])]
+    available_set = set(available)
+    restricted = {
+        str(c).strip() for c in (policy.get("restricted_columns") or []) if str(c).strip()
+    }
+    if not restricted:
+        return None
+    if restricted - available_set:
+        # A restricted column is gone from the relation — fail closed.
+        return []
+
+    granted: Set[str] = set()
+    for grant in policy.get("grants") or []:
+        if not isinstance(grant, dict) or not _principal_matches(grant, identity):
+            continue
+        cols = {str(c).strip() for c in _as_values(grant.get("columns"))}
+        if WILDCARD in cols:
+            granted |= restricted
+        else:
+            granted |= (cols & restricted)
+
+    # Everything not restricted stays; a restricted column survives only if it
+    # was granted. Order follows the relation so the projection is stable.
+    return [c for c in available if c not in restricted or c in granted]
+
+
+def validate_column_policy(
+    policy: Optional[Dict[str, Any]],
+    available_columns: Sequence[str] = (),
+) -> None:
+    """Reject a column policy at save time. Raises ValueError (admin-readable).
+
+    As with rows, this is a convenience, not the enforcement boundary — the
+    relation's columns can change afterwards and `compile_column_policy` copes.
+    It exists so a typo surfaces on Save.
+    """
+    if not isinstance(policy, dict) or not policy:
+        raise ValueError("A column policy is required when column security is enabled.")
+
+    restricted = policy.get("restricted_columns") or []
+    if not isinstance(restricted, list) or not restricted:
+        raise ValueError("Choose at least one column to restrict.")
+
+    available_set = set(str(c) for c in (available_columns or []))
+    for col in restricted:
+        name = str(col or "").strip()
+        if not name:
+            raise ValueError("A restricted column has no name.")
+        # No identifier regex here (unlike the row policy's filter column, which
+        # is interpolated): a restricted name is only ever quoted and intersected
+        # with the materialized columns in `_projection`, so membership in the
+        # relation is the sufficient — and correct — check. A regex would make a
+        # Hebrew column (טלפון) or a hyphenated one (phone-number) impossible to
+        # protect, which an RTL-locale org ships with.
+        if available_set and name not in available_set:
+            raise ValueError(
+                f"'{name}' is not a column of this query's result. "
+                f"Available: {', '.join(sorted(available_set)[:20])}"
+            )
+
+    for i, grant in enumerate(policy.get("grants") or []):
+        if not isinstance(grant, dict):
+            raise ValueError(f"Grant {i + 1} is malformed.")
+        if (grant.get("principal_type") or "").lower() not in ("user", "group", "role"):
+            raise ValueError(f"Grant {i + 1} must target a user, a group or a role.")
+        if not str(grant.get("principal_id") or "").strip():
+            raise ValueError(f"Grant {i + 1} names no principal.")
+        grant_cols = _as_values(grant.get("columns"))
+        if not grant_cols:
+            raise ValueError(
+                f"Grant {i + 1} names no columns — list the columns it unlocks, "
+                f"or '{WILDCARD}' for all restricted columns."
+            )
+        restricted_names = {str(c).strip() for c in restricted}
+        for name in grant_cols:
+            if name != WILDCARD and name not in restricted_names:
+                raise ValueError(
+                    f"Grant {i + 1} names '{name}', which is not a restricted "
+                    f"column. Restricted: {', '.join(sorted(restricted_names))}"
+                )

@@ -91,6 +91,19 @@ class ConnectionTable(BaseSchema):
     # opposite default is handing over the whole table.
     rls_default_deny = Column(Boolean, nullable=False, default=True, server_default="1")
 
+    # --- column-level security (kind='bow' only) ----------------------------
+    # The materialized relation holds every column. CLS projects away the
+    # columns an identity may not see, at read time, in the same per-session
+    # DuckDB catalog as RLS — the raw relation is never registered, so the
+    # projection cannot be bypassed. See app/data_sources/fast/rls.py.
+    #
+    # There is no `cls_default_deny` twin of `rls_default_deny`: a column is
+    # restricted *explicitly* (it is named in `cls_policy.restricted_columns`),
+    # and a restricted column is hidden unless a grant names it. There is no
+    # "unresolved attribute" state to pick a default for the way rows have one.
+    cls_enabled = Column(Boolean, nullable=False, default=False, server_default="0")
+    cls_policy = Column(JSON, nullable=True)
+
     # Schema information
     columns = Column(JSON, nullable=False)  # List of {name, dtype, ...}
     pks = Column(JSON, nullable=False)  # Primary keys

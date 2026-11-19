@@ -373,6 +373,27 @@ class CustomQueryService:
             )
 
     @staticmethod
+    def ensure_cls_licensed() -> None:
+        """Enterprise gate on AUTHORING column policies — not on enforcing them.
+
+        Column-level security is the same enterprise feature family as RLS and
+        shares its `rls` entitlement: both move access enforcement from the
+        source's credential into BOW, and an org licensed for one is licensed
+        for the other. The authoring/enforcement asymmetry is identical —
+        enabling or editing a column policy needs the license; a saved policy
+        keeps projecting even if the license lapses, because an expired license
+        must fail closed, never widen anyone's column visibility.
+        """
+        if not has_feature("rls"):
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    "Column-level security requires an enterprise license. "
+                    "Add a license key in Settings → License (or set BOW_LICENSE_KEY)."
+                ),
+            )
+
+    @staticmethod
     async def _org_timezone(db: AsyncSession, organization) -> str:
         """IANA timezone the org schedules in, mirroring scheduled prompts.
 
@@ -1801,9 +1822,7 @@ class CustomQueryService:
             # Enterprise-only to enable or edit; turning OFF stays open so a
             # lapsed license never traps an org behind its own policy.
             self.ensure_rls_licensed()
-            columns = [
-                c.get("name") for c in (cq.columns or []) if isinstance(c, dict)
-            ]
+            columns = _column_names(cq)
             try:
                 rls.validate_policy(rls_policy, rls_mode, columns)
             except ValueError as e:
@@ -1813,6 +1832,43 @@ class CustomQueryService:
         cq.rls_mode = rls_mode if rls_enabled else None
         cq.rls_policy = rls_policy if rls_enabled else None
         cq.rls_default_deny = bool(rls_default_deny)
+        await db.commit()
+        await db.refresh(cq)
+        return cq
+
+    async def set_cls(
+        self,
+        db: AsyncSession,
+        cq: ConnectionTable,
+        *,
+        cls_enabled: bool,
+        cls_policy: Optional[dict] = None,
+    ) -> ConnectionTable:
+        """Store a column policy, rejecting one that cannot mean what it says.
+
+        Its own method and route, parallel to `set_rls`: enabling column
+        security is a security-relevant change and is audited on its own, so it
+        cannot ride along inside an unrelated edit. Save-time validation is a
+        convenience, not the enforcement boundary — the relation's columns can
+        change under a saved policy and `compile_column_policy` copes.
+        """
+        if cls_enabled:
+            # Enterprise-only to enable or edit; turning OFF stays open so a
+            # lapsed license never traps an org behind its own policy.
+            self.ensure_cls_licensed()
+            columns = _column_names(cq)
+            # Normalise before validating AND storing, so a name is compared the
+            # same way everywhere: `" Email"` from an API write is stored as
+            # `Email` rather than kept raw and silently matching nothing at
+            # compile time (compile strips too, but storing clean is clearer).
+            cls_policy = _normalize_cls_policy(cls_policy)
+            try:
+                rls.validate_column_policy(cls_policy, columns)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
+        cq.cls_enabled = bool(cls_enabled)
+        cq.cls_policy = cls_policy if cls_enabled else None
         await db.commit()
         await db.refresh(cq)
         return cq
@@ -1878,6 +1934,14 @@ class CustomQueryService:
             raise HTTPException(status_code=400, detail=f"Preview failed: {e}")
 
         f = rls_filter
+        visible = set(str(c) for c in df.columns)
+        hidden_columns = [
+            c for c in _column_names(cq) if c is not None and c not in visible
+        ]
+        # Row and column verdicts are reported SEPARATELY and never conflated:
+        # a row deny (`deny_all`) is not a "no columns" state, and an all-columns
+        # deny (`column_denied`) is not row filtering. The UI branches on each.
+        allowed_cols = getattr(f, "allowed_columns", None) if f is not None else None
         return {
             "columns": [{"name": c, "dtype": str(df[c].dtype)} for c in df.columns],
             "rows": [
@@ -1885,32 +1949,71 @@ class CustomQueryService:
                 for row in df.astype(object).where(df.notna(), None).values.tolist()
             ],
             "row_limit": limit,
-            "filtered": bool(f is not None and not f.unrestricted),
+            # Rows (the RLS tab's verdict):
+            "filtered": bool(f is not None and f.is_row_filtered and not f.deny_all),
             "denied": bool(f is not None and f.deny_all),
             "column": getattr(f, "column", None),
             "allowed_values": list(getattr(f, "allowed_values", None) or []),
+            # Columns (the CLS tab's verdict):
+            "column_filtered": bool(isinstance(allowed_cols, list) and allowed_cols != []),
+            "column_denied": bool(f is not None and f.column_denied),
+            "hidden_columns": hidden_columns,
             "reason": getattr(f, "reason", "") or "no policy",
         }
 
     @staticmethod
     def compile_rls(row: ConnectionTable, identity: rls.Identity) -> Optional[rls.Filter]:
-        """The filter to apply to `row` for `identity`, or None if unprotected.
+        """The full relation filter — rows AND columns — for `identity`.
+
+        Returns None only when neither row nor column security is enabled;
+        otherwise a single `Filter` carrying whichever halves apply, so the one
+        enforcement point in `_register_relation` has everything it needs.
 
         Deliberately NOT license-checked: a saved policy is enforced whether or
         not the enterprise license is still active. Skipping the filter on a
         lapsed license would turn a billing event into a data leak.
         """
-        if not getattr(row, "rls_enabled", False):
+        rls_on = bool(getattr(row, "rls_enabled", False))
+        cls_on = bool(getattr(row, "cls_enabled", False))
+        if not rls_on and not cls_on:
             return None
-        return rls.compile_policy(
-            row.rls_policy,
-            identity,
-            available_columns=[
-                c.get("name") for c in (row.columns or []) if isinstance(c, dict)
-            ],
-            default_deny=bool(getattr(row, "rls_default_deny", True)),
-            mode=getattr(row, "rls_mode", None) or rls.MODE_ATTRIBUTE,
-        )
+
+        available = _column_names(row)
+
+        if rls_on:
+            f = rls.compile_policy(
+                row.rls_policy,
+                identity,
+                available_columns=available,
+                default_deny=bool(getattr(row, "rls_default_deny", True)),
+                mode=getattr(row, "rls_mode", None) or rls.MODE_ATTRIBUTE,
+            )
+        else:
+            # Columns restricted, rows not: start from an unrestricted-rows filter
+            # and layer the projection on. A denied *row* policy already means no
+            # rows, so there is no point compiling columns on top of it.
+            f = rls.Filter(reason="no row policy")
+
+        if cls_on:
+            allowed_columns = rls.compile_column_policy(
+                row.cls_policy, identity, available_columns=available
+            )
+            if allowed_columns is not None:
+                # A list projects; an empty list is a COLUMN-level deny — kept
+                # distinct from `deny_all` (rows) so a preview labels each
+                # correctly. `Filter.column_denied` / `is_empty` read it.
+                f.allowed_columns = allowed_columns
+                if not allowed_columns:
+                    # Every column restricted and none granted → a COLUMN deny.
+                    # Signalled by allowed_columns==[] (read via Filter.column_denied
+                    # / is_empty), NOT by deny_all, so the RLS and CLS previews each
+                    # label their own verdict instead of a column deny showing as a
+                    # row deny. Enforcement still serves an empty relation.
+                    f.reason = (
+                        (f.reason + "; " if f.reason else "")
+                        + "no columns are visible to this user"
+                    )
+        return f
 
 
 class _RlsProbe:
@@ -1931,6 +2034,41 @@ class _RlsProbe:
         if name in self._over:
             return self._over[name]
         return getattr(self._row, name)
+
+
+def _column_names(cq) -> list:
+    """The materialized column names of a custom table.
+
+    One definition, used by `set_rls`, `set_cls`, `compile_rls` and the preview,
+    so an RLS/CLS policy is always validated and compiled against the same list.
+    """
+    return [c.get("name") for c in (getattr(cq, "columns", None) or []) if isinstance(c, dict)]
+
+
+def _normalize_cls_policy(policy):
+    """Strip column names in a column policy so they compare consistently.
+
+    Returns a new dict; leaves a falsy/non-dict policy untouched. Applied at save
+    time so stored `restricted_columns` / grant `columns` never carry stray
+    whitespace that would match nothing at compile time.
+    """
+    if not isinstance(policy, dict):
+        return policy
+    out = dict(policy)
+    out["restricted_columns"] = [
+        str(c).strip() for c in (policy.get("restricted_columns") or []) if str(c).strip()
+    ]
+    grants = []
+    for g in (policy.get("grants") or []):
+        if not isinstance(g, dict):
+            grants.append(g)
+            continue
+        ng = dict(g)
+        if "columns" in ng:
+            ng["columns"] = [str(c).strip() for c in (ng.get("columns") or []) if str(c).strip()]
+        grants.append(ng)
+    out["grants"] = grants
+    return out
 
 
 def _jsonable(v):

@@ -85,7 +85,34 @@ class FastRelation:
     @property
     def is_row_filtered(self) -> bool:
         f = self.rls_filter
+        return f is not None and f.is_row_filtered
+
+    @property
+    def is_column_filtered(self) -> bool:
+        f = self.rls_filter
+        return f is not None and f.is_column_filtered
+
+    @property
+    def needs_copy(self) -> bool:
+        """Goes through the copy+detach path (not served as a plain view).
+
+        True for any governed relation — row-filtered, column-projected, or
+        denied. The attach-failure guard keys off this: if registration stops
+        between ATTACH and DETACH for any of these, the raw artifact is still
+        nameable and the session must refuse to serve."""
+        f = self.rls_filter
         return f is not None and not f.unrestricted
+
+    def visible_columns(self) -> list:
+        """The column descriptors this identity may see — what the schema
+        context and the projection must agree on. Narrowed by the compiled
+        filter's `allowed_columns`; the full list when nothing is restricted."""
+        f = self.rls_filter
+        allowed = getattr(f, "allowed_columns", None) if f is not None else None
+        if allowed is None:
+            return self.columns
+        allow = set(allowed)
+        return [c for c in self.columns if c.get("name") in allow]
 
 
 def lock_query_session(con):
@@ -147,14 +174,15 @@ class FastQueryClient(DataSourceClient):
                         "fast.connect.attach_failed",
                         extra={"relation": rel.name, "error": str(e)},
                     )
-                    if rel.is_row_filtered:
-                        # Except when the failure was on a row-filtered
-                        # relation: registration may have stopped after the
-                        # ATTACH and before the DETACH, leaving the unfiltered
-                        # artifact nameable. Serving the rest of the session
-                        # would mean serving that.
+                    if rel.needs_copy:
+                        # Except when the failure was on a governed relation
+                        # (row-filtered, column-projected, or denied): its
+                        # registration copies the slice and DETACHes the source,
+                        # so a failure between the ATTACH and the DETACH leaves
+                        # the unfiltered artifact nameable (bow_aN). Serving the
+                        # rest of the session would expose every row and column.
                         raise RuntimeError(
-                            f"Refusing to serve accelerated data: row-filtered "
+                            f"Refusing to serve accelerated data: secured "
                             f"relation '{rel.name}' could not be registered "
                             f"safely ({e})"
                         )
@@ -197,43 +225,91 @@ class FastQueryClient(DataSourceClient):
             con.execute(f'CREATE VIEW "{safe_name}" AS SELECT {star} FROM {source}')
             return
 
-        if f.deny_all:
-            # The relation still exists and still has its shape — the schema
-            # context advertises it, and an agent asking for it should get an
-            # empty answer rather than "no such table", which reads as a bug.
+        # Column security replaces the `*`/`* EXCLUDE` projection with the
+        # identity's explicit allowed list. That list is drawn from the admin's
+        # data columns, so it already excludes the run-lineage bookkeeping
+        # columns `star` would have dropped — there is nothing to EXCLUDE on top
+        # of a positive projection. `star` stands when only rows are restricted.
+        projection = self._projection(rel, f, star)
+
+        if f.deny_all or f.column_denied:
+            # No rows (row deny) or no visible columns (every column restricted,
+            # none granted) — serve an empty relation that still keeps its shape,
+            # so the schema context can advertise it and an agent gets an empty
+            # answer rather than "no such table", which reads as a bug.
             logger.info(
                 "fast.rls.denied",
                 extra={"relation": rel.name, "reason": f.reason},
             )
             con.execute(
-                f'CREATE TABLE "{safe_name}" AS SELECT {star} FROM {source} WHERE 1 = 0'
+                f'CREATE TABLE "{safe_name}" AS SELECT {projection} FROM {source} WHERE 1 = 0'
             )
             self._detach(con, alias, rel)
             return
 
-        values_table = f"bow_rls_{index}"
-        safe_column = str(f.column).replace('"', '""')
-        con.execute(f'CREATE TEMP TABLE "{values_table}" (v VARCHAR)')
-        con.executemany(
-            f'INSERT INTO "{values_table}" VALUES (?)',
-            [(str(v),) for v in f.allowed_values],
-        )
+        # Row predicate is optional: a column-only policy has no values table
+        # and no WHERE, just the narrowed projection copied into the session.
+        #
+        # Cost note (column-only): with rows unrestricted this copies ALL rows
+        # (narrowed to the allowed columns) into the session, because a plain
+        # view over the attached artifact would be bypassable via `bow_aN`, so
+        # the source must be DETACHed — and that needs a materialized copy. A
+        # row filter keeps the copy proportional to the user's slice; a
+        # column-only policy does not. On a very large relation this is a per
+        # query cost; a per-identity cached projection is the follow-up if it
+        # bites. (RLS never hits this: unrestricted serves a view at zero copy.)
+        where = ""
+        values_table = None
+        if f.allowed_values is not None:
+            values_table = f"bow_rls_{index}"
+            safe_column = str(f.column).replace('"', '""')
+            con.execute(f'CREATE TEMP TABLE "{values_table}" (v VARCHAR)')
+            con.executemany(
+                f'INSERT INTO "{values_table}" VALUES (?)',
+                [(str(v),) for v in f.allowed_values],
+            )
+            where = (
+                f' WHERE CAST("{safe_column}" AS VARCHAR) IN '
+                f'(SELECT v FROM "{values_table}")'
+            )
         con.execute(
-            f'CREATE TABLE "{safe_name}" AS SELECT {star} FROM {source} '
-            f'WHERE CAST("{safe_column}" AS VARCHAR) IN '
-            f'(SELECT v FROM "{values_table}")'
+            f'CREATE TABLE "{safe_name}" AS SELECT {projection} FROM {source}{where}'
         )
         self._detach(con, alias, rel)
-        con.execute(f'DROP TABLE "{values_table}"')
+        if values_table is not None:
+            con.execute(f'DROP TABLE "{values_table}"')
         logger.info(
             "fast.rls.applied",
             extra={
+                "columns_visible": None if f.allowed_columns is None else len(f.allowed_columns),
                 "relation": rel.name,
                 "column": f.column,
                 "values": len(f.allowed_values or []),
                 "reason": f.reason,
             },
         )
+
+    @staticmethod
+    def _projection(rel: "FastRelation", f: "Filter", star: str) -> str:
+        """The SELECT list for a restricted relation.
+
+        `star` (the `*`/`* EXCLUDE (...)` that drops run-lineage columns) when
+        no column is restricted. Otherwise an explicit, quoted list in the
+        relation's own column order — intersected with the materialized columns
+        so a stale policy name cannot inject, and never interpolated from the
+        policy text. An empty intersection yields a single placeholder column,
+        never `star`: a stale or empty allow-list must hide more, not less.
+        """
+        if f is None or f.allowed_columns is None:
+            return star
+        allow = set(f.allowed_columns)
+        names = [c.get("name") for c in (rel.columns or []) if c.get("name") in allow]
+        if not names:
+            # Fail closed: never widen to `star`. A zero-column table is not
+            # possible, so serve a single placeholder (callers pair this with
+            # deny_all, so no rows are returned either).
+            return 'CAST(NULL AS INTEGER) AS "no_visible_columns"'
+        return ", ".join('"' + str(n).replace('"', '""') + '"' for n in names)
 
     @staticmethod
     def _visible_columns(con, alias: str, relation: str) -> str:
@@ -298,13 +374,18 @@ class FastQueryClient(DataSourceClient):
     # -- catalog ----------------------------------------------------------
 
     def get_tables(self) -> List[Table]:
+        # Columns the asking identity may not see are left out of the schema the
+        # agent is given, not only out of the rows it reads: otherwise the model
+        # writes `SELECT salary` against a projection that no longer has it and
+        # the query errors. Enforcement is still the projection in
+        # `_register_relation`; this keeps the advertised shape honest.
         return [
             Table(
                 name=rel.name,
                 description=rel.description,
                 columns=[
                     TableColumn(name=c.get("name"), dtype=c.get("dtype"))
-                    for c in rel.columns
+                    for c in rel.visible_columns()
                 ],
                 pks=[],
                 fks=[],
@@ -355,7 +436,9 @@ class FastQueryClient(DataSourceClient):
             "Available relations:",
         ]
         for rel in self.relations:
-            cols = ", ".join(c.get("name", "") for c in (rel.columns or [])[:40])
+            # Only the columns this identity may see — the agent must not be told
+            # a restricted column exists, or it will write SQL that references it.
+            cols = ", ".join(c.get("name", "") for c in (rel.visible_columns() or [])[:40])
             freshness = f" (data as of {rel.as_of})" if rel.as_of else ""
             desc = f" — {rel.description}" if rel.description else ""
             rls = (
@@ -363,9 +446,14 @@ class FastQueryClient(DataSourceClient):
                 "user's slice, not the whole relation."
                 if rel.is_row_filtered else ""
             )
+            cls = (
+                " **Column-restricted for the current user** — some columns of "
+                "this relation are not available to you; use only those listed."
+                if rel.is_column_filtered else ""
+            )
             lines.append(
                 f"- `{rel.name}`{desc}: {rel.row_count:,} rows{freshness}. "
-                f"Columns: {cols}{rls}"
+                f"Columns: {cols}{rls}{cls}"
             )
         lines += [
             "",
