@@ -92,7 +92,7 @@
                                 type="checkbox"
                                 :checked="labelIds.includes(option.value)"
                                 @change="toggleLabel(option.value)"
-                                class="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-gray-800 focus:ring-gray-500"
+                                class="h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-ink-2 focus:ring-gray-500"
                             />
                             <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
                             <span class="text-xs text-gray-700 dark:text-gray-300 truncate">{{ option.label }}</span>

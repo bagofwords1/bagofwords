@@ -4,7 +4,7 @@
          run that failed (or partly failed) the first error. Reads its own
          data; owner and editors only (the route checks). -->
     <div data-testid="history-refreshes">
-        <div v-if="loading && !runs.length" class="flex items-center gap-2 py-10 justify-center text-sm text-gray-400">
+        <div v-if="loading && !runs.length" class="flex items-center gap-2 py-10 justify-center text-sm text-ink-muted">
             <Spinner class="w-4 h-4" /> {{ $t('common.loading') }}
         </div>
         <div v-else-if="loadError && !runs.length" class="py-10 flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
@@ -62,7 +62,7 @@
                                     <span v-if="run.status === 'partial' && run.steps_total" class="ms-1.5 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
                                         {{ $t('dashboardCollab.refreshes.ofTotal', { done: run.steps_succeeded, total: run.steps_total }) }}
                                     </span>
-                                    <div v-if="run.status === 'skipped' && run.skip_reason" class="text-xs text-gray-400">
+                                    <div v-if="run.status === 'skipped' && run.skip_reason" class="text-xs text-ink-muted">
                                         {{ skipLabel(run.skip_reason) }}
                                     </div>
                                 </td>
@@ -90,7 +90,7 @@
                 </table>
             </div>
             <div class="flex items-center justify-between gap-2 mt-2">
-                <p class="text-[11px] text-gray-400">{{ $t('dashboardCollab.refreshes.kept') }}</p>
+                <p class="text-[11px] text-ink-muted">{{ $t('dashboardCollab.refreshes.kept') }}</p>
                 <UButton v-if="hasMore" size="xs" color="gray" variant="ghost" :loading="loading" :disabled="loading" data-testid="history-refreshes-more"
                     @click="load(true)">
                     {{ $t('dashboardCollab.refreshes.showMore') }}

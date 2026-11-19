@@ -13,9 +13,9 @@
             @click="$emit('pick', t.tool)"
         >
             <span class="font-mono" :class="isActive(t.tool) ? 'text-blue-700 dark:text-blue-300' : 'text-gray-900 dark:text-white'">{{ t.tool }}</span>
-            <span class="text-gray-500">{{ t.calls.toLocaleString() }}</span>
+            <span class="text-ink-muted">{{ t.calls.toLocaleString() }}</span>
             <span :class="t.errors ? 'text-red-700 dark:text-red-400' : 'text-ink-muted'">{{ $t('monitoring.diagnosis.toolErrors', { n: t.errors }) }}</span>
-            <span class="text-gray-500">{{ $t('monitoring.diagnosis.toolAvg', { d: fmtDuration(t.avg_ms) }) }}</span>
+            <span class="text-ink-muted">{{ $t('monitoring.diagnosis.toolAvg', { d: fmtDuration(t.avg_ms) }) }}</span>
         </button>
     </div>
 </template>

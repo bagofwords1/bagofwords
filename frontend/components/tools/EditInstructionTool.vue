@@ -11,7 +11,7 @@
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
       <template v-if="status === 'running'"></template>
-      <template v-else-if="isSuccess"><span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-chat-3 shrink-0">v{{ versionNumber }}</span><span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-chat-3 shrink-0">{{ t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span><span
+      <template v-else-if="isSuccess"><span v-if="versionNumber" class="ms-1.5 px-1.5 py-0.5 bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 rounded text-chat-3 shrink-0">v{{ versionNumber }}</span><span v-if="(editGroupCount || 0) > 1" class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-chat-3 shrink-0">{{ t('tools.editInstruction.editCount', { n: editGroupCount }) }}</span><span
             v-if="statusChange"
             class="ms-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-chat-3 shrink-0"
             :class="statusChange === 'inactive'
@@ -123,7 +123,7 @@
           <div v-if="displayLoadMode" class="flex items-center gap-1">
             <span class="text-gray-500 dark:text-gray-400">{{ t('tools.editInstruction.load') }}</span>
             <span class="px-1.5 py-0.5 rounded text-chat-3 font-medium"
-              :class="displayLoadMode === 'always' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
+              :class="displayLoadMode === 'always' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
             >
               {{ displayLoadMode }}
             </span>

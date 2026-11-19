@@ -58,7 +58,7 @@
                 :key="ds.id"
                 :src="dataSourceIcon(ds.type)"
                 :alt="ds.type"
-                class="w-5 h-5 rounded border border-gray-100 dark:border-gray-800 bg-white object-contain p-0.5"
+                class="w-5 h-5 rounded border border-gray-100 dark:border-gray-800 bg-surface object-contain p-0.5"
                 @error="(e: any) => e.target && (e.target.style.visibility = 'hidden')"
               />
             </div>

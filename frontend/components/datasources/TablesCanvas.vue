@@ -30,12 +30,12 @@
       </button>
     </div>
     <div v-if="searchOpen" class="absolute start-3 top-14 z-10 w-60 max-h-[60%] overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-md p-1" data-testid="erd-discovery">
-      <div class="px-2 py-2 text-2xs text-gray-500">{{ t('tableErd.searchHint') }}</div>
+      <div class="px-2 py-2 text-2xs text-ink-muted">{{ t('tableErd.searchHint') }}</div>
       <button v-for="table in matchingTables.slice(0, resultLimit)" :key="tableId(table)" class="flex items-center gap-2 w-full rounded px-2 py-2 text-start hover:bg-gray-50 dark:hover:bg-gray-800" @click="reveal(tableId(table))">
         <UIcon :name="activeIds.has(tableId(table)) ? 'i-heroicons-check' : 'i-heroicons-table-cells'" class="w-3.5 h-3.5 shrink-0 text-ink-muted" />
         <span class="truncate text-2xs font-mono" dir="ltr">{{ table.name }}</span>
       </button>
-      <div v-if="!matchingTables.length" class="p-2 text-xs text-gray-500">{{ t('tableErd.noMatches') }}</div>
+      <div v-if="!matchingTables.length" class="p-2 text-xs text-ink-muted">{{ t('tableErd.noMatches') }}</div>
       <button v-if="matchingTables.length > resultLimit" class="control px-2 w-full" @click="resultLimit += 50">{{ t('tableErd.showMore') }}</button>
     </div>
     <VueFlow class="erd-flow" :style="flowStyle" :id="flowId" v-model:nodes="nodes" :edges="edges" :min-zoom="0.015" :max-zoom="1.8" :only-render-visible-elements="arranged" :nodes-connectable="false" :edges-updatable="false"
@@ -49,15 +49,15 @@
     </div>
     <div v-if="focusedTable" ref="detailsPanel" :style="panelStyle" class="absolute end-3 bottom-12 z-10 w-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow-sm" data-testid="erd-details">
       <div class="flex justify-between items-center gap-2"><span class="font-mono text-xs truncate dark:text-gray-200" dir="ltr">{{ focusedTable.name }}</span><button class="control w-5" :aria-label="t('tableErd.clearFocus')" @click="clearFocus"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button></div>
-      <div v-if="filtering && !matchIds.has(focused!)" class="mt-2 text-2xs text-gray-500">{{ t('tableErd.outsideFilters') }}</div>
-      <p v-if="!focusedLinks.length" class="text-2xs text-gray-500 mt-2">{{ t('tableErd.noRelationships') }}</p>
+      <div v-if="filtering && !matchIds.has(focused!)" class="mt-2 text-2xs text-ink-muted">{{ t('tableErd.outsideFilters') }}</div>
+      <p v-if="!focusedLinks.length" class="text-2xs text-ink-muted mt-2">{{ t('tableErd.noRelationships') }}</p>
       <div v-for="link in columnsOpen ? [] : focusedLinks" :key="link.id" class="border-t border-gray-100 dark:border-gray-800 mt-2 pt-2">
-        <p v-if="link.suggested" class="text-2xs text-gray-500 mb-1">{{ t('tableErd.suggestedHint') }}</p>
+        <p v-if="link.suggested" class="text-2xs text-ink-muted mb-1">{{ t('tableErd.suggestedHint') }}</p>
         <p v-if="byId.get(link.source)?.connection_id !== byId.get(link.target)?.connection_id" class="text-2xs text-ink-muted mb-1">{{ byId.get(link.source)?.connection_name }} → {{ byId.get(link.target)?.connection_name }}</p>
         <div v-for="pair in link.columns" :key="pair.from + pair.to" class="text-2xs text-gray-600 dark:text-gray-400 break-words font-mono" dir="ltr">{{ byId.get(link.source)?.name }}.{{ pair.from }} → {{ byId.get(link.target)?.name }}.{{ pair.to }}</div>
       </div>
-      <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-2xs text-gray-500">{{ t('tableErd.unresolved') }}</p>
-      <details :open="columnsOpen" class="mt-3 text-2xs text-gray-500" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
+      <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-2xs text-ink-muted">{{ t('tableErd.unresolved') }}</p>
+      <details :open="columnsOpen" class="mt-3 text-2xs text-ink-muted" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="cursor-pointer">{{ t('tableErd.columns', { count: focusedTable.columns?.length || 0 }) }}</summary>
         <input ref="columnSearchInput" v-model="columnSearch" :placeholder="t('tableErd.searchColumns')" :aria-label="t('tableErd.searchColumns')" class="my-2 w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs" />
         <div class="max-h-64 overflow-auto overscroll-contain">
@@ -68,7 +68,7 @@
       </details>
       <TableRecentPrompts v-if="canViewPrompts && agentId && focusedTable.id" :agent-id="agentId" :table-id="focusedTable.id" />
     </div>
-    <div class="absolute bottom-0 inset-x-0 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/80 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-3 py-2 text-2xs text-gray-500">
+    <div class="absolute bottom-0 inset-x-0 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/80 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-3 py-2 text-2xs text-ink-muted">
       <div class="flex items-center gap-3"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-blue-500" />{{ t('tableErd.selected') }}</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-dotted border-gray-400" />{{ t('tableErd.notSelected') }}</span><span v-if="hasSuggestions" class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-gray-400" />{{ t('tableErd.suggested') }}</span></div>
       <span data-testid="erd-visible-count">{{ t('tableErd.visibleCount', { shown: nodes.length, total: tables.length }) }}</span>
     </div>

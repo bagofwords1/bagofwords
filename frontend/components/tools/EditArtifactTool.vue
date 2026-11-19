@@ -18,7 +18,7 @@
         v{{ artifactVersion }}</span><span
         v-if="notRenderChecked"
         data-testid="not-render-checked"
-        class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700"
+        class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium whitespace-nowrap shrink-0 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300"
         :title="t('tools.editArtifact.notRenderCheckedDesc')"
       >{{ t('tools.editArtifact.notRenderChecked') }}</span><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
@@ -64,7 +64,7 @@
         <div v-else-if="progressStage === 'loading_visualizations'"><span>{{ t('tools.editArtifact.loadingVisualizations') }}</span></div>
         <div v-else-if="progressStage === 'generating_edit' || progressStage === 'generating'">
           <span>{{ t('tools.editArtifact.generatingEdit') }}</span>
-          <span v-if="progressChars" class="ms-1 text-gray-300 dark:text-gray-600">{{ t('tools.editArtifact.charsCount', { n: progressChars }) }}</span>
+          <span v-if="progressChars" class="ms-1 text-ink-muted">{{ t('tools.editArtifact.charsCount', { n: progressChars }) }}</span>
         </div>
         <div v-else-if="progressStage === 'applying_edit' || progressStage === 'applying_edits'"><span>{{ t('tools.editArtifact.applyingEdit') }}</span></div>
         <div v-else-if="progressStage === 'validating' || progressStage === 'validating_render'"><span>{{ t('tools.editArtifact.processing') }}</span></div>

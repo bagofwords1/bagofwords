@@ -25,10 +25,10 @@
           </div>
         </div>
 
-        <div v-if="rejected.length" class="text-chat-2 text-amber-600 bg-amber-50 dark:bg-amber-950/40 rounded px-2 py-1">
+        <div v-if="rejected.length" class="text-chat-2 text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 rounded px-2 py-1">
           Skipped (not members of this org): {{ rejected.join(', ') }}
         </div>
-        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

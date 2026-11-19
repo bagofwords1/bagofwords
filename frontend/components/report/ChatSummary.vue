@@ -45,7 +45,7 @@
                 <div class="flex items-center gap-1.5">
                   <span v-text-dir class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
                   <span v-if="group.latest.version" class="text-2xs font-medium text-ink-muted flex-shrink-0">v{{ group.latest.version }}</span>
-                  <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-2xs font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
+                  <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-2xs font-medium text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
                 </div>
                 <div v-if="group.latest.mode" class="text-2xs text-ink-muted mt-0.5">{{ group.latest.mode === 'doc' ? $t('chatSummary.document') : group.latest.mode }}</div>
               </div>
@@ -67,7 +67,7 @@
         </ul>
         <button
           v-if="artifactGroups.length > 3 && !showAllArtifacts"
-          class="mt-2 text-xs text-ink-muted hover:text-gray-600 transition-colors"
+          class="mt-2 text-xs text-ink-muted hover:text-ink-muted transition-colors"
           @click="showAllArtifacts = true"
         >
           {{ $t('chatSummary.showMore', { count: artifactGroups.length - 3 }) }}
@@ -109,7 +109,7 @@
         </ul>
         <button
           v-if="listItems.length > 3 && !showAllLists"
-          class="mt-2 text-xs text-ink-muted hover:text-gray-600 transition-colors"
+          class="mt-2 text-xs text-ink-muted hover:text-ink-muted transition-colors"
           @click="showAllLists = true"
         >
           {{ $t('chatSummary.showMore', { count: listItems.length - 3 }) }}
@@ -255,7 +255,7 @@
     <div v-if="reportId" class="max-w-xl mx-auto px-4 pb-6">
       <button
         @click="showWebhookModal = true"
-        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-ink-muted hover:text-gray-600 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
+        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-ink-muted hover:text-ink-muted rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
       >
         <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
         {{ $t('chatSummary.configureWebhook') }}

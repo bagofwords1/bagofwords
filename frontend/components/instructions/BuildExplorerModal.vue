@@ -120,12 +120,12 @@
                                         <GitBranchIcon class="w-3 h-3 text-ink-muted" />
                                     </UTooltip>
                                 </div>
-                                <span v-if="build.is_main" class="text-2xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded shrink-0">Active</span>
-                                <span v-else-if="build.status === 'pending_approval'" class="text-2xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded shrink-0">Pending</span>
+                                <span v-if="build.is_main" class="text-2xs px-1.5 py-0.5 bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 rounded shrink-0">Active</span>
+                                <span v-else-if="build.status === 'pending_approval'" class="text-2xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 rounded shrink-0">Pending</span>
                                 <UTooltip v-else-if="closedByNightly(build)" :text="$t(`nightlyBuild.${closedByNightly(build)}Tip`)">
                                     <span class="text-2xs px-1.5 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded shrink-0">{{ $t(`nightlyBuild.${closedByNightly(build)}`) }}</span>
                                 </UTooltip>
-                                <span v-else-if="build.status === 'rejected'" class="text-2xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded shrink-0">Rejected</span>
+                                <span v-else-if="build.status === 'rejected'" class="text-2xs px-1.5 py-0.5 bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 rounded shrink-0">Rejected</span>
                             </div>
                             <div class="text-2xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-1.5">
                                 <span>#{{ build.build_number }}</span>
@@ -172,16 +172,16 @@
                                         <h4 class="text-sm font-semibold text-gray-900 dark:text-white truncate">
                                             {{ buildDisplayTitle(selectedBuild) }}
                                         </h4>
-                                        <span v-if="selectedBuild.is_main" class="text-2xs px-2 py-0.5 bg-green-100 text-green-700 rounded-full shrink-0">
+                                        <span v-if="selectedBuild.is_main" class="text-2xs px-2 py-0.5 bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 rounded-full shrink-0">
                                             Active
                                         </span>
-                                        <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-2xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full shrink-0">
+                                        <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-2xs px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 rounded-full shrink-0">
                                             Pending
                                         </span>
                                         <UTooltip v-else-if="closedByNightly(selectedBuild)" :text="$t(`nightlyBuild.${closedByNightly(selectedBuild)}Tip`)">
                                             <span class="text-2xs px-2 py-0.5 bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 rounded-full shrink-0">{{ $t(`nightlyBuild.${closedByNightly(selectedBuild)}`) }}</span>
                                         </UTooltip>
-                                        <span v-else-if="selectedBuild.status === 'rejected'" class="text-2xs px-2 py-0.5 bg-red-100 text-red-700 rounded-full shrink-0">
+                                        <span v-else-if="selectedBuild.status === 'rejected'" class="text-2xs px-2 py-0.5 bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 rounded-full shrink-0">
                                             Rejected
                                         </span>
                                     </div>
@@ -223,7 +223,7 @@
                                         v-if="selectedBuild.git_pr_url"
                                         :href="selectedBuild.git_pr_url"
                                         target="_blank"
-                                        class="text-2xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1"
+                                        class="text-2xs px-2 py-0.5 bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300 rounded-full hover:bg-purple-200 transition-colors flex items-center gap-1"
                                     >
                                         <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-2.5 h-2.5" />
                                         PR
@@ -316,13 +316,13 @@
                                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Changes (from Build #{{ diffData.build_a_number }})</span>
                                 </div>
                                 <div class="flex gap-1.5">
-                                    <span v-if="diffData.added_count" class="text-2xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
+                                    <span v-if="diffData.added_count" class="text-2xs px-1.5 py-0.5 bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 rounded">
                                         +{{ diffData.added_count }}
                                     </span>
-                                    <span v-if="diffData.modified_count" class="text-2xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">
+                                    <span v-if="diffData.modified_count" class="text-2xs px-1.5 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 rounded">
                                         ~{{ diffData.modified_count }}
                                     </span>
-                                    <span v-if="diffData.removed_count" class="text-2xs px-1.5 py-0.5 bg-red-100 text-red-700 rounded">
+                                    <span v-if="diffData.removed_count" class="text-2xs px-1.5 py-0.5 bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 rounded">
                                         −{{ diffData.removed_count }}
                                     </span>
                                 </div>
@@ -448,9 +448,9 @@
                                         v-if="selectedBuild?.test_status"
                                         class="text-2xs px-1.5 py-0.5 rounded"
                                         :class="{
-                                            'bg-green-100 text-green-700': selectedBuild.test_status === 'passed',
-                                            'bg-red-100 text-red-700': selectedBuild.test_status === 'failed',
-                                            'bg-amber-100 text-amber-700': selectedBuild.test_status === 'pending'
+                                            'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300': selectedBuild.test_status === 'passed',
+                                            'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300': selectedBuild.test_status === 'failed',
+                                            'bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300': selectedBuild.test_status === 'pending'
                                         }"
                                     >
                                         {{ selectedBuild.test_status }}
@@ -532,9 +532,9 @@
                                             <span 
                                                 class="text-2xs px-1.5 py-0.5 rounded-full"
                                                 :class="{
-                                                    'bg-blue-100 text-blue-700': activeTestRun.status === 'in_progress',
-                                                    'bg-green-100 text-green-700': activeTestRun.status === 'success',
-                                                    'bg-red-100 text-red-700': activeTestRun.status === 'error' || activeTestRun.status === 'fail'
+                                                    'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300': activeTestRun.status === 'in_progress',
+                                                    'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300': activeTestRun.status === 'success',
+                                                    'bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300': activeTestRun.status === 'error' || activeTestRun.status === 'fail'
                                                 }"
                                             >
                                                 {{ prettyStatus(activeTestRun.status) }}
@@ -546,13 +546,13 @@
                                             <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-slate-50 text-slate-600 border-slate-200">
                                                 Cases: {{ testResultsSummary.total }}
                                             </span>
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-green-50 text-green-700 border-green-200">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
                                                 Pass: {{ testResultsSummary.passed }}
                                             </span>
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-red-50 text-red-700 border-red-200">
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded border bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800">
                                                 Fail: {{ testResultsSummary.failed }}
                                             </span>
-                                            <span v-if="testResultsSummary.inProgress > 0" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 text-blue-700 border-blue-200">
+                                            <span v-if="testResultsSummary.inProgress > 0" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
                                                 <Spinner class="w-2.5 h-2.5" />
                                                 Running: {{ testResultsSummary.inProgress }}
                                             </span>
@@ -681,7 +681,7 @@
             </template>
             <div
                 v-if="selectedBuild?.status === 'pending_approval'"
-                class="mx-4 mt-3 mb-1 flex items-start gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800"
+                class="mx-4 mt-3 mb-1 flex items-start gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded text-xs text-amber-800 dark:text-amber-300"
             >
                 <UIcon name="i-heroicons-exclamation-triangle" class="w-4 h-4 shrink-0 mt-0.5" />
                 <span>

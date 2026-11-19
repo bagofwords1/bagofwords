@@ -8,8 +8,8 @@
       {{ identityLabel }}<UIcon name="i-heroicons-chevron-down" class="h-3 w-3" />
     </button>
     <span v-else class="rounded-full border px-2 py-0.5 text-2xs font-medium" :class="identityPillClass">{{ identityLabel }}</span>
-    <span v-if="displayScope !== scope" class="text-2xs text-gray-500">{{ displayedScopeLabel }}</span>
-    <span class="inline-flex items-center gap-1 text-2xs text-gray-500" :title="notice || refreshedLabel">
+    <span v-if="displayScope !== scope" class="text-2xs text-ink-muted">{{ displayedScopeLabel }}</span>
+    <span class="inline-flex items-center gap-1 text-2xs text-ink-muted" :title="notice || refreshedLabel">
       <span class="h-1.5 w-1.5 rounded-full" :class="busy ? 'bg-blue-500' : warning ? 'bg-amber-500' : job?.status === 'completed' ? 'bg-green-500' : 'bg-gray-400'" />
       <time v-if="timestamp" :datetime="job?.finished_at || undefined">{{ timestamp }}</time>
       <span v-else>—</span>

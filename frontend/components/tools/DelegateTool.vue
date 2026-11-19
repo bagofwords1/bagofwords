@@ -13,7 +13,7 @@
       ><Icon name="heroicons-stop" class="w-3 h-3" /><span>{{ stopping ? t('tools.delegate.stopping') : t('tools.delegate.stop') }}</span></button></template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
-      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="outcome" class="px-1.5 py-0.5 rounded text-chat-3 font-medium flex-shrink-0" :class="outcomeClass">{{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span></span><span v-else-if="refused" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">{{ t('tools.delegate.refused') }}</span><span v-else class="text-chat-3 text-ink-muted flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span><span class="text-chat-3 text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="outcome" class="px-1.5 py-0.5 rounded text-chat-3 font-medium flex-shrink-0" :class="outcomeClass">{{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<span v-if="confidence !== null"> · {{ Math.round(confidence * 100) }}%</span></span><span v-else-if="refused" class="px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-ink-muted flex-shrink-0">{{ t('tools.delegate.refused') }}</span><span v-else class="text-chat-3 text-ink-muted flex-shrink-0">{{ t(`tools.delegate.status.${displayStatus}`, displayStatus) }}</span><span class="text-chat-3 text-ink-muted flex-shrink-0 tabular-nums" dir="ltr">
       <template v-if="stepsLabel">{{ stepsLabel }}</template>
       <template v-if="elapsedLabel"> · {{ elapsedLabel }}</template>
       <template v-if="tokensLabel"> · {{ tokensLabel }}</template></span></div>
@@ -56,7 +56,7 @@
         </div>
         <p v-if="record.unknown" class="text-amber-700 dark:text-amber-400"><span class="font-medium">{{ t('tools.delegate.unknown') }}:</span> <bdi>{{ record.unknown }}</bdi></p>
         <div v-if="record.evidence?.length" class="flex flex-wrap gap-1">
-          <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-chat-3 text-gray-500" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
+          <span v-for="(e, i) in record.evidence" :key="i" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-chat-3 text-ink-muted" :title="e.id">{{ e.kind }}<span v-if="e.label">: {{ e.label }}</span></span>
         </div>
         <p v-if="record.synthesized" class="text-chat-2 text-ink-muted italic">{{ t('tools.delegate.synthesized') }}</p>
       </template>
@@ -64,7 +64,7 @@
       <div v-if="detail?.messages?.length" class="space-y-2" data-testid="sub-agent-message-history">
         <div class="text-chat-3 uppercase tracking-wide text-ink-muted">{{ t('tools.messageSubAgent.messages') }}</div>
         <div v-for="message in detail.messages" :key="message.message_id" class="rounded-md border border-gray-200 dark:border-gray-700 p-2">
-          <div class="flex flex-wrap items-center gap-1 text-chat-3 text-gray-500">
+          <div class="flex flex-wrap items-center gap-1 text-chat-3 text-ink-muted">
             <span>{{ message.sender === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>
             <span aria-hidden="true" class="inline-block rtl:rotate-180">→</span>
             <span>{{ message.recipient === 'parent' ? t('tools.messageSubAgent.parent') : title }}</span>

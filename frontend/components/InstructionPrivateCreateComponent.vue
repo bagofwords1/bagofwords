@@ -21,7 +21,7 @@
                             <span v-else class="text-xs font-medium text-gray-500 dark:text-gray-400">Content</span>
                         </div>
                         <div v-if="props.isGitSourced" class="flex items-center gap-2 shrink-0">
-                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-2xs text-green-600 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded">
+                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-2xs text-green-600 dark:text-green-300 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded">
                                 <GitBranchIcon class="w-3 h-3" />
                                 Synced
                             </span>
@@ -181,7 +181,7 @@
                         <button
                             type="button"
                             @click="codeView = !codeView"
-                            class="text-ink-muted hover:text-gray-600 p-1 rounded transition-colors"
+                            class="text-ink-muted hover:text-ink-muted p-1 rounded transition-colors"
                             :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
                         >
                             <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />

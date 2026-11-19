@@ -2,7 +2,7 @@
     <div class="space-y-2" :class="{ 'compact-progress': compact }">
         <!-- Running / pending state -->
         <template v-if="isActive">
-            <div class="text-2xs text-gray-500">{{ $t('data.setupCurrentStage') }}</div>
+            <div class="text-2xs text-ink-muted">{{ $t('data.setupCurrentStage') }}</div>
             <div class="flex items-start justify-between gap-3 text-xs text-gray-700 dark:text-gray-300">
                 <span class="font-medium break-words min-w-0">{{ summary }}</span>
                 <div class="flex items-center gap-2 flex-none">

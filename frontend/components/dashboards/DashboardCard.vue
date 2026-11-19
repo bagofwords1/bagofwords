@@ -134,7 +134,7 @@
                 <UIcon
                     :name="dashboard.is_starred ? 'i-heroicons-star-solid' : 'i-heroicons-star'"
                     class="w-4 h-4"
-                    :class="dashboard.is_starred ? 'text-amber-400' : 'text-gray-500'"
+                    :class="dashboard.is_starred ? 'text-amber-400' : 'text-ink-muted'"
                     aria-hidden="true"
                 />
             </UButton>

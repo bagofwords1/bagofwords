@@ -27,7 +27,7 @@
             <div class="flex flex-col py-0.5 w-full"
                 :data-testid="option.value === REMOVE ? 'share-remove' : undefined">
                 <span class="text-sm" :class="option.value === REMOVE ? 'text-red-600 dark:text-red-400' : ''">{{ option.label }}</span>
-                <span v-if="option.hint" class="text-xs text-gray-500 whitespace-normal">{{ option.hint }}</span>
+                <span v-if="option.hint" class="text-xs text-ink-muted whitespace-normal">{{ option.hint }}</span>
             </div>
         </template>
     </USelectMenu>

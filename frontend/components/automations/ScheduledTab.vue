@@ -83,7 +83,7 @@
                     :class="task.last_run_status === 'error' ? 'text-red-500' : 'text-ink-muted'"
                     :data-testid="`task-last-run-${task.id}`"
                 >
-                    <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                    <span class="text-ink-muted">&middot;</span>
                     <UIcon v-if="task.last_run_status === 'error'" name="i-heroicons-exclamation-triangle" class="w-3 h-3 shrink-0" />
                     {{ task.last_run_status === 'error'
                         ? $t('scheduled.lastRunFailed', { time: formatRelativeTime(task.last_run_at) })
@@ -111,14 +111,14 @@
                   :class="task.is_active ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
                   :aria-pressed="task.is_active"
                 >
-                  <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="task.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                  <span class="inline-block h-3 w-3 rounded-full bg-surface transition-transform" :class="task.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
                 </button>
               </UTooltip>
               <UTooltip :text="$t('scheduled.delete')">
                 <button
                   @click.stop="deleteTask(task)"
                   :disabled="deletingId === task.id"
-                  class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all disabled:opacity-50"
+                  class="p-1 rounded text-ink-subtle hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all disabled:opacity-50"
                 >
                   <Spinner v-if="deletingId === task.id" class="w-3.5 h-3.5 animate-spin" />
                   <UIcon v-else name="heroicons-trash" class="w-3.5 h-3.5" />

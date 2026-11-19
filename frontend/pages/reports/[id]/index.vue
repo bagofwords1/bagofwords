@@ -3,7 +3,7 @@
 	<!-- Loading until report and completions are fetched. `redirectingToViewer`
 	     holds this state through the hand-off to /r/{id} for a viewer who only
 	     has the dashboard, so the workspace never paints behind the redirect. -->
-	<div v-if="(!report || ((!reportLoaded || redirectingToViewer) && messages.length === 0)) && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
+	<div v-if="(!report || ((!reportLoaded || redirectingToViewer) && messages.length === 0)) && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-ink-muted">
 		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
@@ -132,7 +132,7 @@
 
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
 					<!-- Top loader for older pages -->
-					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
+					<li v-if="hasMore && isLoadingMore" class="text-ink-muted mb-2 text-xs text-center">
 						<Spinner class="w-4 h-4 inline me-2" /> {{ $t('reportView.loadingOlderMessages') }}
 					</li>
 					<ResponseLanguageScope :locale="m.prompt?.response_locale" :question-dir="replyDirHints.get(String(m.id))" :blocks="m.completion_blocks" v-slot="{ t: responseT, dir: responseDir }" v-for="m in visibleMessages" :key="m._render_key || m.id" :data-message-id="m.id" :data-scroll-key="m._render_key || m.id" :data-message-role="m.role" class="transcript-message text-gray-700 dark:text-gray-300 text-chat" :class="{ 'turn-enter': (m._render_key || m.id) === pinnedId }">
@@ -156,7 +156,7 @@
 								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-ink-muted rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
-								<span class="font-medium text-gray-500">{{ responseT('reportView.scheduledRun') }}</span>
+								<span class="font-medium text-ink-muted">{{ responseT('reportView.scheduledRun') }}</span>
 								<span class="text-gray-300">{{ formatScheduledDate(m.created_at) }}</span>
 								<span v-if="getScheduledStats(m)" class="text-gray-300">&middot;</span>
 								<span v-if="getScheduledStats(m)" class="text-ink-muted">{{ getScheduledStats(m) }}</span>
@@ -304,7 +304,7 @@
 										<UTooltip :text="copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
-												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
+												class="text-chat-3 text-ink-muted hover:text-ink-muted flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
 												{{ copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy') }}
@@ -317,7 +317,7 @@
 												type="button"
 												data-testid="user-message-rerun"
 												@click="rerunPrompt(m)"
-												class="text-chat-3 text-ink-muted hover:text-gray-600 flex items-center gap-0.5"
+												class="text-chat-3 text-ink-muted hover:text-ink-muted flex items-center gap-0.5"
 											>
 												<Icon name="heroicons-arrow-path-rounded-square" class="w-3 h-3" />
 												{{ responseT('reportView.rerun') }}
@@ -509,7 +509,7 @@
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
-													<div class="text-xs text-gray-500 mb-1">
+													<div class="text-xs text-ink-muted mb-1">
 														<span class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'suggest_instructions'">
 															{{ block.tool_execution.tool_name }}{{ toolActionLabel(block.tool_execution) }} ({{ block.tool_execution.status }})
 														</span>
@@ -835,13 +835,13 @@
 
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
 		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
-			<div class="text-xs text-gray-500 flex items-center">
+			<div class="text-xs text-ink-muted flex items-center">
 				<Spinner class="w-3 h-3 me-2 text-ink-muted" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
 		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-chat w-full">
-			<div class="text-xs text-gray-500 flex items-center">
+			<div class="text-xs text-ink-muted flex items-center">
 				<span class="text-xs">
 					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
 						This report is a report generated from a test run
@@ -1005,7 +1005,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'summary'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-gray-600'"
+						: 'text-ink-muted hover:text-ink-muted'"
 				>
 					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabSummary') }}
@@ -1015,7 +1015,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'artifact'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-gray-600'"
+						: 'text-ink-muted hover:text-ink-muted'"
 				>
 					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabDashboard') }}
@@ -1025,7 +1025,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'agent'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-gray-600'"
+						: 'text-ink-muted hover:text-ink-muted'"
 				>
 					<DataSourceIcon
 						v-if="currentAgents.length === 1"
@@ -1044,7 +1044,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'data'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-gray-600'"
+						: 'text-ink-muted hover:text-ink-muted'"
 					data-testid="data-panel-tab"
 				>
 					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
@@ -1064,7 +1064,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'list'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-gray-600'"
+						: 'text-ink-muted hover:text-ink-muted'"
 					data-testid="list-panel-tab"
 				>
 					<Icon name="heroicons:list-bullet" class="w-3.5 h-3.5 shrink-0" />
@@ -1086,7 +1086,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'file'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-gray-600'"
+						: 'text-ink-muted hover:text-ink-muted'"
 				>
 					<Icon :name="panelFile.kind === 'image' ? 'heroicons:photo' : 'heroicons:document-text'" class="w-3.5 h-3.5 shrink-0" />
 					<span class="truncate">{{ panelFile.name || $t('filePreview.document') }}</span>
@@ -1100,7 +1100,7 @@
 			</div>
 			<button
 				@click="toggleSplitScreen"
-				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 transition-colors"
+				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-ink-muted transition-colors"
 			>
 				<Icon name="heroicons:x-mark" class="w-4 h-4" />
 			</button>
