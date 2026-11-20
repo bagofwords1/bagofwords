@@ -7,8 +7,7 @@
       <template v-else-if="status === 'success'">{{ successLabel }}</template>
       <template v-else-if="status === 'stopped'">{{ runningLabel }}</template>
       <template v-else-if="status === 'error'">{{ errorLabel }}</template>
-      <template v-else>{{ t('tools.createArtifact.create') }}</template>
-      <template v-if="artifactMode">{{ artifactMode === 'slides' ? t('tools.createArtifact.slides') : t('tools.createArtifact.dashboard') }}</template></template>
+      <template v-else>{{ t('tools.createArtifact.create') }}</template></template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="status === 'stopped'" class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('reportView.stopped') }}</span><span
@@ -183,7 +182,9 @@
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
+// Open by default: the preview card (thumbnail, title, open link) is the
+// result of this call, not a detail of it.
+const toolHeaderExpanded = activityRef(true)
 
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'

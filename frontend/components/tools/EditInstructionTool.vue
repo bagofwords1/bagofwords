@@ -189,7 +189,8 @@
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
 import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
+// Open by default: an edit is a diff to review, with accept/reject inline.
+const toolHeaderExpanded = activityRef(true)
 
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
@@ -439,6 +440,9 @@ const isRejected = computed(() => {
 // already carries. It opens collapsed, and a card that fails mid-stream
 // collapses when the verdict lands rather than leaving a spent block open.
 const isUnsuccessful = computed(() => !!isRejected.value || status.value === 'error')
+watch(isUnsuccessful, (bad) => {
+  if (bad && !userToggled.value) toolHeaderExpanded.value = false
+}, { immediate: true })
 
 // Extract from arguments_json (input) - these are the updates applied.
 // NOTE: there is deliberately no `updatedText` here. `arguments_json.text` is
