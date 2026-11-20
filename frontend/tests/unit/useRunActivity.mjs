@@ -96,6 +96,27 @@ const table = (title, rows) => tool('create_data', { title }, {
   assert.deepEqual(live?.openIds, [ask.id])
 }
 
+// Running work with its own Stop (an eval, a sub-agent) is never hidden: open
+// in place while live — even inside a merged tool group — and kept under the
+// answer once the run folds, after the outputs. Finished work folds as usual.
+{
+  const search = tool('search_evals')
+  const evalRun = tool('run_eval', {}, { te: { status: 'running' } })
+  const keepVisible = (b) => b.id === evalRun.id
+  const live = computeRunActivity([search, evalRun], { runStatus: 'in_progress', keepVisible })
+  assert.deepEqual(live?.openIds, [evalRun.id])
+  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [[search.id, evalRun.id]])
+  assert.deepEqual(live?.deliverableIds, [])
+
+  const dash = tool('create_dashboard', {}, { te: { result_json: { artifact_id: 'a1' } } })
+  const delegate = tool('delegate', { goal: 'why' }, { te: { result_json: { sub_agent_id: 'sa1' } } })
+  const blocks = [dash, delegate, final()]
+  const done = computeRunActivity(blocks, { runStatus: 'success', keepVisible: (b) => b.id === delegate.id })
+  assert.deepEqual(done?.openIds, [])
+  assert.deepEqual(done?.deliverableIds, [dash.id, delegate.id])
+  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success', keepVisible: () => false })?.deliverableIds, [dash.id])
+}
+
 // A live run keeps its row from the first block on, so a first progress note
 // does not drop it and bring it back when its tool call starts. Once a lone
 // answer is final there are no steps to view and the row goes.

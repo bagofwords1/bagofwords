@@ -23,3 +23,18 @@ assert.equal(fold.isRunBlockShown({}, blocks[1]), true)
 fold.toggleRun({})
 assert.equal(fold.isRunToolShown({}, blocks[0]), false)
 console.log('useRunFold: grouped tool disclosure passed')
+
+// A running eval inside a merged live group keeps its card (and its Stop)
+// visible while the group row stays closed; its finished neighbour does not.
+{
+  const live = [
+    { id: 'search', tool_execution: { tool_name: 'search_evals', status: 'success' } },
+    { id: 'eval', tool_execution: { tool_name: 'run_eval', status: 'running' } },
+  ]
+  const activity = computeRunActivity(live, { runStatus: 'in_progress', keepVisible: (b) => b.id === 'eval' })
+  const liveFold = exports.useRunFold({ foldFor: () => activity, blocksFor: () => live, keyFor: () => 'live' })
+  assert.equal(liveFold.isToolGroupExpanded('search'), false)
+  assert.equal(liveFold.isRunToolShown({}, live[0]), false)
+  assert.equal(liveFold.isRunToolShown({}, live[1]), true)
+  console.log('useRunFold: running stop controls stay visible passed')
+}

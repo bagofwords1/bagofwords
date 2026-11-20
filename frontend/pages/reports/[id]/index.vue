@@ -357,7 +357,7 @@
 											<!-- Sub-agent waves launched by this turn: one group line per wave -->
 											<SubAgentWaveStrip
 												v-for="w in wavesForMessage(m)"
-												v-show="!runFold(m) || isRunExpanded(m)"
+												v-show="!runFold(m) || isRunExpanded(m) || isWaveLive(w)"
 											:key="'wave-' + w.id"
 											:wave="w"
 											:wave-number="waveNumber(w)"
@@ -1639,6 +1639,27 @@ function isAwaitingUser(b: any): boolean {
 		['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
 		!isConfirmationAnswered(cid)
 }
+// Work that outlives its tool call and carries its own Stop: an eval run still
+// going (attached to this turn or detached in the background) and a sub-agent
+// still investigating. The run fold never hides these cards.
+const LIVE_SUB_AGENT_STATUSES = new Set(['running', 'pending', 'waiting'])
+const TERMINAL_EVAL_STATUSES = new Set(['success', 'error', 'stopped'])
+function hasRunningStopControl(b: any): boolean {
+	const te = b?.tool_execution
+	if (!te) return false
+	if (te.tool_name === 'delegate') {
+		const id = te.result_json?.sub_agent_id
+		return !!id && LIVE_SUB_AGENT_STATUSES.has(String(subAgentById.value[id]?.status || ''))
+	}
+	if (te.tool_name === 'run_eval') {
+		if (te.status === 'running') return true
+		const rj = te.result_json || {}
+		return !!(rj.detached && rj.run_id) && !TERMINAL_EVAL_STATUSES.has(String(rj.status || 'in_progress'))
+	}
+	return false
+}
+const LIVE_WAVE_STATUSES = new Set(['collecting', 'running', 'firing'])
+const isWaveLive = (w: any): boolean => LIVE_WAVE_STATUSES.has(String(w?.status || ''))
 const inProgressAwaitingInput = computed(() =>
 	messages.value.some(m =>
 		m.role === 'system' && m.status === 'in_progress' &&
@@ -1747,7 +1768,8 @@ const runActivities = computed(() => {
 			breakBefore: (b: any) => steerBreaks.has(String(b.id)),
 			isSuperseded: (b: any) => superseded.includes(String(b.id)),
 			keepOpen: isAwaitingUser,
-			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}|${blocks.filter(isAwaitingUser).map((b: any) => b.id).join(',')}`,
+			keepVisible: hasRunningStopControl,
+			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}|${blocks.filter(isAwaitingUser).map((b: any) => b.id).join(',')}|${blocks.filter(hasRunningStopControl).map((b: any) => b.id).join(',')}`,
 		})
 		if (activity) out.set(String(m.id), activity)
 	}
@@ -2184,7 +2206,7 @@ const subAgentById = computed<Record<string, any>>(() => {
 	for (const w of subAgentWaves.value) for (const r of (w.sub_agents || [])) out[r.sub_agent_id] = { ...r, wave_status: w.status }
 	return out
 })
-const hasLiveSubAgents = computed(() => subAgentWaves.value.some((w: any) => ['collecting', 'running', 'firing'].includes(w.status)))
+const hasLiveSubAgents = computed(() => subAgentWaves.value.some(isWaveLive))
 let subAgentPollTimer: ReturnType<typeof setInterval> | null = null
 async function loadSubAgents() {
 	if (!report_id) return
