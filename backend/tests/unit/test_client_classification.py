@@ -12,7 +12,6 @@ that are not connectors keep today's behaviour.
 """
 from __future__ import annotations
 
-import contextlib
 import inspect
 import re
 import sqlite3
@@ -29,6 +28,7 @@ from app.ai.code_execution.client_profiles import EXEMPT_CLIENTS, classify
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, UnsafeSQLError
 from app.ai.code_execution.query_params import ParamError
 from app.data_sources.clients.bow_client import BowClient
+from app.data_sources.clients._exchange_ews import ExchangeError
 from app.data_sources.clients.discovery import DiscoveryClient
 from app.data_sources.clients.exchange_onprem_client import ExchangeOnpremClient
 from app.data_sources.clients.slack_messages_client import SlackMessagesClient
@@ -798,11 +798,15 @@ def test_exchange_onprem_is_exempt_and_sends_only_read_operations_whatever_the_a
     client = exchange_client()
     for text in _WRITE_LOOKING_TEXT:
         client.execute_query(text)
-        # An id the server does not know is an error, not a write.
-        with contextlib.suppress(Exception):
+        # An id the server does not know is the server's own refusal, not a
+        # write; anything else fails here.
+        with pytest.raises(ExchangeError):
             client.execute_query(message_id=text)
     client.execute_query()
-    assert exchange.operations and set(exchange.operations) <= READ_OPERATIONS
+    assert "Subject:" in client.execute_query(message_id=client.list_messages()["items"][0]["id"])
+    # Every id read reached the server as a read.
+    assert exchange.operations.count("GetItem") == len(_WRITE_LOOKING_TEXT) + 1
+    assert set(exchange.operations) <= READ_OPERATIONS
 
 
 # ------------------------------------------------------------ the network directory's indexed file tables

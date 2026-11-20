@@ -961,6 +961,43 @@ def test_a_directory_or_deep_glob_above_another_organizations_root_is_refused(sh
             session.execute(f"SELECT * FROM read_csv_auto('{reserved / 'report.csv'}')").fetchall()
 
 
+def test_a_network_directory_root_above_another_organizations_root_is_refused_with_nothing_read(departments):
+    """From an organization with no roots of its own, a network directory
+    root that holds another organization's root is refused when it is saved
+    and when it connects; a root over its own data keeps working."""
+    from fastapi import HTTPException
+
+    from app.data_sources.clients._duckdb_lockdown import bind_organization
+    from app.data_sources.clients.network_dir_client import NetworkDirClient
+    from app.services.connection_service import _check_network_dir_root
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
+    parent = reserved.parent
+    with _as_request_of(org_b), pytest.raises(HTTPException) as refused:
+        _check_network_dir_root("network_dir", {"root_path": str(parent)})
+    assert "another organization" in str(refused.value.detail)
+
+    client = bind_organization(NetworkDirClient(root_path=str(parent)), org_b)
+    opens = _Opens(reserved)
+    try:
+        assert client.test_connection()["success"] is False
+        with pytest.raises(ValueError, match="another organization"):
+            client.list_files()
+        with pytest.raises(ValueError, match="another organization"):
+            client.read_file(f"{reserved.name}/report.csv")
+        assert "report.csv" not in opens()
+    finally:
+        opens.close()
+
+    # A root over the organization's own data.
+    with _as_request_of(org_b):
+        _check_network_dir_root("network_dir", {"root_path": str(free)})
+    own = bind_organization(NetworkDirClient(root_path=str(free)), org_b)
+    assert own.test_connection()["success"] is True
+    assert own.read_file("report.csv")["k"].tolist() == ["x"]
+
+
 def test_uris_over_the_connections_own_data_still_connect_and_read(guarded_tree, http_base, monkeypatch):
     own = guarded_tree.own
     for uri in (str(own), f"{own}/", f"file://{own}/*.csv", f"file://localhost{own}/*.csv", f"{http_base}/remote.csv"):

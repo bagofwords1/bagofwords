@@ -120,13 +120,13 @@ def check_network_dir_root(
     the realpath must be inside one listed prefix; unset, system and app
     directories are refused (see ``_SYSTEM_DIRS``). An organization the
     operator gave its own roots (``security.organization_file_roots``) must
-    also stay inside those; ``organization_id`` defaults to the organization
-    of the current request."""
+    also stay inside those, and no root may hold another organization's;
+    ``organization_id`` defaults to the organization of the current request."""
     root = Path(root_path).expanduser().resolve()
     if organization_rules:
         from app.data_sources.clients._duckdb_lockdown import check_organization_roots
 
-        check_organization_roots(root, organization_id)
+        check_organization_roots(root, organization_id, contains=True)
     allowed = None
     try:
         from app.settings.config import settings
