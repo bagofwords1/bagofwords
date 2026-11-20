@@ -8144,7 +8144,11 @@
       "publishChanges": "פרסום שינויים",
       "popoverLiveNow": "הצופים רואים כעת את v{n}",
       "popoverReplaceWith": "v{n} תחליף אותה",
-      "popoverCancel": "ביטול"
+      "popoverCancel": "ביטול",
+      "newerTitle": "גרסה חדשה יותר מוכנה (v{n})",
+      "newerBody": "הגלריה עודכנה מאז שפתחת אותה.",
+      "newerRefresh": "רענון ל-v{n}",
+      "newerKeep": "להמשיך לצפות ב-v{n}"
     },
     "access": {
       "signInTitle": "נדרשת התחברות",

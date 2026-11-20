@@ -8124,7 +8124,11 @@
       "publishChanges": "Publicar cambios",
       "popoverLiveNow": "Los lectores ven ahora la v{n}",
       "popoverReplaceWith": "La v{n} la reemplaza",
-      "popoverCancel": "Cancelar"
+      "popoverCancel": "Cancelar",
+      "newerTitle": "Hay una versión más reciente (v{n})",
+      "newerBody": "Este panel se actualizó desde que lo abriste.",
+      "newerRefresh": "Actualizar a v{n}",
+      "newerKeep": "Seguir viendo v{n}"
     },
     "access": {
       "signInTitle": "Inicia sesión",

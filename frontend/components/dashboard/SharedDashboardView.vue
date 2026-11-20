@@ -146,6 +146,7 @@
             :is-running="isRunning"
             :showing-author-data="showingAuthorData"
             :withheld-count="withheldCharts.length"
+            :refresh-key="versionListKey"
             @toggle-changes="toggleChanges"
             @open-history="historyOpen = true"
             @run-as-me="handleRun"
@@ -169,6 +170,15 @@
 
         <!-- Main Content Area -->
         <div class="flex-1 min-h-0 relative">
+            <!-- The draft page showing "latest" while a newer version was saved
+                 elsewhere (the agent, another tab): veiled, with a Refresh. -->
+            <NewerVersionOverlay
+                v-if="showNewerOverlay && newerVersion"
+                :version="newerVersion.number"
+                :current="dashboardMeta?.version_number"
+                @refresh="emit('reload')"
+                @dismiss="newerDismissed = newerVersion.id"
+            />
             <!-- Report Tab: Artifact/Dashboard Content -->
             <template v-if="activeTab === 'report'">
                 <!-- Snapshot withheld: this dashboard's data is per-user, so the
@@ -350,6 +360,8 @@ import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import DashboardHistoryModal from '~/components/dashboard/DashboardHistoryModal.vue';
 import PresenceAvatars from '~/components/dashboard/collab/PresenceAvatars.vue';
 import DraftVersionBar from '~/components/dashboard/collab/DraftVersionBar.vue';
+import NewerVersionOverlay from '~/components/dashboard/NewerVersionOverlay.vue';
+import { newerDraftVersion, type NewerOffer } from '~/utils/newerDashboardVersion';
 import DashboardChangesPanel from '~/components/dashboard/collab/DashboardChangesPanel.vue';
 import {
     chartOverlayScriptTag, vizIdsForKey, COLLAB_MARKS_MESSAGE, COLLAB_LOCATED_MESSAGE, type ChartMark,
@@ -1177,6 +1189,37 @@ function asReport(meta: any) {
     };
 }
 const dashboardMeta = ref<any>(null);
+
+// The draft page hears no stream, so a version saved after it opened (the
+// agent editing in the conversation, another tab, a teammate) left it showing
+// the old one, and its version list never grew: reopening the link was the
+// only way to see it. While on screen it asks for the latest every few
+// seconds; a newer one reloads the version list and, when this page shows
+// "latest" (no ?version), veils the stale dashboard with a Refresh. A chosen
+// version is the reader's pick and is never veiled.
+const newerVersion = ref<NewerOffer | null>(null);
+const newerDismissed = ref<string | null>(null);
+const versionListKey = ref(0);
+const showingLatest = typeof route.query.version !== 'string';
+async function checkForNewerVersion() {
+    const shown = dashboardMeta.value;
+    if (!shown?.version_id) return;
+    // The same draft read as the page's own, minus ?version: what "latest" is now.
+    const qs = new URLSearchParams();
+    const draft = route.query.draft;
+    if (typeof draft === 'string' && draft) qs.set('draft', draft.slice(0, 120));
+    const query = qs.toString();
+    const { data, error } = await useMyFetch(`/api/d/${encodeURIComponent(props.id)}/draft${query ? `?${query}` : ''}`);
+    if (error.value) return;
+    const offer = newerDraftVersion(shown, data.value as any);
+    if (!offer || offer.id === newerVersion.value?.id) return;
+    newerVersion.value = offer;
+    versionListKey.value += 1;
+}
+useVisiblePoll(checkForNewerVersion, 10000,
+    () => props.source === 'draft' && !embedded && !inHostApplication.value && reportLoaded.value);
+const showNewerOverlay = computed(() => showingLatest && !!newerVersion.value
+    && newerDismissed.value !== newerVersion.value.id && activeTab.value === 'report');
 // The reader's iframe sandbox, relaxed to allow popups/new-tab links + modals
 // only when this dashboard opted in (Embed tab). allow_popups rides on the
 // published/draft dashboard schema.

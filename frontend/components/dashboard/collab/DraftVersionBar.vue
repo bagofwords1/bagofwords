@@ -96,6 +96,8 @@ const props = defineProps<{
     showingAuthorData?: boolean;
     // Charts withheld from the reader until they run them (e.g. RLS).
     withheldCount?: number;
+    // Bumped by the page when a newer version was saved: the list reloads.
+    refreshKey?: number;
 }>();
 defineEmits<{
     (e: 'toggle-changes'): void;
@@ -128,6 +130,7 @@ async function loadHistory() {
     if (!error.value) history.value = data.value;
 }
 onMounted(loadHistory);
+watch(() => props.refreshKey, loadHistory);
 
 const versionOptions = computed(() => {
     const h = history.value;
