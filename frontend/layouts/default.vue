@@ -339,7 +339,9 @@
 
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
       <div v-if="!isCollapsed" class="min-h-0 flex flex-col mt-4" :style="reportsSectionStyle">
-        <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
+        <!-- pe-1.5 (not 2.5): centers the w-5 group/sort button on the row
+             star / ellipsis column below (~16px from the inline-end edge). -->
+        <div class="ps-2.5 pe-1.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
           <div class="flex items-center gap-1 min-w-0">
             <button
               type="button"
