@@ -89,7 +89,7 @@
                         </span>
                     </UTooltip>
                     <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
-                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-ink-muted cursor-help" />
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-ink-2 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-ink-2 space-y-1.5">
                                 <p class="font-semibold text-ink">{{ $t('settings.llms.autoRouterHowTitle') }}</p>
@@ -128,7 +128,7 @@
                         </span>
                     </UTooltip>
                     <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
-                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-ink-muted cursor-help" />
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-ink-2 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-ink-2 space-y-1.5">
                                 <p class="font-semibold text-ink">{{ $t('settings.llms.fallbackHowTitle') }}</p>
@@ -270,7 +270,7 @@
                                         <button type="button" class="text-blue-500 hover:text-blue-700 mt-1" @click="saveHint(model)">
                                             <UIcon name="i-heroicons-check" class="w-4 h-4" />
                                         </button>
-                                        <button type="button" class="text-ink-muted hover:text-ink-muted mt-1" @click="editingHintId = null">
+                                        <button type="button" class="text-ink-muted hover:text-ink-2 mt-1" @click="editingHintId = null">
                                             <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                                         </button>
                                     </div>

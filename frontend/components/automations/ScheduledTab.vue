@@ -83,7 +83,7 @@
                     :class="task.last_run_status === 'error' ? 'text-red-500' : 'text-ink-muted'"
                     :data-testid="`task-last-run-${task.id}`"
                 >
-                    <span class="text-ink-muted">&middot;</span>
+                    <span class="text-ink-subtle">&middot;</span>
                     <UIcon v-if="task.last_run_status === 'error'" name="i-heroicons-exclamation-triangle" class="w-3 h-3 shrink-0" />
                     {{ task.last_run_status === 'error'
                         ? $t('scheduled.lastRunFailed', { time: formatRelativeTime(task.last_run_at) })

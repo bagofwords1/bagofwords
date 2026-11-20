@@ -6,7 +6,7 @@
           <button
             v-if="!stream && destination"
             type="button"
-            class="text-ink-muted hover:text-ink-muted"
+            class="text-ink-muted hover:text-ink-2"
             :aria-label="$t('settings.audit.streams.form.back')"
             @click="destination = null"
           >
@@ -14,7 +14,7 @@
           </button>
           <h3 class="text-base font-semibold">{{ stream ? $t('settings.audit.streams.form.titleEdit') : $t('settings.audit.streams.form.titleNew') }}</h3>
         </div>
-        <button type="button" class="text-ink-muted hover:text-ink-muted" :aria-label="$t('common.close')" @click="isOpen = false">
+        <button type="button" class="text-ink-muted hover:text-ink-2" :aria-label="$t('common.close')" @click="isOpen = false">
           <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>

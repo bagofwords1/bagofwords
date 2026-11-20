@@ -52,7 +52,7 @@
                         v-if="forkEligibility?.can_fork"
                         @click="handleFork"
                         :disabled="isForking"
-                        class="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-muted transition-colors disabled:opacity-50 mt-1"
+                        class="flex items-center gap-1 text-xs text-ink-muted hover:text-ink-2 transition-colors disabled:opacity-50 mt-1"
                     >
                         <Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
                         <span>{{ isForking ? $t('sharedConversation.forking') : $t('sharedConversation.fork') }}</span>
@@ -76,7 +76,7 @@
                 <div v-else-if="hasMore" class="flex justify-center py-3 mb-4">
                     <button
                         @click="loadPreviousCompletions"
-                        class="text-xs text-ink-muted hover:text-ink-muted transition-colors"
+                        class="text-xs text-ink-muted hover:text-ink-2 transition-colors"
                     >
                         ↑ {{ $t('sharedConversation.loadOlder') }}
                     </button>
@@ -343,7 +343,7 @@
 
             <!-- Footer -->
             <footer class="flex-none border-t border-gray-100 dark:border-gray-800 py-2 text-center bg-white dark:bg-gray-900 z-10">
-                <a href="https://bagofwords.com" target="_blank" class="text-2xs text-ink-muted hover:text-ink-muted transition-colors">
+                <a href="https://bagofwords.com" target="_blank" class="text-2xs text-ink-muted hover:text-ink-2 transition-colors">
                     {{ $t('sharedConversation.poweredBy', { brand: 'BOW' }) }}
                 </a>
             </footer>

@@ -147,7 +147,7 @@
                         v-for="t in scheduleTypes"
                         :key="t.value"
                         class="px-2 py-0.5 text-2xs rounded transition-colors"
-                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-muted'"
+                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-2'"
                         @click="scheduleType = t.value; scheduleDirty = true"
                     >
                         {{ t.label }}
@@ -227,7 +227,7 @@
                     <button
                         type="button"
                         class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded transition-colors"
-                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-muted'"
+                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-2'"
                         data-testid="routing-same-report"
                         @click="spawnNewReport = false"
                     >
@@ -237,7 +237,7 @@
                     <button
                         type="button"
                         class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded transition-colors"
-                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-muted'"
+                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-2'"
                         data-testid="routing-new-report"
                         @click="spawnNewReport = true"
                     >

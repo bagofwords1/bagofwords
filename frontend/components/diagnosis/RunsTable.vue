@@ -135,7 +135,7 @@
                                             v-for="tbl in c.tables"
                                             :key="tbl"
                                             type="button"
-                                            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-2xs font-mono whitespace-nowrap hover:bg-blue-100 flex-shrink-0"
+                                            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-2xs font-mono whitespace-nowrap hover:bg-blue-100 dark:hover:bg-blue-900/50 flex-shrink-0"
                                             :title="$t('monitoring.diagnosis.tableTitle', { table: tbl })"
                                             data-testid="call-table"
                                             @click.stop="$emit('pivot', `table:${quote(tbl)}`)"

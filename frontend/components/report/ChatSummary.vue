@@ -67,7 +67,7 @@
         </ul>
         <button
           v-if="artifactGroups.length > 3 && !showAllArtifacts"
-          class="mt-2 text-xs text-ink-muted hover:text-ink-muted transition-colors"
+          class="mt-2 text-xs text-ink-muted hover:text-ink-2 transition-colors"
           @click="showAllArtifacts = true"
         >
           {{ $t('chatSummary.showMore', { count: artifactGroups.length - 3 }) }}
@@ -109,7 +109,7 @@
         </ul>
         <button
           v-if="listItems.length > 3 && !showAllLists"
-          class="mt-2 text-xs text-ink-muted hover:text-ink-muted transition-colors"
+          class="mt-2 text-xs text-ink-muted hover:text-ink-2 transition-colors"
           @click="showAllLists = true"
         >
           {{ $t('chatSummary.showMore', { count: listItems.length - 3 }) }}
@@ -255,7 +255,7 @@
     <div v-if="reportId" class="max-w-xl mx-auto px-4 pb-6">
       <button
         @click="showWebhookModal = true"
-        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-ink-muted hover:text-ink-muted rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
+        class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-ink-muted hover:text-ink-2 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 hover:border-gray-300 transition-colors"
       >
         <Icon name="heroicons-plus" class="w-3.5 h-3.5" />
         {{ $t('chatSummary.configureWebhook') }}

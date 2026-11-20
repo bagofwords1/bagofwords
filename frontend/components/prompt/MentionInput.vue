@@ -120,7 +120,7 @@
             <button
               v-else-if="['data_sources', 'tables', 'entities'].includes(category.name)"
               @click.stop="expandItem(item, category.name)"
-              class="text-ink-muted hover:text-ink-muted p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="text-ink-muted hover:text-ink-2 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5" />
             </button>

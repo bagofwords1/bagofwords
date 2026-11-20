@@ -304,7 +304,7 @@
 										<UTooltip :text="copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy')" :popper="{ placement: 'bottom' }">
 											<button
 												@click="copyToClipboard(m.prompt?.content, m.id)"
-												class="text-chat-3 text-ink-muted hover:text-ink-muted flex items-center gap-0.5"
+												class="text-chat-3 text-ink-muted hover:text-ink-2 flex items-center gap-0.5"
 											>
 												<Icon :name="copiedMessageId === m.id ? 'heroicons-check' : 'heroicons-clipboard'" class="w-3 h-3" />
 												{{ copiedMessageId === m.id ? responseT('common.copied') : responseT('common.copy') }}
@@ -317,7 +317,7 @@
 												type="button"
 												data-testid="user-message-rerun"
 												@click="rerunPrompt(m)"
-												class="text-chat-3 text-ink-muted hover:text-ink-muted flex items-center gap-0.5"
+												class="text-chat-3 text-ink-muted hover:text-ink-2 flex items-center gap-0.5"
 											>
 												<Icon name="heroicons-arrow-path-rounded-square" class="w-3 h-3" />
 												{{ responseT('reportView.rerun') }}
@@ -1005,7 +1005,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'summary'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-ink-muted'"
+						: 'text-ink-muted hover:text-ink-2'"
 				>
 					<Icon name="heroicons:queue-list" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabSummary') }}
@@ -1015,7 +1015,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'artifact'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-ink-muted'"
+						: 'text-ink-muted hover:text-ink-2'"
 				>
 					<Icon name="heroicons:chart-bar-square" class="w-3.5 h-3.5" />
 					{{ $t('reportView.tabDashboard') }}
@@ -1025,7 +1025,7 @@
 					class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors"
 					:class="rightPanelView === 'agent'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-ink-muted'"
+						: 'text-ink-muted hover:text-ink-2'"
 				>
 					<DataSourceIcon
 						v-if="currentAgents.length === 1"
@@ -1044,7 +1044,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'data'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-ink-muted'"
+						: 'text-ink-muted hover:text-ink-2'"
 					data-testid="data-panel-tab"
 				>
 					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
@@ -1064,7 +1064,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'list'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-ink-muted'"
+						: 'text-ink-muted hover:text-ink-2'"
 					data-testid="list-panel-tab"
 				>
 					<Icon name="heroicons:list-bullet" class="w-3.5 h-3.5 shrink-0" />
@@ -1086,7 +1086,7 @@
 					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
 					:class="rightPanelView === 'file'
 						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-						: 'text-ink-muted hover:text-ink-muted'"
+						: 'text-ink-muted hover:text-ink-2'"
 				>
 					<Icon :name="panelFile.kind === 'image' ? 'heroicons:photo' : 'heroicons:document-text'" class="w-3.5 h-3.5 shrink-0" />
 					<span class="truncate">{{ panelFile.name || $t('filePreview.document') }}</span>
@@ -1100,7 +1100,7 @@
 			</div>
 			<button
 				@click="toggleSplitScreen"
-				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-ink-muted transition-colors"
+				class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-ink-2 transition-colors"
 			>
 				<Icon name="heroicons:x-mark" class="w-4 h-4" />
 			</button>

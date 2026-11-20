@@ -82,7 +82,7 @@
                                                         <span class="text-xs text-ink-muted">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                                         <button
                                                             @click="toggleGroupExpand(m.principal_id)"
-                                                            class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
+                                                            class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:text-ink-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
                                                         >
                                                             {{ expandedGroups.has(m.principal_id) ? '−' : '+' }}
                                                         </button>
