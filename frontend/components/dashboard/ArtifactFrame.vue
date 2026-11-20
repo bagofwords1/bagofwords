@@ -650,6 +650,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import type { ActivityEvent } from '~/composables/useArtifactRuntime'
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
@@ -2796,9 +2797,14 @@ onUnmounted(() => {
   if (isPolishMode.value) exitPolishMode();
 });
 
+// The dashboard (artifact_id), not the version: a viewer's table layouts
+// survive a new version and are shared with the published view.
+const tableLayoutKey = () => selectedArtifact.value?.artifact_id || selectedArtifact.value?.id || selectedArtifactId.value || '';
+
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
   if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
+  if (handleTableLayoutMessage(event.data, tableLayoutKey())) return;
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
@@ -2845,6 +2851,8 @@ function sendDataToIframe() {
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
     runtime: artifactRuntime(),
+    // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+    table_layouts: loadTableLayouts(tableLayoutKey()),
     ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
     // Each push replaces the app's data: keep the preview's real policy in it.
     ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),
