@@ -1,21 +1,30 @@
 <template>
-  <section :aria-label="$t('agentsPage.agentsSection')" class="space-y-0.5">
-    <div class="flex min-h-7 items-center gap-2 rounded-md px-2" :class="dropTarget === null && treeDropTarget"
-      @dragover="hoverDestination($event, null)" @dragleave="leaveDestination" @drop="dropAgent($event, null)">
-      <span class="grow text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('agentsPage.agentsSection') }}</span>
-      <slot name="header" />
-      <UButton v-if="canCreate" size="2xs" color="gray" variant="ghost" icon="i-heroicons-folder-plus"
-        :title="$t('agentsPage.tipNewFolder')" :aria-label="$t('agentsPage.tipNewFolder')" @click="emit('create', null)" />
+  <!-- Drop handling lives on the section: each row names the folder a drop on
+       it lands in (data-drop-folder; "" = organization root). A folder's whole
+       block — header, knowledge and child rows — is one drop zone, like
+       instruction folders, so a drop doesn't have to hit the 32px header. -->
+  <section :aria-label="$t('agentsPage.agentsSection')" class="space-y-0.5"
+    @dragover="hoverRow" @dragleave="leaveDestination" @drop="dropRow">
+    <!-- The root target pins to the top of the tree while an agent drags, so it
+         stays reachable from anywhere in a long list. data-drag-sticky (always
+         on) tells the tree's edge auto-scroll not to scroll while the pointer
+         is on this header — it is a drop target, not the scroll band. -->
+    <div :class="pinHeader && 'sticky top-0 z-10 bg-surface'" data-drag-sticky>
+      <div data-drop-folder="" class="flex min-h-7 items-center gap-2 rounded-md px-2" :class="dropTarget === null && treeDropTarget">
+        <span class="grow text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('agentsPage.agentsSection') }}</span>
+        <slot name="header" />
+        <UButton v-if="canCreate" size="2xs" color="gray" variant="ghost" icon="i-heroicons-folder-plus"
+          :title="$t('agentsPage.tipNewFolder')" :aria-label="$t('agentsPage.tipNewFolder')" @click="emit('create', null)" />
+      </div>
     </div>
     <div v-if="loading || !foldersLoaded" class="flex h-8 items-center gap-2 px-2 text-sm text-ink-muted">
       <Spinner class="size-3.5" />{{ $t('agentsPage.loading') }}
     </div>
-    <div v-for="row in rows" :key="row.key" :style="{ paddingInlineStart: Math.min(row.depth, 8) * 14 + 'px' }">
+    <div v-for="row in rows" :key="row.key" :data-drop-folder="dropFolderOf(row)" :style="{ paddingInlineStart: Math.min(row.depth, 8) * 14 + 'px' }">
       <slot v-if="row.kind === 'agent'" name="agent" :agent="row.agent" />
       <template v-else-if="row.kind === 'folder'">
-      <div class="group flex h-8 min-w-0 items-center gap-1.5 rounded-md pe-2 ps-1.5 text-sm"
-        :class="dropTarget === row.folder.id ? treeDropTarget : activeFolder === row.folder.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'"
-        @dragover="hoverDestination($event, row.folder.id)" @dragleave="leaveDestination" @drop="dropAgent($event, row.folder.id)">
+      <div class="group flex h-8 min-w-0 items-center gap-1.5 rounded-md pe-2 ps-1.5 text-sm" :data-drop-folder="row.folder.id" data-drop-header
+        :class="dropTarget === row.folder.id ? treeDropTarget : activeFolder === row.folder.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'">
         <button type="button" class="flex h-full shrink-0 items-center" :aria-label="row.folder.name"
           :aria-expanded="expanded.has(row.folder.id)" @click="toggle(row.folder.id)">
           <UIcon name="i-heroicons-chevron-right" class="size-3 text-ink-muted transition-transform"
@@ -145,7 +154,7 @@ import { treeDropTarget } from '~/utils/treeDragStyles'
 
 type Folder = { id: string, parent_id: string | null, name: string, limited_access: boolean, can_manage: boolean, can_move_from_folder: boolean, can_query: boolean, capabilities: string[] }
 type Recipient = { id: string, type: string, name: string, role: string | null, inherited?: {role: string, source: string, source_id: string}[] }
-const props = defineProps<{ agents: DragAgent[], knowledgeRevision: number, loading: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
+const props = defineProps<{ agents: DragAgent[], knowledgeRevision: number, loading: boolean, showAll?: boolean, activeFolder?: string | null, activeAgent?: string | null }>()
 const emit = defineEmits<{ knowledge: [folderId:string, kind:'instructions'|'evals'|'files', item?:{id:string,name:string}], select: [id: string | null], create: [parentId: string | null], changed: [] }>()
 const foldersLoaded = ref(false)
 const expanded = ref(new Set<string>())
@@ -172,7 +181,7 @@ function open(id: string | null) {
   emit('select', id)
 }
 async function load() {
-  const { data } = await useMyFetch<{ folders: Folder[], can_create: boolean }>('/folders')
+  const { data } = await useMyFetch<{ folders: Folder[], can_create: boolean }>('/folders', { query: { show_all: !!props.showAll } })
   folders.value = data.value?.folders || []
   canCreate.value = !!data.value?.can_create
   foldersLoaded.value = true
@@ -342,10 +351,17 @@ async function saveAgentAccess() {
 type DragAgent = {[key: string]: any, id: string, name: string, folder_id?: string | null, limited_access?: boolean}
 const dragged = ref<DragAgent | null>(null)
 const dropTarget = ref<string | null>()
+// Pin the root header only after dragstart has returned: a layout change
+// inside the drag-initiation sequence can make Chromium abort the drag (see
+// the NOTE on drag state in KnowledgeExplorer).
+const pinHeader = ref(false)
+let pinFrame = 0
 let browseTimer: ReturnType<typeof setTimeout> | undefined
+let hoveringHeader = false
 function clearHover() {
   clearTimeout(browseTimer)
   dropTarget.value = undefined
+  hoveringHeader = false
 }
 function leaveDestination(event: DragEvent) {
   if (!(event.relatedTarget instanceof Node) || !(event.currentTarget as Node).contains(event.relatedTarget)) clearHover()
@@ -366,8 +382,16 @@ watch(
   { immediate: true },
 )
 type TreeRow = { key: string, depth: number } & (
-  { kind: 'folder', folder: Folder } | { kind: 'agent', agent: DragAgent } | { kind: 'empty' }
+  { kind: 'folder', folder: Folder } | { kind: 'agent', agent: DragAgent } | { kind: 'empty', parent: string }
 )
+// The folder a drop on this row lands in ("" = organization root): a folder's
+// own header, and every row listed under a folder, all target that folder.
+function dropFolderOf(row: TreeRow) {
+  if (row.kind === 'folder') return row.folder.id
+  if (row.kind === 'empty') return row.parent
+  const parent = row.agent.folder_id
+  return parent && foldersById.value.has(parent) ? parent : ''
+}
 const rows = computed(() => {
   if (!foldersLoaded.value) return []
   const children = new Map<string | null, TreeRow[]>()
@@ -381,7 +405,7 @@ const rows = computed(() => {
   const visible: TreeRow[] = []
   function visit(parent: string | null, depth: number) {
     const entries = children.get(parent) || []
-    if (parent && !entries.length && !props.loading && !foldersById.value.get(parent)?.can_query && !foldersById.value.get(parent)?.capabilities.length) visible.push({kind: 'empty', key: 'empty:' + parent, depth})
+    if (parent && !entries.length && !props.loading && !foldersById.value.get(parent)?.can_query && !foldersById.value.get(parent)?.capabilities.length) visible.push({kind: 'empty', parent, key: 'empty:' + parent, depth})
     for (const row of entries) {
       visible.push({...row, depth})
       if (row.kind === 'folder' && expanded.value.has(row.folder.id)) visit(row.folder.id, depth + 1)
@@ -399,22 +423,46 @@ function startDrag(event: DragEvent, agent: DragAgent) {
   event.dataTransfer.setData('application/x-bow-agent', agent.id)
   event.dataTransfer.setData('text/plain', agent.id)
   dragged.value = agent
+  pinFrame = requestAnimationFrame(() => { pinHeader.value = !!dragged.value })
 }
 function endDrag() {
   clearHover()
+  cancelAnimationFrame(pinFrame)
+  pinHeader.value = false
   dragged.value = null
 }
 function validDrop(id: string | null) {
   return dragged.value && (dragged.value.folder_id || null) !== id && canDrag(dragged.value) && (!id || foldersById.value.get(id)?.can_manage)
 }
-function hoverDestination(event: DragEvent, id: string | null) {
-  if (!validDrop(id)) return
+// The row under the pointer → the folder it drops into (null = root), and
+// whether it is that folder's own header row.
+function targetOf(event: DragEvent) {
+  const el = event.target instanceof Element ? event.target.closest('[data-drop-folder]') : null
+  if (!el || !(event.currentTarget as Element).contains(el)) return undefined
+  return { id: el.getAttribute('data-drop-folder') || null, header: el.hasAttribute('data-drop-header') }
+}
+function hoverRow(event: DragEvent) {
+  const target = targetOf(event)
+  if (target) hoverDestination(event, target.id, target.header)
+  else clearHover()
+}
+function dropRow(event: DragEvent) {
+  const target = targetOf(event)
+  if (target) dropAgent(event, target.id)
+}
+function hoverDestination(event: DragEvent, id: string | null, header = false) {
+  // Moving onto a row that can't take the drop (e.g. the agent's own folder)
+  // must drop the previous highlight, or it would promise a drop that won't happen.
+  if (!validDrop(id)) return clearHover()
   event.preventDefault()
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-  if (dropTarget.value === id) return
+  if (dropTarget.value === id && hoveringHeader === header) return
   clearHover()
   dropTarget.value = id
-  if (id && !expanded.value.has(id)) browseTimer = setTimeout(() => expanded.value.add(id), 650)
+  hoveringHeader = header
+  // Only resting on a collapsed folder's header opens it; hovering its rows
+  // (already visible) doesn't need to.
+  if (id && header && !expanded.value.has(id)) browseTimer = setTimeout(() => expanded.value.add(id), 650)
 }
 async function dropAgent(event: DragEvent, id: string | null) {
   const agent = dragged.value
@@ -426,4 +474,6 @@ async function dropAgent(event: DragEvent, id: string | null) {
 onBeforeUnmount(endDrag)
 defineExpose({afterDelete, openMemberAccess, accessRevision, open, folders, current, moveAgent, openAgentAccess, canDrag, startDrag, endDrag, dragged, folderCreated})
 onMounted(load)
+// Follows the agents "Show all" toggle: off lists only folders shared with the caller.
+watch(() => props.showAll, load)
 </script>

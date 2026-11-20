@@ -25,8 +25,9 @@ KINDS = (AGENT, CONNECTOR)
 
 @lru_cache(maxsize=1)
 def connector_types() -> FrozenSet[str]:
-    """Connection types that are connectors by nature: MCP servers, and the
-    sign-in integrations whose content is each user's own (per-user catalog).
+    """Connection types that are connectors by nature: MCP servers, the
+    sign-in integrations whose content is each user's own (per-user catalog),
+    and sources the registry marks as personal (a mailbox on a mail server).
 
     OneNote is an integration too, but its catalog is shared (a team
     notebook indexed once for everyone), so it stays an agent.
@@ -38,6 +39,8 @@ def connector_types() -> FrozenSet[str]:
         if entry.ui_form == "mcp":
             out.add(type_)
         elif entry.ui_form == "integration" and entry.catalog_ownership == "per_user":
+            out.add(type_)
+        elif entry.personal_connector:
             out.add(type_)
     return frozenset(out)
 

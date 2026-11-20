@@ -60,6 +60,24 @@ def test_an_ephemeral_psycopg2_engine_resets_readonly_on_checkin(uri):
         assert _attached(engine_pool.get_engine(uri))
 
 
+@pytest.mark.parametrize("uri", PSYCOPG2_URIS)
+@pytest.mark.parametrize("ephemeral", [False, True], ids=["cached", "ephemeral"])
+def test_a_psycopg2_engine_built_from_a_url_object_resets_readonly_on_checkin(uri, ephemeral):
+    # Clients hand the pool a URL object (clients/_sa_url.py), never re-parsed
+    # from a string; the listener follows the object's driver.
+    url = sqlalchemy.engine.make_url(uri)
+    if ephemeral:
+        with engine_pool.ephemeral():
+            assert _attached(engine_pool.get_engine(url))
+    else:
+        assert _attached(engine_pool.get_engine(url))
+
+
+def test_a_url_object_for_another_driver_gets_no_checkin_listener():
+    url = sqlalchemy.engine.make_url("postgresql+pg8000://u:p@db.invalid/app")
+    assert not _attached(engine_pool.get_engine(url, module=FAKE_DBAPI))
+
+
 OTHER_ENGINES = [
     ("sqlite:///{tmp}/db.sqlite", {}),
     ("mysql+pymysql://u:p@db.invalid/app", {}),

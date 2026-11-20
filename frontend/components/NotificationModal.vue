@@ -2,7 +2,7 @@
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl', container: 'items-start', margin: 'sm:mt-[10vh]' }">
     <div class="bg-white dark:bg-gray-900 rounded-lg overflow-hidden flex flex-col max-h-[78vh]">
       <!-- Header -->
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+      <div class="shrink-0 flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800">
         <div class="flex items-center gap-2">
           <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('notifications.title') }}</h2>
           <span
@@ -11,6 +11,14 @@
           >{{ unread > 99 ? '99+' : unread }}</span>
         </div>
         <div class="flex items-center gap-1">
+          <!-- Clear handled: removes every handled row from MY inbox at once
+               (personal, like the per-row ✕). -->
+          <button
+            v-if="hasHandled"
+            @click="dismissResolved()"
+            data-testid="notifications-clear-handled"
+            class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 px-2 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors"
+          >{{ $t('notifications.clearHandled') }}</button>
           <button
             v-if="unread"
             @click="markAllRead()"
@@ -20,20 +28,29 @@
         </div>
       </div>
 
-      <!-- Filters -->
-      <div class="flex items-center gap-1 px-4 py-2 border-b border-gray-100 dark:border-gray-800">
+      <!-- Filters: read state + where it came from, as underline tabs. The last
+           choice is remembered. shrink-0: overflow-x makes a flex child
+           shrinkable, and in a max-height modal a long list would squeeze it. -->
+      <div class="shrink-0 flex items-end gap-5 px-4 border-b border-gray-100 dark:border-gray-800 overflow-x-auto" role="tablist">
         <button
-          v-for="f in FILTERS"
+          v-for="f in visibleFilters"
           :key="f.value"
-          @click="filter = f.value"
+          role="tab"
+          :aria-selected="filter === f.value"
+          :data-testid="`notifications-filter-${f.value}`"
+          @click="setFilter(f.value)"
           :class="[
-            'text-xs px-2.5 py-1 rounded-full transition-colors',
+            '-mb-px inline-flex items-center gap-1.5 pt-2.5 pb-2 text-xs whitespace-nowrap border-b-2 transition-colors outline-none focus-visible:text-gray-900 dark:focus-visible:text-white',
             filter === f.value
-              ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900 font-medium'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70'
+              ? 'border-gray-900 dark:border-gray-100 text-gray-900 dark:text-white font-semibold'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'
           ]"
         >
-          {{ $t(f.labelKey) }}<span v-if="f.value === 'unread' && unread" class="ms-1 opacity-70">{{ unread > 99 ? '99+' : unread }}</span>
+          {{ $t(f.labelKey) }}
+          <span
+            v-if="f.value === 'unread' && unread"
+            class="min-w-[16px] h-4 px-1 rounded-full bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-300 text-2xs font-semibold leading-none inline-flex items-center justify-center tabular-nums"
+          >{{ unread > 99 ? '99+' : unread }}</span>
         </button>
       </div>
 
@@ -73,12 +90,11 @@
           <li
             v-for="n in visibleItems"
             :key="n.id"
-            @click="onRowClick(n)"
+            :data-testid="`notification-row-${n.type}`"
             :class="[
               'group relative flex gap-3 px-4 py-3 transition-colors',
-              n.link ? 'cursor-pointer' : '',
-              'hover:bg-gray-50 dark:hover:bg-gray-800/50',
-              !n.read ? 'bg-blue-50/40 dark:bg-blue-500/[0.06]' : ''
+              !n.read && !n.resolved ? 'bg-blue-50/40 dark:bg-blue-500/[0.06]' : '',
+              expandedId === n.id ? 'bg-gray-50 dark:bg-gray-800/40' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
             ]"
           >
             <div
@@ -88,41 +104,123 @@
             >
               <UIcon name="i-heroicons-sparkles" class="w-4 h-4" />
             </div>
-            <div v-else :class="['mt-0.5 flex items-center justify-center w-7 h-7 rounded-full shrink-0', sevBg(n)]">
-              <UIcon :name="iconFor(n)" :class="['w-4 h-4', sevText(n)]" />
+            <div v-else :class="['mt-0.5 flex items-center justify-center w-7 h-7 rounded-full shrink-0', n.resolved ? 'bg-gray-100 dark:bg-gray-800' : sevBg(n)]">
+              <UIcon :name="iconFor(n)" :class="['w-4 h-4', n.resolved ? 'text-gray-400' : sevText(n)]" />
             </div>
 
             <div class="min-w-0 flex-1 pe-5" :data-testid="isCheckin(n) ? 'checkin-notification' : undefined">
-              <!-- Agent follow-up: reads like a message from the assistant -->
-              <div v-if="isCheckin(n)" class="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400 mb-0.5">
-                <span class="font-medium text-gray-700 dark:text-gray-300" dir="auto">{{ assistantName }}</span>
-                <span class="text-gray-300 dark:text-gray-600">&middot;</span>
-                <span class="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300">
-                  <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-3 h-3" />
-                  {{ $t('notifications.checkin.badge') }}
+              <!-- The clickable summary: opens details (review rows) or goes to the target. -->
+              <div
+                role="button"
+                tabindex="0"
+                :aria-expanded="isReview(n) ? expandedId === n.id : undefined"
+                :class="['outline-none rounded focus-visible:ring-2 focus-visible:ring-blue-500/50', (isReview(n) || linkFor(n)) ? 'cursor-pointer' : '']"
+                @click="onRowClick(n)"
+                @keydown.enter.prevent="onRowClick(n)"
+                @keydown.space.prevent="onRowClick(n)"
+              >
+                <!-- Agent follow-up: reads like a message from the assistant -->
+                <div v-if="isCheckin(n)" class="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400 mb-0.5">
+                  <span class="font-medium text-gray-700 dark:text-gray-300" dir="auto">{{ assistantName }}</span>
+                  <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                  <span class="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300">
+                    <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-3 h-3" />
+                    {{ $t('notifications.checkin.badge') }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2 min-w-0">
+                  <span v-text-dir
+                    :class="[
+                      'text-sm truncate',
+                      n.resolved ? 'text-gray-500 dark:text-gray-400 font-medium'
+                        : !n.read ? 'font-semibold text-gray-900 dark:text-gray-100' : 'font-medium text-gray-700 dark:text-gray-300'
+                    ]"
+                  >{{ title(n) }}</span>
+                  <span v-if="n.resolved" data-testid="notification-resolved-badge" class="shrink-0 inline-flex items-center gap-0.5 text-2xs font-medium px-1.5 py-px rounded bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-300">
+                    <UIcon name="i-heroicons-check" class="w-3 h-3" />
+                    {{ $t('notifications.detail.resolved') }}
+                  </span>
+                  <span v-else-if="!n.read" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                </div>
+                <p
+                  v-if="body(n)"
+                  :class="['text-xs mt-0.5', n.resolved ? 'text-gray-400 dark:text-gray-500' : 'text-gray-500 dark:text-gray-400',
+                           expandedId === n.id ? 'whitespace-pre-line' : (isCheckin(n) ? 'line-clamp-3 whitespace-pre-line' : 'line-clamp-2')]"
+                  dir="auto"
+                >{{ body(n) }}</p>
+                <span v-if="isCheckin(n) && n.link" class="inline-flex items-center gap-0.5 mt-1 text-2xs font-medium text-blue-600 dark:text-blue-400">
+                  {{ $t('notifications.checkin.openReport') }}
+                  <UIcon name="i-heroicons-arrow-right-20-solid" class="w-3 h-3 rtl-flip" />
                 </span>
+                <div class="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 mt-1 text-2xs text-ink-muted">
+                  <span v-if="n.subject?.agent_name" class="inline-flex items-center gap-0.5" v-text-dir>
+                    <UIcon name="i-heroicons-cube" class="w-3 h-3" />{{ n.subject.agent_name }}
+                  </span>
+                  <span v-if="n.subject?.agent_name" class="text-gray-300 dark:text-gray-600">&middot;</span>
+                  <span v-if="n.actor?.name">{{ $t('notifications.detail.by', { name: n.actor.name }) }}</span>
+                  <span v-if="n.actor?.name" class="text-gray-300 dark:text-gray-600">&middot;</span>
+                  <span>{{ relativeTime(n.updated_at || n.created_at) }}</span>
+                  <template v-if="n.resolved && handledText(n.subject?.handled, t)">
+                    <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                    <span class="text-green-700 dark:text-green-400" v-text-dir>{{ handledText(n.subject?.handled, t) }}</span>
+                  </template>
+                  <span v-if="isReview(n)" class="inline-flex items-center gap-0.5 ms-1 text-gray-400">
+                    <UIcon :name="expandedId === n.id ? 'i-heroicons-chevron-up-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3.5 h-3.5" />
+                    {{ expandedId === n.id ? $t('notifications.detail.hideDetails') : $t('notifications.detail.showDetails') }}
+                  </span>
+                </div>
               </div>
-              <div class="flex items-center gap-2">
-                <span v-text-dir
-                  :class="[
-                    'text-sm truncate',
-                    !n.read ? 'font-semibold text-gray-900 dark:text-gray-100' : 'font-medium text-gray-700 dark:text-gray-300'
-                  ]"
-                >{{ displayTitle(n) }}</span>
-                <span v-if="!n.read" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+
+              <!-- Details (review rows) -->
+              <div v-if="expandedId === n.id" class="mt-2.5 flex flex-col gap-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3" data-testid="notification-detail">
+                <div v-if="n.subject?.connection?.name" class="flex items-center gap-1 text-2xs text-gray-500 dark:text-gray-400">
+                  <UIcon name="i-heroicons-circle-stack" class="w-3 h-3" />
+                  <span>{{ $t('notifications.detail.connection') }}:</span>
+                  <span class="font-medium text-gray-700 dark:text-gray-300" v-text-dir>{{ n.subject.connection.name }}</span>
+                </div>
+                <SchemaDiffView v-if="n.subject?.diff" :diff="n.subject.diff" />
+                <p v-if="n.subject?.reliability_check?.started_at" class="text-2xs text-gray-500 dark:text-gray-400 flex items-start gap-1">
+                  <UIcon name="i-heroicons-beaker" class="w-3 h-3 mt-0.5 shrink-0" />
+                  {{ $t('notifications.detail.reliabilityStarted', { time: relativeTime(n.subject.reliability_check.started_at) }) }}
+                </p>
+                <div v-if="n.subject?.history?.length" class="flex flex-col gap-0.5">
+                  <span class="text-2xs font-semibold uppercase tracking-wide text-ink-muted">{{ $t('notifications.detail.history') }}</span>
+                  <ul class="flex flex-col gap-0.5 text-2xs text-gray-500 dark:text-gray-400">
+                    <li v-for="(h, i) in n.subject.history" :key="i" class="flex gap-1.5">
+                      <span class="tabular-nums shrink-0">{{ h.at ? relativeTime(h.at) : '' }}</span>
+                      <span>&middot;</span>
+                      <span v-if="h.counts">{{ $t('notifications.detail.historyEntry', { added: h.counts.added || 0, removed: h.counts.removed || 0, modified: h.counts.modified || 0 }) }}</span>
+                      <span v-else dir="auto">{{ h.summary }}</span>
+                    </li>
+                  </ul>
+                </div>
+                <!-- Actions: compact, on their own row under a hairline. One soft
+                     blue primary (where to act), quiet ghost secondaries with icons. -->
+                <div v-if="actionsFor(n).length" class="-mx-3 -mb-3 mt-0.5 px-2 py-1.5 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-1">
+                  <UButton
+                    v-for="a in actionsFor(n)"
+                    :key="a.key"
+                    :data-testid="`notification-action-${a.key}`"
+                    size="2xs"
+                    :color="a.primary ? 'blue' : 'gray'"
+                    :variant="a.primary ? 'soft' : 'ghost'"
+                    :icon="a.primary ? undefined : a.icon"
+                    @click.stop="go(n, a.to)"
+                  >
+                    {{ $t(a.labelKey) }}
+                    <template v-if="a.primary" #trailing>
+                      <UIcon name="i-heroicons-arrow-right-20-solid" class="w-3 h-3 rtl-flip" />
+                    </template>
+                  </UButton>
+                </div>
               </div>
-              <p v-if="displayBody(n)" :class="['text-xs text-gray-500 dark:text-gray-400 mt-0.5', isCheckin(n) ? 'line-clamp-3 whitespace-pre-line' : 'line-clamp-2']" dir="auto">{{ displayBody(n) }}</p>
-              <span v-if="isCheckin(n) && n.link" class="inline-flex items-center gap-0.5 mt-1 text-2xs font-medium text-blue-600 dark:text-blue-400">
-                {{ $t('notifications.checkin.openReport') }}
-                <UIcon name="i-heroicons-arrow-right-20-solid" class="w-3 h-3 rtl-flip" />
-              </span>
-              <span class="text-2xs text-ink-muted mt-1 block">{{ relativeTime(n.created_at) }}</span>
             </div>
 
             <button
               @click.stop="dismiss(n.id)"
-              class="absolute top-2.5 end-2.5 opacity-0 group-hover:opacity-100 text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded transition-opacity"
+              class="absolute top-2.5 end-2.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded transition-opacity"
               :title="$t('notifications.dismiss')"
+              :aria-label="$t('notifications.dismiss')"
             >
               <UIcon name="i-heroicons-x-mark-20-solid" class="w-4 h-4" />
             </button>
@@ -135,21 +233,43 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import SchemaDiffView from '~/components/notifications/SchemaDiffView.vue'
 import type { BowNotification } from '~/composables/useNotifications'
+import {
+  NOTIFICATION_FILTERS, type NotificationFilter,
+  iconFor, isReview, linkFor, actionsFor, displayTitle, displayBody, handledText,
+} from '~/utils/notifications'
 
 const router = useRouter()
 const { t, te } = useI18n()
-const { isOpen, items, unread, loading, error, fetchItems, markRead, markAllRead, dismiss } = useNotifications()
+const { isOpen, items, unread, loading, error, fetchItems, markRead, markAllRead, dismiss, dismissResolved } = useNotifications()
+const hasHandled = computed(() => items.value.some(n => n.resolved))
 
-// All / Unread filter (client-side; the list is already fully loaded).
-const FILTERS = [
-  { value: 'all', labelKey: 'notifications.filterAll' },
-  { value: 'unread', labelKey: 'notifications.filterUnread' },
-] as const
-const filter = ref<'all' | 'unread'>('all')
-const visibleItems = computed(() =>
-  filter.value === 'unread' ? items.value.filter(n => !n.read) : items.value
-)
+// ── Filters (client-side; the list is already fully loaded) ──────────────────
+// Source tabs only show when the inbox actually has something from that
+// source, so a user who only ever gets shares isn't offered empty tabs.
+const FILTER_KEY = 'bow.notifications.filter'
+const filter = ref<NotificationFilter>('all')
+function readStoredFilter(): NotificationFilter {
+  try {
+    const v = localStorage.getItem(FILTER_KEY)
+    if (v && NOTIFICATION_FILTERS.some(f => f.value === v)) return v as NotificationFilter
+  } catch { /* storage blocked */ }
+  return 'all'
+}
+function setFilter(v: NotificationFilter) {
+  filter.value = v
+  try { localStorage.setItem(FILTER_KEY, v) } catch { /* storage blocked */ }
+}
+const visibleFilters = computed(() => NOTIFICATION_FILTERS.filter(f =>
+  !f.sources || f.value === filter.value || items.value.some(n => (f.sources as readonly string[]).includes(n.source)),
+))
+const visibleItems = computed(() => {
+  const f = NOTIFICATION_FILTERS.find(x => x.value === filter.value)
+  if (filter.value === 'unread') return items.value.filter(n => !n.read)
+  if (f?.sources) return items.value.filter(n => (f.sources as readonly string[]).includes(n.source))
+  return items.value
+})
 
 // Severity → accent (icon bubble).
 function sevBg(n: BowNotification): string {
@@ -161,39 +281,6 @@ function sevText(n: BowNotification): string {
   if (n.severity === 'error') return 'text-red-500'
   if (n.severity === 'warning') return 'text-amber-500'
   return 'text-blue-500'
-}
-
-// Icon by type, falling back to source.
-const TYPE_ICONS: Record<string, string> = {
-  low_confidence: 'i-heroicons-arrow-trending-down',
-  schema_changed: 'i-heroicons-table-cells',
-  slow_query: 'i-heroicons-clock',
-  query_error: 'i-heroicons-exclamation-triangle',
-  instruction_suggestion: 'i-heroicons-sparkles',
-  share_conversation: 'i-heroicons-chat-bubble-left-right',
-  share_artifact: 'i-heroicons-chart-bar-square',
-  agent_access: 'i-heroicons-user-plus',
-  access_request: 'i-heroicons-lock-open',
-  access_granted: 'i-heroicons-check-badge',
-  scheduled_run: 'i-heroicons-clock',
-  scheduled_run_failed: 'i-heroicons-exclamation-triangle',
-  trigger_run: 'i-heroicons-bolt',
-  // A failed unattended run reads as an alert, not as the automation that
-  // produced it — so it keeps the warning glyph whichever kind it came from.
-  automation_failed: 'i-heroicons-exclamation-triangle',
-  checkin_followup: 'i-heroicons-arrow-path-rounded-square',
-  nightly_learning: 'i-heroicons-moon',
-}
-const SOURCE_ICONS: Record<string, string> = {
-  review: 'i-heroicons-bell-alert',
-  share: 'i-heroicons-share',
-  schedule: 'i-heroicons-clock',
-  trigger: 'i-heroicons-bolt',
-  report_tool: 'i-heroicons-sparkles',
-  checkin: 'i-heroicons-arrow-path-rounded-square',
-}
-function iconFor(n: BowNotification): string {
-  return TYPE_ICONS[n.type] || SOURCE_ICONS[n.source] || 'i-heroicons-bell'
 }
 
 const { relativeTime } = useRelativeTime()
@@ -211,49 +298,33 @@ const assistantName = computed(() => {
   return org?.ai_analyst_name || t('notifications.checkin.assistantFallback')
 })
 
-// Title/body are stored in English at emit time (the backend can't know which
-// locale each future reader will use). Emit sites attach their interpolation
-// params under subject.i18n, so known types re-render from the catalogue in
-// the viewer's locale; rows without params (pre-existing, free-form tool
-// output, user-authored copy) fall back to the stored text.
-function i18nParams(n: BowNotification): Record<string, any> | null {
-  const p = (n.subject as any)?.i18n
-  return p && typeof p === 'object' ? p : null
-}
-function displayTitle(n: BowNotification): string {
-  const p = i18nParams(n)
-  if (p) {
-    const key = `notifications.content.${n.type}.title`
-    if (te(key)) return t(key, p)
-  }
-  return n.title
-}
-function displayBody(n: BowNotification): string | null {
-  const p = i18nParams(n)
-  if (p) {
-    // A `variant` selects an alternate body template (e.g. body_no_actor); a
-    // variant with no catalogue entry deliberately falls through to the stored
-    // body (dynamic copy like a schema-change summary stays as emitted).
-    const key = p.variant
-      ? `notifications.content.${n.type}.body_${p.variant}`
-      : `notifications.content.${n.type}.body`
-    if (te(key)) return t(key, p)
-  }
-  return n.body ?? null
-}
+const title = (n: BowNotification) => displayTitle(n, t, te)
+const body = (n: BowNotification) => displayBody(n, t, te)
 
+// Review rows (schema change, suggestion, quality signal) open their details
+// in place; the buttons there go to where the admin acts on it. Everything
+// else (shares, runs, connections) goes straight to its target as before.
+const expandedId = ref<string | null>(null)
 function onRowClick(n: BowNotification) {
   if (!n.read) markRead(n.id, true)
-  if (n.link) {
-    isOpen.value = false
-    router.push(n.link)
+  if (isReview(n)) {
+    expandedId.value = expandedId.value === n.id ? null : n.id
+    return
   }
+  const to = linkFor(n)
+  if (to) go(n, to)
+}
+function go(n: BowNotification, to: string) {
+  if (!n.read) markRead(n.id, true)
+  isOpen.value = false
+  router.push(to)
 }
 
 // Refetch the list each time the modal opens (badge count stays live via polling).
 watch(isOpen, (open) => {
   if (open) {
-    filter.value = 'all'
+    filter.value = readStoredFilter()
+    expandedId.value = null
     fetchItems()
   }
 })

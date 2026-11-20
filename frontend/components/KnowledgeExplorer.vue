@@ -51,6 +51,10 @@
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
                 <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.newAgent') }}</span><span class="block text-2xs text-ink-muted">{{ $t('agentsPage.newAgentDesc') }}</span></span>
               </button>
+              <button v-if="canCreateAgent" class="w-full flex items-start gap-2.5 px-2 py-1.5 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start" data-testid="menu-import-agent" @click="showImportAgent = true; close()">
+                <UIcon name="i-heroicons-arrow-up-tray" class="w-4 h-4 text-ink-muted mt-0.5 shrink-0" />
+                <span><span class="block text-xs font-medium text-gray-800 dark:text-gray-200">{{ $t('agentsPage.importAgent') }}</span><span class="block text-2xs text-ink-muted">{{ $t('agentsPage.importAgentDesc') }}</span></span>
+              </button>
             </div>
           </template>
         </UPopover>
@@ -149,7 +153,11 @@
           </template>
         </div>
 
-        <div v-show="!pendingView && !searchResults" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5">
+        <!-- Every drop target (top-level folders, the "Agents" root header,
+             instruction folders) sits near the top, so a drag that starts low
+             in a long list scrolls the tree when it nears an edge. -->
+        <div v-show="!pendingView && !searchResults" ref="treeScroll" class="flex-1 min-h-0 overflow-y-auto px-2 pb-2 space-y-0.5"
+          @dragover.capture="treeAutoScroll.onDragOver" @dragenter.capture="treeAutoScroll.onDragOver" @dragleave="treeAutoScroll.onDragLeave" @drop.capture="treeAutoScroll.stop">
           <TreeGroup :label="$t('agentsPage.globalInstructions')" icon="i-heroicons-globe-alt" v-bind="rootDropzoneAttrs(GLOBAL_SCOPE)" :count="globalCount" :addable="canAddInstrFor()" :folderable="canAddInstrFor()" :open="isOpen('global')" @toggle="expand('global')" @add="openCreate({ global: true })" @folder="newDirectory(GLOBAL_SCOPE)">
             <div v-if="groupLoading('global')" class="flex items-center gap-2 h-8 text-sm text-ink-muted" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
@@ -168,6 +176,15 @@
             <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-ink-muted shrink-0" />
             <span class="flex-1 text-start truncate">{{ $t('agentsPage.skills') }}</span>
             <span v-if="skillCount" class="shrink-0 text-2xs text-ink-muted tabular-nums">{{ skillCount }}</span>
+          </button>
+          <!-- Review: the shared queue of things an agent manager should look
+               at (schema changes, suggestions, quality signals). Shown while
+               there is something open, or while it is the open view. -->
+          <button v-if="reviewCount || reviewView" type="button" data-testid="review-button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0" :class="reviewView ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openReview()">
+            <span class="w-3 shrink-0"></span>
+            <UIcon name="i-heroicons-inbox-stack" class="w-4 h-4 text-ink-muted shrink-0" />
+            <span class="flex-1 text-start truncate">{{ $t('reviewFeed.title') }}</span>
+            <span v-if="reviewCount" class="shrink-0 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 text-2xs font-semibold tabular-nums flex items-center justify-center">{{ reviewCount }}</span>
           </button>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
@@ -212,7 +229,7 @@
           </TreeGroup>
           <div class="h-px bg-gray-100 dark:bg-gray-800 my-2 mx-1"></div>
 
-          <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded"
+          <AgentFolders ref="folderExplorer" :knowledge-revision="folderKnowledgeRevision" @knowledge="pickFolderKnowledge" :agents="agents" :loading="!agentsLoaded" :show-all="showAllAgents"
             :active-folder="folderPaneVisible ? selectedFolder : null" :active-agent="agentView?.agentId || panelView?.agentId"
             @changed="fetchAgents" @select="clearRightPane(); selectedFolder = $event; folderSuiteId = undefined; folderSection = undefined"
             @create="(parentId) => openDirModal(parentId ? 'subfolder' : 'create', GLOBAL_SCOPE, { kind: 'agent-folder', parentId })">
@@ -421,7 +438,7 @@
         </button>
         <!-- Review feed -->
         <div v-if="reviewView" class="relative flex-1 min-h-0 flex flex-col">
-          <ReviewFeed :agents="agents" :initial-agent-id="reviewView.agentId" @close="closeReview" @count="reviewCount = $event" @open-instruction="openInstructionFromReview" />
+          <ReviewFeed :key="(reviewView.agentId || 'all') + ':' + (reviewView.itemId || '')" :agents="agents" :initial-agent-id="reviewView.agentId" :focus-item-id="reviewView.itemId" @close="closeReview" @count="fetchReviewCount()" @open-instruction="openInstructionFromReview" />
           <div v-if="reviewNavLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px]">
             <UIcon name="i-heroicons-arrow-path" class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
@@ -1135,6 +1152,8 @@
     />
     <AddConnectionModal v-model="showAddConnection" @created="onConnCreated" />
     <NewAgentWizardModal :folder-id="selectedFolder" v-model="showNewAgent" @finished="onNewAgentFinished" />
+    <AgentCloneModal v-model="showCloneAgent" :agent="cloneSource" @finished="onCloneFinished" />
+    <ImportAgentWizardModal :folder-id="selectedFolder" v-model="showImportAgent" @finished="onImportAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
@@ -1245,6 +1264,8 @@ import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
+import AgentCloneModal from '~/components/AgentCloneModal.vue'
+import ImportAgentWizardModal from '~/components/ImportAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
@@ -1405,8 +1426,8 @@ const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
 // Live per-user sources: no path scope to show — they read with the user's own access.
-const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'teams_messages'])
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'kms_lighthouse', 'teams_messages'])
+const LIVE_FILE_TYPES = new Set(['outlook_mail', 'gmail_mail', 'exchange_onprem', 'teams_messages', 'slack_messages'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'exchange_onprem', 'kms_lighthouse', 'teams_messages', 'slack_messages'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
@@ -1633,6 +1654,10 @@ const startDragCase = (scope: string, caseId: string, e: DragEvent) => {
   try { e.dataTransfer?.setData('text/plain', caseId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move' } catch {}
 }
 const endDrag = () => { drag.value = null; dropTarget.value = null }
+// Auto-scroll the tree for both drag kinds: instruction/folder/case drags
+// (drag above) and agent drags (owned by AgentFolders).
+const treeScroll = ref<HTMLElement | null>(null)
+const treeAutoScroll = useDragAutoScroll(treeScroll, { active: () => !!drag.value || !!folderExplorer.value?.dragged })
 // True if `nodeId` is `ancestorId` itself or nested somewhere beneath it.
 const isDirDescendant = (scope: string, ancestorId: string, nodeId: string | null): boolean => {
   const byId = new Map(dirsForScope(scope).map(d => [d.id, d]))
@@ -2381,10 +2406,26 @@ const agentLandingActions = computed(() => {
     { label: t('agentsPage.startTraining'), icon: 'i-heroicons-academic-cap', click: () => startTrainingSessionForAgent(id) },
   ])
   if (agentCanUpdate.value) groups.push([
+    // The server also checks the right to build an agent on this agent's connections.
+    ...(canCreateAgent.value ? [{ label: t('agentClone.menu'), icon: 'i-heroicons-document-duplicate', click: () => openCloneAgent(id) }] : []),
     { label: t('agentLanding.download'), icon: 'i-heroicons-arrow-down-tray', disabled: exportingInstructions.value, click: () => exportAgentInstructions(id) },
   ])
   return groups
 })
+const showCloneAgent = ref(false)
+const cloneSource = ref<{ id: string; name: string; description?: string | null } | null>(null)
+// A clone arrives with instructions: refresh the tree counts too, then open
+// it like a new agent.
+const onCloneFinished = async (id: string) => {
+  await fetchCounts()
+  await onNewAgentFinished(id)
+}
+const openCloneAgent = (id: string) => {
+  const a = (agentDetail.value?.id === id ? agentDetail.value : null) || agents.value.find(x => x.id === id)
+  if (!a) return
+  cloneSource.value = { id, name: a.name, description: a.description }
+  showCloneAgent.value = true
+}
 
 // inline-edit state
 const editingDesc = ref(false); const descForm = ref(''); const descInputRef = ref<HTMLInputElement | null>(null)
@@ -2637,7 +2678,7 @@ const onUploadInput = async (e: Event) => {
 
 // Clear every right-pane mode (preview / diff / tables-tools panel / agent view / detail)
 // ── Review feed (center-pane view) ──────────────────────
-const reviewView = ref<null | { agentId: string | null }>(null)
+const reviewView = ref<null | { agentId: string | null; itemId?: string | null }>(null)
 const reviewCount = ref(0)
 const fetchReviewCount = async () => {
   try { const { data } = await useMyFetch<any>('/api/review/count', { method: 'GET' }); reviewCount.value = data.value?.open || 0 } catch {}
@@ -2648,9 +2689,11 @@ const clearRightPane = () => {
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
-const openReview = (agentId: string | null = null) => {
+// Opened from the tree's Review row, or deep-linked from a notification:
+// /agents/review[/<item>] (all agents) and /agents/<id>/review[/<item>].
+const openReview = (agentId: string | null = null, itemId: string | null = null) => {
   clearRightPane()
-  reviewView.value = { agentId }
+  reviewView.value = { agentId, itemId }
 }
 // Open an instruction (from a Review item) and surface its pending diff.
 // Resolve the instruction BEFORE swapping panes so the Review feed → detail
@@ -2811,6 +2854,7 @@ const showConnectionsModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showAddConnection = ref(false)
 const showNewAgent = ref(false)
+const showImportAgent = ref(false)
 const showAddMCP = ref(false)
 const showAddCustomAPI = ref(false)
 
@@ -2843,6 +2887,12 @@ const onNewAgentFinished = async (id: string) => {
   await fetchAgents()
   expand('agent:' + id, true)
   openAgent(id)
+}
+// Import wizard finished: same landing as a new agent (refresh + open it).
+const onImportAgentFinished = async (id: string) => {
+  showImportAgent.value = false
+  await onNewAgentFinished(id)
+  fetchCounts()
 }
 const toolsRefreshKey = ref(0)
 // When a connection is created from an agent's Tools panel, link it to that agent.
@@ -4438,7 +4488,10 @@ const DirNode = defineComponent({
         if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
         dropTarget.value = dropKey
       }
+      // An agent drag (no `drag` here) passes through untouched: the agent row
+      // around this folder is itself a drop zone for the agent tree.
       const onDragleave = (e: DragEvent) => {
+        if (!drag.value) return
         e.stopPropagation()
         // Ignore moves between this folder's own descendants (prevents flicker);
         // only clear when the cursor actually leaves the folder subtree.
@@ -4447,7 +4500,7 @@ const DirNode = defineComponent({
         if (rt && ct?.contains?.(rt)) return
         if (dropTarget.value === dropKey) dropTarget.value = null
       }
-      const onDrop = (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
+      const onDrop = (e: DragEvent) => { if (!drag.value) return; e.preventDefault(); e.stopPropagation(); onDropInto(scope, dir.id, dropKey) }
       const header = createElement('div', {
         draggable: props.canManage ? 'true' : undefined,
         class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-sm transition-colors min-w-0 cursor-pointer', dropActive ? treeDropTarget : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
@@ -4501,6 +4554,7 @@ const SuiteNode = defineComponent({
         },
         onDragleave: () => { if (dropTarget.value === key()) dropTarget.value = null },
         onDrop: (e: DragEvent) => {
+          if (!drag.value) return // agent drag: let the agent tree take it
           e.preventDefault(); e.stopPropagation()
           const d = drag.value
           dropTarget.value = null
@@ -4622,6 +4676,7 @@ const explorerUrl = (): string => {
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
   if (folderPaneVisible.value && selectedFolder.value) return `/agents/folders/${selectedFolder.value}`
+  if (reviewView.value) return '/agents/' + [reviewView.value.agentId, 'review', reviewView.value.itemId].filter(Boolean).join('/')
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
@@ -4636,7 +4691,7 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, selectedFolder, queryView, listView, listRowView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, selectedFolder, queryView, listView, listRowView, reviewView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
@@ -4684,6 +4739,13 @@ const restoreFromRoute = () => {
       .catch(() => {})
     return
   }
+  // /agents/review[/<item>] — the Review feed across all agents (global items
+  // live here too), optionally focused on one item.
+  if (seg[0] === 'review') {
+    const itemId = seg[1] || null
+    if (!reviewView.value || reviewView.value.agentId || reviewView.value.itemId !== itemId) openReview(null, itemId)
+    return
+  }
   // /agents/global-evals — org-wide evals view, not bound to an agent
   if (seg[0] === 'global-evals') {
     if (panelView.value?.kind !== 'global-evals') openGlobalEvals()
@@ -4698,6 +4760,14 @@ const restoreFromRoute = () => {
   const panel = seg[1] as (typeof PANEL_KINDS)[number] | undefined
   const agent = agents.value.find(a => a.id === agentId)
   if (!agent) return
+  // /agents/<id>/review[/<item>] — the Review feed for one agent.
+  if (seg[1] === 'review') {
+    const itemId = seg[2] || null
+    if (reviewView.value?.agentId === agentId && reviewView.value?.itemId === itemId) return
+    expand('agent:' + agentId, true)
+    openReview(agentId, itemId)
+    return
+  }
   // /agents/<id>/<panel>
   if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
     if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }

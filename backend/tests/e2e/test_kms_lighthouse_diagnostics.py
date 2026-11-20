@@ -208,6 +208,7 @@ def test_a_run_that_starts_after_the_route_gave_up_sends_nothing(
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop
 def test_a_second_run_of_a_connection_gets_a_typed_409_while_the_first_is_active(
     kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch,
 ):
@@ -235,6 +236,7 @@ def test_a_second_run_of_a_connection_gets_a_typed_409_while_the_first_is_active
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop
 def test_the_guard_holds_past_the_route_timeout_until_the_thread_ends_and_is_per_connection(
     kms, test_client, create_user, login_user, whoami, create_connection, monkeypatch,
 ):

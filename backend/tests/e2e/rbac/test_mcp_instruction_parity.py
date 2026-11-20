@@ -33,13 +33,19 @@ def _report(mismatches, what):
     )
 
 
-def _state(world, inst_id, reader):
-    """What a user of the web app would see, or None if it's gone."""
+def _read(world, inst_id, reader):
+    """The instruction as the web app returns it, or None if it's gone."""
     r = world.rest_get_instruction(reader, inst_id)
     if r.status_code == 404:
         return None
     assert r.status_code == 200, r.text
-    b = r.json()
+    return r.json()
+
+
+def _summary(b):
+    """What a user of the web app would see, or None if it's gone."""
+    if b is None:
+        return None
     return {
         "text": b.get("text"),
         "status": b.get("status"),
@@ -48,13 +54,60 @@ def _state(world, inst_id, reader):
     }
 
 
-def _twins(world, key):
-    scope = M.INSTRUCTION_TARGETS[key]
-    author = M.AGENT_OWNER if key == "inst_owned" else M.ORG_ADMIN
-    text = f"twin {key} rule {uuid.uuid4().hex[:8]}"
-    return (world.create_instruction_as(author, text, scope),
-            world.create_instruction_as(author, text, scope),
-            world.truth_reader(scope))
+def _state(world, inst_id, reader):
+    return _summary(_read(world, inst_id, reader))
+
+
+class _Twins:
+    """A pair of identical instructions, one per path, for one cell.
+
+    Creating a rule publishes a build (~0.2s each on Postgres), and most cells
+    are refusals that leave both rules as they were, so a pair is handed to the
+    next cell only when both paths refused AND both rows, read back after the
+    cell, are exactly what the create call returned for them (the create
+    response, which has the shape of ``GET /api/instructions/{id}``): every
+    field, including the current version, build, status and ``updated_at``.
+    Anything that changed either row (an allowed edit, a staged suggestion, a
+    mismatch) retires the pair, and the next cell gets a fresh one.
+
+    ``created`` and ``reused`` count pairs, so a grid can report them."""
+
+    def __init__(self, world, key):
+        self.world, self.key = world, key
+        self.scope = M.INSTRUCTION_TARGETS[key]
+        self.author = M.AGENT_OWNER if key == "inst_owned" else M.ORG_ADMIN
+        self.reader = world.truth_reader(self.scope)
+        self._spare = self._taken = None
+        self.created = self.reused = 0
+
+    def take(self):
+        if self._spare is None:
+            text = f"twin {self.key} rule {uuid.uuid4().hex[:8]}"
+            self._spare = tuple(
+                self.world.seed_instruction_as(self.author, text, self.scope) for _ in range(2)
+            )
+            self.created += 1
+        else:
+            self.reused += 1
+        pair, self._spare = self._spare, None
+        self._taken = pair
+        return pair[0]["id"], pair[1]["id"], self.reader
+
+    def give_back_if_untouched(self, both_refused, body_a, body_b):
+        if both_refused and (body_a, body_b) == self._taken:
+            self._spare = self._taken
+
+
+def _record_reuse(record_property, grid, all_twins):
+    """Attach how many pairs a grid created and reused (JUnit properties and
+    stdout), so a drop in reuse shows up in CI's results; returns the reused
+    count, which the grid asserts after its mismatches."""
+    created = sum(t.created for t in all_twins)
+    reused = sum(t.reused for t in all_twins)
+    record_property(f"{grid}_pairs_created", created)
+    record_property(f"{grid}_pairs_reused", reused)
+    print(f"{grid}: {created} pair(s) created, {reused} reused")
+    return reused
 
 
 def _rest(world, persona, method, path, body=None):
@@ -76,28 +129,36 @@ EDITS = {
 }
 
 
-def test_edit_matches_the_web_app_for_every_persona(world):
+def test_edit_matches_the_web_app_for_every_persona(world, record_property):
     mismatches = []
+    all_twins = []
     for key in M.INSTRUCTION_TARGETS:
+        twins = _Twins(world, key)
+        all_twins.append(twins)
         for persona in M.ALL:
             for name, (rest_body, mcp_args) in EDITS.items():
-                a, b, reader = _twins(world, key)
+                a, b, reader = twins.take()
                 rest_ok = _rest(world, persona, "put", f"/api/instructions/{a}", rest_body()).status_code == 200
                 res = world.mcp(persona).call("edit_instruction", {"instruction_id": b, **mcp_args()})
                 label = f"{persona} {key} {name}"
                 if rest_ok != res.ok:
                     mismatches.append(f"{label}: web app ok={rest_ok}, MCP ok={res.ok} ({res.summary()})")
                     continue
-                sa, sb = _state(world, a, reader), _state(world, b, reader)
+                ba, bb = _read(world, a, reader), _read(world, b, reader)
+                sa, sb = _summary(ba), _summary(bb)
                 if sa != sb:
                     mismatches.append(f"{label}: web app left {sa}, MCP left {sb}")
+                twins.give_back_if_untouched(not rest_ok and not res.ok, ba, bb)
+    reused = _record_reuse(record_property, "edit", all_twins)
     _report(mismatches, "edit parity")
+    # Most cells are refusals that leave both rules as they were.
+    assert reused > 0, "no refused cell left a pair to reuse"
 
 
 def test_scope_changes_match_the_web_app(world):
     mismatches = []
     for persona, key, scope, _ in M.SCOPE_CHANGES:
-        a, b, reader = _twins(world, key)
+        a, b, reader = _Twins(world, key).take()
         ds = [world.agent_id(x) for x in scope]
         rest_ok = _rest(world, persona, "put", f"/api/instructions/{a}", {"data_source_ids": ds}).status_code == 200
         # Going global is an explicit scope over MCP; [] alone never globalizes a rule.
@@ -147,20 +208,26 @@ def test_create_matches_the_web_app_for_every_persona(world):
 
 # ── delete ───────────────────────────────────────────────────────────────
 
-def test_delete_matches_the_web_app_for_every_persona(world):
+def test_delete_matches_the_web_app_for_every_persona(world, record_property):
     mismatches = []
+    all_twins = []
     for key in M.INSTRUCTION_TARGETS:
+        twins = _Twins(world, key)
+        all_twins.append(twins)
         for persona in M.ALL:
-            a, b, reader = _twins(world, key)
+            a, b, reader = twins.take()
             rest_ok = _rest(world, persona, "delete", f"/api/instructions/{a}").status_code == 200
             res = world.mcp(persona).call("delete_instruction", {"instruction_id": b})
             label = f"{persona} {key}"
             if rest_ok != res.ok:
                 mismatches.append(f"{label}: web app ok={rest_ok}, MCP ok={res.ok} ({res.summary()})")
-            sa, sb = _state(world, a, reader), _state(world, b, reader)
-            if (sa is None) != (sb is None):
-                mismatches.append(f"{label}: web app gone={sa is None}, MCP gone={sb is None}")
+            ba, bb = _read(world, a, reader), _read(world, b, reader)
+            if (ba is None) != (bb is None):
+                mismatches.append(f"{label}: web app gone={ba is None}, MCP gone={bb is None}")
+            twins.give_back_if_untouched(not rest_ok and not res.ok, ba, bb)
+    reused = _record_reuse(record_property, "delete", all_twins)
     _report(mismatches, "delete parity")
+    assert reused > 0, "no refused cell left a pair to reuse"
 
 
 # ── the in-app edit contract ─────────────────────────────────────────────

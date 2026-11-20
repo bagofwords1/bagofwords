@@ -1,8 +1,10 @@
 import asyncio
+import dataclasses
 import os
 import random
 import re
 import time
+import types
 from typing import AsyncGenerator, Optional, Callable
 
 from .clients.openai_client import OpenAi
@@ -22,12 +24,20 @@ from .types import (
     ToolSpec,
     TextDeltaEvent,
     UsageEvent,
+    ReasoningCompleteEvent,
+    ReasoningDeltaEvent,
+    ToolUseCompleteEvent,
+    ToolUseInputDeltaEvent,
+    WebSearchCompleteEvent,
+    WebSearchStartEvent,
 )
 from app.ai.utils.token_counter import count_tokens, estimate_tokens_fast
 from app.ai.llm import trace as llm_trace
 from app.core.url_safety import check_admin_url
 from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
+from app.ai.llm.pii.context import strip_markers
+from app.ai.llm.pii.vault import MODEL_HINT, PiiVault, StreamRestorer, vault_for
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
 from app.ai.llm.header_injection import identity_header_resolver, static_provider_headers
@@ -109,6 +119,123 @@ def _parse_temperature(raw) -> Optional[float]:
 
 # Public Azure AI Foundry resources are always on this host suffix.
 _AZURE_FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+
+
+async def _restore_text_stream(stream, vault):
+    """Text chunks with placeholders restored (a placeholder split across two
+    chunks is held until complete). Passes through untouched without a vault."""
+    if vault is None:
+        async for chunk in stream:
+            yield chunk
+        return
+    restorer = StreamRestorer(vault)
+    async for chunk in stream:
+        if isinstance(chunk, str):
+            chunk = restorer.feed(chunk)
+            if not chunk:
+                continue
+        yield chunk
+    tail = restorer.flush()
+    if tail:
+        yield tail
+
+
+async def _restore_event_stream(stream, vault):
+    """Stream events with placeholders restored in everything the model wrote:
+    text, reasoning, tool arguments (streamed JSON and the final dict) and web
+    search queries. One place, so every provider client is covered."""
+    if vault is None:
+        async for evt in stream:
+            yield evt
+        return
+    text = StreamRestorer(vault)
+    reasoning = StreamRestorer(vault)
+    tool_json: dict = {}
+
+    def _flush_text():
+        tail = text.flush()
+        return TextDeltaEvent(text=tail) if tail else None
+
+    def _flush_reasoning():
+        tail = reasoning.flush()
+        return ReasoningDeltaEvent(text=tail) if tail else None
+
+    async for evt in stream:
+        if isinstance(evt, TextDeltaEvent):
+            pending = _flush_reasoning()
+            if pending:
+                yield pending
+            out = text.feed(evt.text)
+            if out:
+                yield dataclasses.replace(evt, text=out)
+            continue
+        if isinstance(evt, ReasoningDeltaEvent):
+            out = reasoning.feed(evt.text)
+            if out:
+                yield dataclasses.replace(evt, text=out)
+            continue
+        # Any other event ends the current run of text / reasoning.
+        for pending in (_flush_reasoning(), _flush_text()):
+            if pending:
+                yield pending
+        if isinstance(evt, ReasoningCompleteEvent):
+            yield dataclasses.replace(evt, text=vault.restore(evt.text))
+        elif isinstance(evt, ToolUseInputDeltaEvent):
+            restorer = tool_json.setdefault(evt.id, StreamRestorer(vault, json_fragment=True))
+            out = restorer.feed(evt.partial_json)
+            if out:
+                yield dataclasses.replace(evt, partial_json=out)
+        elif isinstance(evt, ToolUseCompleteEvent):
+            restorer = tool_json.pop(evt.id, None)
+            if restorer is not None:
+                tail = restorer.flush()
+                if tail:
+                    yield ToolUseInputDeltaEvent(id=evt.id, partial_json=tail)
+            yield dataclasses.replace(evt, input=vault.restore_deep(evt.input))
+        elif isinstance(evt, (WebSearchStartEvent, WebSearchCompleteEvent)):
+            changes = {"query": vault.restore(evt.query)}
+            if isinstance(evt, WebSearchCompleteEvent) and evt.queries:
+                changes["queries"] = vault.restore_deep(list(evt.queries))
+            yield dataclasses.replace(evt, **changes)
+        else:
+            yield evt
+    for pending in (_flush_reasoning(), _flush_text()):
+        if pending:
+            yield pending
+
+
+def _map_strings_deep(obj, fn):
+    if isinstance(obj, str):
+        return fn(obj)
+    if isinstance(obj, dict):
+        return {k: _map_strings_deep(v, fn) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_map_strings_deep(v, fn) for v in obj]
+    return obj
+
+
+def _map_text_blocks(blocks: list, fn) -> list:
+    """Apply ``fn`` to every model-visible string in a list of content blocks:
+    'text' (text blocks), 'content' (tool_result, including one whose content
+    is itself a list of blocks) and the arguments of a replayed tool call."""
+    out = []
+    for block in blocks:
+        if isinstance(block, dict):
+            nb = dict(block)
+            for key in ("text", "content"):
+                value = nb.get(key)
+                if isinstance(value, str):
+                    nb[key] = fn(value)
+                elif key == "content" and isinstance(value, list):
+                    nb[key] = _map_text_blocks(value, fn)
+            # A replayed tool call: its arguments were restored to real values
+            # when the model produced them, so they are redacted again here.
+            if nb.get("type") == "tool_use" and isinstance(nb.get("input"), (dict, list)):
+                nb["input"] = _map_strings_deep(nb["input"], fn)
+            out.append(nb)
+        else:
+            out.append(block)
+    return out
 
 
 def _is_gemini_model_id(model_id: Optional[str]) -> bool:
@@ -654,6 +781,15 @@ class LLM:
                 "Please select a vision-capable model or remove images from your request."
             )
 
+    def _pii_provider_id(self) -> Optional[str]:
+        """The LLM provider this instance sends prompts to; the org may exempt
+        it from PII redaction. A fallback model is a separate LLM instance, so
+        the provider actually called always decides."""
+        provider_id = getattr(self.model, "provider_id", None)
+        if not provider_id:
+            provider_id = getattr(getattr(self.model, "provider", None), "id", None)
+        return str(provider_id) if provider_id else None
+
     async def _aget_pii_redactor(self) -> Optional[PiiRedactor]:
         """Async resolution of this org's PII redactor (cached)."""
         # Tolerate objects built via object.__new__(LLM) that bypass __init__
@@ -664,7 +800,7 @@ class LLM:
             return self._pii_redactor
         try:
             self._pii_redactor = await load_redactor_for_org(
-                self._organization_id, self._usage_session_maker
+                self._organization_id, self._usage_session_maker, self._pii_provider_id()
             )
         except Exception as exc:  # pragma: no cover - defensive
             logger.warning("PII redactor resolution failed: %s", exc)
@@ -700,7 +836,9 @@ class LLM:
             return None  # no loop reachable yet; retry on a later call
         try:
             fut = asyncio.run_coroutine_threadsafe(
-                load_redactor_for_org(self._organization_id, self._usage_session_maker),
+                load_redactor_for_org(
+                    self._organization_id, self._usage_session_maker, self._pii_provider_id()
+                ),
                 loop,
             )
             self._pii_redactor = fut.result(timeout=10)
@@ -710,12 +848,113 @@ class LLM:
         self._pii_loaded = True
         return self._pii_redactor
 
-    def _apply_pii(self, prompt: str, redactor: Optional[PiiRedactor], span) -> str:
+    def _pii_blocked(self, err: PiiPromptBlockedError) -> PiiPromptBlockedError:
+        """Name the model on a block and audit it (best effort, never raises)."""
+        err.attach(model=self.model_id, policy_id=err.policy_id, policy_name=err.policy_name)
+        try:
+            from app.ai.llm.pii.audit import record_prompt_blocked
+            from app.ai.llm.pii.redactor import PiiDetectorUnavailableError
+
+            if isinstance(err, PiiDetectorUnavailableError):
+                # Recorded as a detector outage (throttled), not as a rule hit.
+                self._pii_detector_failed(
+                    types.SimpleNamespace(policy_id=err.policy_id, policy_name=err.policy_name), "blocked"
+                )
+                return err
+
+            coro = record_prompt_blocked(
+                organization_id=getattr(self, "_organization_id", None),
+                provider_id=self._pii_provider_id(),
+                provider_type=getattr(self, "provider", None),
+                model_id=self.model_id,
+                error=err,
+            )
+            try:
+                asyncio.get_running_loop().create_task(coro)
+            except RuntimeError:
+                loop = getattr(self, "_loop", None)
+                loop = loop if (loop is not None and loop.is_running()) else _MAIN_LOOP
+                if loop is not None and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(coro, loop)
+                else:
+                    coro.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII block audit scheduling failed: %s", exc)
+        return err
+
+    def _pii_vault(self, redactor: Optional[PiiRedactor]) -> Optional[PiiVault]:
+        """The token vault for this call, when the policy has reversible
+        (``pseudonymize``) rules."""
+        if redactor is None or not redactor.active or not redactor.uses_vault:
+            return None
+        report_id = None
+        try:
+            report_id = get_usage_attribution().get("report_id")
+        except Exception:
+            pass
+        return vault_for(getattr(self, "_organization_id", None), report_id)
+
+    def _pii_detector_failed(self, redactor: PiiRedactor, outcome: str) -> None:
+        """Audit a detector outage (throttled; best effort)."""
+        try:
+            from app.ai.llm.pii.audit import record_detector_failed
+
+            coro = record_detector_failed(
+                organization_id=getattr(self, "_organization_id", None),
+                provider_id=self._pii_provider_id(),
+                model_id=self.model_id,
+                policy_id=redactor.policy_id,
+                policy_name=redactor.policy_name,
+                outcome=outcome,
+            )
+            if coro is None:
+                return
+            try:
+                asyncio.get_running_loop().create_task(coro)
+            except RuntimeError:
+                loop = getattr(self, "_loop", None)
+                loop = loop if (loop is not None and loop.is_running()) else _MAIN_LOOP
+                if loop is not None and loop.is_running():
+                    asyncio.run_coroutine_threadsafe(coro, loop)
+                else:
+                    coro.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("PII detector-failure audit scheduling failed: %s", exc)
+
+    async def _apply_pii_async(self, prompt: str, redactor: Optional[PiiRedactor], span, vault=None) -> str:
+        """``_apply_pii`` for async callers: a policy that calls a detector
+        (model inference or an HTTP round trip) is scanned in a worker thread
+        so the event loop keeps serving other requests."""
+        if redactor is not None and redactor.active and redactor.uses_detector:
+            return await asyncio.to_thread(self._apply_pii, prompt, redactor, span, vault)
+        return self._apply_pii(prompt, redactor, span, vault)
+
+    async def _apply_pii_v2_async(self, system, messages, redactor: Optional[PiiRedactor], span, vault=None):
+        if redactor is not None and redactor.active and redactor.uses_detector:
+            return await asyncio.to_thread(self._apply_pii_v2, system, messages, redactor, span, vault)
+        return self._apply_pii_v2(system, messages, redactor, span, vault)
+
+    @staticmethod
+    def _with_token_hint(text: Optional[str], vault: Optional[PiiVault]) -> Optional[str]:
+        """Tell the model how to treat placeholders, once any were produced."""
+        if vault is None or not vault.has_tokens:
+            return text
+        return f"{text}\n\n{MODEL_HINT}" if text else MODEL_HINT
+
+    def _apply_pii(self, prompt: str, redactor: Optional[PiiRedactor], span, vault: Optional[PiiVault] = None) -> str:
         """Apply redaction to a prompt. Raises PiiPromptBlockedError in block
-        mode. Records a non-sensitive summary on the span."""
+        mode. Records a non-sensitive summary on the span.
+
+        Context markers (app.ai.llm.pii.context) are always stripped, whether
+        or not a policy applies: they never reach a provider."""
         if redactor is None or not redactor.active:
-            return prompt
-        redacted, result = redactor.apply(prompt)
+            return strip_markers(prompt)
+        try:
+            redacted, result = redactor.apply(prompt, vault)
+        except PiiPromptBlockedError as err:
+            raise self._pii_blocked(err)
+        if result.detector_failed:
+            self._pii_detector_failed(redactor, "sent_with_pattern_rules_only")
         if result.redacted:
             try:
                 span.set_attribute("llm.pii_redacted", True)
@@ -730,21 +969,29 @@ class LLM:
             )
         return redacted
 
-    def _apply_pii_v2(self, system, messages, redactor: Optional[PiiRedactor], span):
+    def _apply_pii_v2(self, system, messages, redactor: Optional[PiiRedactor], span, vault: Optional[PiiVault] = None):
         """Redact the system prompt and every text-bearing block across the
         conversation for the native tool-use path. Returns (system, messages).
-        Raises PiiPromptBlockedError in block mode if anything matched."""
+        Raises PiiPromptBlockedError in block mode if anything matched.
+
+        Context markers are always stripped, whether or not a policy applies."""
         if redactor is None or not redactor.active:
-            return system, messages
+            return strip_markers(system), self._strip_message_markers(messages)
 
         all_matches: list = []
+        detector_failed: list = []
 
         def _redact_str(value: str) -> str:
             if not isinstance(value, str) or not value:
                 return value
-            result = redactor.scan(value)
+            try:
+                result = redactor.scan(value, vault)
+            except PiiPromptBlockedError as err:
+                raise self._pii_blocked(err)
             if result.redacted:
                 all_matches.extend(result.matches)
+            if result.detector_failed:
+                detector_failed.append(True)
             return result.text
 
         new_system = _redact_str(system) if isinstance(system, str) else system
@@ -755,23 +1002,14 @@ class LLM:
             if isinstance(content, str):
                 new_content = _redact_str(content)
             elif isinstance(content, list):
-                new_content = []
-                for block in content:
-                    if isinstance(block, dict):
-                        nb = dict(block)
-                        # Redact the two string fields that carry model-visible
-                        # text: 'text' (text blocks) and 'content' (tool_result).
-                        for key in ("text", "content"):
-                            if isinstance(nb.get(key), str):
-                                nb[key] = _redact_str(nb[key])
-                        new_content.append(nb)
-                    else:
-                        new_content.append(block)
+                new_content = _map_text_blocks(content, _redact_str)
             else:
                 new_messages.append(message)
                 continue
             new_messages.append(Message(role=message.role, content=new_content))
 
+        if detector_failed:
+            self._pii_detector_failed(redactor, "sent_with_pattern_rules_only")
         if all_matches:
             # Aggregate counts per rule for the summary/telemetry.
             agg: dict = {}
@@ -794,9 +1032,26 @@ class LLM:
             )
             # Block wins: if any block-action rule matched anywhere, refuse.
             if blocked:
-                raise PiiPromptBlockedError(blocked)
+                raise self._pii_blocked(PiiPromptBlockedError(
+                    blocked, policy_id=redactor.policy_id, policy_name=redactor.policy_name
+                ))
 
         return new_system, new_messages
+
+    @staticmethod
+    def _strip_message_markers(messages):
+        """Messages with context markers removed from every text-bearing block
+        (no redaction policy applies to this call)."""
+        out = []
+        for message in messages or []:
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                out.append(Message(role=message.role, content=strip_markers(content)))
+            elif isinstance(content, list):
+                out.append(Message(role=message.role, content=_map_text_blocks(content, strip_markers)))
+            else:
+                out.append(message)
+        return out
 
     def _effective_thinking(self, thinking: Optional[dict] = None) -> Optional[dict]:
         # Small-default is an execution policy, not merely a model selection.
@@ -825,11 +1080,16 @@ class LLM:
             self._ensure_chat_model()
             self._validate_vision_support(images)
             _redactor = self._get_pii_redactor_sync()
-            prompt = self._apply_pii(prompt, _redactor, span)
+            _vault = self._pii_vault(_redactor)
+            prompt = self._apply_pii(prompt, _redactor, span, _vault)
             if system:
                 # The system half goes to the provider too, so it gets the same
                 # redaction pass as the user half.
-                system = self._apply_pii(system, _redactor, span)
+                system = self._apply_pii(system, _redactor, span, _vault)
+            if system:
+                system = self._with_token_hint(system, _vault)
+            else:
+                prompt = self._with_token_hint(prompt, _vault)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
             prompt_tokens_estimate = self._count_tokens(prompt) + self._count_tokens(system or "")
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
@@ -864,6 +1124,9 @@ class LLM:
             if not usage.prompt_tokens and not usage.completion_tokens and hasattr(self.client, "pop_last_usage"):
                 usage = self.client.pop_last_usage()
             sanitized = self._sanitize_response_text(text)
+            if _vault is not None:
+                # Placeholders the model used come back as the real values.
+                sanitized = _vault.restore(sanitized)
             completion_tokens = usage.completion_tokens or self._count_tokens(sanitized)
             prompt_tokens = usage.prompt_tokens or prompt_tokens_estimate
 
@@ -879,6 +1142,7 @@ class LLM:
                 cache_creation_tokens=usage.cache_creation_tokens,
                 cache_write_5m_tokens=usage.cache_write_5m_tokens,
                 cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                cache_write_12h_tokens=usage.cache_write_12h_tokens,
                 reasoning_tokens=usage.reasoning_tokens,
                 should_record=should_record,
             )
@@ -887,6 +1151,7 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=usage.cache_read_tokens,
                 cache_creation_tokens=usage.cache_creation_tokens,
+                cache_write_12h_tokens=usage.cache_write_12h_tokens,
                 scope=usage_scope,
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
@@ -935,7 +1200,9 @@ class LLM:
             span.set_attribute("llm.provider", self.provider)
             self._ensure_chat_model()
             self._validate_vision_support(images)
-            prompt = self._apply_pii(prompt, await self._aget_pii_redactor(), span)
+            _redactor = await self._aget_pii_redactor()
+            _vault = self._pii_vault(_redactor)
+            prompt = self._with_token_hint(await self._apply_pii_async(prompt, _redactor, span, _vault), _vault)
             if usage_scope == 'artifact':
                 logger.debug("Artifact model stream: %s (content omitted)", self.model_id)
             else:
@@ -952,7 +1219,9 @@ class LLM:
             try:
                 from contextlib import aclosing
                 options = {"max_output_tokens": max_output_tokens} if max_output_tokens is not None else {}
-                async with aclosing(self._text_stream_with_policy(prompt, images, **options)) as provider_stream:
+                async with aclosing(_restore_text_stream(
+                    self._text_stream_with_policy(prompt, images, **options), _vault
+                )) as provider_stream:
                     async for chunk in provider_stream:
                         if chunk is None:
                             continue
@@ -1050,12 +1319,16 @@ class LLM:
                     cache_creation_tokens=usage.cache_creation_tokens,
                     cache_write_5m_tokens=usage.cache_write_5m_tokens,
                     cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                    cache_write_12h_tokens=usage.cache_write_12h_tokens,
                     reasoning_tokens=usage.reasoning_tokens,
                     should_record=should_record,
                 )
                 await self._record_usage_limit_async(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    cache_read_tokens=usage.cache_read_tokens,
+                    cache_creation_tokens=usage.cache_creation_tokens,
+                    cache_write_12h_tokens=usage.cache_write_12h_tokens,
                     scope=usage_scope,
                     scope_ref_id=usage_scope_ref_id,
                     should_record=should_record,
@@ -1096,9 +1369,10 @@ class LLM:
             span.set_attribute("llm.model_id", target_model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images, native_image_count=native_image_count)
-            system, messages = self._apply_pii_v2(
-                system, messages, await self._aget_pii_redactor(), span
-            )
+            _redactor = await self._aget_pii_redactor()
+            _vault = self._pii_vault(_redactor)
+            system, messages = await self._apply_pii_v2_async(system, messages, _redactor, span, _vault)
+            system = self._with_token_hint(system, _vault)
 
             prompt_tokens = (
                 prompt_tokens_estimate
@@ -1117,6 +1391,7 @@ class LLM:
             cache_creation_tokens = 0
             cache_write_5m_tokens = 0
             cache_write_1h_tokens = 0
+            cache_write_12h_tokens = 0
             reasoning_tokens = 0
             stream_start = time.monotonic()
             ttft_recorded = False
@@ -1158,7 +1433,7 @@ class LLM:
             while True:
                 _received_any = False
                 try:
-                    async for evt in self.client.inference_stream_v2(
+                    async for evt in _restore_event_stream(self.client.inference_stream_v2(
                         model_id=target_model_id,
                         messages=messages,
                         system=system,
@@ -1167,7 +1442,7 @@ class LLM:
                         thinking=thinking,
                         disable_parallel_tools=disable_parallel_tools,
                         **client_kwargs,
-                    ):
+                    ), _vault):
                         _received_any = True
                         if _trace_record is not None:
                             _et = getattr(evt, "type", None)
@@ -1198,6 +1473,7 @@ class LLM:
                                 span.set_attribute(
                                     "llm.cache_creation_tokens", cache_creation_tokens
                                 )
+                                cache_write_12h_tokens = evt.cache_write_12h_tokens
                             if getattr(evt, "cache_write_5m_tokens", 0) or getattr(evt, "cache_write_1h_tokens", 0):
                                 cache_write_5m_tokens = evt.cache_write_5m_tokens
                                 cache_write_1h_tokens = evt.cache_write_1h_tokens
@@ -1265,6 +1541,7 @@ class LLM:
                 cache_creation_tokens=cache_creation_tokens,
                 cache_write_5m_tokens=cache_write_5m_tokens,
                 cache_write_1h_tokens=cache_write_1h_tokens,
+                cache_write_12h_tokens=cache_write_12h_tokens,
                 reasoning_tokens=reasoning_tokens,
                 should_record=should_record,
             )
@@ -1273,6 +1550,7 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                cache_write_12h_tokens=cache_write_12h_tokens,
                 scope=usage_scope,
                 scope_ref_id=usage_scope_ref_id,
                 should_record=should_record,
@@ -1333,7 +1611,7 @@ class LLM:
             api_key = None
         settings = decision_settings(self.model)
         if isinstance(input_value, str):
-            input_value = self._apply_pii(input_value, await self._aget_pii_redactor(), None)
+            input_value = await self._apply_pii_async(input_value, await self._aget_pii_redactor(), None)
         estimate = self._count_tokens(str(input_value)) + self._count_tokens(str(questions))
         await self._check_usage_limit_async(estimate, should_record=should_record)
         client = DecisionClient(
@@ -1417,6 +1695,8 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_image_generation_support()
+            # The image prompt leaves for the provider like any other prompt.
+            prompt = await self._apply_pii_async(prompt, await self._aget_pii_redactor(), span)
             try:
                 result = await self.client.generate_image(
                     model_id=self.model_id,
@@ -1626,6 +1906,7 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
     ) -> int:
         """Dollar cost of this call, in micro-USD, for the spend quota.
 
@@ -1640,9 +1921,10 @@ class LLM:
                 cache_read_tokens or 0,
                 cache_creation_tokens or 0,
                 self.provider,
+                cache_write_12h_tokens=cache_write_12h_tokens,
             )
             output_cost = LLMUsageRecorderService._calc_output_cost(
-                self.model, completion_tokens or 0
+                self.model, completion_tokens or 0, prompt_tokens or 0
             )
         except Exception:
             return 0
@@ -1684,6 +1966,7 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         scope: Optional[str],
         scope_ref_id: Optional[str],
         should_record: bool,
@@ -1722,6 +2005,7 @@ class LLM:
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_12h_tokens=cache_write_12h_tokens,
         )
         if cost_micro > 0:
             context.add_cost(cost_micro, metadata)
@@ -1733,6 +2017,7 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         scope: Optional[str],
         scope_ref_id: Optional[str],
         should_record: bool,
@@ -1765,6 +2050,7 @@ class LLM:
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_12h_tokens=cache_write_12h_tokens,
         )
         if cost_micro > 0:
             context.add_cost(cost_micro, metadata)
@@ -1780,6 +2066,7 @@ class LLM:
         cache_creation_tokens: int = 0,
         cache_write_5m_tokens: int = 0,
         cache_write_1h_tokens: int = 0,
+        cache_write_12h_tokens: int = 0,
         reasoning_tokens: int = 0,
         should_record: bool,
     ):
@@ -1829,6 +2116,7 @@ class LLM:
                             cache_creation_tokens=cache_creation_tokens or 0,
                             cache_write_5m_tokens=cache_write_5m_tokens or 0,
                             cache_write_1h_tokens=cache_write_1h_tokens or 0,
+                            cache_write_12h_tokens=cache_write_12h_tokens or 0,
                             reasoning_tokens=reasoning_tokens or 0,
                             organization_id=attribution.get("organization_id"),
                             user_id=attribution.get("user_id"),

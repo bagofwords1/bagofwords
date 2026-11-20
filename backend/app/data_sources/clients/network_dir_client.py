@@ -112,12 +112,21 @@ def _is_within(path: Path, base: Path) -> bool:
         return False
 
 
-def check_network_dir_root(root_path: str) -> Path:
+def check_network_dir_root(
+    root_path: str, organization_id: Optional[str] = None, organization_rules: bool = True
+) -> Path:
     """Resolve ``root_path`` (all symlinks followed) and refuse roots outside
     policy. Raises ValueError. With ``security.network_dir_allowed_roots`` set
     the realpath must be inside one listed prefix; unset, system and app
-    directories are refused (see ``_SYSTEM_DIRS``)."""
+    directories are refused (see ``_SYSTEM_DIRS``). An organization the
+    operator gave its own roots (``security.organization_file_roots``) must
+    also stay inside those, and no root may hold another organization's;
+    ``organization_id`` defaults to the organization of the current request."""
     root = Path(root_path).expanduser().resolve()
+    if organization_rules:
+        from app.data_sources.clients._duckdb_lockdown import check_organization_roots
+
+        check_organization_roots(root, organization_id, contains=True)
     allowed = None
     try:
         from app.settings.config import settings
@@ -216,7 +225,9 @@ class NetworkDirClient(DataSourceClient):
         super().__init__()
         self.root_path = (root_path or "").strip()
         if self.root_path:
-            self._checked_root()
+            # The owning organization is bound after construction; its
+            # directory assignment is checked on first use (`_checked_root`).
+            self._checked_root(organization_rules=False)
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         # Include-globs scope the connection to matching files AND act as an
         # access boundary enforced in `_resolve` (a read of a real-but-off-glob
@@ -281,17 +292,27 @@ class NetworkDirClient(DataSourceClient):
         except Exception:
             return ()
 
-    def _checked_root(self) -> Path:
+    def _checked_root(self, organization_rules: bool = True) -> Path:
         """Resolve ``root_path`` through the connection-root policy, or only
         through the filesystem for an app-owned root (``for_app_owned_dir``)."""
         if self._root_policy_exempt:
             return Path(self.root_path).expanduser().resolve()
         real = os.path.realpath(os.path.expanduser(self.root_path))
-        allowed = self._allowed_roots_key()
+        if not organization_rules:
+            return check_network_dir_root(self.root_path, organization_rules=False)
+        from app.data_sources.clients import _duckdb_lockdown as lockdown
+
+        organization_id = getattr(self, "_bow_organization_id", None)
+        assignments = lockdown._security_setting("organization_file_roots") or {}
+        allowed = (
+            self._allowed_roots_key(),
+            tuple(sorted((k, tuple(v)) for k, v in assignments.items())),
+            lockdown._organization_id(organization_id),
+        )
         cached = self._root_checked
         if cached and cached[0] == real and cached[1] == allowed:
             return cached[2]
-        root = check_network_dir_root(self.root_path)
+        root = check_network_dir_root(self.root_path, organization_id)
         self._root_checked = (real, allowed, root)
         return root
 

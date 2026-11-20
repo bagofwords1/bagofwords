@@ -523,7 +523,18 @@ def test_the_losing_edit_leaves_no_copied_files(corpus, corpus_rows, test_client
     (thumbs / f"release-{release}.png").write_bytes(TINY_PNG)
     corpus_rows.update("artifact_releases", release, thumbnail_path=f"thumbnails/release-{release}.png")
     assert test_client.delete(f"/api/reports/{corpus.reports[CONV]}", headers=as_(corpus, "owner")).status_code == 200
-    before = set(thumbs.glob("*.png"))
+    # The thumbnails this Edit copies, by name: the folder is shared with the
+    # tests running on the other workers, which write thumbnails of their own,
+    # so "no new file in the folder" would also count theirs.
+    copied: list = []
+    copy_thumbnail = ThumbnailService.copy_thumbnail
+
+    def recording(self, source, target):
+        path = copy_thumbnail(self, source, target)
+        copied.append(path)
+        return path
+
+    monkeypatch.setattr(ThumbnailService, "copy_thumbnail", recording)
     winner = corpus.reports["conv_one_dash"]
     copy_it = dashboard_lifecycle.release_to_conversation
 
@@ -535,4 +546,4 @@ def test_the_losing_edit_leaves_no_copied_files(corpus, corpus_rows, test_client
     monkeypatch.setattr(dashboard_lifecycle, "release_to_conversation", raced)
     body = test_client.post(f"/api/artifacts/{aid}/edit", headers=as_(corpus, "owner")).json()
     assert body == {"report_id": winner, "created": False, "rerunning": False}
-    assert set(thumbs.glob("*.png")) - before == set()
+    assert [path for path in copied if path and (thumbs.parent / path).exists()] == []

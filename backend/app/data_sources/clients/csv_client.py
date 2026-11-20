@@ -13,9 +13,9 @@ import pandas as pd
 
 from app.ai.code_execution.duckdb_guard import check_duckdb_file_query
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
-from app.data_sources.clients._duckdb_lockdown import lock_down
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.settings.logging_config import get_logger
 
@@ -71,7 +71,7 @@ class CSVClient(DataSourceClient):
         for pattern in self.patterns:
             matched = glob.glob(pattern, recursive=True)
             files.extend([f for f in matched if f.lower().endswith('.csv')])
-        return sorted(set(files))
+        return lockdown.filter_files(sorted(set(files)), "csv", lockdown.organization_of(self))
 
     def _safe_table_name(self, filepath: str, used: set[str]) -> str:
         """Generate a safe table name from filepath."""
@@ -139,13 +139,12 @@ class CSVClient(DataSourceClient):
             for filepath in files:
                 table_name = self._safe_table_name(filepath, used)
                 con.execute(
-                    f"CREATE VIEW {table_name} AS SELECT * FROM {self._read_expr(filepath)}"
+                    f'CREATE VIEW "{table_name}" AS SELECT * FROM {self._read_expr(filepath)}'
                 )
                 table_map[table_name] = filepath
             # The views read their files lazily: from here on the connection
             # may read those files and nothing else.
-            lock_down(con, allowed_paths=list(table_map.values()))
-
+            lockdown.lock_connection(con, paths=list(table_map.values()))
             self._table_map = table_map
             logger.info(
                 "csv.connect.done",
@@ -175,6 +174,7 @@ class CSVClient(DataSourceClient):
         try:
             with self._open() as (con, views):
                 check_duckdb_file_query(sql, views)
+                lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(
                 "csv.query.done",

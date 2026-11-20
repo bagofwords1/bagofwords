@@ -44,6 +44,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import http.server
+import re
 import threading
 import time
 from pathlib import Path
@@ -62,7 +63,7 @@ from app.ai.code_execution.table_scope import (
     check_table_scope,
     enforce_table_scope,
 )
-from app.data_sources.clients._duckdb_lockdown import lock_down
+from app.data_sources.clients._duckdb_lockdown import lock_connection
 from app.data_sources.clients.duckdb_client import DuckDBClient
 
 BS = chr(92)
@@ -107,7 +108,10 @@ def scoped(client) -> DuckDBClient:
 
 @pytest.fixture
 def db_file(tmp_path) -> Path:
-    path = tmp_path / "warehouse.duckdb"
+    # In a folder of its own: a database file connection may read its
+    # folder, and `files.secret` must stay outside it.
+    (tmp_path / "db").mkdir()
+    path = tmp_path / "db" / "warehouse.duckdb"
     con = duckdb.connect(str(path))
     con.execute("CREATE TABLE orders AS SELECT * FROM (VALUES (1, 5), (2, 7)) AS t(id, amount)")
     con.close()
@@ -271,7 +275,7 @@ def _lock_with_raw_settings(con):
 
 
 def _attach_another_database_then_lock(con, files):
-    # Locked the way lock_down locks, with another database file attached
+    # Locked the way lock_connection locks, with another database file attached
     # to the engine first: DuckDB lets the engine read that file too.
     other = files.secret.parent / "other.duckdb"
     writer = duckdb.connect(str(other))
@@ -286,7 +290,7 @@ def _attach_another_database_then_lock(con, files):
 
 def _repoint_own_name_then_lock(con, files):
     # The engine's own database name re-pointed at another database file,
-    # then locked the way lock_down locks: a connection to the original
+    # then locked the way lock_connection locks: a connection to the original
     # file would read the other one.
     name = con.execute("SELECT current_database()").fetchone()[0]
     other = files.secret.parent / "other.duckdb"
@@ -299,13 +303,13 @@ def _repoint_own_name_then_lock(con, files):
     con.execute(f"ATTACH '{_sq(other)}' AS \"{name}\" (READ_ONLY)")
     con.execute(f'USE "{name}"')
     con.execute("DETACH swap")
-    lock_down(con)
+    lock_connection(con)
 
 
 @pytest.mark.parametrize("how", ["database", "uris"])
 @pytest.mark.parametrize("first", [
-    lambda con, files: lock_down(con, allowed_paths=[str(files.secret)]),
-    lambda con, files: lock_down(con, allowed_directories=[f"{files.secret.parent}/"]),
+    lambda con, files: lock_connection(con, paths=[str(files.secret)]),
+    lambda con, files: lock_connection(con, directories=[f"{files.secret.parent}/"]),
     lambda con, files: _lock_with_raw_settings(con),
     _attach_another_database_then_lock,
     _repoint_own_name_then_lock,
@@ -332,7 +336,7 @@ def test_a_refusal_logs_what_the_engine_reads_back(db_file, files, caplog):
 
     holder = duckdb.connect(str(db_file), read_only=True)
     try:
-        lock_down(holder, allowed_paths=[str(files.secret)])
+        lock_connection(holder, paths=[str(files.secret)])
         logging.getLogger(lockdown_mod.__name__).disabled = False
         with caplog.at_level(logging.WARNING, logger=lockdown_mod.__name__):
             with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"):
@@ -341,6 +345,10 @@ def test_a_refusal_logs_what_the_engine_reads_back(db_file, files, caplog):
         assert any(str(files.secret) in r.getMessage() for r in caplog.records if r.name == lockdown_mod.__name__)
     finally:
         holder.close()
+
+
+# lock_connection's keyword for each setting it locks.
+_KWARG = {"allowed_paths": "paths", "allowed_directories": "directories"}
 
 
 @pytest.mark.parametrize("asks", [
@@ -352,18 +360,22 @@ def test_a_second_lock_asking_for_other_paths_on_a_locked_database_file_engine_i
     holder = duckdb.connect(str(db_file), read_only=True)
     second = duckdb.connect(str(db_file), read_only=True)
     try:
-        lock_down(holder)
+        lock_connection(holder)
         with pytest.raises(RuntimeError, match="Refusing to query files without the engine locked"):
-            lock_down(second, **{k: named[v] for k, v in asks.items()})
+            lock_connection(second, **{_KWARG[k]: named[v] for k, v in asks.items()})
     finally:
         second.close()
         holder.close()
 
 
 def test_a_database_file_engine_locked_the_same_way_elsewhere_is_accepted(db_file, files):
+    from app.data_sources.clients._duckdb_lockdown import database_file_sources
+
     holder = duckdb.connect(str(db_file), read_only=True)
     try:
-        lock_down(holder)
+        # The file's own folder, as a connection to it locks it.
+        paths, directories = database_file_sources(str(db_file))
+        lock_connection(holder, paths=paths, directories=directories)
         with DuckDBClient(database=str(db_file)).connect() as con:
             _reads_the_file_and_nothing_else(con, files)
     finally:
@@ -375,7 +387,6 @@ def test_a_database_file_engine_locked_the_same_way_elsewhere_is_accepted(db_fil
 @pytest.mark.parametrize("sql", [
     "SHOW TABLES",
     "SHOW ALL TABLES",
-    "SHOW DATABASES",
     "SHOW sales",
     "DESCRIBE sales",
     "DESC sales",
@@ -385,15 +396,47 @@ def test_a_database_file_engine_locked_the_same_way_elsewhere_is_accepted(db_fil
     "PRAGMA table_info(sales)",
     "PRAGMA show_tables",
     "PRAGMA show_tables_expanded",
-    "PRAGMA database_list",
-    "PRAGMA version",
-    "PRAGMA platform",
     "EXPLAIN SELECT * FROM sales",
     "-- columns\nDESCRIBE sales -- note",
     "/* a /* nested */ note */ SHOW TABLES;",
 ])
 def test_the_read_verbs_return_rows_on_an_unscoped_connection(client, sql):
     assert len(_run(client, sql)) > 0
+
+
+@pytest.mark.parametrize("sql", [
+    "SHOW DATABASES",
+    "PRAGMA database_list",
+    "PRAGMA version",
+    "PRAGMA platform",
+    "DESCRIBE databases",
+    "DESCRIBE schemas",
+])
+def test_listings_of_the_engine_itself_are_refused_with_or_without_a_table_selection(client, sql):
+    """The reads list takes these, and the engine-tree check every
+    in-process DuckDB engine gets refuses them: they report the engine's
+    own state (its databases and their files, its build), not the
+    connection's tables. Refused before anything runs, and before the
+    table selection is looked at."""
+    for selection in (None, TableScope.from_names(active=["sales"], inactive=["regions"])):
+        if selection is not None:
+            setattr(client, TABLE_SCOPE_ATTR, selection)
+        with pytest.raises(ReadOnlyViolation) as refused:
+            _run(client, sql)
+        assert not isinstance(refused.value, TableScopeViolation)
+    with client.connect() as con:
+        assert con.execute("SELECT count(*) FROM sales").fetchone() == (3,)
+
+
+def test_every_pragma_the_refusal_names_as_allowed_runs(client):
+    with pytest.raises(ReadOnlyViolation) as refused:
+        ensure_read_only(client, "PRAGMA enable_profiling")
+    allowed = re.search(r"Allowed: PRAGMA (.+?)\. Only", str(refused.value))
+    assert allowed, str(refused.value)
+    forms = allowed.group(1).split(", ")
+    assert "table_info(<table>)" in forms
+    for form in forms:
+        assert len(_run(client, "PRAGMA " + form.replace("<table>", "sales"))) > 0, form
 
 
 @pytest.mark.parametrize("sql", [
@@ -454,7 +497,6 @@ def test_a_uri_connection_reads_only_its_registered_views(client, sql):
 @pytest.mark.parametrize("sql", [
     "SHOW TABLES",
     "SHOW ALL TABLES",
-    "SHOW DATABASES",
     "SHOW sales",
     "EXPLAIN SELECT * FROM sales",
 ])
@@ -466,9 +508,6 @@ def test_with_a_table_selection_listing_commands_and_explain_stay_refused(scoped
 @pytest.mark.parametrize("sql", [
     "PRAGMA show_tables",
     "PRAGMA show_tables_expanded",
-    "PRAGMA database_list",
-    "PRAGMA version",
-    "PRAGMA platform",
 ])
 def test_with_a_table_selection_listing_pragmas_are_refused(scoped, sql):
     with pytest.raises(TableScopeViolation):
@@ -487,7 +526,12 @@ def test_a_name_duckdb_reads_as_a_listing_is_a_listing_even_when_a_table_has_it(
     """DuckDB lists tables, databases or schemas for DESCRIBE / SHOW of a
     few single names. With a table selection that holds a table of that
     name, the statement is still a listing and is refused; without one it
-    is a listing like SHOW TABLES."""
+    is a listing like SHOW TABLES (one of databases or schemas is refused
+    there too, as the test above shows)."""
+    if sql.split()[-1] in ("databases", "schemas"):
+        with pytest.raises(ReadOnlyViolation):
+            _run(client, sql)
+        return
     assert len(_run(client, sql)) > 0
     setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
         active=["sales", "tables", "databases", "schemas", "all"], inactive=["regions"]))
@@ -852,6 +896,21 @@ def test_a_home_directory_uri_without_a_home_directory_is_refused(uri, refusal, 
     assert str(refused.value) == refusal
 
 
+def test_a_home_directory_ending_in_a_slash_is_checked_where_duckdb_reads_it(monkeypatch, tmp_path):
+    # DuckDB reads `~x` as HOME's text followed by `x`, its final '/'
+    # included: with HOME `<home>/`, `~.ssh/data.csv` is a file under
+    # <home>/.ssh. The path policy applies to the file the lock grants.
+    home = tmp_path.resolve() / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "data.csv").write_text("token\nhidden-value\n")
+    monkeypatch.setenv("HOME", f"{home}/")
+    assert _decided(DuckDBClient(uris="~.ssh/data.csv")) == ([f"{home}/.ssh/data.csv"], [])
+    with pytest.raises(RuntimeError) as refused:
+        with DuckDBClient(uris="~.ssh/data.csv").connect():
+            pass
+    assert str(refused.value) == CONNECTING + "Path points at a protected system or application location"
+
+
 @pytest.mark.parametrize("uri", ["*.csv", "./*.csv", "data*.csv", "sub*/x.csv", ".//*.csv", "../*.csv", "./"])
 def test_a_relative_glob_that_names_no_directory_is_refused(uri, tmp_path, monkeypatch):
     work = tmp_path / "work"
@@ -936,7 +995,7 @@ def test_a_wasbs_uri_fails_closed_on_the_locked_connection(scratch_cwd):
     try:
         paths, directories = DuckDBClient(uris="wasbs://account/container/*.csv")._lockdown_targets(con)
         assert (paths, directories) == ([], ["wasbs://account/container/"])
-        lock_down(con, allowed_paths=paths, allowed_directories=directories)
+        lock_connection(con, paths=paths, directories=directories)
         for outside in (scratch_cwd.private, scratch_cwd.work / "top.csv"):
             with pytest.raises(duckdb.Error):
                 con.execute(f"SELECT * FROM read_csv_auto('{_sq(outside)}')").fetchall()

@@ -357,7 +357,9 @@ class MCPCreateInstructionInput(BaseModel):
         None, description="Attach to this one folder and make it the rule's owning folder (kept for older clients; prefer folder_ids).",
     )
     folder_ids: Optional[List[str]] = Field(
-        default=None, description="Folders to attach the rule to (ids from browse_agents). Combine freely with data_source_ids.",
+        default=None,
+        description="Folders to attach the rule to (ids from browse_agents). Combine freely with data_source_ids. "
+                    "A folder rule applies in reports scoped to that folder (create_report agent_folder_ids), to every agent in it, including agents added later; it does not apply in reports pinned to individual agents.",
     )
     scope: Optional[Literal["global", "targeted"]] = Field(
         default=None,
@@ -380,6 +382,8 @@ class MCPCreateInstructionOutput(BaseModel):
     folder_ids: Optional[List[str]] = None
     data_source_ids: Optional[List[str]] = None
     rejected_reason: Optional[str] = Field(default=None, description="no_target, invalid_input, permission_denied")
+    applies_in: Optional[str] = Field(default=None, description="Where the rule takes effect — tell the user this, not more")
+    in_effect: Optional[bool] = Field(default=None, description="False while the rule reaches no report: it waits for approval or is inactive")
     success: bool
     instruction_id: Optional[str] = None
     build_status: Optional[str] = Field(default=None, description="Build status: approved (live) or pending_approval (needs admin review)")
@@ -620,6 +624,8 @@ class MCPEditInstructionOutput(BaseModel):
                     "no_change, status_change_not_allowed, not_found, permission_denied, would_remove_last_target",
     )
     current_text: Optional[str] = Field(default=None, description="Current full text, returned when an anchor fails")
+    applies_in: Optional[str] = Field(default=None, description="Where the rule takes effect after this edit — tell the user this, not more")
+    in_effect: Optional[bool] = Field(default=None, description="False while the rule reaches no report: it is inactive")
     error_message: Optional[str] = None
 
 

@@ -29,6 +29,23 @@ def _sybase_extraction_source(client):
     return SybaseSource(client)
 
 
+def _odbc_value(value):
+    """Keep `;` inside a value instead of letting it start a new keyword.
+
+    FreeTDS ends a braced value at `};` and has no escape for a closing brace,
+    so that sequence cannot be represented and is refused. Values without `;`
+    are passed exactly as before.
+    """
+    value = "" if value is None else str(value)
+    if "\x00" in value:
+        raise ValueError("ODBC values cannot contain NUL")
+    if ";" in value or value.startswith("{"):
+        if "}" in value:
+            raise ValueError("This value cannot contain both ';' (or a leading '{') and '}'.")
+        return "{" + value + "}"
+    return value
+
+
 class SybaseClient(DataSourceClient):
 
     # SQL Anywhere (Watcom SQL): '' is a quote and a backslash starts an
@@ -58,6 +75,13 @@ class SybaseClient(DataSourceClient):
             shutil.copy(FREETDS_SYSTEM_CONF, FREETDS_CUSTOM_CONF)
         os.environ["FREETDSCONF"] = FREETDS_CUSTOM_CONF
 
+        # These three are written into freetds.conf as a section: none may
+        # start a new line or a new section.
+        for value in (self.host, self.port, self.database):
+            text = str(value)
+            if any(ord(c) < 32 for c in text) or "[" in text or "]" in text:
+                raise ValueError("The host, port and database cannot contain control characters or brackets.")
+
         with open(FREETDS_CUSTOM_CONF, "r+") as f:
             fcntl.flock(f, fcntl.LOCK_EX)
             content = f.read()
@@ -74,9 +98,9 @@ class SybaseClient(DataSourceClient):
     def _connection_string(self):
         return (
             f"DRIVER={{FreeTDS}};"
-            f"SERVERNAME={self._freetds_section};"
-            f"UID={self.user};"
-            f"PWD={self.password};"
+            f"SERVERNAME={_odbc_value(self._freetds_section)};"
+            f"UID={_odbc_value(self.user)};"
+            f"PWD={_odbc_value(self.password)};"
         )
 
     @contextmanager

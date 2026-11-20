@@ -13,11 +13,12 @@ Authentication:
     Tokens are cached in-process and refreshed before expiry. Preferred for
     production deployments with secret-rotation policies.
 
-Scope of v1:
+Discovery:
   - Qlik Cloud (tenant.REGION.qlikcloud.com)
-  - REST discovery: GET /api/v1/users/me, /api/v1/items?resourceType=app,
+  - REST authentication/app listing: GET /api/v1/users/me, /api/v1/items?resourceType=app,
     /api/v1/apps/{appId}/data/metadata
-  - QIX fallback + query: OpenDoc, GetTablesAndKeys, GetFieldList,
+  - Shared QIX catalog: tables, master items, sheets, variables, lineage
+  - QIX query: OpenDoc, GetTablesAndKeys, GetFieldList,
     CreateSessionObject(qHyperCubeDef), GetHyperCubeData
 
 Out of scope for v1: on-prem Enterprise on Windows, OAuth2 Authorization Code
@@ -28,7 +29,6 @@ from __future__ import annotations
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 
 import asyncio
-import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -39,7 +39,7 @@ import pandas as pd
 import requests
 from app.core.egress import pinned_request, pinned_session
 
-from app.ai.prompt_formatters import ForeignKey, ServiceFormatter, Table, TableColumn
+from app.ai.prompt_formatters import ServiceFormatter, Table
 from app.data_sources.clients._qix_common import (
     _TAG_DTYPE_ORDER as _TAG_DTYPE_ORDER_SHARED,
     QixSession,
@@ -53,13 +53,15 @@ from app.data_sources.clients._qix_common import (
     tags_to_dtype,
 )
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients._qix_catalog import QlikEngineCatalog, _compact
 
 
 logger = logging.getLogger(__name__)
 
 
-class QlikSenseClient(DataSourceClient):
+class QlikSenseClient(QlikEngineCatalog, DataSourceClient):
     """Qlik Sense Cloud client — REST discovery + QIX query over WebSocket."""
+    _metadata_namespace = "qlik_sense"
 
     # OAuth tokens are refreshed this many seconds before their advertised expiry.
     _TOKEN_REFRESH_SKEW_SEC = 60
@@ -74,7 +76,12 @@ class QlikSenseClient(DataSourceClient):
         verify_ssl: bool = True,
         timeout_sec: int = 30,
         space_filter: Optional[str] = None,
-        max_concurrency: int = 10,
+        max_concurrency: int = 4,
+        app_filter: Optional[str] = None,
+        max_apps: Optional[int] = None,
+        include_master_items: bool = True,
+        include_lineage: bool = True,
+        include_sheet_objects: bool = True,
     ):
         self.base_url = (base_url or "").rstrip("/")
         self.api_key = api_key or None
@@ -83,7 +90,13 @@ class QlikSenseClient(DataSourceClient):
         self.scope = scope or "user_default"
         self.verify_ssl = verify_ssl
         self.timeout_sec = timeout_sec
-        self.max_concurrency = max(1, int(max_concurrency or 10))
+        self.max_concurrency = max(1, min(4, int(max_concurrency or 4)))
+        self.host = urlparse(self.base_url).netloc
+        self.include_master_items = include_master_items
+        self.include_lineage = include_lineage
+        self.include_sheet_objects = include_sheet_objects
+        self.max_apps = max(1, int(max_apps)) if max_apps else None
+        self._app_filter = {v.strip().casefold() for v in (app_filter or "").split(",") if v.strip()} or None
         # Parse the space filter into a set of tokens (IDs or names)
         self._space_filter: Optional[set] = None
         if space_filter:
@@ -254,6 +267,10 @@ class QlikSenseClient(DataSourceClient):
     # ------------------------------------------------------------------
 
     def list_apps(self) -> List[Dict[str, Any]]:
+        apps = self._scoped_apps()
+        return apps[:self.max_apps] if self.max_apps else apps
+
+    def _scoped_apps(self) -> List[Dict[str, Any]]:
         """
         Enumerate all apps via /api/v1/items?resourceType=app, following
         pagination via links.next. Filters by space when QlikSenseConfig.space_filter
@@ -276,6 +293,9 @@ class QlikSenseClient(DataSourceClient):
                     sp_name = item.get("spaceName") or ""
                     if sp_id not in self._space_filter and sp_name not in self._space_filter:
                         continue
+                app_id = item.get("resourceId") or item.get("id")
+                if self._app_filter and not {str(app_id or "").casefold(), str(item.get("name") or "").casefold()} & self._app_filter:
+                    continue
                 apps.append({
                     "id": item.get("resourceId") or item.get("id"),
                     "item_id": item.get("id"),
@@ -284,6 +304,11 @@ class QlikSenseClient(DataSourceClient):
                     "space_name": item.get("spaceName"),
                     "updated_at": item.get("updatedAt"),
                     "owner": item.get("ownerId"),
+                    "description": item.get("description"),
+                    # A shared-space catalog must not include token-owner private
+                    # sheets, even if Items omits the app's publish metadata.
+                    "published": bool(item.get("spaceId") or (item.get("resourceAttributes") or {}).get("publishTime")),
+                    "last_reload": (item.get("resourceAttributes") or {}).get("lastReloadTime"),
                 })
 
             next_link = ((payload.get("links") or {}).get("next") or {}).get("href")
@@ -298,6 +323,40 @@ class QlikSenseClient(DataSourceClient):
     # Schema discovery
     # ------------------------------------------------------------------
 
+    def _acting_user(self, app=None):
+        # Cloud always uses the bearer token's identity; no impersonation header.
+        return None
+
+    def _app_meta(self, app, payload=None):
+        payload = payload or {}
+        return _compact({
+            "appId": app.get("id"), "appName": app.get("name"),
+            "spaceId": app.get("space_id"), "spaceName": app.get("space_name"),
+            "appDescription": app.get("description"), "owner": app.get("owner"),
+            "modifiedDate": app.get("updated_at"), "lastReload": app.get("last_reload"),
+            "webUrl": f"{self.base_url}/sense/app/{app.get('id')}",
+            "hasData": payload.get("has_data"), "hasScript": payload.get("has_script"),
+            "alternateStates": payload.get("state_names"), "sectionAccess": payload.get("section_access"),
+            "scriptChars": payload.get("script_chars"), "lineageSources": payload.get("lineage_sources"),
+            "sheets": payload.get("sheet_names"),
+        })
+
+    def _engine_tables(self, app):
+        payload = asyncio.run(self._read_app_async(app, None))
+        tables = self._build_data_tables(app, payload.get("qtr") or [], payload.get("qk") or [], payload)
+        if self.include_master_items:
+            master = self._build_master_table(app, payload, {t.name for t in tables})
+            if master is not None:
+                tables.append(master)
+        if self.include_sheet_objects:
+            tables.extend(self._build_sheet_tables(app, payload, {t.name for t in tables}))
+        if not tables:
+            key = self._app_key(app)
+            self._unread_app_keys.append(key)
+            tables = [Table(name=key, columns=[], pks=[], fks=[], is_active=False,
+                            metadata_json={"qlik_sense": {**self._app_meta(app, payload), "status": "empty"}})]
+        return tables
+
     @staticmethod
     def _rest_metadata_has_content(payload: Optional[Dict[str, Any]]) -> bool:
         if not payload:
@@ -310,13 +369,20 @@ class QlikSenseClient(DataSourceClient):
 
     def _crawl_app(self, app: Dict[str, Any]) -> List[Table]:
         """
-        Per-app crawl: REST fast path, fall back to QIX if REST metadata is empty.
+        Per-app Engine discovery, with a validated REST model fallback.
         Errors are converted to a stub Table row so the overall crawl never aborts.
         """
         app_id = app.get("id")
         app_name = app.get("name") or app_id or ""
         space_name = app.get("space_name") or ""
         app_key = f"{space_name}/{app_name}" if space_name else app_name
+
+        engine_error = None
+        if self.include_master_items or self.include_lineage or self.include_sheet_objects:
+            try:
+                return self._engine_tables(app)
+            except Exception as exc:
+                engine_error = exc
 
         rest_error: Optional[Exception] = None
         rest_meta: Optional[Dict[str, Any]] = None
@@ -328,7 +394,23 @@ class QlikSenseClient(DataSourceClient):
 
         if self._rest_metadata_has_content(rest_meta):
             try:
-                return self._build_tables_from_rest_metadata(app, rest_meta)
+                tables = self._build_tables_from_rest_metadata(app, rest_meta)
+                expected = {t.get("name"): t for t in rest_meta["tables"] if not t.get("is_system")}
+                if any(
+                    len(t.columns) != expected[t.metadata_json["qlik_sense"]["tableName"]].get("no_of_fields", len(t.columns))
+                    or (not t.columns and expected[t.metadata_json["qlik_sense"]["tableName"]].get("no_of_fields", 1) != 0)
+                    for t in tables
+                ):
+                    raise ValueError("REST metadata did not map fields to business tables")
+                if not tables and expected:
+                    raise ValueError("REST metadata did not map business tables")
+                if engine_error is not None:
+                    # Keep previously indexed semantic entries when only the
+                    # REST model snapshot is readable this time.
+                    self._unread_app_keys.append(app_key)
+                    for table in tables:
+                        table.metadata_json["qlik_sense"]["discoveryWarning"] = "Engine discovery unavailable; REST model only"
+                return tables
             except Exception as e:
                 rest_error = e
 
@@ -336,6 +418,8 @@ class QlikSenseClient(DataSourceClient):
         qtr: List[Dict[str, Any]] = []
         qk: List[Dict[str, Any]] = []
         try:
+            if engine_error is not None:
+                raise engine_error
             qtr, qk = self._qix_get_tables_and_keys(app_id)
         except Exception as e:
             qix_error = e
@@ -375,8 +459,7 @@ class QlikSenseClient(DataSourceClient):
     @discovery_progress
     def get_schemas(self, progress_callback=None) -> List[Table]:
         """
-        Full-tenant crawl: list_apps() then parallel per-app REST metadata,
-        with QIX fallback for apps that don't expose REST metadata.
+        Scoped crawl with shared Engine discovery and a validated REST fallback.
         """
         self._unread_app_keys = []
         apps = self.list_apps()
@@ -402,6 +485,8 @@ class QlikSenseClient(DataSourceClient):
                 for pending in futures:
                     pending.cancel()
                 raise
+        if self._unread_app_keys and (not tables or all((t.metadata_json or {}).get("qlik_sense", {}).get("status") == "error" for t in tables)):
+            raise RuntimeError("Qlik discovery failed for every visible app; check access and Engine connectivity")
         return tables
 
     def unindexed_table_prefixes(self) -> List[str]:
@@ -442,15 +527,11 @@ class QlikSenseClient(DataSourceClient):
         """
         Open the app and call GetTablesAndKeys in a single WebSocket session.
 
-        Returns (qtr, qk) lists from the result. On failure returns ([], []).
+        Returns (qtr, qk) lists from the result. Failures propagate so unreadable apps cannot masquerade as empty models.
         """
-        try:
-            return asyncio.run(self._qix_get_tables_and_keys_async(app_id))
-        except Exception as e:
-            logger.debug("QIX GetTablesAndKeys failed for %s: %s", app_id, e)
-            return [], []
+        return asyncio.run(self._qix_get_tables_and_keys_async(app_id))
 
-    def _qix_session(self, app_id: str) -> QixSession:
+    def _qix_session(self, app_id: str, user=None) -> QixSession:
         url = self._ws_url_for_app(app_id)
         ssl_ctx = build_ssl_context(verify_ssl=self.verify_ssl) if url.startswith("wss://") else None
         return QixSession(
@@ -465,7 +546,7 @@ class QlikSenseClient(DataSourceClient):
             opendoc = await qix.rpc(-1, "OpenDoc", [app_id])
             doc_handle = (opendoc.get("qReturn") or {}).get("qHandle")
             if doc_handle is None:
-                return [], []
+                raise RuntimeError("OpenDoc returned no document handle")
             tk = await qix.rpc(doc_handle, "GetTablesAndKeys", [
                 {"qcx": 1000, "qcy": 1000}, {"qcx": 0, "qcy": 0}, 0, True, False,
             ])
@@ -483,6 +564,10 @@ class QlikSenseClient(DataSourceClient):
         filters: Optional[Dict[str, List[Any]]] = None,
         max_rows: int = 10000,
         table_name: Optional[str] = None,
+        object_id: Optional[str] = None,
+        search: Optional[str] = None,
+        fields: Optional[List[str]] = None,
+        variables: Optional[Dict[str, Any]] = None,
         **_kwargs: Any,
     ) -> pd.DataFrame:
         """
@@ -498,6 +583,12 @@ class QlikSenseClient(DataSourceClient):
                 strings or finite numbers.
             max_rows: maximum rows to return (paginated in 10k-cell chunks).
         """
+        if object_id is not None or search is not None or variables is not None:
+            return self._execute_engine_query(
+                app=app, dimensions=dimensions, measures=measures, filters=filters,
+                max_rows=max_rows, table_name=table_name, object_id=object_id,
+                search=search, fields=fields, variables=variables,
+            )
         target = app or table_name
         if not target:
             raise ValueError("app (or table_name) is required")
@@ -545,32 +636,24 @@ class QlikSenseClient(DataSourceClient):
 
         return hypercube_matrix_to_df(hypercube_def, rows)
 
-    def _resolve_app_id(self, target: str) -> str:
-        """
-        Accept a raw app ID or a 'Space/AppName' / 'AppName' string.
-
-        Always attempts a lookup against list_apps() first so that plain names
-        like "Ops" or "Forecast" (no "/" and no spaces) resolve correctly. Falls
-        back to returning `target` verbatim when list_apps() is unavailable
-        (e.g., offline) or when nothing matches — callers can still pass an
-        opaque ID that doesn't appear in the items listing.
-        """
+    def _resolve_app(self, target):
         if not target:
             raise ValueError("app is required")
-        try:
-            apps = self.list_apps()
-        except Exception as e:
-            logger.debug("list_apps() failed during resolve_app_id(%r): %s", target, e)
-            return target
-        for app in apps:
-            full = (
-                f"{app.get('space_name') or ''}/{app.get('name')}"
-                if app.get("space_name")
-                else (app.get("name") or "")
-            )
-            if full == target or app.get("name") == target or app.get("id") == target:
-                return app.get("id") or target
-        return target
+        apps = self._scoped_apps()
+        matches = [a for a in apps if target in (a.get("id"), a.get("name"), self._app_key(a))]
+        if not matches:
+            matches = [a for a in apps if target.startswith(self._app_key(a) + "/")]
+            if matches:
+                longest = max(len(self._app_key(a)) for a in matches)
+                matches = [a for a in matches if len(self._app_key(a)) == longest]
+        if not matches and not self._app_filter and not self._space_filter:
+            return target, None
+        if len(matches) != 1:
+            raise ValueError("Qlik app is ambiguous or outside the configured space/app scope")
+        return matches[0]["id"], matches[0]
+
+    def _resolve_app_id(self, target: str) -> str:
+        return self._resolve_app(target)[0]
 
     # ------------------------------------------------------------------
     # Prompt / description
@@ -587,69 +670,7 @@ class QlikSenseClient(DataSourceClient):
             "against them via the Engine API (QIX) over WebSocket. Works against Qlik Cloud."
         ) + self.system_prompt()
 
-    def system_prompt(self) -> str:
-        return """
-
-## Qlik Sense Hypercube Query Guide
-
-Run hypercube queries against published Qlik Sense apps. Each app is a self-contained
-associative model; cubes combine dimensions (Qlik fields) and measures (Qlik expressions).
-
-### Schema Structure
-
-Each Qlik table is exposed as a schema table named `Space/AppName/TableName`
-(or `AppName/TableName` when no space). The `metadata.qlik_sense` block on each
-table carries `appId`, `appName`, `spaceId`, `spaceName`, `tableName` — you must
-pass the full `Space/App/Table` name (or the `appId`) to `execute_query()` via
-the `app` argument.
-
-### How to Execute Queries
-
-Signature: `execute_query(app, dimensions, measures, filters=None, max_rows=10000)`
-
-Filter values must retain their Qlik types: send numeric years/IDs as numbers,
-and textual IDs (including leading zeros) as strings. Dual/date fields may
-require verified numeric Qlik values rather than formatted date text; never
-guess date serials or silently drop a filter when selection fails.
-
-```python
-# Total sales by region
-df = client.execute_query(
-    app="Sales/Pipeline 2025",
-    dimensions=["Region"],
-    measures=[{"expr": "Sum([Sales])", "alias": "Total Sales"}],
-)
-
-# Filtered top-N
-df = client.execute_query(
-    app="Sales/Pipeline 2025",
-    dimensions=["Product"],
-    measures=[{"expr": "Sum([Revenue])", "alias": "Rev"}],
-    filters={"Region": ["EMEA"], "Year": [2025]},
-    max_rows=10,
-)
-
-# Row count / profiling
-df = client.execute_query(
-    app="Sales/Pipeline 2025",
-    measures=[{"expr": "Count([OrderID])", "alias": "Rows"}],
-)
-```
-
-### Key Query Rules
-
-- **Field names are case-sensitive** and must match exactly what the schema lists.
-- **Measures are Qlik expressions**, not SQL. Use `Sum(...)`, `Count(distinct ...)`,
-  `Avg(...)`. Wrap names containing spaces in square brackets: `Sum([Net Sales])`.
-- **Filters apply as Qlik selections** — they narrow the associative state and
-  propagate across every related table automatically (this is different from a
-  SQL `WHERE` and different from a DAX filter).
-- Qlik is associative, not strictly relational: key fields shared across tables
-  link them automatically. Use a single cube that names fields from multiple
-  tables rather than writing joins.
-- Result is a flat DataFrame of (dimensions..., measures...). Rows are capped at
-  `max_rows`; paging is handled internally.
-"""
+    system_prompt = QlikEngineCatalog.system_prompt
 
     # ------------------------------------------------------------------
     # Compatibility

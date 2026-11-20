@@ -1,0 +1,74 @@
+suite: test presidio analyzer (pii detection)
+templates:
+  - presidio.yaml
+  - config.yaml
+release:
+  name: test-release
+  namespace: bow
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: is absent by default and the app gets no analyzer URL
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: presidio.yaml
+      - notExists:
+          path: data.BOW_PII_PRESIDIO_URL
+        template: config.yaml
+
+  - it: deploys the analyzer and points the app at it when enabled
+    set:
+      pii.presidio.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 2
+        template: presidio.yaml
+      - isKind:
+          of: Deployment
+        documentIndex: 0
+        template: presidio.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mcr.microsoft.com/presidio-analyzer:2.2.362
+        documentIndex: 0
+        template: presidio.yaml
+      - isKind:
+          of: Service
+        documentIndex: 1
+        template: presidio.yaml
+      - equal:
+          path: data.BOW_PII_PRESIDIO_URL
+          value: http://test-release-presidio.bow.svc:3000
+        template: config.yaml
+
+  - it: is never selected by the app service
+    set:
+      pii.presidio.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.metadata.labels["app.kubernetes.io/name"]
+          value: test-release-presidio
+        documentIndex: 0
+        template: presidio.yaml
+      - equal:
+          path: spec.selector["app.kubernetes.io/name"]
+          value: test-release-presidio
+        documentIndex: 1
+        template: presidio.yaml
+
+  - it: an external analyzer URL wins and deploys nothing
+    set:
+      pii.presidio.url: https://presidio.internal.example
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: presidio.yaml
+      - equal:
+          path: data.BOW_PII_PRESIDIO_URL
+          value: https://presidio.internal.example
+        template: config.yaml

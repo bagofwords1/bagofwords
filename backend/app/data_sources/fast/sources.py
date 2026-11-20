@@ -321,8 +321,12 @@ class SqlAlchemySource:
             return Estimate(supported=False,
                             note=f"no cost estimator for {self.dialect or 'this client'}")
         try:
-            with self._open(sql) as conn:
-                est = explainer(conn, sql)
+            if self.dialect == "sqlite":
+                # SQLite has no row estimate to ask for, so the file is not opened.
+                est = explainer(None, sql)
+            else:
+                with self._open(sql) as conn:
+                    est = explainer(conn, sql)
         except Exception as e:
             return Estimate(supported=False, note=f"{self.dialect} EXPLAIN failed: {e}")
         if est.rows is None and est.scan_bytes is None:

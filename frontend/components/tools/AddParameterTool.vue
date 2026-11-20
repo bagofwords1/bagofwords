@@ -1,23 +1,18 @@
 <template>
-  <div class="mb-2">
+  <div class="min-w-0">
     <!-- Header -->
-    <div class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click="isCollapsed = !isCollapsed">
-      <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 me-1.5 text-ink-muted rtl-flip" />
-      <Spinner v-if="status === 'running'" class="w-3 h-3 me-1.5 text-ink-muted" />
-      <Icon v-else-if="hasError" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500" />
-      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500" />
-      <Icon v-else name="heroicons-adjustments-horizontal" class="w-3 h-3 me-1.5 text-ink-muted" />
-
-      <span v-if="status === 'running'" class="tool-shimmer">{{ t('tools.addParameter.adding', { name: paramLabel }) }}</span>
-      <span v-else-if="hasError" class="text-gray-700 dark:text-gray-300">{{ t('tools.addParameter.failed', { name: paramLabel }) }}</span>
-      <span v-else-if="queryTitle" class="text-gray-700 dark:text-gray-300">{{ t('tools.addParameter.added', { name: paramLabel, query: queryTitle }) }}</span>
-      <span v-else class="text-gray-700 dark:text-gray-300">{{ t('tools.addParameter.addedNoQuery', { name: paramLabel }) }}</span>
-
-      <span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span>
-    </div>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.addParameter.adding', { name: paramLabel }) }}</template>
+      <template v-else-if="hasError">{{ t('tools.addParameter.failed', { name: paramLabel }) }}</template>
+      <template v-else-if="queryTitle">{{ t('tools.addParameter.added', { name: paramLabel, query: queryTitle }) }}</template>
+      <template v-else>{{ t('tools.addParameter.addedNoQuery', { name: paramLabel }) }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="formatDuration" class="ms-1.5 text-ink-muted">{{ formatDuration }}</span></div>
 
     <!-- Expanded content -->
-    <template v-if="!isCollapsed">
+    <template v-if="toolHeaderExpanded">
       <!-- What was declared: type, default, bound column -->
       <div v-if="status === 'success' && !hasError" class="mt-1 ms-[18px] flex flex-wrap gap-x-3 gap-y-0.5 text-chat-2 text-gray-500 dark:text-gray-400">
         <span v-if="param.type">{{ t('tools.addParameter.type', { type: param.type }) }}</span>
@@ -29,12 +24,17 @@
         {{ errorMessage }}
       </div>
     </template>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'
 
 interface Props {
@@ -91,15 +91,5 @@ const formatDuration = computed(() => {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

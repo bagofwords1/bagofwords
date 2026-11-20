@@ -1,32 +1,21 @@
 <template>
-  <div class="mt-1">
-    <div
-      class="flex items-center text-chat-2"
-      :class="hasDetail ? 'cursor-pointer hover:text-gray-700 dark:hover:text-gray-300' : ''"
-      @click="hasDetail && (collapsed = !collapsed)"
-    >
-      <Icon
-        v-if="hasDetail"
-        :name="collapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-        class="w-3 h-3 me-1 text-ink-muted rtl-flip"
-      />
-      <span v-if="isRunning" class="tool-shimmer flex items-center text-gray-500 dark:text-gray-400">
-        <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-ink-muted" />
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="isRunning">
         Writing {{ rowLabel }} to Excel…
-      </span>
-      <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-        <span class="align-middle">Wrote {{ rowLabel }} to Excel<template v-if="wroteTo"> at {{ wroteTo }}</template></span>
-      </span>
-      <span v-else class="text-red-500 flex items-center">
-        <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
-        <span class="align-middle">Couldn't write to Excel</span>
-        <span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span>
-      </span>
-    </div>
+      </template>
+      <template v-else-if="succeeded">Wrote {{ rowLabel }} to Excel<template v-if="wroteTo"> at {{ wroteTo }}</template></template>
+      <template v-else>Couldn't write to Excel</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="isRunning"></template>
+      <template v-else-if="succeeded"></template>
+      <template v-else><span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span></template></div>
 
     <Transition name="fade">
-      <div v-if="!collapsed && hasDetail" class="mt-2 ms-4 text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && hasDetail" class="mt-2 ms-4 text-chat-2 text-gray-600 dark:text-gray-400">
         <div v-if="title" class="mb-1 text-gray-700 dark:text-gray-300"><span class="text-ink-muted">Title:</span> {{ title }}</div>
         <div v-if="columnNames.length" class="mb-1">
           <span class="text-ink-muted">Columns:</span>
@@ -38,10 +27,16 @@
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 
 interface ToolExecution {
@@ -130,18 +125,6 @@ const collapsed = ref(true)
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }

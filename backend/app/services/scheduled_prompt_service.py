@@ -589,6 +589,10 @@ class ScheduledPromptService:
                 self._remove_job(sp.id)
                 return
 
+            # The run executes as this member in this organization.
+            from app.core.request_org import set_request_organization_id
+            set_request_organization_id(str(organization.id))
+
             # Routing: spawn_new_report = fresh dated report per run (clean
             # snapshot, no context growth), else run in the host report
             # (default — keeps cross-run memory for trend commentary).
@@ -780,7 +784,10 @@ class ScheduledPromptService:
             for b in reversed(blocks):
                 content = getattr(b, 'content', None)
                 if content:
-                    summary["last_content"] = content
+                    # The email/notification renders plain text: drop
+                    # `{{cite:…}}` markers (they're chips only on the web).
+                    from app.ai.citations import strip_citations
+                    summary["last_content"] = strip_citations(content)
                     break
 
         return summary

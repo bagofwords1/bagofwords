@@ -97,8 +97,7 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Visa Värld i Agenter"
+    "stopLoading": "Stop loading"
   },
   "filePicker": {
     "searchPlaceholder": "Sök filer…",
@@ -145,6 +144,8 @@
     "newInstructionDesc": "En regel, färdighet eller anteckning för dina agenter",
     "newAgent": "Agent",
     "newAgentDesc": "Anslut data, verktyg och tabeller",
+    "importAgent": "Importera agent",
+    "importAgentDesc": "Från en exporterad agent-zip",
     "searchPlaceholder": "Sök överallt…",
     "clearSearch": "Rensa sökning",
     "searchAgentInstructions": "Sök instruktioner…",
@@ -513,6 +514,7 @@
     "collapseSidebar": "Fäll ihop sidopanel",
     "resizeSidebar": "Ändra storlek på sidopanel",
     "switchOrganization": "Byt organisation",
+    "createOrganization": "Skapa organisation",
     "version": "Version",
     "loggedInAs": "Inloggad som {name}",
     "prompts": "Prompter",
@@ -540,7 +542,7 @@
     "content": {
       "low_confidence": {
         "title": "Svar med låg tillförlitlighet",
-        "body": "{n} svar från den här agenten fick under 3/5 i poäng den senaste veckan. Kör träning för att täppa till luckorna."
+        "body": "{n} svar från den här agenten fick under 3/5 i poäng den senaste veckan. Förbättra den i träningsläge för att täppa till luckorna."
       },
       "slow_query": {
         "title": "Långsamma datafrågor (>{secs}s)",
@@ -548,7 +550,10 @@
       },
       "schema_changed": {
         "title": "Anslutningens schema har ändrats",
-        "body": "Tabeller eller kolumner har ändrats på den här anslutningen. Kör om utvärderingar eller träning för att hålla instruktionerna korrekta."
+        "body": "Tabeller eller kolumner har ändrats på den här anslutningen. Granska den i träningsläge för att hålla instruktionerna korrekta.",
+        "title_named": "{agent}: schemat ändrades i {connection}",
+        "title_agent": "{agent}: schemat ändrades",
+        "body_counts": "Tabeller tillagda: {added} · borttagna: {removed} · ändrade: {modified}. Kontrollera agentens tabeller och instruktioner."
       },
       "instruction_suggestion": {
         "body_ai": "AI-genererad instruktionsändring väntar på granskning.",
@@ -602,12 +607,125 @@
       "access_granted": {
         "title": "Du kan nu se {dashboard}",
         "body": "Din begäran att se ”{dashboard}” godkändes."
+      },
+      "nightly_learning": {
+        "title": "{agent}: nattlig inlärning",
+        "title_learned": "{agent}: nya lärdomar under natten ({n})",
+        "title_cleanup": "{agent}: nattlig rensning av förslag"
+      },
+      "query_error": {
+        "title": "Fel i datafrågor",
+        "body": "Datafrågor för den här agenten misslyckades. Förbättra den i träningsläge för att täppa till luckan."
       }
     },
     "checkin": {
       "badge": "Uppföljning",
       "openReport": "Öppna rapport",
       "assistantFallback": "AI-analytiker"
+    },
+    "filterAgents": "Agenter",
+    "filterShares": "Delningar",
+    "filterRuns": "Körningar",
+    "filterConnections": "Anslutningar",
+    "detail": {
+      "resolved": "Hanterad",
+      "dismissed": "Hanterad",
+      "open": "Öppna",
+      "reviewTables": "Granska tabeller",
+      "reviewInstruction": "Granska instruktionen",
+      "viewQueries": "Visa frågor",
+      "openEvals": "Öppna utvärderingar",
+      "viewChecks": "Visa kontroller",
+      "openInReview": "Öppna i Granskning",
+      "connection": "Anslutning",
+      "by": "av {name}",
+      "reliabilityStarted": "En tillförlitlighetskontroll startade {time}: utvärderingar körs, och vid fel följer träning.",
+      "history": "Tidigare ändringar",
+      "historyEntry": "{added} tillagda · {removed} borttagna · {modified} ändrade",
+      "showDetails": "Detaljer",
+      "hideDetails": "Dölj detaljer"
+    },
+    "diff": {
+      "addedTables": "Tillagda tabeller",
+      "removedTables": "Borttagna tabeller",
+      "changedTables": "Ändrade tabeller",
+      "newInactive": "Nya i anslutningen, inte aktiva för den här agenten",
+      "more": "+{n} tabeller till"
+    },
+    "clearHandled": "Rensa hanterade",
+    "handled": {
+      "marked": "{name} markerade det som hanterat",
+      "suggestion_reviewed": "{name} granskade förslaget",
+      "suggestion_rejected": "{name} avvisade förslaget",
+      "suggestion_voided": "Instruktionen ändrades",
+      "training_passed": "Träningen som {name} körde gick igenom",
+      "eval_passed": "Utvärderingen som {name} körde gick igenom",
+      "condition_cleared": "Problemet försvann",
+      "someone": "Någon"
+    }
+  },
+  "reviewFeed": {
+    "title": "Granskning",
+    "subtitle": "En gemensam kö för dem som hanterar agenterna: det en person hanterar stängs för alla.",
+    "refresh": "Uppdatera",
+    "close": "Stäng",
+    "search": "Sök…",
+    "allAgents": "Alla agenter",
+    "resolvedFilter": "Hanterade",
+    "emptyTitle": "Allt är genomgånget",
+    "emptyBody": "Inget att granska. Nya förslag, schemaändringar och kvalitetssignaler visas här.",
+    "emptyBodyAgent": "Inget att granska för den här agenten. Nya förslag, schemaändringar och kvalitetssignaler visas här.",
+    "changes": "{n} ändringar",
+    "running": "Körs",
+    "resolved": "Hanterad",
+    "dismiss": "Markera som hanterad",
+    "agent": "Agent",
+    "nAgents": "{n} agenter",
+    "noEvals": "Den här agenten har inga utvärderingar. Lägg först till ett testfall.",
+    "nothingToRun": "Inget att köra",
+    "actionUnavailable": "Åtgärden är inte tillgänglig",
+    "evalStarted": "Utvärdering startad",
+    "done": "Klart",
+    "actionFailed": "Åtgärden misslyckades",
+    "dismissFailed": "Kunde inte avfärda",
+    "chipSuggestions": "Förslag",
+    "chipSchema": "Schema",
+    "chipSlow": "Långsamma",
+    "chipLowConfidence": "Låg säkerhet",
+    "typeSuggestion": "Förslag",
+    "typeSchema": "Schemaändring",
+    "typeSlow": "Långsam fråga",
+    "typeLowConfidence": "Låg säkerhet",
+    "typeQueryError": "Frågefel",
+    "actionReview": "Granska",
+    "actionRunEval": "Kör utvärdering",
+    "focusResolved": "Det här objektet är redan hanterat.",
+    "focusGone": "Det här objektet är inte längre öppet. Det har lösts eller stängts.",
+    "all": "Alla",
+    "openN": "{n} öppna",
+    "multipleAgents": "Flera agenter",
+    "more": "Fler åtgärder",
+    "times": "{n} gånger",
+    "actionTrainInChat": "Förbättra i träningsläge",
+    "train": {
+      "schema": "Schemat för anslutningen {connection} har ändrats:\n{changes}\n\nGå igenom agentens instruktioner och sparade frågor som använder de här tabellerna eller kolumnerna och föreslå ändringar så att svaren förblir korrekta.",
+      "schemaGeneric": "Schemat för anslutningen {connection} har ändrats. Gå igenom agentens instruktioner och sparade frågor som använder de ändrade tabellerna eller kolumnerna och föreslå ändringar så att svaren förblir korrekta.",
+      "tableAdded": "- Ny tabell: {table}",
+      "tableRemoved": "- Borttagen tabell: {table}",
+      "colsAdded": "kolumner tillagda {cols}",
+      "colsRemoved": "kolumner borttagna {cols}",
+      "typeChanged": "{col} bytte typ från {from} till {to}",
+      "lowConfidence": "De här frågorna till agenten fick lågt betygsatta svar:\n{examples}\n\nTa reda på vad som saknas eller är oklart i instruktionerna och föreslå instruktioner som täpper till luckorna.",
+      "lowConfidenceGeneric": "{n} svar från agenten fick under 3/5 i poäng den senaste veckan. Gå igenom de senaste konversationerna, ta reda på vad som saknas eller är oklart i instruktionerna och föreslå instruktioner som täpper till luckorna.",
+      "slow": "De här datafrågorna för agenten gick långsamt:\n{examples}\n\nHitta den gemensamma orsaken och föreslå skyddsinstruktioner (till exempel kräva ett filter eller undvika fullständiga genomsökningar) så att frågorna förblir snabba.",
+      "slowGeneric": "Datafrågor för agenten går långsamt. Hitta den gemensamma orsaken och föreslå skyddsinstruktioner (till exempel kräva ett filter eller undvika fullständiga genomsökningar) så att frågorna förblir snabba.",
+      "slowLine": "{q} ({s} s)",
+      "error": "De här datafrågorna för agenten misslyckades:\n{examples}\n\nHitta orsaken och föreslå instruktioner så att agenten skriver giltiga frågor.",
+      "errorGeneric": "Datafrågor för agenten misslyckas. Hitta orsaken och föreslå instruktioner så att agenten skriver giltiga frågor.",
+      "errorLine": "{q}: {error}",
+      "generic": "Gå igenom de senaste konversationerna med agenten och föreslå instruktioner som förbättrar dess svar.",
+      "schemaUnnamed": "Schemat för agentens anslutning har ändrats. Gå igenom agentens instruktioner och sparade frågor som använder ändrade tabeller eller kolumner och föreslå ändringar så att svaren förblir korrekta.",
+      "more": "- …och {n} ändringar till"
     }
   },
   "auth": {
@@ -1262,9 +1380,22 @@
       "copyTurn": "Kopiera denna tur som JSON",
       "copied": "Spårnings-JSON kopierad till urklipp",
       "failed": "Det gick inte att exportera spårningen"
-    }
+    },
+    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Använde webbläsaren",
+        "search": "Sökte",
+        "files": "Läste filer",
+        "inspect": "Granskade data",
+        "data": "Körde {count} frågor",
+        "create": "Skapade och uppdaterade resultat",
+        "tools": "Använde verktyg",
+        "results": "Körde {count} frågor"
+      }
+    },
     "tabChat": "Chatt",
     "tabSummary": "Sammanfattning",
     "tabDashboard": "Instrumentpanel",
@@ -1328,7 +1459,11 @@
     "compactionSummaryHint": "Agenten ser den här sammanfattningen i stället för turerna ovanför linjen.",
     "compactingContext": "Komprimerar kontext…",
     "compactionTurns": "{turns} turer",
-    "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens"
+    "compactionLast": "Senaste komprimering: historik ~{before} → ~{after} tokens",
+    "piiBlocked": "Skyddet av personuppgifter blockerade den här förfrågan till {model} (regel: {rules}).",
+    "piiBlockedNoModel": "Skyddet av personuppgifter blockerade den här förfrågan (regel: {rules}).",
+    "piiDetectorUnavailable": "Skyddet av personuppgifter blockerade den här förfrågan till {model}: PII-detektorn är inte tillgänglig.",
+    "piiDetectorUnavailableNoModel": "Skyddet av personuppgifter blockerade den här förfrågan: PII-detektorn är inte tillgänglig."
   },
   "tools": {
     "common": {
@@ -2489,6 +2624,35 @@
       "googleTitle": "Profilsynk med Google"
     },
     "auditLogs": "Granskningsloggar",
+    "systemLogsTab": "Systemloggar",
+    "systemLogs": {
+      "title": "Systemloggar",
+      "subtitle": "Serverns egen loggutdata, för felsökning. Endast administratörer kan se den.",
+      "retention": "Loggarna sparas i {days} dagar, upp till {max} totalt; därutöver raderas de äldsta först. {used} används.",
+      "droppedNotice": "{count} rader på den här instansen kunde inte sparas eftersom det inte gick att skriva till loggkatalogen.",
+      "writeError": "Den här instansen kan inte skriva till loggkatalogen ({directory}). Kontrollera att den finns och är skrivbar.",
+      "searchPlaceholder": "Sök i meddelanden…",
+      "from": "Från",
+      "to": "Till",
+      "allInstances": "Alla instanser",
+      "thisInstance": "{id} (den här instansen)",
+      "errorsOnly": "Endast fel",
+      "autoRefresh": "Uppdatera automatiskt",
+      "clearFilters": "Rensa filter",
+      "refresh": "Uppdatera",
+      "rangeInvalid": "”Från” måste vara före ”Till”.",
+      "empty": "Inga loggrader matchar ännu.",
+      "count": "Visade rader: {count}",
+      "countTruncated": "De senaste {count} raderna visas. Smalna av filtren för att se äldre.",
+      "deleteAll": "Radera alla loggar",
+      "deleteTitle": "Radera alla systemloggar?",
+      "deleteMessage": "Alla sparade loggrader från alla instanser raderas permanent. Nya rader fortsätter att sparas.",
+      "deleteConfirm": "Radera alla",
+      "cancel": "Avbryt",
+      "deletedToast": "Alla systemloggar raderades",
+      "deleteFailed": "Det gick inte att radera loggarna",
+      "loadFailed": "Det gick inte att läsa in systemloggarna"
+    },
     "integrations": {
       "title": "Kanaler",
       "subtitle": "Konfigurera externa plattformar som Slack och Microsoft Teams för din organisation.",
@@ -2980,10 +3144,12 @@
       "defaultRoleShort": "Standardroll"
     },
     "organizationName": "Organisationens namn",
+    "organizationNameRequired": "Organisationens namn får inte vara tomt.",
     "organizationIcon": "Organisationens ikon",
     "uploadIcon": "Ladda upp ikon",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "AI-analytikerns namn",
+    "aiAnalystNameRequired": "AI-analytikerns namn får inte vara tomt.",
     "showCredit": "Visa ”Made with BOW”-credit",
     "language": {
       "title": "Språk",
@@ -3490,6 +3656,10 @@
         "allow_access_requests": {
           "name": "Tillåt åtkomstbegäranden",
           "description": "Låt medlemmar be en instrumentpanels redigerare om visningsåtkomst från sidan utan åtkomst. När det är av visar sidan bara ägaren och inga nya begäranden kan skickas; redan skickade begäranden går fortfarande att besvara."
+        },
+        "show_world": {
+          "name": "Världsvy",
+          "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
         }
       }
     },
@@ -3642,7 +3812,10 @@
         "restrictedDefaultHint": "Det här är organisationens standardmodell. Medlemmar som inte finns i listan nedan får sin grupps standardmodell i stället.",
         "defaultForGroups": "Standard för grupper",
         "defaultForGroupsHint": "Medlemmar i de här grupperna kan alltid använda modellen."
-      }
+      },
+      "piiBadge": "PII: {policy}",
+      "piiBadgeExempt": "PII: omaskerad",
+      "piiBadgeTooltip": "PII-policyn som den här leverantörens prompter får. Ändra den under Inställningar → Skydd av personuppgifter."
     },
     "licensePage": {
       "title": "Licens",
@@ -3752,45 +3925,97 @@
       "systemDefault": "Använd systemstandard (UTC)"
     },
     "pii": {
-      "action": "Åtgärd",
       "actionBlock": "Blockera",
       "actionReplace": "Ersätt",
       "addPattern": "Lägg till mönster",
       "addRule": "Lägg till regel",
       "blocksRequest": "Blockerar förfrågan",
-      "builtinDesc": "Färdiga detektorer för vanliga personuppgifter. Slå på var och en och anpassa dess ersättningstoken.",
-      "builtinTitle": "Inbyggda regler",
-      "customDesc": "Definiera egna detektorer. En regel kan innehålla flera mönster (reguljära uttryck) — en träff på något av dem utlöser regeln.",
       "customTitle": "Egna regler",
       "enterpriseBody": "Skydd av personuppgifter ingår i Enterprise-planen. Kontakta din administratör för att aktivera det.",
       "enterpriseTitle": "Enterprise-funktion",
-      "masterDesc": "När detta är på maskeras matchande text i varje utgående LLM-prompt från den här arbetsytan.",
+      "masterDesc": "När detta är på maskeras varje LLM-leverantörs prompter enligt dess policy. Användarens prompt och data maskeras; instruktioner och scheman når modellen som de skrevs, om inte en policy maskerar även dem.",
       "masterLabel": "Aktivera skydd av personuppgifter",
-      "modeBlock": "Blockera förfrågan",
-      "modeBlockDesc": "Skicka inte prompten om personuppgifter hittas. Kan åsidosättas per regel nedan.",
-      "modeLabel": "Standardåtgärd när personuppgifter upptäcks",
-      "modeReplace": "Ersätt med en token",
-      "modeReplaceDesc": "Byt varje träff mot dess ersättningstoken och fortsätt. Kan åsidosättas per regel nedan.",
       "noCustomRules": "Inga egna regler ännu.",
       "patternPlaceholder": "t.ex. \\bEMP-\\d+\\b",
       "patternRequired": "Varje regel behöver minst ett mönster.",
-      "patterns": "Mönster (regex)",
       "removeRule": "Ta bort",
       "replacement": "Ersättning",
       "ruleName": "Regelnamn",
       "ruleNamePlaceholder": "t.ex. Anställningsnummer",
       "saveError": "Det gick inte att spara inställningarna för personuppgifter",
       "saved": "Inställningarna för personuppgifter sparades",
-      "subtitle": "Maskera personuppgifter i prompter innan de skickas till någon LLM-leverantör. Reglerna körs på hela den sammansatta prompten — användarens meddelande, schemaexempel, dataförhandsvisningar och text från uppladdade filer.",
+      "subtitle": "Maskera personuppgifter i prompter innan de skickas till en LLM-leverantör. Reglerna körs på användarens prompt och på data som agenten läser: frågeresultat, dataförhandsvisningar, text från uppladdade filer och konversationen.",
       "testBlocked": "Den här prompten skulle BLOCKERAS (personuppgifter upptäckta).",
-      "testButton": "Förhandsgranska maskeringen",
-      "testDesc": "Klistra in exempeltext för att se hur den maskeras med de nuvarande reglerna.",
       "testMatches": "Träffar: {rules}",
       "testNoMatches": "Inga personuppgifter upptäcktes i exemplet.",
       "testPlaceholder": "Klistra in text som innehåller exempel på personuppgifter…",
-      "testResult": "Resultat",
       "testTitle": "Testa dina regler",
-      "title": "Skydd av personuppgifter"
+      "title": "Skydd av personuppgifter",
+      "providersTitle": "Policy per leverantör",
+      "providersDesc": "Välj policy för varje LLM-leverantör. Leverantörer utan val använder standardpolicyn. Undantagen skickar prompter utan maskering, till exempel till en självhostad modell eller en modell i ditt VPC som du litar på. Det som visas i appen maskeras med standardpolicyn i båda fallen.",
+      "noProviders": "Inga LLM-leverantörer ännu.",
+      "providerPolicyFor": "PII-policy för {name}",
+      "exemptOption": "Undantagen (skicka utan maskering)",
+      "policiesTitle": "Policyer",
+      "newPolicy": "Ny policy",
+      "policyName": "Policynamn",
+      "deletePolicy": "Ta bort policy",
+      "deletePolicyConfirm": "Ta bort policyn \"{policy}\"? Leverantörer som använder den går tillbaka till standard.",
+      "defaultPolicy": "Standard",
+      "defaultPolicyNote": "Standard gäller för alla leverantörer utan egen policy och maskerar det som visas i appen. Den kan inte byta namn eller tas bort.",
+      "redactContextLabel": "Maskera även instruktioner och scheman",
+      "redactContextDesc": "Av: endast användarens prompt och data (frågeresultat, filer, konversation) maskeras, och instruktioner, scheman och övrig agentkontext når modellen som de skrevs. På: allt maskeras.",
+      "customDescShared": "Definiera egna detektorer en gång, med ett eller flera mönster (reguljära uttryck). Varje policy väljer om de används och vad de gör.",
+      "testFailed": "Testet misslyckades",
+      "actionPseudonymize": "Dölj för modellen",
+      "actionMask": "Maskera delvis",
+      "masksValue": "Behåller de 4 sista tecknen",
+      "pseudonymizesValue": "Människor ser fortfarande värdet",
+      "detectorTitle": "Namn, platser och organisationer",
+      "detectorUnavailable": "Att hitta namn, platser och organisationer kräver en PII-detektor, och ingen är konfigurerad på den här instansen. Be din administratör installera backendens pii-tillägg eller konfigurera en Presidio-tjänst.",
+      "detectorErrorLabel": "Om detektorn inte är tillgänglig",
+      "detectorErrorDesc": "Vad som händer med en förfrågan när detektorn inte kan kontrollera den.",
+      "detectorErrorBlock": "Blockera förfrågan",
+      "detectorErrorRegexOnly": "Skicka den med enbart mönsterregler",
+      "testDetectorUnavailable": "PII-detektorn är inte tillgänglig, så den här texten skulle blockeras.",
+      "policiesListDesc": "En policy är en uppsättning regler för vad en modell får se. Öppna en policy för att ändra dess regler.",
+      "rulesOn": "{n} regel på | {n} regler på",
+      "usedBy": "Används av: {providers}.",
+      "usedByNone": "Används inte av någon leverantör.",
+      "policyNamePlaceholder": "t.ex. Strikt",
+      "copyFrom": "Utgå från en kopia av",
+      "newRuleTitle": "Ny egen regel",
+      "editRuleTitle": "Redigera egen regel",
+      "patterns": "Mönster",
+      "patternsHelp": "Reguljära uttryck. Text som matchar något av dem skyddas.",
+      "deleteRuleTitle": "Ta bort egen regel",
+      "deleteRuleBody": "Ta bort \"{name}\"? Ingen policy använder den längre.",
+      "backToPolicies": "Alla policyer",
+      "policyHeading": "Policyn {policy}",
+      "policyNotFound": "Den här policyn finns inte längre.",
+      "offNotice": "PII-skyddet är avstängt, så den här policyn tillämpas inte än. Slå på det från sidan med policyer.",
+      "rulesTitle": "Vad som ska skyddas",
+      "rulesDesc": "Slå på det som policyn ska fånga och välj vad modellen ser i stället.",
+      "groupPatterns": "Vanliga identifierare",
+      "detectorNote": "Hittas av en språkmodell, inte av ett mönster. Kontrolleras i användarens meddelande och i data, aldrig i instruktioner eller scheman.",
+      "manageCustom": "Hantera egna regler",
+      "ruleOff": "Av",
+      "modelSees": "Vad modellen ser",
+      "testLiveDesc": "Skriv exempeltext för att se vad en modell skulle få med den här policyn. Resultatet uppdateras medan du skriver och när du ändrar reglerna.",
+      "testInputLabel": "Exempeltext",
+      "advancedTitle": "Avancerat",
+      "sensitivityFor": "Känslighet: {name}",
+      "sensitivityDesc": "Högre känslighet fångar mer och flaggar mer text som inte är personuppgifter.",
+      "sensitivityHigh": "Hög: fångar mer",
+      "sensitivityBalanced": "Balanserad",
+      "sensitivityLow": "Låg: färre falska träffar",
+      "sensitivityCustom": "Anpassad ({n})",
+      "entities": {
+        "PERSON": "Personnamn",
+        "LOCATION": "Plats",
+        "ORGANIZATION": "Organisation",
+        "NRP": "Nationalitet, religiös eller politisk grupp"
+      }
     },
     "piiTab": "Personuppgifter",
     "frameAncestors": {
@@ -3804,7 +4029,9 @@
       "readOnly": "På en instans med flera organisationer kan bara en instansadministratör ändra listan.",
       "duplicate": "Webbplatsen finns redan i listan.",
       "invalidFormat": "Ange en adress som börjar med https://, utan sökväg. Till exempel: https://portal.example.com",
-      "publicNote": "Vem som helst kan se de här adresserna: webbläsare får dem med varje sida."
+      "publicNote": "Vem som helst kan se de här adresserna: webbläsare får dem med varje sida.",
+      "confirmRemoveTitle": "Ta bort den här webbplatsen?",
+      "confirmRemoveBody": "{site} kan inte längre visa BOW. Sidor där som visar BOW slutar fungera direkt."
     }
   },
   "data": {
@@ -4224,6 +4451,11 @@
     "setupGuideTitle": "Installationssteg",
     "setupGuideCopy": "Kopiera",
     "setupGuideCopied": "Kopierat",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Ingen nyckel lagras. Frågor körs med den Google-identitet som är konfigurerad på servern: ett kopplat tjänstkonto eller en konfiguration för Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4302,10 +4534,21 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Dokumentbibliotekets namn, eller * för alla synliga bibliotek. Ett tomt fält väljer standardbiblioteket endast i läget Modern REST."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL till Exchange-servern",
+      "urlDescription": "Adressen till din Exchange-server, t.ex. https://mail.example.com. Sökvägen till Exchange Web Services (/EWS/Exchange.asmx) läggs till om du utelämnar den.",
+      "sharedTitle": "Delade postlådor",
+      "sharedDescription": "Valfritt. Adresser till delade postlådor eller gruppostlådor som ska ingå, avgränsade med kommatecken, t.ex. support@example.com, sales@example.com. Exchange avgör vem som får öppna varje postlåda: var och en ser bara de postlådor som kontot redan har åtkomst till.",
+      "ownTitle": "Ta med kontots egen postlåda",
+      "ownDescription": "Stäng av när du loggar in med ett tjänstkonto vars egen postlåda inte är relevant. Den första delade postlådan blir då standard."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "qlikCloud": {
+      "appFilterDescription": "Valfria kommaseparerade appnamn eller ID:n i valda utrymmen. Tomt inkluderar alla matchande appar. Använd ID:n för namn som innehåller kommatecken."
     },
     "qlikOnPrem": {
       "appFilterTitle": "Appfilter",
@@ -4446,6 +4689,22 @@
     "madeWith": "Skapad med {brand}",
     "fork": "Skapa kopia"
   },
+  "sharedConversation": {
+    "loading": "Laddar konversation…",
+    "signInTitle": "Inloggning krävs",
+    "signInBody": "Du måste logga in för att se den här konversationen.",
+    "signIn": "Logga in",
+    "deniedTitle": "Åtkomst nekad",
+    "deniedBody": "Du har inte behörighet att se den här konversationen. Be ägaren att dela den med dig.",
+    "goHome": "Till startsidan",
+    "notFoundTitle": "Konversationen hittades inte",
+    "notFoundBody": "Konversationen kan ha slutat delas eller finns inte.",
+    "byAuthor": "av {name}",
+    "fork": "Förgrena",
+    "forking": "Förgrenar…",
+    "loadOlder": "Läs in äldre meddelanden",
+    "poweredBy": "Drivs av {brand}"
+  },
   "errors": {
     "shell_rules.tool_required": "Kommandoregler kräver ett fjärrskalverktyg.",
     "shell_rules.invalid": "Ogiltiga kommandoregler.",
@@ -4490,6 +4749,9 @@
     "connection.table_preview_failed": "Förhandsgranskningen misslyckades: {reason}",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",
+    "system_logs.instance_admin_required": "Endast en instansadministratör kan använda systemloggar.",
+    "system_logs.invalid_range": "Starttiden måste vara före sluttiden.",
+    "system_logs.delete_failed": "Det gick inte att radera loggfilerna i {directory}. Kontrollera att katalogen finns och är skrivbar.",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
     "body.invalid_json": "Ogiltig JSON-kropp",
     "organization.not_found": "Organisationen hittades inte",
@@ -4594,7 +4856,28 @@
     "frame_ancestors.too_many": "Du kan lägga till högst {max} webbplatser.",
     "connection.query_not_found": "Frågan finns inte på den här anslutningen.",
     "connection.query_finished": "Frågan är redan avslutad ({status}).",
-    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns."
+    "connection.query_not_killable": "Frågan kan inte stoppas från BOW: klienten har en egen tidsgräns.",
+    "connection.slack_channels_not_slack": "Kanalval är bara tillgängligt för Slack-anslutningar.",
+    "connection.slack_channels_too_many": "Högst {max} kanaler per agent.",
+    "connection.slack_channels_not_ids": "Det här är inte Slack-kanal-id:n: {ids}",
+    "connection.slack_channels_unavailable": "Slack svarade inte: {detail}",
+    "review_item.not_found": "Granskningsobjektet hittades inte",
+    "agent_import.invalid_bundle": "Filen är inte ett giltigt exportpaket för en agent.",
+    "agent_import.name_taken": "Det finns redan en agent som heter ”{name}”.",
+    "agent_import.no_connection": "Mappa minst en anslutning för att importera agenten.",
+    "agent_import.failed": "Agenten kunde inte importeras.",
+    "account_link_required": "Det finns redan ett konto med den här e-postadressen. Be administratören att länka det.",
+    "invite_link_required": "Den här inloggningsmetoden kan inte godkänna din inbjudan. Använd inbjudningslänken i ditt e-postmeddelande eller kontakta administratören.",
+    "integration.connected_elsewhere": "Det här kontot är redan anslutet till en annan organisation i den här installationen. Koppla från det där först.",
+    "organization.multiple_not_enabled": "Den här installationen tillåter bara en organisation.",
+    "organization.create_instance_admin_required": "Endast en instansadministratör kan skapa en organisation.",
+    "organization.create_license_required": "Att skapa ytterligare en organisation kräver en Enterprise-licens.",
+    "organization.name_required": "Ange ett namn på organisationen.",
+    "organization.name_too_long": "Organisationens namn får vara högst {max} tecken.",
+    "organization.name_taken": "Det finns redan en organisation med namnet ”{name}”.",
+    "organization.signup_domains_instance_admin_required": "Endast en instansadministratör kan tilldela registreringsdomäner till en organisation.",
+    "organization.signup_domain_claimed": "Domänen {domain} är redan tilldelad en annan organisation.",
+    "organization.member_instance_admin": "Det här kontot tillhör en instansadministratör. Endast en instansadministratör kan lägga till det i en organisation."
   },
   "email": {
     "dashboardShare": {
@@ -5257,6 +5540,7 @@
       "toastCreated": "Testfallet skapades",
       "toastDeleteFailed": "Det gick inte att radera testfallet",
       "saveFailed": "Det gick inte att spara testfallet",
+      "runFailed": "Testfallet sparades, men körningen kunde inte starta",
       "emptyDescription": "Testerna utvärderar hur dina agenter svarar på prompter och regler."
     },
     "filter": {
@@ -7299,7 +7583,12 @@
     "updateFailed": "Kunde inte uppdatera behörigheter",
     "addIncomplete": "Vissa medlemskap eller behörigheter kunde inte sparas. Granska listan och försök igen.",
     "added": "Medlemmar tillagda",
-    "addFailed": "Kunde inte lägga till medlemmar"
+    "addFailed": "Kunde inte lägga till medlemmar",
+    "inherited": "Ärvd åtkomst",
+    "inheritedHint": "De här personerna och grupperna når agenten via en mapp eller anslutning. Ändra deras åtkomst vid källan.",
+    "viaFolder": "Via mappen {name}",
+    "viaConnection": "Via anslutningen {name}",
+    "inheritedHidden": "Andra kan ha åtkomst via en mapp eller anslutning som du inte hanterar."
   },
   "productUpdates": {
     "checkbox": "Skicka produktnyheter till mig",
@@ -7417,5 +7706,155 @@
       "stale": "Processen som körde frågan slutade svara; dess plats frigjordes.",
       "busy": "Ingen plats blev ledig i tid: anslutningen låg på sin gräns för samtidiga frågor."
     }
+  },
+  "slackChannels": {
+    "button": "Kanaler",
+    "title": "Slack-kanaler för den här agenten",
+    "subtitle": "Välj vilka Slack-kanaler den här agenten läser.",
+    "allChannels": "Alla mina kanaler",
+    "allChannelsHint": "Varje kanal som varje person är med i.",
+    "selectedChannels": "Endast valda kanaler",
+    "connectRequired": "Logga in med Slack på den här anslutningen för att välja kanaler.",
+    "searchPlaceholder": "Sök kanaler",
+    "notYourChannel": "inte i ditt Slack",
+    "noMatch": "Inga kanaler matchar.",
+    "selectedCount": "{n} valda",
+    "includeDms": "Inkludera direktmeddelanden",
+    "includeDmsHint": "Läs även varje persons direkt- och gruppmeddelanden.",
+    "membershipNote": "Varje person ser fortfarande bara de kanaler de är med i.",
+    "saveFailed": "Det gick inte att spara kanalerna",
+    "saved": "Kanalerna sparades",
+    "summaryAll": "Läser alla kanaler och direktmeddelanden",
+    "summaryAllNoDms": "Läser alla kanaler, inga direktmeddelanden",
+    "summarySome": "Läser {names}",
+    "summarySomeWithDms": "Läser {names} och direktmeddelanden",
+    "loadFailed": "Det gick inte att läsa in agentens kanaler. Stäng och försök igen.",
+    "privateChannel": "Privat kanal",
+    "privateCount": "{n} privat kanal | {n} privata kanaler"
+  },
+  "agentClone": {
+    "menu": "Klona agent",
+    "titleFor": "Klona {name}",
+    "name": "Namn",
+    "description": "Beskrivning",
+    "defaultName": "Kopia av {name}",
+    "alwaysIncluded": "Alltid med:",
+    "always": {
+      "settings": "Inställningar",
+      "tables": "Tabeller",
+      "tools": "Verktyg",
+      "prompts": "Prompter",
+      "files": "Filer"
+    },
+    "parts": {
+      "instructions": "Instruktioner",
+      "access": "Åtkomst"
+    },
+    "choices": {
+      "copy": "Kopiera",
+      "link": "Dela",
+      "none": "Inget",
+      "sameAccess": "Samma personer",
+      "onlyMe": "Bara jag"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Egna kopior, redigeras separat",
+        "link": "Samma instruktioner; ändringar syns i båda",
+        "none": "Bara globala instruktioner"
+      },
+      "access": {
+        "same": "Samma personer och behörigheter",
+        "only_me": "Bara du, tills du delar den"
+      }
+    },
+    "footnote": "Sparade frågor, utvärderingar, listor, konversationer och dashboards klonas inte. Den nya agenten börjar i träning (i utveckling om den här är det).",
+    "submit": "Klona",
+    "cloning": "Klonar…",
+    "nameTaken": "Det finns redan en agent med det namnet.",
+    "instructionsChanged": "Instruktionerna ändrades under kloningen. Försök igen.",
+    "linkBlocked": "De här instruktionerna används också av agenter eller mappar som du inte förvaltar, så de kan inte delas. Kopiera dem i stället, eller fråga någon som förvaltar dem.",
+    "linkPending": "De här instruktionerna har ändringar som väntar på godkännande, så de kan inte delas än. Godkänn eller avvisa ändringarna först, eller kopiera instruktionerna i stället.",
+    "notInFolder": "Du förvaltar inte mappen för {name}, så den nya agenten skapades på översta nivån.",
+    "done": "{name} skapades",
+    "failed": "Det gick inte att klona agenten"
+  },
+  "agentImport": {
+    "title": "Importera agent",
+    "subtitle": "Återskapa en agent från en exporterad zip: dess tabeller, instruktioner, utvärderingar och sparade frågor.",
+    "stepUpload": "Ladda upp",
+    "stepConnections": "Anslutningar",
+    "stepReview": "Granska",
+    "stepTables": "Tabeller",
+    "dropHere": "Släpp agentens export-zip här, eller klicka för att välja",
+    "dropHint": "Den .zip som laddades ned med Exportera agent",
+    "reading": "Läser paketet…",
+    "mapTitle": "Mappa anslutningar",
+    "mapHint": "Paketet namnger anslutningar från miljön det kom från. Välj vilken anslutning som ska användas här för var och en.",
+    "tablesInBundle": "{n} tabeller i paketet",
+    "toolsInBundle": "{n} verktyg",
+    "searchConnections": "Sök anslutningar…",
+    "skipConnection": "Hoppa över den här anslutningen",
+    "willSkip": "Överhoppad — dess tabeller och verktyg tas inte med",
+    "noAccess": "Du kan inte skapa agenter på den här anslutningen",
+    "indexingPending": "Anslutningen indexeras fortfarande — tabellerna tillämpas när den är klar",
+    "allTablesFound": "Alla {n} tabeller hittades",
+    "someTablesFound": "{found} av {total} tabeller hittades",
+    "showMissing": "vilka saknas?",
+    "autoMatched": "matchad på namn",
+    "createConnection": "Skapa ny anslutning",
+    "continue": "Fortsätt",
+    "back": "Tillbaka",
+    "mapAtLeastOne": "Mappa minst en anslutning",
+    "nameLabel": "Agentens namn",
+    "nameTaken": "Det finns redan en agent som heter ”{name}” — välj ett annat namn",
+    "nameRenamed": "Det finns redan en agent som heter ”{name}”, så importen får ett nytt namn",
+    "whatToImport": "Vad som importeras",
+    "tablesLine": "{n} aktiva tabeller på {conns} anslutning(ar)",
+    "includeInstructions": "{n} instruktioner ({folders} mappar)",
+    "includeEvals": "{n} utvärderingssviter ({cases} fall)",
+    "includeQueries": "{n} sparade frågor",
+    "includeStarters": "{n} konversationsstartare",
+    "publishLabel": "Publicera importerade instruktioner",
+    "publishHint": "Av: instruktioner och frågor kommer som utkast för granskning. På: var och en behåller sin exporterade status.",
+    "skippedConnections": "Överhoppade: {names}",
+    "membersLeftOut": "{n} medlem(mar) i paketet finns inte här och utelämnas",
+    "importButton": "Importera agent",
+    "doneTitle": "”{name}” importerades",
+    "doneLine": "{tables} aktiva tabeller · {instructions} instruktioner · {evals} utvärderingssviter · {queries} sparade frågor",
+    "finish": "Slutför",
+    "openAgent": "Öppna agent",
+    "previewFailed": "Paketet kunde inte läsas",
+    "importFailed": "Importen misslyckades",
+    "bundleWarnings": "{n} fil(er) i paketet hoppades över",
+    "chipConnections": "{n} anslutningar",
+    "chipTables": "{n} tabeller",
+    "chipInstructions": "{n} instruktioner",
+    "chipEvals": "{n} utvärderingar",
+    "chipQueries": "{n} frågor"
+  },
+  "markdownTable": {
+    "title": "Tabell",
+    "copyFailed": "Det gick inte att kopiera tabellen"
+  },
+  "createOrganization": {
+    "title": "Skapa organisation",
+    "description": "En separat organisation med egna medlemmar, data och inställningar.",
+    "nameLabel": "Namn",
+    "namePlaceholder": "t.ex. Ekonomi",
+    "nameRequired": "Ange ett namn.",
+    "adminEmailLabel": "Första administratörens e-post",
+    "optional": "Valfritt",
+    "adminEmailPlaceholder": "namn{'@'}foretag.se",
+    "adminEmailHint": "Vi skickar en inbjudan till den här personen att gå med som administratör. Du blir också administratör.",
+    "adminEmailInvalid": "Ange en giltig e-postadress.",
+    "submit": "Skapa organisation",
+    "created": "Organisationen ”{name}” har skapats",
+    "switching": "Byter till den…",
+    "inviteSent": "En inbjudan har skickats till {email}.",
+    "inviteNoSmtp": "E-post är inte konfigurerad, så ingen inbjudan skickades till {email}. Kopiera inbjudningslänken från sidan Medlemmar.",
+    "inviteNotSent": "Inbjudan till {email} kunde inte skickas. Bjud in personen igen från sidan Medlemmar.",
+    "adminAdded": "{email} har lagts till som administratör.",
+    "failed": "Det gick inte att skapa organisationen."
   }
 }

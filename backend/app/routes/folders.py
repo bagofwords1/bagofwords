@@ -37,12 +37,16 @@ class FolderPath(BaseModel):
     path_segments: list[Name] = Field(min_length=1, max_length=64)
 
 
-def folder_item(folder, rights):
+def folder_item(folder, rights, shown=None):
     parent = folder.parent_id
+    if shown is None:
+        parent_shown = bool(parent) and rights.has_resource_permission("folder", parent, "browse")
+    else:
+        parent_shown = parent in shown
     return {
         "id": folder.id,
         "name": folder.name,
-        "parent_id": parent if parent and rights.has_resource_permission("folder", parent, "browse") else None,
+        "parent_id": parent if parent_shown else None,
         "limited_access": not folder.inherits_access,
         "can_query": rights.has_resource_permission("folder", folder.id, "view"),
         "capabilities": [
@@ -58,17 +62,29 @@ def folder_item(folder, rights):
 
 @router.get("")
 async def list_folders(
+    show_all: bool = False,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(current_user),
     org: Organization = Depends(get_current_organization),
 ):
+    """Folders the caller was granted, directly or through a parent.
+
+    Same rule as the agents list: an org admin's capability bypass does not
+    flood the tree with folders nobody shared with them. ``show_all`` lifts
+    that for the admin view; it never widens what the caller may browse.
+    """
     rights = await resolve_permissions(db, user.id, org.id)
-    rows = await db.scalars(select(Folder).where(Folder.organization_id == org.id).order_by(Folder.name))
+    rows = list(await db.scalars(select(Folder).where(Folder.organization_id == org.id).order_by(Folder.name)))
+
+    def listed(folder_id):
+        if show_all:
+            return rights.has_resource_permission("folder", folder_id, "browse")
+        return "browse" in rights.resource_permissions.get(("folder", folder_id), ())
+
+    shown = {row.id for row in rows if listed(row.id)}
     return {
         "can_create": can_create_root(rights),
-        "folders": [
-            folder_item(row, rights) for row in rows if rights.has_resource_permission("folder", row.id, "browse")
-        ],
+        "folders": [folder_item(row, rights, shown) for row in rows if row.id in shown],
     }
 
 

@@ -1,6 +1,8 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
-from app.data_sources.clients._duckdb_lockdown import _list_literal, lock_down
+from app.data_sources.clients import _duckdb_lockdown as lockdown
+from app.data_sources.clients._duckdb_lockdown import _list_literal
+from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
 import duckdb
 import os
@@ -23,6 +25,7 @@ _RELATIVE_GLOB = ("A URI of this connection is a glob or a directory relative to
                   "names no directory under it. Name the directory its files are in.")
 _FILE_HOST = ("A URI of this connection names a host after file://. "
               "Write a local file as file:///path or file://localhost/path.")
+_PROTECTED_MATCH = "A URI of this connection can match a protected system or application file."
 _NO_WORKING_DIRECTORY = ("A URI of this connection is relative, and the working directory it is relative to "
                          "no longer exists. Name its files from the root.")
 
@@ -112,6 +115,12 @@ class DuckDBClient(DataSourceClient):
         # escape single quotes by doubling them
         return "'" + str(value).replace("'", "''") + "'"
 
+    @staticmethod
+    def _quoted(name: str) -> str:
+        """An identifier as DuckDB reads it whatever it contains (a view named
+        after a file can start with a digit; a table can hold a space)."""
+        return '"' + str(name).replace('"', '""') + '"'
+
     def _configure_httpfs(self, con: duckdb.DuckDBPyConnection) -> None:
         con.execute("INSTALL httpfs;")
         con.execute("LOAD httpfs;")
@@ -131,12 +140,15 @@ class DuckDBClient(DataSourceClient):
 
         # AWS
         if self.access_key and self.secret_key:
-            con.execute(f"SET s3_access_key_id={self._sql_literal(self.access_key)};")
-            con.execute(f"SET s3_secret_access_key={self._sql_literal(self.secret_key)};")
-            if self.region:
-                con.execute(f"SET s3_region={self._sql_literal(self.region)};")
-            if self.session_token:
-                con.execute(f"SET s3_session_token={self._sql_literal(self.session_token)};")
+            if lockdown.unrestricted():
+                con.execute(f"SET s3_access_key_id={self._sql_literal(self.access_key)};")
+                con.execute(f"SET s3_secret_access_key={self._sql_literal(self.secret_key)};")
+                if self.region:
+                    con.execute(f"SET s3_region={self._sql_literal(self.region)};")
+                if self.session_token:
+                    con.execute(f"SET s3_session_token={self._sql_literal(self.session_token)};")
+            else:
+                self._create_object_store_secrets(con)
 
         # GCP
         if self.service_account_json:
@@ -146,7 +158,35 @@ class DuckDBClient(DataSourceClient):
         # Azure
         if self.connection_string:
             # DuckDB supports Azure via connection string (SAS/account key)
-            con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
+            if lockdown.unrestricted():
+                con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
+            else:
+                con.execute(
+                    "CREATE OR REPLACE SECRET bow_azure (TYPE azure, "
+                    f"CONNECTION_STRING {self._sql_literal(self.connection_string)})"
+                )
+
+    def _create_object_store_secrets(self, con: duckdb.DuckDBPyConnection) -> None:
+        """The access key as session secrets instead of settings.
+
+        A setting can be read back by any query (`current_setting`,
+        `duckdb_settings()`); a secret is used to sign requests and is shown
+        redacted. Requests are signed the same way either way. The URL style
+        and TLS settings above still apply. The key covers s3:// and, as the
+        settings did, gs:// (HMAC keys through the S3-compatible API).
+        """
+        # A secret without a region signs with an empty one; the settings
+        # path used the session default.
+        region = self.region or con.execute("SELECT current_setting('s3_region')").fetchone()[0] or "us-east-1"
+        fields = [
+            f"KEY_ID {self._sql_literal(self.access_key)}",
+            f"SECRET {self._sql_literal(self.secret_key)}",
+        ]
+        if self.session_token:
+            fields.append(f"SESSION_TOKEN {self._sql_literal(self.session_token)}")
+        s3_fields = fields + [f"REGION {self._sql_literal(region)}"]
+        con.execute(f"CREATE OR REPLACE SECRET bow_s3 (TYPE s3, {', '.join(s3_fields)})")
+        con.execute(f"CREATE OR REPLACE SECRET bow_gcs (TYPE gcs, {', '.join(fields)})")
 
     def _normalize_uri(self, pattern: str) -> str:
         """Trust user-supplied URIs.
@@ -195,10 +235,10 @@ class DuckDBClient(DataSourceClient):
             normalized = self._normalize_uri(pattern)
             lower = normalized.lower()
             if lower.endswith(".parquet") or ".parquet" in lower:
-                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
+                con.execute(f"CREATE OR REPLACE VIEW {self._quoted(view)} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
             else:
                 # default to CSV auto
-                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_csv_auto({self._sql_literal(normalized)})")
+                con.execute(f"CREATE OR REPLACE VIEW {self._quoted(view)} AS SELECT * FROM read_csv_auto({self._sql_literal(normalized)})")
             created.append(view)
         return created
 
@@ -223,6 +263,8 @@ class DuckDBClient(DataSourceClient):
         directories: List[str] = []
         for pattern in self.uri_patterns:
             uri = self._normalize_uri(pattern)
+            if uri.lower().startswith("file:") and not uri.startswith("file:"):
+                raise ValueError(lockdown.FILE_SCHEME_CASE)
             if uri.startswith("file://") and not uri.startswith(("file:///", "file://localhost/")):
                 raise ValueError(_FILE_HOST)
             scheme = _SCHEME.match(uri)
@@ -246,7 +288,11 @@ class DuckDBClient(DataSourceClient):
                 continue
             directory = uri if glob is None else uri[:uri.rfind("/", 0, glob.start()) + 1]
             if local:
+                written = directory
                 directory = _resolved_directory(con, directory, cwd)
+                # What the glob can match under the directory as resolved.
+                if glob is not None and lockdown.pattern_reaches_protected_file(directory + uri[len(written):]):
+                    raise ValueError(_PROTECTED_MATCH)
             else:
                 after = directory[scheme.end():]
                 if not after.strip("/") or ".." in after.split("/"):
@@ -256,35 +302,58 @@ class DuckDBClient(DataSourceClient):
             directories.append(directory)
         return paths, directories
 
+    def _local_duckdb_uri(self) -> str | None:
+        """The first URI naming a .duckdb or .db file, as written."""
+        for pattern in self.uri_patterns:
+            if pattern.lower().endswith(('.duckdb', '.db')):
+                return pattern
+        return None
+
     def _find_local_duckdb_file(self) -> str | None:
         """Check if any URI pattern is a local .duckdb or .db file.
 
         Supports both direct paths (/data/my.duckdb) and file:// URIs (file:///data/my.duckdb).
         Returns the normalized path (strips file:// prefix if present).
         """
-        for pattern in self.uri_patterns:
-            lower = pattern.lower()
-            if lower.endswith('.duckdb') or lower.endswith('.db'):
-                # Strip file:// prefix if present
-                if lower.startswith('file://'):
-                    return pattern[7:]  # Remove 'file://' prefix
-                return pattern
-        return None
+        pattern = self._local_duckdb_uri()
+        if pattern is not None and pattern.lower().startswith('file://'):
+            return pattern[7:]  # Remove 'file://' prefix
+        return pattern
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con: duckdb.DuckDBPyConnection | None = None
         try:
             local_db = self._find_local_duckdb_file()
+            db_file = self.database or local_db
 
-            if self.database:
-                # Open local .duckdb file directly (read-only for safety)
-                con = duckdb.connect(database=self.database, read_only=True)
-                lock_down(con, database_path=self.database)
-            elif local_db:
-                # Direct connection to local .duckdb file specified in URIs
-                con = duckdb.connect(database=local_db, read_only=True)
-                lock_down(con, database_path=local_db)
+            if db_file:
+                # Open the local .duckdb file directly, read-only.
+                if lockdown.unrestricted():
+                    con = duckdb.connect(database=db_file, read_only=True)
+                else:
+                    organization = lockdown.organization_of(self)
+                    # The file the policy checks is the file opened: a
+                    # file: prefix read as DuckDB reads it, links followed.
+                    written = self.database or self._local_duckdb_uri()
+                    local = lockdown.local_path_of(written)
+                    database = lockdown.database_file(written, organization)
+                    # Besides the file: its own folder, where the files its
+                    # views read usually sit, and any other URI listed on the
+                    # connection, as the path policy (organization roots
+                    # included) accepts them, before the file is opened.
+                    others = [p for p in self.uri_patterns if p != written and lockdown.local_path_of(p) != local]
+                    paths, directories = lockdown.engine_resolved(
+                        *lockdown.database_file_sources(database, others, organization))
+                    # The path policy on exactly what the lock will grant.
+                    lockdown.check_lock_targets(paths, directories, organization)
+                    con = duckdb.connect(database=database, read_only=True)
+                    lockdown.lock_connection(con, paths=paths, directories=directories, database_path=database)
+            elif lockdown.unrestricted():
+                # In-memory database with views from URI patterns, unlocked.
+                con = duckdb.connect(database=":memory:")
+                self._configure_httpfs(con)
+                self._create_views(con)
             else:
                 # In-memory database with views from URI patterns.
                 con = duckdb.connect(database=":memory:")
@@ -299,12 +368,17 @@ class DuckDBClient(DataSourceClient):
                 # resolves each URI to; a glob at a root is refused here,
                 # before anything is read.
                 paths, directories = self._lockdown_targets(con)
-                lock_down(con, allowed_paths=paths, allowed_directories=directories)
+                # The path policy, before anything is read: on exactly what
+                # the lock will grant, and on the URIs as written.
+                lockdown.check_lock_targets(paths, directories, lockdown.organization_of(self))
+                self._allowed_sources()
+                lockdown.lock_connection(con, paths=paths, directories=directories)
                 # Views are created on the locked connection: one over
                 # anything else fails at once instead of reading it.
                 self._create_views(con)
             yield con
-        except IndexingCancelled:
+        except (IndexingCancelled, ReadOnlyViolation):
+            # A query refused on the session keeps its type.
             raise
         except Exception as e:
             raise RuntimeError(f"Error while connecting to DuckDB: {e}")
@@ -317,12 +391,24 @@ class DuckDBClient(DataSourceClient):
             except Exception:
                 pass
 
+    def _allowed_sources(self) -> tuple[list[str], list[str]]:
+        """Exact files/URLs and directory/URL prefixes this connection reads."""
+        if lockdown.unrestricted():
+            return [], []
+        return lockdown.sources_for_patterns(
+            (self._normalize_uri(p) for p in self.uri_patterns), lockdown.organization_of(self))
+
     def execute_query(self, sql: str) -> pd.DataFrame:
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
+                lockdown.check_session_sql(con, sql)
                 res = con.execute(sql)
                 return res.df()
         except Exception as e:
+            explained = lockdown.explain_access_error(e)
+            if explained:
+                raise RuntimeError(explained) from e
             raise
 
     def _is_direct_db_connection(self) -> bool:
@@ -351,7 +437,7 @@ class DuckDBClient(DataSourceClient):
             for (name,) in discovery_items(rows, 'tables', label=lambda row: row[0]):
                 cols = []
                 try:
-                    desc = con.execute(f"DESCRIBE {name}").fetchall()
+                    desc = con.execute(f"DESCRIBE {self._quoted(name)}").fetchall()
                     for d in desc:
                         # DuckDB DESCRIBE columns: column_name, column_type, null, key, default, extra
                         col_name = d[0]
@@ -362,7 +448,7 @@ class DuckDBClient(DataSourceClient):
                 except Exception:
                     # Fallback: zero-row scan
                     try:
-                        df = con.execute(f"SELECT * FROM {name} LIMIT 0").df()
+                        df = con.execute(f"SELECT * FROM {self._quoted(name)} LIMIT 0").df()
                         for c in df.columns:
                             cols.append(TableColumn(name=str(c), dtype="unknown"))
                     except IndexingCancelled:
@@ -377,14 +463,14 @@ class DuckDBClient(DataSourceClient):
         cols: List[TableColumn] = []
         with self.connect() as con:
             try:
-                desc = con.execute(f"DESCRIBE {table_name}").fetchall()
+                desc = con.execute(f"DESCRIBE {self._quoted(table_name)}").fetchall()
                 for d in desc:
                     col_name = d[0]
                     col_type = d[1]
                     cols.append(TableColumn(name=col_name, dtype=str(col_type)))
             except Exception:
                 try:
-                    df = con.execute(f"SELECT * FROM {table_name} LIMIT 0").df()
+                    df = con.execute(f"SELECT * FROM {self._quoted(table_name)} LIMIT 0").df()
                     for c in df.columns:
                         cols.append(TableColumn(name=str(c), dtype="unknown"))
                 except Exception:
@@ -417,7 +503,7 @@ class DuckDBClient(DataSourceClient):
                     view_names = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW' ORDER BY table_name LIMIT 1").fetchall()
                     if view_names:
                         vn = view_names[0][0]
-                        con.execute(f"SELECT * FROM {vn} LIMIT 1")
+                        con.execute(f"SELECT * FROM {self._quoted(vn)} LIMIT 1")
                 return {"success": True, "message": "DuckDB connected and views ready"}
         except Exception as e:
             return {"success": False, "message": str(e)}

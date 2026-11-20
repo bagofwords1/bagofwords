@@ -1,35 +1,17 @@
 <template>
-  <div class="mt-1">
-    <!-- Running -->
-    <div v-if="status === 'running'" class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-      <span class="tool-shimmer flex items-center">
-        <Icon name="heroicons-clock" class="w-3 h-3 me-1.5 text-ink-muted" />
-        Scheduling task…
-      </span>
-    </div>
-
-    <!-- Success: reuse the shared scheduled-task card; click opens the editor -->
-    <Transition v-else-if="isSuccess" name="fade" appear>
-      <ScheduledTaskCard
-        :scheduled-prompt="cardData"
-        @click="taskId && emit('openScheduledTask', taskId)"
-      />
-    </Transition>
-
-    <!-- Error -->
-    <div v-else class="text-chat-2 text-gray-500 dark:text-gray-400">
-      <div class="flex items-center text-gray-600 dark:text-gray-400">
-        <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-        <span>Couldn't schedule task</span>
-      </div>
-      <div v-if="errorMessage" class="mt-1 text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
-        {{ errorMessage }}
-      </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-clock" :label="cardData.title || toolExecution.tool_name" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded" />
+    <div v-if="toolHeaderExpanded" class="mt-2 min-w-0 text-chat-2">
+      <ScheduledTaskCard v-if="isSuccess" :scheduled-prompt="cardData" @click="taskId && emit('openScheduledTask', taskId)" />
+      <div v-if="errorMessage" class="text-ink-muted break-words">{{ errorMessage }}</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
 import { computed } from 'vue'
 
 interface ToolExecution {
@@ -74,18 +56,6 @@ const errorMessage = computed(() => {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;
 }

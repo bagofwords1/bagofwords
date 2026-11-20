@@ -24,6 +24,29 @@ SEVERITY_ERROR = "error"
 SEVERITIES = {SEVERITY_INFO, SEVERITY_WARNING, SEVERITY_ERROR}
 SEVERITY_RANK = {SEVERITY_ERROR: 0, SEVERITY_WARNING: 1, SEVERITY_INFO: 2}
 
+# ── Resolution (the thing the notification is about was closed) ────────────────
+# Set on every recipient's row when the source ReviewItem closes, so the inbox
+# shows it as handled instead of an open alert. Distinct from the recipient's
+# own dismiss (``dismissed_at``), which only hides it for that one user.
+RESOLUTION_RESOLVED = "resolved"    # the underlying issue was fixed
+RESOLUTION_DISMISSED = "dismissed"  # someone closed the item in the Review feed
+RESOLUTIONS = {RESOLUTION_RESOLVED, RESOLUTION_DISMISSED}
+
+# How the item was handled — the reason shown next to "Handled" in the inbox and
+# the Review feed. Every closure has a person behind it, directly (marked) or
+# through something they did (accepted a suggestion, ran a training that passed).
+HANDLED_MARKED = "marked"                        # someone chose "Mark as handled"
+HANDLED_SUGGESTION_REVIEWED = "suggestion_reviewed"  # the pending change was accepted/resolved
+HANDLED_SUGGESTION_REJECTED = "suggestion_rejected"  # the pending change was rejected
+HANDLED_SUGGESTION_VOIDED = "suggestion_voided"      # the instruction changed under it
+HANDLED_TRAINING_PASSED = "training_passed"      # a training run started from Review passed
+HANDLED_EVAL_PASSED = "eval_passed"              # an eval run started from Review passed
+HANDLED_CONDITION_CLEARED = "condition_cleared"  # a producer re-verified the condition is gone
+
+# Handled notifications stay visible (greyed) for this long, then drop out of the
+# inbox list on their own. The rows are kept: dedup reads them.
+RESOLVED_VISIBLE_DAYS = 7
+
 
 class Notification(BaseSchema):
     """One notification delivered to one user — the per-recipient inbox row.
@@ -58,7 +81,8 @@ class Notification(BaseSchema):
 
     title = Column(String, nullable=False)
     body = Column(String, nullable=True)                  # human-readable detail
-    # Frontend deep-link target, e.g. "/reports/<id>" or "/agents/<id>?review=<item>".
+    # Frontend deep-link target — where the recipient acts on it, e.g.
+    # "/reports/<id>", "/agents/<id>/tables", "/agents/<id>/review/<item>".
     link = Column(String, nullable=True)
 
     # Polymorphic pointer to the thing this is about:
@@ -77,6 +101,11 @@ class Notification(BaseSchema):
     # Per-user triage state (this is the whole point of the table).
     read_at = Column(DateTime, nullable=True)
     dismissed_at = Column(DateTime, nullable=True)
+
+    # Shared state mirrored from the source (see RESOLUTION_*): when and how the
+    # underlying item closed. Null while it is still open.
+    resolved_at = Column(DateTime, nullable=True)
+    resolution = Column(String(16), nullable=True)
 
     user = relationship("User", foreign_keys=[user_id], lazy="noload")
     actor = relationship("User", foreign_keys=[actor_user_id], lazy="noload")

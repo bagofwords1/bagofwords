@@ -1,30 +1,34 @@
 <template>
-  <div class="mt-1">
-    <div class="mb-1 flex items-center text-chat-2 text-gray-500 dark:text-gray-400">
-      <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-ink-muted" />
-        {{ t('tools.stopEvalRun.stopping') }}
-      </span>
-      <span v-else-if="success" class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-stop-circle" class="w-3 h-3 me-1 text-red-400" />
-        <span class="align-middle">{{ t('tools.stopEvalRun.stopped') }}</span>
-        <span v-if="total" class="ms-1.5 text-chat-3 text-gray-500 dark:text-gray-400">{{ passed }}/{{ total }} {{ t('tools.stopEvalRun.passedAtStop') }}</span>
-      </span>
-      <span v-else class="text-gray-700 dark:text-gray-300 flex items-center">
-        <Icon name="heroicons-exclamation-triangle" class="w-3 h-3 me-1 text-ink-muted" />
-        <span class="align-middle">{{ message || t('tools.stopEvalRun.failed') }}</span>
-      </span>
-    </div>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-clipboard-document-check" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.stopEvalRun.stopping') }}</template>
+      <template v-else-if="success">{{ t('tools.stopEvalRun.stopped') }}</template>
+      <template v-else>{{ t('tools.stopEvalRun.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else-if="success"><span v-if="total" class="ms-1.5 text-chat-3 text-gray-500 dark:text-gray-400">{{ passed }}/{{ total }} {{ t('tools.stopEvalRun.passedAtStop') }}</span></template>
+      <template v-else></template></div>
+      <p v-if="message" class="mb-2 text-chat-3 text-ink-muted break-words">{{ message }}</p>
+      
     <div v-if="runId" class="text-chat-2 text-ink-muted ms-1">
       <NuxtLink :to="`/evals/runs/${runId}`" class="hover:text-blue-600 inline-flex items-center gap-0.5">
         <Icon name="heroicons:arrow-top-right-on-square" class="w-3 h-3" />
         {{ t('tools.stopEvalRun.openRun') }}
       </NuxtLink>
     </div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 
@@ -50,14 +54,5 @@ const message = computed<string>(() => result.value?.message || '')
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
+.tool-call-details { overflow-wrap: anywhere; }
 </style>

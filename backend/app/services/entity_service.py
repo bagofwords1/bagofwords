@@ -465,6 +465,26 @@ class EntityService:
         return {"data": df, "applied_params": resolved, "cached": False}
 
 
+    async def _org_data_sources(
+        self, db: AsyncSession, organization: Organization, data_source_ids,
+    ) -> List[DataSource]:
+        """The data sources named by `data_source_ids`, all of which must belong
+        to `organization`. An id from anywhere else is answered like an unknown
+        one, with no detail."""
+        wanted = {str(i) for i in (data_source_ids or [])}
+        if not wanted:
+            return []
+        rows = list((await db.execute(
+            select(DataSource).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.id.in_(wanted),
+            )
+        )).scalars().unique().all())
+        if {str(ds.id) for ds in rows} != wanted:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Agent not found")
+        return rows
+
     async def step_report_data_source_ids(
         self, db: AsyncSession, step_id: str, organization: Organization,
     ) -> List[str]:
@@ -612,6 +632,8 @@ class EntityService:
             entity.status = "draft"
             entity.published_at = None
 
+        if data_source_ids_override:
+            await self._org_data_sources(db, organization, data_source_ids_override)
         db.add(entity)
         # Link data sources - use override if provided, otherwise use report data sources
         ds_ids: list[str] = []
@@ -684,6 +706,7 @@ class EntityService:
         *,
         creator_can_publish: bool = True,
     ) -> Entity:
+        await self._org_data_sources(db, organization, payload.data_source_ids)
         slug = await self._unique_slug(db, organization, payload.slug or payload.title)
         entity = Entity(
             organization_id=str(organization.id),
@@ -1021,8 +1044,9 @@ class EntityService:
         # Handle data source associations
         if payload.data_source_ids is not None:
             if payload.data_source_ids:
-                result = await db.execute(select(DataSource).where(DataSource.id.in_(payload.data_source_ids)))
-                entity.data_sources = list(result.scalars().all())
+                entity.data_sources = await self._org_data_sources(
+                    db, organization, payload.data_source_ids
+                )
             else:
                 entity.data_sources = []
 

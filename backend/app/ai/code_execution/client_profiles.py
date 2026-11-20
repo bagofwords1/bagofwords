@@ -206,7 +206,7 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("spectrum_client", "SpectrumClient", f"{_JSON}, spectrum_client.py:658"),
     _refused("vcenter_client", "VCenterClient", f"{_JSON}, vcenter_client.py:805"),
     _refused("zabbix_client", "ZabbixClient", f"{_JSON}, zabbix_client.py:341"),
-    _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:177"),
+    _refused("mongodb_client", "MongodbClient", f"{_JSON} (aggregation pipeline), mongodb_client.py:205"),
     _refused("sap_bw_xmla_client", "SapBwXmlaClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("infor_olap_client", "InforOlapClient", f"{_MDX}, inherited from xmla_base.py:467"),
     _refused("analysis_services_client", "AnalysisServicesClient", f"{_MDX}, analysis_services_client.py:673"),
@@ -219,11 +219,15 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
              "result-object list, not query text, businessobjects_client.py:338"),
     _refused("timbr_a2a_client", "TimbrA2aClient", "natural-language prompt, not query text, timbr_a2a_client.py:224"),
     _refused("gmail_mail_client", "GmailMailClient", "Gmail search text with no declared renderer, gmail_mail_client.py:412"),
+    _refused("slack_messages_client", "SlackMessagesClient",
+             "Slack search text with no declared renderer, slack_messages_client.py:1202"),
+    _refused("exchange_onprem_client", "ExchangeOnpremClient",
+             "mail search text with no declared renderer, exchange_onprem_client.py:818"),
     _refused("network_dir_client", "NetworkDirClient",
-             f"{_FILE}, or DuckDB SQL over the indexed file tables with no declared renderer, network_dir_client.py:1223"),
-    _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1223"),
-    _refused("git_repo_client", "GitLabRepoClient", f"{_FILE}, inherited from network_dir_client.py:1223"),
-    _refused("git_repo_client", "BitbucketRepoClient", f"{_FILE}, inherited from network_dir_client.py:1223"),
+             f"{_FILE}, or DuckDB SQL over the indexed file tables with no declared renderer, network_dir_client.py:1244"),
+    _refused("git_repo_client", "GitHubRepoClient", f"{_FILE}, inherited from network_dir_client.py:1244"),
+    _refused("git_repo_client", "GitLabRepoClient", f"{_FILE}, inherited from network_dir_client.py:1244"),
+    _refused("git_repo_client", "BitbucketRepoClient", f"{_FILE}, inherited from network_dir_client.py:1244"),
     _refused("graph_drive_client", "OnedriveClient", f"{_FILE}, graph_drive_client.py:1529"),
     _refused("graph_drive_client", "SharepointClient", f"{_FILE}, graph_drive_client.py:1529"),
     _refused("graph_onenote_client", "OnenoteClient", f"{_FILE}, inherited from graph_drive_client.py:1529"),
@@ -240,10 +244,11 @@ PARAMS_REFUSED: dict[tuple[str, str], str] = dict([
     _refused("couchbase_client", "CouchbaseClient", "SQL++ with no declared renderer, couchbase_client.py:179"),
     _refused("dynamodb_client", "DynamodbClient", "PartiQL with no declared renderer, dynamodb_client.py:212"),
     _refused("documentum_client", "DocumentumClient", f"{_FILE}, documentum_client.py:629"),
-    _refused("sharepoint_onprem_client", "SharepointOnpremClient", f"{_FILE}, sharepoint_onprem_client.py:393"),
+    _refused("sharepoint_onprem_client", "SharepointOnpremClient", f"{_FILE}, sharepoint_onprem_client.py:359"),
     _refused("kms_lighthouse_client", "KmsLighthouseClient", f"{_FILE}, kms_lighthouse_client.py:2657"),
-    _refused("qlik_sense_client", "QlikSenseClient", f"{_ID} (app), qlik_sense_client.py:478"),
-    _refused("qlik_sense_onprem_client", "QlikSenseOnPremClient", f"{_ID} (app), qlik_sense_onprem_client.py:1635"),
+    _refused("qlik_sense_client", "QlikSenseClient", f"{_ID} (app), qlik_sense_client.py:559"),
+    _refused("qlik_sense_onprem_client", "QlikSenseOnPremClient",
+             f"{_ID} (app), the Engine query it shares with the cloud client, _qix_catalog.py:1158"),
     _refused("tableau_client", "TableauClient", f"{_ID} (datasource_luid), tableau_client.py:374"),
     _refused("aws_cost_client", "AwsCostClient", f"{_ID} (operation_name), aws_cost_client.py:149"),
     _refused("neo4j_client", "Neo4jClient",
@@ -266,16 +271,17 @@ def _exempt(module: str, name: str, reason: str, package: str = _CLIENTS):
 _DISPATCH = "checked at the client's dispatch point"
 _LANGUAGE = "read-only query language API"
 _SPEC = "structured spec mapped to read endpoints"
-_DUCKDB_FILES = "one DuckDB SELECT over the connection's own views, on a locked connection"
+_DUCKDB_FILES = ("one DuckDB SELECT over the connection's own views, on a locked connection, "
+                 "then the engine-tree check against the session's own relations")
 
 EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     # DuckDB file connections (P2) and accelerated custom tables.
-    _exempt("csv_client", "CSVClient", f"{_DISPATCH}: {_DUCKDB_FILES}, csv_client.py:177"),
-    _exempt("qvd_client", "QVDClient", f"{_DISPATCH}: {_DUCKDB_FILES}, qvd_client.py:683"),
-    _exempt("pbix_client", "PBIXClient", f"{_DISPATCH}: {_DUCKDB_FILES}, pbix_client.py:379"),
+    _exempt("csv_client", "CSVClient", f"{_DISPATCH}: {_DUCKDB_FILES}, csv_client.py:176"),
+    _exempt("qvd_client", "QVDClient", f"{_DISPATCH}: {_DUCKDB_FILES}, qvd_client.py:682"),
+    _exempt("pbix_client", "PBIXClient", f"{_DISPATCH}: {_DUCKDB_FILES}, pbix_client.py:378"),
     _exempt("powerbi_report_server_client", "PowerBIReportServerClient",
             f"{_DISPATCH}: {_DUCKDB_FILES} (report ids and export format checked before any URL), "
-            "powerbi_report_server_client.py:704"),
+            "powerbi_report_server_client.py:709"),
     _exempt("fast_client", "FastQueryClient",
             f"{_DISPATCH}: artifacts attached READ_ONLY, external access off and configuration locked "
             "before any agent SQL (fast_client.py:224), introspection refused, fast_client.py:343, "
@@ -283,7 +289,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
             "as DuckDB's parser reads it (fast_client.py:352)",
             package="app.data_sources.fast"),
     # Read-only rules at the dispatch point (P5c).
-    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:198"),
+    _exempt("mongodb_client", "MongodbClient", f"{_DISPATCH}: read stages and no server JavaScript, mongodb_client.py:226"),
     _exempt("azure_data_explorer_client", "AzureDataExplorerClient",
             f"{_DISPATCH}: management commands refused, azure_data_explorer_client.py:122"),
     _exempt("aws_cost_client", "AwsCostClient", f"{_DISPATCH}: get_, list_ and describe_ operations only, aws_cost_client.py:159"),
@@ -348,11 +354,14 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("spectrum_client", "SpectrumClient", f"{_SPEC}: table to a _q_ read handler, spectrum_client.py:666"),
     _exempt("vcenter_client", "VCenterClient", f"{_SPEC}: table to a _q_ read handler, vcenter_client.py:813"),
     _exempt("qlik_sense_client", "QlikSenseClient",
-            f"{_SPEC}: app, dimensions and measures to a session hypercube, qlik_sense_client.py:533"),
+            f"{_SPEC}: app, dimensions and measures to a session hypercube (qlik_sense_client.py:624), "
+            f"or, through the Engine reads it shares with the on-premises client, an existing object's "
+            f"data by id (_qix_catalog.py:1384) or a value search (:1679); all read-only Engine calls on an "
+            f"app in the connection's scope"),
     _exempt("qlik_sense_onprem_client", "QlikSenseOnPremClient",
             f"{_SPEC}: app with dimensions and measures to a session hypercube "
-            f"(qlik_sense_onprem_client.py:1780), an existing object's data by id (:1842), "
-            f"or a value search (:1930); all read-only Engine calls on an app in the connection's scope"),
+            f"(_qix_catalog.py:1319), an existing object's data by id (:1384), "
+            f"or a value search (:1679); all read-only Engine calls on an app in the connection's scope"),
     _exempt("tableau_client", "TableauClient",
             f"{_SPEC}: datasource and field specs to VizQL query-datasource, tableau_client.py:388"),
     _exempt("mecm_client", "MecmClient", f"{_SPEC}: OData options on a GET, mecm_client.py:292"),
@@ -363,19 +372,27 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     # agent's selected tables. DuckDB parses agent text only on a locked
     # engine, and the query checks run before the query's own parse.
     _exempt("network_dir_client", "NetworkDirClient",
-            f"{_DISPATCH}: file name or JSON file spec read (network_dir_client.py:537), or one DuckDB SELECT "
+            f"{_DISPATCH}: file name or JSON file spec read (network_dir_client.py:558), or one DuckDB SELECT "
             "over the selected file tables: told from a file name by a parse on a locked engine "
-            "(network_dir_client.py:1248), then checked before it is parsed and run on a locked engine "
-            "(network_dir_client.py:1250)"),
+            "(network_dir_client.py:1269), then checked before it is parsed and run on a locked engine "
+            "(network_dir_client.py:1271)"),
     _exempt("graph_drive_client", "GraphDriveClient", f"{_SPEC}: file id or JSON file spec read by GET, graph_drive_client.py:572"),
     _exempt("google_drive_client", "GoogleDriveClient", f"{_SPEC}: file id read by GET, google_drive_client.py:166"),
     _exempt("gmail_mail_client", "GmailMailClient", f"{_SPEC}: message id or Gmail search by GET, gmail_mail_client.py:212"),
+    _exempt("slack_messages_client", "SlackMessagesClient",
+            f"{_SPEC}: message or conversation id read, or a Slack search (slack_messages_client.py:1202), "
+            "each request a GET to a read method the client names, the agent's text only in the query "
+            "string, slack_messages_client.py:339"),
+    _exempt("exchange_onprem_client", "ExchangeOnpremClient",
+            f"{_SPEC}: message id read with GetItem (exchange_onprem_client.py:759) or a mail search with "
+            "FindItem (exchange_onprem_client.py:410); the client builds no other operation than GetFolder, "
+            "FindFolder, FindItem and GetItem (_exchange_ews), exchange_onprem_client.py:818"),
     # S3, Google Cloud Storage and Azure Blob: one object read by its key.
     _exempt("_object_store_common", "ObjectStoreClient",
             f"{_SPEC}: object key or JSON file spec read with read_file, _object_store_common.py:857"),
     _exempt("documentum_client", "DocumentumClient", f"{_SPEC}: document id read by GET, documentum_client.py:296"),
     _exempt("sharepoint_onprem_client", "SharepointOnpremClient",
-            f"{_SPEC}: file id read over bounded read-only HTTP, sharepoint_onprem_client.py:187"),
+            f"{_SPEC}: file id read over bounded read-only HTTP, sharepoint_onprem_client.py:155"),
     _exempt("kms_lighthouse_client", "KmsLighthouseClient", f"{_SPEC}: item id read by GET, kms_lighthouse_client.py:2174"),
     # No text statement at all.
     _exempt("browser_client", "BrowserClient", "keyword-only API: execute_query(self, **kwargs), browser_client.py:79"),

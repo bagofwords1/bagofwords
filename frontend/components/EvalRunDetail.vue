@@ -99,7 +99,7 @@
                   </div>
                   <!-- Assistant message -->
                   <div v-else class="eval-md text-xs text-gray-800 dark:text-gray-200">
-                    <MarkdownRender :content="entry.text" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                    <MarkdownRender :content="stripCitations(entry.text)" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                   </div>
                 </template>
                 <div v-if="timelineFor(row).length === 0" class="text-xs text-ink-muted">—</div>
@@ -158,6 +158,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 import { MarkdownRender } from 'markstream-vue'
+import { stripCitations } from '~/composables/useCitations'
 
 const { t } = useI18n()
 

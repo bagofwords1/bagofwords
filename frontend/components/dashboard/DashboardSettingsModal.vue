@@ -240,6 +240,20 @@
                                     <HistoryOwner :dashboard-id="dashboardId" :mode="artifactMode" @transferred="onTransferred" />
                                 </div>
                             </div>
+
+                            <!-- Delete: the owner's alone (the server's `delete` capability). -->
+                            <div v-if="capabilities?.includes('delete')" class="pt-4 border-t border-gray-200 dark:border-gray-700" data-testid="settings-delete">
+                                <div class="flex items-center justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ tm('dashboardDelete.settingsTitle', artifactMode) }}</div>
+                                        <p class="text-2xs text-ink-muted mt-0.5">{{ $t('dashboardDelete.settingsDesc') }}</p>
+                                    </div>
+                                    <UButton color="red" variant="soft" size="xs" icon="i-heroicons-trash" class="shrink-0"
+                                        data-testid="settings-delete-button" @click="deleteOpen = true">
+                                        {{ $t('dashboardDelete.action') }}
+                                    </UButton>
+                                </div>
+                            </div>
                         </section>
 
                         <!-- What viewers get -->
@@ -402,6 +416,7 @@
             </div>
         </div>
     </UModal>
+    <DeleteDashboardModal v-model="deleteOpen" :dashboard="deletable" @deleted="onDeleted" />
 </template>
 
 <script setup lang="ts">
@@ -412,6 +427,7 @@ import HistoryRefreshes from './history/HistoryRefreshes.vue'
 import DashboardAccessPanel from './DashboardAccessPanel.vue'
 import DashboardEmbedPanel from './DashboardEmbedPanel.vue'
 import HistoryOwner from './history/HistoryOwner.vue'
+import DeleteDashboardModal from '~/components/dashboards/DeleteDashboardModal.vue'
 import ArtifactResourceExplorer from '~/components/ArtifactResourceExplorer.vue'
 import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/composables/useScheduleBuilder'
 import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
@@ -431,7 +447,7 @@ const props = defineProps<{
     title?: string
     rename?: (title: string) => Promise<boolean>
 }>()
-const emit = defineEmits<{ (e: 'saved', settings: any): void; (e: 'history-changed'): void }>()
+const emit = defineEmits<{ (e: 'saved', settings: any): void; (e: 'history-changed'): void; (e: 'deleted', id: string): void }>()
 
 const { t } = useI18n()
 const { tm } = useArtifactWording()
@@ -618,6 +634,18 @@ const showRunIdentity = computed(() => hasUserScoped.value || hasRls.value)
 
 // ---- Owner ----
 const ownerId = ref<string | null>(null)
+// ---- Delete (the owner's): what the confirmation warns about, as loaded.
+const deleteOpen = ref(false)
+const loadedState = ref<{ published: boolean; visibility: string | null; cron: string | null }>({ published: false, visibility: null, cron: null })
+const deletable = computed(() => ({
+    id: props.dashboardId, title: props.title, mode: props.artifactMode,
+    published: loadedState.value.published, visibility: loadedState.value.visibility,
+    cron_schedule: loadedState.value.cron,
+}))
+function onDeleted(id: string) {
+    isOpen.value = false
+    emit('deleted', id)
+}
 const ownerPerson = computed(() => members.value.find(m => m.id === ownerId.value) || null)
 const transferOpen = ref(false)
 async function onTransferred() {
@@ -720,6 +748,8 @@ async function load() {
         subscribers.value = (st.notification_subscribers || []).map((x: any) => ({ ...x }))
         const status = (statusRes.data.value || {}) as any
         lastRunAt.value = status.published ? (status.last_run?.at || null) : (report.last_run_at || null)
+        loadedState.value = { published: !!status.published, visibility: ((sharingRes.data.value || {}) as any).visibility || null,
+            cron: st.cron_schedule || null }
 
         includeDataTab.value = st.include_data_tab !== false
         showWidgetInfo.value = st.show_widget_info === true

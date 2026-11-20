@@ -1909,16 +1909,20 @@ def test_entity_runs_answer_a_connection_without_a_free_slot_with_429_and_try_ag
     run is refused for now, not failed."""
     from contextlib import ExitStack
 
-    from app.data_sources import query_concurrency
+    from app.data_sources import query_concurrency, query_executions
 
     token, org_id, user_id = _bootstrap_admin(create_user, login_user, whoami)
     ds_id, conn_id = _run(_seed_sqlite_agent(org_id, user_id, tmp_path / "wh.db", query_timeout_seconds=1))
     eid = _entity(api, token, org_id, ds_id)
 
     with ExitStack() as running:
+        # Other queries hold every slot of the connection, as the app counts them.
         for _ in range(query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES):
-            running.enter_context(query_concurrency.slot(
-                conn_id, query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES, wait_seconds=1))
+            handle = query_executions.begin(
+                connection_id=conn_id, limit=query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES,
+                wait_seconds=1, query_text="SELECT 1", meta={})
+            assert handle is not None
+            running.callback(query_executions.finish, handle, "success", rows=1)
         served, resp = _call(api, kind, token, org_id, ds_id, eid, 1)
     assert not served, resp.text
     reason = _refusal_text(kind, resp, 429)

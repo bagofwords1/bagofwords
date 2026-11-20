@@ -89,7 +89,7 @@
                     <div v-if="isConvLoading" class="flex-1 flex items-center justify-center">
                         <Spinner class="w-5 h-5 text-ink-muted" />
                     </div>
-                    <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5">
+                    <div v-else ref="railEl" class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5">
                         <div v-for="(turn, i) in turns" :key="turn.completion_id || i"
                              :data-completion-id="turn.completion_id || ''"
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
@@ -120,7 +120,7 @@
                                     </div>
                                     <div v-if="block.reasoning" v-text-dir.align class="text-2xs text-ink-muted mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
                                     <div v-if="block.content" class="mt-1.5 text-xs text-gray-700 dark:text-gray-300 markdown-wrapper">
-                                        <MarkdownRender :content="block.content" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                        <MarkdownRender :content="stripCitations(block.content)" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
                                     </div>
                                     <div v-if="block.tool_execution" class="mt-2 min-w-0 overflow-x-auto" @click.stop="onChatBlockClick(turn, block)">
                                         <component
@@ -141,7 +141,14 @@
                                 <CheckinTraceCard v-for="c in checkinsForTurn(turn)" :key="c.id" :checkin="c" />
                             </div>
                         </div>
-                        <div v-if="!turns.length" class="text-xs text-ink-muted text-center py-8">No turns yet</div>
+                        <!-- Scoped agent manager: turns from the first one that
+                             reached an agent they don't manage are withheld. -->
+                        <div v-if="conversation?.hidden_turns" data-testid="trace-hidden-turns"
+                             class="flex items-start gap-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 px-3 py-2 text-xs text-ink-muted">
+                            <UIcon name="i-heroicons-eye-slash" class="w-4 h-4 flex-shrink-0 mt-px" />
+                            <span>{{ $t('traceModal.hiddenTurns', { count: conversation.hidden_turns }, conversation.hidden_turns) }}</span>
+                        </div>
+                        <div v-if="!turns.length && !conversation?.hidden_turns" class="text-xs text-ink-muted text-center py-8">No turns yet</div>
                     </div>
                 </div>
 
@@ -150,7 +157,7 @@
                     <div class="hidden md:block px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Timeline</div>
                     <div v-if="isLoading" class="flex-1 flex items-center justify-center"><Spinner class="w-5 h-5 text-ink-muted" /></div>
                     <div v-else-if="!visibleLeftItems.length" class="flex-1 flex items-center justify-center text-xs text-ink-muted px-4 text-center">Select a turn</div>
-                    <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-1">
+                    <div v-else class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-1">
                         <template v-for="item in visibleLeftItems" :key="item.id">
                             <div v-if="item.kind === 'section'"
                                  class="px-1 py-1 flex items-center gap-1 cursor-pointer text-2xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none"
@@ -249,7 +256,7 @@
                         </div>
                     </div>
 
-                    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-5">
+                    <div class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-5">
                         <!-- Check-in run: why the judge ran it, before the usual trace -->
                         <div v-if="selectedTurnCheckin" class="mb-4 rounded-lg border border-indigo-100 dark:border-indigo-500/30 bg-indigo-50/40 dark:bg-indigo-500/5 px-3 py-2.5" data-testid="trace-checkin-judge-panel">
                             <div class="flex items-center gap-1.5 text-xs font-medium text-gray-800 dark:text-gray-200">
@@ -635,6 +642,7 @@
 
 <script setup lang="ts">
 import { MarkdownRender } from 'markstream-vue'
+import { stripCitations } from '~/composables/useCitations'
 import RenderTable from '../RenderTable.vue'
 import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
@@ -844,6 +852,7 @@ interface ConversationTraceResponse {
     total_llm_cost_usd?: number | null
     turns: ConversationTurn[]
     checkins?: CheckinTrace[]
+    hidden_turns?: number
 }
 
 interface Props {
@@ -888,7 +897,12 @@ const modalUi = {
     height: 'h-[100dvh] md:h-auto',
 }
 const cardUi = {
-    base: 'flex flex-col h-full md:h-auto overflow-hidden',
+    // `relative` makes the card the containing block for absolutely-positioned
+    // descendants (markdown sr-only spans, tool-card overlays). Without it they
+    // resolve against the dialog panel, escape the card's overflow clip, and
+    // stretch UModal's `fixed inset-0 overflow-y-auto` container far past the
+    // viewport, so scrolling slides the whole modal off-screen.
+    base: 'relative flex flex-col h-full md:h-auto overflow-hidden',
     rounded: 'rounded-none md:rounded-lg',
     ring: 'ring-0 md:ring-1',
     body: { base: 'flex-1 min-h-0 flex flex-col', padding: '' },
@@ -1062,11 +1076,18 @@ const fetchConversation = async () => {
     await scrollToSelectedTurn()
 }
 
+const railEl = ref<HTMLElement | null>(null)
+// Scroll only the conversation rail. scrollIntoView would also scroll every
+// ancestor that can move (the modal container, even an overflow-hidden card),
+// pushing the header off-screen when the turn can't be centred in the rail.
 const scrollToSelectedTurn = async () => {
     if (!selectedCompletionId.value) return
     await nextTick()
-    const el = document.querySelector(`[data-completion-id="${selectedCompletionId.value}"]`)
-    el?.scrollIntoView({ block: 'center' })
+    const rail = railEl.value
+    const el = rail?.querySelector<HTMLElement>(`[data-completion-id="${CSS.escape(selectedCompletionId.value)}"]`)
+    if (!rail || !el) return
+    const offset = el.getBoundingClientRect().top - rail.getBoundingClientRect().top + rail.scrollTop
+    rail.scrollTop = offset - (rail.clientHeight - el.offsetHeight) / 2
 }
 
 const selectTurn = async (turn: ConversationTurn) => {

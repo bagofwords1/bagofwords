@@ -2,6 +2,7 @@ import logging
 import zipfile
 from pathlib import Path
 from collections import defaultdict
+from app.core.git_file_walker import repo_glob
 from typing import Dict, List, Tuple, Any, Optional
 from defusedxml import ElementTree as ET
 from xml.etree.ElementTree import Element
@@ -40,8 +41,8 @@ class TableauTDSResourceExtractor:
 
     def extract_all_resources(self) -> Tuple[Dict[str, Any], Dict[str, List[Dict[str, Any]]], Dict[str, str]]:
         """Walk project_dir, parse .tds and .tdsx files, and populate resources."""
-        tds_files = list(self.project_dir.glob('**/*.tds'))
-        tdsx_files = list(self.project_dir.glob('**/*.tdsx'))
+        tds_files = repo_glob(self.project_dir, '**/*.tds')
+        tdsx_files = repo_glob(self.project_dir, '**/*.tdsx')
 
         for tds_path in tds_files:
             try:

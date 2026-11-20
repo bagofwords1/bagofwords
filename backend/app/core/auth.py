@@ -56,17 +56,19 @@ class UserManager(BaseUserManager[User, str]):
 
     async def authenticate(self, credentials) -> Optional[User]:
         """
-        Authenticate via LDAP bind (if enabled), then fall back to local password.
+        Authenticate via LDAP bind (if enabled), otherwise by local password.
 
         When LDAP is enabled:
         - Try LDAP bind first
         - If LDAP bind succeeds, return the user
-        - If LDAP bind fails (wrong password), only superusers get local fallback (break-glass)
-        - If LDAP server is unreachable, fall back to local auth for everyone
+        - If the bind does not succeed — wrong password or directory
+          unreachable alike — the login fails. The only local fallback is the
+          explicit recovery path: ``ldap.allow_local_superuser_login`` for a
+          superuser that is not linked to a directory identity.
 
         In ``auth.mode = sso_only``, the local form is a break-glass: SSO is
-        the source of truth, so we only let admins (or superusers) sign in
-        with password to avoid handing regular users a parallel login surface.
+        the source of truth, so only the instance's administrators may sign in
+        with a password (see ``_user_can_use_local_login``).
         """
         user = await self._do_authenticate(credentials)
         if user is None:
@@ -142,9 +144,16 @@ class UserManager(BaseUserManager[User, str]):
         (The resolver's transitional net still maps a legacy ``role='admin'``
         membership with no assignment to admin, so pre-backfill admins are not
         locked out; a user demoted in RBAC is correctly denied.)
+
+        That holds for a single-organization deployment, where the org admin is
+        the instance owner. When several organizations share the instance,
+        administering one of them says nothing about the instance, so only
+        superusers keep the password break-glass.
         """
         if user.is_superuser:
             return True
+        if settings.bow_config.features.allow_multiple_organizations:
+            return False
         from app.dependencies import async_session_maker
         from app.core.permission_resolver import resolve_permissions, FULL_ADMIN
         async with async_session_maker() as session:
@@ -207,6 +216,10 @@ class UserManager(BaseUserManager[User, str]):
         except Exception:
             pass
 
+        # Instance administrators follow BOW_SUPERUSER_EMAILS at each sign-in.
+        from app.core.instance_admin import apply_superuser_policy
+        await apply_superuser_policy(user)
+
         # The OAuth/OIDC/SAML handlers record their own auth.login with the
         # provider; the local form (password or LDAP bind) is recorded here.
         if not (request and request.url.path.endswith("/callback")):
@@ -240,22 +253,44 @@ class UserManager(BaseUserManager[User, str]):
                 )
                 raise HTTPException(status_code=303, headers={"Location": redirect_url})
 
-    async def _attach_open_memberships(self, user: User, session: AsyncSession):
+    async def _attach_open_memberships(
+        self,
+        user: User,
+        session: AsyncSession,
+        organization_ids: Optional[set] = None,
+        mark_verified: bool = True,
+    ):
+        """Claim the open invites addressed to ``user.email``.
+
+        ``organization_ids`` limits the claim to those organizations (an empty
+        set claims nothing); ``None`` claims in every organization and is only
+        for callers that have proof the person owns the address. An invite
+        token proves it for the token's own organization and no other.
+        ``mark_verified=False`` leaves ``is_verified`` alone, for callers that
+        admit by a bare email match.
+        """
+        if organization_ids is not None and not organization_ids:
+            return
         # Order by role privilege (then oldest, then id) so that when several open
         # invites exist for one org, the most-privileged is the one CLAIMED (the
         # surviving row's legacy `role`); the rest are retired. Deterministic, and
         # identical to the dedup migration / claim_pending_invite ordering.
         role_rank = case((Membership.role == "admin", 0), (Membership.role == "member", 1), else_=2)
+        from app.core.permission_resolver import live_pending_invite
+        conditions = [
+            func.lower(Membership.email) == (user.email or "").strip().lower(),
+            live_pending_invite(),
+        ]
+        if organization_ids is not None:
+            conditions.append(Membership.organization_id.in_([str(o) for o in organization_ids]))
         stmt = select(Membership).where(
-            and_(
-                func.lower(Membership.email) == (user.email or "").strip().lower(),
-                Membership.user_id.is_(None)
-            )
+            and_(*conditions)
         ).order_by(role_rank, Membership.created_at.asc(), Membership.id.asc())
         open_memberships = (await session.execute(stmt)).scalars().all()
-        
+
         if open_memberships:
-            user.is_verified = True
+            if mark_verified:
+                user.is_verified = True
             # An invite is also the way back in for someone who was deactivated
             # when their last membership was removed (app/core/user_lifecycle).
             from app.core.user_lifecycle import reactivate_user_for_membership
@@ -357,8 +392,24 @@ class UserManager(BaseUserManager[User, str]):
         # Get open memberships and attach user
         async with self.user_db.session as session:
             # Materialize any domain-based auto-invites before attaching
-            await self._create_domain_invites(user.email, session)
-            await self._attach_open_memberships(user, session)
+            domain_org_ids = await self._create_domain_invites(user.email, session)
+            token_org_id = getattr(self, "_invite_organization_id", None)
+            if token_org_id:
+                # The invite link proves the address for the organization that
+                # issued it. Invites from other organizations stay pending until
+                # they are accepted with their own link or a trusted sign-in.
+                await self._attach_open_memberships(
+                    user, session, organization_ids={token_org_id, *domain_org_ids}
+                )
+            elif settings.bow_config.features.allow_multiple_organizations:
+                await self._attach_open_memberships(user, session, organization_ids=domain_org_ids)
+            else:
+                # No link was presented (open signups / domain policy): the
+                # email was only typed, so it is not marked verified by an
+                # invite alone.
+                await self._attach_open_memberships(
+                    user, session, mark_verified=bool(domain_org_ids)
+                )
 
             if not settings.bow_config.features.verify_emails:
                 user.is_verified = True
@@ -366,6 +417,11 @@ class UserManager(BaseUserManager[User, str]):
             await session.commit()
             # Auto-create organization for the first uninvited user
             await self._ensure_org_for_first_uninvited_user(session, user)
+
+            # A new account named in BOW_SUPERUSER_EMAILS is an instance
+            # administrator from the start (and no other new account is).
+            from app.core.instance_admin import apply_superuser_policy
+            await apply_superuser_policy(user)
 
             # Audit the signup against each org the user now belongs to.
             try:
@@ -391,14 +447,17 @@ class UserManager(BaseUserManager[User, str]):
 
         # Welcome email (best-effort, non-blocking): summarizes the agents the
         # user can access + a CTA. Fired after commit so memberships are visible.
-        self._fire_welcome_email(user.id)
+        # An invite link names the organization the user just joined; without
+        # one the email service picks deterministically among the memberships.
+        self._fire_welcome_email(user.id, getattr(self, "_invite_organization_id", None))
 
     @staticmethod
-    def _fire_welcome_email(user_id) -> None:
+    def _fire_welcome_email(user_id, organization_id=None) -> None:
         try:
             import asyncio
             from app.services.welcome_email import send_welcome_email
-            asyncio.create_task(send_welcome_email(str(user_id)))
+            asyncio.create_task(send_welcome_email(
+                str(user_id), str(organization_id) if organization_id else None))
         except Exception:
             pass
 
@@ -421,18 +480,22 @@ class UserManager(BaseUserManager[User, str]):
                 return True
         return False
 
-    async def _create_domain_invites(self, email: str, session: AsyncSession) -> None:
+    async def _create_domain_invites(self, email: str, session: AsyncSession) -> set:
         """For every org whose signup_policy admits this email's domain,
-        create an open Membership invite if one doesn't already exist."""
+        create an open Membership invite if one doesn't already exist.
+
+        Returns the ids of the organizations an invite was created for."""
         from app.models.organization_settings import OrganizationSettings
         from app.ee.license import has_feature
         from sqlalchemy import or_
+        created_for: set = set()
         if not has_feature("domain_signup"):
-            return
+            return created_for
         if not email or "@" not in email:
-            return
+            return created_for
         domain = email.split("@", 1)[-1].lower()
         result = await session.execute(select(OrganizationSettings))
+        admitting: list = []
         for s in result.scalars().all():
             policy = (s.config or {}).get("signup_policy") or {}
             if not policy.get("enabled"):
@@ -440,6 +503,15 @@ class UserManager(BaseUserManager[User, str]):
             domains = [str(d).lower() for d in (policy.get("allowed_domains") or []) if isinstance(d, str)]
             if domain not in domains:
                 continue
+            admitting.append(str(s.organization_id))
+            if len(admitting) == 2:
+                # New claims are limited to one organization per domain; this
+                # is an overlap saved before that rule and left as it is.
+                logging.getLogger(__name__).warning(
+                    "Domain signup: domain %s is claimed by more than one organization "
+                    "(%s, ...); an instance administrator should keep it on one",
+                    domain, ", ".join(admitting),
+                )
             # Skip if this email is already linked to this org (invite or attached user)
             email_norm = (email or "").strip().lower()
             existing_user = (await session.execute(
@@ -472,7 +544,9 @@ class UserManager(BaseUserManager[User, str]):
                 organization_id=s.organization_id,
                 role=role,
             ))
+            created_for.add(str(s.organization_id))
         await session.flush()
+        return created_for
 
     async def oauth_callback(
         self: "UserManager[User, str]",
@@ -484,8 +558,12 @@ class UserManager(BaseUserManager[User, str]):
         refresh_token: Optional[str] = None,
         request: Optional[Request] = None,
         *args,
+        identity_claims: Optional[dict] = None,
         **kwargs
     ) -> User:
+        # Whether this provider's word is enough to tie the email it asserts
+        # to an existing account or to that email's pending invites.
+        email_trusted = email_linking_trusted(oauth_name, identity_claims)
         try:
             # First try to get user by OAuth account
             user = await self.get_by_oauth_account(oauth_name, account_id)
@@ -500,6 +578,7 @@ class UserManager(BaseUserManager[User, str]):
                     )
                 )
                 acc = (await session.execute(stmt)).scalar_one_or_none()
+                claim_invites = email_trusted and _same_email(account_email, user.email)
                 if acc:
                     acc.access_token = access_token
                     acc.expires_at = expires_at
@@ -507,11 +586,34 @@ class UserManager(BaseUserManager[User, str]):
                         acc.refresh_token = refresh_token
                     session.add(acc)
                     await session.commit()
+                if claim_invites:
+                    # Invites issued after the account was created (or left
+                    # pending by a registration through another org's link).
+                    await self._attach_open_memberships(user, session)
+                    await session.commit()
             return user
         except exceptions.UserNotExists:
             # If OAuth account doesn't exist, check if user exists by email
             try:
                 user = await self.get_by_email(account_email)
+                if not email_trusted:
+                    # An account is never claimed on an email match the
+                    # provider is not trusted for, and no second account is
+                    # created for the same address either.
+                    from app.ee.audit.security_events import record_security_event
+                    await record_security_event(
+                        "auth.login_failed", request=request, user=user, outcome="failure",
+                        failure_reason="account_link_refused", method=f"oauth:{oauth_name}",
+                        details={"provider": oauth_name, "email": (account_email or "")[:255]},
+                    )
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "code": "account_link_required",
+                            "message": "An account with this email already exists. "
+                                       "Ask your administrator to link it.",
+                        },
+                    )
                 # User exists, let's link the OAuth account
                 async with self.user_db.session as session:
                     oauth_account = OAuthAccount(
@@ -524,28 +626,69 @@ class UserManager(BaseUserManager[User, str]):
                         user_id=user.id
                     )
                     session.add(oauth_account)
+                    await self._attach_open_memberships(user, session)
                     await session.commit()
                 return user
             except exceptions.UserNotExists:
                 # User doesn't exist at all, create new user with OAuth
                 # Enforce invite policy similar to regular registration
+                from app.core.instance_admin import is_reserved_instance_admin_email
                 async with self.user_db.session as session:
+                    if not email_trusted:
+                        # The asserted email proves nothing here, so it cannot
+                        # stand in for the person an invite, a domain policy or
+                        # the instance-administrator list names: the account
+                        # would then be waiting for whoever holds the address.
+                        users_exist = await any_user_exists(session)
+                        reserved = is_reserved_instance_admin_email(account_email)
+                        addressed = users_exist and (
+                            (await session.execute(
+                                select(Membership.id).where(
+                                    func.lower(Membership.email) == (account_email or "").strip().lower(),
+                                    Membership.user_id.is_(None),
+                                ).limit(1)
+                            )).first() is not None
+                            or await self._has_domain_invite(account_email, session)
+                        )
+                        if reserved or addressed:
+                            from app.ee.audit.security_events import record_security_event
+                            await record_security_event(
+                                "auth.login_failed", request=request, outcome="failure",
+                                failure_reason="untrusted_provider_email", method=f"oauth:{oauth_name}",
+                                details={"provider": oauth_name, "email": (account_email or "")[:255]},
+                            )
+                            # A reserved address gets the same answer as any
+                            # uninvited one.
+                            raise HTTPException(
+                                status_code=403,
+                                detail={
+                                    "code": "invite_link_required" if addressed else "invitation_required",
+                                    "message": "This sign-in method cannot accept your invitation. "
+                                               "Use your invite link or ask your administrator."
+                                    if addressed else "Sign-up is disabled. Ask your admin for an invite.",
+                                },
+                            )
                     # If uninvited signups are disabled and not first user, require invite
                     if await any_user_exists(session) and not settings.bow_config.features.allow_uninvited_signups:
                         # Existence check only, and limited: the same address can
                         # hold open invites in several orgs, so scalar_one_or_none()
                         # would raise MultipleResultsFound and 500 the OAuth signup.
+                        # An expired invite admits nobody until it is resent.
+                        from app.core.permission_resolver import live_pending_invite
                         stmt = select(Membership.id).where(
                             and_(
                                 func.lower(Membership.email) == (account_email or "").strip().lower(),
-                                Membership.user_id.is_(None)
+                                live_pending_invite(),
                             )
                         ).limit(1)
                         open_membership = (await session.execute(stmt)).first()
                         if not open_membership and await self._has_domain_invite(account_email, session):
                             open_membership = True
+                        if not open_membership and kwargs.get("org_mapping_admits"):
+                            # The operator's OIDC org_mapping places this person
+                            # in an organization (see services/oidc_org_mapping).
+                            open_membership = True
                         if not open_membership:
-                            from fastapi import HTTPException
                             raise HTTPException(
                                 status_code=403,
                                 detail={
@@ -575,15 +718,20 @@ class UserManager(BaseUserManager[User, str]):
                             "name": fetched_name,
                             "hashed_password": self.password_helper.hash(self.password_helper.generate()),
                             "is_active": True,
-                            "is_verified": True,
+                            # An untrusted provider does not verify the address
+                            # any more than typing it into the sign-up form does.
+                            "is_verified": email_trusted or not settings.bow_config.features.verify_emails,
                             "is_superuser": False,
                         }
                     )
 
-                    # Materialize domain-based auto-invites, then attach memberships
-                    await self._create_domain_invites(account_email, session)
-                    await self._attach_open_memberships(user, session)
-                    
+                    # Materialize domain-based auto-invites, then attach memberships.
+                    # Only for a trusted email: an untrusted one got this far
+                    # because nothing is addressed to it (checked above).
+                    if email_trusted:
+                        await self._create_domain_invites(account_email, session)
+                        await self._attach_open_memberships(user, session)
+
                     oauth_account = OAuthAccount(
                         oauth_name=oauth_name,
                         access_token=access_token,
@@ -650,6 +798,86 @@ class UserManager(BaseUserManager[User, str]):
         from app.ee.audit.security_events import record_security_event
         await record_security_event("auth.password_reset", request=request, user=user, outcome="success",
                                     method="password", details={"email": user.email, "sessions_revoked": True})
+
+    async def update(self, user_update, user: User, safe: bool = False, request: Optional[Request] = None) -> User:
+        """Self-service profile update (``safe=True``, PATCH /users/me) rules.
+
+        The login email is the key invites and first sign-in match on, so a user
+        cannot change their own; an administrator can (PATCH /users/{id}).
+        A new password is refused when the deployment is ``sso_only``; a
+        ``current_password`` sent with it must be correct.
+        """
+        if safe:
+            new_email = getattr(user_update, "email", None)
+            if new_email is not None and new_email != user.email:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Your email address cannot be changed here. Ask your administrator.",
+                )
+            if getattr(user_update, "password", None) is not None:
+                if settings.bow_config.auth.mode == "sso_only":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Passwords are managed by your sign-in provider.",
+                    )
+                # Optional (existing API clients send only the new password);
+                # when supplied it has to be right.
+                current = getattr(user_update, "current_password", None)
+                if current is not None:
+                    verified, _ = self.password_helper.verify_and_update(current, user.hashed_password)
+                    if not verified:
+                        raise HTTPException(status_code=400, detail="Your current password is incorrect.")
+        return await super().update(user_update, user, safe, request)
+
+    async def accept_invite(self, user: User, token: str) -> Membership:
+        """Join the organization whose invite link ``token`` belongs to.
+
+        For someone who already has an account: the link was sent to the
+        invited address, and it must be the address of the signed-in account.
+        Claims that organization's invite only.
+        """
+        async with self.user_db.session as session:
+            invite = (await session.execute(
+                select(Membership).where(
+                    Membership.invite_token == token,
+                    Membership.user_id.is_(None),
+                    Membership.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none() if token else None
+            if invite is None:
+                raise HTTPException(status_code=400, detail="This invite link is invalid. Ask your admin to resend it.")
+            # Fetched without the expiry filter only to tell "expired" from
+            # "invalid"; the claim below applies live_pending_invite().
+            expires = invite.invite_expires_at
+            if expires is not None and expires <= datetime.utcnow():
+                raise HTTPException(status_code=400, detail="This invite link has expired. Ask your admin to resend it.")
+            if not _same_email(invite.email, user.email):
+                raise HTTPException(status_code=403, detail="This invite was sent to a different email address.")
+            organization_id = str(invite.organization_id)
+            db_user = await session.get(User, user.id)
+            await self._attach_open_memberships(db_user, session, organization_ids={organization_id})
+            await session.commit()
+            membership = (await session.execute(
+                select(Membership).where(
+                    Membership.user_id == user.id,
+                    Membership.organization_id == organization_id,
+                    Membership.deleted_at.is_(None),
+                )
+            )).scalars().first()
+            try:
+                from app.ee.audit.service import audit_service
+                await audit_service.log(
+                    db=session,
+                    organization_id=organization_id,
+                    action="member.invite_accepted",
+                    user_id=str(user.id),
+                    resource_type="membership",
+                    resource_id=str(membership.id) if membership else None,
+                    details={"email": user.email},
+                )
+            except Exception:
+                pass
+            return membership
 
     async def on_after_update(
         self,
@@ -802,22 +1030,40 @@ class UserManager(BaseUserManager[User, str]):
                 if not membership:
                     raise HTTPException(status_code=400, detail="This invite link is invalid. Ask your admin to resend it.")
                 expires = membership.invite_expires_at
-                if expires is not None and expires < datetime.utcnow():
+                if expires is not None and expires <= datetime.utcnow():
                     raise HTTPException(status_code=400, detail="This invite link has expired. Ask your admin to resend it.")
                 if membership.email and membership.email.lower() != (email or "").lower():
                     raise HTTPException(status_code=400, detail="This invite was sent to a different email address.")
+                # Remembered for on_after_register: the link admits the new
+                # user to the organization that issued it, and only that one.
+                self._invite_organization_id = str(membership.organization_id)
                 return  # valid invite — allow creation
 
             # 2) No token. First user always allowed (bootstrap).
             if not users_exist:
                 return
 
-            # A pending invite exists for this email but no token was supplied.
-            pending = (await session.execute(
-                select(Membership).where(
-                    and_(Membership.email == email, Membership.user_id.is_(None))
+            # An address on the instance-administrator list carries that role,
+            # so an account under it needs the invite link sent to the address
+            # even where anyone else may sign up. Same answer as a closed sign-up.
+            from app.core.instance_admin import is_reserved_instance_admin_email
+            if is_reserved_instance_admin_email(email):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Sign-up is disabled. Ask your admin for an invite.",
                 )
-            )).scalar_one_or_none()
+
+            # A pending invite exists for this email but no token was supplied.
+            # Existence check only: the address can hold open invites in
+            # several organizations, and invites are stored lowercase.
+            pending = (await session.execute(
+                select(Membership.id).where(
+                    and_(
+                        func.lower(Membership.email) == (email or "").strip().lower(),
+                        Membership.user_id.is_(None),
+                    )
+                ).limit(1)
+            )).first()
 
             if pending:
                 if settings.bow_config.features.allow_uninvited_signups:
@@ -837,6 +1083,78 @@ class UserManager(BaseUserManager[User, str]):
                 )
 
         return
+
+
+def _same_email(a: Optional[str], b: Optional[str]) -> bool:
+    a, b = (a or "").strip().lower(), (b or "").strip().lower()
+    return bool(a) and a == b
+
+
+def _claim_denies(value: Any) -> bool:
+    """True when a verification claim is present and says "not verified"
+    (some providers send the boolean as a string)."""
+    if isinstance(value, str):
+        return value.strip().lower() == "false"
+    return value is False
+
+
+_MULTI_TENANT_MICROSOFT = {"common", "organizations", "consumers"}
+# Providers already warned about (once per process each).
+_warned_email_trust: set = set()
+
+
+def email_linking_trusted(oauth_name: str, identity_claims: Optional[dict] = None) -> bool:
+    """Whether a sign-in through ``oauth_name`` proves ownership of the email
+    it asserts — enough to link an existing account or claim pending invites.
+
+    The provider's ``trust_email_for_linking`` setting decides when set.
+    Otherwise a single-organization deployment trusts its providers, as it
+    always has (the operator chose every one of them for the one organization).
+    When several organizations share the instance it is trusted only when all
+    of these hold: it is the single enabled sign-in provider (Google + OIDC;
+    with several, an address proven at one says nothing about the account
+    another created), the token does not mark the email unverified
+    (``email_verified`` / Entra ``xms_edov``), and it is not a Microsoft
+    endpoint that accepts accounts from any tenant.
+    ``identity_claims`` is None when the provider gave no id_token claims.
+    """
+    from urllib.parse import urlsplit
+    from app.settings.bow_config import brand_for_issuer
+
+    google = getattr(settings.bow_config, "google_oauth", None)
+    google_enabled = bool(google and google.enabled)
+    oidc = [p for p in (getattr(settings.bow_config, "oidc_providers", None) or []) if p.enabled]
+    if oauth_name == "google":
+        cfg = google if google_enabled else None
+    else:
+        cfg = next((p for p in oidc if p.name == oauth_name), None)
+    if cfg is None:
+        return False
+
+    explicit = getattr(cfg, "trust_email_for_linking", None)
+    if explicit is not None:
+        return bool(explicit)
+
+    strict = len(oidc) + (1 if google_enabled else 0) == 1
+    claims = identity_claims or {}
+    if _claim_denies(claims.get("email_verified")) or _claim_denies(claims.get("xms_edov")):
+        strict = False
+    issuer = getattr(cfg, "issuer", None)
+    if issuer and brand_for_issuer(issuer) == "microsoft":
+        segments = [seg for seg in urlsplit(issuer.lower()).path.split("/") if seg]
+        if segments and segments[0] in _MULTI_TENANT_MICROSOFT:
+            strict = False
+    if settings.bow_config.features.allow_multiple_organizations:
+        return strict
+    if not strict and oauth_name not in _warned_email_trust:
+        _warned_email_trust.add(oauth_name)
+        logger.warning(
+            "Sign-in provider %r: linking by email on an untrusted provider "
+            "(several providers enabled, an unverified email, or a multi-tenant issuer); "
+            "set trust_email_for_linking: false to disable",
+            oauth_name,
+        )
+    return True
 
 
 async def admit_directory_identity(session: AsyncSession, identity: dict, ldap_config) -> Optional[User]:
@@ -883,7 +1201,8 @@ async def admit_directory_identity(session: AsyncSession, identity: dict, ldap_c
             role="member", directory_provider=identity["provider"]))
         await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
     else:
-        if not user.is_active or user.is_superuser:
+        from app.core.instance_admin import directory_sign_in_refused_for_superuser
+        if not user.is_active or directory_sign_in_refused_for_superuser(user):
             return None
         membership = (await session.execute(select(Membership.id).where(
             Membership.user_id == user.id, Membership.organization_id == ldap_config.organization_id,
@@ -955,12 +1274,12 @@ async def auto_provision_user_for_org(
     # Multiple open invites for one email in an org are allowed, so this must not
     # use scalar_one_or_none() (it would raise MultipleResultsFound). It is only a
     # presence flag here; the actual claim re-queries deterministically.
+    from app.core.permission_resolver import live_pending_invite
     open_invite = (await db.execute(
         select(Membership).where(
             Membership.organization_id == organization_id,
             func.lower(Membership.email) == email_norm,
-            Membership.user_id.is_(None),
-            Membership.deleted_at.is_(None),
+            live_pending_invite(),
         ).limit(1)
     )).scalars().first()
 
@@ -1002,7 +1321,7 @@ async def auto_provision_user_for_org(
                 role=role,
             ))
         from app.core.user_lifecycle import reactivate_user_for_membership
-        await reactivate_user_for_membership(db, str(existing_user.id))
+        await reactivate_user_for_membership(db, str(existing_user.id), organization_id)
         await db.commit()
         return existing_user
 
@@ -1270,6 +1589,14 @@ async def current_session_user(
     return jwt_user
 
 
+def _remember_api_key(request: Request, key_row) -> None:
+    """Record which organization a personal API key was created in, for
+    ``get_current_organization``. Service-account keys are bound to their
+    organization by the ``ServiceAccount`` row and need nothing here."""
+    if key_row is not None and not key_row.service_account_id:
+        request.state.personal_api_key_organization_id = str(key_row.organization_id)
+
+
 async def current_user(
     request: Request,
     jwt_user: Optional[User] = Depends(_jwt_current_user),
@@ -1317,8 +1644,9 @@ async def current_user(
     if api_key:
         from app.services.api_key_service import ApiKeyService
         api_key_service = ApiKeyService()
-        user = await api_key_service.get_user_by_api_key(db, api_key)
+        user, key_row = await api_key_service.get_user_and_key_by_api_key(db, api_key)
         if user is not None:
+            _remember_api_key(request, key_row)
             return user
     
     # Try API key from Authorization header (for MCP clients that use Bearer format)
@@ -1326,8 +1654,9 @@ async def current_user(
         from app.services.api_key_service import ApiKeyService
         api_key_service = ApiKeyService()
         bearer_api_key = auth_header[7:]  # Remove "Bearer " prefix
-        user = await api_key_service.get_user_by_api_key(db, bearer_api_key)
+        user, key_row = await api_key_service.get_user_and_key_by_api_key(db, bearer_api_key)
         if user is not None:
+            _remember_api_key(request, key_row)
             return user
     
     # No valid authentication
@@ -1376,7 +1705,22 @@ async def get_current_organization(
     from app.core.permission_resolver import assert_principal_belongs_to_org
 
     org = await resolve_organization(request, db)
+    # A personal API key acts only in the organization it was created in, even
+    # when its owner belongs to several. Multi-organization deployments only:
+    # with a single organization the key's organization is the only one.
+    key_org_id = getattr(request.state, "personal_api_key_organization_id", None)
+    if (
+        key_org_id is not None
+        and key_org_id != str(org.id)
+        and settings.bow_config.features.allow_multiple_organizations
+    ):
+        raise AppError.forbidden(
+            ErrorCode.ACCESS_DENIED,
+            "This API key belongs to a different organization",
+        )
     await assert_principal_belongs_to_org(db, user, org.id)
+    from app.core.request_org import set_request_organization_id
+    set_request_organization_id(str(org.id))
     return org
 
 

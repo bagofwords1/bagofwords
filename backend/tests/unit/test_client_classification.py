@@ -28,8 +28,16 @@ from app.ai.code_execution.client_profiles import EXEMPT_CLIENTS, classify
 from app.ai.code_execution.code_execution import StreamingCodeExecutor, UnsafeSQLError
 from app.ai.code_execution.query_params import ParamError
 from app.data_sources.clients.bow_client import BowClient
+from app.data_sources.clients._exchange_ews import ExchangeError
 from app.data_sources.clients.discovery import DiscoveryClient
+from app.data_sources.clients.exchange_onprem_client import ExchangeOnpremClient
+from app.data_sources.clients.slack_messages_client import SlackMessagesClient
+from tests.fixtures.fake_exchange import READ_OPERATIONS
 from tests.unit._client_enumeration import enumerated_client_classes
+from tests.unit.test_exchange_onprem_client import client as exchange_client
+from tests.unit.test_exchange_onprem_client import exchange  # noqa: F401  (Exchange at the HTTP boundary)
+from tests.unit.test_slack_messages_client import FakeSlack
+from tests.unit.test_slack_messages_client import _client as slack_client
 
 _LINUX = sys.platform.startswith("linux")
 _UNIT_TESTS = Path(__file__).parent
@@ -579,8 +587,11 @@ def test_every_exemption_names_its_category_and_a_file_line_of_the_clients_own_c
             assert 1 <= int(line) <= len(source.read_text().splitlines()), (key, name, line)
 
 
-# What the cited lines of the DuckDB exemptions hold, in the order cited.
+# What the cited lines of the DuckDB exemptions (and of the chat and mail
+# search connectors) hold, in the order cited.
 _CITED_CALLS = {
+    "SlackMessagesClient": ("def execute_query(", 'self._client().get(f"{SLACK_API}/{method}"'),
+    "ExchangeOnpremClient": ("ews.get_item(", "ews.find_items(", "def execute_query("),
     "CSVClient": ("check_duckdb_file_query(",),
     "QVDClient": ("check_duckdb_file_query(",),
     "PBIXClient": ("check_duckdb_file_query(",),
@@ -675,7 +686,10 @@ def custom_table(tmp_path):
         )])
 
 
-def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_engine(custom_table, tmp_path):
+def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_engine(
+        custom_table, tmp_path, monkeypatch):
+    from app.data_sources.fast import fast_client
+
     assert custom_table.execute_query("SELECT id FROM notes ORDER BY id")["id"].tolist() == [1, 2]
 
     # Statements other than a SELECT are refused before they run; a SELECT
@@ -702,6 +716,97 @@ def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_eng
         custom_table.execute_query(f"COPY (SELECT 1 AS id, 'x' AS v) TO '{artifact}'")
     assert artifact.read_bytes() == before
     assert custom_table.execute_query("SELECT count(*) AS n FROM notes")["n"].tolist() == [2]
+
+    # The text checks off: the engine lock alone keeps the file out of reach.
+    monkeypatch.setattr(fast_client, "assert_no_blocked_calls", lambda sql: None)
+    monkeypatch.setattr(fast_client, "assert_no_blocked_introspection", lambda sql: None)
+    with pytest.raises(duckdb.PermissionException):
+        custom_table.execute_query(f"SELECT * FROM read_csv('{outside}')")
+
+
+def test_with_the_unsafe_setting_on_the_accelerated_client_and_the_network_directory_stay_locked(
+        custom_table, tmp_path, monkeypatch):
+    """`security.unsafe_allow_unrestricted_file_connectors` is for the file
+    connectors: neither of these engines reads a file outside its own data,
+    with the text checks out of the way."""
+    from app.ai.code_execution import sql_guard
+    from app.data_sources.clients._network_dir_tables import attach_catalog
+    from app.data_sources.clients.network_dir_client import NetworkDirClient
+    from app.data_sources.fast import fast_client
+    from app.services import storage
+    from app.settings.config import settings
+
+    monkeypatch.setattr(settings.bow_config.security, "unsafe_allow_unrestricted_file_connectors", True)
+    outside = tmp_path / "outside.csv"
+    outside.write_text("id\n7\n")
+    # The accelerated client's text checks off: only its engine lock is left.
+    monkeypatch.setattr(fast_client, "assert_no_blocked_calls", lambda sql: None)
+    monkeypatch.setattr(fast_client, "assert_no_blocked_introspection", lambda sql: None)
+    with pytest.raises(duckdb.PermissionException):
+        custom_table.execute_query(f"SELECT * FROM read_csv('{outside}')")
+
+    monkeypatch.setattr(storage, "UPLOADS_ROOT", tmp_path / "cache")
+    root = tmp_path / "share"
+    root.mkdir()
+    client = NetworkDirClient(root_path=str(root), index_mode="content")
+    attach_catalog(client, [("indexed_files", [], {})], [])
+    monkeypatch.setattr(sql_guard, "check_sql", lambda sql, dialect, **kwargs: None)
+    with pytest.raises(duckdb.PermissionException):
+        client.execute_query(f"SELECT * FROM '{outside}'")
+
+
+# ------------------------------------------------------------ mail and chat search connectors
+
+# Agent text that names writes: a Slack method, an EWS operation, ids with
+# markup and separators.
+_WRITE_LOOKING_TEXT = [
+    "chat.postMessage channel=C0SUPPORT1 text=hi",
+    "&method=chat.delete&ts=1",
+    "<m:SendItem SaveItemToFolder='false'/>",
+    "</m:QueryString></m:FindItem><m:DeleteItem DeleteType='HardDelete'>",
+]
+
+
+def test_slack_messages_is_exempt_and_reaches_only_slack_read_methods_whatever_the_agent_text():
+    assert classify(object.__new__(SlackMessagesClient)) == "exempt"
+    fake = FakeSlack()
+    fake.routes["search.messages"] = lambda q: {"ok": True, "messages": {"matches": [], "paging": {"pages": 1}}}
+    fake.routes["conversations.replies"] = lambda q: {"ok": True, "messages": []}
+    fake.routes["conversations.history"] = lambda q: {"ok": True, "messages": []}
+    client = slack_client(fake)
+    for text in _WRITE_LOOKING_TEXT:
+        client.execute_query(text)
+        for kwargs in ({"message_id": f"slack:C0SUPPORT1/{text}"},
+                       {"message_id": "slack:C0SUPPORT1/1700000000.000100"}, {"table_name": "slack:C0SUPPORT1"}):
+            # An id the client cannot read is the client's own error, not
+            # a write; anything else (the fake's GET assertion) fails here.
+            try:
+                client.execute_query(**kwargs)
+            except ValueError:
+                pass
+    # Every request was a GET (FakeSlack.handler) to one of these methods.
+    assert {method for method, _ in fake.calls if method != "sleep"} <= {
+        "auth.test", "users.info", "users.conversations", "search.messages",
+        "conversations.history", "conversations.replies"}
+    assert fake.count("search.messages") >= len(_WRITE_LOOKING_TEXT)
+    # The id reads reached Slack.
+    assert fake.count("conversations.replies") >= 1 and fake.count("conversations.history") >= 1
+
+
+def test_exchange_onprem_is_exempt_and_sends_only_read_operations_whatever_the_agent_text(exchange):  # noqa: F811
+    assert classify(object.__new__(ExchangeOnpremClient)) == "exempt"
+    client = exchange_client()
+    for text in _WRITE_LOOKING_TEXT:
+        client.execute_query(text)
+        # An id the server does not know is the server's own refusal, not a
+        # write; anything else fails here.
+        with pytest.raises(ExchangeError):
+            client.execute_query(message_id=text)
+    client.execute_query()
+    assert "Subject:" in client.execute_query(message_id=client.list_messages()["items"][0]["id"])
+    # Every id read reached the server as a read.
+    assert exchange.operations.count("GetItem") == len(_WRITE_LOOKING_TEXT) + 1
+    assert set(exchange.operations) <= READ_OPERATIONS
 
 
 # ------------------------------------------------------------ the network directory's indexed file tables
@@ -738,12 +843,19 @@ def test_the_network_directory_refuses_sql_outside_one_select_over_its_selected_
             client.execute_query(refused)
     assert not (root / "out.csv").exists()
 
-    # What the text checks pass, the locked engine still stops: a file
-    # named as a table, and a Python object the module can see.
+    # A file named as a table: the text checks refuse it (the engine-tree
+    # check reads it as a string in a relation position), and with them out
+    # of the way the locked engine still stops it.
     (root / "data.csv").write_text("v\n1\n")
     path = str(root / "data.csv").replace("'", "''")
-    with pytest.raises(duckdb.PermissionException):
+    with pytest.raises(ReadOnlyViolation):
         client.execute_query(f"SELECT * FROM '{path}'")
+    from app.ai.code_execution import sql_guard
+
+    with monkeypatch.context() as unchecked:
+        unchecked.setattr(sql_guard, "check_sql", lambda sql, dialect, **kwargs: None)
+        with pytest.raises(duckdb.PermissionException):
+            client.execute_query(f"SELECT * FROM '{path}'")
 
     # Settings stay out of reach; the documented discovery reads still work.
     for refused in ("SELECT name, setting FROM pg_settings","SELECT * FROM pg_catalog.pg_settings"):

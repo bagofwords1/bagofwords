@@ -92,12 +92,20 @@ def _check_tool_provider_url(conn_type: str, config) -> None:
 
 def _check_network_dir_root(conn_type: str, config) -> None:
     """Save/test-time guard: a network_dir root must pass the root policy
-    (``security.network_dir_allowed_roots``). Enforced again in the client."""
+    (``security.network_dir_allowed_roots``). Enforced again in the client.
+    File-based connectors (duckdb, csv, qvd, pbix, sqlite) get their own
+    local-path policy here too."""
+    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     if conn_type != "network_dir":
+        from app.data_sources.clients._duckdb_lockdown import check_connection_config
+
+        try:
+            check_connection_config(conn_type, cfg)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return
     from app.data_sources.clients.network_dir_client import check_network_dir_root
 
-    cfg = json.loads(config) if isinstance(config, str) else (config or {})
     root = (cfg.get("root_path") or "").strip() if isinstance(cfg.get("root_path"), str) else ""
     if not root:
         return
@@ -241,6 +249,89 @@ def _reject_unsafe_google_keys(credentials) -> None:
                 check_google_token_uri(info)
             except UnsafeURLError as e:
                 raise HTTPException(status_code=400, detail=f"{key}: {e}")
+
+
+def _config_auth_type(config) -> Optional[str]:
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except ValueError:
+            return None
+    return (config or {}).get("auth_type") if isinstance(config, dict) else None
+
+
+def _auth_methods_exclusive(conn_type: str) -> bool:
+    from app.schemas.data_source_registry import get_entry
+
+    try:
+        return bool(get_entry(conn_type).credentials_auth.exclusive_methods)
+    except ValueError:
+        return False
+
+
+def _merge_credential_changes(conn_type: str, existing: Optional[dict], incoming: Optional[dict]) -> dict:
+    """Saved credentials with an edit applied.
+
+    Edits are partial: an omitted or blank value keeps what is saved, so one
+    secret can be rotated without resending the rest (a blank secret box means
+    "unchanged"). Where a connector declares its auth methods exclusive, an
+    explicit ``null`` additionally clears the field — its optional, non-secret
+    fields (a service account to impersonate) must be removable, and the form
+    sends null only for a field the admin emptied.
+    """
+    merged = dict(existing or {})
+    incoming = incoming or {}
+    merged.update({k: v for k, v in incoming.items() if v is not None and v != ""})
+    if _auth_methods_exclusive(conn_type):
+        for key, value in incoming.items():
+            if value is None:
+                merged.pop(key, None)
+    return merged
+
+
+def _prepare_auth_credentials(conn_type: str, config, credentials):
+    """System credentials as they should be stored for the connection's auth
+    method (`config.auth_type`).
+
+    * A method the deployment has not enabled (one that borrows the server's
+      own identity) is refused.
+    * Fields that belong to another method are dropped where the connector
+      declares its methods exclusive, so the saved blob never says two things.
+    * A deployment-identity method has no secret to check by connecting, so
+      its fields are validated against the schema here and its defaults filled
+      in — the client can then rely on what is stored.
+    """
+    from app.schemas.data_source_registry import (
+        auth_variant_enabled, credentials_for_auth_method, get_entry,
+    )
+
+    if not isinstance(credentials, dict) and credentials is not None:
+        return credentials
+    auth_type = _config_auth_type(config)
+    try:
+        options = get_entry(conn_type).credentials_auth
+    except ValueError:
+        return credentials
+    variant = options.by_auth.get(auth_type or options.default)
+    if variant is None or not variant.requires_security_flag:
+        if credentials is None:
+            return None
+        return credentials_for_auth_method(conn_type, auth_type, credentials)
+
+    if not auth_variant_enabled(variant):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{variant.title} is turned off on this deployment. Ask the operator to enable it before using this authentication method.",
+        )
+    from pydantic import ValidationError
+    cleaned = credentials_for_auth_method(conn_type, auth_type, credentials or {})
+    try:
+        validated = variant.schema(**{k: v for k, v in cleaned.items() if v is not None and v != ""})
+    except ValidationError as e:
+        first = e.errors()[0]
+        reason = str(first["msg"]).removeprefix("Value error, ")
+        raise HTTPException(status_code=400, detail=reason)
+    return {**cleaned, **validated.model_dump(exclude_none=True)}
 
 
 async def grant_connection_owner(
@@ -544,7 +635,8 @@ def _invalidate_engine_pool(connection) -> None:
         sig = _inspect.signature(ClientClass.__init__)
         params = {**(cfg or {}), **creds}
         allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         for attr in ("pg_uri", "mysql_uri", "mariadb_uri", "sql_server_uri",
                      "oracle_uri", "trino_uri", "presto_uri", "teradata_uri", "db2_uri"):
             uri = getattr(client, attr, None)
@@ -703,6 +795,7 @@ class ConnectionService:
         _validate_connection_config(type, config)
         _check_pg_schemas(type, config, credentials)
         _check_query_tag_label(config)
+        credentials = _prepare_auth_credentials(type, config, credentials)
 
         # Check enterprise license for restricted data sources
         from app.ee.license import is_datasource_allowed, is_enterprise_licensed
@@ -1068,6 +1161,7 @@ class ConnectionService:
         current_config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
         if not isinstance(current_config, dict):
             current_config = {}
+        previous_config = current_config
 
         if "config" in updates:
             new_config = updates.pop("config")
@@ -1096,17 +1190,28 @@ class ConnectionService:
                     merged.pop(key, None)
             connection.config = json.dumps(merged)
 
-        if "credentials" in updates:
-            new_credentials = updates.pop("credentials")
-            if new_credentials:
-                # Credential edits are partial updates, like test overrides:
-                # omitted/blank values keep the saved value. Never replace the
-                # entire blob when rotating a single secret or identifier.
-                existing = connection.decrypt_credentials() or {}
-                changes = _nonblank(new_credentials)
-                if changes:
-                    connection.encrypt_credentials({**existing, **changes})
-                    connection_changed = True
+        auth_method_changed = _config_auth_type(current_config) != _config_auth_type(previous_config)
+        credential_changes = {}
+        new_credentials = updates.pop("credentials", None) if "credentials" in updates else None
+        if new_credentials:
+            # Credential edits are partial updates, like test overrides:
+            # omitted/blank values keep the saved value. Never replace the
+            # entire blob when rotating a single secret or identifier.
+            credential_changes = _nonblank(new_credentials)
+        target_type = updates.get("type", connection.type)
+        # A change of method alone only matters where methods are exclusive;
+        # elsewhere the stored credentials are left exactly as they were.
+        if new_credentials or (auth_method_changed and _auth_methods_exclusive(target_type)):
+            existing = connection.decrypt_credentials() or {}
+            # Merge, then keep only what the (possibly new) auth method owns:
+            # switching method must not leave the previous method's key or
+            # marker in the stored credentials.
+            merged = _prepare_auth_credentials(
+                target_type, current_config, _merge_credential_changes(target_type, existing, new_credentials),
+            )
+            if credential_changes or merged != existing:
+                connection.encrypt_credentials(merged)
+                connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
@@ -1255,6 +1360,13 @@ class ConnectionService:
             # cascades in this app, and its FTS rows hang off no key at all.
             from app.services.file_index_store import FileIndexStore
             await FileIndexStore(db).clear(str(connection.id))
+
+            # Agents' per-connection settings (their Slack channels) go too —
+            # same reason: SQLite doesn't enforce the FK cascade here.
+            from sqlalchemy import delete as _delete
+            from app.models.data_source_connection_setting import DataSourceConnectionSetting
+            await db.execute(_delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.connection_id == str(connection.id)))
 
             # Agents that existed only through this connection were deleted
             # above, through the agent delete; any left here share another
@@ -1466,6 +1578,7 @@ class ConnectionService:
             _check_network_dir_root(data_source_type, config)
             _reject_unsafe_google_keys(credentials)
             _check_query_tag_label(config)
+            credentials = _prepare_auth_credentials(data_source_type, config, credentials)
         except HTTPException as e:
             return {"success": False, "message": e.detail, "connectivity": False}
         except AppError as e:
@@ -1939,7 +2052,7 @@ class ConnectionService:
         manual = (
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
-            and connection.type in ("sharepoint_onprem", "documentum", "kms_lighthouse")
+            and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -2240,6 +2353,26 @@ class ConnectionService:
                 .execution_options(synchronize_session=False)
             )
 
+    async def _active_tables_by_agent(self, db: AsyncSession, connection: Connection) -> dict:
+        """``{agent_id: {table_name: columns}}`` for the tables each linked agent
+        has active on this connection. Read-only; feeds the schema-change diff.
+        (No try/except: a failed statement would poison the refresh transaction
+        on Postgres anyway, so let it surface like any other refresh error.)"""
+        import copy
+        from app.models.datasource_table import DataSourceTable
+        rows = (await db.execute(
+            select(DataSourceTable.datasource_id, DataSourceTable.name, DataSourceTable.columns)
+            .join(ConnectionTable, ConnectionTable.id == DataSourceTable.connection_table_id)
+            .where(
+                ConnectionTable.connection_id == str(connection.id),
+                DataSourceTable.is_active == True,  # noqa: E712
+            )
+        )).all()
+        out: dict = {}
+        for ds_id, name, columns in rows:
+            out.setdefault(str(ds_id), {})[name] = copy.deepcopy(list(columns or []))
+        return out
+
     async def refresh_schema(self, db: AsyncSession, connection: Connection, current_user: User = None,
                              progress_callback=None, introspection: str = "full",
                              keep_fresh_tables: bool = True, diagnostics_hook=None, defer_file_conversion=False) -> List[ConnectionTable]:
@@ -2261,6 +2394,11 @@ class ConnectionService:
                 org_id=getattr(connection, "organization_id", None),
                 user_id=getattr(current_user, "id", None),
             ):
+                # What each linked agent actively uses BEFORE discovery: a table
+                # dropped upstream is pruned (with its agent rows) inside
+                # _refresh_schema, so the per-agent sync below could otherwise
+                # never report it as removed.
+                prior_active = await self._active_tables_by_agent(db, connection)
                 tables = await self._refresh_schema(
                     db, connection, current_user, progress_callback, introspection,
                     keep_fresh_tables, diagnostics_hook, **({"defer_file_conversion": True} if defer_file_conversion else {}),
@@ -2284,6 +2422,7 @@ class ConnectionService:
                     await DataSourceService().sync_domain_tables_from_connection(
                         db, agent, connection, max_auto_select=None,
                         commit=False, after_commit=notifications,
+                        prior_active_tables=prior_active.get(str(agent.id)),
                     )
                     self.last_synced_domains += 1
                 if progress_callback:
@@ -2931,7 +3070,13 @@ class ConnectionService:
         creds = await self.resolve_credentials(db, connection, current_user)
         # Merge credential overrides (non-empty values win, blank keeps saved)
         if credential_overrides:
-            creds.update(_nonblank(credential_overrides))
+            creds = _merge_credential_changes(connection.type, creds, credential_overrides)
+        if getattr(self, "last_credential_identity", "system") == "system":
+            # The (possibly overridden) auth method decides which system
+            # fields count: an edit form testing a switch of method sends the
+            # new method's fields on top of the saved ones.
+            from app.schemas.data_source_registry import credentials_for_auth_method
+            creds = credentials_for_auth_method(connection.type, _config_auth_type(config), creds)
         logger.info(f"construct_client: Credentials resolved, keys={list(creds.keys()) if creds else []}")
 
         params = {**(config or {}), **(creds or {})}
@@ -2965,7 +3110,8 @@ class ConnectionService:
         # time — every test, index, query and tool call builds through here.
         from app.core.egress import acheck_connection_params
         await acheck_connection_params(connection.type, params)
-        client = ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        client = bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
         if connection.type == "network_dir":
             client._bow_connection_id = str(connection.id)
         if connection.type in ("remote_ssh", "remote_smb"):

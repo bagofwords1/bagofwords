@@ -265,15 +265,17 @@ def test_a_member_without_the_attribute_is_blocked_not_given_the_certificate(tes
 
 @pytest.mark.e2e
 def test_members_cannot_change_their_identity_through_their_profile(test_client, org, probe):
-    """Review finding 3: display name and email are member-editable, so they
-    are never identity sources."""
+    """Review finding 3: the display name is member-editable (and the login
+    email is not editable at all), so neither is an identity source."""
     dana = org["invite"]({"qlik_user_id": "dana"})
     conn = _create_qlik(test_client, org, {"user_id": "qlik_user_id"}).json()
 
     r = test_client.patch(
-        "/api/users/me", json={"name": "ceo", "email": f"ceo_{uuid.uuid4().hex[:6]}@test.com"},
+        "/api/users/me", json={"email": f"ceo_{uuid.uuid4().hex[:6]}@test.com"},
         headers=_h(dana["token"], org["id"]),
     )
+    assert r.status_code == 400, r.json()
+    r = test_client.patch("/api/users/me", json={"name": "ceo"}, headers=_h(dana["token"], org["id"]))
     assert r.status_code == 200, r.json()
     assert _client_for(conn["id"], dana["user_id"]).user_id == "dana"
 

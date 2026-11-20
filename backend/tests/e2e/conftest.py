@@ -60,6 +60,7 @@ def _e2e_force_enterprise_license():
             "usage_limits",
             "pii_protection",
             "rls",
+            "multi_org",
         ],
         license_id="e2e-fake",
     )
@@ -90,6 +91,42 @@ def _e2e_reapply_enterprise_license(_e2e_force_enterprise_license):
     yield
 
 
+@pytest.fixture
+def enforce_org_creation_policy():
+    """Request this to run with the real rule for creating an additional
+    organization (instance administrator + multi-org flag + license)."""
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _e2e_any_user_may_create_additional_organizations(request, monkeypatch):
+    """Let any signed-in user create a second organization when multi-org is on.
+
+    Two-organization fixtures across this suite build the second organization
+    the way a multi-org deployment used to: its admin signs up and creates it.
+    That is now reserved for instance administrators, so those fixtures would
+    all fail at setup. Until they are moved to "an instance administrator
+    creates the organization and invites its admin", the superadmin and license
+    conditions are waived here; the multi-org flag is still required. Tests of
+    the rule itself request ``enforce_org_creation_policy`` and get the real one.
+    """
+    if "enforce_org_creation_policy" in request.fixturenames:
+        yield
+        return
+    from app.core import instance_admin
+    from app.settings.config import settings
+
+    real = instance_admin.additional_organization_refusal
+
+    def _flag_only(user):
+        if not settings.bow_config.features.allow_multiple_organizations:
+            return real(user)
+        return None
+
+    monkeypatch.setattr(instance_admin, "additional_organization_refusal", _flag_only)
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _drain_connection_indexing_loop():
     """Drain the connection-indexing background loop after each test.
@@ -102,3 +139,31 @@ def _drain_connection_indexing_loop():
     """
     yield
     _cis.shutdown_background_loop()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _e2e_org_scope_guard():
+    """Run the organization-scope query guard in warn mode for the e2e suite.
+
+    It is off by default in production config; here it only logs (once per
+    distinct statement and call site) and records findings, it never fails a
+    test. ``BOW_ORG_SCOPE_GUARD=off|warn|enforce`` overrides the mode;
+    ``BOW_ORG_SCOPE_GUARD_REPORT=<path>`` writes the session's findings there
+    as markdown (one file per xdist worker).
+    """
+    import os
+
+    from app.core import org_scope_guard
+
+    previous = org_scope_guard.get_mode()
+    mode = (os.environ.get("BOW_ORG_SCOPE_GUARD") or "warn").strip().lower()
+    org_scope_guard.install(mode if mode in org_scope_guard.MODES else "warn")
+    yield
+    report_path = os.environ.get("BOW_ORG_SCOPE_GUARD_REPORT")
+    if report_path and org_scope_guard.get_mode() != "off":
+        worker = os.environ.get("PYTEST_XDIST_WORKER")
+        if worker:
+            report_path = f"{report_path}.{worker}"
+        with open(report_path, "w") as handle:
+            handle.write(org_scope_guard.findings_markdown())
+    org_scope_guard.install(previous)

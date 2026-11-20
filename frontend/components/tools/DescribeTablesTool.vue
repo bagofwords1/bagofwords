@@ -1,55 +1,22 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header (click to expand/collapse results) -->
-    <Transition name="fade" appear>
-      <div
-        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="hasContent && toggleCollapsed()"
-        :aria-expanded="!isCollapsed"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>Searching&nbsp;</span>
-          <Transition name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''">{{ queryLabel }}</span>
-          </Transition>
-          <span>…</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
-          <Icon
-            v-if="hasContent"
-            :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-            class="w-3 h-3 me-1 text-ink-muted rtl-flip flex-shrink-0"
-          />
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted flex-shrink-0" />
-          <span class="align-middle flex-shrink-0">Searched&nbsp;</span>
-          <span v-if="headerTables.length" class="flex items-center min-w-0 overflow-hidden">
-            <span
-              v-for="(item, idx) in headerTables"
-              :key="idx"
-              class="inline-flex items-center flex-shrink-0"
-            >
-              <DataSourceIcon :type="inferIconTypeFromItem(item)" class="h-2 me-1" :class="{ 'ms-1': idx > 0 }" />
-              <UIcon
-                v-if="isFastConnectionName(item.connection_name)"
-                name="heroicons-bolt"
-                class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
-                title="Cached locally — this read did not query the source"
-              />
-              <bdi class="font-medium">{{ item.full_name || item.name || 'table' }}</bdi>
-              <span v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</span>
-            </span>
-            <span v-if="headerExtraCount > 0" class="ms-1 text-ink-muted flex-shrink-0">+{{ headerExtraCount }} more</span>
-          </span>
-          <Transition v-else name="fade-in" mode="out-in">
-            <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
-          </Transition>
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">Searching&nbsp;{{ queryLabel }}…</template>
+      <template v-else>Searched&nbsp;<template v-if="headerTables.length">
+      <template v-for="(item, idx) in headerTables">{{ item.full_name || item.name || 'table' }}<template v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</template></template></template>
+      <template v-else>{{ queryLabel }}</template></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else>
+      <template v-if="headerTables.length"><span v-if="headerExtraCount > 0" class="ms-1 text-ink-muted flex-shrink-0">+{{ headerExtraCount }} more</span></template>
+      <template v-else></template></template></div>
     <!-- Preview of top tables (collapsed by default; click header to toggle) -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && topTables && topTables.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && topTables && topTables.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-1 leading-snug">
           <li v-for="(item, idx) in topTables.slice(0, 10)" :key="idx">
             <!-- Header row -->
@@ -131,14 +98,18 @@
         </ul>
       </div>
     </Transition>
+  
+    </div>
   </div>
-
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { isFastConnectionName } from '~/composables/useFastTable'
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 interface ToolExecution {
@@ -315,18 +286,6 @@ function lastUsedLabel(item: any): string {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 /* Fade transition for initial appear and toggles */
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;

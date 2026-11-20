@@ -7,10 +7,11 @@ import secrets
 import hashlib
 import logging
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, literal, union_all
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from fastapi_users.password import PasswordHelper
@@ -20,6 +21,12 @@ from app.models.membership import Membership
 from app.models.organization import Organization
 from app.ee.scim.models import ScimToken
 from app.ee.scim.errors import ScimError
+from app.settings.config import settings
+from app.core.user_lifecycle import (
+    has_live_membership_elsewhere,
+    is_instance_admin_account,
+    may_attach_existing_account,
+)
 from app.ee.scim.schemas import (
     ScimUser, ScimUserCreate, ScimPatchOp, ScimMeta, ScimName, ScimEmail,
     ScimListResponse, ScimTokenCreate, ScimTokenResponse, ScimTokenCreated,
@@ -143,8 +150,49 @@ def _scim_bool(value) -> bool:
     return bool(value)
 
 
-def _user_to_scim(user: User, membership: Optional[Membership] = None, base_url: str = "") -> ScimUser:
-    """Convert internal User to SCIM User representation."""
+def _pending_resources_enabled() -> bool:
+    """Whether an open invite for an existing account is shown as a SCIM
+    resource. Only where the instance hosts multiple organizations; on a
+    single-organization deployment list/get see members only, as before."""
+    return bool(settings.bow_config.features.allow_multiple_organizations)
+
+
+def _pending_to_scim(user: User, membership: Membership, base_url: str = "") -> ScimUser:
+    """SCIM representation of a person this organization has provisioned but
+    who has not joined yet (an open invite for an existing account).
+
+    Built from what this organization supplied — the address — and not from
+    the account's profile, which belongs to the organizations the person is
+    already in.
+    """
+    return ScimUser(
+        id=user.id,
+        externalId=None,
+        userName=membership.email or user.email,
+        name=ScimName(formatted=None, givenName="", familyName=""),
+        displayName=None,
+        emails=[ScimEmail(value=membership.email or user.email, type="work", primary=True)],
+        active=True,
+        meta=ScimMeta(
+            resourceType="User",
+            created=membership.created_at,
+            lastModified=membership.updated_at,
+            location=f"{base_url}/scim/v2/Users/{user.id}",
+        ),
+    )
+
+
+def _user_to_scim(
+    user: User,
+    membership: Optional[Membership] = None,
+    base_url: str = "",
+    active: Optional[bool] = None,
+) -> ScimUser:
+    """Convert internal User to SCIM User representation.
+
+    ``active`` overrides the account flag when the answer is about this
+    organization's membership rather than the account (see ScimUserService).
+    """
     name_parts = (user.name or "").split(" ", 1)
     given_name = name_parts[0] if name_parts else ""
     family_name = name_parts[1] if len(name_parts) > 1 else ""
@@ -163,7 +211,7 @@ def _user_to_scim(user: User, membership: Optional[Membership] = None, base_url:
         ),
         displayName=user.name,
         emails=[ScimEmail(value=user.email, type="work", primary=True)],
-        active=user.is_active,
+        active=user.is_active if active is None else active,
         meta=ScimMeta(
             resourceType="User",
             created=created_at,
@@ -185,36 +233,72 @@ class ScimUserService:
         base_url: str = "",
     ) -> ScimListResponse:
         filters = _parse_scim_filter(filter_str)
+        email_filter = filters.get("userName") or filters.get("emails.value")
+        external_id_filter = filters.get("externalId")
 
-        query = (
-            select(User, Membership)
+        live = (
+            select(User.id.label("user_id"), Membership.id.label("membership_id"), literal(0).label("pending"))
             .join(Membership, Membership.user_id == User.id)
             .where(Membership.organization_id == organization_id)
             .where(Membership.deleted_at.is_(None))
         )
-
-        # Apply SCIM filters
-        email_filter = filters.get("userName") or filters.get("emails.value")
         if email_filter:
-            query = query.where(User.email == email_filter)
-
-        external_id_filter = filters.get("externalId")
+            live = live.where(User.email == email_filter)
         if external_id_filter:
-            query = query.where(User.scim_external_id == external_id_filter)
+            live = live.where(User.scim_external_id == external_id_filter)
+
+        # People provisioned here who have not joined yet (see create_user):
+        # an open invite whose address is an existing account. Listed so the
+        # identity provider finds the resource it created. Never matched by
+        # externalId, which is the account's, not this organization's.
+        # Multi-organization deployments only: with a single organization the
+        # listing is exactly what it always was.
+        if external_id_filter or not _pending_resources_enabled():
+            keys = live.subquery()
+        else:
+            pending = (
+                select(User.id.label("user_id"), Membership.id.label("membership_id"), literal(1).label("pending"))
+                .join(Membership, func.lower(Membership.email) == func.lower(User.email))
+                .where(Membership.organization_id == organization_id)
+                .where(Membership.user_id.is_(None))
+                .where(Membership.deleted_at.is_(None))
+            )
+            if email_filter:
+                pending = pending.where(User.email == email_filter)
+            keys = union_all(live, pending).subquery()
 
         # Get total count
-        count_query = select(func.count()).select_from(query.subquery())
-        total_result = await db.execute(count_query)
+        total_result = await db.execute(select(func.count()).select_from(keys))
         total = total_result.scalar()
 
         # Apply pagination (SCIM uses 1-based indexing)
         offset = max(0, start_index - 1)
-        query = query.offset(offset).limit(count)
+        page = (await db.execute(
+            select(keys.c.user_id, keys.c.membership_id, keys.c.pending)
+            .order_by(keys.c.pending, keys.c.user_id, keys.c.membership_id)
+            .offset(offset).limit(count)
+        )).all()
 
-        result = await db.execute(query)
-        rows = result.all()
+        users = {
+            u.id: u for u in (await db.execute(
+                select(User).where(User.id.in_([r.user_id for r in page]))
+            )).scalars().all()
+        } if page else {}
+        memberships = {
+            m.id: m for m in (await db.execute(
+                select(Membership).where(Membership.id.in_([r.membership_id for r in page]))
+            )).scalars().all()
+        } if page else {}
 
-        resources = [_user_to_scim(user, membership, base_url) for user, membership in rows]
+        resources = []
+        for r in page:
+            user, membership = users.get(r.user_id), memberships.get(r.membership_id)
+            if user is None or membership is None:
+                continue
+            if r.pending:
+                resources.append(_pending_to_scim(user, membership, base_url))
+            else:
+                resources.append(_user_to_scim(user, membership, base_url))
 
         return ScimListResponse(
             totalResults=total,
@@ -223,6 +307,83 @@ class ScimUserService:
             Resources=resources,
         )
 
+    async def _load(self, db: AsyncSession, organization_id: str, user_id: str):
+        """Resolve a SCIM user id inside this organization.
+
+        Returns ``(user, membership, pending)``. ``pending`` is True when the
+        person has only an open invite here (see create_user). 404 when the
+        user has neither a membership nor an invite in this organization.
+        """
+        result = await db.execute(
+            select(User, Membership)
+            .join(Membership, Membership.user_id == User.id)
+            .where(User.id == user_id)
+            .where(Membership.organization_id == organization_id)
+            .where(Membership.deleted_at.is_(None))
+            .limit(1)
+        )
+        row = result.first()
+        if row:
+            return row[0], row[1], False
+        if not _pending_resources_enabled():
+            raise HTTPException(status_code=404, detail="User not found")
+
+        result = await db.execute(
+            select(User, Membership)
+            .join(Membership, func.lower(Membership.email) == func.lower(User.email))
+            .where(User.id == user_id)
+            .where(Membership.organization_id == organization_id)
+            .where(Membership.user_id.is_(None))
+            .where(Membership.deleted_at.is_(None))
+            .order_by(Membership.created_at.asc(), Membership.id.asc())
+            .limit(1)
+        )
+        row = result.first()
+        if row:
+            return row[0], row[1], True
+        raise HTTPException(status_code=404, detail="User not found")
+
+    async def _is_shared(self, db: AsyncSession, organization_id: str, user: User, pending: bool) -> bool:
+        """Whether the account also belongs outside this organization.
+
+        The account row (email, name, active flag, externalId) is shared by
+        every organization the person is in. This organization's identity
+        provider may write it only while this is the person's sole
+        organization; otherwise its writes are limited to the membership here.
+        """
+        if pending or is_instance_admin_account(user):
+            return True
+        return await has_live_membership_elsewhere(db, str(user.id), organization_id)
+
+    async def _end_membership(self, db: AsyncSession, organization_id: str, membership: Membership) -> None:
+        """Remove this organization's membership (or open invite) through the
+        same path as the members list, so the same cleanup runs."""
+        from app.services.organization_service import OrganizationService
+
+        await OrganizationService().remove_member(
+            db, organization_id, str(membership.id), None, None
+        )
+
+    async def _apply_shared(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user: User,
+        membership: Membership,
+        pending: bool,
+        active: bool,
+        base_url: str,
+    ) -> ScimUser:
+        """PUT/PATCH for an account that also belongs elsewhere: profile fields
+        are left as stored, and ``active`` decides only whether the person
+        stays in this organization."""
+        if not active:
+            await self._end_membership(db, organization_id, membership)
+            return _user_to_scim(user, None, base_url, active=False)
+        if pending:
+            return _pending_to_scim(user, membership, base_url)
+        return _user_to_scim(user, membership, base_url)
+
     async def get_user(
         self,
         db: AsyncSession,
@@ -230,18 +391,9 @@ class ScimUserService:
         user_id: str,
         base_url: str = "",
     ) -> ScimUser:
-        result = await db.execute(
-            select(User, Membership)
-            .join(Membership, Membership.user_id == User.id)
-            .where(User.id == user_id)
-            .where(Membership.organization_id == organization_id)
-            .where(Membership.deleted_at.is_(None))
-        )
-        row = result.one_or_none()
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user, membership = row
+        user, membership, pending = await self._load(db, organization_id, user_id)
+        if pending:
+            return _pending_to_scim(user, membership, base_url)
         return _user_to_scim(user, membership, base_url)
 
     async def create_user(
@@ -256,10 +408,13 @@ class ScimUserService:
             email = data.emails[0].value
 
         # Check if user already exists
+        # Case-insensitive: a case variant of a registered address is the same
+        # person, not a second account.
         existing_result = await db.execute(
-            select(User).where(User.email == email)
+            select(User).where(func.lower(User.email) == (email or "").strip().lower())
+            .order_by(User.id.asc()).limit(1)
         )
-        existing_user = existing_result.scalar_one_or_none()
+        existing_user = existing_result.scalars().first()
 
         if existing_user:
             # Check if already a member of this org
@@ -272,6 +427,16 @@ class ScimUserService:
             )
             if membership_result.first():
                 raise HTTPException(status_code=409, detail="User already exists in this organization")
+
+            # An instance administrator's account is not an organization's to
+            # provision. The refusal says nothing about the account.
+            if is_instance_admin_account(existing_user):
+                raise ScimError(409, "userName is not available in this organization", "uniqueness")
+
+            if not await may_attach_existing_account(db, existing_user, organization_id):
+                return await self._invite_existing_account(
+                    db, organization_id, existing_user, data, base_url
+                )
 
             # Claim an open email invite rather than creating a SECOND membership
             # that would collide with the user's later invite acceptance (the
@@ -376,6 +541,71 @@ class ScimUserService:
 
         return _user_to_scim(user, membership, base_url)
 
+    async def _invite_existing_account(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        user: User,
+        data: ScimUserCreate,
+        base_url: str = "",
+    ) -> ScimUser:
+        """Provision an address whose account already belongs to another
+        organization.
+
+        The person is not placed in this organization directly: they get the
+        same open invite the members list issues (address set, no user yet)
+        and join by accepting it. The account row is not written.
+        """
+        email = (user.email or "").strip().lower()
+        open_invite = (await db.execute(
+            select(Membership.id)
+            .where(func.lower(Membership.email) == email)
+            .where(Membership.organization_id == organization_id)
+            .where(Membership.user_id.is_(None))
+            .where(Membership.deleted_at.is_(None))
+            .limit(1)
+        )).first()
+        if open_invite:
+            raise ScimError(409, "User already exists in this organization", "uniqueness")
+
+        if not data.active:
+            # Provisioned as inactive: nothing to grant, so no invite is
+            # issued, and nothing about the existing account is returned.
+            raise ScimError(409, "userName is not available in this organization", "uniqueness")
+
+        from app.core.seats import enforce_seat_limit
+        await enforce_seat_limit(db, organization_id)
+
+        from app.services.organization_service import OrganizationService, INVITE_EXPIRY_DAYS
+        membership = Membership(
+            organization_id=organization_id,
+            email=email,
+            role="member",
+            invite_expires_at=datetime.utcnow() + timedelta(days=INVITE_EXPIRY_DAYS),
+        )
+        db.add(membership)
+        await db.commit()
+        await db.refresh(membership)
+
+        try:
+            await OrganizationService()._send_invitation_email(
+                db, str(organization_id), email, membership.invite_token
+            )
+        except Exception:
+            logger.warning("SCIM: failed to send the invitation email", exc_info=True)
+
+        if not _pending_resources_enabled():
+            # Not addressable through SCIM on this deployment (see _load):
+            # echo what the identity provider sent, nothing from the account.
+            return ScimUser(
+                userName=data.userName,
+                emails=[ScimEmail(value=email, type="work", primary=True)],
+                active=True,
+                meta=ScimMeta(resourceType="User", created=membership.created_at,
+                              lastModified=membership.updated_at),
+            )
+        return _pending_to_scim(user, membership, base_url)
+
     async def update_user(
         self,
         db: AsyncSession,
@@ -385,18 +615,11 @@ class ScimUserService:
         base_url: str = "",
     ) -> ScimUser:
         """PUT - full replace of user attributes."""
-        result = await db.execute(
-            select(User, Membership)
-            .join(Membership, Membership.user_id == User.id)
-            .where(User.id == user_id)
-            .where(Membership.organization_id == organization_id)
-            .where(Membership.deleted_at.is_(None))
-        )
-        row = result.one_or_none()
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user, membership = row
+        user, membership, pending = await self._load(db, organization_id, user_id)
+        if await self._is_shared(db, organization_id, user, pending):
+            return await self._apply_shared(
+                db, organization_id, user, membership, pending, data.active, base_url
+            )
 
         # Update name
         if data.displayName:
@@ -432,18 +655,20 @@ class ScimUserService:
         base_url: str = "",
     ) -> ScimUser:
         """PATCH - partial update of user attributes."""
-        result = await db.execute(
-            select(User, Membership)
-            .join(Membership, Membership.user_id == User.id)
-            .where(User.id == user_id)
-            .where(Membership.organization_id == organization_id)
-            .where(Membership.deleted_at.is_(None))
-        )
-        row = result.one_or_none()
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user, membership = row
+        user, membership, pending = await self._load(db, organization_id, user_id)
+        if await self._is_shared(db, organization_id, user, pending):
+            # Evaluate the operations against a scratch copy: only the
+            # resulting ``active`` matters here, the account row is not written.
+            scratch = SimpleNamespace(
+                email=user.email, name=user.name, is_active=True,
+                scim_external_id=user.scim_external_id,
+            )
+            for op in patch.Operations:
+                if op.op.lower() in ("replace", "add"):
+                    self._apply_replace(scratch, op.path, op.value)
+            return await self._apply_shared(
+                db, organization_id, user, membership, pending, scratch.is_active, base_url
+            )
 
         for op in patch.Operations:
             if op.op.lower() == "replace":
@@ -520,21 +745,16 @@ class ScimUserService:
         organization_id: str,
         user_id: str,
     ) -> None:
-        """SCIM DELETE - deactivate user (soft delete)."""
-        result = await db.execute(
-            select(User, Membership)
-            .join(Membership, Membership.user_id == User.id)
-            .where(User.id == user_id)
-            .where(Membership.organization_id == organization_id)
-            .where(Membership.deleted_at.is_(None))
-        )
-        row = result.one_or_none()
-        if not row:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        user, membership = row
-        user.is_active = False
-        await db.commit()
+        """SCIM DELETE - deactivate the account when this is its sole
+        organization, otherwise end this organization's membership."""
+        user, membership, pending = await self._load(db, organization_id, user_id)
+        if await self._is_shared(db, organization_id, user, pending):
+            # The account also belongs elsewhere: deprovisioning here ends this
+            # organization's membership and leaves the account alone.
+            await self._end_membership(db, organization_id, membership)
+        else:
+            user.is_active = False
+            await db.commit()
         try:
             from app.services.wait_service import wait_service
             wait_service.cancel_waits_for_user(str(user_id))

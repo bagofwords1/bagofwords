@@ -32,6 +32,7 @@ export interface AdminNavItem {
   description?: string
   width?: AdminPageWidth
   feature?: string
+  superuserOnly?: boolean
   // Sub-pages rendered by the same route, selected with ?tab=<key>.
   children?: AdminNavChild[]
 }
@@ -59,6 +60,7 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
   { name: 'general', label: 'settings.general', icon: 'i-heroicons-building-office', permission: 'manage_settings', description: 'settings.subtitle', width: 'narrow' },
   { name: 'integrations', label: 'settings.integrations.title', icon: 'i-heroicons-chat-bubble-left-right', permission: 'manage_settings', description: 'settings.integrations.subtitle', width: 'wide' },
   { name: 'audit', label: 'settings.auditLogs', icon: 'i-heroicons-clipboard-document-list', permission: 'view_audit_logs', description: 'settings.audit.subtitle', width: 'wide' },
+  { name: 'system-logs', label: 'settings.systemLogsTab', icon: 'i-heroicons-command-line', permission: 'full_admin_access', superuserOnly: true, description: 'settings.systemLogs.subtitle', width: 'wide' },
   { name: 'identity-provider', label: 'settings.identityProviderTab', icon: 'i-heroicons-finger-print', permission: 'manage_identity_providers', description: 'settings.adminPages.identityProvider', width: 'narrow' },
   { name: 'smtp', label: 'settings.smtpTab', icon: 'i-heroicons-envelope', permission: 'manage_settings', description: 'settings.adminPages.smtp', width: 'narrow' },
   { name: 'license', label: 'settings.license', icon: 'i-heroicons-key', permission: 'manage_settings', description: 'settings.licensePage.subtitle', width: 'narrow' },
@@ -78,6 +80,7 @@ export function resolveAdminPage(path: string, tab?: string) {
 
 export function useAdminNav() {
   const { hasFeature } = useEnterprise()
+  const { data: currentUser } = useAuth()
 
   const allowed = (permission?: string, feature?: string) => {
     if (feature && !hasFeature(feature)) return false
@@ -88,6 +91,7 @@ export function useAdminNav() {
   const visibleItems = computed(() =>
     ADMIN_NAV_ITEMS
       .filter(item => allowed(item.permission, item.feature))
+      .filter(item => !item.superuserOnly || currentUser.value?.is_superuser === true)
       .map(item => ({
         ...item,
         children: item.children?.filter(child => allowed(child.permission, child.feature)),

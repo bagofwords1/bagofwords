@@ -91,7 +91,7 @@ import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Callable, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
 
 import sqlalchemy
 import sqlalchemy.event
@@ -333,14 +333,15 @@ def pg_one_message(eng: Any) -> bool:
     return getattr(eng, PG_ONE_MESSAGE_ATTR, False) is True
 
 
-def _is_psycopg2_postgres(uri: str) -> bool:
+def _is_psycopg2_postgres(uri: "Union[str, sqlalchemy.engine.URL]") -> bool:
     """`postgresql://` (psycopg2 is SQLAlchemy's default driver) or
-    `postgresql+psycopg2://`, resolved the way SQLAlchemy resolves them."""
+    `postgresql+psycopg2://`, resolved the way SQLAlchemy resolves them
+    (a URL object is read as it is)."""
     url = sqlalchemy.engine.make_url(uri)
     return url.get_backend_name() == "postgresql" and url.get_driver_name() == "psycopg2"
 
 
-def _attach_listeners(eng: sqlalchemy.engine.Engine, uri: str,
+def _attach_listeners(eng: sqlalchemy.engine.Engine, uri: "Union[str, sqlalchemy.engine.URL]",
                       on_connect: Optional[Callable[[Any, Any], None]]) -> None:
     """Before the engine is published, so no connection can be opened or
     returned without them."""
@@ -361,7 +362,7 @@ def _key(uri: str, connect_args: Optional[Dict[str, Any]], key_extra: Optional[s
 
 
 def get_engine(
-    uri: str,
+    uri: "Union[str, sqlalchemy.engine.URL]",
     connect_args: Optional[Dict[str, Any]] = None,
     *,
     key_extra: Optional[str] = None,
@@ -391,6 +392,13 @@ def get_engine(
     * the mark ``pg_one_message`` reads and the ``reset`` backstop that goes
       with it, unless ``BOW_PG_ONE_MESSAGE=off``.
     """
+    # A client may pass a URL object so no field is re-parsed out of a string
+    # (see clients/_sa_url.py). The engine is built from the object; the
+    # rendered form stays the cache identity, which is what dispose_for_uri
+    # is handed.
+    url = uri
+    if not isinstance(uri, str):
+        uri = uri.render_as_string(hide_password=False)
     bucket = _ephemeral_engines.get()
     if bucket is not None:
         kwargs = {
@@ -399,9 +407,9 @@ def get_engine(
         kwargs["poolclass"] = sqlalchemy.pool.NullPool
         if connect_args:
             kwargs["connect_args"] = connect_args
-        eng = sqlalchemy.create_engine(uri, **kwargs)
-        _attach_listeners(eng, uri, on_connect)
-        pg_idle_s = _pg_idle_ping_s(uri)
+        eng = sqlalchemy.create_engine(url, **kwargs)
+        _attach_listeners(eng, url, on_connect)
+        pg_idle_s = _pg_idle_ping_s(url)
         if pg_idle_s is not None:
             _attach_pg_ping(eng, pg_idle_s)
         bucket.append(eng)
@@ -418,7 +426,7 @@ def get_engine(
 
     # Build outside the lock: create_engine can do real work (driver import,
     # DSN parsing) and must not serialize every other connection's lookup.
-    pg_idle_s = _pg_idle_ping_s(uri)
+    pg_idle_s = _pg_idle_ping_s(url)
     kwargs: Dict[str, Any] = {
         "pool_size": pool_size,
         "max_overflow": max_overflow,
@@ -434,8 +442,8 @@ def get_engine(
     kwargs.update(engine_kwargs)
     if connect_args:
         kwargs["connect_args"] = connect_args
-    eng = sqlalchemy.create_engine(uri, **kwargs)
-    _attach_listeners(eng, uri, on_connect)
+    eng = sqlalchemy.create_engine(url, **kwargs)
+    _attach_listeners(eng, url, on_connect)
     if pg_idle_s is not None:
         # Before publishing too: an engine without pre-ping must never hand
         # out a connection without the listener.

@@ -507,6 +507,18 @@ class EmailSendService:
             from app.services.row_owner import query_report_id
             q_report = await query_report_id(db, query)
             q_org = str(query.organization_id) if query.organization_id else None
+            if q_org is None and q_report:
+                from app.models.report import Report
+                owner_org = (await db.execute(
+                    select(Report.organization_id).where(Report.id == q_report)
+                )).scalar_one_or_none()
+                q_org = str(owner_org) if owner_org else None
+            # The query must belong to the sending organization, whether or
+            # not it has a parent report; one with no organization at all is
+            # refused.
+            if org_id and q_org != org_id:
+                res.error = "Query not found"
+                return res, None, None
             if report_id and q_report and q_report != report_id and (not org_id or q_org != org_id):
                 res.error = "Query does not belong to this report or organization"
                 return res, None, None

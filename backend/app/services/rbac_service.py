@@ -39,6 +39,60 @@ CUSTOMIZABLE_SYSTEM_ROLES = frozenset({"member"})
 RESERVED_ROLE_NAMES = frozenset({"member", "admin"})
 
 
+async def principals_in_org(db: AsyncSession, org_id: str, principal_type: str, principal_ids) -> set:
+    """The subset of ``principal_ids`` that belong to the organization.
+
+    - ``user``: a live membership, or a service account of the organization.
+    - ``group``: a live group of the organization.
+    - ``role``: a role of the organization, or a built-in (system) role.
+    - ``membership``: a membership row (pending invite) of the organization.
+    """
+    ids = [str(p) for p in (principal_ids or []) if p]
+    if not ids:
+        return set()
+    org_id = str(org_id)
+    if principal_type == "user":
+        from app.models.service_account import ServiceAccount
+        members = await db.execute(
+            select(Membership.user_id).where(
+                Membership.user_id.in_(ids),
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            )
+        )
+        accounts = await db.execute(
+            select(ServiceAccount.user_id).where(
+                ServiceAccount.user_id.in_(ids),
+                ServiceAccount.organization_id == org_id,
+                ServiceAccount.deleted_at.is_(None),
+            )
+        )
+        return {str(r[0]) for r in members.all()} | {str(r[0]) for r in accounts.all()}
+    if principal_type == "group":
+        stmt = select(Group.id).where(
+            Group.id.in_(ids), Group.organization_id == org_id, Group.deleted_at.is_(None),
+        )
+    elif principal_type == "role":
+        stmt = select(Role.id).where(
+            Role.id.in_(ids),
+            or_(Role.organization_id == org_id, Role.organization_id.is_(None)),
+            Role.deleted_at.is_(None),
+        )
+    elif principal_type == "membership":
+        stmt = select(Membership.id).where(
+            Membership.id.in_(ids), Membership.organization_id == org_id, Membership.deleted_at.is_(None),
+        )
+    else:
+        return set()
+    return {str(r[0]) for r in (await db.execute(stmt)).all()}
+
+
+async def assert_principal_in_org(db: AsyncSession, org_id: str, principal_type: str, principal_id: str) -> None:
+    """404 unless the principal belongs to the organization."""
+    if str(principal_id) not in await principals_in_org(db, org_id, principal_type, [principal_id]):
+        raise HTTPException(status_code=404, detail=f"{str(principal_type).capitalize()} not found")
+
+
 class RBACService:
 
     # ── Escalation guard ─────────────────────────────────────────────────
@@ -716,6 +770,9 @@ class RBACService:
         # already has a user_id is rejected as stale.
         if data.principal_type == "membership":
             await self._get_pending_membership(db, org_id, data.principal_id)
+        else:
+            # Users and groups must belong to this organization.
+            await assert_principal_in_org(db, org_id, data.principal_type, data.principal_id)
 
         # Check for duplicate
         existing = await db.execute(
@@ -812,6 +869,9 @@ class RBACService:
     async def create_resource_grant(
         self, db: AsyncSession, org_id: str, data: ResourceGrantCreate
     ) -> ResourceGrantSchema:
+        # The principal must belong to this organization.
+        await assert_principal_in_org(db, org_id, data.principal_type, data.principal_id)
+
         # Check for duplicate
         existing = await db.execute(
             select(ResourceGrant).where(

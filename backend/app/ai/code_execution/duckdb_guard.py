@@ -155,6 +155,31 @@ def _serialize(sql: str) -> dict:
     return tree
 
 
+def serialize_sql(sql: str) -> dict:
+    """DuckDB's serialization of `sql` (`json_serialize_sql`), read on the
+    locked inspector connection: an error comes back as the tree's
+    `error`, as DuckDB reports it."""
+    return _serialize(sql)
+
+
+def statement_types(sql: str) -> list:
+    """The type of each statement DuckDB splits `sql` into, read on the
+    locked inspector connection. Raises what DuckDB raises: a
+    `duckdb.ParserException` for text it cannot parse, a
+    `duckdb.PermissionException` for a statement that would open a file or
+    an address while it is parsed."""
+    with _LOCK:
+        try:
+            return [s.type for s in _connection().extract_statements(sql)]
+        except _TEXT_ERRORS:
+            raise
+        except duckdb.PermissionException:
+            raise
+        except Exception:
+            _drop_connection()
+            raise
+
+
 class _Reader:
     """Collects what a serialized statement reads.
 
@@ -330,6 +355,19 @@ def inspect_duckdb_sql(sql: str) -> DuckdbStatement:
 _DENIED_FUNCTION = DENIED_FUNCTIONS["duckdb"]
 _ALLOWED_TABLE_FUNCTIONS = frozenset({"range", "generate_series", "unnest"})
 _PLAIN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+CTE_NAME_NOT_PLAIN = (
+    "A CTE on this connection needs a plain name made of letters, digits and underscores that "
+    "starts with a letter or an underscore. Rename the CTE and run the query again.")
+
+
+def is_plain_cte_name(name: str) -> bool:
+    """Whether a CTE may be named `name` on a DuckDB connection: ASCII
+    letters, digits and underscores, starting with a letter or an
+    underscore. The wrapper and the file connections' own check
+    (`_duckdb_lockdown.engine_tree_check`) apply this one rule."""
+    return _PLAIN_NAME.fullmatch(name) is not None
+
+
 # DuckDB's built-in catalog views a bare name can reach (duckdb_tables,
 # pg_settings, sqlite_master, pragma_database_list, ...), and the schemas
 # that hold the rest (information_schema.tables, pg_catalog.pg_class, ...).
@@ -383,10 +421,8 @@ def check_duckdb_reads(stmt: DuckdbStatement, check_table: Callable[[tuple[str, 
     # passes, whatever it shadows.
     if stmt.describes:
         raise describe_error
-    if any(not _PLAIN_NAME.fullmatch(name) for name in stmt.cte_names):
-        raise DuckdbQueryError(
-            "A CTE on this connection needs a plain name made of letters, digits and underscores that "
-            "starts with a letter or an underscore. Rename the CTE and run the query again.")
+    if any(not is_plain_cte_name(name) for name in stmt.cte_names):
+        raise DuckdbQueryError(CTE_NAME_NOT_PLAIN)
 
 
 def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready: Iterable[str] = ()) -> None:
@@ -401,7 +437,15 @@ def check_duckdb_file_query(sql: str, allowed_views: Iterable[str], *, not_ready
     (a TableScopeViolation) for a table, DuckdbQueryError for text the agent
     can fix (syntax, DESCRIBE / SHOW, a CTE name that is not plain). The
     policy refusals come first: a fixable error is raised only when nothing
-    in the statement is refused."""
+    in the statement is refused.
+
+    Nothing is checked with
+    `security.unsafe_allow_unrestricted_file_connectors` on, as for the rest
+    of the file connections' checks (`_duckdb_lockdown.check_session_sql`)."""
+    from app.data_sources.clients._duckdb_lockdown import unrestricted
+
+    if unrestricted():
+        return
     shown_views = sorted({str(v) for v in allowed_views}, key=str.lower)
     stmt = inspect_duckdb_sql(sql)
     views = {ascii_lower(v) for v in shown_views}
