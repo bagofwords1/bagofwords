@@ -22,7 +22,7 @@
 
 <script setup lang="ts">
 import { resolveAxisLabels } from '~/utils/chartAxisLabels';
-import { valueFormatter, latestWindowZoom } from '~/utils/chartValueFormat'
+import { valueFormatter, latestWindowZoom, topSeriesSelection } from '~/utils/chartValueFormat'
 import { ref, watch } from 'vue'
 import type { EChartsOption, SeriesOption } from 'echarts'
 import { graphic as EGraphic } from 'echarts'
@@ -438,11 +438,14 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
     // Only include legend when it should be shown. With many series a single
     // horizontal row is useless, so dock a scrollable vertical legend on the
     // right and reserve grid space for it.
+    // Over 8 series the legend always shows, with only the 8 largest selected:
+    // without it a dozen unnamed lines can't be told apart.
     const manySeries = series.length > 8;
-    const legendConfig = legendShouldShow
+    const legendConfig = (legendShouldShow || manySeries)
         ? (manySeries
             ? {
                 show: true,
+                selected: topSeriesSelection(series as any) || undefined,
                 type: 'scroll',
                 orient: 'vertical' as const,
                 right: 8,
@@ -469,7 +472,7 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
 
     // Reserve room on the right for the vertical legend (otherwise it overlaps
     // the plot). Mirrors the base grid but widens the right gutter.
-    const gridOverride = (legendShouldShow && manySeries)
+    const gridOverride = manySeries
         ? { containLabel: true, left: '3%', right: 150, bottom: '10%', top: '12%' }
         : undefined;
 

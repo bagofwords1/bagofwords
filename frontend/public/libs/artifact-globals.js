@@ -1360,7 +1360,9 @@
     var variant = props.variant || 'card';
     var onAccent = variant === 'accent' || variant === 'inverse';
     var pad = PAD[props.padding || 'md'];
-    var cls = _mergeClasses(_join('relative', pad, CARD_VARIANTS[variant] || CARD_VARIANTS.card), props.className);
+    // h-full: cards side by side in a grid row stretch to the same height
+    // instead of leaving dead space under the shorter one.
+    var cls = _mergeClasses(_join('relative h-full', pad, CARD_VARIANTS[variant] || CARD_VARIANTS.card), props.className);
     var titleCls = _mergeClasses('text-[15px] font-semibold leading-snug text-ink', props.titleClassName);
     var subCls = _mergeClasses(_join('text-xs mt-0.5', onAccent ? 'opacity-75' : 'text-ink-3'), props.subtitleClassName);
     var hasHeader = props.title || props.eyebrow || props.actions;
@@ -1658,7 +1660,11 @@ function _dtDetectDir(cols, rows) {
     var _pg = React.useState(0), page = _pg[0], setPage = _pg[1];
     var _q = React.useState(''), query = _q[0], setQuery = _q[1];
     var _sel = React.useState(null), selRow = _sel[0], setSelRow = _sel[1];
-    var dir = props.dir || _dtDetectDir(cols, baseRows);
+    // A right-to-left page gets a right-to-left table even when the cells are
+    // English (team or product names); otherwise the table reads its own text.
+    var pageRtl = false;
+    try { pageRtl = getComputedStyle(document.documentElement).direction === 'rtl'; } catch (e) {}
+    var dir = props.dir || (pageRtl ? 'rtl' : _dtDetectDir(cols, baseRows));
     var L = _dtLabels(props.labels, _dtLang(props.lang, cols, baseRows));
     // ---- widths (see _dtMeasure) ----
     // autoWidth={false} keeps the browser's own layout (and long text wraps);
@@ -2344,10 +2350,17 @@ function _dtDetectDir(cols, rows) {
     return m ? parseFloat(m[1]) : Infinity;   // '%' or 'auto' → leave it alone
   }
 
+  // Returns a copy: wrapping the author's formatter in place changed the
+  // option's signature on the next render (the wrapper's source, not theirs),
+  // so the chart was rebuilt for nothing and lost the reader's legend choices.
   function safeOption(opt) {
     if (opt && opt.tooltip && typeof opt.tooltip.formatter === 'function') {
       var orig = opt.tooltip.formatter;
-      opt.tooltip.formatter = function() { try { return orig.apply(this, arguments); } catch (e) { return ''; } };
+      var o = {}; for (var k in opt) o[k] = opt[k];
+      var t = {}; for (var tk in opt.tooltip) t[tk] = opt.tooltip[tk];
+      t.formatter = function() { try { return orig.apply(this, arguments); } catch (e) { return ''; } };
+      o.tooltip = t;
+      return o;
     }
     return opt;
   }
@@ -2399,6 +2412,47 @@ function _dtDetectDir(cols, rows) {
 
   // <EChart option height className viz rows calc palette /> — palette: array of
   // colors overriding the theme's chart palette for this chart only.
+  // More than 8 line or bar series can't be told apart (the palette repeats
+  // and the lines knot together). Show the 8 largest by total and keep the
+  // rest in a scrolling legend, greyed and one click away: nothing is merged
+  // or dropped. Stacked series are parts of a whole and are left alone.
+  var _CH_MAX_SERIES = 8;
+  function _chSeriesTotal(s) {
+    var t = 0;
+    (s.data || []).forEach(function(d) {
+      var v = d && typeof d === 'object' ? (Array.isArray(d) ? d[d.length - 1] : d.value) : d;
+      if (Array.isArray(v)) v = v[v.length - 1];
+      var n = typeof v === 'number' ? v : parseFloat(v);
+      if (isFinite(n)) t += Math.abs(n);
+    });
+    return t;
+  }
+  function _chLimitSeries(opt) {
+    var s = opt && opt.series;
+    if (!Array.isArray(s) || Array.isArray(opt.legend)) return opt;
+    var cart = s.filter(function(x) { return x && (x.type === 'line' || x.type === 'bar') && x.name != null; });
+    if (cart.length <= _CH_MAX_SERIES || cart.some(function(x) { return x.stack; })) return opt;
+    // Series drawn from a `dataset` carry no data of their own, so their size
+    // can't be ranked here: leave the chart as the author wrote it.
+    if (cart.some(function(x) { return !Array.isArray(x.data); })) return opt;
+    var ranked = cart.map(function(x) { return { name: String(x.name), t: _chSeriesTotal(x) }; })
+      .sort(function(a, b) { return b.t - a.t; });
+    // Keys in series order, not rank order: a data refresh that swaps two
+    // totals must not change the option's shape (that rebuilds the chart and
+    // drops the reader's legend choices).
+    var top = {}; ranked.forEach(function(r, i) { if (i < _CH_MAX_SERIES) top[r.name] = true; });
+    var selected = {};
+    cart.forEach(function(x) { selected[String(x.name)] = !!top[String(x.name)]; });
+    var lg = {}; for (var k in (opt.legend || {})) lg[k] = opt.legend[k];
+    lg.show = true; lg.type = 'scroll';
+    var keep = lg.selected || {}; for (var n in keep) selected[n] = keep[n];
+    lg.selected = selected;
+    if (lg.top == null && lg.bottom == null) lg.bottom = 0;
+    var o = {}; for (var k2 in opt) o[k2] = opt[k2];
+    o.legend = lg;
+    return o;
+  }
+
   window.EChart = function(props) {
     var ref = React.useRef(null);
     var chartRef = React.useRef(null);
@@ -2412,8 +2466,8 @@ function _dtDetectDir(cols, rows) {
     }, []);
     function withPalette(opt) {
       if (!opt) return opt;
-      var o = opt;
-      if (props.palette && props.palette.length && !opt.color) { o = {}; for (var k in opt) o[k] = opt[k]; o.color = props.palette; }
+      var o = _chLimitSeries(opt);
+      if (props.palette && props.palette.length && !opt.color) { var pc = {}; for (var k in o) pc[k] = o[k]; pc.color = props.palette; o = pc; }
       // A legend needs room the theme's tight grid does not reserve: give a
       // bottom legend a bottom margin and a top legend a top margin unless the
       // author positioned the grid explicitly (the classic overlap bug).
@@ -2470,14 +2524,25 @@ function _dtDetectDir(cols, rows) {
       var opt = withPalette(props.option);
       var full = _optionSig(opt, false);
       var last = appliedRef.current;
+      // A merge keeps the chart's live legend: the reader may have switched
+      // series on or off since the 8-series default was applied, so merges
+      // drop that automatic selection (an author's own `selected` stays).
+      function keepLegend(o) {
+        var own = props.option.legend && !Array.isArray(props.option.legend) && props.option.legend.selected;
+        if (own || !o.legend || Array.isArray(o.legend) || !o.legend.selected) return o;
+        var c = {}; for (var k in o) c[k] = o[k];
+        var lg = {}; for (var lk in o.legend) if (lk !== 'selected') lg[lk] = o.legend[lk];
+        c.legend = lg;
+        return c;
+      }
       if (full !== null && full === last.full) {
         // Same source, but a formatter may close over newer state.
-        if (_hasFunction(opt)) chart.setOption(safeOption(opt), { notMerge: false, silent: true });
+        if (_hasFunction(opt)) chart.setOption(safeOption(keepLegend(opt)), { notMerge: false, silent: true });
         return;
       }
       var shape = _optionSig(opt, true);
       appliedRef.current = { full: full, shape: shape };
-      if (shape !== null && shape === last.shape) chart.setOption(safeOption(opt), { notMerge: false });
+      if (shape !== null && shape === last.shape) chart.setOption(safeOption(keepLegend(opt)), { notMerge: false });
       else chart.setOption(safeOption(opt), true);
     }, [props.option, gen]);
     var chart = h('div', { ref: ref, style: { width: '100%', height: ht }, className: props.className || '' }, !window.echarts ? h(_LoadingSpinner, {size:20}) : null);
@@ -2606,6 +2671,54 @@ function _dtDetectDir(cols, rows) {
     } catch (e) { return new Date(t).toISOString().slice(0, g === 'month' ? 7 : 10); }
   }
 
+  // unit="currency" means the data's own currency: a code in the measure's
+  // name (amount_eur), else the one stored on the viz (its saved chart format
+  // or data model), else the one code the viz's columns name, else the one
+  // code the page's data names, else USD. A model that writes
+  // unit="currency" for euro data must not get dollars, even after it renames
+  // the column (gasto_eur → value) or passes no viz.
+  var _CH_CUR_CODE = /(^|_)(usd|eur|gbp|ils|nis|jpy|chf|cad|aud|inr|cny|brl|mxn|sek|nok|dkk|pln|zar|krw|sgd|hkd|nzd)(_|$)/i;
+  function _chCodeIn(name) {
+    var m = String(name == null ? '' : name).replace(/([a-z0-9])([A-Z])/g, '$1_$2').match(_CH_CUR_CODE);
+    if (!m) return null;
+    var code = m[2].toUpperCase(); return code === 'NIS' ? 'ILS' : code;
+  }
+  // The single currency code a set of vizzes names (saved format or column
+  // names); null when there is none or more than one.
+  function _chOnlyCode(vizzes) {
+    var seen = {}, n = 0;
+    function add(c) { if (c && !seen[c]) { seen[c] = 1; n++; } }
+    try {
+      for (var i = 0; i < vizzes.length; i++) {
+        var v = vizzes[i]; if (!v) continue;
+        add(_chVizCurrency(v));
+        var cols = v.columns || [];
+        for (var j = 0; j < cols.length; j++) add(_chCodeIn(cols[j] && (cols[j].field || cols[j].headerName || cols[j].name)));
+      }
+    } catch (e) { return null; }
+    if (n !== 1) return null;
+    for (var k in seen) return k;
+    return null;
+  }
+  function _chVizCurrency(viz) {
+    try {
+      var v = viz && viz.view, vv = v && (v.view || v);
+      var c = (vv && vv.axisY && vv.axisY.currency) || (viz && viz.dataModel && viz.dataModel.display && viz.dataModel.display.currency);
+      return c && /^[A-Za-z]{3}$/.test(c) ? String(c).toUpperCase() : null;
+    } catch (e) { return null; }
+  }
+  function _chResolveUnit(unit, viz, measures) {
+    var u = unit || 'number';
+    if (u !== 'currency') return u;
+    for (var i = 0; i < (measures || []).length; i++) {
+      var code = _chCodeIn(measures[i]);
+      if (code) return code;
+    }
+    var all = [];
+    try { all = (window.ARTIFACT_DATA && window.ARTIFACT_DATA.visualizations) || []; } catch (e) {}
+    return _chVizCurrency(viz) || (viz ? _chOnlyCode([viz]) : null) || _chOnlyCode(all) || 'USD';
+  }
+
   // Numbers by unit. percent = already ×100; ratio = 0–1. Never fmt()'s
   // per-value percent guess, which would print 0.8 → "80%" next to 1.2 → "1.2%".
   function _chNumber(unit, n, decimals, lang) {
@@ -2666,7 +2779,7 @@ function _dtDetectDir(cols, rows) {
     var miss = _chMissing([props.x, props.series].concat(ys), fields);
     if (miss.length && fields.length) return _chErr('TrendChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
-    var additive = props.additive === true, unit = props.unit || 'number';
+    var additive = props.additive === true, unit = _chResolveUnit(props.unit, viz, ys);
 
     // Time or ordered category.
     var parsed = rows.map(function(r) { return _chParseTime(r ? r[props.x] : null); });
@@ -2825,7 +2938,7 @@ function _dtDetectDir(cols, rows) {
     var miss = _chMissing([props.label, props.value], fields);
     if (miss.length && fields.length) return _chErr('RankChart: no field named ' + miss.join(', ') + '.', fields);
     if (!rows.length) return { empty: true, noData: L.noData };
-    var additive = props.additive === true, unit = props.unit || 'number';
+    var additive = props.additive === true, unit = _chResolveUnit(props.unit, viz, [props.value]);
     var vals = Object.create(null), rawOf = Object.create(null), names = [], dup = false;
     rows.forEach(function(r) {
       if (!r) return;
@@ -2858,7 +2971,9 @@ function _dtDetectDir(cols, rows) {
       // towards gets room for the longest one (and the axis's last tick).
       grid: { left: rtl ? 64 : 8, right: rtl ? 8 : 64, top: 8, bottom: 8, containLabel: true },
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: function(v) { return _chNumber(unit, v, valDec, lang); } },
-      xAxis: { type: 'value', inverse: !!rtl, axisLabel: { formatter: function(v) { return _chNumber(unit, v, tickDec, lang); } } },
+      // Every bar is labelled with its value, so the value axis's tick labels
+      // add nothing and crowd a narrow card; the gridlines stay.
+      xAxis: { type: 'value', inverse: !!rtl, axisLabel: { show: false, formatter: function(v) { return _chNumber(unit, v, tickDec, lang); } } },
       yAxis: { type: 'category', inverse: true, position: rtl ? 'right' : 'left', data: bars.map(function(b) { return b[0]; }),
         axisLabel: { interval: 0, hideOverlap: false, width: 150, overflow: 'truncate' } },
       series: [{ type: 'bar', barMaxWidth: 20,
