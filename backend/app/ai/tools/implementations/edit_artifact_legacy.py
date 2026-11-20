@@ -58,6 +58,26 @@ from app.ai.prompt_language import build_language_directive
 
 logger = logging.getLogger(__name__)
 
+# The chart and viz rules of the edit system prompt. Public so tests can check
+# what the prompt asks for against what the page checks require.
+EDIT_VIZ_PROP_RULE = (
+    '`<KPICard>`, `<SectionCard>`, `<TrendChart>` and `<RankChart>` accept `viz={vizById("<uuid>")}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). '
+    'When adding new cards or charts from a visualization, pass `viz={vizById("<uuid>")}`; '
+    "a TrendChart/RankChart inside a SectionCard needs it too (a card with the same viz keeps the only ⓘ). "
+    "Only a page with no visualizations has no viz to pass. "
+    "When an edit touches an existing card that lacks it, add it too. "
+    "If the card renders FILTERED rows (`filterRows(vizById(\"<uuid>\").rows)`), also pass `rows={<filtered rows>}` so the popover's Data tab matches what's shown. "
+    'If the card aggregates/derives its value, also pass `calc="<formula>"` '
+    '(e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover. '
+    "For CUSTOM markup (your own div tiles/charts/tables, not the prebuilt components), annotate each item's outer element (the card, tile, chart or table container — never a label or short inline text) "
+    'with `data-bow-viz="N"` (index in data.visualizations order) '
+    'and `data-bow-calc="<formula>"` instead — a global overlay renders the same popover on those.'
+)
+EDIT_NEW_CHARTS_RULE = (
+    'a measure over time → `<TrendChart viz={…} x="…" y="…" unit="…" />`, a ranking → `<RankChart viz={…} label="…" value="…" />` — always with viz=, inside a SectionCard too, plus rows={…} for filtered or derived rows; '
+    "any other type → `<EChart option={...} height={N} />` (all ECharts types). 'bow' theme handles base styling."
+)
+
 # ─── Diff markers ────────────────────────────────────────────────────────────
 SEARCH_MARKER = "<<<<<<< SEARCH"
 DIVIDER_MARKER = "======="
@@ -558,7 +578,7 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<FilterSearch onChange>` receives the typed text (a string), not an event: `onChange={{setQuery}}`.
 - `fmt()`, `<LoadingSpinner>`
 - All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
-- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{vizById("<uuid>")}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{vizById("<uuid>")}}`. When an edit touches an existing card that lacks it, add it too. If the card renders FILTERED rows (`filterRows(vizById("<uuid>").rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown. If the card aggregates/derives its value, also pass `calc="<formula>"` (e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover. For CUSTOM markup (your own div tiles/charts/tables, not the prebuilt components), annotate each item's outer element (the card, tile, chart or table container — never a label or short inline text) with `data-bow-viz="N"` (index in data.visualizations order) and `data-bow-calc="<formula>"` instead — a global overlay renders the same popover on those.
+- **`viz` prop:** {EDIT_VIZ_PROP_RULE}
 
 DATA-CAPABILITY CHECK — DO THIS FIRST, BEFORE GENERATING DIFFS:
 Before producing any SEARCH/REPLACE blocks, verify the edit is achievable with the visualization data available. An edit that adds a filter/chart/KPI referencing a column that doesn't exist in any viz will silently break — surfacing the gap is far better than producing a broken diff.
@@ -627,7 +647,7 @@ Rules:
 - Include 2-3 lines of context in SEARCH for unambiguous matching.
 - Order blocks top to bottom.
 - Preserve existing code unless the user asked to change it.
-- For NEW charts: a measure over time → `<TrendChart viz={{…}} x="…" y="…" unit="…" />`, a ranking → `<RankChart viz={{…}} label="…" value="…" />`; any other type → `<EChart option={{...}} height={{N}} />` (all ECharts types). 'bow' theme handles base styling.
+- For NEW charts: {EDIT_NEW_CHARTS_RULE}
 - Prefer SEARCH/REPLACE blocks. If the change is genuinely too large or scattered for surgical diffs, output the FULL corrected code in a single `<script type="text/babel">...</script>` block instead (a rewrite) — NEVER output nothing. A rewrite must still preserve everything the user didn't ask to change.
 
 ⚠️ **Implement the user's full request.** Don't skip requested changes to save tokens. Don't rewrite code the user didn't ask to change."""

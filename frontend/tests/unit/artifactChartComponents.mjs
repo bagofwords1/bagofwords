@@ -81,7 +81,10 @@ try{
   out.daily={points:daily.option.xAxis.data.length,caption:daily.caption};
   out.missing=B.buildTrend({viz,x:'month',y:'sales'},theme,'en').error||null;
   out.both=B.buildTrend({viz,x:'month',y:['revenue','rep'],series:'rep'},theme,'en').error||null;
-  out.noViz=B.buildTrend({viz:null,x:'month',y:'revenue'},theme,'en').error||null;
+  out.noViz=B.buildTrend({x:'month',y:'revenue'},theme,'en').error||null;
+  // A viz that resolves to null where the page is viewed is gone, not an author error.
+  const gone=B.buildTrend({viz:null,x:'month',y:'revenue'},theme,'en');
+  out.gone={error:gone.error||null,empty:!!gone.empty};
   out.empty=!!B.buildTrend({viz:{...viz,rows:[]},x:'month',y:'revenue'},theme,'en').empty;
   out.derived=!B.buildTrend({viz,rows:[{month:'2025-01',total:3}],x:'month',y:'total'},theme,'en').error;
   const mk=(rows,props)=>B.buildTrend({viz:{id:'s',rows,columns:Object.keys(rows[0]).map(field=>({field}))},...props},theme,'en');
@@ -137,6 +140,7 @@ try{
  assert.match(r.missing,/no field named sales.*Available fields: month, rep, revenue/);
  assert.match(r.both,/either series or several y/);
  assert.match(r.noViz,/needs viz/);
+ assert.deepEqual(r.gone,{error:null,empty:true},'a viz that resolves to null shows an empty state, not the author error');
  assert.equal(r.empty,true,'empty rows are a no-data state, not an error');
  assert.equal(r.derived,true,'derived rows with their own fields are valid');
  assert.equal(r.sparse.err,null,'sparse daily dates are not merged into one month');
