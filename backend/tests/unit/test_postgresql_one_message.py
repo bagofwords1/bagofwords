@@ -506,3 +506,79 @@ def test_the_schema_rule_refuses_anything_else_naming_the_setting_not_the_value(
         postgresql_client.checked_search_path(["public", item])
     if item:
         assert item not in str(raised.value)
+
+
+# ------------------------------------------------------------------ the URL the read connects with
+
+class LoginEngine(FakeEngine):
+    """A server that accepts one (user, password); logs each login."""
+
+    def __init__(self, raw, url, accepted):
+        super().__init__(raw)
+        self.url = sqlalchemy.engine.make_url(url)
+        self.accepted = accepted
+
+    def connect(self):
+        self.raw.log.append(("login", self.url.username, self.url.password))
+        if (self.url.username, self.url.password) != self.accepted:
+            raise RuntimeError("password authentication failed")
+        return super().connect()
+
+
+@pytest.fixture
+def forget_decoded_forms():
+    from app.data_sources.clients import _sa_url
+
+    _sa_url._decoded_ok.clear()
+    yield
+    _sa_url._decoded_ok.clear()
+
+
+def test_credentials_saved_percent_encoded_still_connect_for_the_one_message_read(monkeypatch, forget_decoded_forms):
+    raw = FakeRaw()
+    monkeypatch.setattr(postgresql_client, "get_engine",
+                        lambda url, **kwargs: LoginEngine(raw, url, ("svc@corp", "p@ss/w:rd")))
+    monkeypatch.setattr(postgresql_client, "read_sql_exact", _reader())
+    client = PostgresqlClient(host="db.invalid", port=5432, database="d", user="svc%40corp",
+                              password="p%40ss%2Fw%3Ard")
+
+    df = client.execute_query(SQL)
+
+    assert df.to_dict("records") == [{"a": 1}]
+    assert [e for e in raw.log if e[0] == "login"] == [
+        ("login", "svc%40corp", "p%40ss%2Fw%3Ard"), ("login", "svc@corp", "p@ss/w:rd"),
+    ]
+    assert [e for e in raw.log if e[0] == "read"] == [("read", "BEGIN READ ONLY;\n" + SQL, True)]
+
+
+@pytest.mark.parametrize("field, value", [
+    ("database", "a/b@other.example:9999/c"), ("user", "u?host=10.1.2.3"),
+    ("password", "p@ss:w/rd#x=1&y=2 %41"), ("password", "p?passfile=/etc/hostname"),
+])
+def test_the_one_message_read_hands_the_driver_the_fields_as_they_are(monkeypatch, field, value):
+    import psycopg2
+
+    from app.data_sources import engine_pool
+
+    class Dialed(Exception):
+        pass
+
+    seen = {}
+
+    def fake_connect(*args, **kwargs):
+        seen.setdefault("kwargs", kwargs)
+        raise Dialed()
+
+    monkeypatch.setattr(psycopg2, "connect", fake_connect)
+    values = dict(host="db.example.test", port=5432, database="shop", user="reader", password="pw")
+    values[field] = value
+    with engine_pool.ephemeral():
+        with pytest.raises(Exception):
+            PostgresqlClient(**values).execute_query(SQL)
+
+    kw = seen["kwargs"]
+    assert kw["host"] == "db.example.test" and kw["port"] == 5432
+    assert kw["dbname"] == values["database"]
+    assert kw["user"] == values["user"]
+    assert kw["password"] == values["password"]
+    assert set(kw) <= {"host", "port", "dbname", "user", "password", "sslmode"}

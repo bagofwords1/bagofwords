@@ -411,11 +411,11 @@ class PostgresqlClient(DataSourceClient):
         Otherwise it is the read-only `connect()` read."""
         try:
             try:
-                engine = get_engine(self.pg_uri, connect_args={"sslmode": self.sslmode})
+                engine = get_engine(effective_url(self._sa_url), connect_args={"sslmode": self.sslmode})
             except Exception as e:
                 raise RuntimeError(f"{e}")
             if pg_one_message(engine):
-                return self._read_in_one_message(engine, sql)
+                return self._read_in_one_message(sql)
             with self.connect(read_only=True) as conn:
                 prepare_pg_session(conn, sql)
                 df = read_sql_exact(sql, conn)
@@ -425,11 +425,16 @@ class PostgresqlClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise
 
-    def _read_in_one_message(self, engine, sql: str) -> pd.DataFrame:
+    def _read_in_one_message(self, sql: str) -> pd.DataFrame:
         """`execute_query` on an engine built for the one-message read."""
         try:
             search_path = checked_search_path(self._schemas) if self._schemas else None
-            conn = engine.connect()
+            # As `connect()` opens it: credentials saved percent-encoded fall
+            # back to their decoded form.
+            conn = connect_with_legacy_decoding(
+                self._sa_url,
+                lambda url: get_engine(url, connect_args={"sslmode": self.sslmode}).connect(),
+            )
         except Exception as e:
             raise RuntimeError(f"{e}")
         raw = conn.connection.dbapi_connection

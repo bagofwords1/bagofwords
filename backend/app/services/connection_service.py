@@ -145,7 +145,10 @@ def _decoded_config(config) -> dict:
 def _nonblank(values) -> dict:
     """The values that override saved ones. A credential edit and a test's
     overrides are partial: a blank value (None or "") keeps the saved one.
-    The schema check and the client both merge through this."""
+    The schema check merges through this; the client's
+    `_merge_credential_changes` applies the same rule, and its clearing
+    `null` applies only to connectors with exclusive auth methods, which
+    Postgres has not."""
     return {k: v for k, v in (values or {}).items() if v is not None and v != ""}
 
 

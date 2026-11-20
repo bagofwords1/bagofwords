@@ -336,6 +336,20 @@ def test_an_ephemeral_postgres_engine_gets_the_listener_too():
         assert _has_both_ping_listeners(eng)
 
 
+@pytest.mark.parametrize("ephemeral", [False, True])
+def test_an_engine_built_from_a_url_object_gets_every_postgres_listener(ephemeral):
+    url = sqlalchemy.engine.make_url(PG_URI)
+    if ephemeral:
+        with engine_pool.ephemeral():
+            eng = engine_pool.get_engine(url)
+    else:
+        eng = engine_pool.get_engine(url)
+    assert eng.pool._pre_ping is False
+    assert _has_both_ping_listeners(eng)
+    assert engine_pool._reset_readonly_on_checkin in list(eng.pool.dispatch.checkin)
+    assert engine_pool.pg_one_message(eng)
+
+
 @pytest.mark.parametrize("value", ["off", "0", "false", "OFF"])
 def test_the_switch_off_restores_pre_ping_and_no_ping_listener(monkeypatch, value):
     monkeypatch.setenv("BOW_PG_PING_LISTENER", value)
