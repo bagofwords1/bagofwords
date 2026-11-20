@@ -195,9 +195,37 @@
               >
                 {{ $t('queries.detail.tabCode') }}
               </button>
+              <!-- Full-screen table, at the end of the tab row (the grid's own
+                   button is off here). -->
+              <div v-if="activeTab === 'data'" class="ms-auto flex items-center pe-3">
+                <UTooltip :text="$t('dataGrid.expand')">
+                  <button
+                    type="button"
+                    class="text-ink-muted hover:text-gray-600 dark:hover:text-gray-300 transition-colors flex items-center"
+                    :aria-label="$t('dataGrid.expand')"
+                    data-testid="entity-table-expand"
+                    @click="dataTableRef?.expand()"
+                  >
+                    <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5" />
+                  </button>
+                </UTooltip>
+              </div>
             </div>
 
             <div class="p-3">
+              <!-- A column filter (the funnel in a table header) narrows the
+                   chart too; this line says so on both tabs, with a way back. -->
+              <div
+                v-if="filterStatus && activeTab !== 'code'"
+                class="mb-2 flex items-center gap-2 text-2xs text-ink-muted"
+                data-testid="entity-filter-status"
+              >
+                <Icon name="heroicons:funnel" class="w-3 h-3 text-blue-500" />
+                <span dir="auto">{{ $t('dataGrid.filteredRows', filterStatus) }}</span>
+                <button type="button" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-300" @click="pageFilters = []">
+                  {{ $t('dataGrid.clearFilters') }}
+                </button>
+              </div>
               <!-- Visual Content -->
               <Transition name="fade" mode="out-in">
                 <div v-if="activeTab === 'visual'">
@@ -205,14 +233,14 @@
                     <component
                       :is="resolvedCompEl"
                       :widget="effectiveWidget"
-                      :data="detail?.data"
+                      :data="filteredData"
                       :data_model="detail?.data_model || { type: viewType }"
                       :step="effectiveStep"
                       :view="detail?.view"
                     />
                   </div>
                   <div v-else-if="chartVisualTypes.has(viewType)" class="h-[340px]">
-                    <RenderVisual :widget="effectiveWidget" :data="detail?.data" :data_model="detail?.data_model || { type: viewType }" />
+                    <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="detail?.data_model || { type: viewType }" />
                   </div>
                 </div>
               </Transition>
@@ -220,7 +248,7 @@
               <!-- Data/Table Content -->
               <Transition name="fade" mode="out-in">
                 <div v-if="activeTab === 'data'" class="h-[400px]">
-                  <RenderTable :widget="effectiveWidget" :step="effectiveStep" />
+                  <RenderTable ref="dataTableRef" :widget="effectiveWidget" :step="effectiveStep" :expandable="false" />
                 </div>
               </Transition>
 
@@ -251,7 +279,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, watch, provide, defineAsyncComponent } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { useCan } from '~/composables/usePermissions'
 import { useAuth } from '#imports'
@@ -259,6 +287,8 @@ import RenderVisual from '~/components/RenderVisual.vue'
 import RenderTable from '~/components/RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityEditModal from '~/components/entity/EntityEditModal.vue'
+import { evaluateFilters, type FilterGroup } from '~/composables/useSharedFilters'
+import { GRID_FILTER_BRIDGE, createReportFilterBridge } from '~/utils/valueFilter'
 
 const toast = useToast()
 const { t } = useI18n()
@@ -363,6 +393,7 @@ const shape = computed(() => {
 
 // Tab state and visualization logic
 const activeTab = ref<'visual' | 'data' | 'code'>('visual')
+const dataTableRef = ref<{ expand: () => void } | null>(null)
 
 const chartVisualTypes = new Set<string>([
   'pie_chart',
@@ -435,10 +466,36 @@ const effectiveWidget = computed(() => {
   return { id: detail.value?.id || 'preview', title: detail.value?.title || detail.value?.slug } as any
 })
 
+// ---- Column filters for this page ------------------------------------------
+// The table's header funnels write here (the same bridge a chat result uses
+// for its report filters, kept on this page instead), so the Visual tab shows
+// the rows the table shows. Not saved: leaving the page clears them.
+const PAGE_VIZ = 'entity'
+const pageFilters = ref<FilterGroup[]>([])
+provide(GRID_FILTER_BRIDGE, createReportFilterBridge({
+  filters: () => pageFilters.value as any,
+  vizId: () => PAGE_VIZ,
+  rows: () => (Array.isArray(detail.value?.data?.rows) ? detail.value!.data.rows : []),
+  commit: (groups) => { pageFilters.value = groups as any },
+}))
+watch(() => detail.value?.id, () => { pageFilters.value = [] })
+
+const filteredData = computed(() => {
+  const data = detail.value?.data
+  const rows = data?.rows
+  if (!pageFilters.value.length || !Array.isArray(rows)) return data
+  return { ...data, rows: rows.filter((row: any) => evaluateFilters(row, pageFilters.value, PAGE_VIZ)) }
+})
+const filterStatus = computed(() => {
+  if (!pageFilters.value.length) return null
+  const total = detail.value?.data?.rows?.length || 0
+  return { shown: filteredData.value?.rows?.length || 0, total }
+})
+
 const effectiveStep = computed(() => {
   return {
     id: detail.value?.id,
-    data: detail.value?.data,
+    data: filteredData.value,
     data_model: detail.value?.data_model || { type: viewType.value },
     code: detail.value?.code,
     status: 'success'
