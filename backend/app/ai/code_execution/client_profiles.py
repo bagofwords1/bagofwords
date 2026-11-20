@@ -281,7 +281,7 @@ EXEMPT_CLIENTS: dict[tuple[str, str], str] = dict([
     _exempt("pbix_client", "PBIXClient", f"{_DISPATCH}: {_DUCKDB_FILES}, pbix_client.py:378"),
     _exempt("powerbi_report_server_client", "PowerBIReportServerClient",
             f"{_DISPATCH}: {_DUCKDB_FILES} (report ids and export format checked before any URL), "
-            "powerbi_report_server_client.py:704"),
+            "powerbi_report_server_client.py:709"),
     _exempt("fast_client", "FastQueryClient",
             f"{_DISPATCH}: artifacts attached READ_ONLY, external access off and configuration locked "
             "before any agent SQL (fast_client.py:224), introspection refused, fast_client.py:343, "

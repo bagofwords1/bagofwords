@@ -59,11 +59,11 @@ def _require_report_parameters(parameters) -> None:
                 "pass report parameters by name only."
             )
 
-# Cache for PBIX-extracted schemas, keyed by (report_id, modified_date).
+# Cache for PBIX-extracted schemas, keyed by (connection, report_id, modified_date).
 _PBIX_SCHEMA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbirs_schema_cache"
 
 # Cache for PBIX-extracted Parquet data (one file per model table), keyed by
-# (report_id, modified_date). Populated lazily on first query; re-used across
+# (connection, report_id, modified_date). Populated lazily on first query; re-used across
 # queries and invalidated on report edit via the modified_date key.
 _PBIX_DATA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbix_data_cache"
 
@@ -78,14 +78,14 @@ from app.data_sources.clients.pbix_common import (
 )
 
 
-def _pbix_cache_path(report_id: str, modified_date: Optional[str]) -> Path:
-    key = f"{report_id}|{modified_date or ''}"
+def _pbix_cache_path(report_id: str, modified_date: Optional[str], scope: str) -> Path:
+    key = f"{scope}|{report_id}|{modified_date or ''}"
     h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return _PBIX_SCHEMA_CACHE_DIR / f"{h}.json"
 
 
-def _pbix_data_cache_dir(report_id: str, modified_date: Optional[str]) -> Path:
-    key = f"{report_id}|{modified_date or ''}"
+def _pbix_data_cache_dir(report_id: str, modified_date: Optional[str], scope: str) -> Path:
+    key = f"{scope}|{report_id}|{modified_date or ''}"
     h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return _PBIX_DATA_CACHE_DIR / h
 
@@ -238,6 +238,11 @@ class PowerBIReportServerClient(DataSourceClient):
             return f"{self.domain}\\{self.username}"
         return self.username
 
+    def _cache_scope(self) -> str:
+        """Whose cached reports these are: the server, the account and the
+        organization of this connection, so two connections never share."""
+        return f"{self._api_base()}|{self._ntlm_user()}|{lockdown.organization_of(self) or ''}"
+
     def connect(self):
         if self._session is not None:
             return
@@ -379,7 +384,7 @@ class PowerBIReportServerClient(DataSourceClient):
         None on failure. Result is cached on disk keyed by (report_id, modified_date)
         so a subsequent schema refresh is a cheap JSON read.
         """
-        cache_file = _pbix_cache_path(report_id, modified_date)
+        cache_file = _pbix_cache_path(report_id, modified_date, self._cache_scope())
         from app.services import storage
         if use_cache and storage.ensure_local(cache_file, fresh=False):
             try:
@@ -505,7 +510,7 @@ class PowerBIReportServerClient(DataSourceClient):
         Raises RuntimeError on download/parse failure so callers can surface a
         clear error back to the LLM.
         """
-        cache_dir = _pbix_data_cache_dir(report_id, modified_date)
+        cache_dir = _pbix_data_cache_dir(report_id, modified_date, self._cache_scope())
         manifest_path = cache_dir / "manifest.json"
         from app.services import storage
         if storage.enabled() and not manifest_path.exists():
@@ -1760,7 +1765,7 @@ async def warm_all_pbirs_caches() -> None:
     failed = 0
     for conn in rows:
         try:
-            client = conn.get_client()
+            client = lockdown.bind_organization(conn.get_client(), getattr(conn, "organization_id", None))
         except Exception as exc:
             logger.warning(
                 "pbirs.warmup.client_init_failed",

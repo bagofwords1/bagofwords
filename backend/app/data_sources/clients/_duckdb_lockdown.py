@@ -338,6 +338,11 @@ def check_connection_config(conn_type: str, config: dict) -> None:
     Raises ValueError naming the offending field. Enforced again at connect."""
     if unrestricted() or not isinstance(config, dict):
         return
+    if conn_type == "iceberg":
+        from app.data_sources.clients.iceberg_client import IcebergClient
+
+        IcebergClient(**config).check_locations()
+        return
     try:
         if conn_type == "sqlite":
             field = "database"
@@ -398,6 +403,7 @@ def has_url_traversal(url: str) -> bool:
 
 _FILE_URI_HOST = ("A file:// URI names a host. Write a local file as file:///path or "
                   "file://localhost/path.")
+FILE_SCHEME_CASE = "Write the file: prefix of a URI in lower case, as file:///path."
 
 
 def local_path_of(pattern: str) -> str:
@@ -405,8 +411,11 @@ def local_path_of(pattern: str) -> str:
     with its host). The host of a `file://` URI must be empty or
     `localhost`, the two DuckDB reads as this machine: `file://localhost/x`
     and `file:///x` are both `/x`. Any other host, or no path after it,
-    raises ValueError."""
+    raises ValueError, as does a `file:` prefix not written in lower case
+    (DuckDB reads that text as a path relative to the working directory)."""
     lower = pattern.lower()
+    if lower.startswith("file:") and not pattern.startswith("file:"):
+        raise ValueError(FILE_SCHEME_CASE)
     if lower.startswith("file://"):
         host, slash, rest = pattern[7:].partition("/")
         if host not in ("", "localhost") or not slash:
@@ -456,6 +465,10 @@ def sources_for_patterns(
                 paths.append(pattern)
             continue
         local = local_path_of(pattern)
+        if pattern.startswith("~"):
+            # DuckDB reads a leading `~` as the home directory's text,
+            # followed by the rest as written: `~ogs` is `<home>ogs`.
+            local = os.path.expanduser("~") + local[1:]
         base, has_glob = pattern_base(local)
         if has_glob:
             real = check_local_path(base, contains=True, organization_id=organization_id)

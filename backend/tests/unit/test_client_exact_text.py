@@ -381,7 +381,7 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
     client.max_scan_rows = 1000
     scan = SimpleNamespace(plan_files=lambda: [], to_arrow=lambda: pa.table({"id": [1]}))
     table = SimpleNamespace(schema=lambda: SimpleNamespace(fields=[SimpleNamespace(name="id")]),
-                            scan=lambda **kwargs: scan)
+                            scan=lambda **kwargs: scan, io=SimpleNamespace(properties={}))
     client._table_identifiers = lambda: [("shop", "orders")]
     client._cat = lambda: SimpleNamespace(load_table=lambda ident: table)
     sent: list[str] = []

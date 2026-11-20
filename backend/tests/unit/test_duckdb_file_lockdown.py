@@ -114,12 +114,12 @@ class _PbirsReport:
 
     def __init__(self, tmp_path, monkeypatch):
         monkeypatch.setattr(pbirs_mod, "_PBIX_DATA_CACHE_DIR", tmp_path / "pbirs_cache")
-        cdir = pbirs_mod._pbix_data_cache_dir("r1", "2026-01-01")
+        self.client = PowerBIReportServerClient("http://pbirs.invalid", "u", "p")
+        cdir = pbirs_mod._pbix_data_cache_dir("r1", "2026-01-01", self.client._cache_scope())
         cdir.mkdir(parents=True)
         for name, df in (("sales", _SALES), ("customers", _CUSTOMERS)):
             df.to_parquet(cdir / f"{name}.parquet", index=False)
         (cdir / "manifest.json").write_text(json.dumps({"sales": "sales.parquet", "customers": "customers.parquet"}))
-        self.client = PowerBIReportServerClient("http://pbirs.invalid", "u", "p")
         self.client._schemas_cache = [Table(
             name=self.TABLE, columns=[], pks=[], fks=[],
             metadata_json={"powerbi_report_server": {

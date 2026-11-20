@@ -32,8 +32,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
+from pyiceberg.io import FileIO
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+from app.data_sources.clients._duckdb_lockdown import organization_of
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import IndexingCancelled, discovery_items, discovery_progress
 
@@ -42,18 +44,33 @@ logger = logging.getLogger(__name__)
 MAX_RESULT_ROWS = 200_000
 
 
-# "Extra Catalog Properties" is a free-form field and stays one: any catalog
-# type, warehouse, credential or tuning key keeps working. Keys that make
-# PyIceberg import a dotted Python path accept PyIceberg's own classes (the
-# documented py-io-impl: pyiceberg.io.fsspec.FsspecFileIO and friends) and
-# refuse any other path. Values that name another server get the same outbound check as the
-# connection's own host fields, and a SQL catalog kept in a local SQLite file
-# gets the local path policy.
+# "Extra Catalog Properties" is a free-form field: credential, endpoint and
+# tuning keys keep working. What decides where and how the catalog opens
+# files (its type, URI, warehouse, FileIO and catalog implementations) comes
+# from the connection's own fields only. Keys that make PyIceberg import a
+# dotted Python path accept PyIceberg's own classes and refuse any other
+# path. Values that name another server get the same outbound check as the
+# connection's own host fields.
 EXTRA_PROPERTY_CODE_KEYS = frozenset({
     "py-catalog-impl", "py-io-impl", "s3.retry-strategy-impl", "py-location-provider.impl", "auth.impl",
 })
 _ENDPOINT_KEY_SUFFIXES = ("uri", "endpoint", ".host", "-host", "-authority")
 _BUILT_IN_CLASS = re.compile(r"pyiceberg(\.[A-Za-z_][A-Za-z0-9_]*)+")
+
+# The organization the checked FileIO holds local files to, when PyIceberg
+# builds it from the catalog's properties (see CheckedFileIO).
+_ORGANIZATION_PROPERTY = "bow.organization-id"
+_CHECKED_FILE_IO = f"{__name__}.CheckedFileIO"
+# Set by the connection, never by its extra properties (compared lower case).
+_CONNECTION_ONLY_KEYS = frozenset({
+    "type", "uri", "warehouse", "py-io-impl", "py-catalog-impl", "default_scheme", "default_netloc",
+    "init_catalog_tables", _ORGANIZATION_PROPERTY,
+})
+# Not passed on to the FileIO that opens a file: which FileIO it is, and
+# where a location with no scheme is read from, are the checked FileIO's.
+_FILE_IO_ONLY_OURS = ("py-io-impl", "DEFAULT_SCHEME", "DEFAULT_NETLOC", _ORGANIZATION_PROPERTY)
+# Characters a SQLite URI filename reads as syntax.
+_SQLITE_URI_SYNTAX = re.compile(r"[?#%]")
 
 
 def _loads_foreign_code(key: str, raw_value) -> bool:
@@ -69,7 +86,7 @@ def _loads_foreign_code(key: str, raw_value) -> bool:
 
 
 def _local_path_in(value: str) -> str | None:
-    """The file a property value names on this server, if it names one, in
+    """The file a catalog URI or warehouse names on this server, if any, in
     the form it is opened: a SQLite catalog database as a plain file
     (relative to the working directory), a `file:` location as PyIceberg
     reads it (its path as written), and a location with no scheme as
@@ -107,11 +124,16 @@ def checked_extra_properties(extra: dict) -> dict[str, str]:
     key that is not accepted."""
     from app.core.egress import Policy, check_host, hosts_in
     from app.core.url_safety import UnsafeURLError
-    from app.data_sources.clients._duckdb_lockdown import check_local_path
 
     out: dict[str, str] = {}
     for raw_key, raw_value in extra.items():
         key, value = str(raw_key).strip(), str(raw_value)
+        if key.lower() in _CONNECTION_ONLY_KEYS:
+            logger.warning("Iceberg: refused extra catalog property %r", key)
+            raise ValueError(
+                f"Extra catalog property '{key}' cannot be set here: the catalog type, URI and warehouse "
+                "are the connection's own fields, and the FileIO and catalog implementations are fixed."
+            )
         if _loads_foreign_code(key, raw_value):
             logger.warning("Iceberg: refused extra catalog property %r", key)
             raise ValueError(
@@ -119,10 +141,7 @@ def checked_extra_properties(extra: dict) -> dict[str, str]:
                 "implementations that ship with PyIceberg (pyiceberg.*) can be set on a connection."
             )
         try:
-            local = _local_path_in(value) if key.lower() in ("uri", "warehouse") else None
-            if local is not None:
-                check_local_path(local, contains=key.lower() == "warehouse")
-            elif key.lower().endswith(_ENDPOINT_KEY_SUFFIXES):
+            if key.lower().endswith(_ENDPOINT_KEY_SUFFIXES):
                 for host in hosts_in(value):
                     check_host(host, Policy.ADMIN, require_resolution=False)
         except (UnsafeURLError, ValueError) as e:
@@ -130,6 +149,110 @@ def checked_extra_properties(extra: dict) -> dict[str, str]:
             raise ValueError(f"Extra catalog property '{key}' is not allowed: {e}") from e
         out[key] = value
     return out
+
+
+def _checked_location(field: str, value: str | None, organization_id: str | None) -> str | None:
+    """The path policy, for the connection's organization, on the file or
+    folder a catalog field names on this server, in the form it is opened
+    (`_local_path_in`). Returns that path as checked, or None when the value
+    names nothing on this server. Raises ValueError naming the field."""
+    from app.data_sources.clients._duckdb_lockdown import check_local_path
+
+    if not value:
+        return None
+    try:
+        local = _local_path_in(value)
+        if local is None:
+            return None
+        return str(check_local_path(local, contains=field == "warehouse", organization_id=organization_id))
+    except ValueError as e:
+        raise ValueError(f"Catalog {field}: {e}") from e
+
+
+def _file_io_local_path(location: str) -> str | None:
+    """The file a FileIO location names on this server, in the form the
+    PyArrow FileIO opens it (a location with no scheme as its absolute form,
+    a `file:` one by its path, `file://localhost/x` as `/x`), or None for an
+    object-store or other remote location. A `file:` location naming another
+    host is refused (ValueError)."""
+    from urllib.parse import urlparse
+
+    from app.data_sources.clients._duckdb_lockdown import opened_path
+
+    parsed = urlparse(location)
+    if not parsed.scheme:
+        return os.path.abspath(location)
+    if parsed.scheme != "file":
+        return None
+    if parsed.netloc not in ("", "localhost"):
+        raise ValueError("A file: location of this catalog names another host.")
+    return opened_path(parsed.path)
+
+
+class CheckedFileIO(FileIO):
+    """The FileIO every Iceberg connection reads with. A location on this
+    server passes the path policy for the connection's organization in the
+    form it is opened (links followed, then `..`), and exactly that checked
+    path is opened; nothing on this server is written or deleted. Remote
+    locations (object stores, HDFS, http) go to the FileIO PyIceberg picks
+    for their scheme, as before.
+
+    Built by the client with its organization, or by PyIceberg from the
+    catalog's properties (py-io-impl), whose organization property the
+    client sets."""
+
+    def __init__(self, properties=None, organization_id: str | None = None, *, bound: bool = False):
+        properties = dict(properties or {})
+        super().__init__({k: v for k, v in properties.items() if k not in _FILE_IO_ONLY_OURS})
+        self.organization_id = organization_id if bound else (properties.get(_ORGANIZATION_PROPERTY) or None)
+        self._local_io = None
+        self._remote_io: dict[str, Any] = {}
+
+    def _checked(self, location: str) -> str | None:
+        from app.data_sources.clients._duckdb_lockdown import check_local_path
+
+        local = _file_io_local_path(location)
+        if local is None:
+            return None
+        return str(check_local_path(local, contains=os.path.isdir(local), organization_id=self.organization_id))
+
+    def _local(self):
+        if self._local_io is None:
+            from pyiceberg.io.pyarrow import PyArrowFileIO
+
+            self._local_io = PyArrowFileIO(self.properties)
+        return self._local_io
+
+    def _remote(self, location: str):
+        from urllib.parse import urlparse
+
+        from pyiceberg.io import load_file_io
+
+        scheme = urlparse(location).scheme
+        if scheme not in self._remote_io:
+            self._remote_io[scheme] = load_file_io(self.properties, location)
+        return self._remote_io[scheme]
+
+    @staticmethod
+    def _refuse_write(location: str):
+        raise PermissionError(f"This connection only reads its catalog: it does not write {location!r} on this server.")
+
+    def new_input(self, location: str):
+        checked = self._checked(location)
+        if checked is None:
+            return self._remote(location).new_input(location)
+        return self._local().new_input(checked)
+
+    def new_output(self, location: str):
+        if _file_io_local_path(location) is not None:
+            self._refuse_write(location)
+        return self._remote(location).new_output(location)
+
+    def delete(self, location) -> None:
+        location = location if isinstance(location, str) else location.location
+        if _file_io_local_path(location) is not None:
+            self._refuse_write(location)
+        self._remote(location).delete(location)
 
 
 class IcebergScanTooLarge(ValueError):
@@ -188,7 +311,48 @@ class IcebergClient(DataSourceClient):
 
     # ---------------------------------------------------------------- catalog
 
+    def _extra(self) -> dict[str, str]:
+        """The extra catalog properties, checked (`checked_extra_properties`)."""
+        if not self.extra_properties:
+            return {}
+        try:
+            extra = json.loads(self.extra_properties)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Extra catalog properties must be a JSON object: {e}") from e
+        if not isinstance(extra, dict):
+            raise ValueError("Extra catalog properties must be a JSON object.")
+        return checked_extra_properties(extra)
+
+    def check_locations(self) -> tuple[str | None, dict[str, str]]:
+        """The path policy, for the organization the client is bound to (or
+        the current request's), on the catalog URI and warehouse wherever
+        they name a file or folder on this server, and the checks on the
+        extra properties: run when the connection is saved and when it
+        connects. Returns (the catalog database file as checked, or None;
+        the checked extra properties). Raises ValueError."""
+        organization = organization_of(self)
+        database = _checked_location("uri", self.uri, organization)
+        _checked_location("warehouse", self.warehouse, organization)
+        return database, self._extra()
+
+    def _sql_catalog_uri(self, database: str | None) -> str:
+        """A SQL catalog's database: a SQLite file opened read-only at the
+        path the policy checked (an absent file is not created), or a
+        database server."""
+        from app.core.egress import hosts_in
+
+        if not self.uri:
+            raise ValueError("Catalog URI is required for a SQL catalog (sqlite:////path/to/catalog.db).")
+        if database is not None:
+            if _SQLITE_URI_SYNTAX.search(database):
+                raise ValueError("Catalog uri: name a catalog database whose path has no '?', '#' or '%'.")
+            return f"sqlite:///file:{database}?mode=ro&uri=true"
+        if self.uri.lower().startswith("sqlite") or hosts_in(self.uri):
+            return self.uri
+        raise ValueError("Catalog uri: a SQL catalog is a SQLite file (sqlite:////path/to/catalog.db) or a database server.")
+
     def _properties(self) -> dict[str, str]:
+        database, extra = self.check_locations()
         props: dict[str, str] = {}
         aws: dict[str, str] = {}
         if self.region:
@@ -234,28 +398,39 @@ class IcebergClient(DataSourceClient):
             if self.vended_credentials:
                 props["header.X-Iceberg-Access-Delegation"] = "vended-credentials"
             props.update(aws)
+        elif self.catalog_type == "sql":
+            props.update({"type": "sql", "uri": self._sql_catalog_uri(database), "init_catalog_tables": "false"})
+            if self.warehouse:
+                props["warehouse"] = self.warehouse
         else:
-            raise ValueError(f"Unknown Iceberg catalog type '{self.catalog_type}' (use rest, glue or s3tables).")
+            raise ValueError(f"Unknown Iceberg catalog type '{self.catalog_type}' (use rest, glue, s3tables or sql).")
 
         if self.s3_endpoint:
             props["s3.endpoint"] = self.s3_endpoint
             props.setdefault("s3.path-style-access", "true")
-        if self.extra_properties:
-            try:
-                extra = json.loads(self.extra_properties)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Extra catalog properties must be a JSON object: {e}") from e
-            if not isinstance(extra, dict):
-                raise ValueError("Extra catalog properties must be a JSON object.")
-            props.update(checked_extra_properties(extra))
+        props.update(extra)
+        props.update({"py-io-impl": _CHECKED_FILE_IO, _ORGANIZATION_PROPERTY: organization_of(self) or ""})
         return props
 
     def _cat(self):
         if self._catalog is None:
             from pyiceberg.catalog import load_catalog
 
-            self._catalog = load_catalog("bow", **self._properties())
+            props = self._properties()
+            catalog = load_catalog("bow", **props)
+            # A REST catalog takes defaults and overrides from its server:
+            # the FileIO, and the organization it reads for, stay ours.
+            catalog.properties.update({k: props[k] for k in ("py-io-impl", _ORGANIZATION_PROPERTY)})
+            self._catalog = catalog
         return self._catalog
+
+    def _load_table(self, identifier: tuple[str, ...]):
+        """A catalog table whose every file is read through the checked
+        FileIO for this client's organization, whatever FileIO the table's
+        own properties or the catalog's server name."""
+        table = self._cat().load_table(identifier)
+        table.io = CheckedFileIO(table.io.properties, organization_of(self), bound=True)
+        return table
 
     def connect(self):
         return self._cat()
@@ -297,7 +472,7 @@ class IcebergClient(DataSourceClient):
         return f"{'_'.join(ns)}.{table}"
 
     def _table_meta(self, identifier: tuple[str, ...]) -> Table:
-        tbl = self._cat().load_table(identifier)
+        tbl = self._load_table(identifier)
         schema = tbl.schema()
         cols = [
             TableColumn(name=f.name, dtype=str(f.field_type), description=f.doc or None)
@@ -418,7 +593,7 @@ class IcebergClient(DataSourceClient):
         try:
             for i, key in enumerate(refs):
                 ident = known[key]
-                tbl = self._cat().load_table(ident)
+                tbl = self._load_table(ident)
                 field_names = [f.name for f in tbl.schema().fields]
                 if star:
                     selected: tuple[str, ...] = ("*",)

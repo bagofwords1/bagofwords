@@ -772,12 +772,12 @@ class TestEnsurePbixParquets:
         import app.data_sources.clients.powerbi_report_server_client as mod
 
         monkeypatch.setattr(mod, "_PBIX_DATA_CACHE_DIR", tmp_path)
-        cache_dir = mod._pbix_data_cache_dir("rX", "2024-01-01T00:00:00Z")
+        c = PowerBIReportServerClient("http://pbi", "u", "p")
+        cache_dir = mod._pbix_data_cache_dir("rX", "2024-01-01T00:00:00Z", c._cache_scope())
         cache_dir.mkdir(parents=True)
         (cache_dir / "orders.parquet").write_bytes(b"not really a parquet")
         (cache_dir / "manifest.json").write_text(json.dumps({"Orders": "orders.parquet"}))
 
-        c = PowerBIReportServerClient("http://pbi", "u", "p")
         # download_catalog_item_content should NOT be called — raise if it is.
         c.download_catalog_item_content = MagicMock(
             side_effect=AssertionError("download should not run on cache hit")
@@ -798,6 +798,46 @@ class TestEnsurePbixParquets:
 
         with pytest.raises(RuntimeError, match="refusing to materialize"):
             c.ensure_pbix_parquets("rBig", "mdate", report_name="Huge")
+
+    def test_two_connections_never_share_a_cached_report(self, tmp_path, monkeypatch):
+        """The same report id and date on another server, or on the same
+        server for another organization, is that connection's own report."""
+        import sys
+        import types
+
+        import pandas as pd
+
+        import app.data_sources.clients.powerbi_report_server_client as mod
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+
+        class FakeModel:
+            def __init__(self, path):
+                self.content = Path(path).read_bytes().decode()
+                self.schema = pd.DataFrame({"TableName": ["Orders"]})
+
+            def get_table(self, name):
+                return pd.DataFrame({"source": [self.content]})
+
+        monkeypatch.setitem(sys.modules, "pbixray", types.SimpleNamespace(PBIXRay=FakeModel))
+        monkeypatch.setattr(mod, "_PBIX_DATA_CACHE_DIR", tmp_path)
+        org_1, org_2 = "66666666-aaaa-4aaa-8aaa-666666666666", "77777777-bbbb-4bbb-8bbb-777777777777"
+        clients = {
+            "first": bind_organization(PowerBIReportServerClient("http://pbi-one.example.test", "u", "p"), org_1),
+            "other server": bind_organization(PowerBIReportServerClient("http://pbi-two.example.test", "u", "p"), org_1),
+            "other organization": bind_organization(
+                PowerBIReportServerClient("http://pbi-one.example.test", "u", "p"), org_2),
+        }
+        for name, client in clients.items():
+            client.download_catalog_item_content = MagicMock(return_value=name.encode())
+        for name, client in clients.items():
+            paths = client.ensure_pbix_parquets("rSame", "2024-01-01T00:00:00Z", report_name="Same")
+            assert pd.read_parquet(paths["Orders"])["source"].tolist() == [name]
+            client.download_catalog_item_content.assert_called_once()
+        # The first connection's own copy is still served from its cache.
+        clients["first"].download_catalog_item_content.reset_mock()
+        paths = clients["first"].ensure_pbix_parquets("rSame", "2024-01-01T00:00:00Z", report_name="Same")
+        assert pd.read_parquet(paths["Orders"])["source"].tolist() == ["first"]
+        clients["first"].download_catalog_item_content.assert_not_called()
 
 
 class TestDiscoveryFraming:

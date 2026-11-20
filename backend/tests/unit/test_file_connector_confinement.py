@@ -1022,6 +1022,37 @@ def test_a_uri_is_refused_when_the_directory_the_engine_resolves_it_to_is_protec
     _refused_at_connect_with_nothing_read(DuckDBClient(uris="~ogs/*.csv"), {guarded_tree.logs: "server.csv"})
 
 
+def test_saving_a_uri_reads_a_leading_tilde_as_the_engine_does(guarded_tree, tmp_path, monkeypatch):
+    # DuckDB reads `~ogs` as the home directory's text followed by `ogs`.
+    monkeypatch.chdir(_folder(tmp_path / "work"))
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.top / "l")))
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"uris": "~ogs/*.csv"})
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"uris": "~ogs/server.csv"})
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.own.parent / "o")))
+    lockdown.check_connection_config("duckdb", {"uris": "~wn/*.csv"})
+
+
+@pytest.mark.parametrize("uri", ["FILE:///../keys/key.csv", "File:///../keys/key.csv", "FILE://localhost/../keys/key.csv"])
+def test_a_file_uri_whose_scheme_is_not_lower_case_is_refused_at_save_and_connect(uri, guarded_tree, monkeypatch):
+    """DuckDB takes only a lower-case `file:` as the prefix: in any other
+    case the text is a path relative to the working directory."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    monkeypatch.chdir(guarded_tree.top)
+    with pytest.raises(ValueError, match="(?i)lower case|protected"):
+        lockdown.check_connection_config("duckdb", {"uris": uri})
+    opens = _Opens(guarded_tree.keys)
+    try:
+        with pytest.raises(RuntimeError, match="(?i)lower case|protected"):
+            with DuckDBClient(uris=uri).connect():
+                pass
+        assert "key.csv" not in opens()
+    finally:
+        opens.close()
+
+
 # -- the path policy runs on the path that is opened -----------------------------
 
 
@@ -1183,26 +1214,207 @@ def test_a_tls_file_option_is_checked_where_the_driver_opens_it(tmp_path, monkey
 @pytest.mark.parametrize("value", ["sqlite:///file:{db}?uri=true", "sqlite:///file://localhost{db}?mode=ro&uri=true",
                                    "sqlite:///file:{db}"])
 def test_an_iceberg_catalog_database_is_named_by_its_path(value, departments):
-    from app.data_sources.clients.iceberg_client import checked_extra_properties
+    from app.data_sources.clients.iceberg_client import IcebergClient
 
     reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
     with _as_request_of(org_b):
-        with pytest.raises(ValueError, match="'uri'"):
-            checked_extra_properties({"type": "sql", "uri": value.format(db=reserved / "catalog.db")})
+        with pytest.raises(ValueError, match="uri"):
+            IcebergClient(catalog_type="sql", uri=value.format(db=reserved / "catalog.db")).check_locations()
         own = f"sqlite:///{free}/catalog.db"
-        assert checked_extra_properties({"type": "sql", "uri": own, "warehouse": f"file://{free}"})["uri"] == own
+        IcebergClient(catalog_type="sql", uri=own, warehouse=f"file://{free}").check_locations()
 
 
 def test_an_iceberg_location_is_checked_where_pyiceberg_opens_it(linked_roots):
-    from app.data_sources.clients.iceberg_client import checked_extra_properties
+    from app.data_sources.clients.iceberg_client import IcebergClient
 
-    with _as_request_of(linked_roots.org_a):
-        # PyIceberg reads a location with no scheme as its absolute form,
-        # `..` removed as text: `<A>/l/../../rootC` is C's root to it.
-        for value in (linked_roots.through_link, f"file://localhost{linked_roots.a}"):
-            with pytest.raises(ValueError, match="'warehouse'"):
-                checked_extra_properties({"type": "sql", "warehouse": value})
-        assert checked_extra_properties({"type": "sql", "warehouse": f"file://{linked_roots.a}"})
+    def client(warehouse):
+        return lockdown.bind_organization(
+            IcebergClient(catalog_type="sql", uri="sqlite:///:memory:", warehouse=warehouse), linked_roots.org_a)
+
+    # PyIceberg reads a location with no scheme as its absolute form, `..`
+    # removed as text: `<A>/l/../../rootC` is C's root to it.
+    for value in (linked_roots.through_link, f"file://localhost{linked_roots.a}"):
+        with pytest.raises(ValueError, match="warehouse"):
+            client(value).check_locations()
+    client(f"file://{linked_roots.a}").check_locations()
+
+
+# -- Iceberg: every file the catalog opens on this server --------------------------
+
+
+_ICEBERG_REFUSAL = "(?i)protected|organization"
+
+
+def _iceberg_catalog_in(home: Path, **table_properties) -> Path:
+    """An Iceberg SQL catalog kept in `home` (catalog.db, warehouse `home/wh`)
+    holding sales.orders, three rows, written with `table_properties`."""
+    pa = pytest.importorskip("pyarrow")
+    from pyiceberg.catalog.sql import SqlCatalog
+    from pyiceberg.schema import Schema
+    from pyiceberg.types import LongType, NestedField, StringType
+
+    catalog = SqlCatalog("bow", uri=f"sqlite:///{home}/catalog.db", warehouse=f"file://{home}/wh")
+    catalog.create_namespace("sales")
+    orders = catalog.create_table(("sales", "orders"), schema=Schema(
+        NestedField(1, "id", LongType(), required=False), NestedField(2, "region", StringType(), required=False)),
+        properties=table_properties)
+    orders.append(pa.Table.from_pylist([{"id": i, "region": r} for i, r in enumerate(["north", "south", "east"])],
+                                       schema=orders.schema().as_arrow()))
+    catalog.engine.dispose()
+    return home
+
+
+def _iceberg_sql_client(home: Path, organization, **fields):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    fields = {"uri": f"sqlite:///{home}/catalog.db", "warehouse": f"file://{home}/wh", **fields}
+    return lockdown.bind_organization(IcebergClient(catalog_type="sql", **fields), organization)
+
+
+@pytest.fixture
+def iceberg_places(linked_roots, guarded_tree, tmp_path):
+    """Where a catalog's files may sit: organization A's root (`own`), a folder
+    nobody is assigned (`free`, for an organization with no roots), C's root
+    and a protected folder."""
+    return SimpleNamespace(own=linked_roots.a, org_a=linked_roots.org_a, free=_folder(tmp_path / "free"),
+                           no_roots="55555555-eeee-4eee-8eee-555555555555", theirs=linked_roots.c,
+                           protected=guarded_tree.logs)
+
+
+@pytest.mark.parametrize("moved", ["write.data.path", "write.metadata.path"])
+@pytest.mark.parametrize("place", ["another organization's root", "a protected folder"])
+def test_an_iceberg_table_whose_files_sit_where_its_organization_may_not_read_is_refused_with_nothing_read(
+        moved, place, iceberg_places):
+    """The organization's own catalog, with a table whose data files, or
+    whose metadata files, were written elsewhere: the query is refused and
+    no file there is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    if place == "another organization's root":
+        home, organization, elsewhere = iceberg_places.own, iceberg_places.org_a, iceberg_places.theirs
+    else:
+        home, organization, elsewhere = iceberg_places.free, iceberg_places.no_roots, iceberg_places.protected
+    elsewhere = _folder(elsewhere / "orders-files")
+    _iceberg_catalog_in(home, **{moved: str(elsewhere)})
+    written = set(os.listdir(elsewhere))
+    assert any(name.endswith((".parquet", ".json", ".avro")) for name in written)
+    client = _iceberg_sql_client(home, organization)
+    opens = _Opens(elsewhere)
+    try:
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT * FROM sales.orders")
+        assert not opens() & written
+    finally:
+        opens.close()
+
+
+def test_an_iceberg_table_cannot_choose_the_file_io_its_files_are_read_with(iceberg_places):
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    elsewhere = _folder(iceberg_places.theirs / "orders-files")
+    _iceberg_catalog_in(iceberg_places.own, **{"write.data.path": str(elsewhere),
+                                               "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO"})
+    written = set(os.listdir(elsewhere))
+    client = _iceberg_sql_client(iceberg_places.own, iceberg_places.org_a)
+    opens = _Opens(elsewhere)
+    try:
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT count(*) AS n FROM sales.orders")
+        assert not opens() & written
+    finally:
+        opens.close()
+
+
+def test_an_iceberg_catalog_in_its_organizations_own_root_still_reads(iceberg_places):
+    _iceberg_catalog_in(iceberg_places.own)
+    client = _iceberg_sql_client(iceberg_places.own, iceberg_places.org_a)
+    assert client.test_connection()["success"] is True
+    df = client.execute_query("SELECT region FROM sales.orders ORDER BY id")
+    assert df["region"].tolist() == ["north", "south", "east"]
+    assert [t.name for t in client.get_schemas()] == ["sales.orders"]
+
+
+@pytest.mark.parametrize("how", ["catalog fields", "the SQL type in a REST catalog's extra properties"])
+def test_an_iceberg_sql_catalog_never_creates_its_database(how, iceberg_places):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    missing = iceberg_places.own / "catalog.db"
+    if how == "catalog fields":
+        client = _iceberg_sql_client(iceberg_places.own, iceberg_places.org_a)
+    else:
+        client = lockdown.bind_organization(IcebergClient(
+            catalog_type="rest", uri=f"sqlite:///{missing}", extra_properties='{"type": "sql"}'), iceberg_places.org_a)
+    assert client.test_connection()["success"] is False
+    assert not missing.exists()
+
+
+def test_the_checked_file_io_writes_and_deletes_nothing_on_this_server(tmp_path):
+    from app.data_sources.clients.iceberg_client import CheckedFileIO
+
+    kept = tmp_path / "kept.txt"
+    kept.write_text("x")
+    io = CheckedFileIO({})
+    for location in (str(tmp_path / "new.json"), f"file://{tmp_path}/new.json", f"file:{tmp_path}/new.json"):
+        with pytest.raises(PermissionError):
+            io.new_output(location)
+    for location in (str(kept), f"file://{kept}"):
+        with pytest.raises(PermissionError):
+            io.delete(location)
+    assert sorted(os.listdir(tmp_path)) == ["kept.txt"]
+    assert io.new_input(f"file://localhost{kept}").open().read() == b"x"
+
+
+@pytest.mark.parametrize("key, value", [
+    ("type", "sql"), ("TYPE", "sql"), ("uri", "sqlite:////srv/catalog.db"), ("warehouse", "file:///srv/wh"),
+    ("py-io-impl", "pyiceberg.io.pyarrow.PyArrowFileIO"), ("py-catalog-impl", "pyiceberg.catalog.sql.SqlCatalog"),
+    ("DEFAULT_SCHEME", "file"), ("init_catalog_tables", "true"),
+])
+def test_extra_catalog_properties_cannot_change_where_or_how_files_are_opened(key, value):
+    import json
+
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    config = {"catalog_type": "rest", "uri": "https://catalog.example.test", "extra_properties": json.dumps({key: value})}
+    with pytest.raises(ValueError, match=f"'{key}'"):
+        IcebergClient(**config)._properties()
+    with pytest.raises(ValueError, match=f"'{key}'"):
+        lockdown.check_connection_config("iceberg", config)
+
+
+@pytest.mark.parametrize("field", ["uri", "warehouse"])
+@pytest.mark.parametrize("how", ["catalog fields", "the SQL type in a REST catalog's extra properties"])
+def test_an_iceberg_catalog_in_another_organizations_root_is_refused_at_save_and_connect_with_nothing_created(
+        field, how, departments):
+    import json
+
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
+    config = {"uri": f"sqlite:///{reserved if field == 'uri' else free}/catalog.db",
+              "warehouse": f"file://{reserved if field == 'warehouse' else free}/wh"}
+    if how == "catalog fields":
+        config["catalog_type"] = "sql"
+    else:
+        config.update(catalog_type="rest", extra_properties=json.dumps({"type": "sql"}))
+    before = set(os.listdir(reserved))
+    with _as_request_of(org_b), pytest.raises(ValueError, match="(?i)another organization|'type'"):
+        lockdown.check_connection_config("iceberg", config)
+    client = lockdown.bind_organization(IcebergClient(**config), org_b)
+    with pytest.raises(ValueError, match="(?i)another organization|'type'"):
+        client.connect()
+    assert client.test_connection()["success"] is False
+    assert set(os.listdir(reserved)) == before
+
+
+def test_an_iceberg_client_is_held_to_the_organization_it_is_bound_to(departments):
+    """No request around: the client's own organization decides."""
+    own, unassigned, org_a = departments["a"], departments["b"], departments["org_a"]
+    _iceberg_catalog_in(own)
+    with pytest.raises(ValueError, match="outside the directories assigned"):
+        _iceberg_sql_client(own, org_a, warehouse=f"file://{unassigned}").connect()
+    with pytest.raises(ValueError, match="outside the directories assigned"):
+        _iceberg_sql_client(own, org_a, uri=f"sqlite:///{unassigned}/catalog.db").connect()
+    assert _iceberg_sql_client(own, org_a).execute_query("SELECT count(*) AS n FROM sales.orders")["n"][0] == 3
 
 
 # -- what a statement may name -------------------------------------------------

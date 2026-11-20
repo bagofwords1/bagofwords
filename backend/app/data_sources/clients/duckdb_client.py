@@ -263,6 +263,8 @@ class DuckDBClient(DataSourceClient):
         directories: List[str] = []
         for pattern in self.uri_patterns:
             uri = self._normalize_uri(pattern)
+            if uri.lower().startswith("file:") and not uri.startswith("file:"):
+                raise ValueError(lockdown.FILE_SCHEME_CASE)
             if uri.startswith("file://") and not uri.startswith(("file:///", "file://localhost/")):
                 raise ValueError(_FILE_HOST)
             scheme = _SCHEME.match(uri)
