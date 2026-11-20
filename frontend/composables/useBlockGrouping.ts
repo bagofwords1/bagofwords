@@ -148,6 +148,20 @@ export function blockHasMessage(block: any): boolean {
   return hasText(block?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
 }
 
+/** Read-only remote-server (SSH/SMB) operations run through execute_mcp; the
+    operation itself says more than "Calling a tool", so label and count them
+    by it ("Reading a file", "2 reads"). Shell commands stay tool calls. */
+const REMOTE_READ_OPS = new Set(['read_file', 'list_directory', 'search_file', 'system_status'])
+function labelToolName(block: any): string {
+  const te = block?.tool_execution
+  const name = te?.tool_name || ''
+  if (name !== 'execute_mcp' && name !== 'call_tool' && !name.startsWith('mcp__')) return name
+  const type = te?.result_json?.connection_type
+  if (type !== 'remote_ssh' && type !== 'remote_smb') return name
+  const op = name.startsWith('mcp__') ? name.split('__').slice(2).join('__') : te?.arguments_json?.tool_name
+  return REMOTE_READ_OPS.has(op) ? op : name
+}
+
 /** Human label for a running tool, used when the block carries no LLM
     `title` arg (e.g. inspect_data/describe_tables don't take one). */
 export function humanToolLabel(toolName: string): string {
@@ -162,6 +176,9 @@ export function humanToolLabel(toolName: string): string {
     search_files: 'Searching files',
     grep_files: 'Searching files',
     read_file: 'Reading a file',
+    list_directory: 'Listing a folder',
+    search_file: 'Searching a file',
+    system_status: 'Checking server status',
     list_mcp_resources: 'Listing resources',
     read_mcp_resource: 'Reading a resource',
     search_mcps: 'Searching tools',
@@ -303,7 +320,8 @@ function buildGroup(run: any[]): BlockGroup {
     }
     const name = b?.tool_execution?.tool_name || ''
     if (name && !toolNames.includes(name)) toolNames.push(name)
-    const fam = verbFamily(name)
+    const labelName = labelToolName(b)
+    const fam = verbFamily(labelName)
     famCounts.set(fam, (famCounts.get(fam) || 0) + 1)
     // Every member (including a handled-error probe) counts toward the span —
     // it consumed elapsed time before the run moved on.
@@ -321,7 +339,7 @@ function buildGroup(run: any[]): BlockGroup {
       if (t) lastTitle = t
       if (!isBlockSettled(b)) {
         active = true
-        runningLabel = t || humanToolLabel(name)
+        runningLabel = t || humanToolLabel(labelName)
       }
     }
   }

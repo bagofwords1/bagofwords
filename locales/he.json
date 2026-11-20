@@ -1887,6 +1887,24 @@
         "contextShared": "האפליקציה שיתפה את הבחירה שלך עם העוזר."
       }
     },
+    "remoteOp": {
+      "read_file": {
+        "running": "קורא את {name}…",
+        "done": "נקרא {name}"
+      },
+      "list_directory": {
+        "running": "מציג את תוכן {name}…",
+        "done": "הוצג תוכן {name}"
+      },
+      "search_file": {
+        "running": "מחפש \"{text}\" ב־{name}…",
+        "done": "חיפש \"{text}\" ב־{name}"
+      },
+      "system_status": {
+        "running": "בודק את מצב השרת…",
+        "done": "מצב השרת נבדק"
+      }
+    },
     "answerQuestion": {
       "thought": "חשב על התשובה"
     },
