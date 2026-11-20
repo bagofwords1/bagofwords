@@ -140,6 +140,7 @@
                 :text="selectedAgentDetails.primary_instruction.text"
                 :references="selectedAgentDetails.primary_instruction.references || []"
                 :prose="true"
+                :markdown="true"
               />
             </div>
             <div v-else class="text-xs text-ink-muted italic">{{ $t('reportAgent.noInstruction') }}</div>
