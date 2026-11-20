@@ -86,7 +86,14 @@
                 </template>
                 <template v-if="refresh === 'failing'">
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
-                    <span class="text-red-600 dark:text-red-400" :title="formatDateTime(dashboard.last_run_at)">{{ t('dashboards.card.refreshFailing') }}</span>
+                    <!-- It opens what failed (its refreshes), not the dashboard. -->
+                    <button
+                        type="button"
+                        class="text-red-600 dark:text-red-400 hover:underline rounded outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                        :title="t('dashboards.card.refreshFailingAction')"
+                        data-testid="dashboard-row-refresh"
+                        @click.stop="emit('show-refreshes')"
+                    >{{ t('dashboards.card.refreshFailing') }}</button>
                 </template>
                 <template v-else-if="refresh === 'dataAsOf'">
                     <span class="text-ink-subtle" aria-hidden="true">·</span>
@@ -139,7 +146,7 @@ const props = defineProps<{
     // This row's star request is in flight.
     starPending?: boolean
 }>()
-const emit = defineEmits<{ (e: 'edit'): void; (e: 'toggle-star'): void }>()
+const emit = defineEmits<{ (e: 'edit'): void; (e: 'toggle-star'): void; (e: 'show-refreshes'): void }>()
 
 const { t } = useI18n()
 const { relativeTime } = useRelativeTime()

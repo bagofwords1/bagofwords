@@ -5765,6 +5765,7 @@
       "published": "פורסם {date}",
       "dataAsOf": "הנתונים עודכנו {time}",
       "refreshFailing": "הרענון נכשל",
+      "refreshFailingAction": "לצפייה בסיבת כשל הרענון",
       "lastEdit": "עריכה אחרונה: {time}",
       "scheduledRefresh": "רענון מתוזמן"
     },
@@ -5864,6 +5865,9 @@
       "failing": "{n} נכשל ברענון | {n} נכשלים ברענון",
       "stale": "{n} לא נערך 90 יום | {n} לא נערכו 90 יום",
       "show": "הציגו אותם"
+    },
+    "refreshes": {
+      "openEditor": "פתיחה בעורך"
     }
   },
   "excel": {

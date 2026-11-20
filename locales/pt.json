@@ -5083,6 +5083,7 @@
       "published": "Publicado em {date}",
       "dataAsOf": "Dados atualizados {time}",
       "refreshFailing": "Falha na atualização",
+      "refreshFailingAction": "Ver por que a atualização falhou",
       "lastEdit": "Última edição: {time}",
       "scheduledRefresh": "Atualização agendada"
     },
@@ -5182,6 +5183,9 @@
       "failing": "{n} com falha na atualização | {n} com falha na atualização",
       "stale": "{n} sem edição há 90 dias | {n} sem edição há 90 dias",
       "show": "Mostrar"
+    },
+    "refreshes": {
+      "openEditor": "Abrir no editor"
     }
   },
   "excel": {

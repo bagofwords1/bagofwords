@@ -5825,6 +5825,7 @@
       "published": "Published {date}",
       "dataAsOf": "Data as of {time}",
       "refreshFailing": "Refresh failing",
+      "refreshFailingAction": "See why the refresh failed",
       "lastEdit": "Last edit: {time}",
       "scheduledRefresh": "Scheduled refresh"
     },
@@ -5924,6 +5925,9 @@
       "failing": "{n} failing to refresh | {n} failing to refresh",
       "stale": "{n} not edited in 90 days | {n} not edited in 90 days",
       "show": "Show them"
+    },
+    "refreshes": {
+      "openEditor": "Open in editor"
     }
   },
   "excel": {

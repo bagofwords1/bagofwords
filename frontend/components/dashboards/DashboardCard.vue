@@ -1,11 +1,16 @@
 <template>
-    <div class="group relative" data-testid="dashboard-card">
+    <!-- The frame is the card's, not the link's: "Refresh failing" is a
+         button of its own under the link (a button cannot sit inside it). -->
+    <div
+        class="group relative bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 hover:shadow-lg hover:border-blue-300 transition"
+        data-testid="dashboard-card"
+    >
         <!-- One card per dashboard: it opens the dashboard's /d page. -->
         <NuxtLink
             :to="`/d/${dashboard.slug || dashboard.id}`"
-            class="block bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-lg hover:border-blue-300 transition"
+            class="block rounded-xl"
         >
-            <div class="aspect-[4/3] relative overflow-hidden" :class="showThumbnail ? '' : modeStyle.cardBg">
+            <div class="aspect-[4/3] relative overflow-hidden rounded-t-[11px]" :class="showThumbnail ? '' : modeStyle.cardBg">
                 <DashboardThumbnail
                     v-if="showThumbnail"
                     :url="dashboard.thumbnail_url!"
@@ -42,7 +47,7 @@
                 />
             </div>
 
-            <div class="p-3 text-start">
+            <div class="text-start" :class="refresh === 'failing' ? 'px-3 pt-3' : 'p-3'">
                 <h3 class="font-medium text-ink truncate text-sm flex items-center gap-1.5">
                     <TruncatedLabel :text="title" :description="dashboard.description" data-testid="dashboard-card-title" />
                     <ReportStatusDot :report-id="dashboard.report_id || dashboard.id" />
@@ -67,18 +72,8 @@
                     </template>
                 </p>
 
-                <!-- Refresh failing: only its editors get last_run_status (default 8). -->
                 <p
-                    v-if="refresh === 'failing'"
-                    class="text-xs mt-0.5 truncate flex items-center gap-1.5 text-red-600 dark:text-red-400"
-                    :title="formatDateTime(dashboard.last_run_at)"
-                    data-testid="dashboard-card-refresh"
-                >
-                    <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" aria-hidden="true"></span>
-                    {{ $t('dashboards.card.refreshFailing') }}
-                </p>
-                <p
-                    v-else-if="refresh === 'dataAsOf'"
+                    v-if="refresh === 'dataAsOf'"
                     class="text-xs mt-0.5 truncate flex items-center gap-1.5 text-ink-muted"
                     :title="formatDateTime(dashboard.last_run_at)"
                     data-testid="dashboard-card-refresh"
@@ -88,6 +83,21 @@
                 </p>
             </div>
         </NuxtLink>
+
+        <!-- Refresh failing: only its editors get last_run_status (default 8).
+             It opens what failed (its refreshes), not the dashboard. -->
+        <div v-if="refresh === 'failing'" class="px-3 pb-3 pt-0.5 text-start">
+            <button
+                type="button"
+                class="max-w-full text-xs truncate inline-flex items-center gap-1.5 text-red-600 dark:text-red-400 hover:underline rounded outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                :title="$t('dashboards.card.refreshFailingAction')"
+                data-testid="dashboard-card-refresh"
+                @click="emit('show-refreshes')"
+            >
+                <span class="w-1.5 h-1.5 rounded-full shrink-0 bg-red-500" aria-hidden="true"></span>
+                <span class="truncate">{{ $t('dashboards.card.refreshFailing') }}</span>
+            </button>
+        </div>
 
         <!-- The thumbnail's corners, over the link (a button cannot sit inside it). -->
         <div class="pointer-events-none absolute inset-x-0 top-0 aspect-[4/3]">
@@ -160,7 +170,7 @@ const props = defineProps<{
     // This card's star request is in flight.
     starPending?: boolean
 }>()
-const emit = defineEmits<{ (e: 'edit'): void; (e: 'toggle-star'): void }>()
+const emit = defineEmits<{ (e: 'edit'): void; (e: 'toggle-star'): void; (e: 'show-refreshes'): void }>()
 
 const { t } = useI18n()
 const { relativeTime } = useRelativeTime()
