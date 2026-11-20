@@ -344,16 +344,6 @@
                                                 :expanded="isRunExpanded(m)" :duration="runFoldDuration(m)"
                                                 :translate="responseT" :has-steps="!!runFold(m)?.steps.length"
                                                 @toggle="toggleRun(m)" />
-                                            <!-- Initial thinking ends when visible text or a tool call arrives. -->
-											<RunActivityToggle
-												v-if="m.status === 'in_progress' && !runFold(m)?.steps.length && !visibleBlocks(m).some(blockHasMessage)"
-												:expanded="isRunExpanded(m)"
-												:duration="runFoldDuration(m)"
-												:translate="responseT"
-												:live="m.status === 'in_progress'"
-												:has-steps="!!runFold(m)?.steps.length"
-												@toggle="toggleRun(m)"
-											/>
 											<!-- Sub-agent waves launched by this turn: one group line per wave -->
 											<SubAgentWaveStrip
 												v-for="w in wavesForMessage(m)"
@@ -628,8 +618,9 @@
 
 									</div>
 
-                                    <div v-if="showWaitingIndicator(m) && runFold(m)?.steps.length" class="flex h-6 items-center text-ink" role="status" :aria-label="$t('prompt.working')">
-                                        <span class="h-2.5 w-2.5 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
+                                    <!-- Run-activity dot: always at the tail, for the whole live run. -->
+                                    <div v-if="showWaitingIndicator(m)" class="flex h-6 items-center text-ink" role="status" :aria-label="$t('prompt.working')" data-testid="run-working-dot">
+                                        <span class="h-3 w-3 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
                                     </div>
 
 									<!-- Show status messages for stopped/error completions -->
@@ -1255,8 +1246,9 @@ import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
-import { blockHasMessage, describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
+import { describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
+import { isRunWorking } from '~/composables/runWorkingDot'
 import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
@@ -3699,18 +3691,10 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 	       (toolExecution.created_widget || toolExecution.created_step)
 }
 
-// Run-level activity stays visible even while reasoning is collapsed or a
-// tool is waiting without emitting text. Terminal states remove it immediately.
+// The run-activity dot: one circle at the message's tail for every live
+// frame (rules in composables/runWorkingDot.ts).
 function showWaitingIndicator(message: ChatMessage): boolean {
-    if (message.role !== 'system' || message.status !== 'in_progress' || message.sigkill) return false
-    const blocks = visibleBlocks(message)
-    if (blockHasMessage(blocks[blocks.length - 1])) return false
-    // A visible running tool supplies its own progress indicator.
-    return !visibleBlocks(message).some(block =>
-        block.tool_execution?.status === 'running'
-        && !isBlockFolded(message, block)
-        && !isEditRunFolded(message, block)
-    )
+    return isRunWorking(message, visibleBlocks(message), isAwaitingUser)
 }
 
 function getThoughtProcessLabel(block: CompletionBlock): string {
