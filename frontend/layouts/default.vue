@@ -656,9 +656,12 @@
   <!-- Sidebar report actions: share / rename / delete (singletons bound to menuReport) -->
   <!-- Teleported to body so it escapes the sidebar's transform/overflow clipping. -->
   <Teleport to="body">
-    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70]" @click="reportMenuOpen = false" @contextmenu.prevent="reportMenuOpen = false">
+    <!-- Non-blocking layer (pointer-events-none): an outside press closes the
+         menu via useDismissOnOutsidePress AND still reaches its target. -->
+    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70] pointer-events-none">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
+        ref="reportMenuPanel"
+        class="absolute pointer-events-auto w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: reportMenuPos.y + 'px', left: reportMenuPos.x + 'px' }"
         @click.stop
       >
@@ -692,9 +695,10 @@
 
   <!-- Sidebar project actions: rename / delete (teleported like the report menu) -->
   <Teleport to="body">
-    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70]" @click="projectMenuOpen = false" @contextmenu.prevent="projectMenuOpen = false">
+    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70] pointer-events-none">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
+        ref="projectMenuPanel"
+        class="absolute pointer-events-auto w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: projectMenuPos.y + 'px', left: projectMenuPos.x + 'px' }"
         @click.stop
       >
@@ -1336,13 +1340,19 @@
       projectDialogBusy.value = false
     }
   }
+  const projectMenuPanel = ref<HTMLElement | null>(null)
+  const projectMenuAnchor = ref<HTMLElement | null>(null)
   const openProjectMenu = (e: MouseEvent, project: any) => {
+    // Same ⋯ again toggles closed (the outside-press handler ignores the anchor).
+    if (projectMenuOpen.value && menuProject.value?.id === project.id) { projectMenuOpen.value = false; return }
+    projectMenuAnchor.value = e.currentTarget as HTMLElement | null
     menuProject.value = project
     const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
     const y = Math.min(e.clientY, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 140)
     projectMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
     projectMenuOpen.value = true
   }
+  useDismissOnOutsidePress(projectMenuOpen, projectMenuPanel, projectMenuAnchor, () => { projectMenuOpen.value = false })
   const currentProjectActionsAvailable = (project: any) => !!(project?.can_manage || project?.is_owner)
   const currentProjectActions = computed(() => {
     const project = menuProject.value
@@ -1543,7 +1553,12 @@
   watch([reportMenuOpen, projectMenuOpen, draggingReport, () => route.fullPath], hideTitleTip)
   onBeforeUnmount(hideTitleTip)
 
+  const reportMenuPanel = ref<HTMLElement | null>(null)
+  const reportMenuAnchor = ref<HTMLElement | null>(null)
   const openReportMenu = (e: MouseEvent, report: any) => {
+    // Same ⋯ again toggles closed (the outside-press handler ignores the anchor).
+    if (reportMenuOpen.value && menuReport.value?.id === report.id) { reportMenuOpen.value = false; return }
+    reportMenuAnchor.value = e.currentTarget as HTMLElement | null
     menuReport.value = report
     // Clamp so the 208px-wide menu never runs off the right/bottom edge.
     const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
@@ -1551,6 +1566,7 @@
     reportMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
     reportMenuOpen.value = true
   }
+  useDismissOnOutsidePress(reportMenuOpen, reportMenuPanel, reportMenuAnchor, () => { reportMenuOpen.value = false })
 
   // Flat action list for the teleported menu, derived from the active report.
   const currentReportActions = computed(() => {
