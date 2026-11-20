@@ -4677,7 +4677,21 @@
     "firstPage": "Primeira página",
     "previousPage": "Página anterior",
     "nextPage": "Próxima página",
-    "lastPage": "Última página"
+    "lastPage": "Última página",
+    "inRangeStart": "De",
+    "inRangeEnd": "Até",
+    "resetFilter": "Limpar",
+    "noRowsToShow": "Nenhuma linha para mostrar",
+    "filteredRows": "{shown} de {total} linhas",
+    "clearFilters": "Limpar filtros",
+    "expand": "Expandir tabela",
+    "collapse": "Fechar tela cheia",
+    "search": "Pesquisar…",
+    "selectAll": "Selecionar tudo",
+    "blankValue": "(Vazio)",
+    "noMatches": "Nenhum valor correspondente",
+    "moreValues": "Mostrando os primeiros {n} — digite para refinar",
+    "alsoFilteredAbove": "Esta coluna também está filtrada em Filtros, acima"
   },
   "sharedReport": {
     "backToApp": "Voltar ao app",
@@ -5083,6 +5097,7 @@
       "published": "Publicado em {date}",
       "dataAsOf": "Dados atualizados {time}",
       "refreshFailing": "Falha na atualização",
+      "refreshFailingAction": "Ver por que a atualização falhou",
       "lastEdit": "Última edição: {time}",
       "scheduledRefresh": "Atualização agendada"
     },
@@ -5182,6 +5197,9 @@
       "failing": "{n} com falha na atualização | {n} com falha na atualização",
       "stale": "{n} sem edição há 90 dias | {n} sem edição há 90 dias",
       "show": "Mostrar"
+    },
+    "refreshes": {
+      "openEditor": "Abrir no editor"
     }
   },
   "excel": {
@@ -7853,5 +7871,36 @@
     "inviteNotSent": "Não foi possível enviar o convite para {email}. Convide a pessoa novamente na página Membros.",
     "adminAdded": "{email} foi adicionado como administrador.",
     "failed": "Não foi possível criar a organização."
+  },
+  "vizFilter": {
+    "filter": "Filtrar",
+    "title": "Filtros",
+    "clear": "Limpar",
+    "noData": "Não há dados para filtrar",
+    "noFilters": "Nenhum filtro aplicado",
+    "addFilter": "Adicionar filtro",
+    "column": "Coluna",
+    "value": "Valor",
+    "apply": "Aplicar",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "igual a",
+      "not_equals": "diferente de",
+      "contains": "contém",
+      "not_contains": "não contém",
+      "starts_with": "começa com",
+      "ends_with": "termina com",
+      "is_empty": "está vazio",
+      "is_not_empty": "não está vazio",
+      "before": "antes de",
+      "after": "depois de",
+      "is_true": "é verdadeiro",
+      "is_false": "é falso",
+      "between": "entre",
+      "in": "é um de",
+      "not_in": "não é um de"
+    },
+    "or": "OU",
+    "and": "E"
   }
 }

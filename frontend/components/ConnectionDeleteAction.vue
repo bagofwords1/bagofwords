@@ -3,7 +3,7 @@
         <div v-if="!confirmingDelete">
           <button
             @click="confirmingDelete = true"
-            :class="compact ? 'inline-flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700' : 'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer'"
+            :class="compact ? 'inline-flex items-center gap-1.5 text-xs text-red-600 hover:text-red-700' : 'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/50 cursor-pointer'"
           >
             <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
             {{ $t('data.deleteConnection') }}
@@ -13,7 +13,7 @@
         <!-- Confirm delete -->
         <div v-else class="space-y-3">
           <!-- Warning for impacted agents -->
-          <div v-if="agentCount > 0" class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+          <div v-if="agentCount > 0" class="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg">
             <div class="flex items-start gap-2">
               <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
               <div class="text-xs">

@@ -19,7 +19,7 @@
         <div v-if="setupGuide.length" class="p-3 rounded border border-blue-200 dark:border-blue-900 bg-blue-50/40 dark:bg-blue-950/20" data-testid="setup-guide">
           <button type="button" class="flex items-center justify-between w-full text-start" @click="setupGuideOpen = !setupGuideOpen">
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('data.setupGuideTitle') }}</span>
-            <UIcon :name="setupGuideOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
+            <UIcon :name="setupGuideOpen ? 'i-heroicons-chevron-up' : 'i-heroicons-chevron-down'" class="w-4 h-4 text-ink-muted" />
           </button>
           <ol v-show="setupGuideOpen" class="mt-2 space-y-3">
             <li v-for="(step, i) in setupGuide" :key="i" class="flex gap-2">

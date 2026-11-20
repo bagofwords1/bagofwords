@@ -229,7 +229,7 @@
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
                     :sandbox="sandboxAttr"
-                    class="absolute inset-0 w-full h-full border-0 bg-white"
+                    class="absolute inset-0 w-full h-full border-0 bg-surface"
                 />
 
                 <!-- Loading state -->
@@ -240,7 +240,7 @@
                     </div>
                 </div>
 
-                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <p>{{ $t('reports.artifactLoadFailed') }}</p>
                 </div>
 
@@ -332,6 +332,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
@@ -1710,7 +1711,9 @@ function pushArtifactData() {
             current_user: viewerContext.value,
             host_context: props.hostContext ?? null,
             params: paramsPayload(),
-            runtime: artifactRuntime()
+            runtime: artifactRuntime(),
+            // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+            table_layouts: loadTableLayouts(artifact.value?.artifact_id)
         }))
     });
 }
@@ -1802,6 +1805,7 @@ async function runParamQueries(
 
 function handleArtifactParamsMessage(event: MessageEvent) {
     if (event.source !== artifactIframeRef.value?.contentWindow || !event.data) return;
+    if (handleTableLayoutMessage(event.data, artifact.value?.artifact_id)) return;
     if (event.data.type === 'ARTIFACT_SET_PARAMS') {
         paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
         runParamQueries(event.data.changes || {}, event.data.targets || null, {});

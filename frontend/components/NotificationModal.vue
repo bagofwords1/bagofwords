@@ -105,7 +105,7 @@
               <UIcon name="i-heroicons-sparkles" class="w-4 h-4" />
             </div>
             <div v-else :class="['mt-0.5 flex items-center justify-center w-7 h-7 rounded-full shrink-0', n.resolved ? 'bg-gray-100 dark:bg-gray-800' : sevBg(n)]">
-              <UIcon :name="iconFor(n)" :class="['w-4 h-4', n.resolved ? 'text-gray-400' : sevText(n)]" />
+              <UIcon :name="iconFor(n)" :class="['w-4 h-4', n.resolved ? 'text-ink-muted' : sevText(n)]" />
             </div>
 
             <div class="min-w-0 flex-1 pe-5" :data-testid="isCheckin(n) ? 'checkin-notification' : undefined">
@@ -122,7 +122,7 @@
                 <!-- Agent follow-up: reads like a message from the assistant -->
                 <div v-if="isCheckin(n)" class="flex items-center gap-1.5 text-2xs text-gray-500 dark:text-gray-400 mb-0.5">
                   <span class="font-medium text-gray-700 dark:text-gray-300" dir="auto">{{ assistantName }}</span>
-                  <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                  <span class="text-ink-subtle">&middot;</span>
                   <span class="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300">
                     <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-3 h-3" />
                     {{ $t('notifications.checkin.badge') }}
@@ -156,15 +156,15 @@
                   <span v-if="n.subject?.agent_name" class="inline-flex items-center gap-0.5" v-text-dir>
                     <UIcon name="i-heroicons-cube" class="w-3 h-3" />{{ n.subject.agent_name }}
                   </span>
-                  <span v-if="n.subject?.agent_name" class="text-gray-300 dark:text-gray-600">&middot;</span>
+                  <span v-if="n.subject?.agent_name" class="text-ink-subtle">&middot;</span>
                   <span v-if="n.actor?.name">{{ $t('notifications.detail.by', { name: n.actor.name }) }}</span>
-                  <span v-if="n.actor?.name" class="text-gray-300 dark:text-gray-600">&middot;</span>
+                  <span v-if="n.actor?.name" class="text-ink-subtle">&middot;</span>
                   <span>{{ relativeTime(n.updated_at || n.created_at) }}</span>
                   <template v-if="n.resolved && handledText(n.subject?.handled, t)">
-                    <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                    <span class="text-ink-subtle">&middot;</span>
                     <span class="text-green-700 dark:text-green-400" v-text-dir>{{ handledText(n.subject?.handled, t) }}</span>
                   </template>
-                  <span v-if="isReview(n)" class="inline-flex items-center gap-0.5 ms-1 text-gray-400">
+                  <span v-if="isReview(n)" class="inline-flex items-center gap-0.5 ms-1 text-ink-muted">
                     <UIcon :name="expandedId === n.id ? 'i-heroicons-chevron-up-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3.5 h-3.5" />
                     {{ expandedId === n.id ? $t('notifications.detail.hideDetails') : $t('notifications.detail.showDetails') }}
                   </span>
@@ -218,7 +218,7 @@
 
             <button
               @click.stop="dismiss(n.id)"
-              class="absolute top-2.5 end-2.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-gray-300 hover:text-gray-600 dark:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded transition-opacity"
+              class="absolute top-2.5 end-2.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-ink-subtle hover:text-gray-600 dark:hover:text-gray-300 p-0.5 rounded transition-opacity"
               :title="$t('notifications.dismiss')"
               :aria-label="$t('notifications.dismiss')"
             >

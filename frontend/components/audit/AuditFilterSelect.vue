@@ -47,7 +47,7 @@
               v-if="multiple"
               type="checkbox"
               :checked="isSelected(opt.value)"
-              class="w-3 h-3 rounded border-gray-300 text-ink focus:ring-0 pointer-events-none"
+              class="w-3 h-3 rounded border-line-strong text-ink focus:ring-0 pointer-events-none"
             />
             <span class="flex-1 min-w-0">
               <span class="block truncate" :class="isSelected(opt.value) ? 'font-medium text-ink' : 'text-ink-2'">{{ opt.label }}</span>

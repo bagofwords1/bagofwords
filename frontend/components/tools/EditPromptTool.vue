@@ -35,7 +35,7 @@
               <span>{{ t('tools.editPrompt.openInPrompts') }}</span>
             </button>
           </div>
-          <div v-if="errorMessage" class="text-chat-2 text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-chat-2 text-orange-600 dark:text-orange-300 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>

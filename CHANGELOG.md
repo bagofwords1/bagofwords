@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.0.630 (November 20, 2026)
+- Added resizable, movable data-grid columns that keep their layout, and a single value-list filter per column (#1828)
+- Added content-sized columns to dashboard tables, resizable and movable by drag (#1834)
+- Added the refresh history, with the failure shown, behind a dashboard's "Refresh failing" badge (#1832)
+- Changed instruction diffs to render as markdown, right-to-left per block in RTL languages (#1826)
+- Changed remote SSH/SMB file reads in the report chat to show the file and server instead of the raw tool name (#1827)
+- Changed instruction and dashboard tool cards in the report chat to open by default (#1831)
+- Fixed dark-mode contrast gaps: white cards, unreadable labels and chips, and the LLM usage chart tooltip (#1830, #1837)
+- Fixed sidebar menus swallowing the next click (#1835)
+- Fixed the Reports group/sort button sitting out of line with the row star column (#1833)
+- Fixed a saved query's table missing under the answer when a run folds (#1829)
+- Fixed tool-card header labels running together (#1831)
+
 ## Version 0.0.629 (November 18, 2026)
 - Added Clone agent in the agent menu: copies tables, tools, prompts and files, with instructions copied, shared or left out (#1807)
 - Added Import agent under Agents → New: rebuilds an agent from its export zip, with instructions imported as drafts (#1810)

@@ -2,7 +2,8 @@
 
 The planner marks a finding with the result it came from by appending
 ``{{cite:<id>}}`` right after the sentence, where ``<id>`` is a visualization
-id from an earlier ``create_data`` result (the first 8 characters are enough).
+id from an earlier ``create_data`` result, or a saved query materialized by
+``describe_entity`` (the first 8 characters are enough).
 
 The marker is stored in the answer as written. What a reader sees depends on
 where the answer is shown:

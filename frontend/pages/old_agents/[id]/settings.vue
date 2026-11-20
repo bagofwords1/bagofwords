@@ -17,7 +17,7 @@
                             v-model="form.name"
                             type="text"
                             :disabled="!canManageDs"
-                            class="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 w-full max-w-md h-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-50 disabled:text-gray-500"
+                            class="border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 w-full max-w-md h-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-surface-subtle disabled:text-ink-muted"
                             placeholder="Name"
                         />
                         <button
@@ -82,19 +82,19 @@
                                                         <span class="text-xs text-ink-muted">({{ groupMemberCount(m) }} {{ groupMemberCount(m) === 1 ? 'member' : 'members' }})</span>
                                                         <button
                                                             @click="toggleGroupExpand(m.principal_id)"
-                                                            class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
+                                                            class="w-4 h-4 flex items-center justify-center rounded text-ink-muted hover:text-ink-2 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs leading-none"
                                                         >
                                                             {{ expandedGroups.has(m.principal_id) ? '−' : '+' }}
                                                         </button>
                                                     </template>
                                                 </div>
-                                                <div class="text-xs text-gray-500" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
+                                                <div class="text-xs text-ink-muted" v-if="principalEmail(m)">{{ principalEmail(m) }}</div>
                                                 <!-- Expanded group members -->
                                                 <div v-if="m.principal_type === 'group' && expandedGroups.has(m.principal_id)" class="mt-1.5 ps-1 space-y-1">
                                                     <div
                                                         v-for="gm in (groupMembers[m.principal_id] || [])"
                                                         :key="gm.user_id"
-                                                        class="flex items-center gap-1.5 text-xs text-gray-500"
+                                                        class="flex items-center gap-1.5 text-xs text-ink-muted"
                                                     >
                                                         <UIcon name="i-heroicons-user" class="w-3 h-3 text-gray-300 flex-shrink-0" />
                                                         <span>{{ gm.user_name || gm.user_email }}</span>
@@ -149,11 +149,11 @@
                                         </div>
                                     </td>
                                     <td v-if="canManageDsMembers" class="px-4 py-3">
-                                        <button @click="removeMember(m)" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-0.5 hover:bg-gray-50">Remove</button>
+                                        <button @click="removeMember(m)" class="text-xs border border-line-strong text-ink-2 rounded-lg px-2 py-0.5 hover:bg-surface-subtle">Remove</button>
                                     </td>
                                 </tr>
                                 <tr v-if="members.length === 0">
-                                    <td :colspan="canManageDsMembers ? 3 : 2" class="px-4 py-6 text-xs text-gray-500 text-center">
+                                    <td :colspan="canManageDsMembers ? 3 : 2" class="px-4 py-6 text-xs text-ink-muted text-center">
                                         No members yet. All organization members have access by default.
                                     </td>
                                 </tr>
@@ -165,7 +165,7 @@
                 <!-- Danger zone -->
                 <div v-if="canManageDs" class="max-w-md border border-red-200 p-4 rounded-lg bg-red-50/40">
                     <div class="text-sm font-medium text-red-700">Danger zone</div>
-                    <div class="text-xs text-gray-600 mt-1">Removing this agent will disconnect it from the data source. You can reconnect later.</div>
+                    <div class="text-xs text-ink-muted mt-1">Removing this agent will disconnect it from the data source. You can reconnect later.</div>
                     <div class="mt-3">
                         <button @click="showDelete = true" class="px-3 py-1.5 text-xs border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">
                             Remove agent
@@ -178,8 +178,8 @@
         <!-- Add member modal -->
         <UModal v-model="showAddModal" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-4">
-                <div class="text-sm font-medium text-gray-900 mb-2">Add members</div>
-                <div class="text-xs text-gray-600 mb-3">Select users or groups to grant access to this agent.</div>
+                <div class="text-sm font-medium text-ink mb-2">Add members</div>
+                <div class="text-xs text-ink-muted mb-3">Select users or groups to grant access to this agent.</div>
 
                 <!-- Principal type toggle (only shown with enterprise) -->
                 <div v-if="addTabs.length > 1" class="flex gap-2 mb-3">
@@ -190,8 +190,8 @@
                         :class="[
                             'px-3 py-1 text-xs rounded-lg border transition-colors',
                             addPrincipalType === tab.key
-                                ? 'bg-blue-50 border-blue-200 text-blue-700'
-                                : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                                ? 'bg-blue-50 dark:bg-blue-950 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300'
+                                : 'border-line text-ink-muted hover:bg-surface-subtle'
                         ]"
                     >
                         {{ tab.label }}
@@ -227,7 +227,7 @@
 
                 <!-- Permission picker (enterprise only) -->
                 <div v-if="isEnterprise" class="mt-3">
-                    <div class="text-xs font-medium text-gray-700 mb-1">Permissions</div>
+                    <div class="text-xs font-medium text-ink-2 mb-1">Permissions</div>
                     <div class="flex flex-wrap gap-2">
                         <label
                             v-for="perm in dsPermOptions"
@@ -244,7 +244,7 @@
                 </div>
 
                 <div class="flex justify-end space-x-2 mt-4">
-                    <button @click="showAddModal = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
+                    <button @click="showAddModal = false" class="px-3 py-1.5 text-xs border border-line-strong text-ink-2 rounded-lg">Cancel</button>
                     <button @click="addSelected" :disabled="addDisabled || adding" class="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
                         {{ adding ? 'Adding…' : 'Add' }}
                     </button>
@@ -255,10 +255,10 @@
         <!-- Delete confirmation modal -->
         <UModal v-model="showDelete" :ui="{ width: 'sm:max-w-md' }">
             <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">Remove agent?</div>
-                <div class="text-xs text-gray-600 mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
+                <div class="text-sm font-medium text-ink">Remove agent?</div>
+                <div class="text-xs text-ink-muted mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
                 <div class="flex justify-end gap-2 mt-5">
-                    <button @click="showDelete = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
+                    <button @click="showDelete = false" class="px-3 py-1.5 text-xs border border-line-strong text-ink-2 rounded-lg">Cancel</button>
                     <button @click="confirmDelete" :disabled="deleting" class="px-3 py-1.5 text-xs bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">
                         {{ deleting ? 'Deleting…' : 'Delete' }}
                     </button>

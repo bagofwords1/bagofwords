@@ -3,7 +3,7 @@
          may show this artifact, and the snippet each one pastes. Embedding
          never widens who may see it: the host's user needs view access too. -->
     <div class="space-y-6" data-testid="settings-embed">
-        <div v-if="loading" class="flex justify-center py-12"><Spinner class="w-5 h-5 text-gray-400" /></div>
+        <div v-if="loading" class="flex justify-center py-12"><Spinner class="w-5 h-5 text-ink-muted" /></div>
         <template v-else-if="state">
             <p class="text-xs leading-5 text-gray-500 dark:text-gray-400">{{ tm('embed.tab.intro', mode) }}</p>
             <div v-if="state.visibility === 'none'" class="flex gap-2 text-xs leading-5 text-amber-700 dark:text-amber-300"
@@ -26,7 +26,7 @@
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-1.5">
                                 <span class="truncate text-sm text-gray-900 dark:text-white">{{ host.name }}</span>
-                                <span v-if="!host.enabled" class="text-2xs text-gray-400">· {{ $t('hostApps.disabled') }}</span>
+                                <span v-if="!host.enabled" class="text-2xs text-ink-muted">· {{ $t('hostApps.disabled') }}</span>
                             </div>
                             <p class="truncate text-xs text-gray-500 dark:text-gray-400" dir="ltr">{{ host.allowed_origins.join(', ') }}</p>
                         </div>

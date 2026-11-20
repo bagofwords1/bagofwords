@@ -29,7 +29,7 @@ const state = {
   reportData:{value:{}},filesData:{value:[]},effectiveViewerContext:{value:{}},
   window:{location:{origin:'https://preview.test'}},console:{log(){},error(){}},
   iframeRef:{value:{contentWindow:{postMessage(m){messages.push(m)}}}},
-  toRaw:v=>v, paramsPayload:()=>({}),artifactRuntime:()=>({}),syncParamsToUrl(){},postParamsStatus(){},
+  toRaw:v=>v, paramsPayload:()=>({}),artifactRuntime:()=>({}),tableLayoutKey:()=>'',loadTableLayouts:()=>({}),syncParamsToUrl(){},postParamsStatus(){},
   logActivity:null,previewConversationPolicy:null,verificationEvent:(kind,fields)=>events.push({kind,...fields}),useMyFetch:(...args)=>respond(...args),
 }
 vm.createContext(state)

@@ -4,8 +4,7 @@
       <template #label>
       <template v-if="status === 'in_progress'">{{ t('tools.readSubAgent.reading') }}</template>
       <template v-else>{{ t('tools.readSubAgent.checked', { title: title }) }}
-          · {{ t(`tools.delegate.status.${runStatus}`, runStatus) }}<template v-if="outcome">· {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<template v-if="confidence !== null">{{ Math.round(confidence * 100) }}%</template></template>
-      <template v-if="stepsUsed !== null">· {{ stepsUsed }} {{ t('tools.delegate.steps') }}</template></template></template>
+          · {{ t(`tools.delegate.status.${runStatus}`, runStatus) }}<template v-if="outcome"> · {{ t(`tools.delegate.outcomes.${outcome}`, outcome) }}<template v-if="confidence !== null">{{ ' ' + Math.round(confidence * 100) }}%</template></template><template v-if="stepsUsed !== null"> · {{ stepsUsed }} {{ t('tools.delegate.steps') }}</template></template></template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
     <p v-if="latest" class="ms-4 text-chat-2 text-ink-muted truncate" :title="latest">{{ t('tools.readSubAgent.latest') }}: {{ latest }}</p>

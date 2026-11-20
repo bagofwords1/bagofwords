@@ -15,24 +15,24 @@
           <div class="flex-1 overflow-auto">
             <div class="bg-white dark:bg-gray-900 rounded-lg p-3">
               <!-- Info message for non-admins (suggestions) -->
-              <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-lg text-xs text-blue-800">
+              <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-lg text-xs text-blue-800 dark:text-blue-300">
                 <div class="font-medium mb-1">{{ $t('entityCreate.suggestHeading') }}</div>
                 <div>{{ $t('entityCreate.suggestBody') }}</div>
               </div>
 
               <!-- Info message for admins -->
-              <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 rounded-lg text-xs text-green-800">
+              <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 dark:bg-green-950 border border-green-200 rounded-lg text-xs text-green-800 dark:text-green-300">
                 <div class="font-medium mb-1">{{ $t('entityCreate.adminHeading') }}</div>
                 <div>{{ $t('entityCreate.adminBody') }}</div>
               </div>
 
               <!-- Error message for no permissions -->
-              <div v-if="!canCreateEntities && !canSuggestEntities" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800">
+              <div v-if="!canCreateEntities && !canSuggestEntities" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800 dark:text-red-300">
                 <div class="font-medium mb-1">{{ $t('entityCreate.noPermissionHeading') }}</div>
                 <div>{{ $t('entityCreate.noPermissionBody') }}</div>
               </div>
               <!-- Save failure: surface the backend's reason instead of failing silently -->
-              <div v-if="errorMsg" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800">
+              <div v-if="errorMsg" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800 dark:text-red-300">
                 <div class="font-medium mb-1">{{ $t('entityCreate.saveFailed') }}</div>
                 <div>{{ errorMsg }}</div>
               </div>

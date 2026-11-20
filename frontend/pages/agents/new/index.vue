@@ -88,7 +88,7 @@
             <span class="text-xs text-gray-700 dark:text-gray-300">Use LLM to learn agent</span>
           </div>
 
-          <div v-if="errorMessage" class="p-3 bg-red-50 dark:bg-red-950 text-red-700 rounded-lg text-sm mb-4">
+          <div v-if="errorMessage" class="p-3 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 rounded-lg text-sm mb-4">
             {{ errorMessage }}
           </div>
 
