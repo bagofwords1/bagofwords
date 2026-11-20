@@ -26,15 +26,17 @@
     <!-- Teleported to body so it escapes the sidebar's transform/overflow
          clipping, like the existing row/project menus in default.vue. -->
     <Teleport to="body">
+      <!-- Positioning layer only — pointer-events-none so it never swallows a
+           click: an outside click closes the menu (onOutsidePointerDown) AND
+           still reaches what was clicked (e.g. a row's ⋯ right below). -->
       <div
         v-if="open"
-        class="fixed inset-0 z-popover"
-        @click="close"
-        @contextmenu.prevent="close"
+        ref="menuRoot"
+        class="fixed inset-0 z-popover pointer-events-none"
       >
         <!-- Main panel: a row per setting, current value + chevron on the end. -->
         <div
-          class="absolute w-56 py-1 bg-white dark:bg-gray-900 border border-line rounded-lg shadow-lg text-sm"
+          class="absolute pointer-events-auto w-56 py-1 bg-white dark:bg-gray-900 border border-line rounded-lg shadow-lg text-sm"
           :style="panelStyle"
           @click.stop
         >
@@ -59,7 +61,7 @@
         <!-- Submenu flyout: the options for the hovered/focused row. -->
         <div
           v-if="openSub"
-          class="absolute w-48 py-1 bg-white dark:bg-gray-900 border border-line rounded-lg shadow-lg text-sm"
+          class="absolute pointer-events-auto w-48 py-1 bg-white dark:bg-gray-900 border border-line rounded-lg shadow-lg text-sm"
           :style="subStyle"
           @click.stop
           @mouseenter="keepSub = true"
@@ -202,6 +204,24 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') { close(); triggerEl.value?.focus() }
 }
 
+// Outside-press dismissal without a click-eating backdrop. Capture phase so it
+// runs even if the target stops propagation. Presses inside the panels (the
+// only hit-testable part of menuRoot) or on the trigger (toggle owns that) are
+// ignored; anything else closes the menu and the press proceeds normally.
+const menuRoot = ref<HTMLElement | null>(null)
+function onOutsidePointerDown(e: PointerEvent) {
+  const target = e.target as Node | null
+  if (!target) return
+  if (menuRoot.value?.contains(target) || triggerEl.value?.contains(target)) return
+  close()
+}
+
+function detach() {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', close)
+  document.removeEventListener('pointerdown', onOutsidePointerDown, true)
+}
+
 watch(open, (v) => {
   if (typeof window === 'undefined') return
   if (v) {
@@ -209,16 +229,15 @@ watch(open, (v) => {
     // A detached, stale menu is worse than a closed one: resizing moves the
     // anchor, so close rather than try to re-anchor mid-interaction.
     window.addEventListener('resize', close)
+    document.addEventListener('pointerdown', onOutsidePointerDown, true)
   } else {
-    window.removeEventListener('keydown', onKeydown)
-    window.removeEventListener('resize', close)
+    detach()
   }
 })
 
 onMounted(() => { hydrate() })
 onBeforeUnmount(() => {
   if (typeof window === 'undefined') return
-  window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('resize', close)
+  detach()
 })
 </script>
