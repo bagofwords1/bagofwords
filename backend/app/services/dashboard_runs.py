@@ -129,12 +129,13 @@ async def _shown_query_ids(db, release: ArtifactRelease) -> list[str]:
     return list(dict.fromkeys(str(q) for (q,) in (await db.execute(stmt)).all() if q))
 
 
-async def _needed_query_ids(db, release: ArtifactRelease) -> list[str]:
+async def _needed_query_ids(db, release: ArtifactRelease, *, lookup=None) -> list[str]:
     """The release's charts, then the copies they need without showing: a
     filter's option query (its options_source names the copy) and every step
     they load, transitively -- the release holds both (copy_dashboard). A
     reader whose snapshot is withheld sees only their own run's rows, so a
-    filter whose option query has no chart would offer nothing."""
+    filter whose option query has no chart would offer nothing. `lookup`:
+    the release's release_step_lookup, when the caller already read it."""
     from app.ai.code_execution.loadables import extract_loadable_refs
     from app.services.identity_taint import release_step_lookup
 
@@ -144,7 +145,8 @@ async def _needed_query_ids(db, release: ArtifactRelease) -> list[str]:
         .outerjoin(Step, Step.id == Query.default_step_id)
         .where(Query.artifact_release_id == str(release.id))
     )).all()}
-    lookup = await release_step_lookup(db, str(release.id))
+    if lookup is None:
+        lookup = await release_step_lookup(db, str(release.id))
 
     def reached(qid: str):
         params, code = copies.get(qid, (None, None))
@@ -167,16 +169,18 @@ async def _needed_query_ids(db, release: ArtifactRelease) -> list[str]:
     return out
 
 
-async def in_dependency_order(db, release: ArtifactRelease, targets: list) -> list:
+async def in_dependency_order(db, release: ArtifactRelease, targets: list, *, lookup=None) -> list:
     """`targets` ((step_id, code) pairs) reordered so a step runs after the
     steps of the release it loads (load_step, resolved as the release
     resolves it); otherwise in the given order. A cycle runs in the given
-    order -- its load_step fails at run time, as it would anyway."""
+    order -- its load_step fails at run time, as it would anyway. `lookup`:
+    the release's release_step_lookup, when the caller already read it."""
     from app.ai.code_execution.loadables import extract_loadable_refs
     from app.services.identity_taint import release_step_lookup
 
     codes = {str(sid): code for sid, code in targets}
-    lookup = await release_step_lookup(db, str(release.id))
+    if lookup is None:
+        lookup = await release_step_lookup(db, str(release.id))
     ordered, done, visiting = [], set(), set()
 
     def visit(sid: str) -> None:
@@ -285,11 +289,12 @@ async def _load_copy(db, step_id: str, release):
     )).scalar_one_or_none()
 
 
-async def _copy_stamps(db, targets, release, *, run_user, executed_as) -> dict:
+async def _copy_stamps(db, targets, release, *, run_user, executed_as, lookup) -> dict:
     """What each copy's run reads (viewer_result_freshness), stamped before
     the run builds any client: a change landing while the clients are built
     or earlier copies run leaves the later results stale, never current
-    (stamps_before_clients; one that fails, _run_copy stamps then)."""
+    (stamps_before_clients; one that fails, _run_copy stamps then). With the
+    run's catalog (`lookup`), not one read per copy."""
     from app.services.viewer_result_freshness import stamps_before_clients
 
     async def load(step_id):
@@ -297,7 +302,7 @@ async def _copy_stamps(db, targets, release, *, run_user, executed_as) -> dict:
 
     return await stamps_before_clients(db, targets, load, user_id=str(run_user.id),
                                        organization_id=str(release.organization_id),
-                                       executed_as=executed_as, release=release)
+                                       executed_as=executed_as, release=release, release_lookup=lookup)
 
 
 async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential_user, executed_as,
@@ -335,8 +340,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
     if stamp is None:
         stamp = await stamp_columns(db, step, user_id=str(run_user.id),
                                     organization_id=str(release.organization_id),
-                                    executed_as=executed_as, release=release)
-    prior = (await db.execute(
+                                    executed_as=executed_as, release=release, release_lookup=lookup)
+    prior =(await db.execute(
         select(StepUserResult).options(lazyload("*")).where(
             StepUserResult.step_id == str(step.id), StepUserResult.user_id == str(run_user.id))
         .order_by(StepUserResult.last_run_at.desc().nullslast()).limit(1)
@@ -402,7 +407,8 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
     # Stamped again: a change that landed while it read is stored cleared.
     columns = await stored_columns(db, stamp, data, step, status=status, user_id=str(run_user.id),
                                    organization_id=str(release.organization_id), executed_as=executed_as,
-                                   release=release, stamped_after_clients=stamped_after_clients)
+                                   release=release, stamped_after_clients=stamped_after_clients,
+                                   release_lookup=lookup)
     await store_viewer_result(
         db, step_id=str(step.id), user_id=str(run_user.id), organization_id=str(release.organization_id),
         report_id=None, params_fingerprint=params_fingerprint(params), status=status, status_reason=reason,
@@ -438,10 +444,14 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     if not sources:
         sources = await accessible_agents(db, organization, credential_user)
     sources = [ds for ds in sources if DataSourceService.is_execution_live(ds)]
-    targets, unrunnable = await ReportService()._rerun_target_steps(db, await _needed_query_ids(db, release))
+    # The release's catalog, read once for the whole run: its copies do not
+    # change once published.
+    lookup = await release_step_lookup(db, str(release.id))
+    targets, unrunnable = await ReportService()._rerun_target_steps(
+        db, await _needed_query_ids(db, release, lookup=lookup))
     # What a chart loads runs first, so it loads the reader's fresh rows.
-    targets = await in_dependency_order(db, release, targets)
-    stamps = await _copy_stamps(db, targets, release, run_user=caller, executed_as=identity)
+    targets = await in_dependency_order(db, release, targets, lookup=lookup)
+    stamps = await _copy_stamps(db, targets, release, run_user=caller, executed_as=identity, lookup=lookup)
     ds_service = DataSourceService()
     db_clients: dict = {}
     errors: list[dict] = []
@@ -464,9 +474,8 @@ async def viewer_run(db, artifact: Artifact, release: ArtifactRelease, caller) -
     files = await release_files(db, release)
     ctx = ExecContext.from_release(release, data_sources=sources, files=files, credential_user=credential_user,
                                    reader=caller, organization=organization, organization_settings=org_settings)
-    # Both caches belong to this reader's run only. Each stored result above
+    # The wait cache belongs to this reader's run only. Each stored result
     # replaces its wait, so downstream copies observe the freshly run value.
-    lookup = await release_step_lookup(db, str(release.id))
     resolved_waits: dict[str, list[str]] = {}
     total, succeeded, failed, needing_input = 0, 0, 0, 0
     for step_id, code in targets:

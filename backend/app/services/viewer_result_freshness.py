@@ -160,13 +160,15 @@ def _relation_columns():
 
 async def compute_stamp(db, step, *, user_id: str, organization_id: str, executed_as: str,
                         report_id=None, release=None, tainted: Optional[bool] = None,
-                        identity=None) -> SourceStamp:
+                        identity=None, release_lookup=None) -> SourceStamp:
     """The stamp of a run of `step` for `user_id` under `executed_as`, from
     the current state of its sources. `report_id` for a conversation's step,
     `release` for a published dashboard's copy. `tainted`: whether the step
     is identity-scoped, when the caller already asked. `identity`: the
     viewer's identity the run bound its params from, when it already
-    resolved it (otherwise resolved here)."""
+    resolved it (otherwise resolved here). `release_lookup`: the release's
+    release_step_lookup, when a reader's run already read it for all its
+    copies (otherwise read here)."""
     from app.models.connection import Connection
     from app.models.connection_table import ConnectionTable, KIND_BOW
     from app.models.datasource_table import DataSourceTable
@@ -194,7 +196,8 @@ async def compute_stamp(db, step, *, user_id: str, organization_id: str, execute
 
     if tainted is None:
         try:
-            tainted, _ = await step_identity_scope(db, step)
+            tainted, _ = await step_identity_scope(
+                db, step, release_lookup=release_lookup if release is not None else None)
         except Exception:
             tainted = True  # unknown: stamp the identity too (closed)
     if identity is None and (tainted or any(ct.rls_enabled for ct in relations)):
@@ -734,20 +737,23 @@ def wait_stamp() -> dict:
 
 
 async def stamp_columns(db, step, *, user_id: str, organization_id: str, executed_as: str,
-                        report_id=None, release=None, identity=None) -> dict:
+                        report_id=None, release=None, identity=None, release_lookup=None) -> dict:
     """compute_stamp as the columns store_viewer_result writes."""
     s = await compute_stamp(db, step, user_id=user_id, organization_id=organization_id,
-                            executed_as=executed_as, report_id=report_id, release=release, identity=identity)
+                            executed_as=executed_as, report_id=report_id, release=release, identity=identity,
+                            release_lookup=release_lookup)
     return {"source_stamp": s.stamp, "source_refs": s.refs}
 
 
 async def stamps_before_clients(db, targets, load: Callable[[Any], Awaitable[Any]], *, user_id: str,
-                                organization_id: str, executed_as: str, report_id=None, release=None) -> dict:
+                                organization_id: str, executed_as: str, report_id=None, release=None,
+                                release_lookup=None) -> dict:
     """stamp_columns of each step a batch run (/r, /d) is about to run, by
     step id, taken before it builds any client: a change landing while the
     clients are built or earlier steps run leaves the later results stale,
     never current. `targets`: (step id, code) pairs; a step without code is
     not stamped. `load(step_id)` loads the step (None: not stamped).
+    `release_lookup`: the release's catalog the run read once (compute_stamp).
     A stamp that fails is logged and left out: the step's run stamps it then
     (stored cleared, stored_columns), or fails on the same cause. A failed
     SQL statement here is worse on Postgres: it aborts the request's
@@ -762,7 +768,7 @@ async def stamps_before_clients(db, targets, load: Callable[[Any], Awaitable[Any
             if step is not None:
                 stamps[str(step_id)] = await stamp_columns(
                     db, step, user_id=user_id, organization_id=organization_id, executed_as=executed_as,
-                    report_id=report_id, release=release)
+                    report_id=report_id, release=release, release_lookup=release_lookup)
         except Exception as e:
             logger.warning("Viewer run: could not stamp step %s before its clients were built: %s", step_id, e)
     return stamps
@@ -770,7 +776,7 @@ async def stamps_before_clients(db, targets, load: Callable[[Any], Awaitable[Any
 
 async def stored_columns(db, before: dict, data, step, *, status: str, user_id: str, organization_id: str,
                          executed_as: str, report_id=None, release=None,
-                         stamped_after_clients: bool = False) -> dict:
+                         stamped_after_clients: bool = False, release_lookup=None) -> dict:
     """The data and stamp columns to store with a run's result: `data` under
     `before` (stamp_columns, taken before the run) when the stamp taken again
     now, with the same rules and the viewer's identity resolved anew, still
@@ -780,7 +786,8 @@ async def stored_columns(db, before: dict, data, step, *, status: str, user_id: 
     purge leaves a result: data NULL, stamp CLEARED_STAMP, its values kept.
     So is a result whose `before` was taken only after its clients were
     built (`stamped_after_clients`: the stamp before them failed): no check
-    covers a change landing while they were built.
+    covers a change landing while they were built. `release_lookup`: as
+    compute_stamp (a release's copies do not change once published).
     A wait or an error row is stored as it is (never served)."""
     if status != "success" or before.get("source_stamp") is None:
         return {"data": data, **before}
@@ -789,7 +796,8 @@ async def stored_columns(db, before: dict, data, step, *, status: str, user_id: 
         if memo:
             memo.pop((str(user_id), str(organization_id)), None)
         after = await compute_stamp(db, step, user_id=user_id, organization_id=organization_id,
-                                    executed_as=executed_as, report_id=report_id, release=release)
+                                    executed_as=executed_as, report_id=report_id, release=release,
+                                    release_lookup=release_lookup)
         if after.stamp == before["source_stamp"]:
             return {"data": data, **before}
     logger.info("viewer_results.outdated_during_run", extra={"step_id": str(getattr(step, "id", "")),
