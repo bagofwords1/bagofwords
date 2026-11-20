@@ -160,7 +160,7 @@
                                 </button>
                                 <button
                                     type="button"
-                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                                     :disabled="tracked.isResolving.value"
                                     @click="onAcceptTracked"
                                 >
@@ -383,7 +383,7 @@
                         <!-- Git sync status -->
                         <template v-if="props.isGitSourced">
                             <UTooltip v-if="props.isGitSynced" :text="$t('instructionGlobalCreate.tooltips.stopSyncing')" :popper="{ placement: 'top' }">
-                                <button type="button" class="flex items-center gap-1 text-2xs text-green-600 dark:text-green-300 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors" @click="$emit('unlink-from-git')">
+                                <button type="button" class="flex items-center gap-1 text-2xs text-green-600 dark:text-green-300 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors" @click="$emit('unlink-from-git')">
                                     <GitBranchIcon class="w-3 h-3" />
                                     {{ $t('instructionGlobalCreate.status.synced') }}
                                     <Icon name="heroicons:x-mark" class="w-3 h-3" />
@@ -398,9 +398,9 @@
                         </template>
                         <!-- Editor mode toggle -->
                         <div class="flex items-center rounded-md border border-line overflow-hidden text-2xs font-medium">
-                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-muted hover:bg-surface-subtle'">Rich</button>
-                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-line transition-colors" :class="editorMode === 'raw' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-muted hover:bg-surface-subtle'">MD</button>
-                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-line transition-colors" :class="editorMode === 'code' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-muted hover:bg-surface-subtle'">&lt;/&gt;</button>
+                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-2 hover:bg-surface-subtle'">Rich</button>
+                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-line transition-colors" :class="editorMode === 'raw' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-2 hover:bg-surface-subtle'">MD</button>
+                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-line transition-colors" :class="editorMode === 'code' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-2 hover:bg-surface-subtle'">&lt;/&gt;</button>
                         </div>
                     </div>
                 </div>

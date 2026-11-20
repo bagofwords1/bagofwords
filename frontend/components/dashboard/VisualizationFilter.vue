@@ -15,7 +15,7 @@
       <button
         v-else
         type="button"
-        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-ink-muted hover:text-ink-muted"
+        class="relative p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors text-ink-muted hover:text-ink-2"
       >
         <Icon name="heroicons:funnel" class="w-3.5 h-3.5" />
       </button>

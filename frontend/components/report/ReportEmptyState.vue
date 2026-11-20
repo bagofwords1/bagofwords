@@ -18,7 +18,7 @@
 			<button
 				v-for="s in ($tm('reports.trainingStarters') as any[])"
 				:key="s.title"
-				class="px-3 py-1.5 text-xs rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 hover:bg-sky-100 transition-colors"
+				class="px-3 py-1.5 text-xs rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 hover:bg-sky-100 dark:hover:bg-sky-900/50 transition-colors"
 				@click="$emit('starter', `${s.title}\n\n${s.prompt}`)"
 			>
 				{{ s.title }}

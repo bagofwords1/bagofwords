@@ -113,7 +113,7 @@
           <button
             v-if="offeredArtifactId"
             @click="acceptOfferedArtifact"
-            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded border border-emerald-200 transition-colors flex items-center gap-1"
           >
             <Icon name="heroicons:sparkles" class="w-3 h-3" />
             New artifact — view
@@ -562,7 +562,7 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-ink-muted">
+          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-ink-2">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>

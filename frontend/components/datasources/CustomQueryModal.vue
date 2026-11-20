@@ -13,7 +13,7 @@
             <span class="font-medium">{{ activeConnectionName }}</span> every time.
           </p>
         </div>
-        <button class="text-ink-muted hover:text-ink-muted" @click="close">
+        <button class="text-ink-muted hover:text-ink-2" @click="close">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>

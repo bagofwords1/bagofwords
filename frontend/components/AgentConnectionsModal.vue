@@ -54,7 +54,7 @@
                                 </div>
                                 <button v-if="canToggleIdentity(conn)" type="button" :disabled="switchingIdentityId === conn.id"
                                     class="mt-1.5 inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-2xs font-medium disabled:opacity-50"
-                                    :class="conn.user_status?.query_identity === 'service_account' ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'"
+                                    :class="conn.user_status?.query_identity === 'service_account' ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/50 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'"
                                     :aria-label="t('schemaIdentity.changeIdentity')" :title="t('schemaIdentity.changeIdentity')"
                                     @click="toggleIdentity(conn)">
                                     <Spinner v-if="switchingIdentityId === conn.id" class="h-3 w-3" />
@@ -73,7 +73,7 @@
                                 @click="signInConnection(conn)"
                                 :disabled="!!signingInId"
                                 :aria-busy="signingInId === conn.id"
-                                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 disabled:opacity-50"
+                                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 dark:hover:bg-blue-900/50 disabled:opacity-50"
                             >
                                 <Spinner v-if="signingInId === conn.id" class="w-3 h-3" />
                                 {{ $t('data.signIn') }}

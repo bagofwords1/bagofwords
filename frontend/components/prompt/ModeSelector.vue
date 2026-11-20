@@ -6,7 +6,7 @@
       <button
         type="button"
         class="rounded-md px-2 py-1 text-xs flex items-center border border-gray-200 dark:border-gray-700"
-        :class="modelValue === 'training' ? 'text-sky-600 dark:text-sky-300 bg-sky-50 dark:bg-sky-950 hover:bg-sky-100 border-sky-200 dark:border-sky-800' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+        :class="modelValue === 'training' ? 'text-sky-600 dark:text-sky-300 bg-sky-50 dark:bg-sky-950 hover:bg-sky-100 dark:hover:bg-sky-900/50 border-sky-200 dark:border-sky-800' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
       >
         <Icon :name="icon" class="w-4 h-4" />
         <span class="ms-1">{{ label }}</span>

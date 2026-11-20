@@ -527,7 +527,7 @@
 
               <!-- Manage tokens -->
               <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
-                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-ink-muted hover:text-ink-muted transition-colors">
+                <button @click="mcpShowTokens = !mcpShowTokens" class="flex items-center gap-2 text-xs text-ink-muted hover:text-ink-2 transition-colors">
                   <UIcon :name="mcpShowTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3" />
                   {{ $t('mcpServerModal.manageTokens', { n: apiKeys.length }) }}
                 </button>

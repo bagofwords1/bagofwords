@@ -171,7 +171,7 @@
             {{ createdArtifact.slice(0, 8) }}
           </button>
         </div>
-        <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-ink-muted flex-shrink-0" />
+        <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-ink-muted group-hover:text-ink-2 flex-shrink-0" />
       </div>
     </div>
     </template>

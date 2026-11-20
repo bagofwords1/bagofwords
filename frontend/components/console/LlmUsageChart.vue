@@ -187,6 +187,10 @@ const chartOptions = computed((): EChartsOption | null => {
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'shadow' },
+            // ECharts' dark theme keeps a white tooltip box; match it to the
+            // mode so the token text classes below stay readable.
+            backgroundColor: colorMode.value === 'dark' ? '#111827' : '#ffffff',
+            borderColor: colorMode.value === 'dark' ? '#374151' : '#e5e7eb',
             formatter: (params: any) => {
                 if (!params?.length) return ''
                 const item = ranked[params[0].dataIndex]

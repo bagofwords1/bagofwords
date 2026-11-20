@@ -10,7 +10,7 @@
     >
         <header class="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-gray-100 dark:border-gray-800">
             <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $t('dashboardCollab.page.changesTitle') }}</h2>
-            <button type="button" class="p-1 text-ink-muted hover:text-ink-muted rounded" :aria-label="$t('common.close')" @click="$emit('close')">
+            <button type="button" class="p-1 text-ink-muted hover:text-ink-2 rounded" :aria-label="$t('common.close')" @click="$emit('close')">
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>
         </header>
@@ -60,7 +60,7 @@
                                 <span dir="auto" :class="['font-medium truncate', group.kind === 'removed' ? 'line-through text-ink-muted' : 'text-gray-800 dark:text-gray-100']">
                                     {{ item.title || $t('dashboardCollab.page.untitled') }}
                                 </span>
-                                <Icon v-if="located.has(item.key)" name="heroicons:viewfinder-circle" class="w-3 h-3 shrink-0 text-gray-300" />
+                                <Icon v-if="located.has(item.key)" name="heroicons:viewfinder-circle" class="w-3 h-3 shrink-0 text-ink-subtle" />
                             </div>
                             <div v-if="item.changed_by || item.version_number" class="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                                 {{ changedLine(item) }}

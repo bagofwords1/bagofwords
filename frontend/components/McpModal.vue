@@ -124,7 +124,7 @@
                 <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
                     <button
                         @click="showTokens = !showTokens"
-                        class="flex items-center gap-2 text-xs text-ink-muted hover:text-ink-muted transition-colors"
+                        class="flex items-center gap-2 text-xs text-ink-muted hover:text-ink-2 transition-colors"
                     >
                         <UIcon
                             :name="showTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"

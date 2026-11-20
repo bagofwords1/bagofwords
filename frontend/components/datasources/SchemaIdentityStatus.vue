@@ -44,8 +44,8 @@ const identityLabel = computed(() => t(props.connection.auth_policy !== 'user_re
 const identityPillClass = computed(() => props.connection.auth_policy !== 'user_required'
   ? 'border-gray-200 bg-gray-50 text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300'
   : personal.value || disconnected.value
-    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
-    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300')
+    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300'
+    : 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:hover:bg-violet-900/50 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-300')
 const displayedScopeLabel = computed(() => t(props.connection.auth_policy !== 'user_required'
   ? 'schemaIdentity.sharedConnection'
   : displayScope.value === 'user' ? 'schemaIdentity.myAccount' : 'schemaIdentity.sharedSchema'))

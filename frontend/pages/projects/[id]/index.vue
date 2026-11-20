@@ -309,7 +309,7 @@
                                 v-if="project.can_manage"
                                 type="button"
                                 class="mt-2 w-full py-3 rounded-md border border-dashed text-2xs transition-colors"
-                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-ink-muted hover:border-gray-300'"
+                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-ink-2 hover:border-gray-300'"
                                 @click="fileInputRef?.click()"
                             >
                                 <template v-if="uploadingFiles">{{ $t('projects.overview.uploading') }}</template>

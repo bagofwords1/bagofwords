@@ -4,7 +4,7 @@
       <div class="flex items-center gap-2 mb-3 shrink-0">
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
         <h3 class="text-lg font-semibold">{{ $t('data.manageConnection') }}</h3>
-        <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-ink-muted" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
+        <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-ink-2" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
       </div>
       <!-- Settings | Queries (connection managers: what BOW runs on this connection) -->
       <div v-if="canSeeQueries" class="flex gap-5 shrink-0" role="tablist" data-testid="connection-modal-tabs">

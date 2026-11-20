@@ -15,7 +15,7 @@
                     <span>{{ conn.name }}</span>
                 </div>
                 <span v-if="tableConnections.length > 3" class="text-xs text-ink-muted">+{{ tableConnections.length - 3 }}</span>
-                <button class="text-xs text-ink-muted hover:text-ink-muted" @click="showManageModal = true">
+                <button class="text-xs text-ink-muted hover:text-ink-2" @click="showManageModal = true">
                     {{ t('agentPage.tables.manageConnections') }}
                 </button>
             </div>

@@ -115,7 +115,7 @@
                     : $t('triggers.runs', { n: trig.run_count }) }}
               </span>
               <UTooltip :text="$t('triggers.copyUrl')">
-                <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-ink-subtle hover:text-gray-600" :data-testid="`trigger-copy-${trig.name}`">
+                <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-ink-subtle hover:text-ink-2" :data-testid="`trigger-copy-${trig.name}`">
                   <UIcon :name="copied === `url-${trig.id}` ? 'heroicons-check' : 'heroicons-link'" class="w-3.5 h-3.5" :class="copied === `url-${trig.id}` ? 'text-green-500' : ''" />
                 </button>
               </UTooltip>

@@ -181,7 +181,7 @@
                         <button
                             type="button"
                             @click="codeView = !codeView"
-                            class="text-ink-muted hover:text-ink-muted p-1 rounded transition-colors"
+                            class="text-ink-muted hover:text-ink-2 p-1 rounded transition-colors"
                             :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
                         >
                             <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
