@@ -48,6 +48,7 @@ import pandas as pd
 import requests
 from app.core.egress import pinned_request
 
+from app.ai.code_execution.sql_guard import SPL_ENVELOPE_GUIDANCE, ReadOnlyViolation, check_spl
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
@@ -101,12 +102,20 @@ _DEFAULT_SAVED_SEARCHES = frozenset({
 _WILDCARD_INDEX = re.compile(r'index\s*=\s*"?\*', re.IGNORECASE)
 
 
+def _given(value) -> bool:
+    """Whether an envelope field holds something: not None and not empty
+    text. Decided by type and value alone, never by the object's own truth
+    value, so the guard and the client always read an envelope alike."""
+    return value is not None and not (type(value) is str and value == "")
+
+
 class SplunkClient(DataSourceClient):
 
     # SPL: string values are double-quoted with backslash escapes (\" and
     # \\), and a single-quoted token names a field in eval/where (Splunk
     # Search Reference, quotation marks and escaping): a standard '...'
-    # literal is not a string there. Query parameters are refused.
+    # literal is not a string there. None of the styles fits; parameters
+    # render only with the SPL renderer declared in client_profiles.
     sql_literal_style = None
 
     def __init__(
@@ -218,7 +227,15 @@ class SplunkClient(DataSourceClient):
 
         `exec_mode=oneshot` blocks and returns results in one call — no job
         polling. `count` caps rows server-side.
+
+        Every search the client runs comes through here, whatever envelope it
+        arrived in (bare, dict, JSON string, dashboard panel, saved search) and
+        whichever internal caller built it, so this is where its SPL is checked
+        for writing commands — decoded, before any request is made. The check
+        also refuses anything but plain text, so what is checked is what is
+        sent.
         """
+        check_spl(spl)
         params = {
             "search": self._normalize_spl(spl),
             "exec_mode": "oneshot",
@@ -814,9 +831,9 @@ class SplunkClient(DataSourceClient):
             {"saved_search": "payments/High error rate", "earliest": "-1h"}
         """
         spec = self._coerce_spec(query)
-        if spec.get("dashboard"):
+        if _given(spec.get("dashboard")):
             return self._execute_dashboard(spec)
-        if spec.get("saved_search"):
+        if _given(spec.get("saved_search")):
             return self._execute_saved_search(spec)
         spl, earliest, latest, limit = self._parse_spec(spec)
         rows = self._run_search(spl, earliest=earliest, latest=latest, count=limit)
@@ -826,9 +843,14 @@ class SplunkClient(DataSourceClient):
 
     @staticmethod
     def _coerce_spec(query) -> Dict[str, Any]:
-        if isinstance(query, dict):
+        if type(query) is dict:
             return query
-        s = (query or "").strip()
+        if query is None:
+            return {"spl": ""}
+        if type(query) is not str:
+            # Left for the SPL check, which refuses what is not plain text.
+            return {"spl": query}
+        s = query.strip()
         # A JSON envelope, or a bare SPL string.
         if s.startswith("{"):
             try:
@@ -837,19 +859,26 @@ class SplunkClient(DataSourceClient):
                 return {"spl": s}
         return {"spl": s}
 
+    @staticmethod
+    def inline_spl(query) -> Any:
+        """The SPL `execute_query` runs straight from `query` (bare string,
+        dict or JSON-string envelope), decoded as it would be, whatever its
+        type. None for a dashboard or saved-search envelope, whose SPL is
+        fetched first, and for an envelope without SPL."""
+        spec = SplunkClient._coerce_spec(query)
+        if _given(spec.get("dashboard")) or _given(spec.get("saved_search")):
+            return None
+        return next((spl for spl in (spec.get("spl"), spec.get("search"), spec.get("query"))
+                     if _given(spl)), None)
+
     def _parse_spec(self, query):
         earliest: Optional[str] = self._window()
         latest: Optional[str] = "now"
         limit = DEFAULT_LIMIT
         spec = self._coerce_spec(query)
-        spl = spec.get("spl") or spec.get("search") or spec.get("query")
-        if not spl:
-            raise ValueError(
-                'Splunk query must be an SPL string or a JSON envelope like '
-                '{"spl": "search index=web | stats count by host", "earliest": "-24h", "limit": 1000}, '
-                'or a knowledge-object envelope like {"dashboard": "<app>/<name>", "panel": "<title>"} '
-                'or {"saved_search": "<app>/<name>"}.'
-            )
+        spl = self.inline_spl(spec)
+        if spl is None:
+            raise ValueError(SPL_ENVELOPE_GUIDANCE)
         if spec.get("earliest") is not None:
             earliest = spec["earliest"]
         if spec.get("latest") is not None:
@@ -903,8 +932,8 @@ class SplunkClient(DataSourceClient):
                              f"Panels: {titles}")
         earliest, latest, limit = self._time_and_limit(
             spec, panel.get("earliest"), panel.get("latest"))
-        rows = self._run_search(panel["spl"], earliest=earliest, latest=latest,
-                                count=limit)
+        rows = self._run_stored_search(panel["spl"], earliest=earliest, latest=latest,
+                                       count=limit)
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     def _execute_saved_search(self, spec: Dict[str, Any]) -> pd.DataFrame:
@@ -923,8 +952,18 @@ class SplunkClient(DataSourceClient):
         earliest, latest, limit = self._time_and_limit(
             spec, content.get("dispatch.earliest_time"),
             content.get("dispatch.latest_time"))
-        rows = self._run_search(spl, earliest=earliest, latest=latest, count=limit)
+        rows = self._run_stored_search(spl, earliest=earliest, latest=latest, count=limit)
         return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    def _run_stored_search(self, spl: str, **kwargs) -> List[Dict[str, Any]]:
+        """`_run_search` for SPL a knowledge object stores. A refusal is
+        marked as one of stored content: the agent did not write that SPL, so
+        code that catches it and goes on to other searches is not stopped."""
+        try:
+            return self._run_search(spl, **kwargs)
+        except ReadOnlyViolation as refusal:
+            refusal.stored_content = True
+            raise
 
     # ── prompts ───────────────────────────────────────────────────────────────
 

@@ -21,6 +21,7 @@ from app.data_sources.clients.priority_erp_client import (
     PriorityErpClient,
     _RateLimiter,
 )
+from tests.unit.test_query_params import mode  # noqa: F401  (fixture)
 
 
 def _free_port() -> int:
@@ -847,6 +848,22 @@ def test_subform_result_carries_the_bare_sent_request(client):
     assert sent and sent.startswith("ORDERS?") and "$expand=ORDERITEMS_SUBFORM(" in sent
     assert sent in df.attrs["bow_notice"]
     assert "bow_sent_request" not in client.execute_query("ORDERS?$top=1").attrs
+
+
+def test_the_queries_tab_pairs_a_subform_query_with_the_request_sent(client, mode):
+    """Through the code run: `executed_queries` holds the query the code
+    wrote, and its timing record the request sent, paired as the Queries tab
+    pairs them (frontend utils/sentRequests.ts: the query starts with the
+    record's `sql`)."""
+    from tests.unit.test_query_params import _run_capturing
+
+    written = "ORDERITEMS?$filter=PRICE gt 1000&$select=ORDNAME,PRICE"
+    queries, timings, error = _run_capturing(client, f"return ds_clients['c'].execute_query({written!r})")
+    assert error is None
+    assert [str(q) for q in queries] == [written]
+    sent = timings[0]["sent_request"] if len(timings) == 1 else ""
+    assert sent.startswith("ORDERS?") and "$expand=ORDERITEMS_SUBFORM(" in sent
+    assert queries[0].startswith(timings[0]["sql"])
 
 
 # ── titles: what users call forms and columns ─────────────────────────────

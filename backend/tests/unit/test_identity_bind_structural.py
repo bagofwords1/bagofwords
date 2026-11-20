@@ -65,8 +65,11 @@ SQL_LEGIT = [
     "SELECT * FROM orders WHERE owner_id IN (SELECT id FROM users WHERE email = '{v}')",
     "SELECT * FROM orders WHERE owner_id = (SELECT id FROM users WHERE email = '{v}')",
     "SELECT * FROM orders WHERE owner = '{v}' UNION SELECT * FROM archive WHERE owner = '{v}'",
-    "SELECT * FROM orders -- scoped below\nWHERE owner = '{v}'",
 ]
+# Scoped reads holding a comment: accepted where the reading is the engine's
+# own (a client with a guard dialect).
+SQL_LEGIT_WITH_A_COMMENT = ["SELECT * FROM orders -- scoped below\nWHERE owner = '{v}'"]
+ENGINE_READING_CLIENTS = [c for c in SQL_CLIENTS if c is not None]
 
 
 @pytest.mark.parametrize("client", SQL_CLIENTS)
@@ -81,6 +84,20 @@ def test_sql_widening_predicates_are_refused(query, value, client):
 @pytest.mark.parametrize("query", SQL_LEGIT)
 def test_sql_scoped_reads_are_accepted(query, value, client):
     assert _check([query], value, client) is None
+
+
+@pytest.mark.parametrize("client", ENGINE_READING_CLIENTS)
+@pytest.mark.parametrize("value", EMAILS)
+@pytest.mark.parametrize("query", SQL_LEGIT_WITH_A_COMMENT)
+def test_sql_scoped_reads_holding_a_comment_are_accepted_where_the_reading_is_the_engines_own(query, value, client):
+    assert _check([query], value, client) is None
+
+
+@pytest.mark.parametrize("value", EMAILS)
+@pytest.mark.parametrize("query", SQL_LEGIT_WITH_A_COMMENT)
+def test_an_untagged_capture_holding_a_comment_is_refused(query, value):
+    # No client type: read in the generic reading, not the engine's own.
+    assert _check([query], value) is not None
 
 
 def test_quoted_value_with_apostrophe_is_matched():
@@ -98,6 +115,111 @@ def test_no_table_read_passes_and_every_query_must_be_scoped():
     assert _check(["SELECT 1", "SELECT * FROM t WHERE owner = '{v}'"], v, "PostgresqlClient") is None
     assert _check(["SELECT * FROM t WHERE owner = '{v}'", "SELECT * FROM t WHERE '{v}'='{v}'"],
                   v, "PostgresqlClient") is not None
+
+
+# ClickHouse reads rows without naming a table in FROM: the set of an IN
+# (a table name, also through a WITH alias or an IN function) and the
+# functions that read a dictionary or a Join table by name. Such a query
+# reads rows, so it is not "a query that reads no table".
+CLICKHOUSE_ROW_READS_WITHOUT_FROM = [
+    "SELECT dictGet('users_dict', 'region', toUInt64(1)) AS region",
+    "SELECT joinGet('users_join', 'region', toUInt64(1)) AS region",
+    "SELECT '{v}' IN users AS is_user",
+    "SELECT globalIn('{v}', users) AS is_user",
+    "WITH users AS u SELECT '{v}' IN u AS is_user",
+    "SELECT 1 AS hit WHERE globalIn('{v}', users AS s)",
+    "SELECT * FROM (SELECT dictGet('users_dict', 'region', toUInt64(1)) AS region)",
+    # The entry's own name inside its body is the table.
+    "WITH (SELECT '{v}' IN users) AS users SELECT users AS is_user",
+]
+
+
+@pytest.mark.parametrize("query", CLICKHOUSE_ROW_READS_WITHOUT_FROM)
+def test_a_clickhouse_query_that_reads_rows_without_a_from_table_is_not_counted_as_reading_nothing(query):
+    assert _check([query], "sarah@example.com", "ClickhouseClient") is not None
+
+
+def test_a_scalar_with_entry_whose_body_reads_the_table_of_its_own_name_is_not_scoped():
+    from app.ai.code_execution.identity_bind import _sql_binds
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import parse_one
+
+    sql = "WITH (SELECT 42 IN secret) AS secret SELECT secret"
+    assert reads_rows(parse_one(sql, read="clickhouse"), "clickhouse") is True
+    assert _sql_binds(sql, "clickhouse", ("u1",)) is not True
+
+
+def test_with_entries_that_name_each_other_in_a_loop_are_not_scoped():
+    # The name that closes the loop is read as the table (live dialect tests).
+    from app.ai.code_execution.identity_bind import _sql_binds
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import parse_one
+
+    sql = "WITH (SELECT 42 IN secret) AS r, secret AS (SELECT r + 100 AS v) SELECT 101 IN secret"
+    assert reads_rows(parse_one(sql, read="clickhouse"), "clickhouse") is True
+    assert _sql_binds(sql, "clickhouse", ("u1",)) is not True
+
+
+LOOP = "WITH (SELECT 42 IN secret) AS r, secret AS (SELECT r + 100 AS v) "
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    # The WITH stands on the UNION, or on the query around a subquery, while
+    # the check asks about one branch or the subquery.
+    ("clickhouse", LOOP + "SELECT 101 IN secret UNION ALL SELECT 101 IN secret"),
+    ("clickhouse", LOOP + "SELECT * FROM (SELECT 101 IN secret)"),
+    ("clickhouse", LOOP + "SELECT * FROM (SELECT 101 IN secret) UNION ALL SELECT * FROM (SELECT 101 IN secret)"),
+    # Entries resolved where they are used, across levels (live dialect tests).
+    ("clickhouse", "WITH secret AS (SELECT x FROM orders) "
+                   "SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v"),
+    ("mysql", "WITH secret AS (SELECT x FROM orders) "
+              "SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v"),
+    (None, "WITH secret AS (SELECT x FROM orders) "
+           "SELECT (WITH orders AS (SELECT x FROM secret) SELECT x FROM secret) AS v"),
+])
+def test_a_with_on_an_ancestor_of_the_part_checked_is_not_scoped(dialect, sql):
+    from app.ai.code_execution.identity_bind import _sql_binds
+
+    assert _sql_binds(sql, dialect, ("u1",)) is not True
+
+
+@pytest.mark.parametrize("dialect", ["clickhouse", "mysql", None])
+@pytest.mark.parametrize("sql", [
+    "WITH a AS (SELECT 1 AS x) SELECT x FROM a",
+    "WITH a AS (SELECT 1 AS x) SELECT 2",
+    "WITH a AS (SELECT 1 AS x) SELECT 1 UNION ALL SELECT x FROM a",
+])
+def test_any_with_counts_as_reading_rows_where_entries_are_resolved_where_used(dialect, sql):
+    # Fails closed: such a query needs the identity filter.
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import exp, parse_one
+
+    statement = parse_one(sql, read=dialect)
+    assert reads_rows(statement, dialect) is True
+    for select in statement.find_all(exp.Select):
+        assert reads_rows(select, dialect) is True
+
+
+def test_a_with_over_no_table_still_reads_no_rows_on_postgres():
+    from app.ai.code_execution.table_scope import reads_rows
+    from sqlglot import parse_one
+
+    assert reads_rows(parse_one("WITH a AS (SELECT 1 AS x) SELECT 2", read="postgres"), "postgres") is False
+
+
+@pytest.mark.parametrize("query", [
+    "SELECT 1",
+    "SELECT '{v}' IN ('{v}', 'x') AS mine",
+    "SELECT * FROM users WHERE email = '{v}'",
+    "WITH (1, 2) AS ids SELECT * FROM users WHERE email = '{v}' AND 3 IN ids",
+])
+def test_a_clickhouse_query_that_reads_no_rows_or_is_scoped_still_passes(query):
+    assert _check([query], "sarah@example.com", "ClickhouseClient") is None
+
+
+def test_a_clickhouse_with_over_values_alone_now_needs_the_identity_filter():
+    # Any WITH counts as reading rows on ClickHouse (fails closed).
+    assert _check(["WITH (1, 2) AS ids SELECT 3 IN ids"], "sarah@example.com", "ClickhouseClient") is not None
 
 
 def test_multiple_identity_params_each_must_bind():
@@ -163,11 +285,21 @@ def _legacy(capture, needles):
     return _heuristic_binds_value(capture, needles)
 
 
+@pytest.mark.parametrize("query", [
+    "SELECT Id FROM Account WHERE Owner.Email = '{v}' AND CreatedDate = LAST_N_DAYS:30",
+    "SELECT FIELDS(ALL) FROM Account WHERE CreatedDate = LAST_N_DAYS:30",
+])
+def test_soql_the_check_cannot_read_is_refused_not_left_to_the_text_heuristic(query):
+    # SOQL is not read with the engine's own grammar: text outside the
+    # identity check's allow-list is refused.
+    from app.ai.code_execution.query_params import UNVERIFIABLE_SYNTAX_MESSAGE
+
+    assert _check([query], "sarah@example.com", "SalesforceClient") == UNVERIFIABLE_SYNTAX_MESSAGE
+
+
 @pytest.mark.parametrize("client,query", [
     # sqlglot can't parse these -> legacy heuristic decides
     ("PostgresqlClient", "SELECT * FROM t WHERE owner = '{v}' AND ((("),
-    ("SalesforceClient", "SELECT Id FROM Account WHERE Owner.Email = '{v}' AND CreatedDate = LAST_N_DAYS:30"),
-    ("SalesforceClient", "SELECT FIELDS(ALL) FROM Account WHERE CreatedDate = LAST_N_DAYS:30"),
     # SPL shapes we don't model
     ("SplunkClient", 'index=crm owner="{v}" | append [search index=other]'),
     ("SplunkClient", '| inputlookup users.csv | search owner="{v}"'),
@@ -194,6 +326,12 @@ def test_unparseable_falls_back_to_legacy_and_warns(client, query):
         log.setLevel(was_level)
     assert (res is None) is _legacy(text, [v])
     assert any(getattr(r, "event", None) == "identity_bind_check_fallback" for r in records)
+    # Logged by structure only: never the query text, never the value.
+    for record in records:
+        logged = record.getMessage() + " " + " ".join(str(value) for value in vars(record).values())
+        assert v not in logged and "index=" not in logged and "SELECT" not in logged, logged
+    fallback = [r for r in records if getattr(r, "event", None) == "identity_bind_check_fallback"]
+    assert all(r.query_length == len(text) for r in fallback)
 
 
 @pytest.mark.parametrize("client,capture,ok", [

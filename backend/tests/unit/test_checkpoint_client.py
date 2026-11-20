@@ -633,6 +633,7 @@ def test_rca_query_runs_through_bow_code_executor(client, http, monkeypatch):
 
     # The executor's subprocess sandbox needs an importable venv; the in-process mode exercises the same contract.
     monkeypatch.setenv("BOW_CODE_SANDBOX", "inprocess")
+    monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
 
     http[0].append((200, rulebase_reply()))
     code = """

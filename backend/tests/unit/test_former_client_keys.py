@@ -156,6 +156,10 @@ def test_a_run_reaches_each_client_once_and_still_resolves_the_old_key(monkeypat
     from app.ai.code_execution.code_execution import StreamingCodeExecutor
 
     monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    if mode == "inprocess":
+        # In-process mode is refused outside development; CI runs with
+        # ENVIRONMENT=production, so the test names the environment itself.
+        monkeypatch.setenv("ENVIRONMENT", "development")
     renamed, other = _CountingClient(former=["Lake:pg"]), _CountingClient()
     code = _WALK_EVERY_CLIENT.replace("OLD_KEY", "'Lake:pg'")
     df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(

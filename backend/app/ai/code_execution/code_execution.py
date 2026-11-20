@@ -1,5 +1,6 @@
 import asyncio
 import contextvars
+import inspect
 import io
 import os
 import sys
@@ -15,6 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
 from contextlib import redirect_stdout
+from dataclasses import dataclass
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
@@ -33,7 +35,7 @@ from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exporte
     BrowserHelper,
     ListsHelper,
 )
-from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_sandbox_job
+from app.ai.code_execution.sandbox.runner import SandboxJob, refuse_inprocess_if_not_allowed, run_job as _run_sandbox_job
 from app.ai.code_execution.sandbox_helpers import (
     MeteredHttp,
     SandboxHelpers,
@@ -79,8 +81,9 @@ QUERY_NOTICE_MAX_CHARS = 1000
 # (Priority answering a subform table through its parent's $expand) records the
 # request it actually sent here. The query wrapper copies it onto the query's
 # timing record as `sent_request`, which the Queries tab shows under the query
-# the agent wrote. The agent's own query stays in `executed_queries` untouched:
-# the identity-bind check reads that list.
+# the agent wrote. The agent's own query stays in `executed_queries` untouched;
+# the identity-bind check reads that list, and an OData call through the
+# requests it sent (CapturedQuery.identity_reads).
 SENT_REQUEST_ATTR = "bow_sent_request"
 SENT_REQUEST_MAX_CHARS = 1000
 
@@ -197,6 +200,9 @@ _STDOUT_ROUTER_INSTALL_LOCK = threading.Lock()
 # Enough for a couple of frame previews; bounded so a print-in-a-loop cannot
 # flood the codegen prompt.
 FAILURE_STDOUT_TAIL_CHARS = 2000
+# How much of a fixable query error (duckdb_guard.DuckdbQueryError) the
+# planner gets; other query errors keep their first 200 characters.
+FIXABLE_QUERY_ERROR_MAX_CHARS = 2000
 
 
 def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
@@ -257,8 +263,10 @@ from app.data_sources import query_concurrency
 from app.data_sources import query_executions
 from app.data_sources import query_tag
 from app.services.usage_policy_service import UsageLimitContext
+from app.ai.code_execution.client_profiles import GuardProfile, family_name, guard_profile
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, ensure_read_only
 from app.ai.code_execution.table_scope import TableScopeViolation, enforce_table_scope
+from app.ai.code_execution.duckdb_guard import DuckdbQueryError
 from app.services.connection_rate_limit_service import connection_rate_limit_service
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
@@ -269,6 +277,7 @@ from app.core.otel import get_tracer
 from opentelemetry.trace import StatusCode
 from app.errors.app_error import AppError
 from app.errors.codes import ErrorCode
+from app.errors.redact import describe_for_log
 
 # Hard fallback when neither connection nor org settings define a value.
 DEFAULT_QUERY_TIMEOUT_SECONDS = 60
@@ -431,10 +440,15 @@ class TableAccessError(CodeSecurityError):
     when the tables it reads cannot be verified (see table_scope).
 
     Terminal for this code attempt: if generated code catches it and carries
-    on, the attempt still fails (see _raise_if_query_errors_were_swallowed).
+    on, the attempt still fails as a security violation (see
+    _raise_if_a_refusal_was_caught).
     The planner may explain the refusal and continue other permitted work.
+
+    `refused_by` is "connection" when the connection's own table list
+    refused it (a file connection), not the agent's table selection.
     """
     terminal_execution_error = True
+    refused_by: Optional[str] = None
 
 
 class QueryTimeoutError(AppError):
@@ -980,6 +994,324 @@ def _describe_keyword_call(kwargs: dict) -> str:
     return f"execute_query({body})"
 
 
+@dataclass
+class ResolvedCall:
+    """A guarded client call reduced to one statement plus allowed keywords."""
+
+    statement: Any
+    kwargs: dict
+    params: Optional[dict]
+    profile: Optional[GuardProfile]
+
+
+def _as_refusal(exc: Exception) -> Exception:
+    """A violation raised inside a client, as the wrapper's own refusal type."""
+    if isinstance(exc, TableScopeViolation):
+        refusal = TableAccessError(str(exc))
+        refusal.refused_by = getattr(exc, "refused_by", None)
+    else:
+        refusal = UnsafeSQLError(str(exc))
+    if getattr(exc, "stored_content", False):
+        refusal.stored_content = True
+    return refusal
+
+
+def _refuse_call(reason: str) -> UnsafeSQLError:
+    """A refusal of the call's shape or options; the statement itself was not
+    judged, so the message names only what is wrong with the call."""
+    refusal = UnsafeSQLError(reason)
+    refusal.call_shape = True
+    return refusal
+
+
+def _loggable_name(name) -> str:
+    """A name generated code chose (an exception type, a keyword, a param),
+    for a log line: kept only when it is a short identifier."""
+    return name if isinstance(name, str) and name.isidentifier() and len(name) <= 100 else "<non-identifier>"
+
+
+def _the_agent_wrote_what_was_refused(exc: BaseException) -> bool:
+    """Whether a refusal judged text the agent wrote. A call's shape was not
+    judged, and a search an admin stored (Splunk) is not the agent's text, so
+    code that catches either of those and carries on is not stopped."""
+    return not (getattr(exc, "call_shape", False) or getattr(exc, "stored_content", False))
+
+
+def _check_bigquery_options(client, kwargs: dict) -> None:
+    """Caller-supplied BigQuery cost options may only tighten the connection's."""
+    if "maximum_bytes_billed" in kwargs:
+        value = kwargs["maximum_bytes_billed"]
+        cap = getattr(client, "maximum_bytes_billed", None)
+        has_cap = type(cap) is int and cap > 0
+        if type(value) is not int or value <= 0 or (has_cap and value > cap):
+            raise _refuse_call(
+                "maximum_bytes_billed must be a positive whole number"
+                + (f" no larger than the connection's limit ({cap})." if has_cap else ".")
+            )
+    if "use_query_cache" in kwargs and type(kwargs["use_query_cache"]) is not bool:
+        raise _refuse_call("use_query_cache must be True or False.")
+
+
+def resolve_guarded_call(client, query, args: tuple, kwargs: dict) -> ResolvedCall:
+    """Reduce any call shape on a guarded client to one statement.
+
+    The statement is the client's own first `execute_query` parameter, passed
+    positionally or by its name — never both, never with extra positionals.
+    Every other keyword must be one the client's profile allows. The statement
+    must be text (or a dict for clients that take envelopes). Anything else is
+    refused with UnsafeSQLError, so nothing is sent.
+    """
+    profile = guard_profile(client)
+    kwargs = dict(kwargs)
+    params = None
+    if profile is not None and profile.kind != "cypher":
+        params = kwargs.pop("params", None)
+    if profile is None:
+        return ResolvedCall(statement=query, kwargs=kwargs, params=params, profile=None)
+
+    name = None
+    signature = _execute_query_signature(client)
+    first = next(iter(signature.parameters.values()), None) if signature is not None else None
+    if first is not None and first.kind in (
+        inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        name = first.name
+
+    if query is _NO_QUERY:
+        if name is None or name not in kwargs:
+            raise _refuse_call("execute_query needs the query text as its first argument.")
+        statement = kwargs.pop(name)
+    else:
+        if args or (name is not None and name in kwargs):
+            raise _refuse_call("Pass exactly one query to execute_query.")
+        statement = query
+
+    unknown = sorted(k for k in kwargs if k not in profile.extra_kwargs)
+    if unknown:
+        raise _refuse_call(f"execute_query does not accept {', '.join(unknown)} for this data source.")
+    if not (type(statement) is str or (profile.accepts_dict and type(statement) is dict)):
+        raise _refuse_call(f"execute_query takes the query as text, not {type(statement).__name__}.")
+    # Only BigQuery's profile allows these keywords, so only its calls get here with them.
+    _check_bigquery_options(client, kwargs)
+    return ResolvedCall(statement=statement, kwargs=kwargs, params=params, profile=profile)
+
+
+def _execute_query_signature(client) -> Optional[inspect.Signature]:
+    """The signature of `client.execute_query`, or None when it cannot be read."""
+    try:
+        return inspect.signature(client.execute_query)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _native_params_capture(statement, params) -> str:
+    """A statement with the params its client binds itself (Cypher's $name),
+    captured as JSON text. Params JSON cannot write (an integer too long to
+    write, keys of mixed types, a circular reference, nesting too deep, a
+    value whose own text fails) are refused with the parameter error."""
+    from app.ai.code_execution.query_params import _INT_TOO_LONG, ParamError
+
+    try:
+        return json.dumps({"query": statement, "params": params}, sort_keys=True, default=str, ensure_ascii=False)
+    except Exception as e:
+        if isinstance(e, ValueError) and "integer string conversion" in str(e):
+            # Past Python's integer-to-text digit limit.
+            raise ParamError(_INT_TOO_LONG) from None
+        raise ParamError("params cannot be written as JSON") from None
+
+
+def _params_not_rendered():
+    """The refusal of params nothing renders: a keyword-only call, a statement
+    that is not text, or params that are not a name -> value dict."""
+    from app.ai.code_execution.query_params import ParamError
+
+    return ParamError(
+        "query parameters are rendered only into a query string passed as the first argument, "
+        "with params as a dict of name -> value; pass the query as text")
+
+
+def _passes_a_statement(client, query, args: tuple, kwargs: dict) -> bool:
+    """Whether a call hands `client.execute_query` a statement: a value other
+    than None, of any type, bound to a parameter that can be passed by
+    position (however the caller passed it). A call the signature cannot
+    bind, or a signature that cannot be read, counts as one. Only values that
+    all go to keyword-only parameters or `**kwargs` do not."""
+    signature = _execute_query_signature(client)
+    if signature is None:
+        return True
+    try:
+        bound = signature.bind(*(args if query is _NO_QUERY else (query, *args)), **kwargs)
+    except TypeError:
+        return True
+    for name, value in bound.arguments.items():
+        kind = signature.parameters[name].kind
+        if kind == inspect.Parameter.VAR_POSITIONAL and value:
+            return True
+        if kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD) and value is not None:
+            return True
+    return False
+
+
+def _sends_odata(client) -> bool:
+    """Whether `client` builds an OData request (its declared renderer)."""
+    from app.ai.code_execution.query_params import renderer_for
+
+    renderer = renderer_for(client)
+    return renderer is not None and renderer.name == "odata"
+
+
+# The query options that bear on which rows an OData server returns. Only
+# $filter and $apply restrict the top-level rows: a filter inside $expand
+# restricts the expanded rows only, so $expand never binds. $apply binds only
+# where the server applies it (see _odata_row_root).
+_ODATA_ROW_OPTIONS = frozenset({"$filter", "$expand", "$apply"})
+# A path segment that is a name and one key predicate: Orders('x'),
+# Entity(KEY='x'). Group 1 is the predicate.
+_ODATA_KEY_SEGMENT_RE = re.compile(r"[A-Za-z_][\w.]*(\([^()]*\))")
+
+
+# Dotless i and dotted capital I, which casefold does not turn into 'i' but
+# a server comparing names case-insensitively may.
+_ODATA_TURKIC_I = str.maketrans({chr(0x131): "i", chr(0x130): "i"})
+
+
+def _odata_option_name(name: str) -> str:
+    """An option name as a server may read it: percent-decoded, trimmed,
+    case folded (a dotless or dotted I read as 'i'), its '$' optional."""
+    from urllib.parse import unquote_plus
+
+    name = unquote_plus(name).strip().translate(_ODATA_TURKIC_I).casefold()
+    return name if name.startswith("$") else "$" + name
+
+
+def _odata_dot_segment(path: str) -> bool:
+    """Whether the percent-decoded `path` has a '.' or '..' segment, split on
+    '/' and '\\': a path the server may read differently from the client."""
+    from urllib.parse import unquote
+
+    return any(segment in (".", "..") for segment in re.split(r"[/\\]", unquote(path)))
+
+
+def _odata_path_url(url: str) -> str:
+    """The path and query of `url`, as requests' PreparedRequest.path_url."""
+    from urllib.parse import urlsplit
+
+    parts = urlsplit(url)
+    return (parts.path or "/") + ("?" + parts.query if parts.query else "")
+
+
+def _odata_row_root(client) -> Tuple[Optional[str], bool, bool]:
+    """The decoded URL path `client`'s data requests are made under (its
+    configured service root), whether a key predicate in the path below it
+    restricts rows, and whether $apply does. SAP Datasphere's parenthesised
+    path segment holds the model's input parameters, not a row filter; it is
+    the one client whose server applies $apply (Configuration Manager
+    documents none, and Priority's client refuses it). None for a client
+    this does not know: every request it sends reads as blank."""
+    from urllib.parse import unquote, urlsplit
+
+    from app.data_sources.clients.mecm_client import MecmClient
+    from app.data_sources.clients.priority_erp_client import PriorityErpClient
+    from app.data_sources.clients.sap_datasphere_client import SapDatasphereClient
+
+    if isinstance(client, PriorityErpClient):
+        return unquote(urlsplit(client.service_root).path).rstrip("/"), True, False
+    if isinstance(client, MecmClient):
+        return unquote(urlsplit(client.base_url).path).rstrip("/"), True, False
+    if isinstance(client, SapDatasphereClient):
+        return unquote(client.consumption_path).rstrip("/"), False, True
+    return None, False, False
+
+
+def _odata_request_texts(path_url: str, root: Optional[str], keys: bool,
+                         apply_binds: bool = False) -> Optional[List[str]]:
+    """What the identity check reads of one OData request as it was sent
+    (`path_url`: path and query, no fragment): only text that restricts the
+    top-level rows. That is each key predicate in the decoded path below
+    `root` (when `keys`; see _odata_row_root), then each $filter and (when
+    `apply_binds`) $apply, split on '&' and '=' before percent-decoding, as
+    the server reads them; never the root, entity set or model names, nor
+    $expand. None for a request outside `root`; a path with a dot segment
+    reads as blank. With `keys`, a key is read only from a path segment
+    (split on '/' and '\\') that is a name and one predicate; any other
+    segment holding a parenthesis makes the request read as blank.
+    Only an option whose percent-decoded name is exactly '$filter' or
+    '$apply' binds. A name a server may read as a row option in another
+    spelling (_odata_option_name), or a row option given more than once,
+    leaves no row option counted (the server may apply or ignore either).
+    '+' in a value may read as a space or as itself, so when the two differ
+    both texts are returned and each must bind. '%' and '#' are written back
+    as %25 and %23: the captured text is OData text, which the check reads as
+    the server percent-decodes it."""
+    from collections import Counter
+    from urllib.parse import unquote, unquote_plus
+
+    from app.ai.code_execution.query_params import odata_written_back
+
+    path, _, query = path_url.partition("?")
+    if _odata_dot_segment(path):
+        return [""]
+    path = unquote(path)
+    if root is None or not (path == root or path.startswith(root + "/")):
+        return None
+    key_text = ""
+    for segment in re.split(r"[/\\]", path[len(root):]) if keys else ():
+        if "(" not in segment and ")" not in segment:
+            continue
+        key = _ODATA_KEY_SEGMENT_RE.fullmatch(segment)
+        if key is None:
+            return [""]
+        key_text += "/" + key.group(1)
+    binding = {"$filter", "$apply"} if apply_binds else {"$filter"}
+    pairs = [pair.partition("=") for pair in query.split("&")] if query else []
+    rows = [(unquote(name), _odata_option_name(name), value) for name, _, value in pairs]
+    rows = [(raw, loose, value) for raw, loose, value in rows if loose in _ODATA_ROW_OPTIONS]
+    loose_counts = Counter(loose for _, loose, _ in rows)
+    exact = all(raw == loose for raw, loose, _ in rows) and all(n == 1 for n in loose_counts.values())
+    kept = [(raw, value) for raw, _, value in rows if raw in binding] if exact else []
+
+    def text(decode) -> str:
+        options = "&".join(name + "=" + odata_written_back(decode(value)) for name, value in kept)
+        return odata_written_back(key_text) + ("?" + options if options else "")
+
+    texts = [text(unquote)]
+    if text(unquote_plus) != texts[0]:
+        texts.append(text(unquote_plus))
+    return texts
+
+
+def _odata_next_page(url: str, first: str) -> bool:
+    """Whether the request to `url` only continues the call's first request
+    to `first`: the same endpoint (_same_endpoint: scheme, host, port and
+    decoded path), and one option, a `$skiptoken`. A URL that does not
+    parse is not a continuation."""
+    from urllib.parse import urlsplit
+
+    try:
+        query = urlsplit(url).query
+    except ValueError:
+        return False
+    return _same_endpoint(url, first) and "&" not in query and query.startswith("$skiptoken=")
+
+
+def _same_endpoint(a: str, b: str) -> bool:
+    """Whether two URLs name the same endpoint: scheme and host compared
+    case-insensitively, the effective port, and the decoded path (an empty
+    path is '/'). The query is not compared."""
+    from urllib.parse import unquote, urlsplit
+
+    def endpoint(url: str):
+        parts = urlsplit(url)
+        scheme = parts.scheme.lower()
+        return (scheme, parts.hostname or "", parts.port or {"http": 80, "https": 443}.get(scheme),
+                unquote(parts.path) or "/")
+
+    try:
+        return endpoint(a) == endpoint(b)
+    except ValueError:  # a port that is not a number
+        return False
+
+
 class QueryCapturingClientWrapper:
     """Wrapper around a database client that captures all queries passed to execute_query.
 
@@ -1063,80 +1395,69 @@ class QueryCapturingClientWrapper:
         place values meet SQL — and the underlying client receives finished
         plain SQL through its unchanged interface. The captured query is the
         rendered text, so identity verification sees what actually ran.
+
+        Clients the read-only guard knows (`client_profiles`, by type) are
+        first reduced to one statement, whatever shape the call took
+        (`resolve_guarded_call`); that statement is rendered, checked, captured
+        and sent positionally. Shapes that cannot be reduced are refused.
+        A connector the guard neither checks nor exempts
+        (`client_profiles.classify`) is refused any statement, whatever its
+        type and however it is passed (`_passes_a_statement`).
         """
-        native_params = None
-        if "params" in kwargs:
-            if getattr(self._original, "native_query_params", False):
-                # The client binds them itself (Cypher's $name); its own syntax
-                # would not survive SQL rendering. Captured with the query, so
-                # the identity check still sees the values.
-                native_params = kwargs["params"]
-            else:
-                param_values = kwargs.pop("params")
-                if param_values and not (isinstance(query, str) and isinstance(param_values, dict)):
-                    # Only query text is rendered: a dict query (or params that
-                    # are not a name -> value dict) would run with its
-                    # placeholders as written.
-                    from app.ai.code_execution.query_params import ParamError
-                    raise ParamError(
-                        "query parameters are rendered only into a query string, with params as "
-                        "a dict of name -> value; pass the query as text")
-                if isinstance(query, str) and isinstance(param_values, dict) and param_values:
-                    from app.ai.code_execution.query_params import render_sql_with_params
-                    from app.data_sources.clients.base import DataSourceClient
-                    query = render_sql_with_params(
-                        query, param_values,
-                        client_type_name=type(self._original).__name__,
-                        # Read off the instance so a subclass keeps its
-                        # engine's string-literal style.
-                        literal_style=getattr(self._original, "sql_literal_style", None),
-                        # A connector declaring None (no safe rule): refused.
-                        # (Anything else handed in as a client keeps the
-                        # rule derived from its class name.)
-                        literal_style_required=isinstance(self._original, DataSourceClient),
-                        # Its SQL sits in a JSON envelope's "sql" field.
-                        sql_in_json_envelope=bool(getattr(self._original, "sql_in_json_envelope", False)),
-                    )
-        if query is _NO_QUERY:
-            capture = _describe_keyword_call(kwargs)
-        elif native_params:
-            capture = json.dumps({"query": query, "params": native_params}, sort_keys=True, default=str,
-                                 ensure_ascii=False)
+        refusal: Optional[Exception] = None
+        guarded = guard_profile(self._original) is not None
+        if guarded:
+            query, args, kwargs, capture, refusal = self._prepare_guarded(query, args, kwargs)
         else:
-            capture = query
-        if isinstance(capture, dict) and (
-            getattr(self._original, "_bow_source_id", None)
-            or getattr(self._original, "capture_structured_queries", False)
-        ):
-            capture = json.dumps(capture, sort_keys=True, default=str)
-        if isinstance(capture, str):
-            # Tagged with the client class so the identity-bind check can
-            # parse it in the right grammar (SQL dialect / SPL); still a str.
-            from app.ai.code_execution.identity_bind import CapturedQuery
-            self._captured_queries.append(CapturedQuery(
-                capture, type(self._original).__name__,
-                getattr(self._original, "sql_literal_style", None),
-                bool(getattr(self._original, "sql_in_json_envelope", False))))
+            query, capture, refusal, render_refused = self._prepare_unguarded(query, kwargs)
+            # A refusal while rendering stands as it is (the params error).
+            if not render_refused and self._takes_no_free_text() and _passes_a_statement(
+                    self._original, query, args, kwargs):
+                refusal = UnsafeSQLError("This connection does not accept free-text queries")
+        # The OData clients build their request from several arguments; what
+        # the identity check reads of their calls is each request as sent
+        # (identity_reads: none until one is sent).
+        odata = not guarded and _sends_odata(self._original)
+        reads = () if odata else None
+        sent: List[str] = []
+        refused: List[BaseException] = []
         idx = len(self._captured_timings)
         _q_start = _time.monotonic()
         with _tracer.start_as_current_span("datasource.execute_query") as span:
             span.set_attribute("datasource.type", type(self._original).__name__)
             span.set_attribute("datasource.query_timeout_seconds", self._query_timeout_seconds)
             try:
+                if refusal is not None:
+                    # Captured and timed like any call, so a refusal the code
+                    # catches is still seen; nothing is sent.
+                    self._capture(capture)
+                    raise refusal
                 # Checked on the final text, after params rendered and after
-                # whatever string building the sandbox code did.
+                # whatever string building the sandbox code did. What the guard
+                # returns is what is captured, what table scope checks and what
+                # the client receives; a refused statement is captured as the
+                # code wrote it, so the UI shows what was attempted.
                 try:
-                    ensure_read_only(self._original, query)
+                    checked = ensure_read_only(self._original, query)
                 except ReadOnlyViolation as e:
+                    self._capture(capture, reads)
                     raise UnsafeSQLError(str(e)) from e
+                except DuckdbQueryError:
+                    # Text the agent fixes and retries; recorded like a
+                    # refusal, so the attempt is seen.
+                    self._capture(capture, reads)
+                    raise
+                if guarded:
+                    capture = self._guarded_capture(checked, kwargs)
+                captured = self._capture(capture, reads)
                 # The agent's table selection holds at query time, not only in
                 # the schema it is shown.
                 try:
-                    enforce_table_scope(self._original, query)
+                    enforce_table_scope(self._original, checked)
                 except TableScopeViolation as e:
                     raise TableAccessError(str(e)) from e
                 self._enforce_rate_limit(capture)
-                self._consume_query_quota(capture)
+                usage_event = self._consume_query_quota(capture)
                 # Hold a per-connection concurrency slot for the duration of
                 # the query. A burst queues here instead of arriving at the
                 # source all at once; the wait budget is the same wall clock
@@ -1147,13 +1468,44 @@ class QueryCapturingClientWrapper:
                 # (query_executions). Waits its turn when the connection is at
                 # its limit; raises ConnectionBusyError / QueryKilledError.
                 handle = self._begin_tracking(capture, idx)
+                # The handle holds the connection's slot until it is finished:
+                # every exit below finishes it exactly once.
+                tracking_open = True
                 try:
-                    result = self._call_with_timeout(query, args, kwargs, handle=handle)
+                    returned = False
+                    try:
+                        # The checked text is what is sent.
+                        result = self._call_with_timeout(
+                            checked, args, kwargs, self._odata_send_observer(sent, refused) if odata else None,
+                            handle=handle)
+                        returned = True
+                    except BaseException as exc:
+                        tracking_open = False
+                        self._finish_tracking(handle, exc)
+                        # Refused by the client's own check before the query
+                        # ran (Splunk SPL stored in a dashboard or saved search
+                        # is only known there), or by the OData send check
+                        # with nothing sent: the query is not charged. The
+                        # rate-limit request stays counted, as for any call
+                        # that reached the client.
+                        if isinstance(exc, (UnsafeSQLError, TableAccessError)) or (refused and not sent):
+                            self._refund_query_quota(usage_event)
+                        raise
+                    finally:
+                        # Every path that returns rows must set identity_reads:
+                        # the identity check passes a call left at (), which is
+                        # right only because such a call always raised before
+                        # sending anything and returned no rows.
+                        if odata and (returned or sent):
+                            captured.identity_reads = self._sent_reads(sent)
+                    rows = len(result) if hasattr(result, '__len__') else None
                 except BaseException as exc:
-                    self._finish_tracking(handle, exc)
+                    if tracking_open:
+                        tracking_open = False
+                        self._finish_tracking(handle, exc)
                     raise
                 _q_ms = (_time.monotonic() - _q_start) * 1000.0
-                rows = len(result) if hasattr(result, '__len__') else None
+                tracking_open = False
                 self._finish_tracking(handle, None, rows=rows)
                 result_bytes = estimate_result_size_bytes(result)
                 self._consume_data_bytes_quota(capture, result_bytes, rows)
@@ -1168,9 +1520,9 @@ class QueryCapturingClientWrapper:
                     "sql": capture[:500] if isinstance(capture, str) else None,
                 }
                 _attrs = getattr(result, "attrs", None)
-                sent = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
-                if isinstance(sent, str) and sent.strip():
-                    timing["sent_request"] = sent[:SENT_REQUEST_MAX_CHARS]
+                sent_request = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None
+                if isinstance(sent_request, str) and sent_request.strip():
+                    timing["sent_request"] = sent_request[:SENT_REQUEST_MAX_CHARS]
                 note = query_notice(result)
                 if note:
                     timing["notice"] = note.strip()[:QUERY_NOTICE_MAX_CHARS]
@@ -1220,6 +1572,21 @@ class QueryCapturingClientWrapper:
                     **({"source_query_id": _source_query_id(e)} if _source_query_id(e) else {}),
                     **({"error_type": "table_access_denied", "error_message": str(e)}
                        if isinstance(e, TableAccessError) else {}),
+                    **({"refused_by": e.refused_by}
+                       if isinstance(e, TableAccessError) and e.refused_by else {}),
+                    # The whole text, as the code loop reports a refusal
+                    # that escapes.
+                    **({"error_message": str(e)} if isinstance(e, UnsafeSQLError) else {}),
+                    # A policy refusal of what the agent wrote ends the
+                    # attempt even when the code catches it; the code loop
+                    # reads this tag.
+                    **({"refusal": "table_access" if isinstance(e, TableAccessError) else "unsafe_sql"}
+                       if isinstance(e, (TableAccessError, UnsafeSQLError))
+                       and _the_agent_wrote_what_was_refused(e) else {}),
+                    # A file connection's fixable error (DESCRIBE, a CTE
+                    # name) lists its tables: the planner gets all of it.
+                    **({"error_message": self._recorded_error(e, limit=FIXABLE_QUERY_ERROR_MAX_CHARS)}
+                       if isinstance(e, DuckdbQueryError) else {}),
                     **({"error_type": "connection_busy", "error_message": str(e)}
                        if isinstance(e, query_executions.ConnectionBusyError) else {}),
                     **({"error_type": "cancelled_by_admin", "error_message": str(e),
@@ -1229,6 +1596,271 @@ class QueryCapturingClientWrapper:
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
                 raise
+
+    def _prepare_guarded(self, query, args, kwargs):
+        """Resolve, render and describe a call to a guarded client.
+
+        Returns (statement, args, kwargs, capture, refusal). On a refusal the
+        capture is what the code attempted, so the UI shows it; nothing is sent.
+        """
+        try:
+            resolved = resolve_guarded_call(self._original, query, args, kwargs)
+        except UnsafeSQLError as refusal:
+            if isinstance(query, str):
+                attempted = query
+            elif query is _NO_QUERY:
+                attempted = _describe_keyword_call(kwargs)
+            else:
+                attempted = _describe_keyword_call({"query": query, **kwargs})
+            return query, (), {}, attempted, refusal
+        statement = resolved.statement
+        if resolved.params and not (isinstance(resolved.params, dict) and isinstance(statement, str)):
+            # Params that are not a name -> value dict, or a statement that
+            # is not text, render nothing: the statement would run with its
+            # placeholders as written. Refused, captured and timed like any
+            # refusal; logged by structure only.
+            self._log_params_not_rendered(statement, resolved.params)
+            return (statement, (), {}, self._guarded_capture(statement, resolved.kwargs),
+                    _params_not_rendered())
+        from app.ai.code_execution.query_params import ParamError
+
+        try:
+            if resolved.params:
+                statement = self._rendered(statement, resolved.params)
+            capture = self._guarded_capture(statement, resolved.kwargs)
+        except ParamError as refusal:
+            # Refused while rendering: captured as written, timed and logged
+            # by structure only, like any refusal; nothing is sent.
+            self._log_params_refused(resolved.params or resolved.kwargs.get("params"), refusal)
+            return statement, (), {}, statement if isinstance(statement, str) else "", refusal
+        return statement, (), resolved.kwargs, capture, None
+
+    @staticmethod
+    def _guarded_capture(statement, kwargs: dict) -> str:
+        """The captured text for a statement sent to a guarded client."""
+        if isinstance(statement, dict):
+            # Every dict envelope is captured as JSON text so the identity
+            # check (which reads only text) sees it.
+            try:
+                return json.dumps(statement, sort_keys=True, default=str)
+            except (TypeError, ValueError, RecursionError):
+                # Keys JSON cannot sort or hold, or nesting too deep to
+                # encode; the guard refuses the envelope, and the capture
+                # shows what was attempted when it can be shown at all.
+                try:
+                    return repr(statement)
+                except RecursionError:
+                    return "<dict envelope that cannot be shown as text>"
+        if kwargs.get("params"):
+            # Native params (Cypher's $name): captured with the query, so the
+            # identity check still sees the values.
+            return _native_params_capture(statement, kwargs["params"])
+        return statement
+
+    def _capture(self, capture, identity_reads=None):
+        # Tagged with the client family so the identity-bind check can parse
+        # it in the right grammar (SQL dialect / SPL); still a str. A dict
+        # statement is recorded as its JSON text, as for the structured
+        # clients. Any other statement that is not text is recorded blank
+        # (so is a dict JSON cannot hold): the client may still read a
+        # request from it, and the identity check refuses a blank capture.
+        # Returns the capture, so an OData call can set what the identity
+        # check reads of it once its requests are sent.
+        from app.ai.code_execution.identity_bind import CapturedQuery
+        text = capture if isinstance(capture, str) else ""
+        if isinstance(capture, dict):
+            try:
+                text = json.dumps(capture, sort_keys=True, default=str, ensure_ascii=False)
+            except (TypeError, ValueError, RecursionError):
+                text = ""
+        captured = CapturedQuery(text, family_name(self._original), identity_reads=identity_reads,
+                                 **self._capture_grammar())
+        self._captured_queries.append(captured)
+        return captured
+
+    def _capture_grammar(self) -> dict:
+        """What the identity check reads of the client's class besides its
+        family: its declared string-literal style and whether its query is a
+        JSON envelope carrying SQL. Read off the class (inherited by a
+        subclass), never off the instance."""
+        cls = type(self._original)
+        return {"literal_style": getattr(cls, "sql_literal_style", None),
+                "sql_in_json_envelope": bool(getattr(cls, "sql_in_json_envelope", False))}
+
+    def _sent_reads(self, sent: List[str]) -> tuple:
+        """What the identity check reads of an OData call: each request it
+        sent (see _odata_request_texts), or one blank capture when it sent
+        none. A request sent again as it was (an NTLM handshake leg) is read
+        once. A next page that only continues the call's first request is
+        read through that request (_odata_next_page). A request outside the
+        configured root reads blank and is marked so
+        (CapturedQuery.outside_root)."""
+        from app.ai.code_execution.identity_bind import CapturedQuery
+        root, keys, apply_binds = _odata_row_root(self._original)
+        urls = [url for i, url in enumerate(sent) if not i or url != sent[i - 1]]
+        captures = []
+        for i, url in enumerate(urls):
+            if i and _odata_next_page(url, urls[0]):
+                continue
+            texts = _odata_request_texts(_odata_path_url(url), root, keys, apply_binds)
+            if texts is None:
+                captures.append(CapturedQuery("", family_name(self._original), outside_root=True,
+                                              **self._capture_grammar()))
+            else:
+                captures.extend(CapturedQuery(text, family_name(self._original), **self._capture_grammar())
+                                for text in texts)
+        return tuple(captures or [CapturedQuery("", family_name(self._original), **self._capture_grammar())])
+
+    def _odata_send_observer(self, sent: List[str], refused: List[BaseException]):
+        """Record the URL of every request the OData client sends, as it
+        reaches the wire. A request whose URL holds a fragment mark (the
+        client drops what follows it) or an encoded NUL, or whose decoded path
+        has a '.' or '..' segment (a path the server may read differently), is
+        not sent: the server could apply less than the code wrote;
+        the refusal is added to `refused`. The connection's own OAuth token
+        grant reads no rows and is not recorded."""
+        from app.ai.code_execution.query_params import _ODATA_TEXT_END, ParamError
+
+        token_url = getattr(self._original, "token_url", None)
+
+        def refuse(message: str) -> None:
+            refused.append(ParamError(message))
+            raise refused[-1]
+
+        def observe(request) -> None:
+            if (request.method == "POST" and isinstance(token_url, str)
+                    and _same_endpoint(request.url or "", token_url)):
+                return
+            if _ODATA_TEXT_END.search(request.url or ""):
+                refuse(
+                    "OData options cannot hold '#' or '%00'; remove it "
+                    "(write a literal '#' in a value as %23, or pass it as a parameter)"
+                )
+            if _odata_dot_segment(request.path_url.partition("?")[0]):
+                refuse(
+                    "OData request paths cannot hold a '.' or '..' segment, written plain or "
+                    "percent-encoded; name the entity path directly"
+                )
+            sent.append(request.url)
+
+        return observe
+
+    def _prepare_unguarded(self, query, kwargs):
+        """Today's behaviour for clients the guard does not know: keyword-only
+        calls forwarded, params rendered only into a positional str.
+
+        Pops `params` from `kwargs`. Returns (query to send, capture, the
+        refusal of params that cannot be rendered, or None, whether that
+        refusal came while rendering them).
+        """
+        from app.ai.code_execution.query_params import ParamError
+
+        native_params = None
+        refusal = None
+        render_refused = False
+        if "params" in kwargs:
+            if getattr(self._original, "native_query_params", False):
+                # The client binds them itself (Cypher's $name); its own syntax
+                # would not survive SQL rendering. Captured with the query, so
+                # the identity check still sees the values.
+                native_params = kwargs["params"]
+            else:
+                param_values = kwargs.pop("params")
+                if isinstance(query, str) and isinstance(param_values, dict) and param_values:
+                    try:
+                        query = self._rendered(query, param_values)
+                    except ParamError as e:
+                        # Refused while rendering: captured as written, timed
+                        # and logged by structure only; nothing is sent.
+                        refusal, render_refused = e, True
+                        self._log_params_refused(param_values, e)
+                elif param_values:
+                    # A keyword-only call, a statement that is not text, or
+                    # params that are not a dict: nothing renders them, so the
+                    # call would run with its placeholders as written. Refused
+                    # (a connector nobody declared is refused for its
+                    # statement first); logged by structure only.
+                    refusal = _params_not_rendered()
+                    self._log_params_not_rendered(query, param_values)
+        if query is _NO_QUERY:
+            capture = _describe_keyword_call(kwargs)
+        elif native_params:
+            try:
+                capture = _native_params_capture(query, native_params)
+            except ParamError as e:
+                refusal, render_refused = e, True
+                self._log_params_refused(native_params, e)
+                capture = query
+        else:
+            capture = query
+        if isinstance(capture, dict) and (
+            getattr(self._original, "_bow_source_id", None)
+            or getattr(self._original, "capture_structured_queries", False)
+        ):
+            capture = json.dumps(capture, sort_keys=True, default=str)
+        return query, capture, refusal, render_refused
+
+    def _log_params_not_rendered(self, query, param_values) -> None:
+        """Log params nothing renders, by structure only: the statement's
+        type and the param names (or the params' type), never a value."""
+        logger.warning(
+            "code_execution.params_not_rendered client=%s statement=%s params=%s",
+            family_name(self._original),
+            "keywords" if query is _NO_QUERY else _loggable_name(type(query).__name__),
+            ",".join(sorted(_loggable_name(k) for k in param_values))
+            if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
+        )
+
+    def _log_params_refused(self, param_values, refusal: BaseException) -> None:
+        """Log params refused while rendering, by structure only: the
+        refusal's type and the param names (or the params' type), never a
+        value or the refusal's text."""
+        logger.warning(
+            "code_execution.params_refused client=%s error=%s params=%s",
+            family_name(self._original),
+            type(refusal).__name__,
+            ",".join(sorted(_loggable_name(k) for k in param_values))
+            if isinstance(param_values, dict) else _loggable_name(type(param_values).__name__),
+        )
+
+    def _takes_no_free_text(self) -> bool:
+        """A connector the guard neither checks nor exempts (`classify`).
+        A call to it is refused when a parameter of its `execute_query` that
+        can be passed by position receives a value other than None, of any
+        type, by position or by name, or when the call does not fit that
+        signature (`_passes_a_statement`). A value passed by keyword to a
+        keyword-only parameter or into `**kwargs` is forwarded unchecked, so
+        a connector whose statement parameter is keyword-only needs its own
+        decision. Objects that are not connectors keep today's behaviour."""
+        from app.ai.code_execution.client_profiles import classify
+        from app.data_sources.clients.discovery import DiscoveryClient
+
+        return isinstance(self._original, DiscoveryClient) and classify(self._original) == "unknown"
+
+    def _rendered(self, statement, params: dict):
+        """`statement` with `params` rendered in the client's own string
+        literals. A statement that is not text (an envelope) takes no params:
+        ParamError. A connector with no declared renderer takes them only in
+        a JSON query document, as bare numbers (`render_json_number_params`);
+        anything else there is a ParamError. An object that is not a
+        connector keeps the ANSI rendering it always had."""
+        from app.ai.code_execution.query_params import (
+            ParamError,
+            is_json_document,
+            render_json_number_params,
+            render_sql_with_params,
+            renderer_for,
+        )
+        from app.data_sources.clients.discovery import DiscoveryClient
+
+        if not isinstance(statement, str):
+            raise ParamError("Parameters are not supported for this connection")
+        renderer = renderer_for(self._original)
+        if renderer is None and isinstance(self._original, DiscoveryClient):
+            if is_json_document(statement):
+                return render_json_number_params(statement, params, client_type_name=family_name(self._original))
+            raise ParamError("Parameters are not supported for this connection")
+        return render_sql_with_params(statement, params, renderer=renderer)
 
     def _begin_tracking(self, capture, seq: int):
         """Record this query and wait for a slot (None when no connection id).
@@ -1306,14 +1938,17 @@ class QueryCapturingClientWrapper:
         else:
             query_executions.finish(handle, "error", error=str(exc))
 
-    def _recorded_error(self, e: BaseException) -> str:
+    def _recorded_error(self, e: BaseException, limit: int = 200) -> str:
         text = str(e)
         if self._hide_values_in_errors:
             text = redact_error_text(text, type(e).__name__)
-        return text[:200]
+        return text[:limit]
 
-    def _call_with_timeout(self, query, args, kwargs, handle=None):
+    def _call_with_timeout(self, query, args, kwargs, send_observer=None, handle=None):
         """Run original.execute_query in a daemon thread; abandon it on timeout.
+
+        With `send_observer`, every request the client sends through a pinned
+        session during the call is first passed to it (egress.observing_sends).
 
         Threading is intentional rather than asyncio.wait_for: we're already
         inside a sync code-exec worker (user code is run via exec()), so we
@@ -1330,16 +1965,26 @@ class QueryCapturingClientWrapper:
             # Stopped between the slot claim and the handoff: the statement
             # must not reach the source at all.
             raise query_executions.QueryRunStoppedError()
+        from app.core.egress import observing_sends
+
+        observed = observing_sends(send_observer) if send_observer is not None else contextlib.nullcontext()
         if getattr(self._original, "_manages_query_deadline", False):
-            with query_tag.applied_query_tag(self._query_tag):
-                return self._original.execute_query(query, *args, **kwargs)
+            with query_tag.applied_query_tag(self._query_tag), observed:
+                try:
+                    if query is _NO_QUERY:
+                        # Keyword-only call, as in the threaded branch below.
+                        return self._original.execute_query(*args, **kwargs)
+                    return self._original.execute_query(query, *args, **kwargs)
+                except (ReadOnlyViolation, TableScopeViolation) as exc:
+                    raise _as_refusal(exc) from exc
         holder: Dict[str, Any] = {}
 
         def runner():
             try:
                 # A fresh thread starts with an empty context: re-apply the
-                # run's query tag so the client can stamp it on the session.
-                with query_tag.applied_query_tag(self._query_tag):
+                # run's query tag so the client can stamp it on the session,
+                # and the send observer, which lives in the context too.
+                with query_tag.applied_query_tag(self._query_tag), observed:
                     if query is _NO_QUERY:
                         # Keyword-only client call — there was no positional to
                         # forward (args is necessarily empty in this case).
@@ -1396,7 +2041,12 @@ class QueryCapturingClientWrapper:
                 cancellation=self._last_cancel_outcome,
             )
         if "exc" in holder:
-            raise holder["exc"]
+            exc = holder["exc"]
+            if isinstance(exc, (ReadOnlyViolation, TableScopeViolation)):
+                # A check at the client's own dispatch point (Splunk's search,
+                # a file client's engine) refused it: same refusal as ours.
+                raise _as_refusal(exc) from exc
+            raise exc
         return holder.get("value")
 
     def cancel_active_query(self) -> None:
@@ -1477,7 +2127,7 @@ class QueryCapturingClientWrapper:
                 raise
             logger.debug("Skipping rate-limit check; SQLite is locked")
 
-    def _consume_query_quota(self, query: str) -> None:
+    def _consume_query_quota(self, query: str) -> Optional[dict]:
         """Enforce, then buffer — never write to the DB from the sandbox thread.
 
         The old shape ran the counter+event WRITE synchronously here; on SQLite
@@ -1486,14 +2136,15 @@ class QueryCapturingClientWrapper:
         docs/feedback-loops/agent-latency-deep-dive.md). Enforcement is now a
         cached READ (`check_data_query`, WAL-safe, in-memory after first load);
         the usage event is buffered on the context and persisted by the same
-        end-of-run flush() the token/cost buffers use.
+        end-of-run flush() the token/cost buffers use. Returns that buffered
+        event (None when nothing was buffered), so a refusal can take it back.
         """
         context = self._usage_context
         if context is None or context.session_maker is None:
-            return
+            return None
         connection_id = self._connection_id()
         if not connection_id:
-            return
+            return None
         metadata = self._usage_metadata(query)
         try:
             # Raises UsageLimitExceeded when over quota — propagates, same as before.
@@ -1505,7 +2156,12 @@ class QueryCapturingClientWrapper:
             if not _is_sqlite_lock_error(e):
                 raise
             logger.debug("Skipping data-query quota check; SQLite is locked")
-        context.add_data_query(str(connection_id), metadata)
+        return context.add_data_query(str(connection_id), metadata)
+
+    def _refund_query_quota(self, usage_event) -> None:
+        """Take back the data-query usage event of a query that never ran."""
+        if usage_event is not None and self._usage_context is not None:
+            self._usage_context.discard_data_event(usage_event)
 
     def _consume_data_bytes_quota(self, query: str, result_bytes: int, rows: Optional[int]) -> None:
         context = self._usage_context
@@ -1756,6 +2412,8 @@ class StreamingCodeExecutor:
                 helpers.begin_attempt()
             try:
                 if sandbox_mode() == MODE_INPROCESS:
+                    # In-process mode is for local development only.
+                    refuse_inprocess_if_not_allowed()
                     df, output_log = self._execute_inprocess(
                         code, wrapped_clients, excel_files, http_client,
                         loadables=loadables, params=params, load_step_enabled=load_step_enabled,
@@ -1917,6 +2575,32 @@ class StreamingCodeExecutor:
             router.unbind()
             stdout_capture.close()
         return df, output_log
+
+    @staticmethod
+    def _raise_if_a_refusal_was_caught(timings: List[dict], cause: Optional[BaseException] = None) -> None:
+        """Raise the first policy refusal this attempt recorded, when the code
+        caught it and then returned or raised something else. The code loop
+        then stops and audits it as it does a refusal that escaped."""
+        for timing in timings or []:
+            kind = timing.get("refusal") if isinstance(timing, dict) else None
+            if not kind:
+                continue
+            text = str(timing.get("error_message") or timing.get("error") or "")
+            if kind == "table_access":
+                refusal: CodeSecurityError = TableAccessError(text)
+                refusal.refused_by = timing.get("refused_by")
+            else:
+                refusal = UnsafeSQLError(text)
+            if cause is not None:
+                # The error the code raised is not reported; its type is kept
+                # here (without its message, which may quote data).
+                logger.info(
+                    "code_execution.caught_refusal_replaces_error %s%s",
+                    describe_for_log(cause),
+                    f" sandbox_type={_loggable_name(cause.exc_type)}"
+                    if isinstance(getattr(cause, "exc_type", None), str) else "",
+                )
+            raise refusal from cause
 
     @staticmethod
     def _raise_if_query_errors_were_swallowed(df, timings: List[dict], span=None) -> None:
@@ -2512,7 +3196,13 @@ class StreamingCodeExecutor:
                                 yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                             continue
                 except Exception as e:
-                    yield {"type": "stdout", "payload": f"Loadable resolution error: {str(e)}"}
+                    msg = f"Loadable resolution error: {str(e)}"
+                    yield {"type": "stdout", "payload": msg}
+                    if getattr(e, "terminal_execution_error", False):
+                        # The caller's state is gone (its transaction): neither
+                        # running this code nor regenerating it can recover.
+                        code_and_error_messages.append((final_code, msg))
+                        break
 
             yield {"type": "progress", "payload": {"stage": "data_query_execution", "attempt": retries}}
             try:
@@ -2535,26 +3225,40 @@ class StreamingCodeExecutor:
                 def _slot_sink(value, _holder=_slot_wait):
                     _holder["value"] = value
 
-                async for _execution_event in _await_with_progress_heartbeat(
-                    self.execute_code_async(
-                        code=final_code,
-                        ds_clients=ds_clients,
-                        excel_files=excel_files,
-                        captured_timings=query_timings,
-                        captured_queries=executed_queries,
-                        loadables=loadables,
-                        params=params,
-                        query_attribution={"code_attempt": retries + 1, "progress_sink": _slot_sink},
-                    ),
-                    stage="data_query_execution",
-                    attempt=retries,
-                    sigkill_event=sigkill_event,
-                    status_probe=lambda _holder=_slot_wait: _holder["value"],
-                ):
-                    if _execution_event["type"] == "_result":
-                        exec_df, execution_log, _ = _execution_event["value"]
-                    else:
-                        yield _execution_event
+                try:
+                    async for _execution_event in _await_with_progress_heartbeat(
+                        self.execute_code_async(
+                            code=final_code,
+                            ds_clients=ds_clients,
+                            excel_files=excel_files,
+                            captured_timings=query_timings,
+                            captured_queries=executed_queries,
+                            loadables=loadables,
+                            params=params,
+                            query_attribution={"code_attempt": retries + 1, "progress_sink": _slot_sink},
+                        ),
+                        stage="data_query_execution",
+                        attempt=retries,
+                        sigkill_event=sigkill_event,
+                        status_probe=lambda _holder=_slot_wait: _holder["value"],
+                    ):
+                        if _execution_event["type"] == "_result":
+                            exec_df, execution_log, _ = _execution_event["value"]
+                        else:
+                            yield _execution_event
+                except CodeSecurityError as escaped:
+                    if not _the_agent_wrote_what_was_refused(escaped):
+                        # A call's shape (or an admin's stored search) is not
+                        # what the agent wrote; a refusal of what it wrote,
+                        # caught earlier, is the one the audit names.
+                        self._raise_if_a_refusal_was_caught(query_timings, cause=escaped)
+                    raise
+                except Exception as exec_error:
+                    self._raise_if_a_refusal_was_caught(query_timings, cause=exec_error)
+                    raise
+                # Before honouring a Stop: a refusal the run caught before it
+                # was stopped is still reported.
+                self._raise_if_a_refusal_was_caught(query_timings)
                 if _stop_requested(sigkill_event):
                     break
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)

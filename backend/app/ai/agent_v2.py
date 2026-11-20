@@ -5408,8 +5408,8 @@ class AgentV2:
           request) per call, and same-source queries already run
           concurrently across completions with no coordination — so the
           lock guarded nothing and made single-source workspaces (the
-          common case) fully serial. Any genuinely stateful client (e.g.
-          verticapy's module-level connection) must guard internally.
+          common case) fully serial. Any genuinely stateful client (one
+          that keeps a connection shared between calls) must guard internally.
         - a crashed action becomes an error outcome, never a lost one.
         """
         concurrency = 1

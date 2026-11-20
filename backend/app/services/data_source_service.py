@@ -3518,11 +3518,14 @@ class DataSourceService:
         Covers the rows of THIS connection plus unlinked legacy rows, the same
         set `_attach_stored_table_metadata` reads. Nothing is attached when the
         data source has no table rows (never indexed: there is no selection to
-        enforce) or the client is not a SQL dialect the check can parse.
+        enforce) or the client is not SQL. SQL the check cannot parse
+        (guard profile "nonparsing_sql") gets the scope too: its queries are
+        refused while the selection disables any table.
 
         Errors propagate: a client that should be scoped must not be handed
         out unscoped.
         """
+        from app.ai.code_execution.client_profiles import guard_profile
         from app.ai.code_execution.sql_guard import dialect_for_client
         from app.ai.code_execution.table_scope import TABLE_SCOPE_ATTR, TableScope
         from app.models.datasource_table import DataSourceTable
@@ -3550,7 +3553,8 @@ class DataSourceService:
             ))).all()
             attach_catalog(client, selected, files)
             return
-        if not dialect_for_client(client):
+        profile = guard_profile(client)
+        if not dialect_for_client(client) and not (profile is not None and profile.kind == "nonparsing_sql"):
             return
         rows = (await db.execute(
             select(DataSourceTable.name, DataSourceTable.is_active)

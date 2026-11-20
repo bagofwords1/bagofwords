@@ -2266,7 +2266,8 @@
     "saveFailed": "Falha ao salvar entidade",
     "stepRequired": "Etapa necessária para salvar",
     "publishedToast": "Consulta publicada no catálogo",
-    "suggestedToast": "Sugestão enviada para revisão"
+    "suggestedToast": "Sugestão enviada para revisão",
+    "savedRunFailed": "Salva, mas a execução da consulta falhou"
   },
   "mentionInput": {
     "placeholder": "Digite {'@'} para mencionar...",
@@ -4777,6 +4778,7 @@
     "locale.invalid": "O idioma não está ativado",
     "report.not_found": "Relatório não encontrado",
     "entity.not_found": "Entidade não encontrada",
+    "entity.run_failed": "Não foi possível executar a consulta salva. Peça ao proprietário dela que a verifique.",
     "user.not_found": "Usuário não encontrado",
     "membership.not_found": "Associação não encontrada",
     "role.not_found": "Função não encontrada",
@@ -4792,7 +4794,8 @@
     "resource.duplicate": "Recurso duplicado",
     "setting.update_failed": "Falha ao atualizar configuração",
     "query": {
-      "failed_silently": "Uma consulta falhou, mas o código gerado retornou um resultado vazio em vez de informar o erro"
+      "failed_silently": "Uma consulta falhou, mas o código gerado retornou um resultado vazio em vez de informar o erro: {query_errors}",
+      "timeout": "A consulta levou mais de {timeout_seconds} segundos e foi interrompida. Restrinja-a com filtros, um limite de linhas ou uma agregação, ou divida-a em consultas menores."
     },
     "llm": {
       "model_id_required": "O ID do modelo não pode ficar vazio",

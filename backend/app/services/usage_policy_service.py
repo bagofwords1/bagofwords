@@ -458,9 +458,9 @@ class UsageLimitContext:
     # same end-of-run flush() the token/cost buffers already use.
 
     def _add_data_event(self, metric: str, connection_id: str, amount: int,
-                        metadata: Optional[dict]) -> None:
+                        metadata: Optional[dict]) -> Optional[dict]:
         if amount <= 0 or not has_feature("usage_limits"):
-            return
+            return None
         # Source labeling comes from THIS context; storage lives on the root
         # so a single end-of-run flush covers derived (for_source) contexts.
         event = {
@@ -477,10 +477,27 @@ class UsageLimitContext:
             entry = root._data_cache.get((metric, event["connection_id"]))
             if entry is not None:
                 entry["pending"] = entry.get("pending", 0) + int(amount)
+        return event
 
-    def add_data_query(self, connection_id: str, metadata: Optional[dict] = None) -> None:
-        """Buffer one data-query usage event. Cheap, no IO, thread-safe."""
-        self._add_data_event(METRIC_DATA_QUERIES, connection_id, 1, metadata)
+    def add_data_query(self, connection_id: str, metadata: Optional[dict] = None) -> Optional[dict]:
+        """Buffer one data-query usage event. Cheap, no IO, thread-safe.
+        Returns the buffered event (None when metering is off)."""
+        return self._add_data_event(METRIC_DATA_QUERIES, connection_id, 1, metadata)
+
+    def discard_data_event(self, event: dict) -> None:
+        """Take back a buffered event that has not been flushed yet (a query
+        refused before it ran). No-op once it has been flushed."""
+        root = self._root()
+        with root._data_lock:
+            for i, pending in enumerate(root._pending_data_events):
+                if pending is event:
+                    del root._pending_data_events[i]
+                    break
+            else:
+                return
+            entry = root._data_cache.get((event["metric"], event["connection_id"]))
+            if entry is not None:
+                entry["pending"] = max(entry.get("pending", 0) - event["amount"], 0)
 
     def add_data_bytes(self, connection_id: str, amount: int, metadata: Optional[dict] = None) -> None:
         """Buffer a data-bytes usage event. Cheap, no IO, thread-safe."""

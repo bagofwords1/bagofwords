@@ -199,6 +199,8 @@ def generate_df(ds_clients, excel_files, lists, browser):
 @pytest.fixture(params=["subprocess", "inprocess"])
 def sandbox_mode(request, monkeypatch):
     monkeypatch.setenv("BOW_CODE_SANDBOX", request.param)
+    if request.param == "inprocess":
+        monkeypatch.setenv("ENVIRONMENT", "development")  # in-process mode is development-only
     return request.param
 
 

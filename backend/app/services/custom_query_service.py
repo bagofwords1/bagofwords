@@ -164,7 +164,40 @@ def is_accelerable_type(conn_type) -> bool:
     against these lowercase sets silently excluded every SQL Server connection.
     """
     kind = (conn_type or "").lower()
+    if _is_unchecked(kind):
+        # The query checks neither check nor exempt its statements.
+        return False
     return kind in ACCELERABLE_TYPES or kind in REQUEST_TYPES or _is_queryable(kind)
+
+
+_UNCHECKED: dict = {}
+
+
+def _is_unchecked(kind: str) -> bool:
+    """Whether a connection type's client is one the query checks do not
+    know (`client_profiles.classify_type` is "unknown"), or one that cannot
+    be resolved (`_unchecked_reason`)."""
+    return _unchecked_reason(kind) is not None
+
+
+def _unchecked_reason(kind: str) -> Optional[str]:
+    """"unknown" when the query checks do not know a connection type's
+    client, "unresolved" when that client cannot be resolved (kept for the
+    life of the process, so it stays refused; logged once per type), else
+    None."""
+    if kind not in _UNCHECKED:
+        try:
+            from app.ai.code_execution.client_profiles import classify_type
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            cls = resolve_client_class(key) if key else None
+            _UNCHECKED[kind] = "unknown" if cls is not None and classify_type(cls) == "unknown" else None
+        except Exception as e:
+            # Kept in _UNCHECKED, so this runs (and logs) once per type.
+            _UNCHECKED[kind] = "unresolved"
+            logger.warning("custom_query.client_not_resolved error=%s", type(e).__name__)
+    return _UNCHECKED[kind]
 
 _NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
@@ -390,6 +423,23 @@ class CustomQueryService:
 
     @staticmethod
     def ensure_accelerable(connection: Connection) -> None:
+        reason = _unchecked_reason((connection.type or "").lower())
+        if reason == "unresolved":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"The client for '{connection.type}' connections could not be loaded, "
+                    "so custom tables are refused for them."
+                ),
+            )
+        if reason == "unknown":
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Queries to '{connection.type}' connections are not checked yet, "
+                    "so custom tables are refused for them."
+                ),
+            )
         if not is_accelerable_type(connection.type):
             raise HTTPException(
                 status_code=400,
@@ -1020,8 +1070,10 @@ class CustomQueryService:
             "custom_query.refresh.failed",
             extra={"custom_query": cq.name, "error": str(error)},
         )
+        # What the failed run sent (or tried to), when it got that far.
+        sent = {"rendered_query": run.rendered_query} if run.rendered_query else {}
         await runs.finish(run.run_id, status=STATUS_FAILED, error=str(error),
-                          events=run.take_events(), chunks=run.chunk_log())
+                          events=run.take_events(), chunks=run.chunk_log(), **sent)
 
     async def _in_thread(self, run: "_Run", work):
         """Run one unit of blocking work without letting go of the volume.
@@ -1211,6 +1263,8 @@ class CustomQueryService:
                     # Stored rows cannot be given the new shape, so the copy
                     # would stop matching the source. Rebuild instead of
                     # failing every scheduled run until someone notices.
+                    # The run keeps the increment's sent text until the
+                    # rebuild sends its own.
                     run.note(f"The query's columns changed ({e}); rebuilding in full.", "warning")
                     await runs.progress(run.run_id, mode=RUN_MODE_FULL, events=run.take_events())
                 else:
@@ -1245,7 +1299,7 @@ class CustomQueryService:
                                       error="The table was deleted while it was loading.",
                                       events=run.take_events(), chunks=run.chunk_log())
                     return
-                rows, rendered = await self._in_thread(run, lambda i=index: self._work_window(run, i))
+                rows, _sent = await self._in_thread(run, lambda i=index: self._work_window(run, i))
                 window = load["windows"][index]
                 window["status"], window["rows"] = "done", rows
                 load["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
@@ -1253,7 +1307,6 @@ class CustomQueryService:
                 load["rows"] = int(load.get("rows") or 0) + rows
                 run.rows_read += rows
                 run.windows_done += 1
-                run.rendered_query = run.rendered_query or rendered
                 await self._save_state(run)
             await runs.progress(run.run_id, chunks=run.chunk_log(), rows_read=run.rows_read,
                                 rendered_query=run.rendered_query, events=run.take_events())
@@ -1315,12 +1368,16 @@ class CustomQueryService:
         try:
             est = extractor.estimate(run.client, run.sql)
             extractor.check_budget(est)
-            run.rendered_query = run.sql
-            return extractor.extract_to_artifact(
+            # Only text that passed the checks is recorded: the text the
+            # extraction sends (the guard returns the same text every time).
+            _src, run.rendered_query = extractor.checked_source(run.client, run.sql)
+            result = extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
                 previous_rows=run.previous_rows,
             )
+            run.rendered_query = result.checked_sql
+            return result
         except _PASS_THROUGH:
             raise
         except Exception as e:
@@ -1329,11 +1386,13 @@ class CustomQueryService:
     def _render(self, run: "_Run", window: incremental.Window) -> str:
         return incremental.render(run.client, run.sql, run.config.cursor_column, run.cursor_kind, window)
 
-    def _source(self, run: "_Run", rendered: str):
-        src = extractor._source(run.client, rendered)
+    def _checked_source(self, run: "_Run", rendered: str) -> tuple:
+        """(source, the text to send it): `rendered` as the read-only guard
+        returned it. Callers send that text, never `rendered` itself."""
+        src, checked = extractor.checked_source(run.client, rendered)
         if src is None:
             raise incremental.IncrementalConfigError("This connection cannot run queries.")
-        return src
+        return src, checked
 
     def _work_plan_load(self, run: "_Run") -> dict:
         """Size a load from scratch and cut it into windows. Moves no rows."""
@@ -1354,7 +1413,8 @@ class CustomQueryService:
                 run.sql, incremental.dialect_for(run.client), config.cursor_column, run.cursor_kind, whole)
             if probe is not None:
                 try:
-                    _cols, rows = self._source(run, probe).preview(probe, 1)
+                    src, checked = self._checked_source(run, probe)
+                    _cols, rows = src.preview(checked, 1)
                     lo, hi, total, with_cursor = rows[0][0], rows[0][1], int(rows[0][2] or 0), int(rows[0][3] or 0)
                 except Exception as e:
                     # Sizing is an optimisation; a source that cannot answer
@@ -1413,7 +1473,8 @@ class CustomQueryService:
 
         def count_between(a, b) -> int:
             sql = incremental.count_sql(run.sql, dialect, column, kind, incremental.Window(lo=a, hi=b))
-            _cols, rows = self._source(run, sql).preview(sql, 1)
+            src, checked = self._checked_source(run, sql)
+            _cols, rows = src.preview(checked, 1)
             return int(rows[0][0] or 0)
 
         try:
@@ -1427,14 +1488,17 @@ class CustomQueryService:
         load = run.load
         window = incremental.Window.from_json(load["windows"][index])
         try:
-            rendered = self._render(run, window)
+            src, checked = self._checked_source(run, self._render(run, window))
+            # Once checked and before the send: the run records the last
+            # window it sent, whether or not that window loads.
+            run.rendered_query = checked
             rows = loader.load_window(
-                self._source(run, rendered), rendered, load["path"],
+                src, checked, load["path"],
                 artifacts.decrypt_key(load["key_enc"]), run.name, run.run_id, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, rows_before=int(load.get("rows") or 0),
                 window=index,
             )
-            return rows, rendered
+            return rows, checked
         except _PASS_THROUGH:
             raise
         except Exception as e:
@@ -1458,11 +1522,14 @@ class CustomQueryService:
         run.window_from = window.lo
         try:
             rendered = self._render(run, window)
-            run.rendered_query = rendered
             est = extractor.estimate(run.client, rendered)
             extractor.check_budget(est)
+            src, checked = self._checked_source(run, rendered)
+            # Once checked and before the send, so a failed increment records
+            # the text it sent and a refused one records nothing.
+            run.rendered_query = checked
             return loader.apply_increment(
-                self._source(run, rendered), rendered, run.previous_path, run.previous_key,
+                src, checked, run.previous_path, run.previous_key,
                 run.name, run.connection_id, run.run_id, run.config, window, self._limits(run),
                 batch_rows=extractor.BATCH_ROWS, previous_rows=run.previous_rows, wrapped=run.wrapped,
                 filter_locally=not run.at_source,

@@ -98,6 +98,35 @@ def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
         check_table_scope(sql, dialect, SCOPE)
 
 
+@pytest.mark.parametrize("dialect", ["postgres", "redshift"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM ts_stat('SELECT to_tsvector(code) FROM sales.payroll')",
+    "SELECT word FROM pg_catalog.ts_stat('SELECT v FROM sales.payroll') AS s",
+    "SELECT \"ts_stat\"('SELECT v FROM sales.payroll') FROM sales.orders",
+    "SELECT ts_rewrite(q, 'SELECT a, b FROM sales.payroll') FROM sales.orders",
+    "SELECT pg_catalog.\"ts_rewrite\"(q, 'SELECT a, b FROM sales.payroll') FROM sales.orders",
+])
+def test_functions_that_run_sql_held_in_a_string_are_refused(sql, dialect):
+    with pytest.raises(TableScopeViolation, match="TS_"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+# The same functions written as a field or a column.
+@pytest.mark.parametrize("dialect", ["postgres", "redshift"])
+@pytest.mark.parametrize("sql, name", [
+    ("SELECT ('SELECT to_tsvector(code) FROM sales.payroll'::text).ts_stat", "TS_STAT"),
+    ("SELECT ('SELECT v FROM sales.payroll'::text).\"ts_stat\" FROM sales.orders", "TS_STAT"),
+    ("SELECT ('select v from sales.payroll'::text).dblink FROM sales.orders", "DBLINK"),
+    ("SELECT ('/srv/data/payroll.csv'::text).pg_read_file FROM sales.orders", "PG_READ_FILE"),
+    ("SELECT ('/srv/data'::text).pg_ls_dir FROM sales.orders", "PG_LS_DIR"),
+    ("SELECT (o.id::oid).lo_get FROM sales.orders o", "LO_GET"),
+    ("SELECT o.pg_read_binary_file FROM sales.orders o", "PG_READ_BINARY_FILE"),
+])
+def test_functions_called_as_a_field_are_refused(sql, name, dialect):
+    with pytest.raises(TableScopeViolation, match=name):
+        check_table_scope(sql, dialect, SCOPE)
+
+
 @pytest.mark.parametrize("sql,dialect", [
     ("DESCRIBE TABLE sales.orders", "snowflake"),
     ("SELECT f.value FROM sales.orders o, LATERAL FLATTEN(input => o.items) f", "snowflake"),
@@ -105,6 +134,8 @@ def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     ("SELECT * FROM SEMANTIC_VIEW(sales.orders DIMENSIONS a.b METRICS c.d)", "snowflake"),
     ("SELECT * FROM generate_series(1, 3) g", "postgres"),
     ("SELECT * FROM sales.orders o, jsonb_array_elements(o.items) i", "postgres"),
+    ("SELECT o.lo_price, lo_bound, o.url, file FROM sales.orders o", "postgres"),
+    ("SELECT o.lo_price, o.url FROM sales.orders o", "redshift"),
     ("SELECT * FROM UNNEST([1, 2])", "bigquery"),
 ])
 def test_dialect_features_over_active_tables_still_run(sql, dialect):
@@ -127,6 +158,18 @@ def test_metadata_statements_are_refused(dialect, sql):
 def test_unparseable_queries_fail_closed(dialect, sql):
     with pytest.raises(TableScopeViolation):
         check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_any_parser_exception_fails_closed(monkeypatch, dialect):
+    from app.ai.code_execution import sql_parser
+
+    def broken(sql, dialect):
+        raise RecursionError("parser bug")  # not a sqlglot error
+
+    monkeypatch.setattr(sql_parser, "parse_guard_sql", broken)
+    with pytest.raises(TableScopeViolation, match="Could not verify"):
+        check_table_scope("SELECT * FROM sales.orders", dialect, SCOPE)
 
 
 def test_refusal_names_the_table_not_the_rest_of_the_catalog():
@@ -236,6 +279,76 @@ def test_sandbox_code_reading_active_tables_still_runs(clinic_db):
 
 
 # ---------------------------------------------------------------------------
+# Clients whose SQL the check cannot parse (guard profile "nonparsing_sql")
+# ---------------------------------------------------------------------------
+
+NONPARSING_CLIENTS = [
+    ("db2_client", "Db2Client"),
+    ("ibmi_client", "IbmiClient"),
+    ("vertica_client", "VerticaClient"),
+    ("sybase_client", "SybaseClient"),
+    ("sap_hana_client", "SapHanaClient"),
+    ("pinot_client", "PinotClient"),
+]
+NONPARSING_REFUSAL = (
+    "The table selection on this connection cannot be checked for this connection type. "
+    "Enable all tables on the connection to let the agent query it."
+)
+
+
+def _nonparsing_client(module, name, scope):
+    """The real client class (so the guard knows it by type), with its
+    transport replaced: every statement it is sent is recorded."""
+    import importlib
+
+    import pandas as pd
+
+    parent = getattr(importlib.import_module(f"app.data_sources.clients.{module}"), name)
+    sent = []
+
+    def execute_query(self, sql):
+        sent.append(sql)
+        return pd.DataFrame({"n": [3]})
+
+    client = object.__new__(type("Recording" + name, (parent,), {"execute_query": execute_query}))
+    if scope is not None:
+        setattr(client, TABLE_SCOPE_ATTR, scope)
+    return client, sent
+
+
+NONPARSING_CODE = (
+    "def generate_df(ds_clients, excel_files):\n"
+    "    return ds_clients['src'].execute_query('SELECT COUNT(*) AS n FROM orders')\n"
+)
+
+
+@pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
+def test_a_client_the_check_cannot_parse_is_refused_when_any_table_is_disabled(module, name):
+    client, sent = _nonparsing_client(module, name, TableScope.from_names(active=["orders"], inactive=["payroll"]))
+    with pytest.raises(TableAccessError) as refused:
+        StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
+    assert str(refused.value) == NONPARSING_REFUSAL
+    assert sent == []
+
+
+@pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
+def test_a_client_the_check_cannot_parse_still_runs_when_no_table_is_disabled(module, name):
+    client, sent = _nonparsing_client(module, name, TableScope.from_names(active=["orders", "customers"], inactive=[]))
+    df, _, _ = StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
+    assert df["n"].iloc[0] == 3
+    assert sent == ["SELECT COUNT(*) AS n FROM orders"]
+
+
+def test_a_table_disabled_only_in_another_spelling_still_counts_as_disabled():
+    # "Orders" enabled and "ORDERS" disabled fold to one name, but an engine
+    # that compares quoted names exactly holds two tables.
+    client, sent = _nonparsing_client("db2_client", "Db2Client",
+                                      TableScope.from_names(active=["Orders"], inactive=["ORDERS"]))
+    with pytest.raises(TableScopeViolation, match="cannot be checked for this connection type"):
+        enforce_table_scope(client, "SELECT 1 FROM orders")
+
+
+# ---------------------------------------------------------------------------
 # CTE names only shadow tables where the CTE is visible
 # ---------------------------------------------------------------------------
 
@@ -271,10 +384,94 @@ def test_cte_names_do_not_shadow_tables_outside_their_scope(dialect, sql):
         check_table_scope(sql, dialect, SCOPE)
 
 
+# The same selection without PAYROLL disabled: a CTE may not take a
+# disabled table's name, so the CTE readings below are checked with the
+# name unlisted (neither enabled nor disabled), which table scope still
+# refuses when it is read as a table.
+PAYROLL_UNLISTED = TableScope.from_names(active=["sales.orders", "sales.customers"], inactive=["hr.salaries"])
+
+
 @pytest.mark.parametrize("dialect", ["postgres", "snowflake", "sqlite", "tsql", "bigquery"])
 @pytest.mark.parametrize("sql", CTE_LEGITIMATE)
 def test_ctes_in_scope_still_run(dialect, sql):
-    check_table_scope(sql, dialect, SCOPE)
+    check_table_scope(sql, dialect, PAYROLL_UNLISTED)
+    if "payroll" not in sql:
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "WITH payroll AS (SELECT * FROM sales.orders) SELECT * FROM payroll",
+    "WITH Payroll AS (SELECT * FROM sales.orders) SELECT * FROM Payroll",
+    "SELECT * FROM sales.orders WHERE id IN (WITH SALARIES AS (SELECT 1 AS id) SELECT id FROM SALARIES)",
+])
+def test_a_cte_named_after_a_disabled_table_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation, match="a WITH entry may not take its name"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+# A table reference is a CTE only when it is written exactly as the CTE's
+# name: same letters, same case, same quoting. Engines differ in how they
+# compare the two (ClickHouse and MySQL 8 compare CTE names case by case;
+# Snowflake and Oracle fold unquoted names to upper case and keep quoted
+# ones), so any other spelling is checked as the table it may be.
+CTE_NAMED_OTHERWISE = [
+    "WITH PAYROLL AS (SELECT 1) SELECT * FROM payroll",
+    "WITH Payroll AS (SELECT 1) SELECT * FROM sales.orders JOIN payroll ON 1 = 1",
+    "WITH payroll AS (SELECT 1) SELECT * FROM (SELECT * FROM PAYROLL) t",
+]
+
+
+@pytest.mark.parametrize("dialect", ["mysql", "clickhouse", "snowflake", "oracle", "tsql", "bigquery", "duckdb",
+                                     "trino", "databricks", "sqlite"])
+@pytest.mark.parametrize("sql", CTE_NAMED_OTHERWISE)
+def test_a_cte_written_in_another_case_does_not_stand_for_a_table(dialect, sql):
+    with pytest.raises(TableScopeViolation, match="PAYROLL"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["snowflake", "oracle", "redshift"])
+@pytest.mark.parametrize("sql", [
+    'WITH payroll AS (SELECT 1) SELECT * FROM "payroll"',
+    'WITH "PAYROLL" AS (SELECT 1) SELECT * FROM PAYROLL',
+])
+def test_a_cte_quoted_otherwise_does_not_stand_for_a_table(dialect, sql):
+    with pytest.raises(TableScopeViolation, match="PAYROLL"):
+        check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH PAYROLL AS (SELECT 1) SELECT * FROM payroll",
+    'WITH payroll AS (SELECT 1) SELECT * FROM "payroll"',
+])
+def test_postgres_compares_a_cte_name_as_postgres_folds_it(sql):
+    # Postgres folds unquoted names (ASCII letters) to lower case and keeps
+    # quoted ones: these name the CTE, as table scope compares Postgres
+    # names; a quoted name in another case does not.
+    check_table_scope(sql, "postgres", PAYROLL_UNLISTED)
+    with pytest.raises(TableScopeViolation, match="PAYROLL"):
+        check_table_scope('WITH "PAYROLL" AS (SELECT 1) SELECT * FROM payroll', "postgres", PAYROLL_UNLISTED)
+
+
+@pytest.mark.parametrize("dialect", ["mysql", "clickhouse", "snowflake", "oracle", "tsql", "postgres"])
+def test_a_cte_written_as_its_name_still_runs(dialect):
+    check_table_scope("WITH Payroll AS (SELECT * FROM sales.orders) SELECT * FROM Payroll", dialect,
+                      PAYROLL_UNLISTED)
+
+
+def test_tables_read_lists_the_tables_a_statement_reads_by_name_without_its_cte_references():
+    """The one walk table scope and the lexer oracle share: every table
+    named as an identifier, in order, once each; a CTE reference visible
+    where it stands is not a table."""
+    from app.ai.code_execution import sql_parser, table_scope
+
+    sql = ("WITH x AS (SELECT * FROM x), y AS (SELECT * FROM sales.orders) "
+           "SELECT * FROM x JOIN y ON true JOIN Warehouse.Sales.Payroll p ON true, generate_series(1, 2) g "
+           "WHERE EXISTS (SELECT 1 FROM sales.orders)")
+    [statement] = sql_parser.parse_guard_sql(sql, "postgres")
+    found = table_scope.tables_read(statement)
+    assert len(found) == 3
+    assert set(found) == {("x",), ("sales", "orders"), ("warehouse", "sales", "payroll")}
 
 
 def test_recursive_cte_can_reference_itself():
@@ -282,6 +479,21 @@ def test_recursive_cte_can_reference_itself():
         "WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 3) SELECT * FROM r",
         "postgres", SCOPE,
     )
+
+
+def test_a_duckdb_scope_without_its_duckdb_folded_names_is_unverified_and_refused():
+    # A scope built by hand, not by from_names, has no names folded the way
+    # DuckDB folds them: nothing is allowed rather than comparing otherwise.
+    scope = TableScope(active=frozenset({("sales", "orders")}))
+    with pytest.raises(TableScopeViolation) as refused:
+        check_table_scope("SELECT * FROM sales.orders", "duckdb", scope)
+    assert str(refused.value).startswith("Could not verify which tables this query reads")
+
+
+def test_a_scope_from_names_carries_duckdb_folded_names():
+    scope = TableScope.from_names(active=["Sales.Orders"], inactive=[])
+    assert scope.ascii_folded is not None and scope.ascii_folded.active == frozenset({("sales", "orders")})
+    check_table_scope("SELECT * FROM SALES.ORDERS", "duckdb", scope)
 
 
 NESTED_CTE_SHADOW_CODE = (
@@ -356,6 +568,9 @@ EXACT_SCOPE = TableScope.from_names(active=["globex_db.asset", "asset"], inactiv
     "SELECT * FROM billing_db.asset",
     "SELECT * FROM othercat.globex_db.asset",
     "SELECT * FROM a.b.globex_db.asset",
+    # A WITH entry may not take a disabled table's name (acme_db.asset), with
+    # or without exact catalogs.
+    "WITH asset AS (SELECT 1 AS id) SELECT * FROM asset",
 ])
 def test_exact_scope_refuses_what_suffix_matching_would_let_through(sql):
     with pytest.raises(TableScopeViolation):
@@ -365,7 +580,7 @@ def test_exact_scope_refuses_what_suffix_matching_would_let_through(sql):
 @pytest.mark.parametrize("sql", [
     "SELECT * FROM globex_db.asset",
     "SELECT * FROM awsdatacatalog.globex_db.asset",
-    "WITH asset AS (SELECT 1 AS id) SELECT * FROM asset",
+    "WITH recent AS (SELECT 1 AS id) SELECT * FROM recent",
 ])
 def test_exact_scope_allows_database_qualified_active_tables_and_ctes(sql):
     check_table_scope(sql, "athena", EXACT_SCOPE, exact_catalogs=("awsdatacatalog",))

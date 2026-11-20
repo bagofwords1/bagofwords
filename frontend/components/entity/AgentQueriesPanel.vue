@@ -23,6 +23,7 @@
       </div>
       <span class="text-xs text-ink-muted tabular-nums ms-auto">{{ visible.length }}</span>
       <button
+        v-if="canRunCustomCode"
         type="button"
         data-testid="agent-query-new"
         class="shrink-0 inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
@@ -34,7 +35,7 @@
     </div>
 
     <!-- "New query" by hand: the same form as the report's Save Query. -->
-    <EntityEditModal v-model="showCreate" :entity-id="null" :detail="null" :ds-id="dsId" @saved="onCreated" />
+    <EntityEditModal v-if="canRunCustomCode" v-model="showCreate" :entity-id="null" :detail="null" :ds-id="dsId" @saved="onCreated" />
 
     <div v-if="loading" class="flex items-center gap-2 py-8 justify-center text-xs text-ink-muted">
       <Spinner class="w-3.5 h-3.5" /><span>{{ $t('queries.loading') }}</span>
@@ -101,6 +102,7 @@ import Spinner from '~/components/Spinner.vue'
 import LibraryIcon from '~/components/icons/LibraryIcon.vue'
 import EntityEditModal from '~/components/entity/EntityEditModal.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { useCanRunCustomCode } from '~/composables/usePermissions'
 
 type QueryEntity = {
   id: string
@@ -124,8 +126,11 @@ const emit = defineEmits<{
 
 // Same tiers as the report's Save Query: anyone who can see this agent may
 // at least SUGGEST a query on it (the backend enforces access), entity
-// managers publish — so the affordance shows for every viewer.
+// managers publish. Writing one by hand previews and saves new code, which
+// the backend allows only with run_custom_code, so the affordance shows only
+// to users who hold it.
 const showCreate = ref(false)
+const canRunCustomCode = useCanRunCustomCode()
 
 // A new row goes to the top of the list and is handed upward so the explorer
 // can open it (and bump the tree badge) the same way a click would.
