@@ -8153,7 +8153,11 @@
       "publishChanges": "Publish changes",
       "popoverLiveNow": "Viewers now see v{n}",
       "popoverReplaceWith": "v{n} replaces it",
-      "popoverCancel": "Cancel"
+      "popoverCancel": "Cancel",
+      "newerTitle": "A newer version is ready (v{n})",
+      "newerBody": "This dashboard was updated since you opened it.",
+      "newerRefresh": "Refresh to v{n}",
+      "newerKeep": "Keep viewing v{n}"
     },
     "access": {
       "signInTitle": "Sign in required",
