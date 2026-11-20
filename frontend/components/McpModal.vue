@@ -62,7 +62,7 @@
                                     :class="[
                                         'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
                                         currentToken
-                                            ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                            ? 'text-ink-muted hover:text-ink-2 hover:bg-gray-200 dark:hover:bg-gray-600'
                                             : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
                                     ]"
                                     :disabled="!currentToken"
@@ -107,7 +107,7 @@
                                     :class="[
                                         'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
                                         currentToken
-                                            ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                            ? 'text-ink-muted hover:text-ink-2 hover:bg-gray-200 dark:hover:bg-gray-600'
                                             : 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
                                     ]"
                                     :disabled="!currentToken"
@@ -124,7 +124,7 @@
                 <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100 dark:border-gray-800">
                     <button
                         @click="showTokens = !showTokens"
-                        class="flex items-center gap-2 text-xs text-ink-muted hover:text-gray-600 transition-colors"
+                        class="flex items-center gap-2 text-xs text-ink-muted hover:text-ink-muted transition-colors"
                     >
                         <UIcon
                             :name="showTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"

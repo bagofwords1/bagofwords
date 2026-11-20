@@ -7,7 +7,7 @@
                         <DataSourceIcon v-if="agentInfo" :type="agentInfo.type || connections[0]?.type" :icon="agentInfo.icon" class="w-7 h-7 shrink-0" />
                         <div class="min-w-0">
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white break-words">{{ agentInfo?.name || $t('data.connectionsTitle') }}</h3>
-                            <p v-if="agentInfo?.description" class="mt-1 text-sm leading-5 text-gray-500 whitespace-pre-wrap break-words">{{ agentInfo.description }}</p>
+                            <p v-if="agentInfo?.description" class="mt-1 text-sm leading-5 text-ink-muted whitespace-pre-wrap break-words">{{ agentInfo.description }}</p>
                             <p v-if="agentInfo" class="mt-2 text-xs text-ink-muted">{{ $t('data.connectionsTitle') }}</p>
                         </div>
                     </div>
@@ -48,7 +48,7 @@
                             <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="w-5 h-5 mt-0.5 flex-shrink-0" />
                             <div class="min-w-0">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
-                                <div class="mt-1 flex items-center gap-1.5 text-xs text-gray-500" role="status">
+                                <div class="mt-1 flex items-center gap-1.5 text-xs text-ink-muted" role="status">
                                     <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDotClass(getConnectionEffective(conn))" />
                                     {{ getStatusLabel(conn) }}
                                 </div>
@@ -62,7 +62,7 @@
                                     <UIcon v-if="switchingIdentityId !== conn.id" name="i-heroicons-arrows-right-left" class="h-3 w-3" />
                                 </button>
                                 <span v-else-if="conn.auth_policy === 'user_required'" class="mt-1.5 inline-flex rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-2xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">{{ identityLabel(conn) }}</span>
-                                <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                                <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
                                     <span v-for="count in connectionCounts(conn)" :key="count.key">{{ $t(count.key, { n: count.value }, count.value) }}</span>
                                 </div>
                             </div>
@@ -73,7 +73,7 @@
                                 @click="signInConnection(conn)"
                                 :disabled="!!signingInId"
                                 :aria-busy="signingInId === conn.id"
-                                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+                                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 hover:bg-blue-100 disabled:opacity-50"
                             >
                                 <Spinner v-if="signingInId === conn.id" class="w-3 h-3" />
                                 {{ $t('data.signIn') }}
@@ -156,11 +156,11 @@
                     <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-5 flex-shrink-0" />
                     <div class="min-w-0 flex-1">
                         <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
-                        <div class="mt-1 flex items-center gap-1.5 text-xs text-gray-500" role="status">
+                        <div class="mt-1 flex items-center gap-1.5 text-xs text-ink-muted" role="status">
                                     <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDotClass(getConnectionEffective(conn))" />
                                     {{ getStatusLabel(conn) }}
                                 </div>
-                                <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                                <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-muted">
                                     <span v-for="count in connectionCounts(conn)" :key="count.key">{{ $t(count.key, { n: count.value }, count.value) }}</span>
                                 </div>
                     </div>

@@ -556,7 +556,7 @@
                !isCollapsed && !myQuota ? 'items-center' : ''
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-surface-muted" />
                 <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full">
                   {{ userInitial }}
                 </div>
@@ -577,7 +577,7 @@
                 ></span>
               </span>
               <template v-else-if="!isCollapsed">
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-surface-muted shrink-0" />
                 <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>

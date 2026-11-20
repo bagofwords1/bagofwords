@@ -98,7 +98,7 @@
 
         <!-- Error message fallback (when result_json is empty but error_message exists) -->
         <div v-if="status === 'error' && toolExecution.error_message && !hasOutput"
-             class="text-chat-2 text-red-700 bg-red-50 dark:bg-red-950 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+             class="text-chat-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
           {{ toolExecution.error_message }}
         </div>
 
@@ -133,7 +133,7 @@
                   <div v-if="outputData.summary" class="text-chat-2 text-gray-800 dark:text-gray-200">
                     <span class="text-gray-500 dark:text-gray-400">{{ t('tools.common.summary') }}</span> {{ outputData.summary }}
                   </div>
-                  <div v-if="outputData.error" class="text-chat-2 text-red-700 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
+                  <div v-if="outputData.error" class="text-chat-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
                     <span class="font-medium">{{ t('tools.common.errorLabel') }}</span>
                     {{ typeof outputData.error === 'string' ? outputData.error : outputData.error.message || JSON.stringify(outputData.error) }}
                   </div>

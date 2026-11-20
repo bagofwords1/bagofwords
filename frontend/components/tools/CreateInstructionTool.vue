@@ -49,7 +49,7 @@
             <div v-if="loadMode" class="flex items-center gap-1">
               <span class="text-gray-500 dark:text-gray-400">{{ t('tools.createInstruction.load') }}</span>
               <span class="px-1.5 py-0.5 rounded text-chat-3 font-medium"
-                :class="loadMode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
+                :class="loadMode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
               >
                 {{ getLoadModeLabel(loadMode) }}
               </span>
@@ -79,7 +79,7 @@
             </template>
             <template v-else-if="canResolve">
               <button
-                class="inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-green-700 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                class="inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                 :disabled="isAccepting || isRejecting"
                 @click.stop="handleAccept"
               >
@@ -108,7 +108,7 @@
           </div>
 
           <!-- Error message -->
-          <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>

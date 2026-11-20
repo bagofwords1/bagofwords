@@ -18,7 +18,7 @@
 			<button
 				v-for="s in ($tm('reports.trainingStarters') as any[])"
 				:key="s.title"
-				class="px-3 py-1.5 text-xs rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
+				class="px-3 py-1.5 text-xs rounded-full border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950 text-sky-700 dark:text-sky-300 hover:bg-sky-100 transition-colors"
 				@click="$emit('starter', `${s.title}\n\n${s.prompt}`)"
 			>
 				{{ s.title }}
@@ -34,7 +34,7 @@
 				class="w-56 max-w-full mb-2 select-none pointer-events-none dark:hidden"
 			/>
 			<div class="hidden dark:flex items-center justify-center w-24 h-24 rounded-2xl bg-gray-800 mb-2">
-				<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-gray-500" />
+				<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-ink-muted" />
 			</div>
 			<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
 			<!-- Agent picker + starter questions: one start-aligned column the

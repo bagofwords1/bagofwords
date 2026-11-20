@@ -43,7 +43,7 @@
             <UIcon name="i-heroicons-hashtag" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
             <div class="flex-1 min-w-0">
               <div class="text-sm truncate">{{ ch.name || ch.external_channel_id }}</div>
-              <div class="text-[11px] font-mono text-gray-400 truncate">{{ ch.external_channel_id }}</div>
+              <div class="text-[11px] font-mono text-ink-muted truncate">{{ ch.external_channel_id }}</div>
             </div>
             <UIcon v-if="savedKey===ch.external_channel_id" name="i-heroicons-check-circle-20-solid" class="w-4 h-4 text-green-500 shrink-0" />
             <AgentScopeMenu :selected="channelSel[ch.external_channel_id] || []" :folders="folders" :options="allAgents" class="w-48 shrink-0"

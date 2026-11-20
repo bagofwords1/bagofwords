@@ -120,7 +120,7 @@
                 :data-testid="`card-param-${spec.name}`" />
             </label>
             <span v-for="spec in identityCardSpecs" :key="spec.name"
-              class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-2xs">
+              class="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-2xs">
               {{ spec.label || spec.name }}: scoped to you
             </span>
             <button v-if="editableCardSpecs.length && !readonly" @click.stop="runCardParams" :disabled="cardRunLoading"

@@ -115,10 +115,10 @@
                             <Icon name="heroicons:paper-airplane" class="w-3.5 h-3.5" />
                         </button>
                     </div>
-                    <p v-if="status?.scope === 'agents' && status?.agents?.length" class="text-2xs text-gray-300 dark:text-gray-600 mt-1 ps-1 truncate">
+                    <p v-if="status?.scope === 'agents' && status?.agents?.length" class="text-2xs text-ink-muted mt-1 ps-1 truncate">
                         Can query: {{ status.agents.map((a: any) => a.name).join(', ') }}
                     </p>
-                    <p v-else-if="status?.scope === 'data_only'" class="text-2xs text-gray-300 dark:text-gray-600 mt-1 ps-1">
+                    <p v-else-if="status?.scope === 'data_only'" class="text-2xs text-ink-muted mt-1 ps-1">
                         Answers from dashboard data only
                     </p>
                 </div>

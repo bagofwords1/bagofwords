@@ -14,7 +14,7 @@
     <!-- Expanded content -->
     <Transition name="slide">
       <div v-if="toolHeaderExpanded && status !== 'running'" class="mt-2 ms-5 space-y-1.5">
-        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
 

@@ -11,7 +11,7 @@
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
       <template v-if="isRunning"></template>
       <template v-else-if="succeeded"><span v-if="description" class="ms-1.5 text-chat-2 text-ink-muted truncate max-w-[320px]">· {{ description }}</span></template>
-      <template v-else><span v-if="isSyntaxError" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 flex-shrink-0">syntax</span><span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span></template></div>
+      <template v-else><span v-if="isSyntaxError" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 flex-shrink-0">syntax</span><span v-if="errorMessage" class="ms-1.5 text-chat-2 text-red-600 truncate max-w-[320px]">{{ errorMessage }}</span></template></div>
 
     <Transition name="fade">
       <div v-if="toolHeaderExpanded && hasDetail" class="mt-2 ms-4 text-chat-2 text-gray-600 dark:text-gray-400">

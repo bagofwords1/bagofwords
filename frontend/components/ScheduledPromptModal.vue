@@ -96,7 +96,7 @@
                                 :class="isActive ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
                                 :aria-pressed="isActive"
                             >
-                                <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="isActive ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                                <span class="inline-block h-3 w-3 rounded-full bg-surface transition-transform" :class="isActive ? 'translate-x-3.5' : 'translate-x-0.5'" />
                             </button>
                         </dd>
                     </div>
@@ -147,7 +147,7 @@
                         v-for="t in scheduleTypes"
                         :key="t.value"
                         class="px-2 py-0.5 text-2xs rounded transition-colors"
-                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
+                        :class="scheduleType === t.value ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-muted'"
                         @click="scheduleType = t.value; scheduleDirty = true"
                     >
                         {{ t.label }}
@@ -227,7 +227,7 @@
                     <button
                         type="button"
                         class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded transition-colors"
-                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
+                        :class="!spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-muted'"
                         data-testid="routing-same-report"
                         @click="spawnNewReport = false"
                     >
@@ -237,7 +237,7 @@
                     <button
                         type="button"
                         class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs rounded transition-colors"
-                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-gray-600'"
+                        :class="spawnNewReport ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-muted'"
                         data-testid="routing-new-report"
                         @click="spawnNewReport = true"
                     >
@@ -260,7 +260,7 @@
                     class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50"
                     :class="isActive ? 'bg-blue-500' : 'bg-gray-300'"
                 >
-                    <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="isActive ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                    <span class="inline-block h-3 w-3 rounded-full bg-surface transition-transform" :class="isActive ? 'translate-x-3.5' : 'translate-x-0.5'" />
                 </button>
             </div>
 
@@ -314,7 +314,7 @@
             <aside v-if="viewMode" class="md:col-span-2 min-w-0 md:border-s md:ps-5 border-gray-100 dark:border-gray-800" data-testid="runs-column">
                 <div class="flex items-baseline justify-between">
                     <h4 class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('scheduledPrompt.previousRuns') }}</h4>
-                    <span v-if="runsTotal" class="text-2xs text-gray-300 dark:text-gray-600">{{ runsTotal }}</span>
+                    <span v-if="runsTotal" class="text-2xs text-ink-muted">{{ runsTotal }}</span>
                 </div>
 
                 <div v-if="runsLoading" class="mt-2 text-2xs text-ink-muted inline-flex items-center">

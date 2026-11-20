@@ -4,7 +4,7 @@
       <div class="flex items-center gap-2 mb-3 shrink-0">
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
         <h3 class="text-lg font-semibold">{{ $t('data.manageConnection') }}</h3>
-        <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-gray-600" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
+        <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-ink-muted" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
       </div>
       <!-- Settings | Queries (connection managers: what BOW runs on this connection) -->
       <div v-if="canSeeQueries" class="flex gap-5 shrink-0" role="tablist" data-testid="connection-modal-tabs">
@@ -35,7 +35,7 @@
           <h4 class="status-heading font-medium">{{ $t('data.setupStatus') }}</h4>
           <div class="mt-2 mb-5" data-testid="management-account">
             <p class="status-meta font-medium text-gray-700 dark:text-gray-300">{{ $t(personalManagement ? 'data.yourAccount' : 'data.organizationAccount') }}</p>
-            <p class="status-meta text-gray-500 mt-1">{{ $t(personalManagement ? 'data.managementPersonalHint' : 'data.managementOrganizationHint') }}</p>
+            <p class="status-meta text-ink-muted mt-1">{{ $t(personalManagement ? 'data.managementPersonalHint' : 'data.managementOrganizationHint') }}</p>
             <button v-if="needsPersonalSignIn" :disabled="signingIn" class="mt-2 inline-flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50" @click="signIn"><Spinner v-if="signingIn" class="h-3 w-3" />{{ $t('data.signIn') }}</button>
           </div>
           <div v-if="!needsPersonalSignIn" class="space-y-1 mb-6">
@@ -44,11 +44,11 @@
               <UIcon v-else :name="testIsError ? 'heroicons-exclamation-circle' : testWarning ? 'heroicons-exclamation-triangle' : lastResult?.success ? 'heroicons-check-circle' : 'heroicons-minus-circle'" class="w-4 h-4 shrink-0 mt-0.5" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-600' : lastResult?.success ? 'text-green-600' : 'text-ink-muted'" />
               <p role="status" class="whitespace-pre-wrap break-words" :class="testIsError ? 'text-red-600' : testWarning ? 'text-amber-700 dark:text-amber-400' : ''">{{ state.busy ? $t('data.testing') : state.error || state.warning || (lastResult?.success && !testWarning ? $t('data.lastConnectionTestPassed') : state.message || lastResult?.message || $t('data.never')) }}</p>
             </div>
-            <p class="status-meta text-gray-500 ps-6">{{ $t('data.lastChecked') }} · {{ checkedAt ? new Date(checkedAt).toLocaleString(locale) : $t('data.never') }}</p>
+            <p class="status-meta text-ink-muted ps-6">{{ $t('data.lastChecked') }} · {{ checkedAt ? new Date(checkedAt).toLocaleString(locale) : $t('data.never') }}</p>
             <p v-if="state.settingsChanged" class="status-meta text-amber-700 dark:text-amber-400 ps-6">{{ $t('data.settingsNeedTest') }}</p>
           </div>
           <section class="space-y-2">
-            <p class="status-meta text-gray-500">{{ $t(personalManagement ? 'data.myAccount' : 'data.sharedSchema') }}</p>
+            <p class="status-meta text-ink-muted">{{ $t(personalManagement ? 'data.myAccount' : 'data.sharedSchema') }}</p>
             <ConnectionIndexingProgress v-if="indexing" :indexing="indexing" :show-logs="true" compact />
             <p v-if="operationError" role="alert" class="status-body text-red-600 whitespace-pre-wrap break-words">{{ operationError }}</p>
           </section>

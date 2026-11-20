@@ -36,7 +36,7 @@
                 :disabled="isSavingRename || !renameDraft.trim()"
                 class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
               >
-                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-gray-500" />
+                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-ink-muted" />
                 <Icon v-else name="heroicons:check" class="w-3.5 h-3.5 text-emerald-600" />
               </button>
             </UTooltip>
@@ -113,7 +113,7 @@
           <button
             v-if="offeredArtifactId"
             @click="acceptOfferedArtifact"
-            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
           >
             <Icon name="heroicons:sparkles" class="w-3 h-3" />
             New artifact — view
@@ -361,7 +361,7 @@
         class="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto py-8 px-4 bg-white/95 dark:bg-gray-900/95"
       >
         <div v-if="hydration.phase === 'running'" class="flex flex-col items-center gap-3 text-center max-w-sm">
-          <Spinner class="w-6 h-6 text-gray-400" />
+          <Spinner class="w-6 h-6 text-ink-muted" />
           <div class="text-sm text-gray-700 dark:text-gray-200">{{ t('artifactFrame.hydrating.title') }}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('artifactFrame.hydrating.progress', { done: hydration.done, total: hydration.total }) }}
@@ -562,7 +562,7 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-gray-600">
+          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-ink-muted">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>

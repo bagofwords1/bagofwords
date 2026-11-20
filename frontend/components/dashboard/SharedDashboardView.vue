@@ -229,7 +229,7 @@
                     :srcdoc="iframeSrcdoc"
                     @load="onArtifactIframeLoad"
                     :sandbox="sandboxAttr"
-                    class="absolute inset-0 w-full h-full border-0 bg-white"
+                    class="absolute inset-0 w-full h-full border-0 bg-surface"
                 />
 
                 <!-- Loading state -->
@@ -240,7 +240,7 @@
                     </div>
                 </div>
 
-                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-gray-500">
+                <div v-else-if="artifactLoadFailed" role="alert" class="absolute inset-0 flex items-center justify-center text-ink-muted">
                     <p>{{ $t('reports.artifactLoadFailed') }}</p>
                 </div>
 

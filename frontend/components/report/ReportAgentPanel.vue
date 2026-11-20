@@ -48,7 +48,7 @@
                 <button
               @click="selectAgent(agent.id)"
               class="w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-              :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 dark:text-gray-300'"
+              :class="selectedAgentId === agent.id ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'text-gray-700 dark:text-gray-300'"
             >
               <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
               <DataSourceIcon v-else :type="agent.type" :connector-key="(agent as any).connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-4 flex-shrink-0" />
@@ -78,7 +78,7 @@
       <button
         @click="onConnect(selectedAgentDetails)"
         :disabled="connectingId === selectedAgentDetails.id"
-        class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
       >
         <Spinner v-if="connectingId === selectedAgentDetails.id" class="w-3.5 h-3.5" />
         <Icon v-else name="heroicons-key" class="w-3.5 h-3.5" />
@@ -209,7 +209,7 @@
               <!-- Unpublished-build warning banner (edit mode only) -->
               <div
                 v-if="selectedInstruction && selectedInstruction.current_build_id && ['draft', 'pending_approval'].includes(selectedInstruction.current_build_status)"
-                class="mx-4 mb-2 px-2.5 py-1.5 rounded-md border border-amber-200 bg-amber-50 flex items-start gap-2"
+                class="mx-4 mb-2 px-2.5 py-1.5 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 flex items-start gap-2"
               >
                 <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0" />
                 <div class="flex-1 min-w-0">
@@ -365,7 +365,7 @@
                           <span class="truncate max-w-[80px]">{{ ds.name }}</span>
                         </span>
                       </template>
-                      <span v-else class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-purple-50 text-2xs text-purple-600 font-medium border border-purple-100">
+                      <span v-else class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-purple-50 dark:bg-purple-950 text-2xs text-purple-600 dark:text-purple-300 font-medium border border-purple-100 dark:border-purple-800">
                         <Icon name="heroicons:circle-stack" class="w-2.5 h-2.5 text-purple-400 flex-shrink-0" />
                         {{ $t('reportAgent.any') }}
                       </span>
@@ -453,7 +453,7 @@
                 <div class="flex items-center gap-1.5">
                   <span
                     class="px-1 py-0.5 text-2xs rounded border flex-shrink-0"
-                    :class="entity.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
+                    :class="entity.type === 'metric' ? 'text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950' : 'text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950'"
                   >{{ (entity.type || 'entity').toUpperCase() }}</span>
                   <span v-text-dir class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ entity.title || entity.slug }}</span>
                 </div>
@@ -483,7 +483,7 @@
             >
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5">
-                  <span class="px-1 py-0.5 text-2xs rounded border flex-shrink-0 text-amber-700 border-amber-200 bg-amber-50">
+                  <span class="px-1 py-0.5 text-2xs rounded border flex-shrink-0 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950">
                     {{ tc.suite_name || $t('reportAgent.evalBadge') }}
                   </span>
                   <span v-text-dir class="truncate text-gray-800 dark:text-gray-200 font-medium">{{ tc.name || promptPreview(tc.prompt_json) }}</span>

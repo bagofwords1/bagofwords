@@ -157,7 +157,7 @@
                   ? 'border-blue-400 bg-blue-50/50 ring-1 ring-blue-100 dark:border-blue-700 dark:bg-blue-950/20 dark:ring-blue-950'
                   : 'border-gray-200 dark:border-gray-700'"
               >
-                <input v-model="formScopes" type="checkbox" :value="item.value" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <input v-model="formScopes" type="checkbox" :value="item.value" class="mt-0.5 h-4 w-4 rounded border-line-strong text-blue-600 focus:ring-blue-500" />
                 <span>
                   <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.label }}</span>
                   <span class="mt-0.5 block text-xs leading-4 text-gray-500 dark:text-gray-400">{{ item.description }}</span>
@@ -192,7 +192,7 @@
             <label class="flex items-start justify-between gap-4">
               <span>
                 <span class="block text-sm font-medium">{{ $t('settings.integrations.channels.oauth.entraTitle') }}</span>
-                <span class="mt-1 block text-xs leading-5 text-gray-500">{{ $t('settings.integrations.channels.oauth.entraHelp') }}</span>
+                <span class="mt-1 block text-xs leading-5 text-ink-muted">{{ $t('settings.integrations.channels.oauth.entraHelp') }}</span>
               </span>
               <UToggle v-model="formEntraEnabled" :aria-label="$t('settings.integrations.channels.oauth.entraTitle')" />
             </label>
@@ -200,25 +200,25 @@
               <p v-if="!entraProviders.length" class="text-xs text-amber-700">{{ $t('settings.integrations.channels.oauth.entraUnavailable') }}</p>
               <label class="block text-sm">
                 {{ $t('settings.integrations.channels.oauth.entraProvider') }}
-                <select v-model="formEntraProvider" required class="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2 dark:bg-gray-900">
+                <select v-model="formEntraProvider" required class="mt-1 block w-full rounded-lg border border-line-strong bg-white p-2 dark:bg-gray-900">
                   <option v-for="provider in entraProviders" :key="provider.name" :value="provider.name">{{ provider.label }}</option>
                 </select>
               </label>
               <label class="block text-sm">
                 {{ $t('settings.integrations.channels.oauth.externalEntraClient') }}
-                <input v-model="formExternalClient" required dir="ltr" type="text" class="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2 font-mono text-xs dark:bg-gray-900" />
+                <input v-model="formExternalClient" required dir="ltr" type="text" class="mt-1 block w-full rounded-lg border border-line-strong bg-white p-2 font-mono text-xs dark:bg-gray-900" />
               </label>
-              <p class="text-xs leading-5 text-gray-500">{{ $t('settings.integrations.channels.oauth.externalEntraHelp') }}</p>
+              <p class="text-xs leading-5 text-ink-muted">{{ $t('settings.integrations.channels.oauth.externalEntraHelp') }}</p>
               <div v-if="selectedEntraProvider" class="space-y-2 text-xs">
                 <div v-for="field in entraReferenceFields" :key="field.key">
-                  <span class="block text-gray-500">{{ field.label }}</span>
+                  <span class="block text-ink-muted">{{ field.label }}</span>
                   <div class="flex items-center gap-2">
                     <code dir="ltr" class="min-w-0 flex-1 break-all">{{ selectedEntraProvider[field.key] }}</code>
                     <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-clipboard-document" :aria-label="$t('settings.integrations.channels.oauth.copy')" @click="copy(selectedEntraProvider[field.key])" />
                   </div>
                 </div>
               </div>
-              <p class="text-xs leading-5 text-gray-500">{{ $t('settings.integrations.channels.oauth.entraRequirements') }}</p>
+              <p class="text-xs leading-5 text-ink-muted">{{ $t('settings.integrations.channels.oauth.entraRequirements') }}</p>
             </template>
           </fieldset>
 

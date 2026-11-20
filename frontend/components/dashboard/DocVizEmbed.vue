@@ -9,7 +9,7 @@
       <span class="text-xs text-ink-muted">
         {{ !viz ? $t('docViewer.vizUnavailable') : $t('docViewer.vizRenderFailed') }}
       </span>
-      <span v-text-dir v-if="viz?.title" class="text-2xs text-gray-300 dark:text-gray-600">{{ viz.title }}</span>
+      <span v-text-dir v-if="viz?.title" class="text-2xs text-ink-muted">{{ viz.title }}</span>
     </div>
 
     <template v-else>

@@ -153,8 +153,8 @@
                       <div class="space-y-1">
                         <div class="text-2xs text-gray-500 dark:text-gray-400 mb-1">Output</div>
                         <div class="flex items-center gap-2">
-                          <span class="bg-green-100 dark:bg-green-900/50 text-green-800 text-xs px-2 py-1 rounded-md">Pass</span>
-                          <span class="bg-red-100 dark:bg-red-900/50 text-red-800 text-xs px-2 py-1 rounded-md">Fail</span>
+                          <span class="bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 text-xs px-2 py-1 rounded-md">Pass</span>
+                          <span class="bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300 text-xs px-2 py-1 rounded-md">Fail</span>
                         </div>
                       </div>
                       <!-- Judge model selector (popover UI like PromptBoxV2) -->
@@ -280,7 +280,7 @@
                   <div class="text-2xs text-gray-500 dark:text-gray-400">Other rules</div>
                   <div v-for="(r, idx) in otherRules" :key="`other:${idx}`" class="rounded-md border border-blue-200 px-3 py-2 space-y-2">
                     <div class="flex items-center gap-2">
-                      <span class="bg-blue-50 dark:bg-blue-950 text-blue-700 text-2xs uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
+                      <span class="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 text-2xs uppercase tracking-wide px-2 py-0.5 rounded">{{ r.type }}</span>
                       <UButton class="ms-auto" color="gray" variant="ghost" size="xs" icon="i-heroicons-trash" @click="removeOtherRule(idx)" />
                     </div>
 
