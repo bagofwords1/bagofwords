@@ -1015,6 +1015,196 @@ def test_uris_over_the_connections_own_data_still_connect_and_read(guarded_tree,
     assert "https://files.example.com/r/x.csv" in paths
 
 
+def test_a_uri_is_refused_when_the_directory_the_engine_resolves_it_to_is_protected(guarded_tree, monkeypatch):
+    # DuckDB reads `~ogs` as the home directory's text followed by `ogs`:
+    # under the home directory `top/l` that is the protected `top/logs`.
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.top / "l")))
+    _refused_at_connect_with_nothing_read(DuckDBClient(uris="~ogs/*.csv"), {guarded_tree.logs: "server.csv"})
+
+
+# -- the path policy runs on the path that is opened -----------------------------
+
+
+@pytest.fixture
+def linked_roots(tmp_path, monkeypatch):
+    """Two organizations with a root each, side by side. Organization A's
+    root holds a link `l` to a folder two levels down, so `<A>/l/../..` is
+    A's root itself, while the same text read without the link is the
+    folder holding both roots."""
+    from app.settings.config import settings
+
+    root_a, root_c = tmp_path / "rootA", tmp_path / "rootC"
+    _folder(root_a / "x" / "y")
+    _folder(root_c)
+    (root_a / "l").symlink_to(root_a / "x" / "y")
+    (root_c / "report.csv").write_text("k,v\ntheirs,1\n")
+    org_a, org_c = "33333333-aaaa-4aaa-8aaa-333333333333", "44444444-cccc-4ccc-8ccc-444444444444"
+    monkeypatch.setattr(settings.bow_config.security, "organization_file_roots",
+                        {org_a: [str(root_a)], org_c: [str(root_c)]})
+    return SimpleNamespace(a=root_a, c=root_c, org_a=org_a, org_c=org_c, through_link=f"{root_a}/l/../../{root_c.name}")
+
+
+@pytest.mark.parametrize("form", ["file:{path}", "file://{path}", "file://localhost{path}"])
+@pytest.mark.parametrize("place", ["another organization's root", "a protected folder"])
+def test_a_database_file_named_with_a_file_prefix_is_checked_at_the_path_it_names(form, place, departments, guarded_tree):
+    folder, organization = ((departments["a"], departments["org_b"]) if place == "another organization's root"
+                            else (guarded_tree.logs, departments["org_b"]))
+    db = _duckdb_file(folder / "x.duckdb")
+    value = form.format(path=db)
+    with _as_request_of(organization), pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"database": value})
+    for client in (DuckDBClient(database=value), DuckDBClient(uris=value)):
+        _refused_at_connect_with_nothing_read(lockdown.bind_organization(client, organization), {folder: "x.duckdb"})
+
+
+def test_a_database_file_of_the_organizations_own_is_still_opened_whatever_its_form(departments):
+    db = _duckdb_file(departments["b"] / "market.duckdb")
+    for value in (str(db), f"file:{db}", f"file://{db}", f"file://localhost{db}"):
+        with _as_request_of(departments["org_b"]):
+            lockdown.check_connection_config("duckdb", {"database": value})
+        for client in (DuckDBClient(database=value), DuckDBClient(uris=value)):
+            with lockdown.bind_organization(client, departments["org_b"]).connect() as session:
+                assert session.execute("SELECT count(*) FROM prices").fetchone()[0] == 1, value
+
+
+def _database_with_views(path: Path, theirs: Path) -> Path:
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE prices AS SELECT 'acme' AS ticker, 12.5 AS price")
+    con.execute(f"CREATE VIEW theirs AS SELECT * FROM read_csv_auto('{theirs}')")
+    con.close()
+    return path
+
+
+@pytest.mark.parametrize("shape", ["database", "uri to a file", "uri to a glob"])
+def test_a_database_file_session_is_locked_only_to_locations_the_policy_checked(shape, linked_roots):
+    """A database file in organization A's root with a view over
+    organization C's file, named through A's link: the session may not
+    read C's file, and nothing in C's root is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    db = _database_with_views(linked_roots.a / "market.duckdb", linked_roots.c / "report.csv")
+    if shape == "database":
+        client = DuckDBClient(database=f"{linked_roots.a}/l/../../market.duckdb")
+    elif shape == "uri to a file":
+        client = DuckDBClient(database=str(db), uris=f"{linked_roots.through_link}/report.csv")
+    else:
+        client = DuckDBClient(database=str(db), uris=f"{linked_roots.through_link}/*.csv")
+    client = lockdown.bind_organization(client, linked_roots.org_a)
+    opens = _Opens(linked_roots.c)
+    try:
+        assert client.execute_query("SELECT count(*) AS n FROM prices")["n"][0] == 1
+        with pytest.raises(Exception, match="(?i)disabled by configuration") as refused:
+            client.execute_query("SELECT * FROM theirs")
+        assert "theirs,1" not in str(refused.value)
+        assert "report.csv" not in opens()
+    finally:
+        opens.close()
+
+
+def test_a_sqlite_file_is_opened_at_the_path_the_policy_checked(linked_roots):
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    theirs = linked_roots.c / "x.sqlite"
+    con = sqlite3.connect(theirs)
+    con.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)")
+    con.execute("INSERT INTO orders (total) VALUES (999.0)")
+    con.commit()
+    con.close()
+    # Through A's link the same text names a file in A's own root.
+    own = _sqlite_file(_folder(linked_roots.a / linked_roots.c.name) / "x.sqlite")
+    client = lockdown.bind_organization(SqliteClient(database=f"{linked_roots.through_link}/x.sqlite"),
+                                        linked_roots.org_a)
+    opens = _Opens(linked_roots.c)
+    try:
+        assert sorted(client.execute_query("SELECT total FROM orders")["total"].tolist()) == [5.0, 7.5]
+        own.unlink()
+        with pytest.raises(RuntimeError, match="not found"):
+            client.execute_query("SELECT total FROM orders")
+        assert "x.sqlite" not in opens()
+    finally:
+        opens.close()
+    # A plain path to the organization's own file.
+    plain = _sqlite_file(linked_roots.a / "plain.sqlite")
+    client = lockdown.bind_organization(SqliteClient(database=str(plain)), linked_roots.org_a)
+    assert client.test_connection()["success"] is True
+
+
+def test_a_file_connection_reads_each_file_its_globs_found_where_the_policy_checked_it(guarded_tree, tmp_path,
+                                                                                       monkeypatch):
+    """A folder literally named `~ogs` in the working directory holds a
+    file named like the protected log. The glob finds that file, and that
+    file is what the connection reads, not the protected log the engine
+    would read for the same text (`~ogs` as the home directory's text
+    followed by `ogs`)."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    work = _folder(tmp_path / "work")
+    (_folder(work / "~ogs") / "server.csv").write_text("line\nown-copy\n")
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.top / "l")))
+    lockdown.check_connection_config("csv", {"file_paths": "~ogs/*.csv"})
+    assert lockdown.filter_files(["~ogs/server.csv"], "csv") == [str(work / "~ogs" / "server.csv")]
+    opens = _Opens(guarded_tree.logs)
+    try:
+        assert CSVClient(file_paths="~ogs/*.csv").execute_query("SELECT * FROM server")["line"].tolist() == ["own-copy"]
+        assert "server.csv" not in opens()
+    finally:
+        opens.close()
+
+
+@pytest.mark.parametrize("client_cls, ext", [(QVDClient, ".qvd"), (PBIXClient, ".pbix")])
+def test_a_converted_file_is_cached_under_the_file_the_policy_checked(client_cls, ext, linked_roots):
+    """A file named through organization A's link is A's own file: its
+    converted copy is cached under that file, never under organization C's
+    file that the same text names without the link."""
+    theirs = linked_roots.c / f"x{ext}"
+    theirs.write_bytes(b"theirs")
+    own = _folder(linked_roots.a / linked_roots.c.name) / f"x{ext}"
+    own.write_bytes(b"own")
+    through_link = f"{linked_roots.through_link}/x{ext}"
+    assert client_cls._cache_key(through_link) == client_cls._cache_key(str(own))
+    assert client_cls._cache_key(through_link)[0] != client_cls._cache_key(str(theirs))[0]
+
+
+def test_a_tls_file_option_is_checked_where_the_driver_opens_it(tmp_path, monkeypatch):
+    """Database drivers open a TLS file option as written: `~` is a folder
+    name to them, not the home directory."""
+    from app.data_sources.clients._sa_url import path_allowed
+    from app.settings.config import settings
+
+    work, home = _folder(tmp_path / "work"), _folder(tmp_path / "home")
+    monkeypatch.setattr(settings.bow_config.system_logs, "directory", str(_folder(work / "~")))
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("HOME", str(home))
+    assert path_allowed("~/client.pem") is False
+    assert path_allowed(str(home / "client.pem")) is True
+
+
+@pytest.mark.parametrize("value", ["sqlite:///file:{db}?uri=true", "sqlite:///file://localhost{db}?mode=ro&uri=true",
+                                   "sqlite:///file:{db}"])
+def test_an_iceberg_catalog_database_is_named_by_its_path(value, departments):
+    from app.data_sources.clients.iceberg_client import checked_extra_properties
+
+    reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
+    with _as_request_of(org_b):
+        with pytest.raises(ValueError, match="'uri'"):
+            checked_extra_properties({"type": "sql", "uri": value.format(db=reserved / "catalog.db")})
+        own = f"sqlite:///{free}/catalog.db"
+        assert checked_extra_properties({"type": "sql", "uri": own, "warehouse": f"file://{free}"})["uri"] == own
+
+
+def test_an_iceberg_location_is_checked_where_pyiceberg_opens_it(linked_roots):
+    from app.data_sources.clients.iceberg_client import checked_extra_properties
+
+    with _as_request_of(linked_roots.org_a):
+        # PyIceberg reads a location with no scheme as its absolute form,
+        # `..` removed as text: `<A>/l/../../rootC` is C's root to it.
+        for value in (linked_roots.through_link, f"file://localhost{linked_roots.a}"):
+            with pytest.raises(ValueError, match="'warehouse'"):
+                checked_extra_properties({"type": "sql", "warehouse": value})
+        assert checked_extra_properties({"type": "sql", "warehouse": f"file://{linked_roots.a}"})
+
+
 # -- what a statement may name -------------------------------------------------
 
 

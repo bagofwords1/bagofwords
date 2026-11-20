@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import UTC, datetime
 from typing import Any
@@ -68,7 +69,14 @@ def _loads_foreign_code(key: str, raw_value) -> bool:
 
 
 def _local_path_in(value: str) -> str | None:
-    """The file a property value names on this server, if it names one."""
+    """The file a property value names on this server, if it names one, in
+    the form it is opened: a SQLite catalog database as a plain file
+    (relative to the working directory), a `file:` location as PyIceberg
+    reads it (its path as written), and a location with no scheme as
+    PyIceberg's absolute form of it. A form that SQLite or PyIceberg would
+    read as another file is refused (ValueError)."""
+    from app.data_sources.clients._duckdb_lockdown import opened_path
+
     v = value.strip()
     if v.lower().startswith("sqlite"):
         try:
@@ -77,13 +85,20 @@ def _local_path_in(value: str) -> str | None:
             database = make_url(v).database
         except Exception:
             database = v.split(":///", 1)[-1].split("?", 1)[0]
-        return None if not database or database == ":memory:" or database.startswith("file::memory:") else database
+        if not database or database == ":memory:" or database.startswith("file::memory:"):
+            return None
+        if database.lower().startswith("file:"):
+            raise ValueError("name the catalog database by its path, as sqlite:////path/to/catalog.db")
+        return opened_path(database)
     if v.lower().startswith("file:"):
-        from urllib.parse import unquote, urlparse
+        from urllib.parse import urlparse
 
-        return unquote(urlparse(v).path) or None
+        location = urlparse(v)
+        if location.netloc:
+            raise ValueError("a file: location names no host; write it as file:///path")
+        return opened_path(location.path) if location.path else None
     if v.startswith("/"):
-        return v
+        return os.path.abspath(v)
     return None
 
 

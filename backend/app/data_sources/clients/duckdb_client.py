@@ -300,20 +300,23 @@ class DuckDBClient(DataSourceClient):
             directories.append(directory)
         return paths, directories
 
+    def _local_duckdb_uri(self) -> str | None:
+        """The first URI naming a .duckdb or .db file, as written."""
+        for pattern in self.uri_patterns:
+            if pattern.lower().endswith(('.duckdb', '.db')):
+                return pattern
+        return None
+
     def _find_local_duckdb_file(self) -> str | None:
         """Check if any URI pattern is a local .duckdb or .db file.
 
         Supports both direct paths (/data/my.duckdb) and file:// URIs (file:///data/my.duckdb).
         Returns the normalized path (strips file:// prefix if present).
         """
-        for pattern in self.uri_patterns:
-            lower = pattern.lower()
-            if lower.endswith('.duckdb') or lower.endswith('.db'):
-                # Strip file:// prefix if present
-                if lower.startswith('file://'):
-                    return pattern[7:]  # Remove 'file://' prefix
-                return pattern
-        return None
+        pattern = self._local_duckdb_uri()
+        if pattern is not None and pattern.lower().startswith('file://'):
+            return pattern[7:]  # Remove 'file://' prefix
+        return pattern
 
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
@@ -327,15 +330,23 @@ class DuckDBClient(DataSourceClient):
                 if lockdown.unrestricted():
                     con = duckdb.connect(database=db_file, read_only=True)
                 else:
+                    organization = lockdown.organization_of(self)
+                    # The file the policy checks is the file opened: a
+                    # file: prefix read as DuckDB reads it, links followed.
+                    written = self.database or self._local_duckdb_uri()
+                    local = lockdown.local_path_of(written)
+                    database = lockdown.database_file(written, organization)
                     # Besides the file: its own folder, where the files its
                     # views read usually sit, and any other URI listed on the
                     # connection, as the path policy (organization roots
                     # included) accepts them, before the file is opened.
-                    others = [p for p in self.uri_patterns if lockdown.local_path_of(p) != db_file and p != db_file]
-                    paths, directories = lockdown.database_file_sources(
-                        db_file, others, lockdown.organization_of(self))
-                    con = duckdb.connect(database=db_file, read_only=True)
-                    lockdown.lock_connection(con, paths=paths, directories=directories, database_path=db_file)
+                    others = [p for p in self.uri_patterns if p != written and lockdown.local_path_of(p) != local]
+                    paths, directories = lockdown.engine_resolved(
+                        *lockdown.database_file_sources(database, others, organization))
+                    # The path policy on exactly what the lock will grant.
+                    lockdown.check_lock_targets(paths, directories, organization)
+                    con = duckdb.connect(database=database, read_only=True)
+                    lockdown.lock_connection(con, paths=paths, directories=directories, database_path=database)
             elif lockdown.unrestricted():
                 # In-memory database with views from URI patterns, unlocked.
                 con = duckdb.connect(database=":memory:")

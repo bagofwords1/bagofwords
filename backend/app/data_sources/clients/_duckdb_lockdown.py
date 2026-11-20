@@ -120,6 +120,15 @@ def _real(path) -> Path:
     return Path(os.path.realpath(os.path.expanduser(str(path))))
 
 
+def opened_path(path: str) -> str:
+    """``path`` as a process opens it with a plain file call: relative to
+    the working directory, with a leading `~` or `file:` taken as part of
+    a name. Absolute; its links and `..` are left for the path policy to
+    resolve, so the result names the same file under its own name."""
+    path = str(path)
+    return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
+
+
 def _app_database_file() -> Optional[Path]:
     cfg = _bow_config()
     url = (getattr(getattr(cfg, "database", None), "url", None) if cfg else None) or os.environ.get(
@@ -307,8 +316,10 @@ def pattern_base(pattern: str) -> Tuple[str, bool]:
 
 def check_file_patterns(patterns: Iterable[str], organization_id: Optional[str] = None) -> None:
     """Config-time check for newline-separated path / glob settings whose
-    matches are opened one file at a time (csv, qvd, pbix). Raises ValueError."""
+    matches are opened one file at a time (csv, qvd, pbix), as the glob
+    reads them (`opened_path`). Raises ValueError."""
     for pattern in patterns:
+        pattern = opened_path(pattern)
         base, has_glob = pattern_base(pattern)
         real = check_local_path(base, organization_id=organization_id)
         if has_glob:
@@ -332,12 +343,12 @@ def check_connection_config(conn_type: str, config: dict) -> None:
             field = "database"
             database = str(config.get("database") or "").strip()
             if database and database != ":memory:":
-                check_local_path(database)
+                check_local_path(opened_path(database))
         elif conn_type == "duckdb":
             field = "database"
             database = str(config.get("database") or "").strip()
             if database:
-                check_local_path(database)
+                database_file(database)
                 return
             field = "uris"
             uris = _lines(config.get("uris"))
@@ -354,10 +365,13 @@ def check_connection_config(conn_type: str, config: dict) -> None:
 
 
 def filter_files(files: Iterable[str], kind: str, organization_id: Optional[str] = None) -> List[str]:
-    """Drop resolved files the policy refuses (a broad glob can sweep in a
-    protected file, or a symlink can point at one)."""
+    """The files a glob found, each as the absolute path the policy checked
+    (`opened_path`), which is what the connection then reads; files the
+    policy refuses are dropped (a broad glob can sweep in a protected
+    file, or a symlink can point at one)."""
     kept = []
     for f in files:
+        f = opened_path(f)
         try:
             check_local_path(f, organization_id=organization_id)
         except ValueError:
@@ -425,7 +439,8 @@ def sources_for_patterns(
     patterns: Iterable[str], organization_id: Optional[str] = None
 ) -> Tuple[List[str], List[str]]:
     """(allowed_paths, allowed_directories) for DuckDB URI patterns the engine
-    expands itself. Local ones pass the path policy first (ValueError)."""
+    expands itself. Local ones pass the path policy first (ValueError), and
+    are listed only in the form it checked (links followed, then `..`)."""
     paths: List[str] = []
     dirs: List[str] = []
     for pattern in patterns:
@@ -446,14 +461,14 @@ def sources_for_patterns(
             real = check_local_path(base, contains=True, organization_id=organization_id)
             if pattern_reaches_protected_file(local):
                 raise ValueError(f"Pattern {_REFUSED}")
-            dirs.extend({os.path.abspath(base), str(real)})
+            dirs.append(str(real))
         else:
             # A directory, with or without its '/', is read as a whole.
             whole = local.endswith("/") or os.path.isdir(_real(local))
             real = check_local_path(local, contains=whole, organization_id=organization_id)
             if whole and _reaches_protected_file(real):
                 raise ValueError(f"Path {_REFUSED}")
-            paths.extend({pattern, local, os.path.abspath(local), str(real)})
+            paths.append(str(real))
     return paths, dirs
 
 
@@ -485,19 +500,35 @@ def check_lock_targets(paths: Iterable[str], directories: Iterable[str],
             check_local_path(local_path_of(path), organization_id=organization_id)
 
 
+def database_file(value: str, organization_id: Optional[str] = None) -> str:
+    """The database file a DuckDB `database` value names, as the file to
+    open: a `file:` prefix read as DuckDB reads it (`local_path_of`), then
+    links followed and `..` taken, and the path policy applied to that.
+    Raises ValueError."""
+    return str(check_local_path(local_path_of(value), organization_id=organization_id))
+
+
+def engine_resolved(paths: Iterable[str], directories: Iterable[str]) -> Tuple[List[str], List[str]]:
+    """(paths, directories) as DuckDB resolves them when a session is
+    locked to them: the form `check_lock_targets` checks."""
+    return (sorted(_resolved_on_scratch("allowed_paths", list(paths))),
+            sorted(_resolved_on_scratch("allowed_directories", list(directories))))
+
+
 def database_file_sources(db_file: str, extra_patterns: Iterable[str] = (),
                           organization_id: Optional[str] = None) -> Tuple[List[str], List[str]]:
     """What a session opened on a database file may read besides the file:
     the file's own folder (views in it commonly read files kept next to it)
-    and any further locations the connection lists. Raises ValueError when
-    the database file itself is refused."""
+    and any further locations the connection lists, each in the form the
+    path policy checked. Raises ValueError when the database file itself is
+    refused."""
     real = check_local_path(db_file, organization_id=organization_id)
     paths: List[str] = []
     dirs: List[str] = []
     try:
         folder = check_local_path(str(real.parent), contains=True, organization_id=organization_id)
         if not any(_is_within(f, folder) for f in _protected_app_files() if f != real):
-            dirs += [str(folder), os.path.dirname(os.path.abspath(db_file))]
+            dirs.append(str(folder))
     except ValueError:
         pass  # the folder holds something protected: the file alone is served
     try:

@@ -119,7 +119,7 @@ class PBIXClient(DataSourceClient):
     @staticmethod
     def _cache_key(filepath: str) -> tuple[str, Path]:
         """Return (file_hash, cache_dir) for the given file + its current mtime."""
-        abs_path = os.path.abspath(filepath)
+        abs_path = os.path.realpath(filepath)
         file_hash = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:16]
         mtime_ns = os.stat(abs_path).st_mtime_ns
         return file_hash, _CACHE_DIR / f"{file_hash}_{mtime_ns}_v{_CACHE_SCHEMA_VERSION}"
