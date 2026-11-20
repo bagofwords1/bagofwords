@@ -318,16 +318,19 @@ class IcebergClient(DataSourceClient):
         """A saved connection may keep a SQL catalog in its extra properties:
         {"type": "sql", "uri": ..., "warehouse": ...}. Those three are read
         onto the catalog fields, where every check on those fields applies,
-        and dropped from the extra properties. A field set both ways to a
-        different value is refused (ValueError). Any other connection-only
-        key stays in the extra properties, which refuse it."""
+        and dropped from the extra properties. Such a connection kept the
+        catalog type field at its default, "rest", and whatever URI and
+        warehouse that type asked for, which a SQL catalog never uses: the
+        values in the extra properties replace them. With the catalog type
+        field set to "sql", a field set both ways to a different value is
+        refused, as is any other catalog type (ValueError). Any other
+        connection-only key stays in the extra properties, which refuse it."""
         try:
             extra = json.loads(self.extra_properties) if self.extra_properties else None
         except json.JSONDecodeError:
             return
         if not isinstance(extra, dict) or str(extra.get("type", "")).strip().lower() != "sql":
             return
-        # "rest" is the catalog field's default, which such a connection kept.
         if self.catalog_type not in ("rest", "sql"):
             raise ValueError("Extra catalog property 'type' differs from the connection's catalog type.")
         for field in ("uri", "warehouse"):
@@ -336,7 +339,7 @@ class IcebergClient(DataSourceClient):
             value = str(extra.pop(field)).strip()
             value = (value.rstrip("/") if field == "uri" else value) or None
             current = getattr(self, field)
-            if current is not None and current != value:
+            if self.catalog_type == "sql" and current is not None and current != value:
                 raise ValueError(f"Extra catalog property '{field}' differs from the connection's {field}.")
             setattr(self, field, value)
         del extra["type"]

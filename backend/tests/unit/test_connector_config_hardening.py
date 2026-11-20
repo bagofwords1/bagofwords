@@ -176,18 +176,15 @@ def test_iceberg_endpoint_properties_get_the_outbound_check(monkeypatch, key):
 
 
 def test_iceberg_sql_catalog_file_follows_the_local_path_policy(tmp_path):
-    from app.data_sources.clients.iceberg_client import IcebergClient
-
-    props = IcebergClient(catalog_type="sql", uri=f"sqlite:///{tmp_path}/catalog.db",
-                          warehouse=f"file://{tmp_path}")._properties()
-    assert props["type"] == "sql" and props["warehouse"] == f"file://{tmp_path}"
+    ok = {"type": "sql", "uri": f"sqlite:///{tmp_path}/catalog.db", "warehouse": f"file://{tmp_path}"}
     # The catalog database is opened read-only, at the path that was checked.
-    assert props["uri"] == f"sqlite:///file:{tmp_path.resolve()}/catalog.db?mode=ro&uri=true"
+    assert _iceberg(ok)._properties()["uri"] == f"sqlite:///file:{tmp_path.resolve()}/catalog.db?mode=ro&uri=true"
 
-    for fields in ({"uri": "sqlite:////etc/passwd"}, {"uri": "sqlite:////etc/ssl/x.db"},
-                   {"uri": f"sqlite:///{tmp_path}/catalog.db", "warehouse": "file:///etc"}):
+    for extra in ({"type": "sql", "uri": "sqlite:////etc/passwd"},
+                  {"type": "sql", "uri": "sqlite:////etc/ssl/x.db"},
+                  {"warehouse": "file:///etc"}):
         with pytest.raises(ValueError) as exc:
-            IcebergClient(catalog_type="sql", **fields)._properties()
+            _iceberg(extra)._properties()
         assert "uri" in str(exc.value) or "warehouse" in str(exc.value)
 
 

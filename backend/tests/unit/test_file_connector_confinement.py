@@ -1498,9 +1498,10 @@ def test_only_the_sql_type_is_read_from_the_extra_properties(extra):
 
 
 @pytest.mark.parametrize("fields", [
-    {"uri": "sqlite:///{home}/other.db"}, {"warehouse": "file://{home}/other"}, {"catalog_type": "glue"},
+    {"catalog_type": "sql", "uri": "sqlite:///{home}/other.db"},
+    {"catalog_type": "sql", "warehouse": "file://{home}/other"}, {"catalog_type": "glue"},
 ])
-def test_a_saved_sql_catalog_whose_extra_properties_differ_from_the_catalog_fields_is_refused(fields, iceberg_places):
+def test_a_sql_catalog_whose_extra_properties_differ_from_its_catalog_fields_is_refused(fields, iceberg_places):
     from app.data_sources.clients.iceberg_client import IcebergClient
 
     home = iceberg_places.own
@@ -1513,6 +1514,39 @@ def test_a_saved_sql_catalog_whose_extra_properties_differ_from_the_catalog_fiel
     # The same value both ways is one value.
     same = {**_saved_sql_catalog_config(home), "uri": f"sqlite:///{home}/catalog.db", "catalog_type": "sql"}
     assert lockdown.bind_organization(IcebergClient(**same), iceberg_places.org_a).test_connection()["success"] is True
+
+
+@pytest.mark.parametrize("main_warehouse", [None, "wh", "file://{free}/unused"])
+def test_a_saved_sql_catalog_reads_the_values_in_its_extra_properties_not_the_rest_fields(
+        main_warehouse, iceberg_places):
+    """Such a connection kept a placeholder REST URI (and maybe a warehouse)
+    in the catalog fields: the values in the extra properties are the ones
+    used, and the ones checked."""
+    from app.data_sources.clients.iceberg_client import IcebergClient
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    _iceberg_catalog_in(iceberg_places.own)
+    _iceberg_catalog_in(_folder(iceberg_places.theirs / "cat"))
+    fields = {"uri": "http://unused"}
+    if main_warehouse:
+        fields["warehouse"] = main_warehouse.format(free=iceberg_places.free)
+    own = {**_saved_sql_catalog_config(iceberg_places.own), **fields}
+    with _as_request_of(iceberg_places.org_a):
+        lockdown.check_connection_config("iceberg", own)
+    client = lockdown.bind_organization(IcebergClient(**own), iceberg_places.org_a)
+    assert client.execute_query("SELECT count(*) AS n FROM sales.orders")["n"][0] == 3
+
+    theirs = {**_saved_sql_catalog_config(iceberg_places.theirs / "cat"), **fields}
+    opens = _Opens(iceberg_places.theirs / "cat")
+    try:
+        with _as_request_of(iceberg_places.org_a), pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            lockdown.check_connection_config("iceberg", theirs)
+        client = lockdown.bind_organization(IcebergClient(**theirs), iceberg_places.org_a)
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT count(*) AS n FROM sales.orders")
+        assert not opens()
+    finally:
+        opens.close()
 
 
 # -- what a statement may name -------------------------------------------------

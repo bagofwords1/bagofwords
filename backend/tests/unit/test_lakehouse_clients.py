@@ -59,7 +59,9 @@ def iceberg_catalog(tmp_path_factory):
 def _ice(cat, **kw):
     from app.data_sources.clients.iceberg_client import IcebergClient
 
-    return IcebergClient(catalog_type="sql", uri=cat["uri"], warehouse=cat["warehouse"], **kw)
+    props = json.dumps({"type": "sql", "uri": cat["uri"], "warehouse": cat["warehouse"]})
+    client = IcebergClient(catalog_type="rest", uri="http://unused", extra_properties=props, **kw)
+    return client
 
 
 def test_iceberg_catalog_describes_partitioning_and_rows(iceberg_catalog):
