@@ -3422,6 +3422,111 @@ class KmsLighthouseTokenCredentials(BaseModel):
         return value
 
 
+# Confluence Data Center / Server (on-prem wiki, read-only live file connector).
+class ConfluenceDcConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Confluence URL",
+        description=(
+            "Your Confluence Data Center or Server address, including the context path if it has one, "
+            "e.g. https://confluence.example.com or https://intranet.example.com/confluence."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    spaces: Optional[str] = Field(
+        None,
+        title="Spaces",
+        description=(
+            "Optional comma-separated space keys to limit this connection to, e.g. ENG, HR. Search, browsing "
+            "and reads never leave these spaces. Leave blank for every space the identity can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_blogposts: bool = Field(
+        True, title="Include blog posts",
+        description="Also search and list blog posts, not only pages.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_results: int = Field(
+        200, ge=1, le=1000, title="Max results",
+        description="Upper bound on pages returned by one search or listing.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for real deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+    # No catalog (live only): keeps the index_mode consumers reporting "Live".
+    index_mode: str = Field("none", title="Indexing", json_schema_extra={"ui:hidden": True})
+
+    @field_validator("spaces")
+    @classmethod
+    def _space_keys(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        keys = [k for k in re.split(r"[,\s]+", str(value)) if k]
+        if not all(re.fullmatch(r"~?[A-Za-z0-9_.@-]{1,255}", k) for k in keys):
+            raise ValueError("Use space keys separated by commas, e.g. ENG, HR (the key from the space's URL).")
+        return ", ".join(keys)
+
+    @field_validator("index_mode")
+    @classmethod
+    def _live_only(cls, value):
+        if value != "none":
+            raise ValueError("Confluence connections are live only (no indexing).")
+        return value
+
+
+# Visible ASCII only: a token goes into an HTTP header as-is.
+CONFLUENCE_TOKEN_RE = re.compile(r"\A[\x21-\x7e]+\Z")
+CONFLUENCE_TOKEN_FORMAT_MESSAGE = (
+    "The Confluence personal access token can contain only plain letters, digits and punctuation, with no "
+    "spaces. Copy it again from Confluence (Profile > Personal Access Tokens) and paste it as plain text."
+)
+
+
+class ConfluenceDcTokenCredentials(BaseModel):
+    """A Confluence Data Center personal access token (7.9+), sent as a Bearer token."""
+    # A validation error must not echo the rejected token.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    personal_access_token: str = Field(..., min_length=1, title="Personal access token",
+        description="Create one in Confluence under Profile > Personal Access Tokens. It reads as that user.",
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("personal_access_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not CONFLUENCE_TOKEN_RE.fullmatch(value):
+            raise ValueError(CONFLUENCE_TOKEN_FORMAT_MESSAGE)
+        return value
+
+
+class ConfluenceDcUserPassCredentials(BaseModel):
+    """A Confluence username and password, sent as HTTP Basic."""
+    # A validation error must not echo the rejected input (it may be the password).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="Username",
+        description="Confluence username.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("Confluence password. Sites that sign in through SSO usually refuse passwords on the API: "
+                     "use a personal access token there."),
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        return value.strip()
+
+
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
 # Microsoft Intune (Microsoft Graph, app-only). Tenant-wide device inventory is

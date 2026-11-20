@@ -5586,6 +5586,8 @@
     "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
     "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
     "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API.",
+    "connection.confluence_login_rejected": "Confluence did not accept this personal access token or login, so it was not saved. Check it, or create a new token in Confluence under Profile > Personal Access Tokens.",
+    "connection.confluence_login_captcha": "Confluence requires a CAPTCHA for this account after failed logins, so it was not saved. Sign in to Confluence once in a browser to clear it, or use a personal access token.",
     "access_request.disabled": "Access requests are turned off for this organization.",
     "access_request.not_allowed": "This dashboard does not need an access request.",
     "access_request.already_has_access": "You already have access to this dashboard.",
@@ -8490,6 +8492,9 @@
     "subtitle": "Sample rows from {connection}, read live from the source.",
     "close": "Close",
     "button": "Preview"
+  },
+  "confluenceFileScope": {
+    "allSpaces": "Every space this identity can see"
   },
   "kmsFileScope": {
     "headerSubtitle": "The root folder sets where browsing starts. KMS permissions decide what the agent can search and read.",

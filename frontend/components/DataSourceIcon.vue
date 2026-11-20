@@ -123,6 +123,7 @@ const iconPath = computed(() => {
         csv: 'csv.png',
         gmail_mail: 'gmail.png',
         outlook_mail: 'outlook_mail.svg',
+        confluence_dc: 'confluence_dc.svg',
         intune: 'intune.png',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',

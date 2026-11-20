@@ -145,6 +145,22 @@ async def test_kms_lighthouse_base_url_never_contacts_metadata(trap, host, schem
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["https", "http"])
+@pytest.mark.parametrize("host", METADATA_FORMS)
+async def test_confluence_dc_base_url_never_contacts_metadata(trap, host, scheme):
+    """Confluence Data Center names its destination (with a context path) in `base_url`:
+    the pre-save test refuses the host before the client sends a credential anywhere."""
+    from app.services.connection_service import ConnectionService
+
+    t = trap()
+    res = await ConnectionService().test_connection_params(
+        "confluence_dc", {"base_url": f"{scheme}://{host}/confluence", "allow_http": True},
+        {"personal_access_token": "MjAxNTY3ODkwMTIzOkFsaWNlUEFU"})
+    assert res["success"] is False
+    assert t.hits == []
+
+
+@pytest.mark.asyncio
 async def test_connection_to_internal_database_still_attempted_and_blocked_with_flag(trap, monkeypatch):
     from app.services.connection_service import ConnectionService
 

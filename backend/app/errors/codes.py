@@ -140,6 +140,9 @@ class ErrorCode(str, Enum):
     CONNECTION_KMS_LOGIN_REJECTED = "connection.kms_login_rejected"
     CONNECTION_KMS_LOGIN_PAUSED = "connection.kms_login_paused"
     CONNECTION_KMS_SESSION_REFUSED = "connection.kms_session_refused"
+    # Confluence Data Center member credentials (raised only for type confluence_dc)
+    CONNECTION_CONFLUENCE_LOGIN_REJECTED = "connection.confluence_login_rejected"
+    CONNECTION_CONFLUENCE_LOGIN_CAPTCHA = "connection.confluence_login_captcha"
     CONNECTION_TABLE_NOT_FOUND = "connection.table_not_found"
     # Connection Queries view (query_executions)
     CONNECTION_QUERY_NOT_FOUND = "connection.query_not_found"

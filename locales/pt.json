@@ -4855,6 +4855,8 @@
     "connection.kms_login_rejected": "O KMS Lighthouse não aceitou este início de sessão, por isso não foi guardado. Verifique o nome de utilizador e a palavra-passe, ou o token de API, e tente novamente.",
     "connection.kms_login_paused": "O KMS Lighthouse recusou recentemente este início de sessão, por isso as novas tentativas com ele estão em pausa durante alguns minutos e não foi guardado. Verifique o início de sessão ou tente novamente mais tarde.",
     "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS.",
+    "connection.confluence_login_rejected": "O Confluence não aceitou este token de acesso pessoal ou login, por isso ele não foi salvo. Verifique-o ou crie um novo token no Confluence em Perfil > Tokens de acesso pessoal.",
+    "connection.confluence_login_captcha": "O Confluence exige um CAPTCHA para esta conta após logins com falha, por isso nada foi salvo. Entre no Confluence uma vez pelo navegador para liberar, ou use um token de acesso pessoal.",
     "access_request.disabled": "As solicitações de acesso estão desativadas para esta organização.",
     "access_request.not_allowed": "Este painel não precisa de uma solicitação de acesso.",
     "access_request.already_has_access": "Você já tem acesso a este painel.",
@@ -7531,6 +7533,9 @@
     "subtitle": "Linhas de exemplo de {connection}, lidas ao vivo da origem.",
     "close": "Fechar",
     "button": "Pré-visualizar"
+  },
+  "confluenceFileScope": {
+    "allSpaces": "Todos os espaços que esta identidade pode ver"
   },
   "kmsFileScope": {
     "headerSubtitle": "A pasta raiz define onde a navegação começa. As permissões do KMS decidem o que o agente pode pesquisar e ler.",

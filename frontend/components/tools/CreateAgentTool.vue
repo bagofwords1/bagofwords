@@ -196,7 +196,7 @@ const connections = computed<string[]>(() => Array.isArray(result.value?.connect
 const unresolved = computed<string[]>(() => Array.isArray(result.value?.unresolved) ? result.value.unresolved : [])
 const requiresConnect = computed<boolean>(() => !!result.value?.requires_user_connect)
 
-const FILE_TYPES = ['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'exchange_onprem', 'kms_lighthouse', 'teams_messages', 'slack_messages']
+const FILE_TYPES = ['network_dir', 's3', 'gcs', 'azure_blob', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'exchange_onprem', 'kms_lighthouse', 'confluence_dc', 'teams_messages', 'slack_messages']
 const TOOL_TYPES = ['mcp', 'custom_api', 'remote_ssh', 'remote_smb']
 
 // Live agent state

@@ -62,6 +62,9 @@ from app.schemas.data_sources.configs import (
     KmsLighthouseConfig,
     KmsLighthouseUserPassCredentials,
     KmsLighthouseTokenCredentials,
+    ConfluenceDcConfig,
+    ConfluenceDcTokenCredentials,
+    ConfluenceDcUserPassCredentials,
     SharePointOnpremKerberosCredentials,
     ExchangeOnpremConfig,
     ExchangeOnpremNtlmCredentials,
@@ -2325,6 +2328,34 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         # No catalog (ADR-1): search and browse are live, per identity.
         catalog_ownership="none",
         catalog_nouns=("document", "documents"),
+        requires_license="enterprise",
+        version="beta",
+    ),
+    "confluence_dc": DataSourceRegistryEntry(
+        type="confluence_dc",
+        category="files",
+        title="Confluence Data Center (on-prem)",
+        description=(
+            "Search and read pages and blog posts from a self-hosted Confluence Data Center or Server "
+            "(read-only, live). Confluence permissions apply to every call; per-user access with each "
+            "person's own personal access token or login."
+        ),
+        config_schema=ConfluenceDcConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Personal access token (Bearer)", schema=ConfluenceDcTokenCredentials,
+                                     scopes=["system", "user"]),
+                "userpass": AuthVariant(title="Username and password (Basic)", schema=ConfluenceDcUserPassCredentials,
+                                        scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.confluence_dc_client.ConfluenceDcClient",
+        is_document_based=True,
+        data_shape="files",
+        # No catalog: search (CQL) and browse are live, per identity, like KMS Lighthouse.
+        catalog_ownership="none",
+        catalog_nouns=("page", "pages"),
         requires_license="enterprise",
         version="beta",
     ),
