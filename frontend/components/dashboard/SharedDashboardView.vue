@@ -332,6 +332,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
@@ -1710,7 +1711,9 @@ function pushArtifactData() {
             current_user: viewerContext.value,
             host_context: props.hostContext ?? null,
             params: paramsPayload(),
-            runtime: artifactRuntime()
+            runtime: artifactRuntime(),
+            // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+            table_layouts: loadTableLayouts(artifact.value?.artifact_id)
         }))
     });
 }
@@ -1802,6 +1805,7 @@ async function runParamQueries(
 
 function handleArtifactParamsMessage(event: MessageEvent) {
     if (event.source !== artifactIframeRef.value?.contentWindow || !event.data) return;
+    if (handleTableLayoutMessage(event.data, artifact.value?.artifact_id)) return;
     if (event.data.type === 'ARTIFACT_SET_PARAMS') {
         paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
         runParamQueries(event.data.changes || {}, event.data.targets || null, {});
