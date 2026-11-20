@@ -172,10 +172,12 @@ def organization_roots(organization_id: Optional[str] = None) -> Optional[List[P
     return [_real(r) for r in mapping[org] if r]
 
 
-def check_organization_roots(real: Path, organization_id: Optional[str] = None) -> None:
+def check_organization_roots(real: Path, organization_id: Optional[str] = None, contains: bool = False) -> None:
     """``security.organization_file_roots``: a listed root is reserved for the
     organizations it is listed for, and an organization with roots stays
-    inside them. Raises ValueError. ``real`` is already resolved."""
+    inside them. Raises ValueError. ``real`` is already resolved.
+    ``contains=True`` is for a directory read as a whole: one that holds
+    another organization's root is refused too."""
     mapping = _security_setting("organization_file_roots")
     if not mapping:
         return
@@ -186,8 +188,13 @@ def check_organization_roots(real: Path, organization_id: Optional[str] = None) 
             raise ValueError("Path is outside the directories assigned to this organization")
         return
     for owner, roots in mapping.items():
-        if owner != org and any(_is_within(real, _real(r)) for r in roots if r):
-            raise ValueError("Path is inside a directory assigned to another organization")
+        if owner == org:
+            continue
+        for root in (_real(r) for r in roots if r):
+            if _is_within(real, root):
+                raise ValueError("Path is inside a directory assigned to another organization")
+            if contains and _is_within(root, real):
+                raise ValueError("Path holds a directory assigned to another organization")
 
 
 def _protected_app_locations() -> List[Path]:
@@ -267,7 +274,7 @@ def check_local_path(path: str, *, contains: bool = False, organization_id: Opti
     allowed = _security_setting("file_connector_allowed_roots")
     if allowed and not any(_is_within(real, _real(a)) for a in allowed if a):
         raise ValueError("Path is outside the allowed file connector roots")
-    check_organization_roots(real, organization_id)
+    check_organization_roots(real, organization_id, contains=contains)
     if real in _protected_app_files():
         raise ValueError(f"Path {_REFUSED}")
 
@@ -302,8 +309,11 @@ def check_file_patterns(patterns: Iterable[str], organization_id: Optional[str] 
     """Config-time check for newline-separated path / glob settings whose
     matches are opened one file at a time (csv, qvd, pbix). Raises ValueError."""
     for pattern in patterns:
-        base, _ = pattern_base(pattern)
-        check_local_path(base, organization_id=organization_id)
+        base, has_glob = pattern_base(pattern)
+        real = check_local_path(base, organization_id=organization_id)
+        if has_glob:
+            # A glob over a directory holding another organization's root.
+            check_organization_roots(real, organization_id, contains=True)
         if pattern_reaches_protected_file(pattern):
             raise ValueError(f"Pattern {_REFUSED}")
 
@@ -372,11 +382,22 @@ def has_url_traversal(url: str) -> bool:
     return bool(_URL_TRAVERSAL.search(str(url)))
 
 
+_FILE_URI_HOST = ("A file:// URI names a host. Write a local file as file:///path or "
+                  "file://localhost/path.")
+
+
 def local_path_of(pattern: str) -> str:
-    """Filesystem path of a local pattern (`file://` and `file:` stripped)."""
+    """Filesystem path of a local pattern (`file:` stripped, and `file://`
+    with its host). The host of a `file://` URI must be empty or
+    `localhost`, the two DuckDB reads as this machine: `file://localhost/x`
+    and `file:///x` are both `/x`. Any other host, or no path after it,
+    raises ValueError."""
     lower = pattern.lower()
     if lower.startswith("file://"):
-        return pattern[7:]
+        host, slash, rest = pattern[7:].partition("/")
+        if host not in ("", "localhost") or not slash:
+            raise ValueError(_FILE_URI_HOST)
+        return "/" + rest
     if lower.startswith("file:"):
         return pattern[5:]
     return pattern
@@ -427,9 +448,41 @@ def sources_for_patterns(
                 raise ValueError(f"Pattern {_REFUSED}")
             dirs.extend({os.path.abspath(base), str(real)})
         else:
-            real = check_local_path(local, organization_id=organization_id)
+            # A directory, with or without its '/', is read as a whole.
+            whole = local.endswith("/") or os.path.isdir(_real(local))
+            real = check_local_path(local, contains=whole, organization_id=organization_id)
+            if whole and _reaches_protected_file(real):
+                raise ValueError(f"Path {_REFUSED}")
             paths.extend({pattern, local, os.path.abspath(local), str(real)})
     return paths, dirs
+
+
+def _reaches_protected_file(directory: Path) -> bool:
+    """Whether one of the app's protected files sits anywhere under
+    ``directory`` (already resolved)."""
+    return any(_is_within(f, directory) for f in _protected_app_files())
+
+
+def check_lock_targets(paths: Iterable[str], directories: Iterable[str],
+                       organization_id: Optional[str] = None) -> None:
+    """The path policy on what a session is about to be locked to, in the
+    form the engine resolved each entry to: every local directory as a
+    whole (no protected location and no other organization's root inside
+    it), every local file on its own. A directory also listed as a path is
+    one the connection reads whole (a URI naming the directory itself), so
+    no protected file may sit anywhere under it; under a glob's directory,
+    what the glob can match is checked where the directory is resolved
+    (`pattern_reaches_protected_file`). Object-store and http(s) entries
+    are not local paths. Raises ValueError."""
+    paths = list(paths)
+    for directory in directories:
+        if not is_remote_uri(directory):
+            real = check_local_path(local_path_of(directory), contains=True, organization_id=organization_id)
+            if directory in paths and _reaches_protected_file(real):
+                raise ValueError(f"Path {_REFUSED}")
+    for path in paths:
+        if not is_remote_uri(path):
+            check_local_path(local_path_of(path), organization_id=organization_id)
 
 
 def database_file_sources(db_file: str, extra_patterns: Iterable[str] = (),

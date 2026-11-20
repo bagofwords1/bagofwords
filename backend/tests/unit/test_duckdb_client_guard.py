@@ -44,6 +44,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import http.server
+import re
 import threading
 import time
 from pathlib import Path
@@ -425,6 +426,17 @@ def test_listings_of_the_engine_itself_are_refused_with_or_without_a_table_selec
         assert not isinstance(refused.value, TableScopeViolation)
     with client.connect() as con:
         assert con.execute("SELECT count(*) FROM sales").fetchone() == (3,)
+
+
+def test_every_pragma_the_refusal_names_as_allowed_runs(client):
+    with pytest.raises(ReadOnlyViolation) as refused:
+        ensure_read_only(client, "PRAGMA enable_profiling")
+    allowed = re.search(r"Allowed: PRAGMA (.+?)\. Only", str(refused.value))
+    assert allowed, str(refused.value)
+    forms = allowed.group(1).split(", ")
+    assert "table_info(<table>)" in forms
+    for form in forms:
+        assert len(_run(client, "PRAGMA " + form.replace("<table>", "sales"))) > 0, form
 
 
 @pytest.mark.parametrize("sql", [

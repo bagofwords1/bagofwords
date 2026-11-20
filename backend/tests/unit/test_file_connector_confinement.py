@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import pandas as pd
@@ -24,6 +25,7 @@ from app.data_sources.clients.duckdb_client import DuckDBClient
 from app.data_sources.clients.pbix_client import PBIXClient
 from app.data_sources.clients.qvd_client import QVDClient
 from app.data_sources.clients.sqlite_client import SqliteClient
+from tests.unit.test_duckdb_client_guard import http_base  # noqa: F401  (a local HTTP server)
 from tests.unit.test_lakehouse_clients import iceberg_catalog  # noqa: F401  (a real Iceberg catalog)
 
 _BACKEND = Path(__file__).resolve().parents[2]
@@ -852,6 +854,130 @@ def test_organization_file_roots_setting_is_validated_when_loaded():
             SecurityConfig(organization_file_roots=bad)
 
 
+# -- a URI connection: the path policy runs on what the session is locked to ----
+
+
+_POLICY_REFUSAL = "(?i)protected|another organization"
+
+
+@pytest.fixture
+def guarded_tree(tmp_path, monkeypatch):
+    """A folder holding, below it, a protected directory (the system logs
+    folder, set the way an operator sets it) and a protected file (the
+    encryption key), each readable as CSV; and a folder of the connection's
+    own data beside it."""
+    from app.settings.config import settings
+
+    top = tmp_path / "top"
+    logs, keys, own = top / "logs", top / "keys", tmp_path / "own"
+    for folder in (logs, keys, own):
+        folder.mkdir(parents=True)
+    (logs / "server.csv").write_text("line\nhidden-log\n")
+    key = keys / "key.csv"
+    key.write_text("k\nhidden-key\n")
+    (own / "sales.csv").write_text("region,amount\nnorth,10\n")
+    monkeypatch.setattr(settings.bow_config.system_logs, "directory", str(logs))
+    monkeypatch.setenv("BOW_ENCRYPTION_KEY_FILE", str(key))
+    return SimpleNamespace(top=top, logs=logs, keys=keys, key=key, own=own)
+
+
+def _refused_at_connect_with_nothing_read(client, watched: dict) -> None:
+    """`client.connect()` is refused by the path policy, and no file named
+    in `watched` ({directory: file name}) is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    probes = {folder: _Opens(folder) for folder in watched}
+    try:
+        with pytest.raises(RuntimeError, match=_POLICY_REFUSAL):
+            with client.connect():
+                pass
+        for folder, probe in probes.items():
+            assert watched[folder] not in probe()
+    finally:
+        for probe in probes.values():
+            probe.close()
+
+
+@pytest.mark.parametrize("shape", ["{top}", "{top}/", "{keys}", "{keys}/"])
+def test_a_directory_uri_above_a_protected_location_is_refused_at_connect_with_nothing_read(shape, guarded_tree):
+    client = DuckDBClient(uris=shape.format(top=guarded_tree.top, keys=guarded_tree.keys))
+    _refused_at_connect_with_nothing_read(client, {guarded_tree.logs: "server.csv", guarded_tree.keys: "key.csv"})
+
+
+@pytest.mark.parametrize("shape", ["file://localhost{logs}/*.csv", "file://localhost{logs}/", "file://localhost{key}",
+                                   "file://localhost{keys}/*.csv", "file://localhost{top}",
+                                   "file://localhost{top}/**/*.csv"])
+def test_a_localhost_file_uri_is_held_to_the_path_it_names(shape, guarded_tree):
+    uri = shape.format(logs=guarded_tree.logs, key=guarded_tree.key, keys=guarded_tree.keys, top=guarded_tree.top)
+    _refused_at_connect_with_nothing_read(
+        DuckDBClient(uris=uri), {guarded_tree.logs: "server.csv", guarded_tree.keys: "key.csv"})
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"uris": uri})
+
+
+def test_a_glob_is_checked_against_protected_files_under_its_directory_as_the_engine_resolves_it(
+        guarded_tree, monkeypatch):
+    # DuckDB reads `~name` as the home directory's text followed by the name:
+    # `~eys` under the home directory `top/k` is `top/keys`.
+    home = _folder(guarded_tree.top / "k")
+    monkeypatch.setenv("HOME", str(home))
+    _refused_at_connect_with_nothing_read(DuckDBClient(uris="~eys/*.csv"), {guarded_tree.keys: "key.csv"})
+
+
+def test_a_file_uri_names_a_local_path_only_with_no_host_or_localhost():
+    assert lockdown.local_path_of("file:///data/x.csv") == "/data/x.csv"
+    assert lockdown.local_path_of("file://localhost/data/x.csv") == "/data/x.csv"
+    assert lockdown.local_path_of("file:/data/x.csv") == "/data/x.csv"
+    assert lockdown.local_path_of("/data/x.csv") == "/data/x.csv"
+    # Another host, a host spelled other than DuckDB reads it as local, or
+    # no path at all: not a local file.
+    for uri in ("file://fileserver/data/x.csv", "file://LOCALHOST/data/x.csv", "file://localhost", "file://"):
+        with pytest.raises(ValueError):
+            lockdown.local_path_of(uri)
+    with pytest.raises(ValueError):
+        lockdown.check_connection_config("duckdb", {"uris": "file://fileserver/data/x.csv"})
+
+
+@pytest.mark.parametrize("shape", ["{parent}", "{parent}/", "{parent}/**/*.csv", "file://localhost{parent}/**/*.csv"])
+def test_a_directory_or_deep_glob_above_another_organizations_root_is_refused(shape, departments):
+    """From an organization with no roots of its own, a directory that
+    holds another organization's root is refused, as one inside it is."""
+    from app.data_sources.clients._duckdb_lockdown import bind_organization
+
+    reserved, org_b = departments["a"], departments["org_b"]
+    parent = reserved.parent
+    client = bind_organization(DuckDBClient(uris=shape.format(parent=parent)), org_b)
+    _refused_at_connect_with_nothing_read(client, {reserved: "report.csv"})
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_local_path(str(parent), contains=True, organization_id=org_b)
+    # A file connector's glob over it is refused when it is saved.
+    with _as_request_of(org_b), pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("csv", {"file_paths": f"{parent}/**/*.csv"})
+    # A database file there is served without its folder.
+    db = _duckdb_file(parent / "market.duckdb")
+    with bind_organization(DuckDBClient(database=str(db)), org_b).connect() as session:
+        assert session.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
+        with pytest.raises(duckdb.Error, match="(?i)disabled by configuration"):
+            session.execute(f"SELECT * FROM read_csv_auto('{reserved / 'report.csv'}')").fetchall()
+
+
+def test_uris_over_the_connections_own_data_still_connect_and_read(guarded_tree, http_base, monkeypatch):
+    own = guarded_tree.own
+    for uri in (str(own), f"{own}/", f"file://{own}/*.csv", f"file://localhost{own}/*.csv", f"{http_base}/remote.csv"):
+        client = DuckDBClient(uris=uri)
+        with client.connect() as con:
+            assert con.execute(f"SELECT count(*) FROM {client.view_names()[0]}").fetchone()[0] == 1, uri
+    # Object-store prefixes are locked to as listed (no view is created:
+    # nothing is fetched).
+    monkeypatch.setattr(DuckDBClient, "_create_views", lambda self, con: [])
+    client = DuckDBClient(uris=f"{own}/*.csv\ns3://bucket/exports/*.parquet\nhttps://files.example.com/r/x.csv")
+    with client.connect() as con:
+        directories = con.execute("SELECT current_setting('allowed_directories')").fetchone()[0]
+        paths = con.execute("SELECT current_setting('allowed_paths')").fetchone()[0]
+    assert "s3://bucket/exports/" in directories
+    assert "https://files.example.com/r/x.csv" in paths
+
+
 # -- what a statement may name -------------------------------------------------
 
 
@@ -1338,8 +1464,10 @@ def test_a_quoted_path_like_name_the_database_does_not_hold_is_refused(odd_names
     client = DuckDBClient(database=str(odd_names_db))
     for name in ("missing.csv", "plans/2027.parquet", "s3://not-a-bucket/missing.parquet"):
         sql = f"SELECT * FROM {_quoted(name)}"
+        # The wrapper has no session catalog: it leaves relation names to
+        # the client, whose own check refuses the name.
+        assert ensure_read_only(client, sql) == sql
         with pytest.raises(ReadOnlyViolation):
-            ensure_read_only(client, sql)
             client.execute_query(sql)
 
 
@@ -1355,8 +1483,10 @@ def test_a_quoted_name_that_is_a_file_beside_the_database_is_refused_without_ope
     try:
         (odd_names_db.parent / "real.csv").read_text()
         assert "real.csv" in opens()
+        # The wrapper leaves relation names to the client (no session
+        # catalog there); the client's own check refuses the name.
+        assert ensure_read_only(client, sql) == sql
         with pytest.raises(ReadOnlyViolation) as refused:
-            ensure_read_only(client, sql)
             client.execute_query(sql)
         assert "99" not in str(refused.value)
         assert "real.csv" not in opens()

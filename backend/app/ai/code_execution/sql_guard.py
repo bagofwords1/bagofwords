@@ -702,6 +702,10 @@ def _check_spl_envelope(query, checked: Optional[str] = None) -> None:
 # parser (`duckdb_guard.inspect_duckdb_sql`), which serializes one SELECT
 # only; the reads below are recognised first, on DuckDB's tokens.
 _DUCKDB_LISTING_PRAGMAS = ("show_tables", "show_tables_expanded", "database_list", "version", "platform")
+# What the refusal names as allowed: the forms that also pass the engine-tree
+# check every in-process DuckDB engine gets, which refuses the engine's own
+# state (database_list, version, platform).
+_DUCKDB_PRAGMAS_ALLOWED = ("show_tables", "show_tables_expanded", "table_info(<table>)")
 # The characters outside ASCII DuckDB 1.5.4 reads as whitespace (pinned by
 # the dialect tests against a scan of the BMP), the zero-width U+200B, U+2060
 # and U+FEFF included; it reads U+0085, U+1680, U+2028 and U+2029 as name
@@ -860,7 +864,7 @@ def duckdb_read(sql: str) -> Optional[DuckdbRead]:
             return DuckdbRead("PRAGMA", name=named[0], scoped=True)
     raise ReadOnlyViolation(
         "This PRAGMA is not allowed on this connection. Allowed: PRAGMA "
-        + ", ".join(_DUCKDB_LISTING_PRAGMAS) + ", table_info(<table>). Only SELECT queries are allowed otherwise."
+        + ", ".join(_DUCKDB_PRAGMAS_ALLOWED) + ". Only SELECT queries are allowed otherwise."
     )
 
 

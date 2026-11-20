@@ -686,7 +686,10 @@ def custom_table(tmp_path):
         )])
 
 
-def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_engine(custom_table, tmp_path):
+def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_engine(
+        custom_table, tmp_path, monkeypatch):
+    from app.data_sources.fast import fast_client
+
     assert custom_table.execute_query("SELECT id FROM notes ORDER BY id")["id"].tolist() == [1, 2]
 
     # Statements other than a SELECT are refused before they run; a SELECT
@@ -713,6 +716,12 @@ def test_the_accelerated_client_refuses_writes_and_other_files_on_its_locked_eng
         custom_table.execute_query(f"COPY (SELECT 1 AS id, 'x' AS v) TO '{artifact}'")
     assert artifact.read_bytes() == before
     assert custom_table.execute_query("SELECT count(*) AS n FROM notes")["n"].tolist() == [2]
+
+    # The text checks off: the engine lock alone keeps the file out of reach.
+    monkeypatch.setattr(fast_client, "assert_no_blocked_calls", lambda sql: None)
+    monkeypatch.setattr(fast_client, "assert_no_blocked_introspection", lambda sql: None)
+    with pytest.raises(duckdb.PermissionException):
+        custom_table.execute_query(f"SELECT * FROM read_csv('{outside}')")
 
 
 def test_with_the_unsafe_setting_on_the_accelerated_client_and_the_network_directory_stay_locked(
@@ -767,15 +776,21 @@ def test_slack_messages_is_exempt_and_reaches_only_slack_read_methods_whatever_t
     client = slack_client(fake)
     for text in _WRITE_LOOKING_TEXT:
         client.execute_query(text)
-        for kwargs in ({"message_id": f"C0SUPPORT1:{text}"}, {"table_name": "C0SUPPORT1:1700000000.000100"}):
-            # An id the client cannot read is an error, not a write.
-            with contextlib.suppress(Exception):
+        for kwargs in ({"message_id": f"slack:C0SUPPORT1/{text}"},
+                       {"message_id": "slack:C0SUPPORT1/1700000000.000100"}, {"table_name": "slack:C0SUPPORT1"}):
+            # An id the client cannot read is the client's own error, not
+            # a write; anything else (the fake's GET assertion) fails here.
+            try:
                 client.execute_query(**kwargs)
+            except ValueError:
+                pass
     # Every request was a GET (FakeSlack.handler) to one of these methods.
     assert {method for method, _ in fake.calls if method != "sleep"} <= {
         "auth.test", "users.info", "users.conversations", "search.messages",
         "conversations.history", "conversations.replies"}
     assert fake.count("search.messages") >= len(_WRITE_LOOKING_TEXT)
+    # The id reads reached Slack.
+    assert fake.count("conversations.replies") >= 1 and fake.count("conversations.history") >= 1
 
 
 def test_exchange_onprem_is_exempt_and_sends_only_read_operations_whatever_the_agent_text(exchange):  # noqa: F811

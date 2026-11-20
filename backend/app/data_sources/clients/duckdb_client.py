@@ -25,6 +25,7 @@ _RELATIVE_GLOB = ("A URI of this connection is a glob or a directory relative to
                   "names no directory under it. Name the directory its files are in.")
 _FILE_HOST = ("A URI of this connection names a host after file://. "
               "Write a local file as file:///path or file://localhost/path.")
+_PROTECTED_MATCH = "A URI of this connection can match a protected system or application file."
 _NO_WORKING_DIRECTORY = ("A URI of this connection is relative, and the working directory it is relative to "
                          "no longer exists. Name its files from the root.")
 
@@ -285,7 +286,11 @@ class DuckDBClient(DataSourceClient):
                 continue
             directory = uri if glob is None else uri[:uri.rfind("/", 0, glob.start()) + 1]
             if local:
+                written = directory
                 directory = _resolved_directory(con, directory, cwd)
+                # What the glob can match under the directory as resolved.
+                if glob is not None and lockdown.pattern_reaches_protected_file(directory + uri[len(written):]):
+                    raise ValueError(_PROTECTED_MATCH)
             else:
                 after = directory[scheme.end():]
                 if not after.strip("/") or ".." in after.split("/"):
@@ -350,7 +355,9 @@ class DuckDBClient(DataSourceClient):
                 # resolves each URI to; a glob at a root is refused here,
                 # before anything is read.
                 paths, directories = self._lockdown_targets(con)
-                # The path policy, before anything is read.
+                # The path policy, before anything is read: on exactly what
+                # the lock will grant, and on the URIs as written.
+                lockdown.check_lock_targets(paths, directories, lockdown.organization_of(self))
                 self._allowed_sources()
                 lockdown.lock_connection(con, paths=paths, directories=directories)
                 # Views are created on the locked connection: one over
