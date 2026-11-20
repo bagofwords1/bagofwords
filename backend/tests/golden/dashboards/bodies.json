@@ -8495,55 +8495,6 @@
    "view": null
   }
  },
- "19063d2ef769b8d2": {
-  "applied_params": null,
-  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
-  "created_at": "<ts>",
-  "created_entity_id": null,
-  "data": {
-   "columns": [
-    {
-     "field": "חודש"
-    },
-    {
-     "field": "הכנסות"
-    }
-   ],
-   "rows": [
-    {
-     "הכנסות": 100,
-     "חודש": "של has_results 1"
-    }
-   ]
-  },
-  "data_model": {},
-  "description": "",
-  "error_code": null,
-  "id": "<user_required/q_sales/step>",
-  "prompt": "",
-  "query_id": "<user_required/q_sales>",
-  "slug": "user-required-q-sales-step",
-  "snapshot_withheld": false,
-  "status": "success",
-  "status_reason": null,
-  "title": "הכנסות לפי חודש · ריצה",
-  "type": "table",
-  "view": {
-   "encoding": null,
-   "legacy": null,
-   "options": null,
-   "type": null,
-   "version": "v2",
-   "view": null
-  },
-  "viewer_result": {
-   "error_code": null,
-   "executed_as": "viewer",
-   "last_run_at": "<ts>",
-   "status": "success",
-   "status_reason": null
-  }
- },
  "1907ab3466701896": [
   {
    "default_step_id": "<options_sources/q_by_id/step>",
@@ -16362,91 +16313,6 @@
    "version": 1
   }
  ],
- "35c776718c1c10e0": {
-  "created_at": "<ts>",
-  "credential_scoped": true,
-  "default_step": {
-   "applied_params": null,
-   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
-   "created_at": "<ts>",
-   "created_entity_id": null,
-   "data": {
-    "columns": [
-     {
-      "field": "חודש"
-     },
-     {
-      "field": "הכנסות"
-     }
-    ],
-    "rows": [
-     {
-      "הכנסות": 100,
-      "חודש": "של has_results 1"
-     }
-    ]
-   },
-   "data_model": {},
-   "description": "",
-   "error_code": null,
-   "id": "<user_required/q_sales/step>",
-   "prompt": "",
-   "query_id": "<user_required/q_sales>",
-   "slug": "user-required-q-sales-step",
-   "snapshot_withheld": false,
-   "status": "success",
-   "status_reason": null,
-   "title": "הכנסות לפי חודש · ריצה",
-   "type": "table",
-   "view": {
-    "encoding": null,
-    "legacy": null,
-    "options": null,
-    "type": null,
-    "version": "v2",
-    "view": null
-   },
-   "viewer_result": {
-    "error_code": null,
-    "executed_as": "viewer",
-    "last_run_at": "<ts>",
-    "status": "success",
-    "status_reason": null
-   }
-  },
-  "default_step_id": "<user_required/q_sales/step>",
-  "id": "<user_required/q_sales>",
-  "last_run": {
-   "ran_at": "<ts>",
-   "status": "success",
-   "status_reason": null
-  },
-  "organization_id": "<org>",
-  "parameters": [],
-  "report_id": "<user_required>",
-  "source_refs": null,
-  "title": "הכנסות לפי חודש",
-  "updated_at": "<ts>",
-  "user_id": "<user:owner>",
-  "visualizations": [
-   {
-    "id": "<user_required/q_sales/viz>",
-    "query_id": "<user_required/q_sales>",
-    "report_id": "<user_required>",
-    "status": "success",
-    "title": "הכנסות לפי חודש",
-    "view": {
-     "encoding": null,
-     "legacy": null,
-     "options": null,
-     "type": "bar_chart",
-     "version": "v2",
-     "view": null
-    }
-   }
-  ],
-  "widget_id": "<user_required/q_sales/widget>"
- },
  "3634869a2a0d95be": {
   "applied_params": null,
   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
@@ -18823,39 +18689,6 @@
   "type": "table",
   "view": {},
   "viewer_result": null
- },
- "40abd676d5005626": {
-  "applied_params": null,
-  "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
-  "data": {
-   "columns": [
-    {
-     "field": "חודש"
-    },
-    {
-     "field": "הכנסות"
-    }
-   ],
-   "rows": [
-    {
-     "הכנסות": 100,
-     "חודש": "של has_results 1"
-    }
-   ]
-  },
-  "data_model": {},
-  "id": "<user_required/q_sales/step>",
-  "snapshot_withheld": false,
-  "title": "הכנסות לפי חודש · ריצה",
-  "type": "table",
-  "view": {},
-  "viewer_result": {
-   "error_code": null,
-   "executed_as": "viewer",
-   "last_run_at": "<ts>",
-   "status": "success",
-   "status_reason": null
-  }
  },
  "40d3778dc1b0e920": {
   "busy_completion_id": null,
@@ -38368,57 +38201,6 @@
     "y": 0
    }
   ]
- },
- "7dbb0ae7f27ae53f": {
-  "step": {
-   "applied_params": null,
-   "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
-   "created_at": "<ts>",
-   "created_entity_id": null,
-   "data": {
-    "columns": [
-     {
-      "field": "חודש"
-     },
-     {
-      "field": "הכנסות"
-     }
-    ],
-    "rows": [
-     {
-      "הכנסות": 100,
-      "חודש": "של has_results 1"
-     }
-    ]
-   },
-   "data_model": {},
-   "description": "",
-   "error_code": null,
-   "id": "<user_required/q_sales/step>",
-   "prompt": "",
-   "query_id": "<user_required/q_sales>",
-   "slug": "user-required-q-sales-step",
-   "snapshot_withheld": false,
-   "status": "success",
-   "status_reason": null,
-   "title": "הכנסות לפי חודש · ריצה",
-   "type": "table",
-   "view": {
-    "encoding": null,
-    "legacy": null,
-    "options": null,
-    "type": null,
-    "version": "v2",
-    "view": null
-   },
-   "viewer_result": {
-    "error_code": null,
-    "executed_as": "viewer",
-    "last_run_at": "<ts>",
-    "status": "success",
-    "status_reason": null
-   }
-  }
  },
  "7e12714378393d60": {
   "agent_folder_id": null,
@@ -70440,93 +70222,6 @@
    "view": null
   }
  },
- "e65951494537f13c": [
-  {
-   "created_at": "<ts>",
-   "credential_scoped": true,
-   "default_step": {
-    "applied_params": null,
-    "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'חודש': ['ינואר', 'פברואר'], 'הכנסות': [120, 140]})\n",
-    "created_at": "<ts>",
-    "created_entity_id": null,
-    "data": {
-     "columns": [
-      {
-       "field": "חודש"
-      },
-      {
-       "field": "הכנסות"
-      }
-     ],
-     "rows": [
-      {
-       "הכנסות": 100,
-       "חודש": "של has_results 1"
-      }
-     ]
-    },
-    "data_model": {},
-    "description": "",
-    "error_code": null,
-    "id": "<user_required/q_sales/step>",
-    "prompt": "",
-    "query_id": "<user_required/q_sales>",
-    "slug": "user-required-q-sales-step",
-    "snapshot_withheld": false,
-    "status": "success",
-    "status_reason": null,
-    "title": "הכנסות לפי חודש · ריצה",
-    "type": "table",
-    "view": {
-     "encoding": null,
-     "legacy": null,
-     "options": null,
-     "type": null,
-     "version": "v2",
-     "view": null
-    },
-    "viewer_result": {
-     "error_code": null,
-     "executed_as": "viewer",
-     "last_run_at": "<ts>",
-     "status": "success",
-     "status_reason": null
-    }
-   },
-   "default_step_id": "<user_required/q_sales/step>",
-   "id": "<user_required/q_sales>",
-   "last_run": {
-    "ran_at": "<ts>",
-    "status": "success",
-    "status_reason": null
-   },
-   "organization_id": "<org>",
-   "parameters": [],
-   "report_id": "<user_required>",
-   "source_refs": null,
-   "title": "הכנסות לפי חודש",
-   "updated_at": "<ts>",
-   "user_id": "<user:owner>",
-   "visualizations": [
-    {
-     "id": "<user_required/q_sales/viz>",
-     "query_id": "<user_required/q_sales>",
-     "report_id": "<user_required>",
-     "status": "success",
-     "title": "הכנסות לפי חודש",
-     "view": {
-      "encoding": null,
-      "legacy": null,
-      "options": null,
-      "type": "bar_chart",
-      "version": "v2",
-      "view": null
-     }
-    }
-   ],
-   "widget_id": "<user_required/q_sales/widget>"
-  }
- ],
  "e6dfc4e10df9f780": {
   "step": {
    "applied_params": null,
