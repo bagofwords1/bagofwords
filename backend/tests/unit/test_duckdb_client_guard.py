@@ -896,6 +896,21 @@ def test_a_home_directory_uri_without_a_home_directory_is_refused(uri, refusal, 
     assert str(refused.value) == refusal
 
 
+def test_a_home_directory_ending_in_a_slash_is_checked_where_duckdb_reads_it(monkeypatch, tmp_path):
+    # DuckDB reads `~x` as HOME's text followed by `x`, its final '/'
+    # included: with HOME `<home>/`, `~.ssh/data.csv` is a file under
+    # <home>/.ssh. The path policy applies to the file the lock grants.
+    home = tmp_path.resolve() / "home"
+    (home / ".ssh").mkdir(parents=True)
+    (home / ".ssh" / "data.csv").write_text("token\nhidden-value\n")
+    monkeypatch.setenv("HOME", f"{home}/")
+    assert _decided(DuckDBClient(uris="~.ssh/data.csv")) == ([f"{home}/.ssh/data.csv"], [])
+    with pytest.raises(RuntimeError) as refused:
+        with DuckDBClient(uris="~.ssh/data.csv").connect():
+            pass
+    assert str(refused.value) == CONNECTING + "Path points at a protected system or application location"
+
+
 @pytest.mark.parametrize("uri", ["*.csv", "./*.csv", "data*.csv", "sub*/x.csv", ".//*.csv", "../*.csv", "./"])
 def test_a_relative_glob_that_names_no_directory_is_refused(uri, tmp_path, monkeypatch):
     work = tmp_path / "work"

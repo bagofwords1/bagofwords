@@ -162,17 +162,37 @@ def test_iceberg_extra_properties_stay_free_form():
         assert props[key] == str(value)
 
 
-@pytest.mark.parametrize("key", ["s3.endpoint", "glue.endpoint", "oauth2-server-uri", "gcs.service.host", "s3.signer.uri"])
+@pytest.mark.parametrize("key", ["uri", "s3.endpoint", "glue.endpoint", "oauth2-server-uri", "gcs.service.host",
+                                 "s3.signer.uri"])
 def test_iceberg_endpoint_properties_get_the_outbound_check(monkeypatch, key):
+    # The URI is set in the extra properties by a saved SQL catalog only.
+    def extra(value):
+        return {"type": "sql", key: value} if key == "uri" else {key: value}
+
     with pytest.raises(ValueError) as exc:
-        _iceberg({key: "http://imds.corp.invalid/latest"})._properties()
+        _iceberg(extra("http://imds.corp.invalid/latest"))._properties()
     assert key in str(exc.value)
 
     # A private endpoint (MinIO on the LAN) is the operator's call.
-    assert _iceberg({key: "http://internal.corp.invalid:9000"})._properties()[key]
+    assert _iceberg(extra("http://internal.corp.invalid:9000"))._properties()[key]
     monkeypatch.setattr(egress, "block_private_outbound", lambda: True)
     with pytest.raises(ValueError):
-        _iceberg({key: "http://internal.corp.invalid:9000"})._properties()
+        _iceberg(extra("http://internal.corp.invalid:9000"))._properties()
+
+
+@pytest.mark.parametrize("uri_field", ["extra", "field"])
+def test_iceberg_sql_catalog_server_gets_the_outbound_check(uri_field):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    server = f"postgresql://u:p@{METADATA}:5432/db"
+    if uri_field == "extra":
+        client = _iceberg({"type": "sql", "uri": server})
+    else:
+        client = IcebergClient(catalog_type="sql", uri=server)
+    for check in (client.check_locations, client._properties):
+        with pytest.raises(ValueError) as exc:
+            check()
+        assert "uri" in str(exc.value) and METADATA in str(exc.value)
 
 
 def test_iceberg_sql_catalog_file_follows_the_local_path_policy(tmp_path):

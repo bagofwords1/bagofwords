@@ -365,13 +365,24 @@ class IcebergClient(DataSourceClient):
         the current request's), on the catalog URI and warehouse wherever
         they name a file or folder on this server, and the checks on the
         extra properties: run when the connection is saved and when it
-        connects. Returns (the catalog database file as checked, or None;
-        the checked extra properties). Raises ValueError."""
+        connects. A SQL catalog's database server gets the outbound check.
+        Returns (the catalog database file as checked, or None; the checked
+        extra properties). Raises ValueError."""
+        from app.core.egress import Policy, check_host, hosts_in
+        from app.core.url_safety import UnsafeURLError
+
         if self._saved_form_error is not None:
             raise self._saved_form_error
         organization = organization_of(self)
         database = _checked_location("uri", self.uri, organization)
         _checked_location("warehouse", self.warehouse, organization)
+        if self.catalog_type == "sql" and self.uri and not self.uri.lower().startswith("sqlite"):
+            try:
+                for host in hosts_in(self.uri):
+                    check_host(host, Policy.ADMIN, require_resolution=False)
+            except UnsafeURLError as e:
+                logger.warning("Iceberg: refused catalog uri: %s", e)
+                raise ValueError(f"Catalog uri: {e}") from e
         return database, self._extra()
 
     def _sql_catalog_uri(self, database: str | None) -> str:
