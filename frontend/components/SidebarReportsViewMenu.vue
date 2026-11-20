@@ -204,40 +204,22 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') { close(); triggerEl.value?.focus() }
 }
 
-// Outside-press dismissal without a click-eating backdrop. Capture phase so it
-// runs even if the target stops propagation. Presses inside the panels (the
-// only hit-testable part of menuRoot) or on the trigger (toggle owns that) are
-// ignored; anything else closes the menu and the press proceeds normally.
+// Outside press / anchor scroll / resize close the menu without a
+// click-eating backdrop (see the composable). menuRoot's only hit-testable
+// parts are the panels; the trigger is the anchor, so toggle owns its clicks.
+// Resizing closes rather than re-anchors: a stale menu is worse than a closed one.
 const menuRoot = ref<HTMLElement | null>(null)
-function onOutsidePointerDown(e: PointerEvent) {
-  const target = e.target as Node | null
-  if (!target) return
-  if (menuRoot.value?.contains(target) || triggerEl.value?.contains(target)) return
-  close()
-}
-
-function detach() {
-  window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('resize', close)
-  document.removeEventListener('pointerdown', onOutsidePointerDown, true)
-}
+useDismissOnOutsidePress(open, menuRoot, triggerEl, close)
 
 watch(open, (v) => {
   if (typeof window === 'undefined') return
-  if (v) {
-    window.addEventListener('keydown', onKeydown)
-    // A detached, stale menu is worse than a closed one: resizing moves the
-    // anchor, so close rather than try to re-anchor mid-interaction.
-    window.addEventListener('resize', close)
-    document.addEventListener('pointerdown', onOutsidePointerDown, true)
-  } else {
-    detach()
-  }
+  if (v) window.addEventListener('keydown', onKeydown)
+  else window.removeEventListener('keydown', onKeydown)
 })
 
 onMounted(() => { hydrate() })
 onBeforeUnmount(() => {
   if (typeof window === 'undefined') return
-  detach()
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>
