@@ -280,8 +280,8 @@ class TestRequestRetry:
 
 PBI_META = {
     "powerbi": {
-        "datasetId": "ds-guid-1",
-        "workspaceId": "ws-guid-1",
+        "datasetId": "d5000001-0000-4000-8000-000000000001",
+        "workspaceId": "e5000001-0000-4000-8000-000000000001",
         "workspaceName": "Sales",
         "datasetName": "SalesModel",
         "tableName": "Customers",
@@ -314,7 +314,7 @@ class TestExecuteQueryResolution:
         out = c.execute_query("EVALUATE Customers", "SalesModel/Customers")
         assert out == "df"
         c._execute_dax_internal.assert_called_once_with(
-            "ws-guid-1", "ds-guid-1", "EVALUATE Customers", max_rows=None
+            "e5000001-0000-4000-8000-000000000001", "d5000001-0000-4000-8000-000000000001", "EVALUATE Customers", max_rows=None
         )
 
     def test_resolution_is_case_insensitive(self):
@@ -330,21 +330,21 @@ class TestExecuteQueryResolution:
         c._execute_dax_internal = MagicMock(return_value="df")
         c.execute_query("EVALUATE Orders", "Orders")
         args = c._execute_dax_internal.call_args[0]
-        assert args[1] == "ds-guid-1"
+        assert args[1] == "d5000001-0000-4000-8000-000000000001"
 
     def test_explicit_ids_bypass_all_lookup(self):
         c = _mk_client()
         c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
         c._execute_dax_internal = MagicMock(return_value="df")
-        c.execute_query("EVALUATE T", dataset_id="d-x", workspace_id="w-x")
-        c._execute_dax_internal.assert_called_once_with("w-x", "d-x", "EVALUATE T", max_rows=None)
+        c.execute_query("EVALUATE T", dataset_id=_DS_GUID, workspace_id=_WS_GUID)
+        c._execute_dax_internal.assert_called_once_with(_WS_GUID, _DS_GUID, "EVALUATE T", max_rows=None)
 
     def test_explicit_workspace_kept_when_table_name_resolves(self):
         c = self._client_with_map()
         c._execute_dax_internal = MagicMock(return_value="df")
-        c.execute_query("EVALUATE Customers", "SalesModel/Customers", workspace_id="override-ws")
+        c.execute_query("EVALUATE Customers", "SalesModel/Customers", workspace_id=_WS_GUID)
         args = c._execute_dax_internal.call_args[0]
-        assert args[0] == "override-ws"
+        assert args[0] == _WS_GUID
 
     def test_falls_back_to_live_discovery_when_no_map_was_attached(self):
         """A bare client (no platform-attached activation map) still resolves
@@ -352,12 +352,12 @@ class TestExecuteQueryResolution:
         c = _mk_client()
         from app.ai.prompt_formatters import Table
         live = Table(name="NewModel/Things", columns=[], pks=[], fks=[], is_active=True,
-                     metadata_json={"powerbi": {"datasetId": "live-ds", "workspaceId": "live-ws"}})
+                     metadata_json={"powerbi": {"datasetId": _DS_GUID, "workspaceId": _WS_GUID}})
         c.get_schemas = MagicMock(return_value=[live])
         c._execute_dax_internal = MagicMock(return_value="df")
         c.execute_query("EVALUATE Things", "NewModel/Things")
         args = c._execute_dax_internal.call_args[0]
-        assert (args[0], args[1]) == ("live-ws", "live-ds")
+        assert (args[0], args[1]) == (_WS_GUID, _DS_GUID)
 
     def test_no_live_discovery_for_name_outside_attached_map(self):
         """Once the platform attached the activated-table map, a name outside
@@ -755,7 +755,7 @@ class TestActivationEnforcement:
             {"name": "SalesModel/Date Table", "metadata_json": {
                 "powerbi": {**PBI_META["powerbi"], "tableName": "Date Table"}}},
             {"name": "HRModel/Employees", "metadata_json": {
-                "powerbi": {"datasetId": "ds-guid-2", "workspaceId": "ws-guid-1",
+                "powerbi": {"datasetId": "d5000002-0000-4000-8000-000000000002", "workspaceId": "e5000001-0000-4000-8000-000000000001",
                              "datasetName": "HRModel", "tableName": "Employees"}}},
         ])
         c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
@@ -815,7 +815,7 @@ class TestActivationEnforcement:
     def test_dax_body_reaching_non_activated_sibling_is_refused_with_explicit_ids(self):
         c = self._client()
         with pytest.raises(ValueError, match="not activated"):
-            c.execute_query("EVALUATE Orders", dataset_id="ds-guid-1", workspace_id="ws-guid-1")
+            c.execute_query("EVALUATE Orders", dataset_id="d5000001-0000-4000-8000-000000000001", workspace_id="e5000001-0000-4000-8000-000000000001")
         c._execute_dax_internal.assert_not_called()
 
     @pytest.mark.parametrize("dax", [
@@ -879,3 +879,75 @@ class TestDaxTableReferences:
 
     def test_escaped_quote_in_table_name(self):
         assert "o'brien" in PowerBIClient._dax_table_references("EVALUATE 'O''Brien'")
+
+
+# ---------- dataset and workspace ids are GUIDs before any URL ---------- #
+
+_WS_GUID = "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d"
+_DS_GUID = "A0B1C2D3-E4F5-4A6B-9C8D-7E6F5A4B3C2D"
+
+
+class TestDatasetIdsAreGuids:
+    """The ids are placed in the executeQueries URL path, so each must be a
+    GUID before the client builds a URL or asks for a token."""
+
+    @staticmethod
+    def _client():
+        c = _mk_client()
+        c._http.request.return_value = _resp(200, {"results": [{"tables": [{"rows": [{"[n]": 1}]}]}]})
+        c._http.request.return_value.content = b"{}"
+        return c
+
+    @staticmethod
+    def _refused(call, c):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+
+        error = None
+        try:
+            call()
+        except Exception as exc:  # noqa: BLE001 - the type is asserted below
+            error = exc
+        sent = [call.args[:2] for call in c._http.request.call_args_list]
+        assert sent == [], f"request sent: {sent!r}"
+        assert isinstance(error, ReadOnlyViolation), f"not refused: {error!r}"
+
+    @pytest.mark.parametrize("dataset_id, workspace_id", [
+        ("ds-x", _WS_GUID),
+        (_DS_GUID, "ws-x"),
+        (_DS_GUID + "/executeQueries?x=", _WS_GUID),
+        (_DS_GUID, _WS_GUID + "/datasets/" + _DS_GUID + "/refreshes?x="),
+        ("../" + _DS_GUID, None),
+        (_DS_GUID + "\n", _WS_GUID),
+        (_DS_GUID.replace("-", ""), _WS_GUID),
+        (_DS_GUID, ""),
+    ])
+    def test_non_guid_id_refused_in_execute_query(self, dataset_id, workspace_id):
+        c = self._client()
+        self._refused(lambda: c.execute_query("EVALUATE T", dataset_id=dataset_id, workspace_id=workspace_id), c)
+
+    def test_non_guid_workspace_from_metadata_refused(self):
+        c = self._client()
+        c.attach_table_metadata([{"name": "SalesModel/Customers", "metadata_json": {
+            "powerbi": {**PBI_META["powerbi"], "workspaceId": "ws-x"}}}])
+        self._refused(lambda: c.execute_query("EVALUATE Customers", "SalesModel/Customers"), c)
+
+    def test_refused_before_a_token_is_requested(self, monkeypatch):
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+        from app.data_sources.clients import powerbi_client as module
+
+        token_calls = []
+        monkeypatch.setattr(module, "pinned_request", lambda *a, **k: token_calls.append(a))
+        c = PowerBIClient(tenant_id="t", client_id="c", client_secret="s")
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query("EVALUATE T", dataset_id="ds-x", workspace_id=_WS_GUID)
+        assert token_calls == []
+
+    @pytest.mark.parametrize("workspace_id, url", [
+        (_WS_GUID, f"{PowerBIClient.BASE_URL}/groups/{_WS_GUID}/datasets/{_DS_GUID}/executeQueries"),
+        (None, f"{PowerBIClient.BASE_URL}/datasets/{_DS_GUID}/executeQueries"),
+    ])
+    def test_guid_ids_sent(self, workspace_id, url):
+        c = self._client()
+        df = c.execute_query("EVALUATE T", dataset_id=_DS_GUID, workspace_id=workspace_id)
+        assert len(df) == 1
+        assert [call.args[:2] for call in c._http.request.call_args_list] == [("POST", url)]

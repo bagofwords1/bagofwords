@@ -284,6 +284,23 @@ class TestQueryPath:
         assert df.iloc[0]["Name"] == "Acme"
         assert df.iloc[0]["total"] == 30.0
 
+    def test_execute_query_reads_only_the_models_tables(self, tmp_path, cache_dir):
+        """One SELECT over the model's tables: another file, or a table the
+        model does not have, is refused with the refusal's own type."""
+        from app.ai.code_execution.sql_guard import ReadOnlyViolation
+        from app.ai.code_execution.table_scope import TableScopeViolation
+
+        f = tmp_path / "m.pbix"
+        _write_pbix(f)
+        c = PBIXClient(str(f))
+        cdir = self._prefab_cache(c, str(f), {"Sales": pd.DataFrame({"A": [1]})})
+        with pytest.raises(TableScopeViolation):
+            c.execute_query(f"SELECT * FROM '{cdir / 'manifest.json'}'")
+        with pytest.raises(TableScopeViolation):
+            c.execute_query("SELECT * FROM Customers")
+        with pytest.raises(ReadOnlyViolation):
+            c.execute_query(f"SELECT * FROM read_parquet('{cdir / 'sales.parquet'}')")
+
     def test_stale_cache_served_after_edit(self, tmp_path, cache_dir):
         f = tmp_path / "m.pbix"
         _write_pbix(f)

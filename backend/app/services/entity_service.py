@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 
 from sqlalchemy import select, or_
@@ -11,12 +12,136 @@ from app.models.organization import Organization
 from app.models.step import Step
 from app.models.query import Query
 from app.services.step_service import StepService
-from app.services.query_service import QueryService
+from app.services.query_service import QueryService, flush_usage
 from app.schemas.entity_schema import EntityCreate, EntityUpdate
 from datetime import datetime
 from app.schemas.entity_schema import EntityRunPayload
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
+from app.dependencies import async_session_maker
+from app.services.usage_policy_service import UsageLimitContext
+from app.errors import AppError, ErrorCode
+from app.errors.redact import describe_for_log
+
+logger = logging.getLogger(__name__)
+
+
+def is_run_refusal(exc: Optional[BaseException]) -> bool:
+    """True when a run was refused rather than failed: the query guard or the
+    code scan, in-process execution refused on this host, a host without the
+    sandbox, a connection rate limit or a usage quota, a connection with no
+    free query slot, raised in the parent or reported by the sandbox child by
+    type name. The route answers each with its own status."""
+    from app.ai.code_execution.code_execution import CodeSecurityError
+    from app.data_sources.query_concurrency import ConnectionBusyError
+    from app.ai.code_execution.sandbox.runner import (
+        SandboxExecutionError,
+        SandboxModeRefused,
+        SandboxUnavailableError,
+    )
+    from app.services.connection_rate_limit_service import RateLimitExceeded
+    from app.services.usage_policy_service import UsageLimitExceeded
+
+    if isinstance(exc, (CodeSecurityError, SandboxModeRefused, SandboxUnavailableError,
+                        UsageLimitExceeded, RateLimitExceeded, ConnectionBusyError)):
+        return True
+    return isinstance(exc, SandboxExecutionError) and exc.exc_type in (
+        "RateLimitExceeded", "UsageLimitExceeded", "ConnectionBusyError")
+
+
+def _result_not_saved(entity_id, err: BaseException) -> AppError:
+    """The answer to a run whose result the app database did not store.
+
+    Told apart by where it happens (the save), not by the error's type: a
+    warehouse client raises the same SQLAlchemy errors for a builder's own
+    query. The app database's error quotes its statement and bound values, so
+    neither the answer nor the log line carries its text."""
+    logger.error("Entity %s: the run's result was not saved: %s", entity_id, describe_for_log(err))
+    return AppError(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
+
+
+async def _roll_back_failed_save(db: AsyncSession, entity_id: str) -> None:
+    """Roll the session back after a failed save of a builder run's result.
+
+    Only for the run route's own request session (run_entity_with_update has
+    no other caller): until then every use of it fails with an error
+    repeating the database's statement and bound values. A viewer's slice is
+    saved on a session of its own instead, as its callers share theirs."""
+    try:
+        await db.rollback()
+    except Exception as err:
+        logger.error("Entity %s: the session was not rolled back after a failed save: %s",
+                     entity_id, describe_for_log(err))
+
+
+class CallerTransactionLost(AppError):
+    """Saving a viewer's slice in the caller's transaction made the database
+    roll that whole transaction back (SQLite answers a full disk, an I/O
+    error or a trigger's RAISE(ROLLBACK) so), and the caller's uncommitted
+    writes with it. Ends the caller's run: its session refuses every further
+    use until it is rolled back, so it never commits without them."""
+
+    # Regenerating or re-running the code cannot bring the writes back.
+    terminal_execution_error = True
+
+    def __init__(self) -> None:
+        super().__init__(ErrorCode.INTERNAL, "The run's result could not be saved.", status_code=500)
+
+
+# How long a slice save on a session of its own waits for a row lock. A lock
+# held by the caller's own transaction is never released while the save
+# waits: it fails fast instead of at the database's lock timeout.
+_OWN_SAVE_LOCK_TIMEOUT = "5s"
+
+
+async def _sqlite_write_lock_connection(db: AsyncSession):
+    """The connection of `db` when it is on SQLite and has written without
+    committing: it then holds the database's one write lock. (The driver opens
+    a transaction only before a write.) None otherwise."""
+    if db.get_bind().dialect.name != "sqlite" or not db.in_transaction():
+        return None
+    conn = await db.connection()
+    raw = await conn.get_raw_connection()
+    return conn if raw.driver_connection.in_transaction else None
+
+
+async def _write_in_callers_transaction(db: AsyncSession, conn, write, entity_id: str) -> None:
+    """`write(db)` in a savepoint of the caller's SQLite transaction on `conn`.
+
+    A failure rolls back the savepoint alone and raises the database's own
+    error. When the database answered with a rollback of the whole
+    transaction instead, the caller's writes are gone while the session still
+    takes it as open: its connection is invalidated, so the caller's next use
+    of the session raises rather than commits without them, and
+    CallerTransactionLost is raised. So too when whether the transaction
+    survived cannot be read."""
+    cause = None
+    try:
+        async with db.begin_nested():
+            try:
+                await write(db)
+            except Exception as err:
+                cause = err
+                raise
+    except Exception as err:
+        cause = cause or err
+        try:
+            raw = await conn.get_raw_connection()
+            survived = raw.driver_connection.in_transaction
+        except Exception as probe_err:
+            survived = False
+            logger.error("Entity %s: whether the caller's transaction survived its slice's failed save "
+                         "could not be read: %s", entity_id, describe_for_log(probe_err))
+        if survived:
+            raise cause from None
+        try:
+            await conn.invalidate()
+        except Exception as invalidate_err:
+            logger.error("Entity %s: the caller's connection was not invalidated: %s",
+                         entity_id, describe_for_log(invalidate_err))
+        logger.error("Entity %s: the caller's transaction was lost while its slice was saved: %s",
+                     entity_id, describe_for_log(cause))
+        raise CallerTransactionLost() from None
 
 
 class EntityService:
@@ -24,6 +149,22 @@ class EntityService:
     def __init__(self):
         self.step_service = StepService()
         self.query_service = QueryService()
+
+    @staticmethod
+    def _usage_context(organization, user, *, source: str,
+                       entity_id: Optional[str]) -> Optional[UsageLimitContext]:
+        """Rate limits, quotas and metering for one execution, labelled with
+        the caller (`source`). Flushed by the caller when the execution ends,
+        failed or not."""
+        if organization is None or user is None:
+            return None
+        return UsageLimitContext(
+            organization_id=str(organization.id),
+            user_id=str(user.id),
+            source=source,
+            source_ref_id=str(entity_id) if entity_id else None,
+            session_maker=async_session_maker,
+        )
 
     # ------------------------------------------------------------------
     # Parameters (mirrors the step/query machinery)
@@ -91,34 +232,69 @@ class EntityService:
             out.append(spec.model_dump())
         return out
 
+    @staticmethod
     async def _upsert_entity_user_result(
-        self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
+        db: AsyncSession, entity, ids: dict, resolved_params: dict, df: dict, *,
+        entity_access: Optional[dict] = None,
     ) -> None:
-        """Cache a viewer's slice per (entity, user, values fingerprint)."""
+        """Cache a viewer's slice per (entity, user, values fingerprint), on a
+        session of its own.
+
+        The caller's session `db` may be shared (an agent's, an MCP
+        request's, a dashboard publish's): this write never commits it, and a
+        failed one never rolls it back, so what it holds stays loaded and
+        what it has not committed stays its own. One upsert on the slice's
+        key: two requests saving the same slice both succeed, the later one's
+        rows kept. `entity_access`: the monitoring marker the run gave
+        `entity`, stored with the slice and set on `entity` as stored, never
+        left for the caller to write (the caller's transaction would then
+        hold the entity's row, which the next save of a slice of it waits
+        for). A failure is the fixed 500; CallerTransactionLost when it cost
+        the caller its transaction. `ids` holds the entity, user and
+        organization ids."""
+        from sqlalchemy import text, update
+        from sqlalchemy.orm.attributes import set_committed_value
+
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.entity_user_result import EntityUserResult
-        fingerprint = params_fingerprint(resolved_params)
-        row = (await db.execute(
-            select(EntityUserResult).where(
-                EntityUserResult.entity_id == str(entity.id),
-                EntityUserResult.user_id == str(user.id),
-                EntityUserResult.params_fingerprint == fingerprint,
-            )
-        )).scalars().first()
-        if row is None:
-            row = EntityUserResult(
-                entity_id=str(entity.id),
-                user_id=str(user.id),
-                organization_id=str(entity.organization_id),
-                params_fingerprint=fingerprint,
-            )
-        row.status = "success"
-        row.status_reason = None
-        row.data = df
-        row.applied_params = dict(resolved_params) if resolved_params else None
-        row.last_run_at = datetime.utcnow()
-        db.add(row)
-        await db.commit()
+        from app.services.viewer_result_store import upsert_viewer_row
+        entity_id = ids["entity_id"]
+        key = dict(entity_id=entity_id, user_id=ids["user_id"],
+                   params_fingerprint=params_fingerprint(resolved_params))
+        now = datetime.utcnow()
+        values = dict(status="success", status_reason=None, data=df,
+                      applied_params=dict(resolved_params) if resolved_params else None,
+                      last_run_at=now, updated_at=now)
+
+        async def write(session: AsyncSession) -> None:
+            await upsert_viewer_row(session, EntityUserResult, key, values,
+                                    organization_id=ids["organization_id"])
+            if entity_access is not None:
+                await session.execute(update(Entity).where(Entity.id == entity_id)
+                                      .values(bow_source_access=entity_access))
+
+        try:
+            held = await _sqlite_write_lock_connection(db)
+            if held is not None:
+                # SQLite has one writer at a time, and it is the caller's
+                # session (a publish's flushed monitoring marker): another
+                # session's write would wait for it, then fail. The slice
+                # joins the caller's transaction in a savepoint, committed by
+                # the caller.
+                await _write_in_callers_transaction(db, held, write, entity_id)
+            else:
+                # Closing the session rolls back what it did not commit.
+                async with async_session_maker() as own:
+                    if own.get_bind().dialect.name == "postgresql":
+                        await own.execute(text(f"SET LOCAL lock_timeout = '{_OWN_SAVE_LOCK_TIMEOUT}'"))
+                    await write(own)
+                    await own.commit()
+        except CallerTransactionLost:
+            raise
+        except Exception as err:
+            raise _result_not_saved(entity_id, err) from None
+        if entity_access is not None:
+            set_committed_value(entity, "bow_source_access", entity_access)
 
     async def resolve_entity_data_for_user(
         self,
@@ -173,8 +349,12 @@ class EntityService:
         touched here.
 
         Returns {"data": grid, "applied_params": resolved, "cached": bool}.
-        Raises ParamError for bad values and ValueError when no data-source
-        client can be built for the caller.
+        Raises ParamError for bad values (also when the saved code refuses
+        them while it runs) and ValueError when no data-source client can be
+        built for the caller. A refusal and a typed error (a query timeout)
+        keep their own error. Any other failure of the run, turning its result into rows
+        included, is AppError entity.run_failed (422) without its text; a
+        failed save of the slice is AppError generic (500).
         """
         from app.ai.code_execution.query_params import ParamError, params_fingerprint
         from app.models.entity_user_result import EntityUserResult
@@ -184,18 +364,19 @@ class EntityService:
 
         if user is None:
             raise ParamError("running an entity with parameters requires an authenticated user")
+        entity_id = str(entity.id)
+        ids = {"entity_id": entity_id, "user_id": str(user.id), "organization_id": str(entity.organization_id)}
 
         resolved = await self._resolve_entity_params(
             db, entity, user, organization, request_values
         )
         fingerprint = params_fingerprint(resolved)
-        row = (await db.execute(
-            select(EntityUserResult).where(
-                EntityUserResult.entity_id == str(entity.id),
-                EntityUserResult.user_id == str(user.id),
-                EntityUserResult.params_fingerprint == fingerprint,
-            )
-        )).scalars().first()
+        # The slice is written on another session: read what is stored, even
+        # over an instance this session already holds.
+        from app.services.viewer_result_store import viewer_row
+        row = (await db.execute(viewer_row(
+            EntityUserResult, entity_id=entity_id, user_id=ids["user_id"], params_fingerprint=fingerprint,
+        ))).scalars().first()
         # Stale once the entity OR any of its loadable upstreams refreshed
         # past the cached slice.
         _has_identity, upstream_refresh = await entity_identity_scope(db, entity)
@@ -240,19 +421,47 @@ class EntityService:
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
         await install_entity_client(db, organization, user, entity, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        source = "entity_viewer_run"
+        usage_context = self._usage_context(organization, user, source=source, entity_id=entity.id)
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         from app.data_sources.query_tag import query_tag_defaults
-        with query_tag_defaults(source="entity_run", entity_id=entity.id,
-                                org_id=getattr(organization, "id", None), user_id=getattr(user, "id", None)):
-            exec_df, _log, _ = await executor.execute_code_async(
-                code=entity.code or "", ds_clients=ds_clients, excel_files=[],
-                params=resolved,
-            )
-        df = executor.format_df_for_widget(exec_df)
-        if exec_df.attrs.get("bow_source"):
-            from app.services.bow_source_access import merge_access
-            entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
-        await self._upsert_entity_user_result(db, entity, user, resolved, df)
+        entity_access = None
+        try:
+            with query_tag_defaults(source=source, entity_id=entity.id,
+                                    org_id=getattr(organization, "id", None), user_id=getattr(user, "id", None)):
+                exec_df, _log, _ = await executor.execute_code_async(
+                    code=entity.code or "", ds_clients=ds_clients, excel_files=[],
+                    params=resolved,
+                )
+            df = executor.format_df_for_widget(exec_df)
+            if exec_df.attrs.get("bow_source"):
+                from app.services.bow_source_access import merge_access
+                entity_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+        except Exception as e:
+            # A refusal and a typed error (a query timeout: its params carry
+            # only the budget) keep their own answer, and so does the reader's
+            # own mistake: values the saved code refuses while it runs
+            # (calendar_date_bounds), whose text is built from those values
+            # and fixed strings. Any other failure (the saved code's, a data
+            # source's, a swallowed query's, whose text and params quote the
+            # data source's errors, the sandbox's own) is a 422 without its
+            # text: it is the owner's code and query, not this reader's
+            # request, and its message can quote SQL and bound values. The
+            # log names the types, never the message.
+            from app.ai.code_execution.code_execution import SwallowedQueryError
+            from app.ai.code_execution.sandbox.runner import SandboxExecutionError
+            if isinstance(e, ParamError) or is_run_refusal(e) or (
+                    isinstance(e, AppError) and not isinstance(e, SwallowedQueryError)):
+                raise
+            if isinstance(e, SandboxExecutionError) and e.exc_type == "ParamError":
+                raise ParamError(e.message) from None
+            logger.warning("Entity %s: its saved code failed in a run with parameter values (%s): %s",
+                           entity_id, getattr(e, "exc_type", None) or type(e).__name__, describe_for_log(e))
+            raise AppError(ErrorCode.ENTITY_RUN_FAILED, "The saved query failed to run.",
+                           status_code=422) from None
+        finally:
+            await flush_usage(usage_context)
+        await self._upsert_entity_user_result(db, entity, ids, resolved, df, entity_access=entity_access)
         return {"data": df, "applied_params": resolved, "cached": False}
 
 
@@ -908,7 +1117,7 @@ class EntityService:
         result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
-            raise ValueError("Entity not found")
+            raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
 
         # Parameter VALUES make this a viewer-mode run: execute the SAVED code
         # with those values as the caller, serve/cache per (entity, user,
@@ -955,7 +1164,8 @@ class EntityService:
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
         await install_entity_client(db, organization, current_user, entity, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        usage_context = self._usage_context(organization, current_user, source="entity_run", entity_id=entity.id)
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
 
         # Snapshot-identity guard: execution runs under the CALLER's
         # credentials, but Entity.data is a SHARED snapshot the policy treats
@@ -975,32 +1185,60 @@ class EntityService:
         )
 
         try:
-            from app.data_sources.query_tag import query_tag_defaults
-            with query_tag_defaults(source="entity_run", entity_id=entity.id,
-                                    org_id=getattr(organization, "id", None),
-                                    user_id=getattr(current_user, "id", None)):
-                exec_df, execution_log, _ = await executor.execute_code_async(
-                    code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
-                    params=resolved_params,
-                )
-            df = executor.format_df_for_widget(exec_df)
-            if exec_df.attrs.get("bow_source"):
-                from app.services.bow_source_access import merge_access
-                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+            try:
+                from app.data_sources.query_tag import query_tag_defaults
+                with query_tag_defaults(source="entity_run", entity_id=entity.id,
+                                        org_id=getattr(organization, "id", None),
+                                        user_id=getattr(current_user, "id", None)):
+                    exec_df, execution_log, _ = await executor.execute_code_async(
+                        code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
+                        params=resolved_params,
+                    )
+                df = executor.format_df_for_widget(exec_df)
+                run_access = None
+                if exec_df.attrs.get("bow_source"):
+                    from app.services.bow_source_access import merge_access
+                    run_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+            except Exception as e:
+                if persist_data:
+                    # Persist last_refreshed_at but do not overwrite existing data
+                    # on failure. Best effort: a failing save must not replace the
+                    # run's own error, which is what the caller has to act on.
+                    try:
+                        entity.last_refreshed_at = datetime.utcnow()
+                        await db.flush()
+                        await db.commit()
+                    except Exception as save_error:
+                        logger.warning("Refresh time of entity %s was not saved after a failed run: %s",
+                                       entity_id, describe_for_log(save_error))
+                        await _roll_back_failed_save(db, entity_id)
+                # Re-raise as ValueError for the route to map; the cause is kept
+                # so a refusal (guard, quota) still maps to its own status.
+                raise ValueError(str(e)) from e
 
+            # The run succeeded; from here on a failure is the app database's
+            # (saving the result), answered by _result_not_saved.
             if not persist_data:
                 # Transient run: the caller's own slice. Cache it per
                 # (entity, user, values) so load_entity and later reads reuse
                 # it, then detach the instance so the shared snapshot is
                 # never flushed.
                 if current_user is not None:
+                    ids = {"entity_id": str(entity_id), "user_id": str(current_user.id),
+                           "organization_id": str(entity.organization_id)}
+                    # The run's marker is stored with the slice and set on
+                    # `entity` as stored, never left on it for `db` to write.
                     await self._upsert_entity_user_result(
-                        db, entity, current_user, resolved_params, df
-                    )
+                        db, entity, ids, resolved_params, df, entity_access=run_access)
                 db.expunge(entity)
+                if run_access is not None:
+                    # Detached: the copy handed back, never flushed.
+                    entity.bow_source_access = run_access
                 entity.data = df
                 return entity
             # Persist execution results
+            if run_access is not None:
+                entity.bow_source_access = run_access
             entity.data = df
             entity.applied_params = dict(resolved_params) if resolved_params else None
             entity.last_refreshed_at = datetime.utcnow()
@@ -1022,18 +1260,24 @@ class EntityService:
                 if getattr(payload, "status", None) is not None:
                     entity.status = payload.status  # type: ignore
 
-            await db.flush()
-            await db.commit()
-            await db.refresh(entity)
-            return entity
-        except Exception as e:
-            if persist_data:
-                # Persist last_refreshed_at but do not overwrite existing data on failure
-                entity.last_refreshed_at = datetime.utcnow()
+            try:
                 await db.flush()
                 await db.commit()
-            # Re-raise as ValueError for route to map to 404/400 as designed
-            raise ValueError(str(e))
+            except Exception as err:
+                failure = _result_not_saved(entity_id, err)
+                await _roll_back_failed_save(db, entity_id)
+                raise failure from None
+            try:
+                await db.refresh(entity)
+            except Exception as err:
+                # Saved; only reading the stored row back failed.
+                logger.error("Entity %s: the run's result was saved but not read back: %s",
+                             entity_id, describe_for_log(err))
+                raise AppError(ErrorCode.INTERNAL, "The run's result was saved but could not be read back.",
+                               status_code=500) from None
+            return entity
+        finally:
+            await flush_usage(usage_context)
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -1068,13 +1312,16 @@ class EntityService:
         current_user: Optional[User],
         resolved_params: Optional[dict] = None,
         entity: Optional[Entity] = None,
+        *,
+        source: str,
     ) -> dict:
         """Run `code` against `ds_list` (or every org agent when empty) without
         persisting anything. Shared by the per-entity preview and the stateless
         one the "New query" form uses before a row exists.
 
         `entity` is the saved row when there is one: its BOW source access
-        gates the run and is widened by what the run read."""
+        gates the run and is widened by what the run read. `source` labels the
+        run's metered queries with its caller."""
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
@@ -1101,10 +1348,12 @@ class EntityService:
         if entity is not None:
             from app.services.bow_source_access import install_entity_client
             await install_entity_client(db, organization, current_user, entity, ds_clients)
-        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        usage_context = self._usage_context(organization, current_user, source=source,
+                                            entity_id=getattr(entity, "id", None))
+        executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
             from app.data_sources.query_tag import query_tag_defaults
-            with query_tag_defaults(source="entity_run", entity_id=getattr(entity, "id", None),
+            with query_tag_defaults(source=source, entity_id=getattr(entity, "id", None),
                                     org_id=getattr(organization, "id", None),
                                     user_id=getattr(current_user, "id", None)):
                 exec_df, execution_log, _ = await executor.execute_code_async(
@@ -1119,6 +1368,8 @@ class EntityService:
             return {"data": df, "execution_log": execution_log, "applied_params": resolved_params or None}
         except Exception as e:
             return {"data": None, "error": str(e)}
+        finally:
+            await flush_usage(usage_context)
 
     async def preview_entity(
         self,
@@ -1145,7 +1396,7 @@ class EntityService:
         )
         return await self._execute_entity_code(
             db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
-            entity=entity,
+            entity=entity, source="entity_preview",
         )
 
     async def preview_code(
@@ -1179,7 +1430,7 @@ class EntityService:
             db, parameters, current_user, organization, params or None,
         )
         return await self._execute_entity_code(
-            db, code or "", ds_list, organization, current_user, resolved_params,
+            db, code or "", ds_list, organization, current_user, resolved_params, source="entity_code_preview",
         )
 
     async def _get_owned_entity(

@@ -10,18 +10,23 @@ from __future__ import annotations
 import os
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import pandas as pd
 import pytest
 
+from app.ai.code_execution.duckdb_guard import ConnectionTableViolation, DuckdbQueryError
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_sql, ensure_read_only
+from app.ai.code_execution.table_scope import TableScopeViolation
 from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients.csv_client import CSVClient
 from app.data_sources.clients.duckdb_client import DuckDBClient
 from app.data_sources.clients.pbix_client import PBIXClient
 from app.data_sources.clients.qvd_client import QVDClient
 from app.data_sources.clients.sqlite_client import SqliteClient
+from tests.unit.test_duckdb_client_guard import http_base  # noqa: F401  (a local HTTP server)
+from tests.unit.test_lakehouse_clients import iceberg_catalog  # noqa: F401  (a real Iceberg catalog)
 
 _BACKEND = Path(__file__).resolve().parents[2]
 
@@ -63,6 +68,23 @@ def _duckdb_file(path: Path) -> Path:
 def _folder(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _refused_where_checked(client, sql: str) -> None:
+    """The read-only guard refuses `sql` for `client` before it runs. A
+    DuckDB connection is checked in the code-execution wrapper
+    (`ensure_read_only`). The file connections (CSV, QVD, PBIX) are exempt
+    there and checked at their own dispatch point instead, on their locked
+    session (`client_profiles.EXEMPT_CLIENTS`); their refusal says whether a
+    statement or a table was refused, or that a DESCRIBE / SHOW is not
+    available there."""
+    if isinstance(client, (CSVClient, QVDClient, PBIXClient)):
+        assert ensure_read_only(client, sql) == sql
+        with pytest.raises((ReadOnlyViolation, TableScopeViolation, DuckdbQueryError)):
+            client.execute_query(sql)
+    else:
+        with pytest.raises(ReadOnlyViolation):
+            ensure_read_only(client, sql)
 
 
 def _sqlite_file(path: Path) -> Path:
@@ -114,8 +136,11 @@ def test_csv_join_and_duckdb_syntax_still_work(data):
         "QUALIFY row_number() OVER (ORDER BY net DESC) = 1"
     )
     assert df.to_dict("records") == [{"region": "south", "net": 32}]
-    assert len(client.execute_query("DESCRIBE sales")) == 2
-    assert len(client.execute_query("SUMMARIZE sales")) == 2
+    # A file connection answers DESCRIBE and SUMMARIZE with an error the
+    # agent fixes by rewriting the query (SELECT ... LIMIT 0, aggregates).
+    for sql in ("DESCRIBE sales", "SUMMARIZE sales"):
+        with pytest.raises(DuckdbQueryError, match="LIMIT 0"):
+            client.execute_query(sql)
 
 
 def test_qvd_connection_queries_its_converted_table_and_nothing_else(data, outside, tmp_path, monkeypatch):
@@ -170,8 +195,7 @@ def _reads_of(path: Path) -> list[str]:
 def test_query_cannot_read_a_file_outside_the_connection(kind, data, outside, tmp_path):
     client = _clients(data, tmp_path)[kind]
     for sql in _reads_of(outside / "private.csv"):
-        with pytest.raises(ReadOnlyViolation):
-            ensure_read_only(client, sql)
+        _refused_where_checked(client, sql)
         with pytest.raises(Exception):
             client.execute_query(sql)
 
@@ -230,8 +254,7 @@ def _side_effects(target: Path) -> list[str]:
 def test_guard_refuses_statements_with_side_effects(kind, data, outside, tmp_path):
     client = _clients(data, tmp_path)[kind]
     for sql in _side_effects(outside):
-        with pytest.raises(ReadOnlyViolation):
-            ensure_read_only(client, sql)
+        _refused_where_checked(client, sql)
         with pytest.raises(Exception):
             client.execute_query(sql)
     assert sorted(p.name for p in outside.iterdir()) == ["private.csv", "private.txt"]
@@ -244,7 +267,7 @@ def test_guard_covers_every_in_process_file_connector(client_cls, tmp_path):
     for sql in ("COPY sales TO '/tmp/x.csv'", "ATTACH '/tmp/x.db' AS x", "INSTALL httpfs",
                 "EXPORT DATABASE '/tmp/x'", "SELECT * FROM read_text('/etc/hostname')"):
         with pytest.raises(ReadOnlyViolation):
-            ensure_read_only(client, sql)
+            client.execute_query(sql)
 
 
 @pytest.mark.parametrize("kind", _KINDS)
@@ -572,6 +595,58 @@ def test_unsafe_setting_restores_path_and_sqlite_behaviour(unrestricted, tmp_pat
     assert client.execute_query("SELECT COUNT(*) AS n FROM orders")["n"][0] == 3
 
 
+_DUCKDB_BASED = ["duckdb_file", "duckdb_uris", "csv", "qvd", "pbix", "pbirs", "iceberg"]
+
+
+def _duckdb_based_client(kind, data, tmp_path, monkeypatch, request):
+    """(client, send, table): `send(sql)` is how the agent's code reaches
+    that client's engine (the wrapper's check, then the client)."""
+    from tests.unit import test_duckdb_file_lockdown as files
+    from tests.unit.test_lakehouse_clients import _ice
+
+    if kind == "duckdb_file":
+        client, table = DuckDBClient(database=str(_duckdb_file(_folder(tmp_path / "db") / "shop.duckdb"))), "prices"
+    elif kind == "duckdb_uris":
+        client, table = DuckDBClient(uris=str(data / "sales.csv")), "sales"
+    elif kind == "iceberg":
+        client, table = _ice(request.getfixturevalue("iceberg_catalog")), "sales.orders"
+    elif kind == "pbirs":
+        report = files._PbirsReport(tmp_path, monkeypatch)
+        return report.client, lambda sql: report.execute_query(ensure_read_only(report.client, sql)), "sales"
+    else:
+        client = {"csv": lambda: files._csv(tmp_path), "qvd": lambda: files._qvd(tmp_path, monkeypatch),
+                  "pbix": lambda: files._pbix(tmp_path, monkeypatch)}[kind]()
+        table = "sales"
+    return client, lambda sql: client.execute_query(ensure_read_only(client, sql)), table
+
+
+@pytest.mark.parametrize("kind", _DUCKDB_BASED)
+def test_with_the_unsafe_setting_off_every_duckdb_based_client_is_locked_and_checked(
+        kind, data, outside, tmp_path, monkeypatch, request):
+    from app.settings.config import settings
+
+    monkeypatch.setattr(settings.bow_config.security, "unsafe_allow_unrestricted_file_connectors", False)
+    client, send, table = _duckdb_based_client(kind, data, tmp_path, monkeypatch, request)
+    locked = []
+    real_lock = lockdown.lock_connection
+
+    def lock_and_read_back(con, **kwargs):
+        real_lock(con, **kwargs)
+        locked.append(con.execute(
+            "SELECT current_setting('lock_configuration'), current_setting('enable_external_access')").fetchone())
+
+    monkeypatch.setattr(lockdown, "lock_connection", lock_and_read_back)
+    assert len(send(f"SELECT * FROM {table}")) >= 1
+    assert locked and set(locked) == {(True, False)}
+    secret = str(outside / "private.csv")
+    for sql in (f"SELECT * FROM read_csv_auto('{secret}')", f"SELECT * FROM '{secret}'",
+                f"SELECT content FROM read_text('{outside / 'private.txt'}')",
+                f"COPY {table} TO '{outside / 'copy.csv'}'", "SELECT current_setting('threads') AS t"):
+        with pytest.raises((ReadOnlyViolation, TableScopeViolation)):
+            send(sql)
+    assert not (outside / "copy.csv").exists()
+
+
 def test_settings_default_to_the_restricted_behaviour():
     from app.settings.bow_config import SecurityConfig
 
@@ -779,6 +854,701 @@ def test_organization_file_roots_setting_is_validated_when_loaded():
             SecurityConfig(organization_file_roots=bad)
 
 
+# -- a URI connection: the path policy runs on what the session is locked to ----
+
+
+_POLICY_REFUSAL = "(?i)protected|another organization"
+
+
+@pytest.fixture
+def guarded_tree(tmp_path, monkeypatch):
+    """A folder holding, below it, a protected directory (the system logs
+    folder, set the way an operator sets it) and a protected file (the
+    encryption key), each readable as CSV; and a folder of the connection's
+    own data beside it."""
+    from app.settings.config import settings
+
+    top = tmp_path / "top"
+    logs, keys, own = top / "logs", top / "keys", tmp_path / "own"
+    for folder in (logs, keys, own):
+        folder.mkdir(parents=True)
+    (logs / "server.csv").write_text("line\nhidden-log\n")
+    key = keys / "key.csv"
+    key.write_text("k\nhidden-key\n")
+    (own / "sales.csv").write_text("region,amount\nnorth,10\n")
+    monkeypatch.setattr(settings.bow_config.system_logs, "directory", str(logs))
+    monkeypatch.setenv("BOW_ENCRYPTION_KEY_FILE", str(key))
+    return SimpleNamespace(top=top, logs=logs, keys=keys, key=key, own=own)
+
+
+def _refused_at_connect_with_nothing_read(client, watched: dict) -> None:
+    """`client.connect()` is refused by the path policy, and no file named
+    in `watched` ({directory: file name}) is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    probes = {folder: _Opens(folder) for folder in watched}
+    try:
+        with pytest.raises(RuntimeError, match=_POLICY_REFUSAL):
+            with client.connect():
+                pass
+        for folder, probe in probes.items():
+            assert watched[folder] not in probe()
+    finally:
+        for probe in probes.values():
+            probe.close()
+
+
+@pytest.mark.parametrize("shape", ["{top}", "{top}/", "{keys}", "{keys}/"])
+def test_a_directory_uri_above_a_protected_location_is_refused_at_connect_with_nothing_read(shape, guarded_tree):
+    client = DuckDBClient(uris=shape.format(top=guarded_tree.top, keys=guarded_tree.keys))
+    _refused_at_connect_with_nothing_read(client, {guarded_tree.logs: "server.csv", guarded_tree.keys: "key.csv"})
+
+
+@pytest.mark.parametrize("shape", ["file://localhost{logs}/*.csv", "file://localhost{logs}/", "file://localhost{key}",
+                                   "file://localhost{keys}/*.csv", "file://localhost{top}",
+                                   "file://localhost{top}/**/*.csv"])
+def test_a_localhost_file_uri_is_held_to_the_path_it_names(shape, guarded_tree):
+    uri = shape.format(logs=guarded_tree.logs, key=guarded_tree.key, keys=guarded_tree.keys, top=guarded_tree.top)
+    _refused_at_connect_with_nothing_read(
+        DuckDBClient(uris=uri), {guarded_tree.logs: "server.csv", guarded_tree.keys: "key.csv"})
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"uris": uri})
+
+
+def test_a_glob_is_checked_against_protected_files_under_its_directory_as_the_engine_resolves_it(
+        guarded_tree, monkeypatch):
+    # DuckDB reads `~name` as the home directory's text followed by the name:
+    # `~eys` under the home directory `top/k` is `top/keys`.
+    home = _folder(guarded_tree.top / "k")
+    monkeypatch.setenv("HOME", str(home))
+    _refused_at_connect_with_nothing_read(DuckDBClient(uris="~eys/*.csv"), {guarded_tree.keys: "key.csv"})
+
+
+def test_a_file_uri_names_a_local_path_only_with_no_host_or_localhost():
+    assert lockdown.local_path_of("file:///data/x.csv") == "/data/x.csv"
+    assert lockdown.local_path_of("file://localhost/data/x.csv") == "/data/x.csv"
+    assert lockdown.local_path_of("file:/data/x.csv") == "/data/x.csv"
+    assert lockdown.local_path_of("/data/x.csv") == "/data/x.csv"
+    # Another host, a host spelled other than DuckDB reads it as local, or
+    # no path at all: not a local file.
+    for uri in ("file://fileserver/data/x.csv", "file://LOCALHOST/data/x.csv", "file://localhost", "file://"):
+        with pytest.raises(ValueError):
+            lockdown.local_path_of(uri)
+    with pytest.raises(ValueError):
+        lockdown.check_connection_config("duckdb", {"uris": "file://fileserver/data/x.csv"})
+
+
+@pytest.mark.parametrize("shape", ["{parent}", "{parent}/", "{parent}/**/*.csv", "file://localhost{parent}/**/*.csv"])
+def test_a_directory_or_deep_glob_above_another_organizations_root_is_refused(shape, departments):
+    """From an organization with no roots of its own, a directory that
+    holds another organization's root is refused, as one inside it is."""
+    from app.data_sources.clients._duckdb_lockdown import bind_organization
+
+    reserved, org_b = departments["a"], departments["org_b"]
+    parent = reserved.parent
+    client = bind_organization(DuckDBClient(uris=shape.format(parent=parent)), org_b)
+    _refused_at_connect_with_nothing_read(client, {reserved: "report.csv"})
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_local_path(str(parent), contains=True, organization_id=org_b)
+    # A file connector's glob over it is refused when it is saved.
+    with _as_request_of(org_b), pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("csv", {"file_paths": f"{parent}/**/*.csv"})
+    # A database file there is served without its folder.
+    db = _duckdb_file(parent / "market.duckdb")
+    with bind_organization(DuckDBClient(database=str(db)), org_b).connect() as session:
+        assert session.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
+        with pytest.raises(duckdb.Error, match="(?i)disabled by configuration"):
+            session.execute(f"SELECT * FROM read_csv_auto('{reserved / 'report.csv'}')").fetchall()
+
+
+def test_a_network_directory_root_above_another_organizations_root_is_refused_with_nothing_read(departments):
+    """From an organization with no roots of its own, a network directory
+    root that holds another organization's root is refused when it is saved
+    and when it connects; a root over its own data keeps working."""
+    from fastapi import HTTPException
+
+    from app.data_sources.clients._duckdb_lockdown import bind_organization
+    from app.data_sources.clients.network_dir_client import NetworkDirClient
+    from app.services.connection_service import _check_network_dir_root
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
+    parent = reserved.parent
+    with _as_request_of(org_b), pytest.raises(HTTPException) as refused:
+        _check_network_dir_root("network_dir", {"root_path": str(parent)})
+    assert "another organization" in str(refused.value.detail)
+
+    client = bind_organization(NetworkDirClient(root_path=str(parent)), org_b)
+    opens = _Opens(reserved)
+    try:
+        assert client.test_connection()["success"] is False
+        with pytest.raises(ValueError, match="another organization"):
+            client.list_files()
+        with pytest.raises(ValueError, match="another organization"):
+            client.read_file(f"{reserved.name}/report.csv")
+        assert "report.csv" not in opens()
+    finally:
+        opens.close()
+
+    # A root over the organization's own data.
+    with _as_request_of(org_b):
+        _check_network_dir_root("network_dir", {"root_path": str(free)})
+    own = bind_organization(NetworkDirClient(root_path=str(free)), org_b)
+    assert own.test_connection()["success"] is True
+    assert own.read_file("report.csv")["k"].tolist() == ["x"]
+
+
+def test_uris_over_the_connections_own_data_still_connect_and_read(guarded_tree, http_base, monkeypatch):
+    own = guarded_tree.own
+    for uri in (str(own), f"{own}/", f"file://{own}/*.csv", f"file://localhost{own}/*.csv", f"{http_base}/remote.csv"):
+        client = DuckDBClient(uris=uri)
+        with client.connect() as con:
+            assert con.execute(f"SELECT count(*) FROM {client.view_names()[0]}").fetchone()[0] == 1, uri
+    # Object-store prefixes are locked to as listed (no view is created:
+    # nothing is fetched).
+    monkeypatch.setattr(DuckDBClient, "_create_views", lambda self, con: [])
+    client = DuckDBClient(uris=f"{own}/*.csv\ns3://bucket/exports/*.parquet\nhttps://files.example.com/r/x.csv")
+    with client.connect() as con:
+        directories = con.execute("SELECT current_setting('allowed_directories')").fetchone()[0]
+        paths = con.execute("SELECT current_setting('allowed_paths')").fetchone()[0]
+    assert "s3://bucket/exports/" in directories
+    assert "https://files.example.com/r/x.csv" in paths
+
+
+def test_a_uri_is_refused_when_the_directory_the_engine_resolves_it_to_is_protected(guarded_tree, monkeypatch):
+    # DuckDB reads `~ogs` as the home directory's text followed by `ogs`:
+    # under the home directory `top/l` that is the protected `top/logs`.
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.top / "l")))
+    _refused_at_connect_with_nothing_read(DuckDBClient(uris="~ogs/*.csv"), {guarded_tree.logs: "server.csv"})
+
+
+def test_saving_a_uri_reads_a_leading_tilde_as_the_engine_does(guarded_tree, tmp_path, monkeypatch):
+    # DuckDB reads `~ogs` as the home directory's text followed by `ogs`.
+    monkeypatch.chdir(_folder(tmp_path / "work"))
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.top / "l")))
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"uris": "~ogs/*.csv"})
+    with pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"uris": "~ogs/server.csv"})
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.own.parent / "o")))
+    lockdown.check_connection_config("duckdb", {"uris": "~wn/*.csv"})
+
+
+@pytest.mark.parametrize("uri", ["FILE:///../keys/key.csv", "File:///../keys/key.csv", "FILE://localhost/../keys/key.csv"])
+def test_a_file_uri_whose_scheme_is_not_lower_case_is_refused_at_save_and_connect(uri, guarded_tree, monkeypatch):
+    """DuckDB takes only a lower-case `file:` as the prefix: in any other
+    case the text is a path relative to the working directory."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    monkeypatch.chdir(guarded_tree.top)
+    with pytest.raises(ValueError, match="(?i)lower case|protected"):
+        lockdown.check_connection_config("duckdb", {"uris": uri})
+    opens = _Opens(guarded_tree.keys)
+    try:
+        with pytest.raises(RuntimeError, match="(?i)lower case|protected"):
+            with DuckDBClient(uris=uri).connect():
+                pass
+        assert "key.csv" not in opens()
+    finally:
+        opens.close()
+
+
+# -- the path policy runs on the path that is opened -----------------------------
+
+
+@pytest.fixture
+def linked_roots(tmp_path, monkeypatch):
+    """Two organizations with a root each, side by side. Organization A's
+    root holds a link `l` to a folder two levels down, so `<A>/l/../..` is
+    A's root itself, while the same text read without the link is the
+    folder holding both roots."""
+    from app.settings.config import settings
+
+    root_a, root_c = tmp_path / "rootA", tmp_path / "rootC"
+    _folder(root_a / "x" / "y")
+    _folder(root_c)
+    (root_a / "l").symlink_to(root_a / "x" / "y")
+    (root_c / "report.csv").write_text("k,v\ntheirs,1\n")
+    org_a, org_c = "33333333-aaaa-4aaa-8aaa-333333333333", "44444444-cccc-4ccc-8ccc-444444444444"
+    monkeypatch.setattr(settings.bow_config.security, "organization_file_roots",
+                        {org_a: [str(root_a)], org_c: [str(root_c)]})
+    return SimpleNamespace(a=root_a, c=root_c, org_a=org_a, org_c=org_c, through_link=f"{root_a}/l/../../{root_c.name}")
+
+
+@pytest.mark.parametrize("form", ["file:{path}", "file://{path}", "file://localhost{path}"])
+@pytest.mark.parametrize("place", ["another organization's root", "a protected folder"])
+def test_a_database_file_named_with_a_file_prefix_is_checked_at_the_path_it_names(form, place, departments, guarded_tree):
+    folder, organization = ((departments["a"], departments["org_b"]) if place == "another organization's root"
+                            else (guarded_tree.logs, departments["org_b"]))
+    db = _duckdb_file(folder / "x.duckdb")
+    value = form.format(path=db)
+    with _as_request_of(organization), pytest.raises(ValueError, match=_POLICY_REFUSAL):
+        lockdown.check_connection_config("duckdb", {"database": value})
+    for client in (DuckDBClient(database=value), DuckDBClient(uris=value)):
+        _refused_at_connect_with_nothing_read(lockdown.bind_organization(client, organization), {folder: "x.duckdb"})
+
+
+def test_a_database_file_of_the_organizations_own_is_still_opened_whatever_its_form(departments):
+    db = _duckdb_file(departments["b"] / "market.duckdb")
+    for value in (str(db), f"file:{db}", f"file://{db}", f"file://localhost{db}"):
+        with _as_request_of(departments["org_b"]):
+            lockdown.check_connection_config("duckdb", {"database": value})
+        for client in (DuckDBClient(database=value), DuckDBClient(uris=value)):
+            with lockdown.bind_organization(client, departments["org_b"]).connect() as session:
+                assert session.execute("SELECT count(*) FROM prices").fetchone()[0] == 1, value
+
+
+def _database_with_views(path: Path, theirs: Path) -> Path:
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE prices AS SELECT 'acme' AS ticker, 12.5 AS price")
+    con.execute(f"CREATE VIEW theirs AS SELECT * FROM read_csv_auto('{theirs}')")
+    con.close()
+    return path
+
+
+@pytest.mark.parametrize("shape", ["database", "uri to a file", "uri to a glob"])
+def test_a_database_file_session_is_locked_only_to_locations_the_policy_checked(shape, linked_roots):
+    """A database file in organization A's root with a view over
+    organization C's file, named through A's link: the session may not
+    read C's file, and nothing in C's root is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    db = _database_with_views(linked_roots.a / "market.duckdb", linked_roots.c / "report.csv")
+    if shape == "database":
+        client = DuckDBClient(database=f"{linked_roots.a}/l/../../market.duckdb")
+    elif shape == "uri to a file":
+        client = DuckDBClient(database=str(db), uris=f"{linked_roots.through_link}/report.csv")
+    else:
+        client = DuckDBClient(database=str(db), uris=f"{linked_roots.through_link}/*.csv")
+    client = lockdown.bind_organization(client, linked_roots.org_a)
+    opens = _Opens(linked_roots.c)
+    try:
+        assert client.execute_query("SELECT count(*) AS n FROM prices")["n"][0] == 1
+        with pytest.raises(Exception, match="(?i)disabled by configuration") as refused:
+            client.execute_query("SELECT * FROM theirs")
+        assert "theirs,1" not in str(refused.value)
+        assert "report.csv" not in opens()
+    finally:
+        opens.close()
+
+
+def test_a_sqlite_file_is_opened_at_the_path_the_policy_checked(linked_roots):
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    theirs = linked_roots.c / "x.sqlite"
+    con = sqlite3.connect(theirs)
+    con.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, total REAL)")
+    con.execute("INSERT INTO orders (total) VALUES (999.0)")
+    con.commit()
+    con.close()
+    # Through A's link the same text names a file in A's own root.
+    own = _sqlite_file(_folder(linked_roots.a / linked_roots.c.name) / "x.sqlite")
+    client = lockdown.bind_organization(SqliteClient(database=f"{linked_roots.through_link}/x.sqlite"),
+                                        linked_roots.org_a)
+    opens = _Opens(linked_roots.c)
+    try:
+        assert sorted(client.execute_query("SELECT total FROM orders")["total"].tolist()) == [5.0, 7.5]
+        own.unlink()
+        with pytest.raises(RuntimeError, match="not found"):
+            client.execute_query("SELECT total FROM orders")
+        assert "x.sqlite" not in opens()
+    finally:
+        opens.close()
+    # A plain path to the organization's own file.
+    plain = _sqlite_file(linked_roots.a / "plain.sqlite")
+    client = lockdown.bind_organization(SqliteClient(database=str(plain)), linked_roots.org_a)
+    assert client.test_connection()["success"] is True
+
+
+def test_a_file_connection_reads_each_file_its_globs_found_where_the_policy_checked_it(guarded_tree, tmp_path,
+                                                                                       monkeypatch):
+    """A folder literally named `~ogs` in the working directory holds a
+    file named like the protected log. The glob finds that file, and that
+    file is what the connection reads, not the protected log the engine
+    would read for the same text (`~ogs` as the home directory's text
+    followed by `ogs`)."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    work = _folder(tmp_path / "work")
+    (_folder(work / "~ogs") / "server.csv").write_text("line\nown-copy\n")
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("HOME", str(_folder(guarded_tree.top / "l")))
+    lockdown.check_connection_config("csv", {"file_paths": "~ogs/*.csv"})
+    assert lockdown.filter_files(["~ogs/server.csv"], "csv") == [str(work / "~ogs" / "server.csv")]
+    opens = _Opens(guarded_tree.logs)
+    try:
+        assert CSVClient(file_paths="~ogs/*.csv").execute_query("SELECT * FROM server")["line"].tolist() == ["own-copy"]
+        assert "server.csv" not in opens()
+    finally:
+        opens.close()
+
+
+@pytest.mark.parametrize("client_cls, ext", [(QVDClient, ".qvd"), (PBIXClient, ".pbix")])
+def test_a_converted_file_is_cached_under_the_file_the_policy_checked(client_cls, ext, linked_roots):
+    """A file named through organization A's link is A's own file: its
+    converted copy is cached under that file, never under organization C's
+    file that the same text names without the link."""
+    theirs = linked_roots.c / f"x{ext}"
+    theirs.write_bytes(b"theirs")
+    own = _folder(linked_roots.a / linked_roots.c.name) / f"x{ext}"
+    own.write_bytes(b"own")
+    through_link = f"{linked_roots.through_link}/x{ext}"
+    assert client_cls._cache_key(through_link) == client_cls._cache_key(str(own))
+    assert client_cls._cache_key(through_link)[0] != client_cls._cache_key(str(theirs))[0]
+
+
+def test_a_tls_file_option_is_checked_where_the_driver_opens_it(tmp_path, monkeypatch):
+    """Database drivers open a TLS file option as written: `~` is a folder
+    name to them, not the home directory."""
+    from app.data_sources.clients._sa_url import path_allowed
+    from app.settings.config import settings
+
+    work, home = _folder(tmp_path / "work"), _folder(tmp_path / "home")
+    monkeypatch.setattr(settings.bow_config.system_logs, "directory", str(_folder(work / "~")))
+    monkeypatch.chdir(work)
+    monkeypatch.setenv("HOME", str(home))
+    assert path_allowed("~/client.pem") is False
+    assert path_allowed(str(home / "client.pem")) is True
+
+
+@pytest.mark.parametrize("value", ["sqlite:///file:{db}?uri=true", "sqlite:///file://localhost{db}?mode=ro&uri=true",
+                                   "sqlite:///file:{db}"])
+def test_an_iceberg_catalog_database_is_named_by_its_path(value, departments):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
+    with _as_request_of(org_b):
+        with pytest.raises(ValueError, match="uri"):
+            IcebergClient(catalog_type="sql", uri=value.format(db=reserved / "catalog.db")).check_locations()
+        own = f"sqlite:///{free}/catalog.db"
+        IcebergClient(catalog_type="sql", uri=own, warehouse=f"file://{free}").check_locations()
+
+
+def test_an_iceberg_location_is_checked_where_pyiceberg_opens_it(linked_roots):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    def client(warehouse):
+        return lockdown.bind_organization(
+            IcebergClient(catalog_type="sql", uri="sqlite:///:memory:", warehouse=warehouse), linked_roots.org_a)
+
+    # PyIceberg reads a location with no scheme as its absolute form, `..`
+    # removed as text: `<A>/l/../../rootC` is C's root to it.
+    for value in (linked_roots.through_link, f"file://localhost{linked_roots.a}"):
+        with pytest.raises(ValueError, match="warehouse"):
+            client(value).check_locations()
+    client(f"file://{linked_roots.a}").check_locations()
+
+
+# -- Iceberg: every file the catalog opens on this server --------------------------
+
+
+_ICEBERG_REFUSAL = "(?i)protected|organization"
+
+
+def _iceberg_catalog_in(home: Path, **table_properties) -> Path:
+    """An Iceberg SQL catalog kept in `home` (catalog.db, warehouse `home/wh`)
+    holding sales.orders, three rows, written with `table_properties`."""
+    pa = pytest.importorskip("pyarrow")
+    from pyiceberg.catalog.sql import SqlCatalog
+    from pyiceberg.schema import Schema
+    from pyiceberg.types import LongType, NestedField, StringType
+
+    catalog = SqlCatalog("bow", uri=f"sqlite:///{home}/catalog.db", warehouse=f"file://{home}/wh")
+    catalog.create_namespace("sales")
+    orders = catalog.create_table(("sales", "orders"), schema=Schema(
+        NestedField(1, "id", LongType(), required=False), NestedField(2, "region", StringType(), required=False)),
+        properties=table_properties)
+    orders.append(pa.Table.from_pylist([{"id": i, "region": r} for i, r in enumerate(["north", "south", "east"])],
+                                       schema=orders.schema().as_arrow()))
+    catalog.engine.dispose()
+    return home
+
+
+def _iceberg_sql_client(home: Path, organization, **fields):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    fields = {"uri": f"sqlite:///{home}/catalog.db", "warehouse": f"file://{home}/wh", **fields}
+    return lockdown.bind_organization(IcebergClient(catalog_type="sql", **fields), organization)
+
+
+@pytest.fixture
+def iceberg_places(linked_roots, guarded_tree, tmp_path):
+    """Where a catalog's files may sit: organization A's root (`own`), a folder
+    nobody is assigned (`free`, for an organization with no roots), C's root
+    and a protected folder."""
+    return SimpleNamespace(own=linked_roots.a, org_a=linked_roots.org_a, free=_folder(tmp_path / "free"),
+                           no_roots="55555555-eeee-4eee-8eee-555555555555", theirs=linked_roots.c,
+                           protected=guarded_tree.logs)
+
+
+@pytest.mark.parametrize("moved", ["write.data.path", "write.metadata.path"])
+@pytest.mark.parametrize("place", ["another organization's root", "a protected folder"])
+def test_an_iceberg_table_whose_files_sit_where_its_organization_may_not_read_is_refused_with_nothing_read(
+        moved, place, iceberg_places):
+    """The organization's own catalog, with a table whose data files, or
+    whose metadata files, were written elsewhere: the query is refused and
+    no file there is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    if place == "another organization's root":
+        home, organization, elsewhere = iceberg_places.own, iceberg_places.org_a, iceberg_places.theirs
+    else:
+        home, organization, elsewhere = iceberg_places.free, iceberg_places.no_roots, iceberg_places.protected
+    elsewhere = _folder(elsewhere / "orders-files")
+    _iceberg_catalog_in(home, **{moved: str(elsewhere)})
+    written = set(os.listdir(elsewhere))
+    assert any(name.endswith((".parquet", ".json", ".avro")) for name in written)
+    client = _iceberg_sql_client(home, organization)
+    opens = _Opens(elsewhere)
+    try:
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT * FROM sales.orders")
+        assert not opens() & written
+    finally:
+        opens.close()
+
+
+def test_an_iceberg_table_cannot_choose_the_file_io_its_files_are_read_with(iceberg_places):
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    elsewhere = _folder(iceberg_places.theirs / "orders-files")
+    _iceberg_catalog_in(iceberg_places.own, **{"write.data.path": str(elsewhere),
+                                               "py-io-impl": "pyiceberg.io.pyarrow.PyArrowFileIO"})
+    written = set(os.listdir(elsewhere))
+    client = _iceberg_sql_client(iceberg_places.own, iceberg_places.org_a)
+    opens = _Opens(elsewhere)
+    try:
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT count(*) AS n FROM sales.orders")
+        assert not opens() & written
+    finally:
+        opens.close()
+
+
+def test_an_iceberg_catalog_in_its_organizations_own_root_still_reads(iceberg_places):
+    _iceberg_catalog_in(iceberg_places.own)
+    client = _iceberg_sql_client(iceberg_places.own, iceberg_places.org_a)
+    assert client.test_connection()["success"] is True
+    df = client.execute_query("SELECT region FROM sales.orders ORDER BY id")
+    assert df["region"].tolist() == ["north", "south", "east"]
+    assert [t.name for t in client.get_schemas()] == ["sales.orders"]
+
+
+@pytest.mark.parametrize("how", ["catalog fields", "the SQL type in a REST catalog's extra properties"])
+def test_an_iceberg_sql_catalog_never_creates_its_database(how, iceberg_places):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    missing = iceberg_places.own / "catalog.db"
+    if how == "catalog fields":
+        client = _iceberg_sql_client(iceberg_places.own, iceberg_places.org_a)
+    else:
+        client = lockdown.bind_organization(IcebergClient(
+            catalog_type="rest", uri=f"sqlite:///{missing}", extra_properties='{"type": "sql"}'), iceberg_places.org_a)
+    assert client.test_connection()["success"] is False
+    assert not missing.exists()
+
+
+def test_the_checked_file_io_writes_and_deletes_nothing_on_this_server(tmp_path):
+    from app.data_sources.clients.iceberg_client import CheckedFileIO
+
+    kept = tmp_path / "kept.txt"
+    kept.write_text("x")
+    io = CheckedFileIO({})
+    for location in (str(tmp_path / "new.json"), f"file://{tmp_path}/new.json", f"file:{tmp_path}/new.json"):
+        with pytest.raises(PermissionError):
+            io.new_output(location)
+    for location in (str(kept), f"file://{kept}"):
+        with pytest.raises(PermissionError):
+            io.delete(location)
+    assert sorted(os.listdir(tmp_path)) == ["kept.txt"]
+    assert io.new_input(f"file://localhost{kept}").open().read() == b"x"
+
+
+@pytest.mark.parametrize("key, value", [
+    ("type", "glue"), ("TYPE", "sql"), ("uri", "sqlite:////srv/catalog.db"), ("warehouse", "file:///srv/wh"),
+    ("py-io-impl", "pyiceberg.io.pyarrow.PyArrowFileIO"), ("py-catalog-impl", "pyiceberg.catalog.sql.SqlCatalog"),
+    ("DEFAULT_SCHEME", "file"), ("init_catalog_tables", "true"),
+])
+def test_extra_catalog_properties_cannot_change_where_or_how_files_are_opened(key, value):
+    import json
+
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    config = {"catalog_type": "rest", "uri": "https://catalog.example.test", "extra_properties": json.dumps({key: value})}
+    with pytest.raises(ValueError, match=f"'{key}'"):
+        IcebergClient(**config)._properties()
+    with pytest.raises(ValueError, match=f"'{key}'"):
+        lockdown.check_connection_config("iceberg", config)
+
+
+@pytest.mark.parametrize("field", ["uri", "warehouse"])
+@pytest.mark.parametrize("how", ["catalog fields", "the SQL type in a REST catalog's extra properties"])
+def test_an_iceberg_catalog_in_another_organizations_root_is_refused_at_save_and_connect_with_nothing_created(
+        field, how, departments):
+    import json
+
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    reserved, free, org_b = departments["a"], departments["b"], departments["org_b"]
+    config = {"uri": f"sqlite:///{reserved if field == 'uri' else free}/catalog.db",
+              "warehouse": f"file://{reserved if field == 'warehouse' else free}/wh"}
+    if how == "catalog fields":
+        config["catalog_type"] = "sql"
+    else:
+        config.update(catalog_type="rest", extra_properties=json.dumps({"type": "sql"}))
+    before = set(os.listdir(reserved))
+    with _as_request_of(org_b), pytest.raises(ValueError, match="(?i)another organization|'type'"):
+        lockdown.check_connection_config("iceberg", config)
+    client = lockdown.bind_organization(IcebergClient(**config), org_b)
+    with pytest.raises(ValueError, match="(?i)another organization|'type'"):
+        client.connect()
+    assert client.test_connection()["success"] is False
+    assert set(os.listdir(reserved)) == before
+
+
+def test_an_iceberg_client_is_held_to_the_organization_it_is_bound_to(departments):
+    """No request around: the client's own organization decides."""
+    own, unassigned, org_a = departments["a"], departments["b"], departments["org_a"]
+    _iceberg_catalog_in(own)
+    with pytest.raises(ValueError, match="outside the directories assigned"):
+        _iceberg_sql_client(own, org_a, warehouse=f"file://{unassigned}").connect()
+    with pytest.raises(ValueError, match="outside the directories assigned"):
+        _iceberg_sql_client(own, org_a, uri=f"sqlite:///{unassigned}/catalog.db").connect()
+    assert _iceberg_sql_client(own, org_a).execute_query("SELECT count(*) AS n FROM sales.orders")["n"][0] == 3
+
+
+def _saved_sql_catalog_config(home: Path, **extra) -> dict:
+    """A saved connection that keeps its SQL catalog in the extra
+    properties: the type, the catalog database and the warehouse there."""
+    import json
+
+    extra = {"type": "sql", "uri": f"sqlite:///{home}/catalog.db", "warehouse": f"file://{home}/wh", **extra}
+    return {"catalog_type": "rest", "extra_properties": json.dumps(extra)}
+
+
+def test_a_saved_sql_catalog_in_the_extra_properties_over_the_organizations_own_root_still_reads(iceberg_places):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    _iceberg_catalog_in(iceberg_places.own)
+    config = _saved_sql_catalog_config(iceberg_places.own)
+    with _as_request_of(iceberg_places.org_a):
+        lockdown.check_connection_config("iceberg", config)
+    client = lockdown.bind_organization(IcebergClient(**config), iceberg_places.org_a)
+    assert client.execute_query("SELECT region FROM sales.orders ORDER BY id")["region"].tolist() == [
+        "north", "south", "east"]
+
+
+@pytest.mark.parametrize("held", ["uri", "warehouse"])
+@pytest.mark.parametrize("place", ["another organization's root", "a protected folder"])
+def test_a_saved_sql_catalog_in_the_extra_properties_is_checked_like_the_catalog_fields(held, place, iceberg_places):
+    """Its catalog database, or its warehouse, where the organization may not
+    read: refused when saved and when it connects, nothing opened or created."""
+    from app.data_sources.clients.iceberg_client import IcebergClient
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    if place == "another organization's root":
+        home, organization, elsewhere = iceberg_places.own, iceberg_places.org_a, iceberg_places.theirs
+    else:
+        home, organization, elsewhere = iceberg_places.free, iceberg_places.no_roots, iceberg_places.protected
+    _iceberg_catalog_in(_folder(elsewhere / "cat"))
+    _iceberg_catalog_in(home)
+    moved = {"uri": f"sqlite:///{elsewhere}/cat/catalog.db"} if held == "uri" else {"warehouse": f"file://{elsewhere}/cat/wh"}
+    config = _saved_sql_catalog_config(home, **moved)
+    before = sorted(os.listdir(elsewhere / "cat"))
+    opens = _Opens(elsewhere / "cat")
+    try:
+        with _as_request_of(organization), pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            lockdown.check_connection_config("iceberg", config)
+        client = lockdown.bind_organization(IcebergClient(**config), organization)
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.connect()
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT count(*) AS n FROM sales.orders")
+        assert not opens()
+    finally:
+        opens.close()
+    assert sorted(os.listdir(elsewhere / "cat")) == before
+
+
+@pytest.mark.parametrize("key, value", [
+    ("py-io-impl", "pyiceberg.io.pyarrow.PyArrowFileIO"), ("py-catalog-impl", "pyiceberg.catalog.sql.SqlCatalog"),
+    ("DEFAULT_SCHEME", "file"), ("DEFAULT_NETLOC", "x"), ("init_catalog_tables", "true"),
+    ("bow.organization-id", "88888888-aaaa-4aaa-8aaa-888888888888"),
+])
+def test_a_saved_sql_catalog_in_the_extra_properties_with_another_connection_only_key_is_refused(
+        key, value, iceberg_places):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    config = _saved_sql_catalog_config(iceberg_places.own, **{key: value})
+    with _as_request_of(iceberg_places.org_a), pytest.raises(ValueError, match=f"'{key}'"):
+        lockdown.check_connection_config("iceberg", config)
+    with pytest.raises(ValueError, match=f"'{key}'"):
+        lockdown.bind_organization(IcebergClient(**config), iceberg_places.org_a).connect()
+
+
+@pytest.mark.parametrize("extra", [{"type": "glue"}, {"TYPE": "sql"}, {"type": "rest", "uri": "sqlite:////srv/c.db"}])
+def test_only_the_sql_type_is_read_from_the_extra_properties(extra):
+    import json
+
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    config = {"catalog_type": "rest", "uri": "https://catalog.example.test", "extra_properties": json.dumps(extra)}
+    with pytest.raises(ValueError, match="'(type|TYPE)'"):
+        IcebergClient(**config)._properties()
+
+
+@pytest.mark.parametrize("fields", [
+    {"catalog_type": "sql", "uri": "sqlite:///{home}/other.db"},
+    {"catalog_type": "sql", "warehouse": "file://{home}/other"}, {"catalog_type": "glue"},
+])
+def test_a_sql_catalog_whose_extra_properties_differ_from_its_catalog_fields_is_refused(fields, iceberg_places):
+    from app.data_sources.clients.iceberg_client import IcebergClient
+
+    home = iceberg_places.own
+    _iceberg_catalog_in(home)
+    config = {**_saved_sql_catalog_config(home), **{k: v.format(home=home) for k, v in fields.items()}}
+    with _as_request_of(iceberg_places.org_a), pytest.raises(ValueError, match="(?i)differ"):
+        lockdown.check_connection_config("iceberg", config)
+    with pytest.raises(ValueError, match="(?i)differ"):
+        lockdown.bind_organization(IcebergClient(**config), iceberg_places.org_a).connect()
+    # The same value both ways is one value.
+    same = {**_saved_sql_catalog_config(home), "uri": f"sqlite:///{home}/catalog.db", "catalog_type": "sql"}
+    assert lockdown.bind_organization(IcebergClient(**same), iceberg_places.org_a).test_connection()["success"] is True
+
+
+@pytest.mark.parametrize("main_warehouse", [None, "wh", "file://{free}/unused"])
+def test_a_saved_sql_catalog_reads_the_values_in_its_extra_properties_not_the_rest_fields(
+        main_warehouse, iceberg_places):
+    """Such a connection kept a placeholder REST URI (and maybe a warehouse)
+    in the catalog fields: the values in the extra properties are the ones
+    used, and the ones checked."""
+    from app.data_sources.clients.iceberg_client import IcebergClient
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    _iceberg_catalog_in(iceberg_places.own)
+    _iceberg_catalog_in(_folder(iceberg_places.theirs / "cat"))
+    fields = {"uri": "http://unused"}
+    if main_warehouse:
+        fields["warehouse"] = main_warehouse.format(free=iceberg_places.free)
+    own = {**_saved_sql_catalog_config(iceberg_places.own), **fields}
+    with _as_request_of(iceberg_places.org_a):
+        lockdown.check_connection_config("iceberg", own)
+    client = lockdown.bind_organization(IcebergClient(**own), iceberg_places.org_a)
+    assert client.execute_query("SELECT count(*) AS n FROM sales.orders")["n"][0] == 3
+
+    theirs = {**_saved_sql_catalog_config(iceberg_places.theirs / "cat"), **fields}
+    opens = _Opens(iceberg_places.theirs / "cat")
+    try:
+        with _as_request_of(iceberg_places.org_a), pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            lockdown.check_connection_config("iceberg", theirs)
+        client = lockdown.bind_organization(IcebergClient(**theirs), iceberg_places.org_a)
+        with pytest.raises(ValueError, match=_ICEBERG_REFUSAL):
+            client.execute_query("SELECT count(*) AS n FROM sales.orders")
+        assert not opens()
+    finally:
+        opens.close()
+
+
 # -- what a statement may name -------------------------------------------------
 
 
@@ -923,24 +1693,49 @@ def test_every_way_of_naming_a_file_or_url_as_a_relation_is_refused(data, outsid
             with client.connect() as con:
                 with pytest.raises(ReadOnlyViolation):
                     lockdown.check_session_sql(con, sql)
-            # Before the session exists, a double-quoted identifier may yet be
-            # one of the connection's tables; every other form is refused there too.
-            if f'"{target}"' not in sql:
-                with pytest.raises(ReadOnlyViolation):
-                    ensure_read_only(client, sql)
+            # The file connection's own dispatch check refuses every form.
+            _refused_where_checked(client, sql)
 
 
 @pytest.mark.parametrize("sql", _STATE_READS)
 def test_session_state_is_not_readable(sql, data):
     for client in (CSVClient(file_paths=str(data / "*.csv")),
                    DuckDBClient(uris=str(data / "*.csv"), access_key="AKIAEXAMPLE", secret_key="SK_SECRET_VALUE")):
-        with pytest.raises(ReadOnlyViolation):
-            ensure_read_only(client, sql)
+        _refused_where_checked(client, sql)
         with pytest.raises(Exception):
             client.execute_query(sql)
 
 
-@pytest.mark.parametrize("sql", _MUST_PASS)
+# What a file connection does not take, though DuckDB reads it: DESCRIBE,
+# SHOW, SUMMARIZE, EXPLAIN, PRAGMA, catalog views and table functions, and
+# PIVOT / UNPIVOT as a whole statement. Each is refused at its dispatch point
+# before it runs (as a statement, as a table, or with an error the agent fixes
+# by rewriting the query).
+_NOT_ON_FILE_CONNECTIONS = [
+    "PIVOT sales ON region USING sum(amount)",
+    "SELECT * FROM (PIVOT sales ON region USING sum(amount))",
+    "UNPIVOT sales ON amount INTO NAME k VALUE v",
+    "DESCRIBE sales",
+    "DESCRIBE SELECT * FROM sales",
+    "SHOW sales",
+    "SUMMARIZE sales",
+    "SUMMARIZE SELECT * FROM sales",
+    "SHOW TABLES",
+    "SHOW ALL TABLES",
+    "SELECT * FROM (SHOW ALL TABLES)",
+    "EXPLAIN SELECT * FROM sales",
+    "EXPLAIN ANALYZE SELECT COUNT(*) FROM sales",
+    "PRAGMA show_tables",
+    "PRAGMA table_info('sales')",
+    "SELECT * FROM pragma_table_info('sales')",
+    "SELECT column_name FROM duckdb_columns() WHERE table_name = 'sales'",
+    "SELECT table_name FROM duckdb_tables()",
+    "SELECT table_name FROM information_schema.tables",
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'sales'",
+]
+
+
+@pytest.mark.parametrize("sql", [q for q in _MUST_PASS if q not in _NOT_ON_FILE_CONNECTIONS])
 def test_ordinary_queries_keep_working(sql, data):
     client = CSVClient(file_paths=str(data / "*.csv"))
     ensure_read_only(client, sql)
@@ -948,12 +1743,20 @@ def test_ordinary_queries_keep_working(sql, data):
     client.execute_query(sql)
 
 
+@pytest.mark.parametrize("sql", _NOT_ON_FILE_CONNECTIONS)
+def test_reads_a_file_connection_does_not_take_are_refused_before_they_run(sql, data):
+    assert sql in _MUST_PASS
+    _refused_where_checked(CSVClient(file_paths=str(data / "*.csv")), sql)
+
+
 def test_unknown_table_still_gets_the_engines_own_error(data):
-    """A mistyped table name is a catalog error with the engine's suggestion,
-    not a policy refusal."""
+    """A mistyped table name passes the wrapper's check. A file connection
+    then refuses it at its dispatch point, naming its own tables, so the
+    agent sees what it can query."""
     client = CSVClient(file_paths=str(data / "*.csv"))
     ensure_read_only(client, "SELECT * FROM salez")
-    with pytest.raises(Exception, match="(?i)does not exist|did you mean"):
+    # A file connection names its own tables in the refusal instead.
+    with pytest.raises(ConnectionTableViolation, match="returns, sales.*salez is not one of the tables"):
         client.execute_query("SELECT * FROM salez")
 
 
@@ -1088,6 +1891,62 @@ def test_database_file_views_over_files_in_its_folder_keep_working(tmp_path, out
                 session.execute(sql)
 
 
+def test_a_database_file_session_reads_its_folder_and_uris_inside_its_organizations_roots_only(
+        tmp_path, departments):
+    """On the session itself, with no text check in the way: the engine
+    reads the database's folder and the connection's URIs, and nothing
+    outside them or outside the organization's roots."""
+    from app.data_sources.clients._duckdb_lockdown import bind_organization
+
+    share, org = departments["a"], departments["org_a"]
+    folder = _folder(share / "warehouse")
+    pd.DataFrame({"qty": [3, 4]}).to_parquet(folder / "stock.parquet")
+    listed = _folder(share / "listed")
+    pd.DataFrame({"qty": [5]}).to_parquet(listed / "extra.parquet")
+    far = _folder(share / "far")
+    pd.DataFrame({"qty": [9]}).to_parquet(far / "other.parquet")
+    foreign = _folder(tmp_path / "foreign")
+    pd.DataFrame({"qty": [7]}).to_parquet(foreign / "theirs.parquet")
+    db = _duckdb_file(folder / "market.duckdb")
+
+    client = bind_organization(DuckDBClient(database=str(db), uris=f"{listed}/*.parquet"), org)
+    with client.connect() as session:
+        assert session.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
+        assert session.execute(f"SELECT sum(qty) FROM read_parquet('{folder / 'stock.parquet'}')").fetchone()[0] == 7
+        assert session.execute(f"SELECT sum(qty) FROM read_parquet('{listed / '*.parquet'}')").fetchone()[0] == 5
+        for path in (far / "other.parquet", foreign / "theirs.parquet", departments["b"] / "report.csv"):
+            with pytest.raises(duckdb.Error, match="(?i)disabled by configuration"):
+                session.execute(f"SELECT * FROM read_csv_auto('{path}')").fetchall()
+
+    # A URI outside the organization's roots is not added to what the
+    # session may read, even though the connection lists it.
+    client = bind_organization(DuckDBClient(database=str(db), uris=f"{foreign}/*.parquet"), org)
+    with client.connect() as session, pytest.raises(duckdb.Error, match="(?i)disabled by configuration"):
+        session.execute(f"SELECT * FROM read_parquet('{foreign / 'theirs.parquet'}')").fetchall()
+
+
+def test_a_database_file_engine_locked_for_other_uris_is_refused_and_one_locked_the_same_way_is_taken(tmp_path):
+    """Connections to one database file share an engine: a second one is
+    taken only when the engine reads back exactly its own folder and URIs."""
+    folder = _folder(tmp_path / "warehouse")
+    listed = _folder(tmp_path / "listed")
+    pd.DataFrame({"qty": [5]}).to_parquet(listed / "extra.parquet")
+    db = _duckdb_file(folder / "market.duckdb")
+    plain = DuckDBClient(database=str(db))
+    with plain.connect() as first:
+        with DuckDBClient(database=str(db)).connect() as same:
+            assert same.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
+        with (pytest.raises(RuntimeError, match="Refusing to query files without the engine locked") as refused,
+              DuckDBClient(database=str(db), uris=f"{listed}/*.parquet").connect()):
+            pass
+        # What the user can act on, and no path.
+        message = str(refused.value)
+        assert "another open connection to the same database file uses different additional locations" in message
+        assert "use the same additional locations" in message
+        assert str(tmp_path) not in message
+        assert first.execute("SELECT count(*) FROM prices").fetchone()[0] == 1
+
+
 def test_in_memory_sqlite_cannot_attach_a_file(tmp_path):
     other = _sqlite_file(tmp_path / "other.sqlite")
     with SqliteClient(database=":memory:").connect() as conn:
@@ -1133,7 +1992,6 @@ _ODD_NAME_QUERIES = [
     ('SELECT id FROM "2026 plan/v2"', 5),
     ('SELECT id FROM "s3://not-a-bucket/x.parquet"', 6),
     ('SELECT id FROM "Sales Ops"."data.parquet"', 7),
-    ('WITH "my cte.csv" AS (SELECT id FROM "export.csv") SELECT id FROM "my cte.csv"', 4),
     ('SELECT id FROM (SELECT id FROM "Sales Ops".orders) AS "sub query"', 1),
 ]
 
@@ -1145,13 +2003,128 @@ def test_existing_relations_are_queryable_whatever_their_names(sql, expected, od
     assert client.execute_query(sql)["id"][0] == expected
 
 
-def test_describe_and_summarize_work_on_oddly_named_relations(odd_names_db):
+def test_describe_show_and_explain_work_on_oddly_named_relations(odd_names_db):
     client = DuckDBClient(database=str(odd_names_db))
-    for sql in ('DESCRIBE "Sales Ops".orders', 'SUMMARIZE "export.csv"', 'SHOW "sales-ops"."Order Lines"',
-                'EXPLAIN SELECT * FROM "2026 plan/v2"',
-                'PIVOT "export.csv" ON id USING count(*)'):
+    for sql in ('DESCRIBE "Sales Ops".orders', 'SHOW "sales-ops"."Order Lines"',
+                'EXPLAIN SELECT * FROM "2026 plan/v2"'):
         ensure_read_only(client, sql)
         assert len(client.execute_query(sql)) >= 1
+
+
+@pytest.mark.parametrize("sql,refusal", [
+    ('SUMMARIZE "export.csv"', ReadOnlyViolation),
+    ('PIVOT "export.csv" ON id USING count(*)', ReadOnlyViolation),
+    # A CTE name that is not plain letters, digits and underscores is an
+    # error the agent fixes by renaming the CTE.
+    ('WITH "my cte.csv" AS (SELECT id FROM "export.csv") SELECT id FROM "my cte.csv"', DuckdbQueryError),
+])
+def test_what_a_duckdb_connection_does_not_take_on_oddly_named_relations_is_refused_before_it_runs(
+        sql, refusal, odd_names_db):
+    """The names are the database's own; SUMMARIZE, a PIVOT statement and a
+    CTE whose name is not plain are not taken on a DuckDB connection (see the
+    reads a file connection does not take, above)."""
+    with pytest.raises(refusal):
+        ensure_read_only(DuckDBClient(database=str(odd_names_db)), sql)
+
+
+def _quoted(name) -> str:
+    return '"' + str(name).replace('"', '""') + '"'
+
+
+def test_a_quoted_path_like_name_the_database_does_not_hold_is_refused(odd_names_db):
+    client = DuckDBClient(database=str(odd_names_db))
+    for name in ("missing.csv", "plans/2027.parquet", "s3://not-a-bucket/missing.parquet"):
+        sql = f"SELECT * FROM {_quoted(name)}"
+        # The wrapper has no session catalog: it leaves relation names to
+        # the client, whose own check refuses the name.
+        assert ensure_read_only(client, sql) == sql
+        with pytest.raises(ReadOnlyViolation):
+            client.execute_query(sql)
+
+
+def test_a_quoted_name_that_is_a_file_beside_the_database_is_refused_without_opening_it(odd_names_db):
+    """`real.csv` sits in the database's folder, which the connection may
+    read; the name is not one of the database's relations, so it is refused
+    before it runs and the file is never opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    client = DuckDBClient(database=str(odd_names_db))
+    sql = f"SELECT * FROM {_quoted(odd_names_db.parent / 'real.csv')}"
+    opens = _Opens(odd_names_db.parent)
+    try:
+        (odd_names_db.parent / "real.csv").read_text()
+        assert "real.csv" in opens()
+        # The wrapper leaves relation names to the client (no session
+        # catalog there); the client's own check refuses the name.
+        assert ensure_read_only(client, sql) == sql
+        with pytest.raises(ReadOnlyViolation) as refused:
+            client.execute_query(sql)
+        assert "99" not in str(refused.value)
+        assert "real.csv" not in opens()
+    finally:
+        opens.close()
+
+
+def test_on_its_own_the_database_file_client_refuses_a_cte_whose_name_is_not_plain(odd_names_db):
+    """The client's own check, with no wrapper in front of it: a statement
+    defining a CTE whose name is not plain is refused before it runs,
+    whatever else the statement names, and no file in the database's folder
+    is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    client = DuckDBClient(database=str(odd_names_db))
+    name = _quoted(odd_names_db.parent / "real.csv")
+    sql = f"SELECT b.id FROM (WITH {name} AS (SELECT 1 AS id) SELECT id FROM {name}) AS a, {name} AS b"
+    opens = _Opens(odd_names_db.parent)
+    try:
+        with pytest.raises(ReadOnlyViolation) as refused:
+            client.execute_query(sql)
+        assert "99" not in str(refused.value)
+        assert "real.csv" not in opens()
+    finally:
+        opens.close()
+    assert client.execute_query('WITH mine AS (SELECT id FROM "export.csv") SELECT id FROM mine')["id"][0] == 4
+
+
+def test_the_database_file_catalog_matches_names_as_the_engine_folds_them(tmp_path):
+    """A table whose name holds a letter outside ASCII is matched the way
+    the engine matches it: only its ASCII letters fold. A spelling that is
+    the same name only under a wider folding is not that table, and is
+    refused before it runs; no file in the database's folder is opened."""
+    from tests.unit.test_duckdb_parse_time_access import _Opens
+
+    folder = _folder(tmp_path / "kdb")
+    (folder / "data.csv").write_text("id\n99\n")
+    db = folder / "store.duckdb"
+    con = duckdb.connect(str(db))
+    odd = str(folder / "data.csv").replace("/kdb/", "/" + chr(0x212A) + "db/")
+    con.execute(f"CREATE TABLE {_quoted(odd)} AS SELECT 1 AS id")
+    con.close()
+
+    client = DuckDBClient(database=str(db))
+    assert client.execute_query(f"SELECT id FROM {_quoted(odd)}")["id"][0] == 1
+    opens = _Opens(folder)
+    try:
+        with pytest.raises(ReadOnlyViolation) as refused:
+            client.execute_query(f"SELECT id FROM {_quoted(folder / 'data.csv')}")
+        assert "99" not in str(refused.value)
+        assert "data.csv" not in opens()
+    finally:
+        opens.close()
+
+
+def test_with_the_text_checks_off_the_engine_still_stops_a_quoted_name_outside_the_folder(odd_names_db, monkeypatch):
+    """The engine lock, not the text check: a quoted name that is a file
+    outside the database's folder and its URIs cannot be read."""
+    beside = _folder(odd_names_db.parent.parent / "beside")
+    (beside / "private.csv").write_text("id\n42\n")
+    monkeypatch.setattr(lockdown, "check_user_sql", lambda *a, **k: None)
+    monkeypatch.setattr(lockdown, "check_session_sql", lambda *a, **k: None)
+    client = DuckDBClient(database=str(odd_names_db))
+    assert client.execute_query('SELECT id FROM "export.csv"')["id"][0] == 4
+    with pytest.raises(Exception, match="(?i)disabled by configuration|permission") as refused:
+        client.execute_query(f"SELECT * FROM {_quoted(beside / 'private.csv')}")
+    assert "42" not in str(refused.value)
 
 
 @pytest.mark.parametrize("sql", [

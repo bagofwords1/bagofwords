@@ -7,17 +7,26 @@ connection to the data it was configured with:
 
   * **Path policy** (`check_local_path`): a configured local path must not
     resolve into the app's own files or a system / secret location.
-  * **Session lock** (`lock_connection`): once a connection's own views exist,
-    the DuckDB session may only touch that connection's files or URI prefixes,
-    cannot load extensions, and cannot change its configuration back.
+  * **Session lock** (`lock_connection`): before agent SQL reaches the
+    session, it may only touch that connection's files or URI prefixes (no
+    temp directory either: spilling to disk is off), cannot load extensions,
+    and cannot change its configuration back. The lock is read back from the
+    engine and refused unless it holds exactly what was asked.
 
-`security.unsafe_allow_unrestricted_file_connectors` turns both off.
+`security.unsafe_allow_unrestricted_file_connectors` turns the path policy,
+the session lock and the file connections' statement checks off. The
+code-execution wrapper still checks what DuckDB connections and Iceberg are
+sent (`sql_guard`), and the accelerated tables and the network directory,
+which are not file connectors, keep their own locks whatever it says.
+
+Untrusted text is only ever parsed by DuckDB on a locked engine (the query
+guard's inspector, `duckdb_guard`, or the locked session itself): DuckDB opens
+files and addresses some statements name while it parses them.
 """
 
 from __future__ import annotations
 
 import fnmatch
-import json
 import logging
 import os
 import re
@@ -111,6 +120,15 @@ def _real(path) -> Path:
     return Path(os.path.realpath(os.path.expanduser(str(path))))
 
 
+def opened_path(path: str) -> str:
+    """``path`` as a process opens it with a plain file call: relative to
+    the working directory, with a leading `~` or `file:` taken as part of
+    a name. Absolute; its links and `..` are left for the path policy to
+    resolve, so the result names the same file under its own name."""
+    path = str(path)
+    return path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
+
+
 def _app_database_file() -> Optional[Path]:
     cfg = _bow_config()
     url = (getattr(getattr(cfg, "database", None), "url", None) if cfg else None) or os.environ.get(
@@ -163,10 +181,12 @@ def organization_roots(organization_id: Optional[str] = None) -> Optional[List[P
     return [_real(r) for r in mapping[org] if r]
 
 
-def check_organization_roots(real: Path, organization_id: Optional[str] = None) -> None:
+def check_organization_roots(real: Path, organization_id: Optional[str] = None, contains: bool = False) -> None:
     """``security.organization_file_roots``: a listed root is reserved for the
     organizations it is listed for, and an organization with roots stays
-    inside them. Raises ValueError. ``real`` is already resolved."""
+    inside them. Raises ValueError. ``real`` is already resolved.
+    ``contains=True`` is for a directory read as a whole: one that holds
+    another organization's root is refused too."""
     mapping = _security_setting("organization_file_roots")
     if not mapping:
         return
@@ -177,8 +197,13 @@ def check_organization_roots(real: Path, organization_id: Optional[str] = None) 
             raise ValueError("Path is outside the directories assigned to this organization")
         return
     for owner, roots in mapping.items():
-        if owner != org and any(_is_within(real, _real(r)) for r in roots if r):
-            raise ValueError("Path is inside a directory assigned to another organization")
+        if owner == org:
+            continue
+        for root in (_real(r) for r in roots if r):
+            if _is_within(real, root):
+                raise ValueError("Path is inside a directory assigned to another organization")
+            if contains and _is_within(root, real):
+                raise ValueError("Path holds a directory assigned to another organization")
 
 
 def _protected_app_locations() -> List[Path]:
@@ -258,7 +283,7 @@ def check_local_path(path: str, *, contains: bool = False, organization_id: Opti
     allowed = _security_setting("file_connector_allowed_roots")
     if allowed and not any(_is_within(real, _real(a)) for a in allowed if a):
         raise ValueError("Path is outside the allowed file connector roots")
-    check_organization_roots(real, organization_id)
+    check_organization_roots(real, organization_id, contains=contains)
     if real in _protected_app_files():
         raise ValueError(f"Path {_REFUSED}")
 
@@ -291,10 +316,15 @@ def pattern_base(pattern: str) -> Tuple[str, bool]:
 
 def check_file_patterns(patterns: Iterable[str], organization_id: Optional[str] = None) -> None:
     """Config-time check for newline-separated path / glob settings whose
-    matches are opened one file at a time (csv, qvd, pbix). Raises ValueError."""
+    matches are opened one file at a time (csv, qvd, pbix), as the glob
+    reads them (`opened_path`). Raises ValueError."""
     for pattern in patterns:
-        base, _ = pattern_base(pattern)
-        check_local_path(base, organization_id=organization_id)
+        pattern = opened_path(pattern)
+        base, has_glob = pattern_base(pattern)
+        real = check_local_path(base, organization_id=organization_id)
+        if has_glob:
+            # A glob over a directory holding another organization's root.
+            check_organization_roots(real, organization_id, contains=True)
         if pattern_reaches_protected_file(pattern):
             raise ValueError(f"Pattern {_REFUSED}")
 
@@ -308,17 +338,22 @@ def check_connection_config(conn_type: str, config: dict) -> None:
     Raises ValueError naming the offending field. Enforced again at connect."""
     if unrestricted() or not isinstance(config, dict):
         return
+    if conn_type == "iceberg":
+        from app.data_sources.clients.iceberg_client import IcebergClient
+
+        IcebergClient(**config).check_locations()
+        return
     try:
         if conn_type == "sqlite":
             field = "database"
             database = str(config.get("database") or "").strip()
             if database and database != ":memory:":
-                check_local_path(database)
+                check_local_path(opened_path(database))
         elif conn_type == "duckdb":
             field = "database"
             database = str(config.get("database") or "").strip()
             if database:
-                check_local_path(database)
+                database_file(database)
                 return
             field = "uris"
             uris = _lines(config.get("uris"))
@@ -335,10 +370,13 @@ def check_connection_config(conn_type: str, config: dict) -> None:
 
 
 def filter_files(files: Iterable[str], kind: str, organization_id: Optional[str] = None) -> List[str]:
-    """Drop resolved files the policy refuses (a broad glob can sweep in a
-    protected file, or a symlink can point at one)."""
+    """The files a glob found, each as the absolute path the policy checked
+    (`opened_path`), which is what the connection then reads; files the
+    policy refuses are dropped (a broad glob can sweep in a protected
+    file, or a symlink can point at one)."""
     kept = []
     for f in files:
+        f = opened_path(f)
         try:
             check_local_path(f, organization_id=organization_id)
         except ValueError:
@@ -363,11 +401,26 @@ def has_url_traversal(url: str) -> bool:
     return bool(_URL_TRAVERSAL.search(str(url)))
 
 
+_FILE_URI_HOST = ("A file:// URI names a host. Write a local file as file:///path or "
+                  "file://localhost/path.")
+FILE_SCHEME_CASE = "Write the file: prefix of a URI in lower case, as file:///path."
+
+
 def local_path_of(pattern: str) -> str:
-    """Filesystem path of a local pattern (`file://` and `file:` stripped)."""
+    """Filesystem path of a local pattern (`file:` stripped, and `file://`
+    with its host). The host of a `file://` URI must be empty or
+    `localhost`, the two DuckDB reads as this machine: `file://localhost/x`
+    and `file:///x` are both `/x`. Any other host, or no path after it,
+    raises ValueError, as does a `file:` prefix not written in lower case
+    (DuckDB reads that text as a path relative to the working directory)."""
     lower = pattern.lower()
+    if lower.startswith("file:") and not pattern.startswith("file:"):
+        raise ValueError(FILE_SCHEME_CASE)
     if lower.startswith("file://"):
-        return pattern[7:]
+        host, slash, rest = pattern[7:].partition("/")
+        if host not in ("", "localhost") or not slash:
+            raise ValueError(_FILE_URI_HOST)
+        return "/" + rest
     if lower.startswith("file:"):
         return pattern[5:]
     return pattern
@@ -395,7 +448,8 @@ def sources_for_patterns(
     patterns: Iterable[str], organization_id: Optional[str] = None
 ) -> Tuple[List[str], List[str]]:
     """(allowed_paths, allowed_directories) for DuckDB URI patterns the engine
-    expands itself. Local ones pass the path policy first (ValueError)."""
+    expands itself. Local ones pass the path policy first (ValueError), and
+    are listed only in the form it checked (links followed, then `..`)."""
     paths: List[str] = []
     dirs: List[str] = []
     for pattern in patterns:
@@ -411,31 +465,83 @@ def sources_for_patterns(
                 paths.append(pattern)
             continue
         local = local_path_of(pattern)
+        if pattern.startswith("~"):
+            # DuckDB reads a leading `~` as the home directory's text,
+            # followed by the rest as written: `~ogs` is `<home>ogs`.
+            local = os.path.expanduser("~") + local[1:]
         base, has_glob = pattern_base(local)
         if has_glob:
             real = check_local_path(base, contains=True, organization_id=organization_id)
             if pattern_reaches_protected_file(local):
                 raise ValueError(f"Pattern {_REFUSED}")
-            dirs.extend({os.path.abspath(base), str(real)})
+            dirs.append(str(real))
         else:
-            real = check_local_path(local, organization_id=organization_id)
-            paths.extend({pattern, local, os.path.abspath(local), str(real)})
+            # A directory, with or without its '/', is read as a whole.
+            whole = local.endswith("/") or os.path.isdir(_real(local))
+            real = check_local_path(local, contains=whole, organization_id=organization_id)
+            if whole and _reaches_protected_file(real):
+                raise ValueError(f"Path {_REFUSED}")
+            paths.append(str(real))
     return paths, dirs
+
+
+def _reaches_protected_file(directory: Path) -> bool:
+    """Whether one of the app's protected files sits anywhere under
+    ``directory`` (already resolved)."""
+    return any(_is_within(f, directory) for f in _protected_app_files())
+
+
+def check_lock_targets(paths: Iterable[str], directories: Iterable[str],
+                       organization_id: Optional[str] = None) -> None:
+    """The path policy on what a session is about to be locked to, in the
+    form the engine resolved each entry to: every local directory as a
+    whole (no protected location and no other organization's root inside
+    it), every local file on its own. A directory also listed as a path is
+    one the connection reads whole (a URI naming the directory itself), so
+    no protected file may sit anywhere under it; under a glob's directory,
+    what the glob can match is checked where the directory is resolved
+    (`pattern_reaches_protected_file`). Object-store and http(s) entries
+    are not local paths. Raises ValueError."""
+    paths = list(paths)
+    for directory in directories:
+        if not is_remote_uri(directory):
+            real = check_local_path(local_path_of(directory), contains=True, organization_id=organization_id)
+            if directory in paths and _reaches_protected_file(real):
+                raise ValueError(f"Path {_REFUSED}")
+    for path in paths:
+        if not is_remote_uri(path):
+            check_local_path(local_path_of(path), organization_id=organization_id)
+
+
+def database_file(value: str, organization_id: Optional[str] = None) -> str:
+    """The database file a DuckDB `database` value names, as the file to
+    open: a `file:` prefix read as DuckDB reads it (`local_path_of`), then
+    links followed and `..` taken, and the path policy applied to that.
+    Raises ValueError."""
+    return str(check_local_path(local_path_of(value), organization_id=organization_id))
+
+
+def engine_resolved(paths: Iterable[str], directories: Iterable[str]) -> Tuple[List[str], List[str]]:
+    """(paths, directories) as DuckDB resolves them when a session is
+    locked to them: the form `check_lock_targets` checks."""
+    return (sorted(_resolved_on_scratch("allowed_paths", list(paths))),
+            sorted(_resolved_on_scratch("allowed_directories", list(directories))))
 
 
 def database_file_sources(db_file: str, extra_patterns: Iterable[str] = (),
                           organization_id: Optional[str] = None) -> Tuple[List[str], List[str]]:
     """What a session opened on a database file may read besides the file:
     the file's own folder (views in it commonly read files kept next to it)
-    and any further locations the connection lists. Raises ValueError when
-    the database file itself is refused."""
+    and any further locations the connection lists, each in the form the
+    path policy checked. Raises ValueError when the database file itself is
+    refused."""
     real = check_local_path(db_file, organization_id=organization_id)
     paths: List[str] = []
     dirs: List[str] = []
     try:
         folder = check_local_path(str(real.parent), contains=True, organization_id=organization_id)
         if not any(_is_within(f, folder) for f in _protected_app_files() if f != real):
-            dirs += [str(folder), os.path.dirname(os.path.abspath(db_file))]
+            dirs.append(str(folder))
     except ValueError:
         pass  # the folder holds something protected: the file alone is served
     try:
@@ -468,42 +574,195 @@ def explain_access_error(exc: Exception) -> Optional[str]:
     return f"{text.splitlines()[0]} {ACCESS_HELP}"
 
 
-def _sql_list(values: Iterable[str]) -> str:
+def _list_literal(values: Iterable[str]) -> str:
     return "[" + ", ".join("'" + str(v).replace("'", "''") + "'" for v in values) + "]"
 
 
-def lock_connection(con, *, paths: Iterable[str] = (), directories: Iterable[str] = ()) -> None:
-    """Seal a DuckDB session after trusted code created its views.
+# Locks taken in this process do not interleave on a shared engine.
+_LOCKING = threading.Lock()
 
-    Only ``paths`` (exact files / URLs) and ``directories`` (path or URL
-    prefixes) stay reachable; extensions can no longer be installed or loaded
-    and the settings cannot be changed back.
-    """
+# What DuckDB adds to allowed_paths for each database attached to the
+# engine when external access is turned off.
+_DATABASE_FILE_SUFFIXES = ("", ".wal", ".wal.checkpoint", ".wal.recovery")
+
+
+# A database file's engine is shared by every connection to it in the
+# process, and keeps the locations the first one locked it to.
+_OTHER_CONNECTION_OTHER_LOCATIONS = (
+    "another open connection to the same database file uses different additional locations; "
+    "use the same additional locations on both connections, or let the other connection's "
+    "queries finish and try again")
+
+
+def _refused(setting: str, detail) -> RuntimeError:
+    return RuntimeError(f"Refusing to query files without the engine locked ({setting}): {detail}")
+
+
+def _resolved(con, setting: str, values: List[str]) -> set:
+    """`values` as DuckDB resolves them in `setting` (allowed_paths or
+    allowed_directories): set on `con`, then read back."""
+    if not values:
+        return set()
+    con.execute(f"SET {setting} = {_list_literal(values)}")
+    return set(con.execute(f"SELECT current_setting('{setting}')").fetchone()[0])
+
+
+def _resolved_on_scratch(setting: str, values: List[str]) -> set:
+    import duckdb
+
+    if not values:
+        return set()
+    with duckdb.connect(":memory:") as scratch:
+        return _resolved(scratch, setting, values)
+
+
+def _check_read_back(con, paths: set, directories: set, database_path: Optional[str],
+                     session_set: bool = True) -> None:
+    """Raise unless the engine of `con` reads back as locked to exactly
+    `paths` (plus the files DuckDB adds for the connection's own database)
+    and `directories`, with no temp directory, external access off,
+    replacement scans of Python objects off, secrets shown redacted only
+    and no other database file attached; with `database_path` (as DuckDB
+    stores it), the connection's own database must be that file. What the
+    engine read back names server files: it goes to the server log, not
+    into the refusal."""
+    try:
+        locked, external, temp, got_paths, got_directories, replacements, unredacted = con.execute(
+            "SELECT current_setting('lock_configuration'), current_setting('enable_external_access'), "
+            "current_setting('temp_directory'), current_setting('allowed_paths'), "
+            "current_setting('allowed_directories'), current_setting('python_enable_replacements'), "
+            "current_setting('allow_unredacted_secrets')").fetchone()
+        databases = con.execute(
+            "SELECT database_name = current_database(), path FROM duckdb_databases() "
+            "WHERE NOT internal AND path IS NOT NULL").fetchall()
+    except Exception as err:
+        raise _refused("read back", err) from err
+    own = [path for is_own, path in databases if is_own]
+    others = [path for is_own, path in databases if not is_own]
+    paths = paths | {path + suffix for path in own for suffix in _DATABASE_FILE_SUFFIXES}
+    for setting, ok, value in (
+        # Its name can be re-pointed at another file in this process.
+        ("own database", database_path is None or own == [database_path], own),
+        # DuckDB lets the engine read every database file attached to it.
+        ("attached databases", not others, others),
+        ("lock_configuration", locked is True, locked),
+        ("enable_external_access", external is False, external),
+        ("temp_directory", temp == "", temp),
+        ("python_enable_replacements", replacements is False or not session_set, replacements),
+        ("allow_unredacted_secrets", unredacted is False, unredacted),
+        ("allowed_paths", got_paths is not None and set(got_paths) == paths, got_paths),
+        ("allowed_directories", got_directories is not None and set(got_directories) == directories,
+         got_directories),
+    ):
+        if not ok:
+            logger.warning("duckdb_lockdown.refused %s: the engine reads back %r", setting, value)
+            if not session_set and setting in ("allowed_paths", "allowed_directories"):
+                raise _refused(setting, _OTHER_CONNECTION_OTHER_LOCATIONS)
+            raise _refused(setting, "the engine reads back other settings than this connection's")
+
+
+def lock_connection(con, *, paths: Iterable[str] = (), directories: Iterable[str] = (),
+                    database_path: Optional[str] = None) -> None:
+    """Restrict the DuckDB session `con` to `paths` (exact files or URLs)
+    and, when given, `directories` (path or URL prefixes); turn external
+    access, replacement scans of Python objects and unredacted secrets off;
+    keep no temp directory; lock the configuration. Called by trusted code
+    before agent SQL reaches the session, and before DuckDB parses any of
+    it there.
+
+    Raises RuntimeError if any step fails or the engine does not read back
+    exactly those settings, so no caller is left holding an unlocked
+    connection, or one locked more widely than it asked. A connection
+    opened on a database file passes that file as `database_path`: its own
+    database must then be that file, not another one put under its name.
+
+    DuckDB keeps one engine per database file in a process, and these
+    settings belong to the engine: a second connection to a file still open
+    elsewhere finds them already locked. That connection is taken only when
+    the engine reads back exactly what this call would have set; any other
+    lock (other paths or directories, a temp directory, external access on,
+    another database file attached, its own database name on another file)
+    is refused. A database file is locked to its own folder and the
+    connection's URIs (`database_file_sources`), so connections to one file
+    configured with the same URIs agree; one configured with other URIs is
+    refused while the file is open elsewhere.
+
+    `paths` lets the connection write those files as well as read them: the
+    engine alone does not keep a statement from overwriting the
+    connection's own files. The query checks are what refuse anything but
+    a SELECT. With `security.unsafe_allow_unrestricted_file_connectors`
+    on, nothing is locked."""
     if unrestricted():
         return
-    try:
-        # Several handles on one database file share its settings: a sibling
-        # that got here first has sealed them for this one too.
-        if con.execute("SELECT current_setting('lock_configuration')").fetchone()[0]:
-            return
-    except Exception:
-        pass
     paths = list(dict.fromkeys(str(p) for p in paths if p))
     directories = list(dict.fromkeys(str(d) for d in directories if d))
-    try:
-        # The secret manager reads its on-disk store the first time a remote
-        # file is opened; that must happen before file access is closed.
-        con.execute("SELECT count(*) FROM duckdb_secrets()").fetchall()
-    except Exception:
-        pass
-    if paths:
-        con.execute(f"SET allowed_paths={_sql_list(paths)}")
-    if directories:
-        con.execute(f"SET allowed_directories={_sql_list(directories)}")
-    con.execute("SET python_enable_replacements=false")
-    con.execute("SET allow_unredacted_secrets=false")
-    con.execute("SET enable_external_access=false")
-    con.execute("SET lock_configuration=true")
+    own_database = None
+    if database_path is not None:
+        # The opened file in the form DuckDB stores a database's path
+        # (absolute, normalized, links resolved, no file: prefix).
+        try:
+            resolved = _resolved_on_scratch("allowed_paths", [str(database_path)])
+        except Exception as err:
+            raise _refused("own database", err) from err
+        if len(resolved) != 1:
+            raise _refused("own database", "the database path does not resolve to one file")
+        (own_database,) = resolved
+    with _LOCKING:
+        try:
+            locked_already = con.execute("SELECT current_setting('lock_configuration')").fetchone()[0]
+        except Exception as err:
+            raise _refused("lock_configuration", err) from err
+        if locked_already:
+            # The engine of a database file open elsewhere, locked already:
+            # its settings cannot be set here, only compared.
+            try:
+                expected_paths = _resolved_on_scratch("allowed_paths", paths)
+            except Exception as err:
+                raise _refused("allowed_paths", err) from err
+            try:
+                expected_directories = _resolved_on_scratch("allowed_directories", directories)
+            except Exception as err:
+                raise _refused("allowed_directories", err) from err
+        else:
+            if any(is_remote_uri(p) for p in paths + directories):
+                try:
+                    # The secret manager reads its on-disk store the first
+                    # time a remote file is opened; that must happen before
+                    # file access is closed. Trusted text, on a session agent
+                    # SQL has not reached yet.
+                    con.execute("SELECT count(*) FROM duckdb_secrets()").fetchall()
+                except Exception:
+                    pass
+            # DuckDB allows a connection its own temp directory under the
+            # lock; with none set, spilling is off and no temp directory is
+            # reachable.
+            steps = [
+                ("temp_directory", "SET temp_directory = ''"),
+                ("allowed_paths", f"SET allowed_paths = {_list_literal(paths)}"),
+            ]
+            if directories:
+                steps.append(("allowed_directories", f"SET allowed_directories = {_list_literal(directories)}"))
+            steps += [
+                ("python_enable_replacements", "SET python_enable_replacements = false"),
+                ("allow_unredacted_secrets", "SET allow_unredacted_secrets = false"),
+                ("enable_external_access", "SET enable_external_access = false"),
+                ("lock_configuration", "SET lock_configuration = true"),
+            ]
+            try:
+                expected_paths = _resolved(con, "allowed_paths", paths)
+            except Exception as err:
+                raise _refused("allowed_paths", err) from err
+            try:
+                expected_directories = _resolved(con, "allowed_directories", directories)
+            except Exception as err:
+                raise _refused("allowed_directories", err) from err
+            for setting, statement in steps:
+                try:
+                    con.execute(statement)
+                except Exception as err:
+                    raise _refused(setting, err) from err
+        _check_read_back(con, expected_paths, expected_directories, own_database,
+                         session_set=not locked_already)
 
 
 # -- what a statement may name, by the engine's own parser ---------------------
@@ -539,8 +798,6 @@ _STRING_RELATION_IN_PIVOT = re.compile(
 )
 
 _NOT_A_TABLE = "Query the connection's tables by name; files, URLs and system state are not available."
-_scratch = None
-_scratch_lock = threading.Lock()
 
 
 def _refuse(message: str = _NOT_A_TABLE):
@@ -550,29 +807,52 @@ def _refuse(message: str = _NOT_A_TABLE):
 
 
 def _serialized(sql: str) -> dict:
-    """DuckDB's parse tree for one SELECT-type statement, without running it."""
+    """DuckDB's parse tree for one SELECT-type statement, without running
+    it, read on the query guard's locked inspector connection."""
+    from app.ai.code_execution.duckdb_guard import serialize_sql
+
+    return serialize_sql(sql)
+
+
+def _statement_types(sql: str) -> list:
+    """The statement types DuckDB splits `sql` into, read on the query
+    guard's locked inspector connection (`duckdb_guard.statement_types`).
+    Text DuckDB cannot parse gives None; anything else the engine refuses
+    while it parses (a statement that would open a file or an address) is
+    refused."""
     import duckdb
 
-    global _scratch
-    with _scratch_lock:
-        if _scratch is None:
-            _scratch = duckdb.connect(":memory:")
-        raw = _scratch.execute("SELECT json_serialize_sql(?)", [sql]).fetchone()[0]
-    return json.loads(raw)
+    from app.ai.code_execution.duckdb_guard import statement_types
+
+    try:
+        return statement_types(sql)
+    except duckdb.ParserException:
+        return None
+    except Exception as err:
+        logger.warning("duckdb_lockdown.parse_refused %s", type(err).__name__)
+        _refuse("The statement could not be verified as a read. Only SELECT queries are allowed.")
+
+
+def _fold(name) -> str:
+    """`name` folded as DuckDB folds an identifier it compares: ASCII letters
+    only (`duckdb_guard.ascii_lower`)."""
+    from app.ai.code_execution.duckdb_guard import ascii_lower
+
+    return ascii_lower(str(name or ""))
 
 
 class SessionCatalog:
     """The tables and views a session really has, fully qualified, and the
     database and schema an unqualified name resolves in. Identifiers compare
-    case-insensitively, as DuckDB's do."""
+    case-insensitively, as DuckDB's do: only their ASCII letters fold."""
 
     def __init__(self, relations, database: str = "memory", schema: str = "main"):
-        self.relations = frozenset(tuple(str(p or "").lower() for p in r) for r in relations)
-        self.database = (database or "memory").lower()
-        self.schema = (schema or "main").lower()
+        self.relations = frozenset(tuple(_fold(p) for p in r) for r in relations)
+        self.database = _fold(database or "memory")
+        self.schema = _fold(schema or "main")
 
     def has(self, catalog: str, schema: str, name: str) -> bool:
-        catalog, schema, name = (catalog or "").lower(), (schema or "").lower(), (name or "").lower()
+        catalog, schema, name = _fold(catalog), _fold(schema), _fold(name)
         if catalog:
             return (catalog, schema or "main", name) in self.relations
         if schema:
@@ -609,7 +889,7 @@ def _check_relation(name: str, schema: str, catalog: str, relations, ctes,
     catalog, a non-plain identifier is left to the client's own check against
     its catalog (``deferred``), or refused when it looks like a path.
     """
-    lowered = (name or "").lower()
+    lowered = _fold(name)
     if not name:
         _refuse()
     if is_string:
@@ -681,6 +961,7 @@ def _walk_serialized(node, relations, ctes, sql: str = "", deferred: bool = Fals
 
 
 def _cte_names(node, out: set) -> set:
+    """The names of every CTE the statement defines, as written."""
     if isinstance(node, list):
         for item in node:
             _cte_names(item, out)
@@ -689,10 +970,20 @@ def _cte_names(node, out: set) -> set:
         if isinstance(cte_map, dict):
             for entry in cte_map.get("map") or []:
                 if isinstance(entry, dict) and entry.get("key"):
-                    out.add(str(entry["key"]).lower())
+                    out.add(str(entry["key"]))
         for value in node.values():
             _cte_names(value, out)
     return out
+
+
+def _plain_ctes(names) -> set:
+    """`names`, the CTEs a statement defines, folded; refused unless every
+    one is plain (`duckdb_guard.is_plain_cte_name`, the wrapper's rule)."""
+    from app.ai.code_execution.duckdb_guard import CTE_NAME_NOT_PLAIN, is_plain_cte_name
+
+    if not all(is_plain_cte_name(name) for name in names):
+        _refuse(CTE_NAME_NOT_PLAIN)
+    return {_fold(name) for name in names}
 
 
 def _check_pivot_statement(sql: str, relations, deferred: bool = False) -> None:
@@ -708,7 +999,7 @@ def _check_pivot_statement(sql: str, relations, deferred: bool = False) -> None:
         tree = sqlglot.parse_one(sql, read="duckdb")
     except Exception:
         _refuse()
-    ctes = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+    ctes = _plain_ctes({c.alias_or_name for c in tree.find_all(exp.CTE)})
     for node in tree.walk():
         if isinstance(node, exp.Table):
             if isinstance(node.this, exp.Func):
@@ -725,13 +1016,13 @@ def engine_tree_check(sql: str, relations=None, deferred: bool = False) -> None:
     read whose relations and functions stay inside the session. ``relations``
     is the session's catalog (``session_relations``) when known. ``deferred``
     says the caller will run this check again with the catalog before the
-    statement executes. Raises ReadOnlyViolation; fails closed on anything it
-    cannot read."""
+    statement executes. A CTE must have a plain name, as on the wrapper
+    (`duckdb_guard.is_plain_cte_name`). Raises ReadOnlyViolation; fails
+    closed on anything it cannot read."""
     import duckdb
 
-    try:
-        kinds = [s.type for s in duckdb.extract_statements(sql)]
-    except duckdb.Error:
+    kinds = _statement_types(sql)
+    if kinds is None:
         return  # not runnable: the engine reports the syntax error itself
     if (
         kinds == [duckdb.StatementType.CREATE, duckdb.StatementType.SELECT]
@@ -747,10 +1038,7 @@ def engine_tree_check(sql: str, relations=None, deferred: bool = False) -> None:
         if not m:
             _refuse("Only a single read-only SELECT statement is allowed.")
         inner = sql[m.end():]
-        try:
-            inner_kinds = [s.type for s in duckdb.extract_statements(inner)]
-        except duckdb.Error:
-            inner_kinds = []
+        inner_kinds = _statement_types(inner) or []
         if inner_kinds != [duckdb.StatementType.SELECT]:
             _refuse("Only a single read-only SELECT statement is allowed.")
         engine_tree_check(inner, relations, deferred)
@@ -766,7 +1054,7 @@ def engine_tree_check(sql: str, relations=None, deferred: bool = False) -> None:
             _check_relation(m.group(2).strip(), "", "", relations, frozenset(), deferred=deferred)
             return
         _refuse("The statement could not be verified as a read. Only SELECT queries are allowed.")
-    _walk_serialized(tree, relations, _cte_names(tree, set()), sql, deferred)
+    _walk_serialized(tree, relations, _plain_ctes(_cte_names(tree, set())), sql, deferred)
 
 
 def check_user_sql(sql: str, *, hide_settings: bool = False, relations=None, deferred: bool = False) -> None:

@@ -1,5 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_one_select
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
 import json
@@ -22,10 +23,10 @@ class OpenSearchClient(DataSourceClient):
     (security disabled / network-gated dev clusters).
     """
 
-    # Parameters render only into the envelope's "sql" field (the OpenSearch
-    # SQL plugin). A quote inside its string literal is doubled; whether a
-    # backslash escapes is not established, so it is doubled too, which keeps
-    # one literal either way.
+    # The envelope's "sql" field is the OpenSearch SQL plugin's. A quote
+    # inside its string literal is doubled; whether a backslash escapes is
+    # not established. No renderer is declared for it (client_profiles), so
+    # parameters reach the envelope only as bare JSON numbers.
     sql_literal_style = "doubled"
     sql_in_json_envelope = True
 
@@ -40,6 +41,13 @@ class OpenSearchClient(DataSourceClient):
     # or whitespace, so the value can't redirect the request to another
     # endpoint (e.g. `orders/_delete_by_query?`).
     _INDEX_EXPR_RE = re.compile(r"[A-Za-z0-9_.*,:+-]+")
+
+    # The SQL forms the `sql` key's check reads, for its refusals and the guide.
+    SQL_FORMS_HINT = (
+        "In the sql key, put an index name holding -, * or . in backticks "
+        "(FROM `logs-2024.*`), and search full text with match_query(field, 'text') "
+        'or with the DSL "query" key instead of the sql key.'
+    )
 
     # Bucket-level keys that are not sub-aggregations.
     _BUCKET_META_KEYS = {"key", "key_as_string", "doc_count", "from", "to",
@@ -382,6 +390,7 @@ class OpenSearchClient(DataSourceClient):
             "size": 100, "sort": [...], "_source": [...],
             "sql": "SELECT ..."                 # alternative: SQL plugin
         }
+        Any other key is refused (ReadOnlyViolation) before a request is made.
         """
         try:
             envelope = json.loads(query)
@@ -389,6 +398,12 @@ class OpenSearchClient(DataSourceClient):
             raise ValueError(f"Invalid JSON query: {e}")
         if not isinstance(envelope, dict):
             raise ValueError("Query must be a JSON object")
+        unknown = sorted(k for k in envelope if k not in self.SEARCH_KEYS | {"index", "sql"})
+        if unknown:
+            raise ReadOnlyViolation(
+                f"The query envelope does not take {', '.join(unknown)}; "
+                f"use index, sql or {', '.join(sorted(self.SEARCH_KEYS))}."
+            )
 
         if "sql" in envelope:
             return self._execute_sql(envelope["sql"])
@@ -424,7 +439,17 @@ class OpenSearchClient(DataSourceClient):
         return df
 
     def _execute_sql(self, sql: str) -> pd.DataFrame:
-        """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`)."""
+        """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`).
+
+        Only one SELECT is sent. The text is read as MySQL, the closest
+        dialect sqlglot has; the plugin's own reader is not ours, so what the
+        two could read differently is refused (`check_one_select`), with a
+        message naming the forms that are read (`SQL_FORMS_HINT`).
+        """
+        try:
+            check_one_select(sql, "mysql")
+        except ReadOnlyViolation as e:
+            raise ReadOnlyViolation(f"{e} {self.SQL_FORMS_HINT}") from e
         result = self._request("POST", "/_plugins/_sql", json_body={"query": sql})
         schema = result.get("schema") or []
         cols = [c.get("alias") or c.get("name") for c in schema]
@@ -561,6 +586,7 @@ df = client.execute_query('''{{
     "sql": "SELECT status, COUNT(*) AS n FROM orders GROUP BY status"
 }}''')
 ```
+{self.SQL_FORMS_HINT} Only one SELECT is sent: no comments, backslashes or [ ].
 
 WRONG - Do NOT do this:
 ```

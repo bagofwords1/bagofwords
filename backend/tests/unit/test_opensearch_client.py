@@ -339,12 +339,12 @@ class TestExecuteQuery:
             OpenSearchClient(host="h").execute_query(
                 '{"index": "orders", "size": 9000, "from": 2000}')
 
-    def test_non_search_keys_not_forwarded(self, transport):
+    def test_unknown_envelope_keys_are_refused(self, transport):
         fake = transport({("POST", "/orders/_search"): {"hits": {"hits": []}}})
-        OpenSearchClient(host="h").execute_query(
-            '{"index": "orders", "collection": "x", "explain_me": true}')
-        assert "collection" not in fake.calls[0]["json"]
-        assert "explain_me" not in fake.calls[0]["json"]
+        with pytest.raises(ValueError, match="collection, explain_me"):
+            OpenSearchClient(host="h").execute_query(
+                '{"index": "orders", "collection": "x", "explain_me": true}')
+        assert fake.calls == []
 
     def test_http_error_raises(self, transport):
         transport({("POST", "/orders/_search"): _FakeResponse(400, {"error": "parse error"},

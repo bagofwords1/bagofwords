@@ -2266,7 +2266,8 @@
     "saveFailed": "Det gick inte att spara entiteten",
     "stepRequired": "Ett steg krävs för att spara",
     "publishedToast": "Frågan publicerades i katalogen",
-    "suggestedToast": "Förslaget skickades för granskning"
+    "suggestedToast": "Förslaget skickades för granskning",
+    "savedRunFailed": "Sparad, men frågan kunde inte köras"
   },
   "mentionInput": {
     "placeholder": "Skriv {'@'} för att nämna...",
@@ -4777,6 +4778,7 @@
     "locale.invalid": "Språket är inte aktiverat",
     "report.not_found": "Rapporten hittades inte",
     "entity.not_found": "Entiteten hittades inte",
+    "entity.run_failed": "Den sparade frågan kunde inte köras. Be dess ägare att kontrollera den.",
     "user.not_found": "Användaren hittades inte",
     "membership.not_found": "Medlemskapet hittades inte",
     "role.not_found": "Rollen hittades inte",
@@ -4792,7 +4794,8 @@
     "resource.duplicate": "Duplicerad resurs",
     "setting.update_failed": "Det gick inte att uppdatera inställningen",
     "query": {
-      "failed_silently": "En fråga misslyckades men den genererade koden returnerade ett tomt resultat i stället för att rapportera det"
+      "failed_silently": "En fråga misslyckades men den genererade koden returnerade ett tomt resultat i stället för att rapportera det: {query_errors}",
+      "timeout": "Frågan tog längre tid än {timeout_seconds} sekunder och stoppades. Begränsa den med filter, en radgräns eller aggregering, eller dela upp den i mindre frågor."
     },
     "llm": {
       "model_id_required": "Modell-ID:t får inte vara tomt",

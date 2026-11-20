@@ -33,7 +33,7 @@ from app.ai.code_execution.code_execution import (
     _FILE_IO_NAMESPACES,
 )
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
-from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as run_sandbox_job
+from app.ai.code_execution.sandbox.runner import SandboxJob, refuse_inprocess_if_not_allowed, run_job as run_sandbox_job
 
 
 # =============================================================================
@@ -206,6 +206,8 @@ class PptxCodeExecutor:
                 code=code, visualizations=visualizations, report=report,
                 output_path=output_path, images=images or {},
             )
+        # In-process mode is for local development only.
+        refuse_inprocess_if_not_allowed()
 
         output_log = ""
 

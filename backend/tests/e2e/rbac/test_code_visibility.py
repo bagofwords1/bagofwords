@@ -630,6 +630,204 @@ async def test_member_without_run_custom_code_cannot_preview_supplied_entity_cod
     assert resp.status_code != 403, resp.text
 
 
+# ── Entity routes that store or run caller-supplied code ─────────────────
+
+_ENTITY_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    return pd.DataFrame({"v": [params.get("v")], "source": ["stored"]})
+"""
+_CHANGED_ENTITY_CODE = _ENTITY_CODE.replace('"stored"', '"changed"')
+_V_SPEC = {"name": "v", "type": "number", "label": "V", "default": None, "required": False, "source": "input"}
+
+
+def _entity_author(test_client, admin, member, create_role, assign_role, *, run_custom_code):
+    """Give the member ONLY a role that may author org-wide entities, with or
+    without `run_custom_code` — the one permission these routes now add."""
+    org_id = admin["org_id"]
+    hdr = _hdr(admin["token"], org_id)
+    for a in test_client.get(
+        f"/api/organizations/{org_id}/role-assignments", headers=hdr,
+        params={"principal_type": "user", "principal_id": member["user_id"]},
+    ).json():
+        test_client.delete(f"/api/organizations/{org_id}/role-assignments/{a['id']}", headers=hdr)
+    permissions = ["view_reports", "create_reports", "manage_entities"]
+    if run_custom_code:
+        permissions.append("run_custom_code")
+    role = create_role(
+        name=f"author-{uuid.uuid4().hex[:6]}", permissions=permissions,
+        user_token=admin["token"], org_id=org_id,
+    )
+    assert role.status_code == 200, role.text
+    assigned = assign_role(
+        role_id=role.json()["id"], principal_type="user",
+        principal_id=member["user_id"], user_token=admin["token"], org_id=org_id,
+    )
+    assert assigned.status_code in (200, 201), assigned.text
+
+
+def _admin_entity(test_client, admin):
+    created = test_client.post(
+        "/api/entities/global",
+        json={"type": "model", "title": f"t-{uuid.uuid4().hex[:6]}", "code": _ENTITY_CODE,
+              "parameters": [_V_SPEC], "data_source_ids": []},
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert created.status_code == 200, created.text
+    return created.json()["id"]
+
+
+def _agent_for(admin, member, sqlite_data_source, grant_resource) -> str:
+    """An agent on which the member holds `create_entities` (what per-agent
+    entity creation checks)."""
+    ds = sqlite_data_source(name=f"agent_{uuid.uuid4().hex[:6]}", user_token=admin["token"],
+                            org_id=admin["org_id"], is_public=True)
+    granted = grant_resource(
+        resource_type="data_source", resource_id=ds["id"], principal_type="user",
+        principal_id=member["user_id"], permissions=["create_entities"],
+        user_token=admin["token"], org_id=admin["org_id"],
+    )
+    assert granted.status_code in (200, 201), granted.text
+    return ds["id"]
+
+
+def _entity_calls(test_client, admin, member, agent_id):
+    """Each entity call that stores or runs code, by the member: status codes."""
+    mhdr = _hdr(member["token"], admin["org_id"])
+    new = {"type": "model", "title": f"n-{uuid.uuid4().hex[:6]}", "code": _ENTITY_CODE,
+           "data_source_ids": [agent_id]}
+    eid = _admin_entity(test_client, admin)
+    return {
+        "create": test_client.post("/api/entities", json=new, headers=mhdr).status_code,
+        "create_global": test_client.post("/api/entities/global", json=new, headers=mhdr).status_code,
+        "update_changed_code": test_client.put(
+            f"/api/entities/{eid}", json={"code": _CHANGED_ENTITY_CODE}, headers=mhdr).status_code,
+        "run_changed_code": test_client.post(
+            f"/api/entities/{_admin_entity(test_client, admin)}/run",
+            json={"code": _CHANGED_ENTITY_CODE}, headers=mhdr).status_code,
+    }
+
+
+def _stored_code_calls(test_client, admin, member):
+    """Entity calls that store or run no new code, by the member."""
+    mhdr = _hdr(member["token"], admin["org_id"])
+    eid = _admin_entity(test_client, admin)
+    return {
+        "update_title_only": test_client.put(
+            f"/api/entities/{eid}", json={"title": "renamed"}, headers=mhdr).status_code,
+        "update_same_code": test_client.put(
+            f"/api/entities/{eid}", json={"code": _ENTITY_CODE}, headers=mhdr).status_code,
+        "run_stored_code": test_client.post(f"/api/entities/{eid}/run", json={}, headers=mhdr).status_code,
+        "run_same_code": test_client.post(
+            f"/api/entities/{eid}/run", json={"code": _ENTITY_CODE}, headers=mhdr).status_code,
+        "run_with_params": test_client.post(
+            f"/api/entities/{eid}/run", json={"params": {"v": 3}}, headers=mhdr).status_code,
+    }
+
+
+@pytest.mark.e2e
+def test_entity_routes_that_store_or_run_supplied_code_need_run_custom_code(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    sqlite_data_source, grant_resource, enterprise_license,
+):
+    """Creating an entity, or saving / running code that differs from the
+    stored code, executes or stores caller-supplied code: same permission as
+    a builder-mode query run."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    _entity_author(test_client, admin, member, create_role, assign_role, run_custom_code=False)
+
+    agent_id = _agent_for(admin, member, sqlite_data_source, grant_resource)
+    assert _entity_calls(test_client, admin, member, agent_id) == {
+        "create": 403, "create_global": 403, "update_changed_code": 403, "run_changed_code": 403,
+    }
+
+
+@pytest.mark.e2e
+def test_entity_calls_without_new_code_stay_open_without_run_custom_code(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    enterprise_license,
+):
+    """Renaming an entity, re-saving or re-running its stored code, and
+    viewer runs with parameter values are not custom code."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    _entity_author(test_client, admin, member, create_role, assign_role, run_custom_code=False)
+
+    assert _stored_code_calls(test_client, admin, member) == {
+        "update_title_only": 200, "update_same_code": 200, "run_stored_code": 200,
+        "run_same_code": 200, "run_with_params": 200,
+    }
+
+
+@pytest.mark.e2e
+def test_entity_code_calls_stay_open_to_members_with_run_custom_code(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    sqlite_data_source, grant_resource, enterprise_license,
+):
+    """The same member role plus `run_custom_code`: every call succeeds."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    _entity_author(test_client, admin, member, create_role, assign_role, run_custom_code=True)
+
+    agent_id = _agent_for(admin, member, sqlite_data_source, grant_resource)
+    assert _entity_calls(test_client, admin, member, agent_id) == {
+        "create": 200, "create_global": 200, "update_changed_code": 200, "run_changed_code": 200,
+    }
+    assert set(_stored_code_calls(test_client, admin, member).values()) == {200}
+
+
+_WRITE_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    client = [c for key, c in ds_clients.items() if ":" in key][0]
+    return client.execute_query("DELETE FROM Artist")
+"""
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("who", ["admin", "member"])
+def test_entity_run_the_query_guard_refuses_answers_403_with_the_guard_reason(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    sqlite_data_source, grant_resource, enterprise_license, tmp_path, who,
+):
+    """Code allowed to run whose statement the guard refuses: the caller gets
+    the guard's 403 and reason (not the permission one, not a 404 or 500),
+    and the source is unchanged."""
+    import shutil
+    import sqlite3
+
+    from tests.e2e.rbac.conftest import CHINOOK_PATH
+
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    _entity_author(test_client, admin, member, create_role, assign_role, run_custom_code=True)
+    db_path = tmp_path / "chinook.sqlite"
+    shutil.copy(CHINOOK_PATH, db_path)
+    ds = sqlite_data_source(name=f"agent_{uuid.uuid4().hex[:6]}", user_token=admin["token"],
+                            org_id=admin["org_id"], database=str(db_path), is_public=True)
+    granted = grant_resource(
+        resource_type="data_source", resource_id=ds["id"], principal_type="user",
+        principal_id=member["user_id"], permissions=["create_entities"],
+        user_token=admin["token"], org_id=admin["org_id"],
+    )
+    assert granted.status_code in (200, 201), granted.text
+    created = test_client.post(
+        "/api/entities/global",
+        json={"type": "model", "title": f"w-{uuid.uuid4().hex[:6]}", "code": _ENTITY_CODE,
+              "data_source_ids": [ds["id"]]},
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert created.status_code == 200, created.text
+    caller = admin if who == "admin" else member
+
+    resp = test_client.post(f"/api/entities/{created.json()['id']}/run", json={"code": _WRITE_CODE},
+                            headers=_hdr(caller["token"], admin["org_id"]))
+    assert resp.status_code == 403, resp.text
+    assert "custom code" not in resp.json()["detail"], resp.text
+    with sqlite3.connect(db_path) as con:
+        assert con.execute("SELECT COUNT(*) FROM Artist").fetchone()[0] > 0
+
+
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_cannot_clone_a_step_from_a_report_you_cannot_see(

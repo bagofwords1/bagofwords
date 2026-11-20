@@ -1470,10 +1470,12 @@ Do not use generic placeholders like "value" unless that is the actual column na
             failed_timings = [t for t in (query_timings or []) if t.get("error")]
             if failed_timings:
                 # A caught refusal must survive later queries in the same
-                # attempt, including a fallback that fails differently.
+                # attempt, including a fallback that fails differently: the
+                # first refusal (it is what ended the attempt), else the last
+                # terminal error, else the last error.
                 last_failed = next(
-                    (t for t in reversed(failed_timings) if t.get("terminal")),
-                    failed_timings[-1],
+                    (t for t in failed_timings if t.get("refusal")),
+                    next((t for t in reversed(failed_timings) if t.get("terminal")), failed_timings[-1]),
                 )
                 error_observation["error"]["db_message"] = (
                     last_failed.get("error_message") or last_failed.get("error")
@@ -1484,14 +1486,25 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     # finish independent work; never publish a raw diagnostic.
                     error_observation["error"]["type"] = "table_access_denied"
                     error_observation["error"]["message"] = error_observation["error"]["db_message"]
-                    error_observation["retry_guidance"] = (
-                        "This query was refused by the agent's table selection. "
-                        "Do not retry the denied table through different SQL syntax. "
-                        "Check the active catalog before choosing an enabled alternative; "
-                        "instructions mentioning a table do not enable it. "
-                        "Explain any remaining limitation in the user's language and "
-                        "continue independent permitted parts of the task."
-                    )
+                    if last_failed.get("refused_by") == "connection":
+                        # A file connection: no table selection, only the
+                        # tables its files provide (the message lists them).
+                        error_observation["retry_guidance"] = (
+                            "The query names a table that this connection does not have, or one "
+                            "whose data is not prepared yet. Query only the tables the error lists "
+                            "for this connection; do not guess other names. "
+                            "Explain any remaining limitation in the user's language and "
+                            "continue independent permitted parts of the task."
+                        )
+                    else:
+                        error_observation["retry_guidance"] = (
+                            "This query was refused by the agent's table selection. "
+                            "Do not retry the denied table through different SQL syntax. "
+                            "Check the active catalog before choosing an enabled alternative; "
+                            "instructions mentioning a table do not enable it. "
+                            "Explain any remaining limitation in the user's language and "
+                            "continue independent permitted parts of the task."
+                        )
                 elif last_failed.get("error_type") in ("cancelled_by_admin", "connection_busy"):
                     # Ends this code attempt (no rewrite/resend), not the
                     # conversation: the planner tells the user what happened

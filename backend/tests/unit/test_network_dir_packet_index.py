@@ -74,7 +74,7 @@ def test_mixed_capture_schemas_and_refresh(share):
 
 @pytest.mark.skipif(not shutil.which("tshark"), reason="requires tshark")
 def test_cache_is_scoped_and_failed_files_are_visible(share, monkeypatch):
-    import duckdb
+    from app.ai.code_execution.sql_guard import ReadOnlyViolation
 
     (share / "broken.pcap").write_bytes(b"not a capture")
     (share / "alias.pcap").symlink_to(share / "second.pcapng")
@@ -83,7 +83,7 @@ def test_cache_is_scoped_and_failed_files_are_visible(share, monkeypatch):
     rows = client.execute_query("SELECT file_id, status FROM indexed_files")
     assert dict(rows.itertuples(index=False, name=None)) == {"first.pcap": "ready", "broken.pcap": "failed"}
     assert client.execute_query("SELECT DISTINCT capture_id FROM packets").capture_id.tolist() == ["first.pcap"]
-    with pytest.raises(duckdb.PermissionException):
+    with pytest.raises(ReadOnlyViolation):
         client.execute_query("SELECT * FROM read_csv_auto('notes.txt')")
 
     # Rebuild on a host with no decoder: unchanged packets still come from cache.

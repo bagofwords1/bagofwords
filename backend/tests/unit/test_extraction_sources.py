@@ -86,9 +86,32 @@ def test_the_sqlalchemy_source_prefers_extraction_connect_when_present():
 
             return cm()
 
-    with sources.source_for(Client())._open():
+    with sources.source_for(Client())._open("SELECT 1"):
         pass
     assert used == ["extraction_connect"]
+
+
+def test_a_preview_without_a_source_bounds_the_checked_text():
+    """A Postgres-typed client that declares no extraction source: the
+    bounded fallback wraps the text the guard returned, not the one given."""
+    import pandas as pd
+
+    from app.data_sources.clients.postgresql_client import PostgresqlClient
+    from app.data_sources.fast import extractor, sql_dialect
+
+    class NoSource(PostgresqlClient):
+        EXTRACTION_SOURCE = staticmethod(lambda client: None)
+
+        def __init__(self):
+            self.sent = []
+
+        def execute_query(self, sql):
+            self.sent.append(sql)
+            return pd.DataFrame({"a": [1]})
+
+    client = NoSource()
+    extractor.preview(client, "SELECT a /* why */ FROM t", limit=3)
+    assert client.sent == [sql_dialect.bounded_sql("SELECT a   FROM t", 3, "")[0]]
 
 
 # --------------------------------------------------------------------------
@@ -289,7 +312,7 @@ def test_snowflake_reports_scan_bytes_and_no_result_size():
     from app.data_sources.fast import sql_dialect
 
     class Conn:
-        def execute(self, stmt, params=None):
+        def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
             class R:
                 def scalar(self_inner):
                     return json.dumps({
@@ -312,7 +335,7 @@ def test_snowflake_without_globalstats_reports_no_estimate():
     from app.data_sources.fast import sql_dialect
 
     class Conn:
-        def execute(self, stmt, params=None):
+        def exec_driver_sql(self, stmt, parameters=None, execution_options=None):
             class R:
                 def scalar(self_inner):
                     return json.dumps({"Operations": []})

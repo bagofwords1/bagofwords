@@ -482,7 +482,7 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
     from app.services.dashboard_data import default_step
     from app.services.data_source_service import DataSourceService
     from app.services.identity_taint import step_identity_scope
-    from app.services.query_service import QueryService, _no_access_code
+    from app.services.query_service import QueryService, _no_access_code, flush_usage
     from app.services.viewer_result_store import store_viewer_result
 
     if caller is None:
@@ -576,9 +576,7 @@ async def filter_run(db, artifact: Artifact, release: ArtifactRelease, query: Qu
         elif needs_credentials(e):
             reason = CREDENTIALS_REQUIRED_REASON
     finally:
-        if usage is not None:
-            with contextlib.suppress(Exception):
-                await usage.flush()
+        await flush_usage(usage)
 
     if status == "success":
         await store_viewer_result(

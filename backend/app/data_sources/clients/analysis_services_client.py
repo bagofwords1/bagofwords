@@ -6,7 +6,12 @@ from xml.sax.saxutils import escape as xml_escape
 import pandas as pd
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
-from app.data_sources.clients.xmla_base import XMLA_NS, XmlaClient
+from app.data_sources.clients.xmla_base import (
+    XMLA_NS,
+    XmlaClient,
+    check_catalog_override,
+    check_xmla_statement,
+)
 
 
 class AnalysisServicesClient(XmlaClient):
@@ -679,11 +684,13 @@ class AnalysisServicesClient(XmlaClient):
             query: an MDX SELECT or a DAX EVALUATE statement.
             table_name: optional ``Catalog/Cube`` hint. Used to resolve the
                 catalog and, for DAX, to verify the target is a Tabular model.
-            catalog: explicit catalog override (takes precedence).
+            catalog: optional; accepted only when it names (in any case)
+                the configured catalog, or else the table's catalog.
             max_rows: optional client-side row cap.
         """
         if not query or not query.strip():
             raise ValueError(self.QUERY_REQUIRED_MSG)
+        check_xmla_statement(query)
         self.connect()
 
         table = None
@@ -706,11 +713,12 @@ class AnalysisServicesClient(XmlaClient):
                     "target is Multidimensional — use MDX instead."
                 )
 
-        target_catalog = catalog or self.catalog
+        target_catalog = self.catalog
         if not target_catalog and table_meta is not None:
             target_catalog = table_meta.get("catalog")
         if not target_catalog and table_name and "/" in table_name:
             target_catalog = table_name.split("/", 1)[0]
+        target_catalog = check_catalog_override(catalog, target_catalog)
 
         rows = self._execute_statement(query, target_catalog)
         return self._rows_to_df(rows, max_rows)
