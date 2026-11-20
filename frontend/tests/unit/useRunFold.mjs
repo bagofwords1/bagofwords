@@ -38,3 +38,13 @@ console.log('useRunFold: grouped tool disclosure passed')
   assert.equal(liveFold.isRunToolShown({}, live[1]), true)
   console.log('useRunFold: running stop controls stay visible passed')
 }
+
+// Several running sub-agents in one closed live group: each keeps its card
+// (and its Stop); a finished sibling stays inside the closed group.
+{
+  const live = ['sa1', 'sa2', 'sa3'].map((sid) => ({ id: sid, tool_execution: { tool_name: 'delegate', status: 'success', result_json: { sub_agent_id: sid } } }))
+  const activity = computeRunActivity(live, { runStatus: 'in_progress', keepVisible: (b) => b.id !== 'sa3' })
+  const fold = exports.useRunFold({ foldFor: () => activity, blocksFor: () => live, keyFor: () => 'fan' })
+  assert.deepEqual(live.map((b) => fold.isRunToolShown({}, b)), [true, true, false])
+  console.log('useRunFold: several running sub-agents stay visible passed')
+}
