@@ -412,7 +412,8 @@ class PromptBuilderV3:
         if PromptBuilderV3._citations_enabled(planner_input):
             citation_rule_text = (
                 "- Cite your results: when a sentence of your final text states a number or finding taken "
-                "from a `create_data` result, end it with `{{cite:<id>}}`, where `<id>` is the first 8 "
+                "from a `create_data` result (or a saved query materialized with `describe_entity` "
+                "should_create=True), end it with `{{cite:<id>}}`, where `<id>` is the first 8 "
                 "characters of that result's visualization id — e.g. `Revenue grew 12% in 2024. "
                 "{{cite:3f9a1c2e}}`. One marker per sentence at most, placed immediately after the punctuation "
                 "on the same line, never in a standalone paragraph. Cite "

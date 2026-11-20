@@ -103,6 +103,20 @@ def test_the_planner_is_told_the_marker_grammar_this_module_parses():
     assert cited_ids(built.system), "the prompt's own example is not a parseable marker"
 
 
+
+def test_a_saved_query_materialized_by_describe_entity_is_citable():
+    """describe_entity with should_create=True makes a tracked step and
+    visualization, like create_data; the web report lists it as a source, so
+    the planner must be told it may cite it too."""
+    built = PromptBuilderV3.build(PlannerInput(
+        user_message="give me the data from the saved query",
+        organization_name="Acme",
+        organization_ai_analyst_name="Ada",
+    ))
+    assert "describe_entity" in built.system
+    rule = next(line for line in built.system.splitlines() if "Cite your results" in line)
+    assert "create_data" in rule and "describe_entity" in rule
+
 @pytest.mark.parametrize("overrides", [
     {"external_platform": "excel"},
     {"mode": "training"},

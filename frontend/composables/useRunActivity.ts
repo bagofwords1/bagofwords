@@ -28,8 +28,10 @@
  * - Prose always breaks a step: a progress message is part of the chain and
  *   keeps its chronological place. Reasoning does not — it rides inside the
  *   step it preceded.
- * - A `create_data` call is always its own step, described by what it produced.
- * - Every `create_data` result — chart, table or single value — folds into its
+ * - A data result (`create_data`, or `describe_entity` materializing a saved
+ *   query — isDataResultCall) is always its own step, described by what it
+ *   produced.
+ * - Every data result — chart, table or single value — folds into its
  *   step. Results stay reachable from the answer itself through its citations
  *   and sources line (composables/useCitations.ts): hover previews them, click
  *   opens them. Keeping charts open above the answer was tried and dropped: a
@@ -52,6 +54,24 @@ export function blockHasMessage(block: any): boolean {
   const pd = block?.plan_decision
   const hasText = (v: any) => typeof v === 'string' && v.trim() !== ''
   return hasText(block?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
+}
+
+// ---------------------------------------------------------------------------
+// Data results
+// ---------------------------------------------------------------------------
+
+/** A tool call that produced a tracked data result: a `create_data` call, or a
+    `describe_entity` call in create mode (`should_create`), which materializes
+    a saved query as its own step and visualization. Both fold into a `data`
+    step and both are sources the answer can cite. A plain `describe_entity`
+    lookup is inspection. Mirrored in useCitations (isDataResultCall), which
+    stays dependency-free for the bundler-less unit tests. */
+export function isDataResultCall(te: any): boolean {
+  const name = String(te?.tool_name || '')
+  if (name === 'create_data') return true
+  if (name !== 'describe_entity') return false
+  return te?.arguments_json?.should_create === true
+    || !!(te?.created_step_id || te?.created_step || te?.created_widget)
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +134,9 @@ function singleCell(data: any): any {
     a one-cell "table" has nothing a table preview could add. */
 export function describeDataOutput(te: any): DataOutput {
   const title = String(
-    te?.created_step?.title || te?.created_widget?.title || te?.arguments_json?.title || '',
+    te?.created_step?.title || te?.created_widget?.title || te?.arguments_json?.title
+      // describe_entity names its result after the saved query it materialized.
+      || te?.result_json?.title || '',
   ).trim()
   const none: DataOutput = { kind: 'none', title, rowCount: null, value: '' }
   if (!te || te.status !== 'success') return none
@@ -299,7 +321,7 @@ const PATTERN_RE = /[*?^$|()[\]{}+\\]/
 function purposeOf(block: any): { key: string; kind: RunStepKind; subjects: string[] } {
   const te = block.tool_execution
   const name = String(te?.tool_name || '')
-  if (name === 'create_data') return { key: `data:${block.id}`, kind: 'data', subjects: [] }
+  if (isDataResultCall(te)) return { key: `data:${block.id}`, kind: 'data', subjects: [] }
   if (INSPECT_TOOLS.has(name)) {
     const subjects = inspectedSubjects(te)
     const sorted = subjects.map((s) => s.toLowerCase()).sort().join('|')
