@@ -96,6 +96,44 @@ const table = (title, rows) => tool('create_data', { title }, {
   assert.deepEqual(live?.openIds, [ask.id])
 }
 
+// Running work with its own Stop (an eval, a sub-agent) is never hidden: open
+// in place while live — even inside a merged tool group — and kept under the
+// answer once the run folds, after the outputs. Finished work folds as usual.
+{
+  const search = tool('search_evals')
+  const evalRun = tool('run_eval', {}, { te: { status: 'running' } })
+  const keepVisible = (b) => b.id === evalRun.id
+  const live = computeRunActivity([search, evalRun], { runStatus: 'in_progress', keepVisible })
+  assert.deepEqual(live?.openIds, [evalRun.id])
+  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [[search.id, evalRun.id]])
+  assert.deepEqual(live?.deliverableIds, [])
+
+  const dash = tool('create_dashboard', {}, { te: { result_json: { artifact_id: 'a1' } } })
+  const delegate = tool('delegate', { goal: 'why' }, { te: { result_json: { sub_agent_id: 'sa1' } } })
+  const blocks = [dash, delegate, final()]
+  const done = computeRunActivity(blocks, { runStatus: 'success', keepVisible: (b) => b.id === delegate.id })
+  assert.deepEqual(done?.openIds, [])
+  assert.deepEqual(done?.deliverableIds, [dash.id, delegate.id])
+  assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success', keepVisible: () => false })?.deliverableIds, [dash.id])
+}
+
+// A fan-out of several sub-agents: every one still running keeps its card —
+// in place inside the merged live group, under the answer once folded — and
+// the ones already finished fold like any other step.
+{
+  const fan = ['sa1', 'sa2', 'sa3'].map((sid) => tool('delegate', { goal: sid }, { te: { result_json: { sub_agent_id: sid } } }))
+  const running = new Set(['sa1', 'sa2'])
+  const keepVisible = (b) => running.has(b.tool_execution?.result_json?.sub_agent_id)
+  const live = computeRunActivity([prose('Splitting this three ways'), ...fan], { runStatus: 'in_progress', keepVisible })
+  assert.deepEqual(live?.toolGroups.map((g) => g.blockIds), [fan.map((b) => b.id)])
+  assert.deepEqual(live?.openIds, [fan[0].id, fan[1].id])
+
+  const done = computeRunActivity([prose('Splitting this three ways'), ...fan, final()], { runStatus: 'success', keepVisible })
+  assert.deepEqual(done?.deliverableIds, [fan[0].id, fan[1].id])
+  running.clear()
+  assert.deepEqual(computeRunActivity([...fan, final()], { runStatus: 'success', keepVisible })?.deliverableIds, [])
+}
+
 // A live run keeps its row from the first block on, so a first progress note
 // does not drop it and bring it back when its tool call starts. Once a lone
 // answer is final there are no steps to view and the row goes.
