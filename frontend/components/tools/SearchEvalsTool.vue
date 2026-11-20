@@ -18,9 +18,9 @@
             {{ item.name || t('tools.searchEvals.unnamed') }}
           </NuxtLink>
           <span v-if="item.suite_name" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.suite_name }}</span>
-          <span v-if="item.status === 'draft'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-100 text-amber-800 flex-shrink-0">{{ t('tools.searchEvals.statusDraft') }}</span>
+          <span v-if="item.status === 'draft'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 flex-shrink-0">{{ t('tools.searchEvals.statusDraft') }}</span>
           <span v-else-if="item.status === 'archived'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">{{ t('tools.searchEvals.statusArchived') }}</span>
-          <span v-if="item.auto_generated" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-purple-100 text-purple-800 flex-shrink-0">{{ t('tools.searchEvals.autoBadge') }}</span>
+          <span v-if="item.auto_generated" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 flex-shrink-0">{{ t('tools.searchEvals.autoBadge') }}</span>
         </li>
       </ul>
     </div>

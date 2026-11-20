@@ -69,7 +69,7 @@
                     </div>
                     <!-- Enterprise badge -->
                     <div v-if="isLocked(ds)" class="mt-1">
-                      <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                      <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
                         {{ $t('onboarding.data.enterprise') }}
                       </span>
                     </div>
@@ -92,7 +92,7 @@
                     <Spinner v-if="installingDemo === demo.id" class="h-3" />
                     <DataSourceIcon v-else class="h-4" :type="demo.type" />
                     {{ demo.name }}
-                    <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">{{ $t('onboarding.data.sample') }}</span>
+                    <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">{{ $t('onboarding.data.sample') }}</span>
                   </button>
                 </div>
               </div>

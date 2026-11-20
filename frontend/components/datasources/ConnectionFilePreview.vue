@@ -41,7 +41,7 @@
            popups or same-origin access) plus a CSP that blocks every remote
            load, so a page can neither run code nor phone home. -->
       <iframe v-else-if="kind === 'html' && html !== null" :srcdoc="html" sandbox="" referrerpolicy="no-referrer" :title="name"
-              class="w-full h-[65vh] rounded-md border border-gray-200 dark:border-gray-700 bg-white" />
+              class="w-full h-[65vh] rounded-md border border-gray-200 dark:border-gray-700 bg-surface" />
       <!-- Under both views: a cut HTML page doesn't LOOK cut — the parser
            closes the open tags — so it needs saying even more than text. -->
       <div v-if="truncatedAt" class="mt-1 text-2xs text-ink-muted">

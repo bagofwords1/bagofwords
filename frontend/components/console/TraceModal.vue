@@ -178,7 +178,7 @@
                             <button v-else type="button" @click="selectLeftItem(item)"
                                 :class="[
                                     'w-full text-start rounded-md px-2 py-1.5 border',
-                                    selectedItem?.id === item.id ? 'border-blue-400 bg-blue-50' : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                                    selectedItem?.id === item.id ? 'border-blue-400 bg-blue-50 dark:bg-blue-950' : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50',
                                     item.phase === 'knowledge_harness' ? 'ms-3' : ''
                                 ]">
                                 <div class="flex items-center gap-1.5">
@@ -238,19 +238,19 @@
                             {{ formatCost(selectedTurn.llm_cost_usd) }}
                         </span>
                         <span v-if="selectedTurn.feedback_status !== 'none'"
-                              :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs', selectedTurn.feedback_status === 'positive' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700']">
+                              :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs', selectedTurn.feedback_status === 'positive' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300']">
                             <UIcon :name="selectedTurn.feedback_status === 'positive' ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'" class="w-3.5 h-3.5" />
                             {{ selectedTurn.feedback_status }}
                         </span>
                         <!-- AI scoring -->
                         <div v-if="isJudgeEnabled && hasTurnScores(selectedTurn)" class="flex items-center gap-1.5 ms-auto">
-                            <span v-if="selectedTurn.instructions_effectiveness != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200">
+                            <span v-if="selectedTurn.instructions_effectiveness != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800">
                                 <span>Inst</span><span class="font-semibold">{{ selectedTurn.instructions_effectiveness }}/5</span>
                             </span>
-                            <span v-if="selectedTurn.context_effectiveness != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200">
+                            <span v-if="selectedTurn.context_effectiveness != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800">
                                 <span>Ctx</span><span class="font-semibold">{{ selectedTurn.context_effectiveness }}/5</span>
                             </span>
-                            <span v-if="selectedTurn.response_score != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-green-50 text-green-700 border-green-200">
+                            <span v-if="selectedTurn.response_score != null" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-200 dark:border-green-800">
                                 <span>Resp</span><span class="font-semibold">{{ selectedTurn.response_score }}/5</span>
                             </span>
                         </div>
@@ -341,15 +341,15 @@
                                         </p>
                                         <div class="space-y-1">
                                             <div v-for="(m, mi) in selectedTurn.memory.injected" :key="'inj' + mi" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
-                                                <span class="font-mono text-2xs text-gray-500 shrink-0 mt-px">[{{ m.handle }}]</span>
-                                                <span class="text-2xs px-1.5 py-0.5 rounded shrink-0" :class="m.tier === 'matched' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'">{{ $t(`traceModal.memory.tier.${m.tier === 'matched' ? 'matched' : 'always'}`) }}</span>
+                                                <span class="font-mono text-2xs text-ink-muted shrink-0 mt-px">[{{ m.handle }}]</span>
+                                                <span class="text-2xs px-1.5 py-0.5 rounded shrink-0" :class="m.tier === 'matched' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300'">{{ $t(`traceModal.memory.tier.${m.tier === 'matched' ? 'matched' : 'always'}`) }}</span>
                                                 <UIcon v-if="m.dated" name="i-heroicons-calendar" class="w-3 h-3 text-ink-muted shrink-0 mt-0.5" />
                                                 <span v-if="m.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ m.text }}</span>
                                             </div>
                                             <div v-for="(c, ci) in selectedTurn.memory.tool_calls" :key="'call' + ci" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
                                                 <UIcon :name="c.success ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" :class="['w-3.5 h-3.5 shrink-0 mt-px', c.success ? 'text-green-500' : 'text-red-500']" />
                                                 <span class="font-mono text-2xs text-gray-600 dark:text-gray-400 shrink-0 mt-px">{{ c.tool }}<template v-if="c.action">·{{ c.action }}</template></span>
-                                                <span v-if="c.handle" class="font-mono text-2xs text-gray-500 shrink-0 mt-px">[{{ c.handle }}]</span>
+                                                <span v-if="c.handle" class="font-mono text-2xs text-ink-muted shrink-0 mt-px">[{{ c.handle }}]</span>
                                                 <span v-if="c.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ c.text }}</span>
                                             </div>
                                             <div v-for="(r, ri) in selectedTurn.memory.refusals" :key="'ref' + ri" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-amber-50 dark:bg-amber-950/40">
@@ -376,8 +376,8 @@
                                         <!-- Summary counts -->
                                         <div class="flex items-center gap-3 mb-3 text-xs text-gray-600 dark:text-gray-400">
                                             <span class="font-medium">{{ $t('traceModal.instructionsCount', { count: instructionsSummaryItems.length }) }}</span>
-                                            <span v-if="instructionsAlwaysCount" class="text-2xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
-                                            <span v-if="instructionsIntelligentCount" class="text-2xs px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
+                                            <span v-if="instructionsAlwaysCount" class="text-2xs px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300">{{ $t('traceModal.alwaysCount', { count: instructionsAlwaysCount }) }}</span>
+                                            <span v-if="instructionsIntelligentCount" class="text-2xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">{{ $t('traceModal.intelligentCount', { count: instructionsIntelligentCount }) }}</span>
                                         </div>
                                         <!-- Collapsible list -->
                                         <div class="space-y-1">
@@ -388,7 +388,7 @@
                                                 <span class="font-medium flex-1 truncate">{{ ins.title || truncateText(ins.text || '', 60) }}</span>
                                                 <span v-if="ins.category" class="text-2xs px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
                                                 <span class="text-2xs px-1.5 py-0.5 rounded flex-shrink-0"
-                                                      :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
+                                                      :class="ins.load_mode === 'always' ? 'bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300' : ins.load_mode === 'intelligent' ? 'bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-surface-muted text-ink-muted'">
                                                     {{ getLoadModeLabel(ins.load_mode) }}
                                                 </span>
                                             </div>
@@ -404,7 +404,7 @@
                                         <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.feedback') }}</div>
                                         <div class="flex items-center space-x-2 mb-2">
                                             <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                                  :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 text-green-800' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
+                                                  :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300' : 'bg-surface-muted text-ink-2'">
                                                 {{ (selectedItem.direction || 0) > 0 ? $t('traceModal.positive') : (selectedItem.direction || 0) < 0 ? $t('traceModal.negative') : $t('traceModal.neutral') }}
                                             </span>
                                             <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(selectedItem.created_at) }}</span>
@@ -459,7 +459,7 @@
                                             />
                                             <!-- Error message fallback when result_json is empty -->
                                             <div v-if="selectedItem.tool_execution.status === 'error' && selectedItem.tool_execution.error_message && !selectedItem.tool_execution.result_json"
-                                                 class="mt-2 text-xs text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
+                                                 class="mt-2 text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded px-3 py-2 whitespace-pre-wrap break-words font-mono">
                                                 {{ selectedItem.tool_execution.error_message }}
                                             </div>
                                         </div>
@@ -516,7 +516,7 @@
                                                         </thead>
                                                         <tbody>
                                                             <tr v-for="q in selectedItemSubTimings.queries" :key="q.index"
-                                                                :class="q.error ? 'bg-red-50' : 'even:bg-gray-50 dark:even:bg-gray-900'">
+                                                                :class="q.error ? 'bg-red-50 dark:bg-red-950' : 'even:bg-gray-50 dark:even:bg-gray-900'">
                                                                 <td class="px-2 py-1 text-gray-500 dark:text-gray-400">{{ q.index + 1 }}</td>
                                                                 <td class="px-2 py-1 text-end font-mono"
                                                                     :class="q.query_ms > 3000 ? 'text-red-600 font-semibold' : q.query_ms > 1000 ? 'text-orange-600' : 'text-gray-700 dark:text-gray-300'">
@@ -562,16 +562,16 @@
                             <div v-if="false" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Title</label>
-                                        <p v-text-dir class="text-xs text-gray-900">{{ selectedItem.title }}</p>
+                                        <label class="block text-xs font-medium text-ink-2 mb-1">Title</label>
+                                        <p v-text-dir class="text-xs text-ink">{{ selectedItem.title }}</p>
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Status</label>
+                                        <label class="block text-xs font-medium text-ink-2 mb-1">Status</label>
                                         <span :class="[
                                             'inline-flex px-2 py-1 text-xs font-medium rounded-full',
-                                            selectedItem.status === 'success' ? 'bg-green-100 text-green-800' :
-                                            selectedItem.status === 'error' ? 'bg-red-100 text-red-800' :
-                                            'bg-gray-100 text-gray-800'
+                                            selectedItem.status === 'success' ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300' :
+                                            selectedItem.status === 'error' ? 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300' :
+                                            'bg-surface-muted text-ink-2'
                                         ]">
                                             {{ selectedItem.status }}
                                         </span>
@@ -579,29 +579,29 @@
                                 </div>
 
                                 <div v-if="selectedItem.data_model">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Data Model</label>
-                                    <div class="p-3 bg-gray-50 rounded-lg border max-h-32 overflow-y-auto">
-                                        <pre class="text-xs text-gray-900">{{ JSON.stringify(selectedItem.data_model, null, 2) }}</pre>
+                                    <label class="block text-xs font-medium text-ink-2 mb-2">Data Model</label>
+                                    <div class="p-3 bg-surface-subtle rounded-lg border max-h-32 overflow-y-auto">
+                                        <pre class="text-xs text-ink">{{ JSON.stringify(selectedItem.data_model, null, 2) }}</pre>
                                     </div>
                                 </div>
 
                                 <div v-if="selectedItem.code">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Generated Code</label>
+                                    <label class="block text-xs font-medium text-ink-2 mb-2">Generated Code</label>
                                     <div class="p-3 bg-gray-900 rounded-lg max-h-40 overflow-y-auto">
                                         <pre class="text-xs text-green-400 font-mono">{{ selectedItem.code }}</pre>
                                     </div>
                                 </div>
 
                                 <div v-if="selectedItem.data">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Data Output</label>
-                                    <div class="border rounded-lg bg-white h-48">
+                                    <label class="block text-xs font-medium text-ink-2 mb-2">Data Output</label>
+                                    <div class="border rounded-lg bg-surface h-48">
                                         <RenderTable 
                                             v-if="selectedItem.data?.columns" 
                                             :widget="{ id: 'trace-widget' }" 
                                             :step="selectedItem" 
                                         />
-                                        <div v-else class="p-3 bg-gray-50 rounded-lg border h-full overflow-y-auto">
-                                            <pre class="text-xs text-gray-900">{{ JSON.stringify(selectedItem.data, null, 2) }}</pre>
+                                        <div v-else class="p-3 bg-surface-subtle rounded-lg border h-full overflow-y-auto">
+                                            <pre class="text-xs text-ink">{{ JSON.stringify(selectedItem.data, null, 2) }}</pre>
                                         </div>
                                     </div>
                                 </div>
@@ -611,24 +611,24 @@
                             <div v-if="false" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Direction</label>
+                                        <label class="block text-xs font-medium text-ink-2 mb-1">Direction</label>
                                         <span :class="[
                                             'inline-flex px-2 py-1 text-xs font-medium rounded-full',
-                                            selectedItem.direction === 1 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                            selectedItem.direction === 1 ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-950 text-red-800 dark:text-red-300'
                                         ]">
                                             {{ selectedItem.direction === 1 ? 'Positive' : 'Negative' }}
                                         </span>
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Feedback ID</label>
-                                        <p class="text-xs text-gray-900">{{ selectedItem.feedback_id }}</p>
+                                        <label class="block text-xs font-medium text-ink-2 mb-1">Feedback ID</label>
+                                        <p class="text-xs text-ink">{{ selectedItem.feedback_id }}</p>
                                     </div>
                                 </div>
 
                                 <div v-if="selectedItem.message">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Message</label>
-                                    <div class="p-3 bg-gray-50 rounded-lg border">
-                                        <p v-text-dir.align class="text-xs text-gray-900">{{ selectedItem.message }}</p>
+                                    <label class="block text-xs font-medium text-ink-2 mb-2">Message</label>
+                                    <div class="p-3 bg-surface-subtle rounded-lg border">
+                                        <p v-text-dir.align class="text-xs text-ink">{{ selectedItem.message }}</p>
                                     </div>
                                 </div>
                             </div>

@@ -11,7 +11,7 @@
             {{ note?.source === 'user' ? $t('notes.byYou') : $t('notes.byAgent') }}
           </span>
         </div>
-        <button @click="isOpen = false" class="text-ink-muted hover:text-gray-600 flex-shrink-0">
+        <button @click="isOpen = false" class="text-ink-muted hover:text-ink-2 flex-shrink-0">
           <Icon name="heroicons:x-mark" class="w-4 h-4" />
         </button>
       </div>

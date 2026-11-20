@@ -618,7 +618,7 @@
                 >
                     Download CSV template
                 </button>
-                <div v-if="importError" class="text-sm text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+                <div v-if="importError" class="text-sm text-red-600 dark:text-red-300 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded px-3 py-2">
                     {{ importError }}
                 </div>
                 <div v-if="importLoading" class="flex items-center gap-2 text-sm text-ink-muted">

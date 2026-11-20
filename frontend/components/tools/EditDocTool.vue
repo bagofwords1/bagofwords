@@ -7,7 +7,7 @@
       <template v-else-if="status === 'success'">{{ t('tools.editDoc.edited') }}</template>
       <template v-else-if="status === 'error'">{{ t('tools.editDoc.failed') }}</template>
       <template v-else>{{ t('tools.editDoc.label') }}</template>
-      <template v-if="status === 'success' && diffApplied !== null">{{ diffApplied ? t('tools.editDoc.diff') : t('tools.editDoc.rewrite') }}</template></template>
+      <template v-if="status === 'success' && diffApplied !== null"> · {{ diffApplied ? t('tools.editDoc.diff') : t('tools.editDoc.rewrite') }}</template></template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted"><span v-if="docVersion" class="ms-1.5 px-1.5 py-0.5 rounded text-chat-3 font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">

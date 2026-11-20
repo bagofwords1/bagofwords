@@ -361,3 +361,36 @@ for (const code of ['empty_date_result', 'partial_result']) {
   } })
   assert.equal(computeBlockGroups([block]).headerAt[block.id].issueCount, 1)
 }
+
+// Remote-server (SSH/SMB) read operations run through execute_mcp but are
+// labelled and counted by the operation; a remote shell stays a tool call.
+{
+  const remote = (op, extra = {}) => chip('execute_mcp', { title: '', te: {
+    arguments_json: { tool_name: op, arguments: { path: '/var/log/app.log' } },
+    result_json: { connection_type: 'remote_ssh' },
+    ...extra,
+  } })
+  const settled = [remote('read_file'), remote('read_file'), remote('search_file'), remote('execute_shell')]
+  const group = computeBlockGroups(settled).headerAt[settled[0].id]
+  assert.match(group.verbSummary, /2 reads/)
+  assert.match(group.verbSummary, /1 search/)
+  assert.match(group.verbSummary, /1 tool call(?!s)/)
+
+  const running = [remote('read_file'), remote('list_directory', { status: 'running' })]
+  running[1].status = 'in_progress'
+  assert.equal(computeBlockGroups(running).headerAt[running[0].id].runningLabel, 'Listing a folder')
+
+  // Native mcp__<connection>__<op> names resolve the same way.
+  const native = [remote('read_file'), chip('mcp__web__search_file', { title: '', te: {
+    status: 'running', arguments_json: { path: '/x' }, result_json: { connection_type: 'remote_smb' } } })]
+  native[1].status = 'in_progress'
+  assert.equal(computeBlockGroups(native).headerAt[native[0].id].runningLabel, 'Searching a file')
+
+  // A plain MCP tool named read_file is not a remote file read.
+  const mcp = [chip('execute_mcp', { title: '', te: { arguments_json: { tool_name: 'read_file' }, result_json: { connection_type: 'mcp' } } }),
+    chip('execute_mcp', { title: '', te: { status: 'running', arguments_json: { tool_name: 'read_file' }, result_json: { connection_type: 'mcp' } } })]
+  mcp[1].status = 'in_progress'
+  const mg = computeBlockGroups(mcp).headerAt[mcp[0].id]
+  assert.equal(mg.runningLabel, 'Calling a tool')
+  assert.match(mg.verbSummary, /2 tool calls/)
+}

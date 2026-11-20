@@ -364,3 +364,24 @@ console.log('useRunActivity: shared-link payload assertions passed')
   const blocks = [note, tool('inspect_data', invoice), final()]
   assert.deepEqual(computeRunActivity(blocks, { runStatus: 'success' })?.answerIds, [blocks[2].id])
 }
+
+// --- describe_entity: a saved query materialized is a data result ----------
+
+// describe_entity in create mode materializes the saved query as its own step
+// and visualization: it is a data step ("Created the table …"), named after the
+// saved query, not an inspection. A plain lookup stays an inspection.
+{
+  const materialized = tool('describe_entity', { name_or_id: 'Tracks wide', should_create: true }, {
+    te: {
+      created_step_id: 's-tracks',
+      result_json: { title: 'Tracks wide', data: { rows: [{ a: 1, b: 2 }, { a: 3, b: 4 }] }, created_visualization_ids: ['v-tracks'] },
+    },
+  })
+  const lookup = tool('describe_entity', { name_or_id: 'Tracks wide' }, { te: { result_json: { title: 'Tracks wide' } } })
+  const a = computeRunActivity([lookup, materialized, final()], { runStatus: 'success' })
+  assert.deepEqual(a.steps.map((s) => [s.kind, s.labelKey, s.output?.kind ?? null]), [
+    ['inspect', 'inspectedEntity', null],
+    ['data', 'createdTable', 'table'],
+  ])
+  assert.equal(a.steps[1].labelParams.title, 'Tracks wide')
+}

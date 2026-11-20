@@ -159,7 +159,7 @@
             >
                 <span class="text-green-500">●</span>
                 <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
-                <span class="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
+                <span class="text-ink-muted hover:text-ink-2 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
 
@@ -386,7 +386,7 @@
                         <UTooltip :text="isCompactPrompt ? modeLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                             <button
                                 class="rounded-md px-2 py-1 text-xs flex items-center"
-                                :class="mode === 'training' ? 'text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+                                :class="mode === 'training' ? 'text-sky-600 dark:text-sky-300 bg-sky-50 dark:bg-sky-950 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-800' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                             >
                                 <Icon :name="modeIcon" class="w-4 h-4" />
                                 <span v-if="!isCompactPrompt" class="ms-1">{{ modeLabel }}</span>

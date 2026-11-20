@@ -2,7 +2,7 @@
            Periodically re-indexes the shared catalog so tables stay fresh
            without a manual reindex. -->
       <details class="py-3 border-t border-gray-100 dark:border-gray-800" data-testid="auto-reindex-settings">
-        <summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.autoReindex') }}</span><span class="ms-auto text-xs text-gray-500 text-end">{{ scheduleSummary }}</span></summary>
+        <summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.autoReindex') }}</span><span class="ms-auto text-xs text-ink-muted text-end">{{ scheduleSummary }}</span></summary>
         <div class="pt-3">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-1.5">
@@ -30,14 +30,14 @@
               <button
                 type="button"
                 :disabled="savingAutoReindex"
-                :class="reindexMode === 'interval' ? 'bg-blue-50 text-blue-700' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
+                :class="reindexMode === 'interval' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
                 class="px-2 py-1 disabled:opacity-50"
                 @click="setReindexMode('interval')"
               >{{ $t('data.autoReindexModeInterval') }}</button>
               <button
                 type="button"
                 :disabled="savingAutoReindex"
-                :class="reindexMode === 'time' ? 'bg-blue-50 text-blue-700' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
+                :class="reindexMode === 'time' ? 'bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
                 class="px-2 py-1 border-l border-gray-200 dark:border-gray-800 disabled:opacity-50"
                 @click="setReindexMode('time')"
               >{{ $t('data.autoReindexModeTime') }}</button>
@@ -92,7 +92,7 @@
         </p>
 
 
-<details class="border-t border-gray-100 dark:border-gray-800 pt-3"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.rateLimit') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(rateLimitEnabled ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.rateLimit') }}</span><span class="ms-auto text-xs text-ink-muted">{{ $t(rateLimitEnabled ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
            Admin-only. Hard-blocks agent queries once a fixed per-window
            threshold is crossed; the budget is shared across all users. -->
       <div v-if="canManage" class="py-3 border-t border-gray-100 dark:border-gray-800">
@@ -138,7 +138,7 @@
       </div>
 
 </details>
-<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-query-limits"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.queryLimits') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t(queryLimitsCustom ? 'data.queryLimitsCustom' : 'data.queryLimitsInherited') }}</span></summary>      <!-- Per-connection query timeout + concurrency cap, overriding the org
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-query-limits"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.queryLimits') }}</span><span class="ms-auto text-xs text-ink-muted">{{ $t(queryLimitsCustom ? 'data.queryLimitsCustom' : 'data.queryLimitsInherited') }}</span></summary>      <!-- Per-connection query timeout + concurrency cap, overriding the org
            defaults (Settings → AI). Blank = inherit. Not license-gated: the org
            defaults these override are not either. -->
       <div class="py-3 border-t border-gray-100 dark:border-gray-800">
@@ -169,7 +169,7 @@
         </div>
       </div>
 </details>
-<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-gray-500">{{ $t((orgAlertDefault && alertEnabled) ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection down/restored alert EMAIL switch, gated UNDER the
+<details class="border-t border-gray-100 dark:border-gray-800 pt-3" data-testid="connection-alert-emails"><summary class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer list-none"><UIcon name="heroicons-chevron-right" class="schedule-chevron w-3.5 h-3.5 shrink-0 text-ink-muted" /><span>{{ $t('data.connAlerts.title') }}</span><span class="ms-auto text-xs text-ink-muted">{{ $t((orgAlertDefault && alertEnabled) ? 'scheduledPrompt.scheduleOn' : 'scheduledPrompt.scheduleOff') }}</span></summary>      <!-- Per-connection down/restored alert EMAIL switch, gated UNDER the
            org-wide toggle (Settings → SMTP): effective = org AND this. When the
            org toggle is off, nothing sends and this switch is disabled. The
            in-app inbox notification is always delivered. Not license-gated. -->

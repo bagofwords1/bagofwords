@@ -53,7 +53,7 @@
         <div class="w-72 p-1.5 text-sm">
           <!-- Search over every section at once -->
           <div class="relative mb-1">
-            <Icon name="heroicons-magnifying-glass" class="w-4 h-4 text-gray-400 absolute start-2.5 top-1/2 -translate-y-1/2" />
+            <Icon name="heroicons-magnifying-glass" class="w-4 h-4 text-ink-muted absolute start-2.5 top-1/2 -translate-y-1/2" />
             <input
               v-model="searchQuery"
               type="text"
@@ -73,7 +73,7 @@
                 <span class="truncate flex-1 text-start">{{ f.filename }}</span>
                 <Spinner v-if="picking[f.id]" class="w-3 h-3 text-blue-500 flex-shrink-0" />
               </button>
-              <div v-if="recentUploads.length === 0" class="px-2 py-3 text-xs text-gray-400">
+              <div v-if="recentUploads.length === 0" class="px-2 py-3 text-xs text-ink-muted">
                 {{ searchTerm ? $t('filePicker.noResults') : $t('filePicker.noFilesYet') }}
               </div>
             </div>
@@ -93,7 +93,7 @@
               </button>
             </div>
             <div v-else>
-              <div v-if="activeDrive.loading" class="px-2 py-3 flex items-center gap-1.5 text-xs text-gray-400">
+              <div v-if="activeDrive.loading" class="px-2 py-3 flex items-center gap-1.5 text-xs text-ink-muted">
                 <Spinner class="w-3 h-3 text-blue-500" /> {{ $t('filePicker.searching') }}
               </div>
               <div v-else class="max-h-60 overflow-y-auto">
@@ -102,7 +102,7 @@
                   <span class="truncate flex-1 text-start">{{ f.name }}</span>
                   <Spinner v-if="picking[activeDrive.connection_id + ':' + f.id]" class="w-3 h-3 text-blue-500 flex-shrink-0" />
                 </button>
-                <div v-if="activeDrive.files.length === 0" class="px-2 py-3 text-xs text-gray-400">
+                <div v-if="activeDrive.files.length === 0" class="px-2 py-3 text-xs text-ink-muted">
                   {{ $t('filePicker.noResults') }}
                 </div>
               </div>
@@ -111,7 +111,7 @@
 
           <!-- Flat search results across every source -->
           <div v-else-if="searchTerm">
-            <div v-if="flatResults.length === 0" class="px-2 py-3 text-xs text-gray-400">{{ $t('filePicker.noResults') }}</div>
+            <div v-if="flatResults.length === 0" class="px-2 py-3 text-xs text-ink-muted">{{ $t('filePicker.noResults') }}</div>
             <div class="max-h-72 overflow-y-auto">
               <button v-for="r in flatResults" :key="r.key" @click="pickResult(r)" class="row">
                 <DataSourceIcon v-if="r.kind === 'drive'" :type="r.conn.type" class="row-ic" />

@@ -20,7 +20,7 @@
 
       <section class="min-h-0 overflow-y-auto px-5 pb-4" :aria-label="$t('data.connectionsTitle')">
         <h3 class="mb-1 text-2xs font-medium text-ink-muted">{{ $t('data.connectionsTitle') }}</h3>
-        <p v-if="!connections.length" class="py-3 text-xs text-gray-500">{{ $t('data.noLinkedConnections') }}</p>
+        <p v-if="!connections.length" class="py-3 text-xs text-ink-muted">{{ $t('data.noLinkedConnections') }}</p>
         <div v-for="row in rows" :key="row.connection.id" class="connection-row border-t border-gray-100 py-2.5 last-of-type:border-b dark:border-gray-800" :data-connection-id="row.connection.id">
           <div class="connection-name flex min-w-0 items-center gap-2">
             <DataSourceIcon :type="row.connection.type" :connector-key="row.connection.connector_key" class="h-4 w-4 shrink-0" />

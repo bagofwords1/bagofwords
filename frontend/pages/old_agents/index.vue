@@ -112,7 +112,7 @@
                                 <p v-if="ds.description" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">
                                     {{ ds.description }}
                                 </p>
-                                <p v-else class="text-xs text-gray-300 dark:text-gray-600 italic">
+                                <p v-else class="text-xs text-ink-muted italic">
                                     {{ $t('data.noDescription') }}
                                 </p>
                             </component>

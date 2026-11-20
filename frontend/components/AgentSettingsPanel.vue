@@ -135,7 +135,7 @@
                                             <span>{{ gm.user_name || gm.user_email }}</span>
                                             <span v-if="gm.user_name && gm.user_email" class="text-ink-muted">{{ gm.user_email }}</span>
                                         </div>
-                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-gray-300 dark:text-gray-600 italic">No members</div>
+                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-ink-muted italic">No members</div>
                                     </div>
                                     <p v-if="isOwnerPrincipal(m)" class="mt-1 text-2xs text-ink-muted">{{ t('agentAccess.ownerHint') }}</p>
                                 </div>

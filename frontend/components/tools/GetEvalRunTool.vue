@@ -18,8 +18,8 @@
     <div v-if="compareSummary && toolHeaderExpanded" class="mb-1 ms-1 flex items-center gap-1.5 text-chat-3">
       <Icon name="heroicons:arrows-right-left" class="w-3 h-3 text-ink-muted" />
       <span class="text-gray-500 dark:text-gray-400">{{ t('tools.getEvalRun.vsPrevious') }}</span>
-      <span class="inline-flex px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800">{{ t('tools.getEvalRun.fixed', { count: compareSummary.fixed || 0 }) }}</span>
-      <span class="inline-flex px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-800">{{ t('tools.getEvalRun.regressed', { count: compareSummary.regressed || 0 }) }}</span>
+      <span class="inline-flex px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300">{{ t('tools.getEvalRun.fixed', { count: compareSummary.fixed || 0 }) }}</span>
+      <span class="inline-flex px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300">{{ t('tools.getEvalRun.regressed', { count: compareSummary.regressed || 0 }) }}</span>
     </div>
 
     <!-- Per-case rows (collapsed by default) -->

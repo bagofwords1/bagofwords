@@ -1887,6 +1887,24 @@
         "contextShared": "La aplicación compartió tu selección con el asistente."
       }
     },
+    "remoteOp": {
+      "read_file": {
+        "running": "Leyendo {name}…",
+        "done": "Leído {name}"
+      },
+      "list_directory": {
+        "running": "Listando {name}…",
+        "done": "Listado {name}"
+      },
+      "search_file": {
+        "running": "Buscando “{text}” en {name}…",
+        "done": "Buscado “{text}” en {name}"
+      },
+      "system_status": {
+        "running": "Comprobando el estado del servidor…",
+        "done": "Estado del servidor comprobado"
+      }
+    },
     "answerQuestion": {
       "thought": "Pensó la respuesta"
     },
@@ -5312,7 +5330,21 @@
     "firstPage": "Primera página",
     "previousPage": "Página anterior",
     "nextPage": "Página siguiente",
-    "lastPage": "Última página"
+    "lastPage": "Última página",
+    "inRangeStart": "Desde",
+    "inRangeEnd": "Hasta",
+    "resetFilter": "Borrar",
+    "noRowsToShow": "No hay filas para mostrar",
+    "filteredRows": "{shown} de {total} filas",
+    "clearFilters": "Borrar filtros",
+    "expand": "Ampliar tabla",
+    "collapse": "Cerrar pantalla completa",
+    "search": "Buscar…",
+    "selectAll": "Seleccionar todo",
+    "blankValue": "(Vacío)",
+    "noMatches": "Ningún valor coincide",
+    "moreValues": "Se muestran los primeros {n}; escribe para acotar",
+    "alsoFilteredAbove": "Esta columna también está filtrada en Filtros, arriba"
   },
   "sharedReport": {
     "backToApp": "Volver a la app",
@@ -5745,6 +5777,7 @@
       "published": "Publicado el {date}",
       "dataAsOf": "Datos actualizados {time}",
       "refreshFailing": "Falla la actualización",
+      "refreshFailingAction": "Ver por qué falló la actualización",
       "lastEdit": "Última edición: {time}",
       "scheduledRefresh": "Actualización programada"
     },
@@ -5844,6 +5877,9 @@
       "failing": "{n} con error de actualización | {n} con error de actualización",
       "stale": "{n} sin editar en 90 días | {n} sin editar en 90 días",
       "show": "Mostrarlos"
+    },
+    "refreshes": {
+      "openEditor": "Abrir en el editor"
     }
   },
   "excel": {
@@ -8738,5 +8774,36 @@
     "inviteNotSent": "No se pudo enviar la invitación a {email}. Vuelve a invitarle desde la página Miembros.",
     "adminAdded": "{email} se añadió como administrador.",
     "failed": "No se pudo crear la organización."
+  },
+  "vizFilter": {
+    "filter": "Filtrar",
+    "title": "Filtros",
+    "clear": "Borrar",
+    "noData": "No hay datos para filtrar",
+    "noFilters": "No hay filtros aplicados",
+    "addFilter": "Añadir filtro",
+    "column": "Columna",
+    "value": "Valor",
+    "apply": "Aplicar",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "es igual a",
+      "not_equals": "no es igual a",
+      "contains": "contiene",
+      "not_contains": "no contiene",
+      "starts_with": "empieza por",
+      "ends_with": "termina en",
+      "is_empty": "está vacío",
+      "is_not_empty": "no está vacío",
+      "before": "antes de",
+      "after": "después de",
+      "is_true": "es verdadero",
+      "is_false": "es falso",
+      "between": "entre",
+      "in": "es uno de",
+      "not_in": "no es uno de"
+    },
+    "or": "O",
+    "and": "Y"
   }
 }

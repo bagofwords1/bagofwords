@@ -15,9 +15,9 @@
                 </UTooltip>
             </div>
             <div class="flex items-center gap-4 text-xs whitespace-nowrap">
-                <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#22c55e"></span><span class="text-gray-500">{{ $t('monitoring.diagnosis.legendMatched') }}</span></div>
-                <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#ef4444"></span><span class="text-gray-500">{{ $t('monitoring.diagnosis.legendMatchedErrors') }}</span></div>
-                <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-gray-200 dark:bg-gray-700"></span><span class="text-gray-500">{{ $t('monitoring.diagnosis.legendOther') }}</span></div>
+                <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#22c55e"></span><span class="text-ink-muted">{{ $t('monitoring.diagnosis.legendMatched') }}</span></div>
+                <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#ef4444"></span><span class="text-ink-muted">{{ $t('monitoring.diagnosis.legendMatchedErrors') }}</span></div>
+                <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm bg-gray-200 dark:bg-gray-700"></span><span class="text-ink-muted">{{ $t('monitoring.diagnosis.legendOther') }}</span></div>
             </div>
         </div>
         <div class="h-24 mt-1">
