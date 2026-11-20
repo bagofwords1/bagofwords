@@ -133,16 +133,23 @@ def test_sync_purges_the_results_of_members_whose_groups_changed_once_committed(
             result = await LDAPGroupSyncService(LDAPConfig(organization_id=org)).sync_groups(db, org)
             assert not result.errors, result.errors
 
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
+
+    step = seed_member_results_now(org, member_id)
     asyncio.run(sync())
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[member_id]]
     assert member_purges[0]["organization_id"] == org
     assert len(member_purges[0]["groups"][member_id]) == 1  # committed: the new group shows
 
+    step = seed_member_results_now(org, member_id)
     asyncio.run(sync())  # nothing changed
     assert len(member_purges) == 1
+    assert member_results_now(step) == untouched()
 
     directory["members"] = []
     asyncio.run(sync())
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[member_id], [member_id]]
     assert member_purges[1]["groups"][member_id] == set()
 
@@ -205,10 +212,14 @@ def test_a_group_removed_from_the_directory_purges_its_registered_members_only(
             db.add(GroupMembership(group_id=group_id, membership_id=pending_id))
             await db.commit()
 
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now
+
     asyncio.run(sync())
     asyncio.run(add_pending_member())
     directory["groups"] = [support]
+    step = seed_member_results_now(org, member_id)
     asyncio.run(sync())
+    assert member_results_now(step) == purged()
     assert member_purges[-1]["user_ids"] == [member_id]
 
 

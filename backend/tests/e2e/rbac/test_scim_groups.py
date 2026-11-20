@@ -791,31 +791,55 @@ def test_scim_membership_changes_purge_the_changed_members_results_after_commit(
     """A member's groups feed the row filters compiled for them: every SCIM
     write that changes them purges that member's outdated stored results,
     once the change is committed, and only for the members it changed."""
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
+
     org = org_with_members
     scim, org_id = org["scim"], org["org_id"]
     u1, u2, u3 = org["user_ids"]
 
+    def seed(*users):
+        return {u: seed_member_results_now(org_id, u) for u in users}
+
+    def results(steps):
+        """What the real purge left of each member's seeded results."""
+        def one(step):
+            now = member_results_now(step)
+            return "purged" if now == purged() else "untouched" if now == untouched() else now
+        return {u: one(s) for u, s in steps.items()}
+
+    steps = seed(u1, u2, u3)
     gid = scim("POST", "/Groups", {"displayName": _uniq("Purged"), "members": [{"value": u1}]}).json()["id"]
+    assert results(steps) == {u1: "purged", u2: "untouched", u3: "untouched"}
     assert [c["user_ids"] for c in member_purges] == [[u1]]
     assert gid in member_purges[-1]["groups"][u1]
 
+    steps = seed(u1, u2)
     assert _patch(scim, gid, {"op": "add", "path": "members", "value": [{"value": u2}]}).status_code == 200
+    assert results(steps) == {u1: "untouched", u2: "purged"}
     assert member_purges[-1]["user_ids"] == [u2] and gid in member_purges[-1]["groups"][u2]
 
+    steps = seed(u1, u2)
     assert _patch(scim, gid, {"op": "remove", "path": f'members[value eq "{u1}"]'}).status_code == 200
+    assert results(steps) == {u1: "purged", u2: "untouched"}
     assert member_purges[-1]["user_ids"] == [u1] and gid not in member_purges[-1]["groups"][u1]
 
     calls = len(member_purges)
+    steps = seed(u2)
     assert _patch(scim, gid, {"op": "replace", "value": {"id": gid, "displayName": _uniq("Renamed")}}).status_code == 200
     assert len(member_purges) == calls, "no member changed"
+    assert results(steps) == {u2: "untouched"}
 
+    steps = seed(u1, u2, u3)
     replaced = scim("PUT", f"/Groups/{gid}", {"schemas": [SCIM_GROUP], "displayName": _uniq("Put"),
                                              "members": [{"value": u3}]})
     assert replaced.status_code == 200, replaced.text
+    assert results(steps) == {u1: "untouched", u2: "purged", u3: "purged"}
     assert member_purges[-1]["user_ids"] == sorted([u2, u3])
     assert gid in member_purges[-1]["groups"][u3] and gid not in member_purges[-1]["groups"][u2]
 
+    steps = seed(u3)
     assert scim("DELETE", f"/Groups/{gid}").status_code == 204
+    assert results(steps) == {u3: "purged"}
     assert member_purges[-1]["user_ids"] == [u3] and gid not in member_purges[-1]["groups"][u3]
     assert {c["organization_id"] for c in member_purges} == {org_id}
 
@@ -842,10 +866,13 @@ def test_scim_group_writes_wait_on_their_purge_for_the_short_budget_only(org_wit
     DELETE alike): each gets the short budget, not the one a change made by
     an admin may take."""
     import app.services.viewer_result_freshness as freshness
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now
 
     scim = org_with_members["scim"]
     u1, u2, u3 = org_with_members["user_ids"]
+    step = seed_member_results_now(org_with_members["org_id"], u1)
     gid = scim("POST", "/Groups", {"displayName": _uniq("Budget"), "members": [{"value": u1}]}).json()["id"]
+    assert member_results_now(step) == purged()  # the purge ran, within its budget
     assert scim("PUT", f"/Groups/{gid}", {"schemas": [SCIM_GROUP], "displayName": _uniq("Put"),
                                           "members": [{"value": u2}]}).status_code == 200
     assert _patch(scim, gid, {"op": "add", "path": "members", "value": [{"value": u3}]}).status_code == 200

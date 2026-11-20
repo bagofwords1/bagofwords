@@ -20,6 +20,7 @@ import pytest
 from app.dependencies import async_session_maker
 from tests.e2e.org_isolation.identity_helpers import FakeIdentityProvider, oidc_provider
 from tests.fixtures.member_purge_spy import member_purges  # noqa: F401 (fixture)
+from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
 
 
 def _hdr(token, org_id):
@@ -82,9 +83,12 @@ def invited_back(org, test_client, bootstrap_admin):
     return _make
 
 
-def _assert_one_quick_purge(member_purges, org, user_id):
+def _assert_one_quick_purge(member_purges, org, user_id, step):
+    """One purge of the member, after the claim committed, on the short
+    budget -- and it ran: the results seeded at `step` are purged."""
     import app.services.viewer_result_freshness as freshness
 
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[user_id]]
     assert member_purges[0]["organization_id"] == org["org_id"]
     assert set(org["groups"]) <= member_purges[0]["groups"][user_id]  # committed
@@ -98,11 +102,12 @@ def test_an_sso_sign_in_that_claims_the_invite_purges_the_members_results(
     invite; a later one (the account already linked) claims the next."""
     idp = FakeIdentityProvider(monkeypatch, [oidc_provider()])
     other = invited_back()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
     assert member_purges == []
 
     outcome, _ = idp.sign_in(test_client, "corp", other["email"])
     assert outcome == "ok"
-    _assert_one_quick_purge(member_purges, org, other["user_id"])
+    _assert_one_quick_purge(member_purges, org, other["user_id"], step)
 
     member_purges.clear()
     membership = next(m for m in test_client.get(
@@ -113,8 +118,10 @@ def test_an_sso_sign_in_that_claims_the_invite_purges_the_members_results(
     assert new.status_code == 200, new.text
     wider = _invite(test_client, org, other["email"], [new.json()["id"]])
     assert wider["user_id"] is None
+    step = seed_member_results_now(org["org_id"], other["user_id"])
     outcome, _ = idp.sign_in(test_client, "corp", other["email"])
     assert outcome == "ok"
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]]]
     assert new.json()["id"] in member_purges[0]["groups"][other["user_id"]]
 
@@ -136,6 +143,7 @@ def test_an_org_mapping_that_claims_the_invite_purges_the_members_results(
     _remove(test_client, org, membership["id"])
     _invite(test_client, org, other["email"], org["groups"])
     member_purges.clear()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
 
     from app.settings.config import settings as bow_settings
 
@@ -143,7 +151,7 @@ def test_an_org_mapping_that_claims_the_invite_purges_the_members_results(
         trust_email_for_linking=False, org_mapping=[f"{sales}:{org['org_id']}:member"])])
     outcome, _ = idp.sign_in(test_client, "corp", other["email"], groups=[sales])
     assert outcome == "ok"
-    _assert_one_quick_purge(member_purges, org, other["user_id"])
+    _assert_one_quick_purge(member_purges, org, other["user_id"], step)
 
 
 @pytest.mark.e2e
@@ -151,13 +159,14 @@ def test_chat_onboarding_that_claims_the_invite_purges_the_members_results(org, 
     from app.core.auth import auto_provision_user_for_org
 
     other = invited_back()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
 
     async def onboard():
         async with async_session_maker() as db:
             return await auto_provision_user_for_org(db, org["org_id"], other["email"])
 
     assert asyncio.run(onboard()) is not None
-    _assert_one_quick_purge(member_purges, org, other["user_id"])
+    _assert_one_quick_purge(member_purges, org, other["user_id"], step)
 
 
 @pytest.mark.e2e
@@ -167,6 +176,7 @@ def test_an_oidc_group_sync_that_claims_the_invite_purges_the_members_results(or
     from app.ee.oidc.group_sync_service import sync_user_oidc_groups
 
     other = invited_back()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
 
     async def sync():
         async with async_session_maker() as db:
@@ -174,7 +184,7 @@ def test_an_oidc_group_sync_that_claims_the_invite_purges_the_members_results(or
                                         group_ids=["claim-aaa"])
 
     asyncio.run(sync())
-    _assert_one_quick_purge(member_purges, org, other["user_id"])
+    _assert_one_quick_purge(member_purges, org, other["user_id"], step)
 
 
 def _keep_groups(user_id, group_ids):
@@ -222,9 +232,10 @@ def test_an_oidc_group_sync_with_no_directory_change_still_purges_a_claimed_invi
     other = invited_back(while_member=lambda o: asyncio.run(sync(o["user_id"])))
     _keep_groups(other["user_id"], _directory_group_ids(org["org_id"], "oidc"))
     member_purges.clear()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
 
     asyncio.run(sync(other["user_id"]))
-    _assert_one_quick_purge(member_purges, org, other["user_id"])
+    _assert_one_quick_purge(member_purges, org, other["user_id"], step)
 
 
 @pytest.mark.e2e
@@ -276,15 +287,19 @@ def test_an_ldap_sync_that_claims_the_invite_purges_the_members_results(
     other = invited_back(while_member=bind)
     _keep_groups(other["user_id"], _directory_group_ids(org["org_id"], "ldap"))
     member_purges.clear()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
 
     result = sync()
     assert (result.memberships_added, result.memberships_removed) == (0, 0)
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]]]
     assert member_purges[0]["organization_id"] == org["org_id"]
     assert set(org["groups"]) <= member_purges[0]["groups"][other["user_id"]]  # committed
 
+    later = seed_member_results_now(org["org_id"], other["user_id"])
     sync()  # the claim's notes were consumed: nothing more
     assert len(member_purges) == 1
+    assert member_results_now(later) == untouched()
 
 
 @pytest.mark.e2e
@@ -305,6 +320,7 @@ def test_an_org_mapping_claim_rolled_back_purges_nothing(
     _remove(test_client, org, membership["id"])
     _invite(test_client, org, other["email"], org["groups"])
     member_purges.clear()
+    step = seed_member_results_now(org["org_id"], other["user_id"])
 
     real = user_lifecycle.reactivate_user_for_membership
 
@@ -319,6 +335,7 @@ def test_an_org_mapping_claim_rolled_back_purges_nothing(
     outcome, _ = idp.sign_in(test_client, "corp", other["email"], groups=[sales])
     assert outcome == "ok"
     assert member_purges == []
+    assert member_results_now(step) == untouched()
 
 
 @pytest.mark.e2e
@@ -339,6 +356,7 @@ def test_scim_provisioning_that_claims_the_invite_purges_the_members_results(
     again = _invite(test_client, org, email, org["groups"])
     assert again["user_id"] is None  # multiple organizations: never attached directly
     member_purges.clear()
+    step = seed_member_results_now(org["org_id"], user_id)
 
     monkeypatch.setattr(bow_settings.bow_config.features, "allow_multiple_organizations", False)
     resp = test_client.post(
@@ -347,7 +365,7 @@ def test_scim_provisioning_that_claims_the_invite_purges_the_members_results(
         headers={"Authorization": f"Bearer {token.json()['token']}"},
     )
     assert resp.status_code in (200, 201), resp.text
-    _assert_one_quick_purge(member_purges, org, user_id)
+    _assert_one_quick_purge(member_purges, org, user_id, step)
 
 
 @pytest.mark.e2e
@@ -355,8 +373,6 @@ def test_a_claim_purges_only_the_inviting_organizations_results(org, invited_bac
     """The real purge, end to end, on an SSO sign-in: the results the member
     stored here go (their latest kept, cleared); those they hold in their
     other organization are not touched."""
-    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
-
     idp = FakeIdentityProvider(monkeypatch, [oidc_provider()])
     seeded = {}
 

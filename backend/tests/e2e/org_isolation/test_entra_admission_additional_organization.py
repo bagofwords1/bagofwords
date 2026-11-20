@@ -21,6 +21,7 @@ from app.models.user import User
 from tests.e2e.org_isolation.identity_helpers import feature
 from tests.e2e.test_entra_token_exchange import entra, exchange, setup_app  # noqa: F401
 from tests.fixtures.member_purge_spy import member_purges  # noqa: F401 (fixture)
+from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
 
 
 def _second_organization_with_app(test_client, create_user, login_user, whoami, entra):
@@ -127,9 +128,11 @@ def test_joining_by_an_invite_with_groups_purges_the_accounts_results_there(
         )
         assert invited.status_code == 200, invited.text
         assert member_purges == []
+        step = seed_member_results_now(org_b, info["id"])
 
         assert exchange(test_client, app_b, entra[3]()).status_code == 200
 
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[info["id"]]]
     assert member_purges[0]["organization_id"] == org_b
     assert group.json()["id"] in member_purges[0]["groups"][info["id"]]  # committed
@@ -161,6 +164,7 @@ def test_an_admission_rolled_back_leaves_no_claimed_invite_to_purge(
                   "group_ids": [group.json()["id"]]},
         )
         assert invited.status_code == 200, invited.text
+        step = seed_member_results_now(org_b, info["id"])
 
         async def concurrent_duplicate(*args, **kwargs):
             raise IntegrityError("INSERT role_assignments", {}, Exception("duplicate"))
@@ -179,6 +183,7 @@ def test_an_admission_rolled_back_leaves_no_claimed_invite_to_purge(
 
     assert refused.status_code == 503, refused.text
     assert member_purges == []
+    assert member_results_now(step) == untouched()
 
 
 @pytest.mark.e2e

@@ -202,17 +202,22 @@ def test_inviting_existing_account_into_groups_purges_their_results_after_commit
     stored here before (a re-added member) are purged once they accept the
     invite, after the acceptance has committed and been audited. An invite
     nobody accepted yet has no results to purge."""
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
+
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")
     group_ids = [g["id"] for g in org["groups"]]
+    step = seed_member_results_now(org_id, other["user_id"])
 
     resp = _invite(test_client, admin["token"], org_id, email=other["email"], group_ids=group_ids)
     assert resp.status_code == 200, resp.json()
     pending = _invite(test_client, admin["token"], org_id, email=_email(), group_ids=group_ids)
     assert pending.status_code == 200, pending.json()
     assert member_purges == []
+    assert member_results_now(step) == untouched()
 
     _accept_invite(test_client, admin["token"], org_id, resp.json()["id"], other["token"])
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]]]
     assert member_purges[0]["organization_id"] == org_id
     assert set(group_ids) <= member_purges[0]["groups"][other["user_id"]]
@@ -303,6 +308,8 @@ def test_reinviting_an_account_into_groups_it_still_holds_purges_nothing(
     """An account that still holds the invite's groups: accepting the invite
     changes none of theirs, so nothing is purged. Accepting one with a group
     they did not hold purges them."""
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now, untouched
+
     admin, org_id = org["admin"], org["org_id"]
     other = bootstrap_admin("elsewhere")
     group_ids = [g["id"] for g in org["groups"]]
@@ -316,10 +323,12 @@ def test_reinviting_an_account_into_groups_it_still_holds_purges_nothing(
     assert removed.status_code == 204, removed.text
     _keep_groups(other["user_id"], group_ids)
 
+    step = seed_member_results_now(org_id, other["user_id"])
     again = _invite(test_client, admin["token"], org_id, email=other["email"], group_ids=group_ids)
     assert again.status_code == 200, again.json()
     _accept_invite(test_client, admin["token"], org_id, again.json()["id"], other["token"])
     assert len(member_purges) == 1, "their groups did not change"
+    assert member_results_now(step) == untouched()
     removed = test_client.delete(f"/api/organizations/{org_id}/members/{again.json()['id']}", headers=h)
     assert removed.status_code == 204, removed.text
     _keep_groups(other["user_id"], group_ids)
@@ -330,6 +339,7 @@ def test_reinviting_an_account_into_groups_it_still_holds_purges_nothing(
                     group_ids=group_ids + [new.json()["id"]])
     assert wider.status_code == 200, wider.json()
     _accept_invite(test_client, admin["token"], org_id, wider.json()["id"], other["token"])
+    assert member_results_now(step) == purged()
     assert [c["user_ids"] for c in member_purges] == [[other["user_id"]], [other["user_id"]]]
     assert member_purges[1]["organization_id"] == org_id
 
