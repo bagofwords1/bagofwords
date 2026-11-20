@@ -308,6 +308,40 @@ class IcebergClient(DataSourceClient):
         self.secret_key = secret_key
         self.session_token = session_token
         self._catalog = None
+        self._saved_form_error: ValueError | None = None
+        try:
+            self._read_saved_sql_catalog()
+        except ValueError as e:
+            self._saved_form_error = e
+
+    def _read_saved_sql_catalog(self) -> None:
+        """A saved connection may keep a SQL catalog in its extra properties:
+        {"type": "sql", "uri": ..., "warehouse": ...}. Those three are read
+        onto the catalog fields, where every check on those fields applies,
+        and dropped from the extra properties. A field set both ways to a
+        different value is refused (ValueError). Any other connection-only
+        key stays in the extra properties, which refuse it."""
+        try:
+            extra = json.loads(self.extra_properties) if self.extra_properties else None
+        except json.JSONDecodeError:
+            return
+        if not isinstance(extra, dict) or str(extra.get("type", "")).strip().lower() != "sql":
+            return
+        # "rest" is the catalog field's default, which such a connection kept.
+        if self.catalog_type not in ("rest", "sql"):
+            raise ValueError("Extra catalog property 'type' differs from the connection's catalog type.")
+        for field in ("uri", "warehouse"):
+            if field not in extra:
+                continue
+            value = str(extra.pop(field)).strip()
+            value = (value.rstrip("/") if field == "uri" else value) or None
+            current = getattr(self, field)
+            if current is not None and current != value:
+                raise ValueError(f"Extra catalog property '{field}' differs from the connection's {field}.")
+            setattr(self, field, value)
+        del extra["type"]
+        self.catalog_type = "sql"
+        self.extra_properties = json.dumps(extra) if extra else None
 
     # ---------------------------------------------------------------- catalog
 
@@ -330,6 +364,8 @@ class IcebergClient(DataSourceClient):
         extra properties: run when the connection is saved and when it
         connects. Returns (the catalog database file as checked, or None;
         the checked extra properties). Raises ValueError."""
+        if self._saved_form_error is not None:
+            raise self._saved_form_error
         organization = organization_of(self)
         database = _checked_location("uri", self.uri, organization)
         _checked_location("warehouse", self.warehouse, organization)
