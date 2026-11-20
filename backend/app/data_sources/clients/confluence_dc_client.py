@@ -37,6 +37,7 @@ from app.core.egress import pinned_session
 from app.data_sources.clients._confluence_html import html_to_text
 from app.data_sources.clients._file_source_common import DocumentText, FileTooLargeError, GlobScopeError
 from app.data_sources.clients.base import Capability, DataSourceClient, SearchStopped
+from app.data_sources.clients.progress import discovery_progress
 from app.schemas.data_sources.configs import CONFLUENCE_TOKEN_FORMAT_MESSAGE, CONFLUENCE_TOKEN_RE
 
 logger = logging.getLogger(__name__)
@@ -696,6 +697,7 @@ class ConfluenceDcClient(DataSourceClient):
         return str(record["id"]), key, [key, *ancestors, _segment(record.get("title"))]
 
     # ------------------------------------------------------------------ schema (none)
+    @discovery_progress
     def get_schemas(self, progress_callback=None):
         # No catalog: search and browse are always live.
         return []
