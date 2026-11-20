@@ -3,6 +3,12 @@ Connection Service - Handles connection-level operations.
 Extracted from DataSourceService for the domain-connection architecture.
 """
 from app.errors import AppError
+from app.services.connection_destination import (
+    audit_snapshot,
+    credentials_after_auth_switch,
+    require_destination_binding,
+    scrub_stored_secrets,
+)
 import os
 import asyncio
 import importlib
@@ -922,6 +928,30 @@ class ConnectionService:
         )
         return result.scalars().all()
 
+    async def enforce_update_authority(
+        self, db: AsyncSession, connection: Connection, current_user: User, updates: dict
+    ) -> None:
+        """Runs before any write or credential use: a changed destination needs the
+        secret re-entered or an org admin, and turning off per-user auth needs an admin."""
+        from app.errors import ErrorCode
+        from app.services.connection_identity import can_use_system_credentials
+
+        if (
+            current_user is not None
+            and updates.get("auth_policy") == "system_only"
+            and (connection.auth_policy or "system_only") != "system_only"
+            and not await can_use_system_credentials(db, current_user, connection.organization_id)
+        ):
+            raise AppError.forbidden(
+                ErrorCode.CONNECTION_ADMIN_REQUIRED, "Only an organization admin can turn off per-user sign-in."
+            )
+        await require_destination_binding(
+            db, connection, current_user,
+            effective_config=updates["config"] if "config" in updates else connection.config,
+            request_credentials=updates.get("credentials"),
+            member_logins_bind=True,
+        )
+
     async def update_connection(
         self,
         db: AsyncSession,
@@ -936,6 +966,11 @@ class ConnectionService:
         connection = await self.get_connection(db, connection_id, organization)
         _validate_connection_config(connection.type, updates.get("config"))
         _reject_athena_mode_switch(connection, updates.get("config"))
+        await self.enforce_update_authority(db, connection, current_user, updates)
+        before_audit = audit_snapshot(connection)
+        credentials_for_auth_switch = credentials_after_auth_switch(
+            connection, updates["config"] if "config" in updates else connection.config, updates.get("credentials"),
+        )
 
         if "config" in updates or "allowed_user_auth_modes" in updates:
             _require_datasphere_authorize_url(
@@ -1094,26 +1129,36 @@ class ConnectionService:
 
         auth_method_changed = _config_auth_type(current_config) != _config_auth_type(previous_config)
         credential_changes = {}
-        new_credentials = updates.pop("credentials", None) if "credentials" in updates else None
-        if new_credentials:
-            # Credential edits are partial updates, like test overrides:
-            # omitted/blank values keep the saved value. Never replace the
-            # entire blob when rotating a single secret or identifier.
-            credential_changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+        new_credentials = updates.pop("credentials", None)
         target_type = updates.get("type", connection.type)
-        # A change of method alone only matters where methods are exclusive;
-        # elsewhere the stored credentials are left exactly as they were.
-        if new_credentials or (auth_method_changed and _auth_methods_exclusive(target_type)):
-            existing = connection.decrypt_credentials() or {}
-            # Merge, then keep only what the (possibly new) auth method owns:
-            # switching method must not leave the previous method's key or
-            # marker in the stored credentials.
-            merged = _prepare_auth_credentials(
-                target_type, current_config, _merge_credential_changes(target_type, existing, new_credentials),
+        if credentials_for_auth_switch is not None:
+            # A change of auth method keeps only the new method's fields, with or
+            # without credentials in the request: a client that prefers whichever
+            # credential it finds must not pick up the previous method's secret.
+            # The method itself is still checked as on any other save.
+            connection.encrypt_credentials(
+                _prepare_auth_credentials(target_type, current_config, credentials_for_auth_switch)
             )
-            if credential_changes or merged != existing:
-                connection.encrypt_credentials(merged)
-                connection_changed = True
+            connection_changed = True
+        else:
+            if new_credentials:
+                # Credential edits are partial updates, like test overrides:
+                # omitted/blank values keep the saved value. Never replace the
+                # entire blob when rotating a single secret or identifier.
+                credential_changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+            # A change of method alone only matters where methods are exclusive;
+            # elsewhere the stored credentials are left exactly as they were.
+            if new_credentials or (auth_method_changed and _auth_methods_exclusive(target_type)):
+                existing = connection.decrypt_credentials() or {}
+                # Merge, then keep only what the (possibly new) auth method owns:
+                # switching method must not leave the previous method's key or
+                # marker in the stored credentials.
+                merged = _prepare_auth_credentials(
+                    target_type, current_config, _merge_credential_changes(target_type, existing, new_credentials),
+                )
+                if credential_changes or merged != existing:
+                    connection.encrypt_credentials(merged)
+                    connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
@@ -1174,6 +1219,7 @@ class ConnectionService:
 
             # Audit log
             try:
+                after_audit = audit_snapshot(connection)
                 await audit_service.log(
                     db=db,
                     organization_id=str(organization.id),
@@ -1181,7 +1227,12 @@ class ConnectionService:
                     user_id=str(current_user.id),
                     resource_type="connection",
                     resource_id=str(connection_id),
-                    details={"name": connection.name},
+                    details={
+                        "name": connection.name,
+                        "before": before_audit,
+                        "after": after_audit,
+                        "destination_changed": before_audit["destination"] != after_audit["destination"],
+                    },
                 )
             except Exception:
                 pass
@@ -1388,10 +1439,11 @@ class ConnectionService:
             preview = data if isinstance(data, str) else json.dumps(
                 data, ensure_ascii=False, default=str, indent=2
             )
-            preview = preview or ""
+            # A server may echo the request back; a test never returns the credentials it used.
+            preview = scrub_stored_secrets(preview or "", credentials, data_source_type)
             return {
                 "success": bool(result.get("success")),
-                "error": result.get("error"),
+                "error": scrub_stored_secrets(result.get("error"), credentials, data_source_type),
                 "content_type": result.get("content_type"),
                 "data_preview": preview[:4000],
                 "truncated": len(preview) > 4000,
@@ -1401,7 +1453,7 @@ class ConnectionService:
         except Exception as e:
             return {
                 "success": False,
-                "error": str(e),
+                "error": scrub_stored_secrets(str(e), credentials, data_source_type),
                 "content_type": "text",
                 "data_preview": "",
                 "truncated": False,
@@ -1606,6 +1658,7 @@ class ConnectionService:
         config_overrides: dict = None,
         credential_overrides: dict = None,
         persist: bool = True,
+        credential_replacement: dict = None,
     ) -> dict:
         """Test an existing connection, optionally with override config/credentials.
 
@@ -1629,6 +1682,7 @@ class ConnectionService:
                 db, connection, current_user,
                 config_overrides=config_overrides,
                 credential_overrides=credential_overrides,
+                credential_replacement=credential_replacement,
             )
             from app.data_sources.query_tag import query_tag_defaults
             with query_tag_defaults(source="connection_test", connection_id=connection.id,
@@ -1961,7 +2015,8 @@ class ConnectionService:
         if connection.allowed_user_auth_modes and payload.auth_mode not in connection.allowed_user_auth_modes:
             raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
         try:
-            credentials = variant.schema(**(payload.credentials or {})).model_dump()
+            dumped = variant.schema(**(payload.credentials or {})).model_dump()
+            credentials = {k: v for k, v in dumped.items() if k in variant.schema.model_fields}
         except ValueError as e:
             if connection.type == "kms_lighthouse":
                 raise self._kms_credentials_error(e)
@@ -2957,8 +3012,12 @@ class ConnectionService:
         current_user: User = None,
         config_overrides: dict = None,
         credential_overrides: dict = None,
+        credential_replacement: dict = None,
     ):
-        """Construct a database client for this connection."""
+        """Construct a database client for this connection.
+
+        ``credential_replacement``, when given, stands in for the connection's
+        stored credentials: nothing else that is stored reaches the client."""
         logger.info(f"construct_client: Building client for connection {connection.id} (type={connection.type})")
         ClientClass = resolve_client_class(connection.type)
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
@@ -2971,7 +3030,10 @@ class ConnectionService:
                     config[k] = v
         logger.info(f"construct_client: Config keys={list(config.keys()) if config else []}")
 
-        creds = await self.resolve_credentials(db, connection, current_user)
+        creds = (
+            dict(credential_replacement) if credential_replacement is not None
+            else await self.resolve_credentials(db, connection, current_user)
+        )
         # Merge credential overrides (non-empty values win, blank keeps saved)
         if credential_overrides:
             creds = _merge_credential_changes(connection.type, creds, credential_overrides)

@@ -24,6 +24,13 @@ from app.schemas.data_source_registry import resolve_client_class
 import json
 
 
+def _declared_fields(schema_cls, validated, ds_type: str) -> dict:
+    """A personal login's stored fields: only those its variant declares, even
+    for schemas that allow extras, since a client acts on any field it receives."""
+    dumped = validated.model_dump(exclude_unset=ds_type.lower() not in ("mssql", "neo4j", "kms_lighthouse"))
+    return {k: v for k, v in dumped.items() if k in schema_cls.model_fields}
+
+
 class UserDataSourceCredentialsService:
     def _get_connection_info(self, data_source: DataSource) -> tuple:
         """
@@ -363,10 +370,7 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            # KMS: only the validated fields reach the client, so a member's
-            # extra keys cannot override the connection's config (e.g. base_url).
-            if ds_type.lower() in ("mssql", "neo4j", "kms_lighthouse"):
-                payload.credentials = validated.model_dump()
+            payload.credentials = _declared_fields(schema_cls, validated, ds_type)
         except Exception as e:
             if ds_type == "kms_lighthouse":
                 # The token-format rule gets its typed, localized code (as on save).
@@ -429,8 +433,7 @@ class UserDataSourceCredentialsService:
         schema_cls = variant.schema
         try:
             validated = schema_cls(**(payload.credentials or {}))
-            if ds_type.lower() in ("mssql", "neo4j"):
-                payload.credentials = validated.model_dump()
+            payload.credentials = _declared_fields(schema_cls, validated, ds_type)
         except Exception as e:
             raise HTTPException(status_code=422, detail=credentials_error_detail(e))
 
@@ -528,11 +531,11 @@ class UserDataSourceCredentialsService:
             # Validate new credentials
             schema_cls = variant.schema
             try:
-                schema_cls(**(payload.credentials or {}))
+                validated = schema_cls(**(payload.credentials or {}))
             except Exception as e:
                 raise HTTPException(status_code=422, detail=credentials_error_detail(e))
             row.auth_mode = payload.auth_mode
-            row.encrypt_credentials(payload.credentials or {})
+            row.encrypt_credentials(_declared_fields(schema_cls, validated, ds_type))
 
         if payload.credentials and not payload.auth_mode:
             # Validate against current auth_mode
@@ -542,10 +545,10 @@ class UserDataSourceCredentialsService:
             if schema_cls is None:
                 raise HTTPException(status_code=400, detail="Cannot validate credentials for current auth_mode")
             try:
-                schema_cls(**payload.credentials)
+                validated = schema_cls(**payload.credentials)
             except Exception as e:
                 raise HTTPException(status_code=422, detail=credentials_error_detail(e))
-            row.encrypt_credentials(payload.credentials)
+            row.encrypt_credentials(_declared_fields(schema_cls, validated, ds_type))
 
         if payload.is_active is not None:
             row.is_active = bool(payload.is_active)

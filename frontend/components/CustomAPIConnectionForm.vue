@@ -344,6 +344,8 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import { catalogMessage } from '~/composables/useErrorMessage'
+import { withoutGuessedAuthType } from '~/utils/connectionDestination'
 
 const props = defineProps<{
   editConnection?: any
@@ -366,7 +368,9 @@ const emit = defineEmits<{
   (e: 'cancel'): void
 }>()
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+// The auth type the form filled in for a saved row that had none.
+const guessedAuthType = ref<string | null>(null)
 const selectedExisting = ref<any>(null)
 const existingConnections = computed(() => props.existingConnections || [])
 const existingConnectionOptions = computed(() =>
@@ -660,6 +664,7 @@ watch(() => props.editConnection, async (conn) => {
         form.name = detail.name || ''
         form.base_url = config.base_url || ''
         form.auth_type = config.auth_type || (detail.has_credentials ? 'api_key' : 'none')
+        guessedAuthType.value = config.auth_type ? null : form.auth_type
         form.token = ''
         form.username = ''
         form.password = ''
@@ -723,7 +728,8 @@ const submitError = ref<string | null>(null)
 // Extract a human-readable message from a useMyFetch error (FetchError) or a
 // thrown exception. `detail` is what FastAPI returns for HTTPException.
 function errorMessage(err: any, fallback: string): string {
-  return err?.data?.detail || err?.message || fallback
+  const payload = err?.data ?? err?.response?._data ?? {}
+  return (payload.error_code ? catalogMessage(payload, t, te) : null) || payload.detail || err?.message || fallback
 }
 
 // Clear the inline submit error — and any stale test result — as soon as the
@@ -844,7 +850,7 @@ async function handleSubmit() {
     if (isEditMode.value && props.editConnection) {
       response = await useMyFetch(`/connections/${props.editConnection.id}`, {
         method: 'PUT',
-        body: { name: form.name, config, credentials },
+        body: { name: form.name, config: withoutGuessedAuthType(config, guessedAuthType.value), credentials },
       })
     } else {
       // OAuth-app connections authenticate per user: each user signs in and
