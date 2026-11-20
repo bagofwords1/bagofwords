@@ -449,6 +449,56 @@ def test_a_viewer_rerun_stores_results_stamped_before_an_auth_policy_switch(
     assert read.get("viewer_result") is None, read
 
 
+@pytest.fixture
+def auth_policy_switch_after_report_load(monkeypatch):
+    """Once armed with {"conn", "to"}: the connection's auth policy changes
+    right after a viewer's rerun loaded the report with its sources'
+    connections, before the run stamps what it reads (in the run's own
+    transaction and without touching the connections it holds, as another
+    request committing in between looks to it on Postgres)."""
+    from sqlalchemy import update
+
+    from app.models.connection import Connection
+    from app.services.report_service import ReportService
+
+    original = ReportService._load_report_for_rerun
+    armed: dict = {}
+
+    async def load_then_switch(self, db, report_id):
+        report = await original(self, db, report_id)
+        if armed:
+            await db.execute(update(Connection).where(Connection.id == armed.pop("conn"))
+                             .values(auth_policy=armed.pop("to")).execution_options(synchronize_session=False))
+        return report
+
+    monkeypatch.setattr(ReportService, "_load_report_for_rerun", load_then_switch)
+    return armed
+
+
+@pytest.mark.e2e
+def test_a_viewer_rerun_runs_under_the_auth_policy_it_stamped_when_it_changed_after_the_report_loaded(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, auth_policy_switch_after_report_load,
+):
+    """The stamp reads the new policy (user_required). The run must not then
+    build its clients from the connection as the report load held it
+    (system_only) and store system-credential rows under that stamp: they
+    would pass for current under the tightened policy."""
+    ctx = _accelerated_report(test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path,
+                              policy=None)
+    auth_policy_switch_after_report_load.update(conn=ctx["conn"], to="user_required")
+    rerun = test_client.post(f"/api/r/{ctx['report']['id']}/run", headers=_headers(ctx["viewer"]["token"]))
+    assert rerun.status_code == 200, rerun.text
+    assert not auth_policy_switch_after_report_load, "the policy switched during the run"
+    # The viewer holds no credential for a user_required connection.
+    assert rerun.json()["steps_succeeded"] == 0, rerun.json()
+    assert _run(_stored_successes(ctx["sid"], ctx["viewer"]["user_id"])) == 0
+
+    # What they read is the run's credential error, no rows.
+    read = _public_step(test_client, ctx["report"]["id"], ctx["qid"], token=ctx["viewer"]["token"])
+    assert (read.get("viewer_result") or {}).get("status") != "success", read
+    assert not _pairs(read), read
+
+
 @pytest.mark.e2e
 def test_a_viewer_rerun_stamped_only_after_its_clients_were_built_stores_its_result_cleared(
     test_client, create_report, bootstrap_admin, invite_user_to_org, tmp_path, monkeypatch,
@@ -764,9 +814,13 @@ def test_deleting_a_group_purges_for_each_of_its_members_after_the_delete(
     assert [c["user_ids"] for c in member_purges] == [[a["user_id"]], [b["user_id"]]]
     assert gid in member_purges[0]["groups"][a["user_id"]]
 
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now
+
+    steps = [seed_member_results_now(admin["org_id"], m["user_id"]) for m in (a, b)]
     gone = test_client.delete(f"/api/organizations/{admin['org_id']}/groups/{gid}",
                               headers=_headers(admin["token"], admin["org_id"]))
     assert gone.status_code == 204, gone.text
+    assert [member_results_now(s) for s in steps] == [purged(), purged()]
     last = member_purges[-1]
     assert last["organization_id"] == admin["org_id"]
     assert last["user_ids"] == sorted([a["user_id"], b["user_id"]])

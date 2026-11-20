@@ -180,11 +180,20 @@ async def compute_stamp(db, step, *, user_id: str, organization_id: str, execute
     connections: list = []
     relations: list = []
     if ds_ids:
-        connections = sorted({(str(i), p or "") for i, p in (await db.execute(
-            select(Connection.id, Connection.auth_policy)
+        from sqlalchemy.orm import lazyload
+
+        # Loaded as the connections themselves, refreshing any the session
+        # already holds (populate_existing): a run builds its clients from
+        # those, and a session that loaded them earlier (the report's or
+        # release's sources) would otherwise build them under a policy older
+        # than the one stamped -- and store rows read with system credentials
+        # under a user_required stamp.
+        connections = sorted({(str(c.id), c.auth_policy or "") for c in (await db.execute(
+            select(Connection).options(lazyload("*"))
             .join(domain_connection, domain_connection.c.connection_id == Connection.id)
             .where(domain_connection.c.data_source_id.in_(ds_ids), Connection.deleted_at.is_(None))
-        )).all()})
+            .execution_options(populate_existing=True)
+        )).unique().scalars().all()})
         # One per relation, however many of the sources activate it.
         relations = sorted({str(ct.id): ct for ct in (await db.execute(
             select(*_relation_columns())
