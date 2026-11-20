@@ -5083,6 +5083,7 @@
       "published": "نُشرت {date}",
       "dataAsOf": "حُدّثت البيانات {time}",
       "refreshFailing": "فشل التحديث",
+      "refreshFailingAction": "عرض سبب فشل التحديث",
       "lastEdit": "آخر تعديل: {time}",
       "scheduledRefresh": "تحديث مُجدوَل"
     },
@@ -5182,6 +5183,9 @@
       "failing": "فشل التحديث: {n}",
       "stale": "بلا تعديل منذ 90 يومًا: {n}",
       "show": "اعرضها"
+    },
+    "refreshes": {
+      "openEditor": "فتح في المحرر"
     }
   },
   "excel": {

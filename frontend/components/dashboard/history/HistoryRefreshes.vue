@@ -103,10 +103,14 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import HistoryEmpty from './HistoryEmpty.vue'
+import { failureToOpen } from '~/utils/dashboardList'
 
 // `active`: the tab is showing -- each time it is, the list loads again
 // (the settings window keeps the tab mounted).
-const props = defineProps<{ dashboardId: string; active?: boolean }>()
+// `expandFailure`: reached from "Refresh failing" -- the newest failed run
+// opens with its error once the first page lands (the published version's
+// first: the card's status is the published refresh's).
+const props = defineProps<{ dashboardId: string; active?: boolean; expandFailure?: boolean }>()
 const { t } = useI18n()
 const { formatDateTime } = useFormatDate()
 const { getErrorMessage } = useErrorMessage()
@@ -137,6 +141,10 @@ async function load(more = false) {
         runs.value = more ? [...runs.value, ...(body.runs || [])] : (body.runs || [])
         hasMore.value = !!body.has_more
         nextBefore.value = body.next_before || null
+        if (!more && props.expandFailure && !opened.value.size) {
+            const run = failureToOpen(runs.value)
+            if (run) opened.value = new Set([run.id])
+        }
     } catch (e: any) {
         if (mine === request) loadError.value = getErrorMessage(e, t('dashboardCollab.refreshes.loadFailed'))
     } finally {

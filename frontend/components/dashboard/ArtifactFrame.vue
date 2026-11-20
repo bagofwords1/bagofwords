@@ -1920,6 +1920,25 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+// "Refresh failing" on the dashboards list deep-links to
+// ?dashboard=<id>&settings=refreshes: once that dashboard's settings window
+// is mounted, it opens on Refreshes with the failure shown, and the query
+// goes so a reload does not reopen it.
+const settingsPromptHandled = ref(false);
+watch(
+  () => [paramRoute.query.settings, paramRoute.query.dashboard, selectedArtifact.value?.artifact_id, !!settingsModalRef.value] as const,
+  ([settings, dashboard, shown, ready]) => {
+    if (settings !== 'refreshes' || !ready || settingsPromptHandled.value) return;
+    // Another of the conversation's dashboards is showing: wait for the one asked for.
+    if (typeof dashboard === 'string' && dashboard && shown !== dashboard) return;
+    settingsPromptHandled.value = true;
+    settingsModalRef.value?.open?.('refreshes', { focusFailure: true });
+    const q = { ...paramRoute.query };
+    delete q.settings;
+    navigateTo({ query: q }, { replace: true });
+  },
+  { immediate: true },
+);
 // An access-request notification deep-links to ?share=access_requests: open
 // the share settings once the modal is mounted, then drop the query so a
 // reload does not reopen it.

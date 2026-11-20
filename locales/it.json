@@ -5083,6 +5083,7 @@
       "published": "Pubblicata il {date}",
       "dataAsOf": "Dati aggiornati {time}",
       "refreshFailing": "Aggiornamento non riuscito",
+      "refreshFailingAction": "Scopri perché l’aggiornamento non è riuscito",
       "lastEdit": "Ultima modifica: {time}",
       "scheduledRefresh": "Aggiornamento pianificato"
     },
@@ -5182,6 +5183,9 @@
       "failing": "{n} con aggiornamento non riuscito | {n} con aggiornamento non riuscito",
       "stale": "{n} non modificata da 90 giorni | {n} non modificate da 90 giorni",
       "show": "Mostrale"
+    },
+    "refreshes": {
+      "openEditor": "Apri nell’editor"
     }
   },
   "excel": {

@@ -5083,6 +5083,7 @@
       "published": "Publicerad {date}",
       "dataAsOf": "Data uppdaterad {time}",
       "refreshFailing": "Uppdateringen misslyckas",
+      "refreshFailingAction": "Se varför uppdateringen misslyckades",
       "lastEdit": "Senast redigerad: {time}",
       "scheduledRefresh": "Schemalagd uppdatering"
     },
@@ -5182,6 +5183,9 @@
       "failing": "{n} misslyckas med uppdatering | {n} misslyckas med uppdatering",
       "stale": "{n} inte redigerad på 90 dagar | {n} inte redigerade på 90 dagar",
       "show": "Visa dem"
+    },
+    "refreshes": {
+      "openEditor": "Öppna i redigeraren"
     }
   },
   "excel": {
