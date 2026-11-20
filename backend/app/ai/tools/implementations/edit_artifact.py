@@ -28,7 +28,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.ai.tools.implementations._artifact_refs import (
-    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors,
+    migrate_positional_viz_refs, viz_reference_errors, design_errors, chart_prop_errors, raw_chart_errors, focal_point_errors, viewer_name_errors,
     file_reference_errors, bow_file_literal_ids, normalize_file_id,
 )
 from app.ai.tools.implementations._artifact_files import attachable_files, FileLookupFailed
@@ -391,6 +391,10 @@ class EditArtifactTool(Tool):
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
             gate_errors += chart_prop_errors(new_code, artifact_data)
+            gate_errors += raw_chart_errors(new_code, artifact_data, previous_code=code)
+            gate_errors += viewer_name_errors(new_code, artifact_data, previous_code=code)
+            _hc = runtime_ctx.get("head_completion")
+            gate_errors += focal_point_errors(new_code, artifact_data, previous_code=code, once_key=str(getattr(_hc, "id", "") or "") or None)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",

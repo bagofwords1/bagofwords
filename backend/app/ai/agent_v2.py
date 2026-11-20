@@ -61,6 +61,48 @@ def repeated_call_nudge(tool_name: str) -> str:
     )
 
 
+# A build ask: a build verb with a page or document noun in the user's message
+# (English, Hebrew, Spanish). A how-to question about building is not one.
+_BUILD_VERB = _re_mod.compile(
+    r"(?i)(\b(build|create|make|design|generate|set up|put together|prepare|write|draft)\b|\bturn\b.*\binto\b"
+    r"|בנה|תבנה|תבני|צור|תיצור|הכן|תכין|כתוב|תכתוב|\b(crea|haz|construye|diseña|prepara|escribe|redacta)\b)"
+)
+_PAGE_NOUN = _re_mod.compile(
+    r"(?i)(\b(dashboards?|scorecards?|pages?|apps?|artifacts?|portals?|screens?|forms?|trackers?|explorers?|calculators?|tableros?|panel|página|pantalla|aplicación)\b"
+    r"|דשבורד|לוח מחוונים|לוח בקרה|דף|עמוד|אפליקציה|פורטל|מסך)"
+)
+_DOC_NOUN = _re_mod.compile(
+    r"(?i)(\b(reports?|documents?|docs?|summary|summaries|reviews?|memos?|briefs?|write-?ups?|informes?|reportes?|resumen|documento)\b"
+    r"|דוח|דו\"ח|מסמך|סיכום|תקציר)"
+)
+_HOW_TO = _re_mod.compile(r"(?i)^\s*(how (do|can|should) i|how to|can you (explain|tell)|what is|why|איך|מה זה|למה|cómo|qué es|por qué)\b")
+
+
+def build_ask_kinds(message: str) -> set:
+    """{"page"} / {"doc"} / both when the user's message asks to build one; empty otherwise."""
+    text = str(message or "")
+    if not text.strip() or _HOW_TO.search(text) or not _BUILD_VERB.search(text):
+        return set()
+    kinds = set()
+    if _PAGE_NOUN.search(text):
+        kinds.add("page")
+    if _DOC_NOUN.search(text):
+        kinds.add("doc")
+    return kinds
+
+
+def forced_build_note(kinds: set) -> str:
+    """The observation for the one forced call a turn gets when it tried to end without the build."""
+    what = "a page" if kinds == {"page"} else "a document" if kinds == {"doc"} else "a page or a document"
+    return (
+        f"The user asked for {what}, and this turn was about to end without building it. "
+        "Build it now from the data you already have: call create_artifact for a page or create_doc for a "
+        "document, and state any limits or doubts about the data on it. If something truly blocks the build "
+        "(the data can't answer the ask), call clarify and ask the user how to proceed. A text-only answer is "
+        "not available for this step."
+    )
+
+
 def repeated_call_final_answer(tool_name: str, times: int) -> str:
     """Message injected when the repeated-identical-call breaker fires.
 
@@ -727,6 +769,10 @@ class AgentV2:
         # a hidden completion whose prompt carries the sub_agents row id; the
         # parent launches children through the `delegate` tool.
         self._is_sub_agent = (self.mode == "subagent")
+        self._forced_builds = 0          # once per turn: see forced_build_note()
+        self._forced_tools_next = None   # tools the next planner call must choose from
+        self._forced_strays = 0          # forced calls that named a tool not offered
+        self._turn_tools = set()         # tool names that ran this turn
         # Instructions and skills are scoped by run mode (applicable_modes);
         # a child sees the chat-mode set, never an empty "subagent" set.
         self._instruction_mode = "chat" if self._is_sub_agent else self.mode
@@ -4170,6 +4216,51 @@ class AgentV2:
             "  </steering_updates>"
         )
 
+    def _settle_forced(self, decision) -> None:
+        """After a planner call: keep, retry or drop the forced build step.
+
+        A valid decision or a failed request ends it (a provider may reject a
+        forced request outright, and retrying would fail the turn). A call
+        that named a tool it was not offered gets one forced retry, then the
+        turn goes on unforced.
+        """
+        if not self._forced_tools_next:
+            return
+        code = getattr(getattr(decision, "error", None), "code", None)
+        if code != "tool_not_offered":
+            self._forced_tools_next = None
+            return
+        self._forced_strays += 1
+        if self._forced_strays >= 2:
+            self._forced_tools_next = None
+
+    def _build_ask_kinds_for_turn(self) -> set:
+        """{"page"}/{"doc"} when a person asked in this turn for a page or document; empty otherwise."""
+        try:
+            from app.ai.tools.implementations._memory_common import is_machine_turn
+            if is_machine_turn(self.head_completion):
+                return set()
+            # A steer mid-turn overrides the original ask: the latest one decides
+            # ("never mind the dashboard, answer in chat" is not a build ask).
+            steers = [t for t in (getattr(self, "_steering_texts", None) or []) if str(t or "").strip()]
+            if steers:
+                return build_ask_kinds(steers[-1])
+            prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            message = prompt.get("content", "") if isinstance(prompt, dict) else ""
+            return build_ask_kinds(message)
+        except Exception:
+            return set()
+
+    def _forced_tools_for(self, kinds: set) -> list:
+        """The build tools for the asked kind(s) that this turn offers, plus clarify (the honest exit)."""
+        names = {getattr(t, "name", None) for t in (self.planner.tool_catalog or [])}
+        # A page ask may be a change to the current page, so edit_artifact rides along.
+        want = (["create_artifact", "edit_artifact"] if "page" in kinds else []) + (["create_doc"] if "doc" in kinds else [])
+        build = [n for n in want if n in names]
+        if not build:
+            return []
+        return build + (["clarify"] if "clarify" in names else [])
+
     def _effective_user_message(self) -> str:
         """The head prompt plus any steering updates injected mid-run."""
         base = ""
@@ -6286,6 +6377,7 @@ class AgentV2:
                             context_window_tokens=getattr(self.model, "context_window_tokens", None),
                             external_platform=self.platform,
                             tool_catalog=self.planner.tool_catalog,
+                            forced_tools=self._forced_tools_next,
                             mode=self.mode,
                             platform_context=self.platform_context,
                             images=all_images if all_images else None,
@@ -6673,6 +6765,7 @@ class AgentV2:
                     
                         elif evt.type == "planner.decision.final":
                             decision = evt.data  # Already validated PlannerDecision from planner_v2
+                            self._settle_forced(decision)
                             self._record_planner_token_metadata_from_decision(decision, view=view)
                             # Track whether analysis is complete
                             analysis_done = bool(getattr(decision, "analysis_complete", False))
@@ -6763,6 +6856,53 @@ class AgentV2:
                                         len(_checklist.pending_items),
                                     )
                         
+                            # Forced build: the user asked for a page or a document,
+                            # nothing was built, and the turn is ending in text. A
+                            # reminder did not change this (measured); instead the next
+                            # planner call may only build or clarify, once per turn.
+                            _build_kinds = set()
+                            if (
+                                analysis_done
+                                and not _gate_actions
+                                and not self._is_sub_agent
+                                and self._forced_builds < 1
+                                and total_artifact_calls == 0
+                                and not (self._turn_tools & {"create_artifact", "edit_artifact", "create_doc", "edit_doc", "clarify"})
+                            ):
+                                _build_kinds = self._build_ask_kinds_for_turn()
+                            _forced = self._forced_tools_for(_build_kinds) if _build_kinds else []
+                            if _forced:
+                                self._forced_builds += 1
+                                self._forced_tools_next = _forced
+                                analysis_done = False
+                                decision.analysis_complete = False
+                                self._last_assistant_text = ""
+                                observation = {
+                                    "summary": forced_build_note(_build_kinds),
+                                    "error": {"code": "build_not_done", "message": "a build was asked for and none was done"},
+                                }
+                                try:
+                                    if decision_seq is None:
+                                        decision_seq = await self.project_manager.next_seq(
+                                            self.db, self.current_execution
+                                        )
+                                    await self.project_manager.save_plan_decision_from_model(
+                                        self.db,
+                                        agent_execution=self.current_execution,
+                                        seq=decision_seq,
+                                        loop_index=loop_index,
+                                        planner_decision_model=decision,
+                                        phase="forced_build",
+                                    )
+                                except Exception as _forced_persist_exc:
+                                    logger.warning(
+                                        "[agent] forced build persistence failed (loop=%s): %r",
+                                        loop_index,
+                                        _forced_persist_exc,
+                                    )
+                                await _cancel_skeleton_block("build_not_done")
+                                break
+
                             # Retry flow: invalid planner output OR underlying LLM error
                             if getattr(decision, "error", None):
                                 err_code = getattr(decision.error, "code", "validation_error")
@@ -8162,6 +8302,8 @@ class AgentV2:
                                     continue
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")
+                                if _tn:
+                                    self._turn_tools.add(_tn)
                                 _ti_args = _o.get("tool_input")
                                 if _tn == "finish_subtask" and isinstance(_obs, dict) and _obs.get("analysis_complete"):
                                     self._sub_agent_finished = True

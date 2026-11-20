@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -660,6 +661,77 @@ def _jsx_prop(body: str, name: str):
     return None
 
 
+_SERIES_KEY_RE = re.compile(r"\bseries\s*:")
+# Every ECharts series type, so a mixed chart (a scatter with a fitted line, a
+# candlestick with a moving average) is seen as mixed, not as a line chart.
+_SERIES_TYPE_RE = re.compile(
+    r"""\btype\s*:\s*['"`](line|bar|scatter|effectScatter|pie|candlestick|boxplot|heatmap|radar|tree|treemap|"""
+    r"""sunburst|map|lines|graph|sankey|funnel|gauge|pictorialBar|themeRiver|custom|parallel)['"`]"""
+)
+
+
+def _series_values(src: str):
+    """The text of each ``series: …`` value in the code (an array literal or an expression)."""
+    for m in _SERIES_KEY_RE.finditer(src):
+        depth, quote, i = 0, None, m.end()
+        while i < len(src):
+            ch = src[i]
+            if quote:
+                if ch == "\\":
+                    i += 2
+                    continue
+                if ch == quote:
+                    quote = None
+            elif ch in "\"'`":
+                quote = ch
+            elif ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch == "," and depth == 0:
+                break
+            i += 1
+        yield src[m.end():i]
+
+
+def _raw_line_bar_charts(src: str) -> int:
+    """How many chart options draw only line or only bar series (a bar-and-line combo is a target chart)."""
+    count = 0
+    for value in _series_values(src or ""):
+        kinds = set(_SERIES_TYPE_RE.findall(value))
+        if kinds in ({"line"}, {"bar"}):
+            count += 1
+    return count
+
+
+def raw_chart_errors(code: str, artifact_data: Dict[str, Any], previous_code: Optional[str] = None) -> List[str]:
+    """A raw <EChart> line or bar chart where TrendChart / RankChart fit.
+
+    The components handle units, every category label and the point cap;
+    raw charts brought those defects back on unfamiliar data. Runtime 11+ only.
+    On an edit (``previous_code``) only charts the edit adds count, so an
+    existing page isn't blocked by charts it already had.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    src = code or ""
+    if version < 11 or "<EChart" not in src:
+        return []
+    added = _raw_line_bar_charts(src) - (_raw_line_bar_charts(previous_code) if previous_code is not None else 0)
+    if added <= 0:
+        return []
+    return [
+        "[charts] The code draws a line or bar chart with a raw <EChart> option. Build a measure over time with "
+        "<TrendChart> and a ranking or comparison by category with <RankChart>: they show every label, the units "
+        "and the point cap. Keep <EChart> for other types (scatter, pie, heatmap…) or a bar-and-line target chart."
+    ]
+
+
 _BOW_FILE_TAG_RE = re.compile(r"<BowFile\b")
 # One string literal and nothing else: "x", 'x' or `x` without ${...}.
 _STRING_LITERAL_RE = re.compile(r"""^(?:"([^"\\]*)"|'([^'\\]*)'|`([^`\\$]*)`)$""")
@@ -808,3 +880,110 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
                 f"Columns: {', '.join(cols)}. Use one of them, or pass rows= with the derived rows that have that field."
             )
     return errors
+
+
+_CHART_TAG_RE = re.compile(r"<(TrendChart|RankChart|EChart)\b")
+# What counts as "the answer first": a KPI card, a big number, or a line of text.
+_FOCAL_RE = re.compile(r"<KPICard\b|<p[\s>]|\btext-(?:2|3|4|5|6)xl\b")
+# Turns (head completion ids) that already got the layout note: it is given once.
+_LAYOUT_NOTED: "OrderedDict[str, bool]" = OrderedDict()
+_LAYOUT_NOTED_MAX = 2000
+
+
+def _has_focal_point(src: str) -> bool:
+    charts = [m.start() for m in _CHART_TAG_RE.finditer(src)]
+    if len(charts) < 2:
+        return True
+    # A KPI card anywhere counts (sub-components may be defined above App);
+    # otherwise a big number or a text line must come before the first chart.
+    return "<KPICard" in src or bool(_FOCAL_RE.search(src[: charts[0]]))
+
+
+def focal_point_errors(
+    code: str,
+    artifact_data: Dict[str, Any],
+    previous_code: Optional[str] = None,
+    once_key: Optional[str] = None,
+) -> List[str]:
+    """A page of two or more charts with no answer above them.
+
+    A soft check: the note is returned once per turn (``once_key``, the head
+    completion id), so a page that should open with charts still builds on the
+    next attempt. Runtime 11+ only. On an edit (``previous_code``) it applies
+    only when the edit removes the focal point the page had.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    src = code or ""
+    if version < 11 or _has_focal_point(src):
+        return []
+    if previous_code is not None and not _has_focal_point(previous_code):
+        return []
+    if once_key is not None:
+        if once_key in _LAYOUT_NOTED:
+            return []
+        _LAYOUT_NOTED[once_key] = True
+        while len(_LAYOUT_NOTED) > _LAYOUT_NOTED_MAX:
+            _LAYOUT_NOTED.popitem(last=False)
+    return [
+        "[layout] The page opens with a stack of charts and no answer above them. Put the answer first: 2–4 KPICards, "
+        "a one-line summary carrying the key number, or one lead chart wider than the rest. This note is given once: "
+        "if the page should open with the charts, send it again as it is."
+    ]
+
+
+_USER_VAR_RE = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*useCurrentUser\s*\(\s*\)")
+_USER_DESTRUCT_RE = re.compile(r"\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*useCurrentUser\s*\(\s*\)")
+_USER_FIELDS = r"(?:name|email|first_name|last_name|full_name|display_name|username)"
+_HEADING_TEXT_RE = re.compile(r"<(h1|h2)\b[^>]*>([\s\S]*?)</\1>")
+# A greeting or a "signed in as" line may name the viewer.
+_GREETING_RE = re.compile(r"welcome|hello|\bhi\b|signed in|logged in|שלום|ברוכ|מחובר|bienvenid|hola|bonjour|willkommen", re.I)
+
+
+def _viewer_name_refs(src: str) -> List[str]:
+    """Titles, subtitles, eyebrows and h1/h2 headings that show the signed-in viewer's name or email."""
+    pats = [r"useCurrentUser\s*\(\s*\)\s*\??\.\s*" + _USER_FIELDS + r"\b"]
+    for m in _USER_VAR_RE.finditer(src):
+        pats.append(r"\b" + re.escape(m.group(1)) + r"\s*\??\.\s*" + _USER_FIELDS + r"\b")
+    for m in _USER_DESTRUCT_RE.finditer(src):
+        for part in m.group(1).split(","):
+            key, _, alias = part.partition(":")
+            if re.fullmatch(r"\s*" + _USER_FIELDS + r"\s*", key):
+                pats.append(r"\b" + re.escape((alias or key).strip().split("=")[0].strip()) + r"\b")
+    ref = re.compile("|".join(pats))
+    hits: List[str] = []
+    for m in re.finditer(r"<[A-Za-z][\w.]*", src):
+        body = _jsx_tag_body(src, m.start())
+        for prop in ("title", "subtitle", "eyebrow"):
+            p = _jsx_prop(body, prop)
+            if p and p[0] == "expr" and ref.search(p[1]) and not _GREETING_RE.search(p[1]):
+                hits.append(f"{prop}={{{p[1][:80]}}}")
+    for m in _HEADING_TEXT_RE.finditer(src):
+        if ref.search(m.group(2)) and not _GREETING_RE.search(m.group(2)):
+            hits.append(f"<{m.group(1)}>{m.group(2).strip()[:80]}</{m.group(1)}>")
+    return hits
+
+
+def viewer_name_errors(code: str, artifact_data: Dict[str, Any], previous_code: Optional[str] = None) -> List[str]:
+    """The signed-in viewer's name or email in a page's title, subtitle or heading.
+
+    A page is shared: whoever opens it would see the builder's (or their own)
+    name as the page's title. A greeting or "signed in as" line is fine. On an
+    edit (``previous_code``) only references the edit adds count.
+    """
+    src = code or ""
+    if "useCurrentUser" not in src:
+        return []
+    hits = _viewer_name_refs(src)
+    if previous_code is not None and len(hits) <= len(_viewer_name_refs(previous_code)):
+        return []
+    if not hits:
+        return []
+    return [
+        "[viewer] The page shows the signed-in viewer's name in its title or heading (" + "; ".join(hits[:2]) + "). "
+        "A page is shared, so its title, subtitle and headings name the subject, never the viewer. Keep current_user "
+        "for a greeting, a \"signed in as\" line, or filtering to the viewer's own rows."
+    ]
