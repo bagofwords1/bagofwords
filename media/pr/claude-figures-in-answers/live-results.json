@@ -1,0 +1,6 @@
+[
+ {"prompt": "revenue", "model": "claude-haiku-5-5", "ms": 15970, "figures": [{"number": 1, "kind": "bars", "title": "Revenue by billing country", "rows": "12 of 24"}, {"number": 2, "kind": "bars", "title": "Top 10 customers by total spend", "rows": "10 rows"}], "rawMarkers": false, "consoleErrors": 0, "panelOpened": true, "afterReload": ["1:bars", "2:bars"]},
+ {"prompt": "trend", "model": "claude-haiku-5-5", "ms": 12000, "figures": [{"number": 1, "kind": "line", "title": "Monthly revenue trend by year", "rows": "60 rows"}], "rawMarkers": false, "consoleErrors": 0},
+ {"prompt": "single (total revenue)", "model": "claude-haiku-5-5", "ms": 10187, "figures": [], "rawMarkers": false, "consoleErrors": 0, "note": "single value: cited in the sentence, never a figure"},
+ {"prompt": "hebrew", "model": "claude-haiku-5-5", "ms": 13242, "figures": [{"number": 1, "kind": "bars", "title": "הכנסות לפי מדינה", "rows": "12 מתוך 24"}], "rawMarkers": false, "consoleErrors": 0}
+]

@@ -8834,5 +8834,20 @@
     },
     "or": "OR",
     "and": "AND"
+  },
+  "figure": {
+    "view": "View",
+    "chart": "Chart",
+    "table": "Table",
+    "open": "Open in panel",
+    "search": "Search {count} rows",
+    "searchLabel": "Search rows",
+    "noMatch": "No matching rows",
+    "showAll": "Show all {count} rows",
+    "showLess": "Show fewer",
+    "rows": "{count} rows",
+    "shownOf": "{shown} of {total}",
+    "loading": "Loading the result",
+    "untitled": "Result"
   }
 }

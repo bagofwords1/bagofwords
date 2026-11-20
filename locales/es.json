@@ -8805,5 +8805,20 @@
     },
     "or": "O",
     "and": "Y"
+  },
+  "figure": {
+    "view": "Vista",
+    "chart": "Gráfico",
+    "table": "Tabla",
+    "open": "Abrir en el panel",
+    "search": "Buscar en {count} filas",
+    "searchLabel": "Buscar filas",
+    "noMatch": "Ninguna fila coincide",
+    "showAll": "Mostrar las {count} filas",
+    "showLess": "Mostrar menos",
+    "rows": "{count} filas",
+    "shownOf": "{shown} de {total}",
+    "loading": "Cargando el resultado",
+    "untitled": "Resultado"
   }
 }

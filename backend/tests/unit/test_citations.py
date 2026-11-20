@@ -203,3 +203,68 @@ async def test_text_without_markers_needs_no_lookup():
     from app.ai.citations import channel_text
 
     assert await channel_text(_FailingSession(), "report-1", "Plain {{viz:abc}} text.") == "Plain {{viz:abc}} text."
+
+
+# --- figures: {{show:<id>}} ---------------------------------------------------
+# The web report draws the result itself; every other surface has nothing to
+# draw, so the marker goes away together with the line it stood on.
+
+def _figure_text(source_id: str) -> str:
+    return (
+        f"Revenue is concentrated in the USA. {{{{cite:{source_id[:8]}}}}}\n\n"
+        f"{{{{show:{source_id[:8]}}}}}\n\n"
+        "Canada follows."
+    )
+
+
+def test_strip_removes_a_figure_and_the_line_it_stood_on():
+    sid = next(iter(_sources(1)))
+    assert strip_citations(_figure_text(sid)) == "Revenue is concentrated in the USA.\n\nCanada follows."
+
+
+def test_footnotes_keep_citations_and_drop_figures():
+    sources = _sources(1)
+    sid = next(iter(sources))
+    out = footnote_citations(_figure_text(sid), sources)
+    assert "{{" not in out
+    assert out.startswith("Revenue is concentrated in the USA. [1]\n\nCanada follows.")
+    assert out.rstrip().endswith(f"[1] {sources[sid]}")
+
+
+def test_a_figure_marker_inside_a_code_fence_is_quoted_text():
+    text = "Use this marker:\n```\n{{show:3f9a1c2e}}\n```"
+    assert strip_citations(text) == text
+
+
+def _system(**overrides):
+    return PromptBuilderV3.build(PlannerInput(
+        user_message="revenue by country?",
+        organization_name="Acme",
+        organization_ai_analyst_name="Ada",
+        **overrides,
+    )).system
+
+
+def test_the_web_report_is_told_the_figure_grammar_and_its_limits():
+    rule = next(line for line in _system().splitlines() if "{{show:" in line)
+    assert "single number" in rule and "At most 3" in rule
+    # The planner's own example must be a marker this module parses (and so
+    # removes on every surface that has no figure to draw).
+    assert "{{show:3f9a1c2e}}" in rule
+    assert "{{show:3f9a1c2e}}" not in (strip_citations(rule) or "")
+
+
+@pytest.mark.parametrize("overrides", [
+    {"external_platform": "slack"},
+    {"external_platform": "teams"},
+    {"external_platform": "excel"},
+    {"mode": "training"},
+    {"platform_context": {"surface": "app"}},
+])
+def test_surfaces_without_figures_are_not_asked_for_one(overrides):
+    assert "{{show:" not in _system(**overrides)
+
+
+@pytest.mark.parametrize("marker", ["{{show:3f9a1c2e}}", "`{{show:3f9a1c2e}}`", "(`{{show:3f9a1c2e}}`)", "({{show:3f9a1c2e}})"])
+def test_a_figure_named_mid_sentence_leaves_a_clean_sentence(marker):
+    assert strip_citations(f"The chart is above {marker}.\n\nNext.") == "The chart is above.\n\nNext."

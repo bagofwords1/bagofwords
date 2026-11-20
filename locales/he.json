@@ -8825,5 +8825,20 @@
     },
     "or": "או",
     "and": "וגם"
+  },
+  "figure": {
+    "view": "תצוגה",
+    "chart": "תרשים",
+    "table": "טבלה",
+    "open": "פתיחה בחלונית",
+    "search": "חיפוש ב־{count} שורות",
+    "searchLabel": "חיפוש שורות",
+    "noMatch": "אין שורות תואמות",
+    "showAll": "הצגת כל {count} השורות",
+    "showLess": "הצגת פחות",
+    "rows": "{count} שורות",
+    "shownOf": "{shown} מתוך {total}",
+    "loading": "טוען את התוצאה",
+    "untitled": "תוצאה"
   }
 }

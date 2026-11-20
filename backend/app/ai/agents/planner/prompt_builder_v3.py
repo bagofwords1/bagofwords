@@ -422,6 +422,18 @@ class PromptBuilderV3:
                 "sentence must read correctly without it.\n"
             )
             citation_id_exception = " other than inside a `{{cite:…}}` marker"
+            if PromptBuilderV3._figures_enabled(planner_input):
+                citation_rule_text += (
+                    "- Show the result itself where it carries the answer: put `{{show:<id>}}` (same id as a "
+                    "citation) on a line of its own, right after the paragraph that discusses that chart or "
+                    "table (a line with only `{{show:3f9a1c2e}}`) — the chart the user asked for, or the table whose rows are the answer. The "
+                    "reader sees the result there, numbered like its citations. Never put it inside a sentence, backticks or "
+                    "parentheses, and don't refer to it (\"the chart above\"). At most 3 per answer, each "
+                    "result once, never for a single number (state the value in the sentence and cite it), "
+                    "never for inspect_data. Results you don't show stay one click away through their "
+                    "citations.\n"
+                )
+                citation_id_exception = " other than inside a `{{cite:…}}` or `{{show:…}}` marker"
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)
         platform_directives_text = f"{platform_directives}\n\n" if platform_directives else ""
 
@@ -637,6 +649,12 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         # An embedded surface (a data app's own chat) renders answers itself.
         context = getattr(planner_input, "platform_context", None)
         return not (isinstance(context, dict) and context.get("surface"))
+
+    @staticmethod
+    def _figures_enabled(planner_input: PlannerInput) -> bool:
+        """`{{show:…}}` figures: the web report only (a chat channel has no
+        figure to draw and strips the marker, see app/ai/citations.py)."""
+        return (planner_input.external_platform or "") == "" and PromptBuilderV3._citations_enabled(planner_input)
 
     @staticmethod
     def _platform_system_directives(planner_input: PlannerInput) -> str:

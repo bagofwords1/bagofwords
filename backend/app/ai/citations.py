@@ -18,6 +18,12 @@ where the answer is shown:
 
 A marker that names nothing in the report is dropped, never shown: a made-up
 citation must not read as a source.
+
+``{{show:<visualization id>}}`` is the sibling marker for a figure: on a line
+of its own, it places the result itself (its chart or table) in the answer on
+the web report (``frontend/components/markdown/ChatFigure.vue``). Every other
+surface has no figure to draw, so it is removed there, together with the line
+it stood on; the sentence around it already carries the finding.
 """
 from __future__ import annotations
 
@@ -33,6 +39,23 @@ MIN_ID_CHARS = 8
 # not leave "revenue grew ." behind.
 CITATION_RE = re.compile(r"[ \t]*\{\{\s*cite\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}")
 _CODE_FENCE_RE = re.compile(r"(```.*?```)", re.DOTALL)
+# A figure marker and the blank line it leaves when removed.
+# Also absorbs the wrapping a model sometimes adds: `{{show:…}}`, ({{show:…}}).
+FIGURE_RE = re.compile(r"[ \t]*(?:\(\s*)?`?\{\{\s*show\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}`?(?:\s*\))?[ \t]*")
+_EMPTY_LINES_RE = re.compile(r"\n{3,}")
+
+
+def _strip_figures(prose: str) -> str:
+    """Remove figure markers, tidying only where each one stood: a marker named
+    mid-sentence must not leave "the chart is above ." behind, and a marker on
+    a line of its own must not leave an empty paragraph."""
+    if "show" not in prose:
+        return prose
+    out = FIGURE_RE.sub("\x00", prose)
+    out = re.sub(r"[ \t]*\x00[ \t]*(?=[.,;:!?])", "", out)
+    out = re.sub(r"(?m)^[ \t]*\x00[ \t]*$", "", out)
+    out = out.replace("\x00", " ")
+    return _EMPTY_LINES_RE.sub("\n\n", out)
 
 
 def _key(raw: str) -> str:
@@ -57,10 +80,10 @@ def cited_ids(text: Optional[str]) -> List[str]:
 
 
 def strip_citations(text: Optional[str]) -> Optional[str]:
-    """``text`` with every citation marker removed."""
+    """``text`` with every citation and figure marker removed."""
     if not text or "{{" not in text:
         return text
-    return _outside_code(text, lambda prose: CITATION_RE.sub("", prose))
+    return _outside_code(text, lambda prose: _strip_figures(CITATION_RE.sub("", prose)))
 
 
 def match_citation(raw: str, candidates: Iterable[str]) -> Optional[str]:
@@ -106,7 +129,7 @@ def footnote_citations(
         number = numbers.setdefault(source_id, len(numbers) + 1)
         return f" [{number}]"
 
-    body = _outside_code(text, lambda prose: CITATION_RE.sub(replace, prose))
+    body = _outside_code(text, lambda prose: _strip_figures(CITATION_RE.sub(replace, prose)))
     if not numbers:
         return body
     lines = [
