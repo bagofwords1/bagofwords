@@ -22,6 +22,7 @@ import asyncio
 import json
 import re
 import uuid
+from datetime import datetime
 
 import pytest
 
@@ -39,8 +40,9 @@ def _unreachable_blocks(prompt: str) -> list[str]:
     return [b for b in _UNREACHABLE.findall(prompt) if "<agent " in b]
 
 
-def _mark_connections(data_source_id: str, *, reachable: bool) -> None:
-    """Set the cached health flag on an agent's connections.
+def _mark_connections(data_source_id: str, *, reachable: bool, since=None) -> None:
+    """Set the cached health flag on an agent's connections, and when the
+    outage started (``since``; cleared when reachable, as a real probe does).
 
     Written directly: the API only clears Connection.is_active after repeated
     failed probes of a real server, which a test cannot stage."""
@@ -57,7 +59,8 @@ def _mark_connections(data_source_id: str, *, reachable: bool) -> None:
                 .where(domain_connection.c.data_source_id == data_source_id)
             )).scalars().all()
             assert ids, "the agent has no connection to mark"
-            await db.execute(update(Connection).where(Connection.id.in_(ids)).values(is_active=reachable))
+            await db.execute(update(Connection).where(Connection.id.in_(ids)).values(
+                is_active=reachable, unreachable_since=None if reachable else since))
             await db.commit()
 
     asyncio.run(_run())
@@ -98,6 +101,27 @@ def test_unreachable_agent_is_listed_as_unreachable_not_as_schema(
     _mark_connections(down["id"], reachable=True)
     _, after = _ask(test_client, headers, llm, "What were sales last quarter?", script=[])
     assert not _unreachable_blocks(after[0]) and down["name"] in after[0], "it returns once reachable"
+
+
+@pytest.mark.parametrize("started", [datetime(2026, 3, 9, 7, 5, 41), datetime(2025, 12, 31, 23, 59, 2)])
+def test_unreachable_agent_carries_when_its_outage_started(test_client, env, llm, shared_pair, started):
+    down, _ = shared_pair
+    stamp = started.strftime("%Y-%m-%dT%H:%MZ")
+
+    # Flagged before the start was recorded: listed, with no time claimed.
+    _mark_connections(down["id"], reachable=False)
+    _, prompts = _ask(test_client, env["headers"], llm, "What were sales last quarter?", script=[])
+    block = _unreachable_blocks(prompts[0])[0]
+    assert down["id"] in block and " since=" not in block.split("<agent ", 1)[1]
+
+    _mark_connections(down["id"], reachable=False, since=started)
+    _, first = _ask(test_client, env["headers"], llm, "What were sales last quarter?", script=[])
+    assert f'since="{stamp}"' in _unreachable_blocks(first[0])[0]
+
+    # The same outage reads the same on a later turn, so the cached prompt
+    # prefix stays valid for as long as it lasts.
+    _, later = _ask(test_client, env["headers"], llm, "And the quarter before?", script=[])
+    assert _unreachable_blocks(later[0]) == _unreachable_blocks(first[0])
 
 
 def test_only_agent_unreachable_is_still_reported(test_client, env, llm, create_data_source, refresh_schema,
@@ -223,7 +247,7 @@ def test_mcp_get_context_reports_agents_it_leaves_out(test_client, env, enable_m
                    name=f"Ledger {uuid.uuid4().hex[:4]}", auth_policy="system_only")
     up = _source(test_client, env, create_data_source, refresh_schema, bulk_update_tables,
                  name=f"Inventory {uuid.uuid4().hex[:4]}", auth_policy="system_only")
-    _mark_connections(down["id"], reachable=False)
+    _mark_connections(down["id"], reachable=False, since=datetime(2026, 4, 2, 13, 30, 9))
     enable_mcp(user_token=env["token"], org_id=env["org_id"])
     org = env["org_id"]
 
@@ -267,6 +291,8 @@ def test_mcp_get_context_reports_agents_it_leaves_out(test_client, env, enable_m
     reasons = {a["id"]: a["reason"] for a in ctx["unavailable_agents"]}
     assert reasons == {per_user["id"]: "sign_in_required", down["id"]: "unreachable"}
     assert all(a["action"] for a in ctx["unavailable_agents"])
+    since = {a["id"]: a.get("since") for a in ctx["unavailable_agents"]}
+    assert since == {per_user["id"]: None, down["id"]: "2026-04-02T13:30Z"}
     assert per_user["id"] not in {d["id"] for d in ctx["data_sources"]}
 
     # Picking the agent from the MCP client says what is missing, where it

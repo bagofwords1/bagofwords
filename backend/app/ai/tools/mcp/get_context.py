@@ -159,7 +159,9 @@ class GetContextTool(MCPTool):
         data_sources, _skipped = await ds_service.filter_user_usable_data_sources(db, visible, user)
         # Report what was left out and why, so the client can tell the user to
         # sign in (or that a connection is down) instead of answering without it.
-        from app.ai.tools.implementations.agent_focus_common import agent_is_unreachable
+        from app.ai.tools.implementations.agent_focus_common import (
+            agent_is_unreachable, agent_unreachable_since, format_since,
+        )
         from app.schemas.mcp import UnavailableAgentInfo
         _usable_ids = {str(d.id) for d in data_sources}
         unavailable_agents = [
@@ -172,6 +174,7 @@ class GetContextTool(MCPTool):
             UnavailableAgentInfo(
                 id=str(d.id), name=d.name, reason="unreachable",
                 action="Its connection is unreachable right now; an admin needs to check it.",
+                since=format_since(agent_unreachable_since(d)),
             )
             for d in data_sources if agent_is_unreachable(d)
         ]

@@ -119,6 +119,7 @@ class UnavailableAgentInfo(BaseModel):
     name: str
     reason: str = Field(description="'sign_in_required' (the user has not connected their own account) or 'unreachable' (its connection is down).")
     action: str = Field(description="What has to happen before the agent can be used.")
+    since: Optional[str] = Field(default=None, description="For 'unreachable': when its connection went down (UTC), when known.")
 
 
 class ResourceInfo(BaseModel):

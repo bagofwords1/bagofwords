@@ -1770,6 +1770,7 @@ class ConnectionService:
             connection.consecutive_test_failures = 0
             if not connection.is_active:
                 connection.is_active = True
+            connection.unreachable_since = None
             return
         failures = (connection.consecutive_test_failures or 0) + 1
         connection.consecutive_test_failures = failures
@@ -1779,6 +1780,9 @@ class ConnectionService:
             threshold = 3
         if failures >= threshold and connection.is_active:
             connection.is_active = False
+            # Kept for the whole outage (later failed probes do not move it),
+            # so the agent can say since when the source has been unreachable.
+            connection.unreachable_since = datetime.utcnow()
 
     @staticmethod
     def _sync_agents_with_connection(connection: Connection) -> None:
