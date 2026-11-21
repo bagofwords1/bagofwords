@@ -5,7 +5,7 @@
 - Added read-only Confluence and Jira Data Center (on-prem) connectors (#1842)
 - Added Outlook and Teams write actions (flag, move, draft and send email; post to channels and chats), off by default and managed in a new Tools tab on the connection (#1847)
 - Added a Connect button in chat when a question needs an agent or connector the user hasn't signed in to yet (#1846, #1852)
-- Added a note in the answer when an agent can't be reached, instead of "no agent has that data" (#1852)
+- Added a note in the answer when an agent can't be reached, and since when, instead of "no agent has that data" (#1852, #1853)
 - Added a "Refresh to vN" prompt on an open dashboard when a newer version is saved elsewhere (#1841)
 - Added an Ask / Auto / Allow all permission mode for connection tools on each report, and "Allow for this report" on the approval card (#1786) — defaults and the Allow all switch under Settings → AI
 - Added a built-in safety blocklist that refuses catastrophic connection-tool calls such as disk wipes, `rm -rf /`, `DROP DATABASE` and `DELETE` without `WHERE`, whatever the mode or tool setting (#1786)
