@@ -1,6 +1,6 @@
 """request_agent_signin — ask the user to sign in to an agent the answer needs.
 
-ACTION tool. Some agents are backed by a connection each person signs in to
+ACTION tool. Some agents and connectors are backed by a connection each person signs in to
 (``auth_policy == "user_required"``, e.g. Power BI on-behalf-of). Until this
 user signs in, the agent has no client, so its data is not in the run; the
 planner sees it in ``<agents_needing_signin>`` (or as SIGN-IN REQUIRED in a
@@ -91,12 +91,20 @@ class RequestAgentSigninTool(Tool):
             from app.ai.tools.implementations.agent_focus_common import (
                 resolve_candidate_agents,
                 signin_required_ids,
+                signin_scope_agents,
             )
             from app.ai.context.agent_roster import load_agent_one_liners
             from app.ai.tools.implementations.search_agents import SearchAgentsTool
 
             wanted = list(dict.fromkeys(str(i) for i in data.agent_ids))
             candidates, _scope, _attached = await resolve_candidate_agents(db, organization, user, report, mode)
+            # Plus what a run leaves out before it starts: a folder's agents
+            # that need sign-in, and the user's own unconnected connectors.
+            known = {str(ds.id) for ds in candidates}
+            candidates = list(candidates) + [
+                ds for ds in await signin_scope_agents(db, organization, user, report)
+                if str(ds.id) not in known
+            ]
             in_scope = [ds for ds in candidates if str(ds.id) in set(wanted)]
             needs = await signin_required_ids(db, in_scope, user)
             agents = [ds for ds in in_scope if str(ds.id) in needs]

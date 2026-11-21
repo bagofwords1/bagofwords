@@ -81,6 +81,88 @@ async def signin_required_ids(db, agents: List[Any], user: Any) -> set:
         return set()
 
 
+def agent_is_unreachable(ds: Any) -> bool:
+    """True when every connection of the agent is flagged unreachable.
+
+    ``Connection.is_active`` is the cached health flag a failed probe clears
+    (ConnectionService._record_probe_outcome). construct_clients builds no
+    client for such a connection, so an agent with nothing else is dropped from
+    the run. Tool-provider connections (MCP / custom API / remote server) are
+    built whatever the flag says, so one of those keeps the agent reachable.
+    """
+    conns = list(getattr(ds, "connections", None) or [])
+    if not conns:
+        return False
+    from app.services.connection_tool_gateway import TOOL_CONNECTION_TYPES
+    return all(
+        getattr(c, "is_active", True) is False and getattr(c, "type", None) not in TOOL_CONNECTION_TYPES
+        for c in conns
+    )
+
+
+async def folder_branch_agents(db, organization: Any, user: Any, report: Any) -> Tuple[List[Any], bool]:
+    """``(agents, queryable)`` for a folder-scoped report: every agent the user
+    can access in the report's folders (plus its pins), BEFORE the sign-in
+    filter. ``queryable`` is False when no folder may be queried at all (the
+    user only curates them in training)."""
+    from app.services.folder_service import load_report_folders, training_curator_only, visible_branch
+    attached = list(getattr(report, "data_sources", None) or [])
+    branch: set = set()
+    queryable = False
+    for fid in await load_report_folders(db, report):
+        if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
+            continue
+        queryable = True
+        branch.update(await visible_branch(db, organization.id, getattr(user, "id", None), fid))
+    if not queryable and not attached:
+        return [], False
+    chosen = {a.id for a in attached}
+    agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
+    return agents, queryable
+
+
+async def signin_scope_agents(db, organization: Any, user: Any, report: Any,
+                              working_set: Optional[List[Any]] = None) -> List[Any]:
+    """Every agent and connector this report's runs may reach for this user,
+    including the ones a run leaves out because the user has not signed in.
+
+    ``working_set`` is the run's own agents when the caller has them (AgentV2);
+    otherwise it is resolved here. It already holds the person's own connectors
+    (mail, Teams, Drive, per-user MCP), connected or not. A folder-scoped
+    report's agents are added on top: resolve_run_agents filters those by
+    sign-in before the run starts, so a working set never contains them.
+
+    Callers pass the result to ``signin_required_ids`` to learn which of them
+    actually need this user's sign-in.
+    """
+    out: List[Any] = []
+    seen: set = set()
+
+    def _add(items):
+        for ds in items or []:
+            key = str(getattr(ds, "id", ""))
+            if key and key not in seen:
+                seen.add(key)
+                out.append(ds)
+
+    if working_set is None:
+        try:
+            working_set = await resolve_run_agents(db, organization, user, report)
+        except Exception:
+            working_set = []
+    _add(working_set)
+    if report is None or user is None:
+        return out
+    try:
+        if getattr(report, "agent_folder_id", None):
+            agents, _ = await folder_branch_agents(db, organization, user, report)
+            from app.services.data_source_service import DataSourceService
+            _add(a for a in agents if DataSourceService.is_execution_live(a))
+    except Exception:
+        logger.warning("sign-in scope: folder agents unavailable", exc_info=True)
+    return out
+
+
 def run_scope_agents(runtime_ctx: dict[str, Any]) -> list[Any]:
     """The agents a tool call may resolve against: the run's working set plus
     the report's own attachments, de-duplicated, attachments last.
@@ -198,22 +280,17 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any,
         agents = [a for a in reachable if str(a.id) in wanted]
         agents += [ds for ds in reachable if str(ds.id) not in wanted and _is_personal_connector(ds)]
     elif getattr(report, "agent_folder_id", None):
-        from app.services.folder_service import visible_branch
-        branch = set()
-        queryable = False
-        for fid in await load_report_folders(db, report):
-            if await training_curator_only(db, organization.id, getattr(user, "id", None), fid, getattr(report, "mode", None)):
-                continue
-            queryable = True
-            branch.update(await visible_branch(db, organization.id, getattr(user, "id", None), fid))
+        in_branch, queryable = await folder_branch_agents(db, organization, user, report)
         if not queryable and not attached:
             return []
-        chosen = {a.id for a in attached}
-        agents = [a for a in await accessible_agents(db, organization, user) if a.folder_id in branch or a.id in chosen]
-        agents, _ = await DataSourceService().filter_user_usable_data_sources(db, agents, user)
-        if not agents:
+        agents, _ = await DataSourceService().filter_user_usable_data_sources(db, in_branch, user)
+        if not agents and not in_branch:
             from fastapi import HTTPException
             raise HTTPException(409, "No available agents in this folder")
+        # Agents are here but each needs this user's sign-in: the run starts
+        # with none of them, and the planner is told which ones to ask the
+        # user to connect (AgentV2._signin_required_agents). Failing the
+        # request instead hid the one thing the user could do about it.
     elif attached:
         # A pinned selection is used as pinned, MCP tools included, so pinning
         # still narrows what a run offers. The person's OWN connectors (mail,

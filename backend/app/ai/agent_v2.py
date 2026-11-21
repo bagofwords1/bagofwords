@@ -1813,34 +1813,36 @@ class AgentV2:
         return out
 
     async def _signin_required_agents(self) -> list:
-        """Agents in this run's working set the user must sign in to first.
+        """Agents and connectors in this run's scope the user must sign in to.
 
         ``user_required`` auth with no personal credentials and no service
         account fallback: construct_clients 403s for them, so they carry no
-        client and never reach the schema. Connectors are left out — they have
-        their own <connectors> block and are not "agents". Resolved once per
-        run: signing in happens between turns, and the next turn is a new run.
+        client and never reach the schema or the <connectors> block. The scope
+        is the run's working set plus, for a folder-scoped report, the folder's
+        agents that resolve_run_agents left out for the same reason (see
+        agent_focus_common.signin_scope_agents). Resolved once per run: signing
+        in happens between turns, and the next turn is a new run.
         """
         if self._signin_required is not None:
             return self._signin_required
         self._signin_required = []
-        candidates = list(getattr(self, "_signin_candidates", None) or [])
-        if not candidates:
-            return self._signin_required
         try:
-            from app.services.data_source_kind import is_connector
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            if user is None or self.report is None:
+                return self._signin_required
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids, signin_scope_agents
+            candidates = await signin_scope_agents(
+                self.db, self.organization, user, self.report,
+                working_set=list(getattr(self, "_signin_candidates", None) or []),
+            )
             candidates = [
                 ds for ds in candidates
-                if not is_connector(ds) and any(
+                if any(
                     (getattr(c, "auth_policy", None) or "system_only") == "user_required"
                     for c in (getattr(ds, "connections", None) or [])
                 )
             ]
             if not candidates:
-                return self._signin_required
-            from app.ai.tools.implementations.agent_focus_common import signin_required_ids
-            user = getattr(self.head_completion, "user", None) if self.head_completion else None
-            if user is None:
                 return self._signin_required
             ids = await signin_required_ids(self.db, candidates, user)
             self._signin_required = [ds for ds in candidates if str(ds.id) in ids]
@@ -1856,30 +1858,69 @@ class AgentV2:
             return set(), ""
         try:
             from app.ai.context.agent_roster import load_agent_one_liners, render_signin_required_xml
+            from app.services.data_source_kind import is_connector
             user = getattr(self.head_completion, "user", None) if self.head_completion else None
             one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
-            xml = render_signin_required_xml(
-                [(str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), "")) for ds in agents]
-            )
+            xml = render_signin_required_xml([
+                (str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), ""),
+                 "connector" if is_connector(ds) else None)
+                for ds in agents
+            ])
             return {str(ds.id) for ds in agents}, xml
         except Exception:
             logger.exception("[agent] sign-in-required block render failed")
             return {str(ds.id) for ds in agents}, ""
 
+    async def _unreachable_block(self, skip_ids: set) -> tuple:
+        """``(ids, xml)`` for the planner's <agents_unreachable> block: agents
+        in the working set whose every connection is flagged unreachable.
+
+        construct_clients builds no client for such a connection, so the agent
+        is dropped from the run. A sign-in the user has not done yet comes
+        first (``skip_ids``): that one they can fix.
+        """
+        try:
+            from app.ai.tools.implementations.agent_focus_common import agent_is_unreachable
+            agents = [
+                ds for ds in (getattr(self, "_signin_candidates", None) or [])
+                if str(ds.id) not in skip_ids and agent_is_unreachable(ds)
+            ]
+        except Exception:
+            logger.exception("[agent] unreachable-agent resolution failed")
+            return set(), ""
+        if not agents:
+            return set(), ""
+        ids = {str(ds.id) for ds in agents}
+        try:
+            from app.ai.context.agent_roster import load_agent_one_liners, render_unreachable_agents_xml
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
+            xml = render_unreachable_agents_xml(
+                [(str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), "")) for ds in agents]
+            )
+            return ids, xml
+        except Exception:
+            logger.exception("[agent] unreachable-agent block render failed")
+            return ids, ""
+
     async def _render_schemas_with_roster(self, schemas_ctx):
         """Agents (roster/focus policy) + the run's connectors, followed by
-        the agents this user must sign in to before they can be used."""
+        the agents this run could not load: the ones this user must sign in
+        to, and the ones whose connection is unreachable."""
         signin_ids, signin_xml = await self._signin_required_block()
-        if signin_ids and schemas_ctx and getattr(schemas_ctx, "data_sources", None):
+        unreachable_ids, unreachable_xml = await self._unreachable_block(signin_ids)
+        withheld_ids = signin_ids | unreachable_ids
+        if withheld_ids and schemas_ctx and getattr(schemas_ctx, "data_sources", None):
             # Never advertise a schema the run cannot query (no client): this
             # matters when EVERY agent failed, where AgentV2.__init__ skips its
             # client filter and the agent would otherwise stay in context.
             import copy as _copy
             schemas_ctx = _copy.copy(schemas_ctx)
-            schemas_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in signin_ids]
-        excerpt, roster = await self._render_schemas_with_agents_and_connectors(schemas_ctx, signin_ids)
-        if signin_xml:
-            roster = f"{roster}\n{signin_xml}" if roster else signin_xml
+            schemas_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in withheld_ids]
+        excerpt, roster = await self._render_schemas_with_agents_and_connectors(schemas_ctx, withheld_ids)
+        for block in (signin_xml, unreachable_xml):
+            if block:
+                roster = f"{roster}\n{block}" if roster else block
         return excerpt, roster
 
     async def _render_schemas_with_agents_and_connectors(self, schemas_ctx, signin_ids: set):
