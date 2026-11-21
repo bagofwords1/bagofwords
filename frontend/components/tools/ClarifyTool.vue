@@ -129,6 +129,7 @@ const toolHeaderExpanded = activityRef(false)
 
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
+import { buildClarifyPrompt } from '~/utils/clarifyPrompt'
 
 interface ClarifyQuestion {
   text: string
@@ -249,27 +250,27 @@ function isOtherSelected(i: number) {
   return chipsOf(i).some(isOtherOption)
 }
 
-// The answer for question i as text for the agent, or '' while incomplete.
-function effectiveAnswer(i: number): string {
+// The answers for question i as sent to the agent, or [] while incomplete.
+function effectiveAnswers(i: number): string[] {
   const q = questions.value[i]
-  if (!q) return ''
+  if (!q) return []
   if (q.options?.length) {
     const picks = chipsOf(i)
     const parts = picks.filter((o) => !isOtherOption(o))
     if (picks.some(isOtherOption)) {
       const other = otherTexts.value[i]?.trim() ?? ''
-      if (!other) return '' // "Other" picked but not described yet
+      if (!other) return [] // "Other" picked but not described yet
       parts.push(other)
     }
-    // One pick per line: options may themselves contain commas.
-    return parts.length > 1 ? parts.map((p) => `\n- ${p}`).join('') : (parts[0] ?? '')
+    return parts
   }
-  return freeTexts.value[i]?.trim() ?? ''
+  const free = freeTexts.value[i]?.trim() ?? ''
+  return free ? [free] : []
 }
 
 const allAnswered = computed(() =>
   questions.value.length > 0 &&
-  questions.value.every((_, i) => effectiveAnswer(i) !== '')
+  questions.value.every((_, i) => effectiveAnswers(i).length > 0)
 )
 
 function initArrays(qs: ClarifyQuestion[]) {
@@ -361,9 +362,7 @@ function selectOption(index: number, option: string) {
 }
 
 function assemblePrompt(): string {
-  return questions.value
-    .map((q, i) => `Q: ${q.text}  \nA: ${effectiveAnswer(i)}`)
-    .join('\n\n')
+  return buildClarifyPrompt(questions.value.map((q, i) => ({ question: q.text, answers: effectiveAnswers(i) })))
 }
 
 // Resolves true when the answer is stored (or there is nowhere to store it).

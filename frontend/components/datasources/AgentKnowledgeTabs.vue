@@ -66,7 +66,9 @@ const shapeOf = (c: any) => registryByType.value[c.type]?.data_shape
 const tableConns = computed(() => connections.value.filter((c: any) =>
   c.has_file_tables || ['tables', 'objects'].includes(shapeOf(c))
 ))
-const toolConns = computed(() => connections.value.filter((c: any) => shapeOf(c) === 'tools'))
+// Built-in connectors with write actions keep their Files tab and also get Tools.
+const ACTION_TYPES = ['outlook_mail', 'teams_messages']
+const toolConns = computed(() => connections.value.filter((c: any) => shapeOf(c) === 'tools' || ACTION_TYPES.includes(c.type)))
 const tableConnectionIds = computed(() => tableConns.value.map((c: any) => String(c.id)).join(','))
 
 const tabs = computed(() => {

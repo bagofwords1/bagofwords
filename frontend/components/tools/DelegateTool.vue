@@ -88,9 +88,6 @@
 
 <script setup lang="ts">
 import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
-import { ref as activityRef } from 'vue'
-const toolHeaderExpanded = activityRef(false)
-
 import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 import Spinner from '~/components/Spinner.vue'
@@ -118,7 +115,8 @@ const emit = defineEmits<{ (e: 'openNote', noteId: string): void }>()
 // provides the rows by id; the card reads them so N cards cost one poll.
 const subAgents = inject<any>('subAgents', null)
 
-const expanded = ref(false)
+// Open/closed state of the card; opening it starts the live detail poll.
+const toolHeaderExpanded = ref(false)
 const stopping = ref(false)
 const detail = ref<any>(null)
 const now = ref(Date.now())
@@ -232,14 +230,14 @@ async function stop() {
 
 function syncDetailPolling() {
   if (detailTimer) { clearInterval(detailTimer); detailTimer = null }
-  if (expanded.value && !props.readonly) {
+  if (toolHeaderExpanded.value && !props.readonly) {
     // A finished card already has its result in the wave snapshot, but its
     // durable message history is only returned by the detail endpoint.
     fetchDetail()
     if (isLive.value) detailTimer = setInterval(fetchDetail, 3000)
   }
 }
-watch([expanded, isLive], syncDetailPolling)
+watch([toolHeaderExpanded, isLive], syncDetailPolling)
 // When the run ends, pull the final record once (envelope + calls).
 watch(isLive, (v, prev) => { if (prev && !v) fetchDetail() })
 

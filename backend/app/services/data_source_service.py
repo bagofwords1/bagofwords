@@ -1470,6 +1470,7 @@ class DataSourceService:
             user_status=connections_list[0].user_status if connections_list else None,
             primary_instruction_id=data_source.primary_instruction_id,
             primary_instruction=primary_instruction_data,
+            max_permission_mode=data_source.max_permission_mode,
         )
 
         return schema
@@ -1483,7 +1484,9 @@ class DataSourceService:
         """
         from app.schemas.data_source_registry import get_entry
         allowed = {"site_url", "drive_name", "folder_path", "root_path", "bucket",
-                   "prefix", "include_globs", "index_mode", "index_content", "recursive"}
+                   "prefix", "include_globs", "index_mode", "index_content", "recursive",
+                   # Confluence Data Center: the space keys the connection is limited to.
+                   "spaces"}
         result = []
         for conn in await self.get_domain_connections(db, data_source_id, organization):
             if get_entry(conn.type).data_shape != "files":
@@ -3782,6 +3785,12 @@ class DataSourceService:
         if 'icon' in update_data:
             data_source_db.icon = update_data.pop('icon')
 
+        # Permission-mode cap: "none" clears it.
+        if 'max_permission_mode' in update_data:
+            _cap = update_data.pop('max_permission_mode')
+            if _cap is not None:
+                data_source_db.max_permission_mode = None if _cap == "none" else _cap
+
         # Update remaining domain-specific fields on DataSource
         for field, value in update_data.items():
             if value is not None:
@@ -4519,6 +4528,7 @@ class DataSourceService:
             "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
+            "confluence_dc",
         ]
         _file_ct_subq = None
         # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no

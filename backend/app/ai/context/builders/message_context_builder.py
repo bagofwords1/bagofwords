@@ -996,6 +996,9 @@ class MessageContextBuilder:
         # history mid-run: its calls already live in the run's transcript, and
         # replaying them twice duplicates provider call ids.
         self.durable_exclude_completion_ids: set = set()
+        # Scheduled runs replay earlier runs' tool results as digests (summary
+        # + ids) instead of full payloads; see build_durable_transcript.
+        self.durable_digest_prior_results = False
 
     def get_durable_transcript(self):
         """Return the native tool turns from the latest live-window build."""
@@ -2422,6 +2425,7 @@ class MessageContextBuilder:
                     blocks_by_completion=blocks_by_completion,
                     tool_exec_by_id=tool_exec_by_id,
                     allow_llm_see_data=allow_llm_see_data,
+                    digest_prior_results=self.durable_digest_prior_results,
                 )
             except Exception:
                 from app.ai.context.transcript import Transcript

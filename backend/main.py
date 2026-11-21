@@ -137,9 +137,11 @@ from app.ee.license import get_license_info, has_feature
 
 # Initialize logging
 loggers = setup_logging()
-# Settings → System logs: buffers log records once the app has started.
-from app.services.app_log_service import install_log_handler  # noqa: E402
-install_log_handler()
+# Settings → System logs (only when turned on): buffers log records once the
+# app has started.
+if settings.bow_config.system_logs.enabled:
+    from app.services.app_log_service import install_log_handler  # noqa: E402
+    install_log_handler()
 logger = get_logger(__name__)
 # Initialize OpenTelemetry if enabled (before app creation)
 setup_telemetry(settings.bow_config.otel)
@@ -414,6 +416,31 @@ if os.environ.get("SERVE_FRONTEND", "").lower() in ("1", "true", "yes"):
     # /d/{ref}?host=… needs a per-artifact frame policy; before the SPA fallback.
     app.include_router(embed.frame_router)
 mount_spa(app)
+
+
+def _build_route_tables(application: FastAPI) -> None:
+    """Build every router's routes now, once, instead of on a user request.
+
+    FastAPI builds an included router's routes (dependency graph, request
+    and response models) the first time a request is matched against them,
+    and a request is matched against every router included before the one
+    it lands in: the first request to a late router (/api/connections) paid
+    about a second for hundreds of routes. Matching each top-level route
+    against a request with a method no route accepts walks and builds every
+    router (no route matches it fully, so no walk stops early). Run it after
+    the last route is registered; a route added later is built on first use,
+    as before.
+    """
+    scope = {"type": "http", "path": "/", "root_path": "", "method": "", "headers": []}
+    for route in application.router.routes:
+        route.matches(dict(scope))
+
+
+# `python main.py` imports this module as __main__ only to launch uvicorn,
+# which imports `main` again in the process that serves; building here would
+# only cost the launcher time and memory.
+if __name__ != "__main__":
+    _build_route_tables(app)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
@@ -1062,19 +1089,22 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to start license refresher: {e}")
 
-    # Settings → System logs. Every worker writes its own log files, so like
-    # the license refresher this runs in every worker. Stream capture is
-    # installed here rather than at import so test runs, which never start the
-    # app, keep their own stdout/stderr untouched.
-    try:
-        from app.services import app_log_service
+    # Settings → System logs, only when the deployment turns it on
+    # (system_logs.enabled / BOW_SYSTEM_LOGS_ENABLED); otherwise nothing is
+    # captured and no files are written. Every worker writes its own log
+    # files, so like the license refresher this runs in every worker. Stream
+    # capture is installed here rather than at import so test runs, which
+    # never start the app, keep their own stdout/stderr untouched.
+    if settings.bow_config.system_logs.enabled:
+        try:
+            from app.services import app_log_service
 
-        # uvicorn may have configured its loggers after import; attach again.
-        app_log_service.install_log_handler()
-        app_log_service.install_stream_capture()
-        app_log_service.start()
-    except Exception as e:
-        logger.error(f"Failed to start system logs writer: {e}")
+            # uvicorn may have configured its loggers after import; attach again.
+            app_log_service.install_log_handler()
+            app_log_service.install_stream_capture()
+            app_log_service.start()
+        except Exception as e:
+            logger.error(f"Failed to start system logs writer: {e}")
 
     # Validate license at startup
     license_info = get_license_info()

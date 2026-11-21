@@ -637,6 +637,10 @@ class AgentV2:
     # is built in __init__; the default keeps any earlier reader safe.
     _disabled_tools: frozenset = frozenset()
     _report_opt_outs: dict = {}
+    # Agents needing the user's sign-in (see _signin_required_agents).
+    # Assigned in __init__; the defaults keep any earlier reader safe.
+    _signin_candidates: tuple = ()
+    _signin_required: Optional[list] = None
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
@@ -822,6 +826,11 @@ class AgentV2:
                               else (getattr(report, 'data_sources', []) or []))
                 if DataSourceService.is_execution_live(ds)
             ]
+            # The working set before the client filter below: an agent the user
+            # must sign in to has no client and is dropped there, but the
+            # planner is still told it exists (see _signin_required_agents).
+            self._signin_candidates = list(self.data_sources)
+            self._signin_required: Optional[list] = None
             self.clients = clients
             # Drop data sources that produced no client. The caller builds
             # `clients` via DataSourceService.construct_clients, which now 403s
@@ -902,6 +911,8 @@ class AgentV2:
             ])
         else:
             self.data_sources = []
+            self._signin_candidates = []
+            self._signin_required = None
             self.clients = {}
             self.image_files = []
             self.analysis_files = []
@@ -1801,22 +1812,140 @@ class AgentV2:
                 logger.warning("[agent] connector check failed for %r", getattr(ds, "id", None), exc_info=True)
         return out
 
+    async def _signin_required_agents(self) -> list:
+        """Agents and connectors in this run's scope the user must sign in to.
+
+        ``user_required`` auth with no personal credentials and no service
+        account fallback: construct_clients 403s for them, so they carry no
+        client and never reach the schema or the <connectors> block. The scope
+        is the run's working set plus, for a folder-scoped report, the folder's
+        agents that resolve_run_agents left out for the same reason (see
+        agent_focus_common.signin_scope_agents). Resolved once per run: signing
+        in happens between turns, and the next turn is a new run.
+        """
+        if self._signin_required is not None:
+            return self._signin_required
+        self._signin_required = []
+        try:
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            if user is None or self.report is None:
+                return self._signin_required
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids, signin_scope_agents
+            candidates = await signin_scope_agents(
+                self.db, self.organization, user, self.report,
+                working_set=list(getattr(self, "_signin_candidates", None) or []),
+            )
+            candidates = [
+                ds for ds in candidates
+                if any(
+                    (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+                    for c in (getattr(ds, "connections", None) or [])
+                )
+            ]
+            if not candidates:
+                return self._signin_required
+            ids = await signin_required_ids(self.db, candidates, user)
+            self._signin_required = [ds for ds in candidates if str(ds.id) in ids]
+        except Exception:
+            logger.exception("[agent] sign-in-required resolution failed")
+            self._signin_required = []
+        return self._signin_required
+
+    async def _signin_required_block(self) -> tuple:
+        """``(ids, xml)`` for the planner's <agents_needing_signin> block."""
+        agents = await self._signin_required_agents()
+        if not agents:
+            return set(), ""
+        try:
+            from app.ai.context.agent_roster import load_agent_one_liners, render_signin_required_xml
+            from app.services.data_source_kind import is_connector
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
+            xml = render_signin_required_xml([
+                (str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), ""),
+                 "connector" if is_connector(ds) else None)
+                for ds in agents
+            ])
+            return {str(ds.id) for ds in agents}, xml
+        except Exception:
+            logger.exception("[agent] sign-in-required block render failed")
+            return {str(ds.id) for ds in agents}, ""
+
+    async def _unreachable_block(self, skip_ids: set) -> tuple:
+        """``(ids, xml)`` for the planner's <agents_unreachable> block: agents
+        in the working set whose every connection is flagged unreachable.
+
+        construct_clients builds no client for such a connection, so the agent
+        is dropped from the run. A sign-in the user has not done yet comes
+        first (``skip_ids``): that one they can fix.
+        """
+        try:
+            from app.ai.tools.implementations.agent_focus_common import (
+                agent_is_unreachable, agent_unreachable_since, format_since,
+            )
+            agents = [
+                ds for ds in (getattr(self, "_signin_candidates", None) or [])
+                if str(ds.id) not in skip_ids and agent_is_unreachable(ds)
+            ]
+        except Exception:
+            logger.exception("[agent] unreachable-agent resolution failed")
+            return set(), ""
+        if not agents:
+            return set(), ""
+        ids = {str(ds.id) for ds in agents}
+        try:
+            from app.ai.context.agent_roster import load_agent_one_liners, render_unreachable_agents_xml
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
+            xml = render_unreachable_agents_xml([
+                (str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), ""),
+                 format_since(agent_unreachable_since(ds)))
+                for ds in agents
+            ])
+            return ids, xml
+        except Exception:
+            logger.exception("[agent] unreachable-agent block render failed")
+            return ids, ""
+
     async def _render_schemas_with_roster(self, schemas_ctx):
+        """Agents (roster/focus policy) + the run's connectors, followed by
+        the agents this run could not load: the ones this user must sign in
+        to, and the ones whose connection is unreachable."""
+        signin_ids, signin_xml = await self._signin_required_block()
+        unreachable_ids, unreachable_xml = await self._unreachable_block(signin_ids)
+        withheld_ids = signin_ids | unreachable_ids
+        if withheld_ids and schemas_ctx and getattr(schemas_ctx, "data_sources", None):
+            # Never advertise a schema the run cannot query (no client): this
+            # matters when EVERY agent failed, where AgentV2.__init__ skips its
+            # client filter and the agent would otherwise stay in context.
+            import copy as _copy
+            schemas_ctx = _copy.copy(schemas_ctx)
+            schemas_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in withheld_ids]
+        excerpt, roster = await self._render_schemas_with_agents_and_connectors(schemas_ctx, withheld_ids)
+        for block in (signin_xml, unreachable_xml):
+            if block:
+                roster = f"{roster}\n{block}" if roster else block
+        return excerpt, roster
+
+    async def _render_schemas_with_agents_and_connectors(self, schemas_ctx, signin_ids: set):
         """Agents (roster/focus policy) + the run's connectors.
 
         Connectors are split out first: the roster, focus and Auto "pick" logic
         only ever see agents, and every connected connector renders, always, as
         a separate ``<connectors>`` block appended after the agents' schemas.
         """
-        connector_ids = self._connector_ids()
+        # Agents needing sign-in stay out of the roster too: it merges in the
+        # report's own attachments, which can still hold one.
+        signin_ids = set(signin_ids or ())
+        connector_ids = self._connector_ids() - signin_ids
         if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None) or not connector_ids:
-            return await self._render_agent_schemas_with_roster(schemas_ctx, set())
+            return await self._render_agent_schemas_with_roster(schemas_ctx, signin_ids)
         import copy as _copy
         agent_ctx = _copy.copy(schemas_ctx)
         agent_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in connector_ids]
         conn_ctx = _copy.copy(schemas_ctx)
         conn_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) in connector_ids]
-        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids)
+        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids | signin_ids)
         try:
             connectors_xml = conn_ctx.render_connectors(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
         except Exception:
@@ -5768,6 +5897,11 @@ class AgentV2:
             # Pass prompt_text to enable intelligent instruction search
             try:
                 self.context_hub.message_builder.use_durable_transcript = True
+                # A scheduled run re-fetches live data each time: earlier runs'
+                # results replay as digests, so the prompt stays flat run over run.
+                self.context_hub.message_builder.durable_digest_prior_results = bool(
+                    getattr(self.head_completion, "scheduled_prompt_id", None)
+                )
             except Exception:
                 pass
             with tracer.start_as_current_span("agent.context_initial_load") as span:
@@ -10050,6 +10184,20 @@ class AgentV2:
             return observation
         native = sorted(getattr(self, "_native_mcp_names", None) or ())
         deferred = bool(getattr(self, "_deferred_mcp_tools", None))
+        # A connector's write actions are named mcp__<connection>__<action>,
+        # its read tools are not (list_emails, search_email, ...). A model that
+        # generalises the prefix (mcp__Outlook__search_email) is pointed at the
+        # real tool by name instead of only at the MCP list.
+        bare = name.rsplit("__", 1)[-1]
+        offered = {t.name for t in (getattr(self.planner, "tool_catalog", None) or [])}
+        if bare and bare in offered and not bare.startswith("mcp__"):
+            observation["error"]["message"] += (
+                f". '{bare}' is a built-in tool: call it as '{bare}' (with the connection's id), "
+                "without the mcp__ prefix."
+            )
+            observation["suggested_tool"] = bare
+            logger.warning("[agent] unknown tool %s → suggested %s", name, bare)
+            return observation
         if native or deferred:
             shown = native[: self._UNKNOWN_TOOL_SUGGESTIONS]
             observation["available_mcp_tools"] = shown

@@ -942,7 +942,35 @@
         "dismiss": "Schließen"
       }
     },
-    "recent": "Zuletzt verwendet"
+    "recent": "Zuletzt verwendet",
+    "permissionMode": {
+      "title": "Tool-Berechtigungen",
+      "tooltip": "Tool-Berechtigungen: {mode}",
+      "default": "Standard",
+      "allowAllBanner": "Alles erlauben ist aktiv: Der Agent führt Verbindungstools ohne Nachfrage aus. Gesperrte und verweigerte Tools laufen nie.",
+      "switchToAsk": "Zu Fragen wechseln",
+      "saveFailed": "Berechtigungsmodus konnte nicht geändert werden",
+      "modes": {
+        "ask": {
+          "label": "Fragen",
+          "hint": "Jedes Tool folgt seiner Einstellung; fragt vor Änderungen."
+        },
+        "auto": {
+          "label": "Automatisch",
+          "hint": "Nur-Lese-Aufrufe laufen; ein Modell entscheidet den Rest und fragt im Zweifel."
+        },
+        "allow_all": {
+          "label": "Alles erlauben",
+          "hint": "Tools, die fragen würden, laufen ohne Nachfrage – nur in diesem Bericht."
+        }
+      },
+      "unknown": {
+        "label": "Modus unbekannt",
+        "hint": "Die Berechtigungseinstellungen konnten nicht geladen werden, daher ist der Modus des nächsten Laufs unbekannt."
+      },
+      "loadFailed": "Die Berechtigungseinstellungen konnten nicht geladen werden",
+      "retry": "Erneut versuchen"
+    }
   },
   "reports": {
     "title": "Berichte",
@@ -1732,7 +1760,35 @@
       "allowedByYou": "Von dir erlaubt",
       "deniedByYou": "Von dir abgelehnt",
       "records": "{n} Datensätze",
-      "recordsPartial": "{shown} von {total} Datensätzen"
+      "recordsPartial": "{shown} von {total} Datensätzen",
+      "viaAgent": "Über {name}",
+      "allowForReport": "Für diesen Bericht erlauben",
+      "allowForReportHint": "In diesem Bericht nicht erneut für dieses Tool fragen",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Ohne Nachfrage ausgeführt (Alles erlauben)",
+          "refused": "Nicht ausgeführt"
+        },
+        "readOnly": {
+          "allowed": "Ohne Nachfrage ausgeführt: nur lesend",
+          "refused": "Nicht ausgeführt"
+        },
+        "blocklist": {
+          "allowed": "Erlaubt",
+          "refused": "Von der Sicherheits-Sperrliste abgelehnt"
+        },
+        "rememberedReport": {
+          "allowed": "Für diesen Bericht erlaubt",
+          "refused": "Für diesen Bericht abgelehnt"
+        },
+        "unattended": {
+          "allowed": "Durch die Einstellung für unbeaufsichtigte Läufe erlaubt",
+          "refused": "Nicht ausgeführt: braucht eine Freigabe, niemand schaut zu"
+        },
+        "unknownTool": {
+          "refused": "Nicht ausgeführt: Dieses Tool steht nicht in der Tool-Liste der Verbindung"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
@@ -2225,11 +2281,12 @@
       "glob": "Platzhaltermuster",
       "hint": "Regeln gelten für vollständige Befehle in diesem Arbeitsverzeichnis. Präfixfreigaben schließen Shell-Operatoren und Erweiterungen aus.",
       "always": "Passende Befehle immer erlauben",
-      "session": "Für diese Sitzung erlauben",
+      "session": "Für diesen Bericht erlauben (8 Stunden)",
       "mine": "Meine Shell-Regeln",
       "override": "Diese Regeln gelten nur für Sie. Immer erlauben oder Immer verweigern für die Verbindung hat Vorrang.",
       "save": "Regeln speichern",
-      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON."
+      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON.",
+      "sessionHint": "Führt passende Befehle in diesem Bericht für die nächsten 8 Stunden ohne Nachfrage aus."
     },
     "shell": {
       "command": "Shell-Befehl",
@@ -2246,6 +2303,13 @@
       "unknownState": "Der entfernte Prozess läuft möglicherweise noch. Prüfen Sie seinen Status vor einem erneuten Versuch.",
       "exitCode": "Exit-Code: {code}",
       "cancelledBeforeExecution": "Vor der Ausführung abgebrochen."
+    },
+    "requestAgentSignin": {
+      "checking": "Agenten werden geprüft…",
+      "connect": "Verbinden",
+      "connected": "Verbunden",
+      "askAgain": "Erneut fragen",
+      "readyHint": "Verbunden. Stellen Sie Ihre Frage erneut, um ihn zu nutzen."
     }
   },
   "entityCreate": {
@@ -2484,7 +2548,18 @@
     "failedToSave": "Gruppe konnte nicht gespeichert werden",
     "failedToAddMember": "Mitglied konnte nicht hinzugefügt werden",
     "failedToRemoveMember": "Mitglied konnte nicht entfernt werden",
-    "failedToUpdateRoles": "Gruppenrollen konnten nicht aktualisiert werden"
+    "failedToUpdateRoles": "Gruppenrollen konnten nicht aktualisiert werden",
+    "youManage": "Von dir verwaltet",
+    "managerBadge": "Manager",
+    "makeManager": "Zum Manager machen",
+    "removeManager": "Manager entfernen",
+    "removeMember": "Aus Gruppe entfernen",
+    "managerHint": "Du verwaltest diese Gruppe: Mitglieder hinzufügen oder entfernen und Mitglieder zu Managern machen.",
+    "managedExternallyHint": "Von deinem Identitätsanbieter synchronisiert. Ändere die Mitglieder dort.",
+    "noManagedGroupsHint": "Du verwaltest keine Gruppen.",
+    "toastManagerAdded": "Mitglied ist jetzt Gruppenmanager",
+    "toastManagerRemoved": "Managerrolle entfernt",
+    "failedToUpdateManager": "Gruppenmanager konnte nicht aktualisiert werden"
   },
   "signupPolicy": {
     "title": "Domänenbasierte Registrierung",
@@ -3660,6 +3735,34 @@
           "name": "Weltansicht",
           "description": "Zeigt auf der Agenten-Seite einen Schalter, der die Welt öffnet: eine Karte der Agenten, des Wissens, der Quellen und der Arbeit, die Ihre Organisation verbinden. Jeder Benutzer sieht nur, worauf er Zugriff hat."
         }
+      },
+      "permissionMode": {
+        "title": "Tool-Berechtigungsmodus",
+        "description": "Wie der Agent entscheidet, ob er Verbindungstools und Remote-Shell-Befehle ausführt. Nutzer wählen pro Bericht einen Modus im Eingabefeld; deaktivierte und verweigerte Tools sowie die Sicherheits-Sperrliste gelten in jedem Modus.",
+        "defaultMode": "Standardmodus für neue Berichte",
+        "unattended": "Läufe ohne Zuschauer",
+        "unattendedOptions": {
+          "refuse": "Ablehnen",
+          "settings": "Tool-Einstellungen verwenden",
+          "allow": "Erlauben"
+        },
+        "unattendedHints": {
+          "refuse": "Geplante, Webhook-, API- und andere unbeaufsichtigte Ausführungen überspringen jedes Tool, das nachfragen würde.",
+          "settings": "Tools auf Automatisch nutzen die Modellprüfung; Tools auf Fragen werden übersprungen.",
+          "allow": "Tools, die nachfragen würden, laufen in geplanten, Webhook- und API-Ausführungen. Chats in anderen Kanälen überspringen sie weiterhin."
+        },
+        "allowAll": "„Alles erlauben“ zulassen",
+        "allowAllDescription": "Erlaubt Benutzern, Freigabeanfragen für einen Bericht abzuschalten oder dies zum Standard für neue Berichte zu machen. Gilt nur für die eigenen Ausführungen des Berichtsbesitzers, während er zusieht.",
+        "judgeModel": "Modell für Auto-Entscheidungen",
+        "judgeModelHint": "Automatisch nutzt das Entscheidungsmodell des Routers, wenn das Routing eines verwendet, sonst das kleine Standardmodell.",
+        "judgeModelOptions": {
+          "automatic": "Automatisch",
+          "small": "Kleines Standardmodell",
+          "unavailable": "Nicht verfügbares Modell",
+          "notLoaded": "Gespeichertes Modell (Liste nicht geladen)"
+        },
+        "judgeModelLoadFailed": "Die Entscheidungsmodelle konnten nicht geladen werden.",
+        "judgeModelRetry": "Erneut versuchen"
       }
     },
     "llms": {
@@ -4732,6 +4835,9 @@
     "shell_confirmation.invalid_scope": "Ungültiger Berechtigungsbereich.",
     "shell_confirmation.report_required": "Sitzungsberechtigungen erfordern einen Bericht.",
     "shell_confirmation.rule_mismatch": "Ungültige Befehlsregel, oder das Muster passt nicht zu diesem Befehl.",
+    "tool_permission_mode.allow_all_off": "„Alles erlauben“ ist für diese Organisation ausgeschaltet.",
+    "tool_permission_mode.allow_all_default_needs_switch": "„Alles erlauben“ kann nur Standard sein, solange es eingeschaltet ist.",
+    "tool_permission_mode.judge_model_unavailable": "Wählen Sie ein aktiviertes Entscheidungsmodell für den Prüfer im Modus „Automatisch“.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
@@ -4773,6 +4879,7 @@
     "system_logs.instance_admin_required": "Nur ein Instanzadministrator kann die Systemprotokolle verwenden.",
     "system_logs.invalid_range": "Die Startzeit muss vor der Endzeit liegen.",
     "system_logs.delete_failed": "Die Protokolldateien in {directory} konnten nicht gelöscht werden. Prüfen Sie, ob das Verzeichnis existiert und beschreibbar ist.",
+    "system_logs.disabled": "Systemprotokolle sind auf diesem Server ausgeschaltet. Um sie einzuschalten, setzen Sie BOW_SYSTEM_LOGS_ENABLED=true (oder system_logs.enabled in bow-config.yaml) und starten Sie den Server neu.",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",
     "body.invalid_json": "Ungültiger JSON-Body",
     "organization.not_found": "Organisation nicht gefunden",
@@ -4790,6 +4897,9 @@
     "role.not_found": "Rolle nicht gefunden",
     "group.not_found": "Gruppe nicht gefunden",
     "group.managed_by_scim": "Diese Gruppe wird von Ihrem Identitätsanbieter (SCIM) verwaltet. Ändern Sie sie dort.",
+    "group.managed_externally": "Diese Gruppe wird von deinem Identitätsanbieter synchronisiert; ändere ihre Mitglieder dort.",
+    "group.manager_not_member": "Nur registrierte Mitglieder der Gruppe können Manager werden.",
+    "group.manager_protected": "Nur ein Organisationsadmin kann einen Gruppenmanager entfernen oder herabstufen.",
     "instruction.not_found": "Anweisung nicht gefunden",
     "instruction.version_not_found": "Anweisungsversion nicht gefunden",
     "instruction.label_not_found": "Anweisungsetikett nicht gefunden",
@@ -4863,6 +4973,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse hat diese Anmeldung nicht akzeptiert, daher wurde sie nicht gespeichert. Prüfen Sie Benutzername und Passwort oder das API-Token und versuchen Sie es erneut.",
     "connection.kms_login_paused": "KMS Lighthouse hat diese Anmeldung kürzlich abgelehnt. Neue Versuche damit sind für einige Minuten pausiert, und sie wurde nicht gespeichert. Prüfen Sie die Anmeldung oder versuchen Sie es später erneut.",
     "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf.",
+    "connection.confluence_login_rejected": "Confluence hat dieses persönliche Zugriffstoken bzw. diese Anmeldung nicht akzeptiert, daher wurde es nicht gespeichert. Prüfen Sie es oder erstellen Sie in Confluence unter Profil > Persönliche Zugriffstoken ein neues Token.",
+    "connection.confluence_login_captcha": "Confluence verlangt für dieses Konto nach fehlgeschlagenen Anmeldungen ein CAPTCHA, daher wurde nichts gespeichert. Melden Sie sich einmal im Browser bei Confluence an, um es aufzuheben, oder verwenden Sie ein persönliches Zugriffstoken.",
+    "connection.jira_login_rejected": "Jira hat dieses persönliche Zugriffstoken bzw. diese Anmeldung nicht akzeptiert, daher wurde es nicht gespeichert. Prüfen Sie es oder erstellen Sie in Jira unter Profil > Persönliche Zugriffstoken ein neues Token.",
+    "connection.jira_login_captcha": "Jira verlangt für dieses Konto nach fehlgeschlagenen Anmeldungen ein CAPTCHA, daher wurde nichts gespeichert. Melden Sie sich einmal im Browser bei Jira an, um es aufzuheben, oder verwenden Sie ein persönliches Zugriffstoken.",
     "access_request.disabled": "Zugriffsanfragen sind für diese Organisation deaktiviert.",
     "access_request.not_allowed": "Dieses Dashboard benötigt keine Zugriffsanfrage.",
     "access_request.already_has_access": "Du hast bereits Zugriff auf dieses Dashboard.",
@@ -7540,6 +7654,9 @@
     "close": "Schließen",
     "button": "Vorschau"
   },
+  "confluenceFileScope": {
+    "allSpaces": "Alle Bereiche, die diese Identität sehen kann"
+  },
   "kmsFileScope": {
     "headerSubtitle": "Der Stammordner legt fest, wo das Blättern beginnt. Die KMS-Berechtigungen bestimmen, was der Agent suchen und lesen kann.",
     "browsingOnly": "Nur zum Blättern",
@@ -7611,7 +7728,14 @@
     "inheritedHint": "Diese Personen und Gruppen erreichen den Agenten über einen Ordner oder eine Verbindung. Ändern Sie den Zugriff an der Quelle.",
     "viaFolder": "Über Ordner {name}",
     "viaConnection": "Über Verbindung {name}",
-    "inheritedHidden": "Andere haben möglicherweise Zugriff über einen Ordner oder eine Verbindung, die Sie nicht verwalten."
+    "inheritedHidden": "Andere haben möglicherweise Zugriff über einen Ordner oder eine Verbindung, die Sie nicht verwalten.",
+    "permissionCap": {
+      "title": "Obergrenze für den Berechtigungsmodus",
+      "hint": "Begrenzt den Berechtigungsmodus von Berichten, die diesen Agenten nutzen. Fragen: Jedes Tool folgt seiner eigenen Einstellung. Automatisch: Ein Modell kann entscheiden.",
+      "none": "Keine Obergrenze",
+      "ask": "Fragen",
+      "auto": "Automatisch"
+    }
   },
   "productUpdates": {
     "checkbox": "Produkt-Updates an mich senden",
@@ -7910,5 +8034,43 @@
     },
     "or": "ODER",
     "and": "UND"
+  },
+  "connectionTools": {
+    "tab": "Tools",
+    "intro": "Legen Sie fest, was Agenten in diesem System tun dürfen. Agenten und Benutzer können ein Tool strenger, aber nie lockerer als eine hier gesperrte Einstellung machen.",
+    "empty": "Diese Verbindung hat noch keine Tools.",
+    "loadFailed": "Die Tools konnten nicht geladen werden.",
+    "saveFailed": "Die Änderung konnte nicht gespeichert werden.",
+    "on": "An",
+    "off": "Aus",
+    "enabled": "{name} ist für Agenten verfügbar",
+    "enableGroup": "Alle Tools der Gruppe {group} aktivieren",
+    "policyFor": "Richtlinie für {name}",
+    "lock": "Richtlinie von {name} sperren",
+    "unlock": "Richtlinie von {name} entsperren",
+    "lockHint": "Gesperrt: Agenten und Benutzer können sie strenger, aber nie lockerer machen.",
+    "needsScope": "Benötigt {scope}",
+    "missingScopes": "Ihre Anmeldung enthält {scopes} nicht. Ein Admin erteilt es in der Entra-App-Registrierung; melden Sie sich danach erneut an.",
+    "grantAccess": "Erneut anmelden",
+    "builtinReadHint": "Immer verfügbar: Lesen ändert nie etwas.",
+    "effect": {
+      "read": {
+        "title": "Lesen",
+        "hint": "Schlägt nach; ändert nichts."
+      },
+      "modify": {
+        "title": "Ändern",
+        "hint": "Ändert eigene Daten des Benutzers; rückgängig zu machen."
+      },
+      "external": {
+        "title": "Extern",
+        "hint": "Andere sehen es, und es lässt sich nicht zurücknehmen. Automatische Prüfung wird nicht angeboten."
+      },
+      "destructive": {
+        "title": "Destruktiv",
+        "hint": "Löscht oder sperrt. Fragt immer zuerst."
+      }
+    },
+    "builtinBadge": "Integriert"
   }
 }

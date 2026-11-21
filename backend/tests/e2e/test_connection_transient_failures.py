@@ -290,6 +290,37 @@ def test_connection_is_deactivated_only_after_consecutive_failures(
     assert _run(_active_flags(ids))[0] is True
 
 
+async def _unreachable_since(ids):
+    async with async_session_maker() as db:
+        return (await db.get(Connection, ids["conn_id"])).unreachable_since
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("threshold", [1, 3])
+def test_an_outage_keeps_the_time_it_started_until_it_recovers(fake_client, monkeypatch, threshold):
+    monkeypatch.setenv("BOW_CONN_DEACTIVATE_AFTER_FAILURES", str(threshold))
+    ids = _run(_seed(["t"]))
+    assert _run(_unreachable_since(ids)) is None
+
+    fake_client(probe_ok=False)
+    for _ in range(threshold - 1):
+        _run(_probe(ids))
+        assert _run(_unreachable_since(ids)) is None, "a tolerated failure is not an outage yet"
+
+    _run(_probe(ids))
+    started = _run(_unreachable_since(ids))
+    assert started is not None, "the probe that deactivates the connection dates the outage"
+
+    # Later failed probes belong to the same outage: its start does not move.
+    _run(_probe(ids))
+    _run(_probe(ids))
+    assert _run(_unreachable_since(ids)) == started
+
+    fake_client(probe_ok=True)
+    _run(_probe(ids))
+    assert _run(_unreachable_since(ids)) is None, "a recovered connection has no outage to report"
+
+
 @pytest.mark.e2e
 def test_a_success_resets_the_failure_count(fake_client, monkeypatch):
     monkeypatch.setenv("BOW_CONN_DEACTIVATE_AFTER_FAILURES", "3")

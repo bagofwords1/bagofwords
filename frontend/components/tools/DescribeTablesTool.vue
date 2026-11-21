@@ -2,11 +2,7 @@
   <div class="min-w-0">
     <!-- Status header (click to expand/collapse results) -->
     <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
-      <template #label>
-      <template v-if="status === 'running'">Searching&nbsp;{{ queryLabel }}…</template>
-      <template v-else>Searched&nbsp;<template v-if="headerTables.length">
-      <template v-for="(item, idx) in headerTables">{{ item.full_name || item.name || 'table' }}<template v-if="idx < headerTables.length - 1 || headerExtraCount > 0">,</template></template></template>
-      <template v-else>{{ queryLabel }}</template></template></template>
+      <template #label>{{ headerLabel }}</template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
@@ -182,6 +178,14 @@ const dedupedTables = computed<any[]>(() => {
 })
 const headerTables = computed<any[]>(() => dedupedTables.value.slice(0, HEADER_MAX_TABLES))
 const headerExtraCount = computed<number>(() => Math.max(0, dedupedTables.value.length - HEADER_MAX_TABLES))
+// Built as one string: in a multi-line template Vue's whitespace condensing
+// dropped the spaces after the commas ("orders,events").
+const headerLabel = computed<string>(() => {
+  if (status.value === 'running') return `Searching ${queryLabel.value}…`
+  if (!headerTables.value.length) return `Searched ${queryLabel.value}`
+  const names = headerTables.value.map((item: any) => item.full_name || item.name || 'table').join(', ')
+  return `Searched ${names}${headerExtraCount.value > 0 ? ` +${headerExtraCount.value}` : ''}`
+})
 
 const expandedItems = ref<Set<number>>(new Set())
 function toggleItem(index: number) {

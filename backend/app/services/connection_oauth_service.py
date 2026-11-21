@@ -7,6 +7,7 @@ Maps connection types to their OAuth provider configuration and manages token li
 import asyncio
 import base64
 import hashlib
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -142,12 +143,26 @@ def get_oauth_params(connection: Connection) -> dict:
             ),
         }
 
+        scopes = scopes_map[conn_type]
+        # Write actions a connection admin turned on (send_email, post_message,
+        # ...) need their own delegated scopes: Mail.ReadWrite, Mail.Send,
+        # ChannelMessage.Send. Recorded on the connection when its tools change.
+        cfg = connection.config
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = {}
+        extra = [x for x in ((cfg or {}).get("action_scopes") or []) if isinstance(x, str) and x not in scopes.split()]
+        if extra:
+            scopes = f"{scopes} {' '.join(extra)}"
+        authority = (os.getenv("BOW_GRAPH_TOKEN_BASE_URL") or "https://login.microsoftonline.com").rstrip("/")
         return {
-            "authorize_url": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize",
-            "token_url": f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+            "authorize_url": f"{authority}/{tenant_id}/oauth2/v2.0/authorize",
+            "token_url": f"{authority}/{tenant_id}/oauth2/v2.0/token",
             "client_id": client_id,
             "client_secret": client_secret,
-            "scopes": scopes_map[conn_type],
+            "scopes": scopes,
             "provider_name": "microsoft",
         }
 

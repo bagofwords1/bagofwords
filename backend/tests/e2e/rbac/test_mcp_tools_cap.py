@@ -13,8 +13,10 @@ Contract:
     ``call_tool`` refuses any other name — for members as well as admins;
   * custom API connections take the same path: native tools, search past
     the cap, and the call reaches the API through its real client;
-  * a tool on two of the run's agents with different settings gets the
-    strictest one, in the tool list and when it is called.
+  * a tool on two of the run's agents with different settings follows the
+    rule of the agent the call goes through (the least strict agent that
+    enables it), in the tool list and when it is called; the connection is
+    the ceiling (off there = off everywhere; a locked policy only tightens).
 
 The LLM boundary and the MCP provider client are stubbed; routes, services, the
 agent loop and the tool gateway run real.
@@ -264,43 +266,122 @@ def _set(test_client, org, ds_id, tool_id, **body):
     assert r.status_code == 200, r.text
 
 
-def test_a_shared_tool_takes_the_strictest_setting_across_the_runs_agents(
+def _tool_results(test_client, user, org_id, report_id):
+    """Every MCP tool result the run persisted (the rehydration source)."""
+    h = {"Authorization": f"Bearer {user['token']}", "X-Organization-Id": str(org_id)}
+    r = test_client.get(f"/api/reports/{report_id}/completions", headers=h)
+    assert r.status_code == 200, r.text
+    out = []
+    for c in r.json().get("completions", []):
+        for block in (c.get("completion_blocks") or []):
+            te = block.get("tool_execution") or {}
+            name = str(te.get("tool_name") or "")
+            if name == "execute_mcp" or name.startswith("mcp__"):
+                out.append(te.get("result_json") or {})
+    return out
+
+
+def test_a_shared_tool_follows_the_rule_of_the_agent_it_goes_through(
         test_client, org, planner, two_agents_one_connection):
+    """Two agents on one connection with different settings: neither agent's
+    rule takes the other's tools away. A call goes through the agent that
+    enables it, and the result records that agent."""
     agents = two_agents_one_connection
-    slug, conn_id = org["agents"]["shared"]["slug"], org["agents"]["shared"]["conn_id"]
-    # Written allow-first, so "the first setting found" is the permissive one.
+    slug = org["agents"]["shared"]["slug"]
+    # Written allow-first, so "the first setting found" would be the permissive one.
     _set(test_client, org, agents["b"], agents["tool_ids"]["echo"], policy="allow")
     _set(test_client, org, agents["a"], agents["tool_ids"]["echo"], policy="deny")
     _set(test_client, org, agents["b"], agents["tool_ids"]["get_records"], is_enabled=True)
     _set(test_client, org, agents["a"], agents["tool_ids"]["get_records"], is_enabled=False)
 
+    planner.queue = [(_name(slug, "echo"), {"message": "hi"})]
+    h = org["h"]
+    r = test_client.post("/api/reports", headers=h, json={"title": "via", "files": [],
+                                                          "data_sources": [agents["a"], agents["b"]]})
+    report_id = r.json()["id"]
+    with _provider() as client:
+        r = test_client.post(f"/api/reports/{report_id}/completions", headers=h,
+                             params={"background": False}, json={"prompt": {"content": "Use the tools."}})
+    assert r.status_code == 200, r.text
+
+    offered = planner.mcp_tools(0)
+    assert {_name(slug, "echo"), _name(slug, "get_records"), _name(slug, "search_docs")} <= set(offered), offered
+    assert client._call_log == [{"tool_name": "echo", "arguments": {"message": "hi"}}]
+    results = _tool_results(test_client, org["admin"], org["org_id"], report_id)
+    assert any((res.get("via_agent") or {}).get("id") == agents["b"] for res in results), results
+
+
+def test_a_tool_no_agent_in_the_run_enables_is_neither_offered_nor_run(
+        test_client, org, planner, two_agents_one_connection):
+    agents = two_agents_one_connection
+    slug, conn_id = org["agents"]["shared"]["slug"], org["agents"]["shared"]["conn_id"]
+    _set(test_client, org, agents["a"], agents["tool_ids"]["echo"], policy="deny")
+    _set(test_client, org, agents["b"], agents["tool_ids"]["echo"], is_enabled=False)
+
     planner.queue = [("execute_mcp", {"connection_id": conn_id, "tool_name": "echo",
                                       "arguments": {"message": "hi"}, "title": "Echo"})]
     client = _ask(test_client, org["admin"], org["org_id"], [agents["a"], agents["b"]])
-
-    offered = planner.mcp_tools(0)
-    assert _name(slug, "echo") not in offered and _name(slug, "get_records") not in offered, offered
-    assert _name(slug, "search_docs") in offered
-    assert client._call_log == [], "a call to the denied tool must not reach the server"
-    assert "denied" in planner.results[-1].lower(), planner.results
-    # <mcp_tools> agrees with the tool list: each agent's own view would list
-    # get_records (agent b enables it) and echo, which the run cannot call.
+    assert _name(slug, "echo") not in planner.mcp_tools(0)
+    assert client._call_log == [], "a tool no agent enables must not reach the server"
     context = planner.texts[0].replace('\\"', '"')
-    assert '<tool name="search_docs"' in context
-    assert '<tool name="get_records"' not in context and '<tool name="echo"' not in context, context
+    assert '<tool name="echo"' not in context, context
 
 
-def test_strictest_setting_unit_rules():
-    from types import SimpleNamespace as N
-    from app.services.tool_policy_service import strictest_admin_setting
+def test_a_tool_switched_off_on_the_connection_is_off_for_every_agent(
+        test_client, org, planner, two_agents_one_connection):
+    """The connection is the ceiling: an agent row that enables the tool does
+    not bring back a tool the connection admin switched off."""
+    agents = two_agents_one_connection
+    slug, conn_id = org["agents"]["shared"]["slug"], org["agents"]["shared"]["conn_id"]
+    _set(test_client, org, agents["b"], agents["tool_ids"]["echo"], is_enabled=True, policy="allow")
+    r = test_client.put(f"/api/connections/{conn_id}/tools/{agents['tool_ids']['echo']}",
+                        headers=org["h"], json={"is_enabled": False})
+    assert r.status_code == 200, r.text
 
-    tool = N(is_enabled=True, policy="allow")
-    assert strictest_admin_setting(tool, []) == (True, "allow")
-    assert strictest_admin_setting(tool, [N(is_enabled=True, policy="ask")], 1) == (True, "ask")
-    # One agent overrides, the other uses the tool default.
-    assert strictest_admin_setting(N(is_enabled=True, policy="deny"), [N(is_enabled=True, policy="allow")], 2) == (True, "deny")
-    assert strictest_admin_setting(tool, [N(is_enabled=True, policy="auto"), N(is_enabled=True, policy="ask")], 2) == (True, "ask")
-    assert strictest_admin_setting(tool, [N(is_enabled=False, policy="allow"), N(is_enabled=True, policy="allow")], 2)[0] is False
+    planner.queue = [("execute_mcp", {"connection_id": conn_id, "tool_name": "echo",
+                                      "arguments": {"message": "hi"}, "title": "Echo"})]
+    client = _ask(test_client, org["admin"], org["org_id"], [agents["b"]])
+    assert _name(slug, "echo") not in planner.mcp_tools(0)
+    assert client._call_log == []
+    row = next(t for t in test_client.get(f"/api/data_sources/{agents['b']}/tools", headers=org["h"]).json()
+               if t["name"] == "echo")
+    assert row["is_enabled"] is False
+
+
+@pytest.mark.parametrize("loosened_by", ["agent", "user"])
+def test_a_locked_connection_policy_can_be_tightened_but_never_loosened(
+        test_client, org, two_agents_one_connection, loosened_by):
+    agents = two_agents_one_connection
+    conn_id, tool_id = org["agents"]["shared"]["conn_id"], agents["tool_ids"]["echo"]
+    r = test_client.put(f"/api/connections/{conn_id}/tools/{tool_id}", headers=org["h"],
+                        json={"policy": "ask", "policy_locked": True})
+    assert r.status_code == 200 and r.json()["policy_locked"] is True, r.text
+
+    def row(ds):
+        return next(t for t in test_client.get(f"/api/data_sources/{ds}/tools", headers=org["h"]).json()
+                    if t["id"] == tool_id)
+
+    if loosened_by == "agent":
+        _set(test_client, org, agents["b"], tool_id, policy="allow")
+    else:
+        r = test_client.put(f"/api/data_sources/{agents['b']}/tools/{tool_id}/my_policy",
+                            headers=org["h"], json={"policy": "allow"})
+        assert r.status_code == 200, r.text
+    assert row(agents["b"])["effective_policy"] == "ask"
+    assert row(agents["b"])["policy_locked"] is True
+
+    # Tightening still works.
+    _set(test_client, org, agents["a"], tool_id, policy="deny")
+    assert row(agents["a"])["effective_policy"] == "deny"
+
+
+def test_only_connection_managers_can_lock_a_tool_policy(test_client, org, two_agents_one_connection):
+    conn_id, tool_id = org["agents"]["shared"]["conn_id"], two_agents_one_connection["tool_ids"]["echo"]
+    member = org["member"]
+    h = {"Authorization": f"Bearer {member['token']}", "X-Organization-Id": str(org["org_id"])}
+    r = test_client.put(f"/api/connections/{conn_id}/tools/{tool_id}", headers=h,
+                        json={"policy": "allow", "policy_locked": False})
+    assert r.status_code in (403, 404), r.text
 
 
 def test_no_mcp_tool_is_offered_when_the_org_switches_mcp_tools_off(

@@ -4,14 +4,35 @@ from typing import List, Literal, Optional
 
 # --- Roles ---
 
+# Group-manager grants (resource_type "group") are written only by the
+# promote/demote routes, which hold the rules for who may carry one: a single
+# user who is a member of that group. Accepting them through the generic grant
+# or role routes would let a role or a whole group administer a group.
+GROUP_RESOURCE_TYPE = "group"
+
+
+def _reject_group_grants(value: str) -> str:
+    if value == GROUP_RESOURCE_TYPE:
+        raise ValueError("Group managers are set on the group itself, not through grants")
+    return value
+
+
 class RoleResourceGrantInput(BaseModel):
     resource_type: str  # "data_source" | "connection"
     resource_id: str
     permissions: List[str] = []
 
+    @field_validator("resource_type")
+    @classmethod
+    def reject_group_grants(cls, v: str) -> str:
+        return _reject_group_grants(v)
+
 
 class RoleResourceGrantOutput(RoleResourceGrantInput):
-    pass
+    @field_validator("resource_type")
+    @classmethod
+    def reject_group_grants(cls, v: str) -> str:
+        return v
 
 
 class RoleCreate(BaseModel):
@@ -88,6 +109,9 @@ class GroupSchema(GroupCreate):
     # membership id. Materialized into ``member_user_ids`` when the invitee
     # registers.
     member_membership_ids: List[str] = []
+    # Users who manage this group's membership (see group managers in
+    # app/services/rbac_service.py). Always empty for imported groups.
+    manager_user_ids: List[str] = []
 
     class Config:
         from_attributes = True
@@ -112,6 +136,7 @@ class GroupMemberSchema(BaseModel):
     user_name: Optional[str] = None
     user_email: Optional[str] = None
     pending: bool = False
+    is_manager: bool = False
 
     class Config:
         from_attributes = True
@@ -145,6 +170,11 @@ class ResourceGrantCreate(BaseModel):
     principal_id: str
     permissions: List[str] = []
 
+    @field_validator("resource_type")
+    @classmethod
+    def reject_group_grants(cls, v: str) -> str:
+        return _reject_group_grants(v)
+
 
 class ResourceGrantUpdate(BaseModel):
     permissions: List[str]
@@ -154,6 +184,11 @@ class ResourceGrantSchema(ResourceGrantCreate):
     principal_type: Literal["user", "group", "role"]
     id: str
     organization_id: str
+
+    @field_validator("resource_type")
+    @classmethod
+    def reject_group_grants(cls, v: str) -> str:
+        return v
 
     class Config:
         from_attributes = True

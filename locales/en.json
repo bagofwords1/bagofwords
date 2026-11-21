@@ -1035,6 +1035,34 @@
         "nothing": "Nothing to clear yet",
         "failed": "Couldn't clear the context"
       }
+    },
+    "permissionMode": {
+      "title": "Tool permissions",
+      "tooltip": "Tool permissions: {mode}",
+      "default": "default",
+      "allowAllBanner": "Allow all is on: the agent runs connection tools without asking. Blocked and denied tools still never run.",
+      "switchToAsk": "Switch to Ask",
+      "saveFailed": "Couldn't change the permission mode",
+      "modes": {
+        "ask": {
+          "label": "Ask",
+          "hint": "Each tool follows its own setting; asks before changes."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Read-only calls run; a model decides the rest and asks when unsure."
+        },
+        "allow_all": {
+          "label": "Allow all",
+          "hint": "Tools set to ask run without asking, in this report only."
+        }
+      },
+      "unknown": {
+        "label": "Mode unknown",
+        "hint": "Couldn't load the permission settings, so the mode the next run uses is unknown."
+      },
+      "loadFailed": "Couldn't load the permission settings",
+      "retry": "Retry"
     }
   },
   "exports": {
@@ -1579,6 +1607,7 @@
       "worked": "Worked",
       "working": "Working",
       "workingFor": "Working for {duration}",
+      "failedCount": "{count} failed",
       "viewSteps": "View steps",
       "hideSteps": "Hide steps",
       "checks": "{count} checks",
@@ -1983,6 +2012,34 @@
         "openLink": "Open link",
         "cancel": "Cancel",
         "contextShared": "The app shared what you selected with the assistant."
+      },
+      "viaAgent": "Via {name}",
+      "allowForReport": "Allow for this report",
+      "allowForReportHint": "Don't ask again for this tool in this report",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Run without asking (Allow all)",
+          "refused": "Not run"
+        },
+        "readOnly": {
+          "allowed": "Run without asking: read-only",
+          "refused": "Not run"
+        },
+        "blocklist": {
+          "allowed": "Allowed",
+          "refused": "Refused by the safety blocklist"
+        },
+        "rememberedReport": {
+          "allowed": "Allowed for this report",
+          "refused": "Denied for this report"
+        },
+        "unattended": {
+          "allowed": "Allowed by the setting for unattended runs",
+          "refused": "Not run: needs approval and nobody is watching"
+        },
+        "unknownTool": {
+          "refused": "Not run: this tool is not in the connection's tool list"
+        }
       }
     },
     "remoteOp": {
@@ -2560,11 +2617,12 @@
       "glob": "Wildcard pattern",
       "hint": "Rules match full commands in this working directory. Prefix allows exclude shell operators and expansion.",
       "always": "Always allow matching",
-      "session": "Allow for this session",
+      "session": "Allow for this report (8 hours)",
       "mine": "My shell rules",
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
-      "failed": "Could not load or save rules. Check the JSON and try again."
+      "failed": "Could not load or save rules. Check the JSON and try again.",
+      "sessionHint": "Runs matching commands in this report without asking for the next 8 hours."
     },
     "readReport": {
       "window": "messages {start}–{end} / {total}",
@@ -2587,6 +2645,13 @@
       "unknownState": "The remote process may still be running. Check its state before retrying.",
       "exitCode": "Exit code: {code}",
       "cancelledBeforeExecution": "Cancelled before execution."
+    },
+    "requestAgentSignin": {
+      "checking": "Checking agents…",
+      "connect": "Connect",
+      "connected": "Connected",
+      "askAgain": "Ask again",
+      "readyHint": "Connected. Run your question again to use it."
     }
   },
   "entityCreate": {
@@ -2865,7 +2930,18 @@
     "failedToSave": "Failed to save group",
     "failedToAddMember": "Failed to add member",
     "failedToRemoveMember": "Failed to remove member",
-    "failedToUpdateRoles": "Failed to update group roles"
+    "failedToUpdateRoles": "Failed to update group roles",
+    "youManage": "You manage",
+    "managerBadge": "Manager",
+    "makeManager": "Make manager",
+    "removeManager": "Remove manager",
+    "removeMember": "Remove from group",
+    "managerHint": "You manage this group: add or remove members, and make members managers.",
+    "managedExternallyHint": "Synced from your identity provider. Change its members there.",
+    "noManagedGroupsHint": "You don't manage any groups.",
+    "toastManagerAdded": "Member is now a group manager",
+    "toastManagerRemoved": "Manager role removed",
+    "failedToUpdateManager": "Failed to update group manager"
   },
   "quotaPolicies": {
     "searchPlaceholder": "Search quotas...",
@@ -4224,6 +4300,34 @@
           "name": "World view",
           "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
         }
+      },
+      "permissionMode": {
+        "title": "Tool permission mode",
+        "description": "How the agent decides whether to run connection tools and remote shell commands. Users pick a mode per report in the prompt box; disabled and denied tools, and the built-in safety blocklist, apply in every mode.",
+        "defaultMode": "Default mode for new reports",
+        "unattended": "Runs nobody is watching",
+        "unattendedOptions": {
+          "refuse": "Refuse",
+          "settings": "Use the per-tool settings",
+          "allow": "Allow"
+        },
+        "unattendedHints": {
+          "refuse": "Scheduled, webhook, API and other unattended runs skip any tool that would ask.",
+          "settings": "Tools on Auto use the model review; tools on Ask are skipped.",
+          "allow": "Tools that would ask run in scheduled, webhook and API runs. Chats on other channels still skip them."
+        },
+        "allowAll": "Allow \"Allow all\"",
+        "allowAllDescription": "Let users turn off approval prompts for a report, or make it the default for new reports. It applies only to the report owner's own runs while they watch.",
+        "judgeModel": "Model for Auto decisions",
+        "judgeModelHint": "Automatic uses the router's decision model when routing uses one, else the small default model.",
+        "judgeModelOptions": {
+          "automatic": "Automatic",
+          "small": "Small default model",
+          "unavailable": "Unavailable model",
+          "notLoaded": "Saved model (list not loaded)"
+        },
+        "judgeModelLoadFailed": "Couldn't load the decision models.",
+        "judgeModelRetry": "Retry"
       }
     },
     "llms": {
@@ -5447,6 +5551,9 @@
     "shell_confirmation.invalid_scope": "Invalid permission scope.",
     "shell_confirmation.report_required": "Session permissions require a report.",
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
+    "tool_permission_mode.allow_all_off": "Allow all is turned off for this organization.",
+    "tool_permission_mode.allow_all_default_needs_switch": "Allow all can be the default only while it is turned on.",
+    "tool_permission_mode.judge_model_unavailable": "Choose an enabled decision model for the Auto judge.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
@@ -5488,6 +5595,7 @@
     "system_logs.instance_admin_required": "Only an instance administrator can use system logs.",
     "system_logs.invalid_range": "The start time must be before the end time.",
     "system_logs.delete_failed": "The log files in {directory} could not be deleted. Check that the directory exists and is writable.",
+    "system_logs.disabled": "System logs are turned off on this server. To turn them on, set BOW_SYSTEM_LOGS_ENABLED=true (or system_logs.enabled in bow-config.yaml) and restart the server.",
     "verification.invalid": "Invalid or expired verification token",
     "body.invalid_json": "Invalid JSON body",
     "organization.not_found": "Organization not found",
@@ -5505,6 +5613,9 @@
     "role.not_found": "Role not found",
     "group.not_found": "Group not found",
     "group.managed_by_scim": "This group is managed by your identity provider (SCIM). Change it there.",
+    "group.managed_externally": "This group is synced from your identity provider; change its members there.",
+    "group.manager_not_member": "Only registered members of the group can be made managers.",
+    "group.manager_protected": "Only an organization admin can remove or demote a group manager.",
     "instruction.not_found": "Instruction not found",
     "instruction.version_not_found": "Instruction version not found",
     "instruction.label_not_found": "Instruction label not found",
@@ -5594,6 +5705,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse did not accept this login, so it was not saved. Check the username and password, or the API token, and try again.",
     "connection.kms_login_paused": "KMS Lighthouse recently refused this login, so new attempts with it are paused for a few minutes and it was not saved. Check the login, or try again later.",
     "connection.kms_session_refused": "KMS Lighthouse accepted the login but refused its session, so it cannot be used and was not saved. Ask the KMS administrator whether this account may use the KMS API.",
+    "connection.confluence_login_rejected": "Confluence did not accept this personal access token or login, so it was not saved. Check it, or create a new token in Confluence under Profile > Personal Access Tokens.",
+    "connection.confluence_login_captcha": "Confluence requires a CAPTCHA for this account after failed logins, so it was not saved. Sign in to Confluence once in a browser to clear it, or use a personal access token.",
+    "connection.jira_login_rejected": "Jira did not accept this personal access token or login, so it was not saved. Check it, or create a new token in Jira under Profile > Personal Access Tokens.",
+    "connection.jira_login_captcha": "Jira requires a CAPTCHA for this account after failed logins, so it was not saved. Sign in to Jira once in a browser to clear it, or use a personal access token.",
     "access_request.disabled": "Access requests are turned off for this organization.",
     "access_request.not_allowed": "This dashboard does not need an access request.",
     "access_request.already_has_access": "You already have access to this dashboard.",
@@ -8161,7 +8276,11 @@
       "publishChanges": "Publish changes",
       "popoverLiveNow": "Viewers now see v{n}",
       "popoverReplaceWith": "v{n} replaces it",
-      "popoverCancel": "Cancel"
+      "popoverCancel": "Cancel",
+      "newerTitle": "A newer version is ready (v{n})",
+      "newerBody": "This dashboard was updated since you opened it.",
+      "newerRefresh": "Refresh to v{n}",
+      "newerKeep": "Keep viewing v{n}"
     },
     "access": {
       "signInTitle": "Sign in required",
@@ -8499,6 +8618,9 @@
     "close": "Close",
     "button": "Preview"
   },
+  "confluenceFileScope": {
+    "allSpaces": "Every space this identity can see"
+  },
   "kmsFileScope": {
     "headerSubtitle": "The root folder sets where browsing starts. KMS permissions decide what the agent can search and read.",
     "browsingOnly": "Browsing only",
@@ -8570,7 +8692,14 @@
     "inheritedHint": "These people and groups reach this agent through a folder or connection. Change their access at the source.",
     "viaFolder": "Via folder {name}",
     "viaConnection": "Via connection {name}",
-    "inheritedHidden": "Others may have access through a folder or connection you don't manage."
+    "inheritedHidden": "Others may have access through a folder or connection you don't manage.",
+    "permissionCap": {
+      "title": "Permission mode cap",
+      "hint": "Limits the permission mode of reports that use this agent. Ask: every tool follows its own setting. Auto: a model may decide.",
+      "none": "No cap",
+      "ask": "Ask",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Send me product updates",
@@ -8842,5 +8971,72 @@
     },
     "or": "OR",
     "and": "AND"
+  },
+  "figure": {
+    "chart": "Chart",
+    "table": "Table",
+    "open": "Open in panel",
+    "more": "More actions",
+    "search": "Search {count} rows",
+    "searchLabel": "Search rows",
+    "noMatch": "No matching rows",
+    "showAll": "Show all {count} rows",
+    "showLess": "Show fewer",
+    "loading": "Loading the result",
+    "untitled": "Result",
+    "caption": "Figure {n}.",
+    "topOf": "top {shown} of {total}",
+    "firstOf": "first {shown} of {total} rows",
+    "addToDashboard": "Add to dashboard",
+    "addedToDashboard": "Added to dashboard",
+    "addFailed": "Couldn't add to the dashboard",
+    "saveQuery": "Save as query",
+    "savedQuery": "Saved as query",
+    "downloadCsv": "Download CSV",
+    "downloadExcel": "Download Excel",
+    "downloadImage": "Download image",
+    "exportFailed": "Couldn't export the result",
+    "copyData": "Copy data",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy",
+    "viewCode": "View code"
+  },
+  "connectionTools": {
+    "tab": "Tools",
+    "intro": "Choose what agents can do in this system. Agents and users can make a tool stricter, never looser than a locked setting here.",
+    "empty": "This connection has no tools yet.",
+    "loadFailed": "Couldn't load the tools.",
+    "saveFailed": "Couldn't save the change.",
+    "on": "On",
+    "off": "Off",
+    "enabled": "{name} is available to agents",
+    "enableGroup": "Turn on all {group} tools",
+    "policyFor": "Policy for {name}",
+    "lock": "Lock the policy of {name}",
+    "unlock": "Unlock the policy of {name}",
+    "lockHint": "Locked: agents and users can make this stricter, never looser.",
+    "needsScope": "Needs {scope}",
+    "missingScopes": "Your sign-in doesn't include {scopes}. An admin grants it in the Entra app registration; then sign in again.",
+    "grantAccess": "Sign in again",
+    "builtinReadHint": "Always available: reading never changes anything.",
+    "effect": {
+      "read": {
+        "title": "Read",
+        "hint": "Looks things up; changes nothing."
+      },
+      "modify": {
+        "title": "Modify",
+        "hint": "Changes the user's own data; can be undone."
+      },
+      "external": {
+        "title": "External",
+        "hint": "Others see it and it can't be taken back. Automatic review is not offered."
+      },
+      "destructive": {
+        "title": "Destructive",
+        "hint": "Deletes or locks things. Always asks first."
+      }
+    },
+    "builtinBadge": "Built-in"
   }
 }

@@ -3479,6 +3479,230 @@ class KmsLighthouseTokenCredentials(BaseModel):
         return value
 
 
+# Confluence Data Center / Server (on-prem wiki, read-only live file connector).
+class ConfluenceDcConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Confluence URL",
+        description=(
+            "Your Confluence Data Center or Server address, including the context path if it has one, "
+            "e.g. https://confluence.example.com or https://intranet.example.com/confluence."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    spaces: Optional[str] = Field(
+        None,
+        title="Spaces",
+        description=(
+            "Optional comma-separated space keys to limit this connection to, e.g. ENG, HR. Search, browsing "
+            "and reads never leave these spaces. Leave blank for every space the identity can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_blogposts: bool = Field(
+        True, title="Include blog posts",
+        description="Also search and list blog posts, not only pages.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    max_results: int = Field(
+        200, ge=1, le=1000, title="Max results",
+        description="Upper bound on pages returned by one search or listing.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for real deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+    # No catalog (live only): keeps the index_mode consumers reporting "Live".
+    index_mode: str = Field("none", title="Indexing", json_schema_extra={"ui:hidden": True})
+
+    @field_validator("spaces")
+    @classmethod
+    def _space_keys(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        keys = [k for k in re.split(r"[,\s]+", str(value)) if k]
+        if not all(re.fullmatch(r"~?[A-Za-z0-9_.@-]{1,255}", k) for k in keys):
+            raise ValueError("Use space keys separated by commas, e.g. ENG, HR (the key from the space's URL).")
+        return ", ".join(keys)
+
+    @field_validator("index_mode")
+    @classmethod
+    def _live_only(cls, value):
+        if value != "none":
+            raise ValueError("Confluence connections are live only (no indexing).")
+        return value
+
+
+# Visible ASCII only: a token goes into an HTTP header as-is.
+CONFLUENCE_TOKEN_RE = re.compile(r"\A[\x21-\x7e]+\Z")
+CONFLUENCE_TOKEN_FORMAT_MESSAGE = (
+    "The Confluence personal access token can contain only plain letters, digits and punctuation, with no "
+    "spaces. Copy it again from Confluence (Profile > Personal Access Tokens) and paste it as plain text."
+)
+
+
+class ConfluenceDcTokenCredentials(BaseModel):
+    """A Confluence Data Center personal access token (7.9+), sent as a Bearer token."""
+    # A validation error must not echo the rejected token.
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    personal_access_token: str = Field(..., min_length=1, title="Personal access token",
+        description="Create one in Confluence under Profile > Personal Access Tokens. It reads as that user.",
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("personal_access_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not CONFLUENCE_TOKEN_RE.fullmatch(value):
+            raise ValueError(CONFLUENCE_TOKEN_FORMAT_MESSAGE)
+        return value
+
+
+class ConfluenceDcUserPassCredentials(BaseModel):
+    """A Confluence username and password, sent as HTTP Basic."""
+    # A validation error must not echo the rejected input (it may be the password).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="Username",
+        description="Confluence username.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("Confluence password. Sites that sign in through SSO usually refuse passwords on the API: "
+                     "use a personal access token there."),
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        return value.strip()
+
+
+# Jira Data Center / Server (on-prem issue tracker: tables + issues as documents, read-only, live).
+JIRA_DC_TABLES = (
+    "issues", "issue_changelog", "issue_comments", "worklogs", "issue_links", "attachments",
+    "projects", "versions", "components", "boards", "sprints",
+    "statuses", "priorities", "resolutions", "issue_types", "fields",
+)
+
+
+class JiraDcConfig(BaseModel):
+    base_url: str = Field(
+        ...,
+        title="Jira URL",
+        description=(
+            "Your Jira Data Center or Server address, including the context path if it has one, "
+            "e.g. https://jira.example.com or https://intranet.example.com/jira."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    projects: Optional[str] = Field(
+        None,
+        title="Projects",
+        description=(
+            "Optional comma-separated project keys to limit this connection to, e.g. OPS, HR. Every query, "
+            "search and read stays inside these projects. Leave blank for every project the identity can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    tables: Optional[str] = Field(
+        None,
+        title="Tables",
+        description=(
+            "Optional comma-separated subset of tables to expose. Leave blank for all: "
+            + ", ".join(JIRA_DC_TABLES) + "."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_rows: int = Field(
+        2000, ge=1, le=10000, title="Max rows",
+        description="Upper bound on rows one query returns. Filter with JQL (a project and a date range) to stay under it.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    include_issue_documents: bool = Field(
+        True, title="Read issues as documents",
+        description="Let the agent search issues and read one issue (description, comments, links) as a document.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for real deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+
+    @field_validator("projects")
+    @classmethod
+    def _project_keys(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        keys = [k for k in re.split(r"[,\s]+", str(value)) if k]
+        if not all(re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,254}", k) for k in keys):
+            raise ValueError("Use project keys separated by commas, e.g. OPS, HR (the key in an issue key like OPS-123).")
+        return ", ".join(k.upper() for k in keys)
+
+    @field_validator("tables")
+    @classmethod
+    def _table_names(cls, value):
+        if value is None or not str(value).strip():
+            return None
+        names = [t.strip().lower() for t in re.split(r"[,\s]+", str(value)) if t.strip()]
+        unknown = [t for t in names if t not in JIRA_DC_TABLES]
+        if unknown:
+            raise ValueError("Unknown table(s): " + ", ".join(unknown) + ". Choose from: " + ", ".join(JIRA_DC_TABLES) + ".")
+        return ", ".join(names)
+
+
+JIRA_TOKEN_FORMAT_MESSAGE = (
+    "The Jira personal access token can contain only plain letters, digits and punctuation, with no spaces. "
+    "Copy it again from Jira (Profile > Personal Access Tokens) and paste it as plain text."
+)
+
+
+class JiraDcTokenCredentials(BaseModel):
+    """A Jira Data Center personal access token (8.14+), sent as a Bearer token."""
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    personal_access_token: str = Field(..., min_length=1, title="Personal access token",
+        description="Create one in Jira under Profile > Personal Access Tokens. It reads as that user.",
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("personal_access_token")
+    @classmethod
+    def _plain_token(cls, value):
+        value = value.strip()
+        if not CONFLUENCE_TOKEN_RE.fullmatch(value):
+            raise ValueError(JIRA_TOKEN_FORMAT_MESSAGE)
+        return value
+
+
+class JiraDcUserPassCredentials(BaseModel):
+    """A Jira username and password, sent as HTTP Basic."""
+    model_config = ConfigDict(hide_input_in_errors=True)
+
+    username: str = Field(..., min_length=1, title="Username",
+        description="Jira username.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password",
+        description=("Jira password. Sites that sign in through SSO usually refuse passwords on the API: "
+                     "use a personal access token there."),
+        json_schema_extra={"ui:type": "password"})
+
+    @field_validator("username", "password")
+    @classmethod
+    def _not_blank(cls, value):
+        if not value.strip():
+            raise ValueError("Enter a value, not only spaces.")
+        return value
+
+    @field_validator("username")
+    @classmethod
+    def _trim_username(cls, value):
+        return value.strip()
+
+
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
 # Microsoft Intune (Microsoft Graph, app-only). Tenant-wide device inventory is
@@ -3755,8 +3979,17 @@ class OutlookMailConfig(BaseModel):
 class TeamsMessagesConfig(BaseModel):
     """Microsoft Teams needs no admin-side scope: each user's Microsoft sign-in
     decides which channels and chats are visible, and messages are always
-    searched live (nothing is copied into BOW)."""
-    pass
+    searched live (nothing is copied into BOW).
+
+    ``allowed_post_channels`` only matters once a connection admin turns on
+    the post_message action: posts may then go only to these channels."""
+    allowed_post_channels: Optional[str] = Field(
+        None,
+        title="Channels agents may post to",
+        description=("Comma- or newline-separated channel names (e.g. 'SOC › Alerts' or 'Alerts') or "
+                     "channel ids. Empty: any channel the signed-in user can post in."),
+        json_schema_extra={"ui:type": "textarea"},
+    )
 
 
 # Slack
