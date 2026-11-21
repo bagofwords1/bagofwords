@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 # kms_lighthouse is deliberately absent: it has no catalog (get_schemas() returns []),
 # so _run_connection_test's table-count assertion can never pass. Verify it with
 # tools/kms_lighthouse/mock_kms_server.py and its unit/e2e tests.
+# confluence_dc is absent for the same reason: verify it with
+# tools/confluence/mock_confluence_server.py and its unit/e2e tests.
 DATA_SOURCES = [
     "netapp_ontap",  # customer-run ONTAP validation; see tools/netapp/README.md
     "brocade",  # Real switch or tools/brocade/simulated_api.py; credentials via integrations.json.

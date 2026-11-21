@@ -55,6 +55,8 @@ const SEARCH_ALIASES: Record<string, string[]> = {
   gmail_mail: ['google', 'email', 'mail'],
   outlook_mail: ['microsoft', 'email', 'mail', 'office'],
   exchange_onprem: ['microsoft', 'email', 'mail', 'outlook', 'ews', 'on-prem', 'onprem'],
+  confluence_dc: ['atlassian', 'wiki', 'knowledge base', 'pages', 'server', 'on-prem', 'onprem'],
+  jira_dc: ['atlassian', 'issues', 'tickets', 'sprints', 'agile', 'jql', 'server', 'on-prem', 'onprem'],
   teams_messages: ['microsoft', 'teams', 'chat', 'messages', 'channels', 'office'],
   slack_messages: ['slack', 'chat', 'messages', 'channels', 'dm', 'threads'],
   onedrive: ['microsoft', 'office'],

@@ -1954,7 +1954,8 @@ class ConnectionService:
         manual = (
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
-            and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse")
+            and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse",
+                                    "confluence_dc", "jira_dc")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -1970,6 +1971,9 @@ class ConnectionService:
         if connection.type == "kms_lighthouse":
             # Raises when KMS refuses the login, before anything is stored.
             checked = await self._check_kms_member_login(connection, payload.auth_mode, credentials)
+        elif connection.type in ("confluence_dc", "jira_dc"):
+            # Raises when Confluence / Jira refuses the token or login, before anything is stored.
+            checked = await self._check_confluence_member_login(connection, payload.auth_mode, credentials)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
             row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
@@ -1978,7 +1982,7 @@ class ConnectionService:
         row.last_used_at = None
         row.encrypt_credentials(credentials)
         result = {"success": True, "auth_mode": payload.auth_mode}
-        if connection.type == "kms_lighthouse":
+        if connection.type in ("kms_lighthouse", "confluence_dc", "jira_dc"):
             # The identity belongs to this login only: a new login drops the old one.
             metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "verified_identity"}
             identity = checked.get("identity") if checked else None
@@ -1991,6 +1995,51 @@ class ConnectionService:
         db.add(row)
         await db.commit()
         return result
+
+    async def _check_confluence_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
+        """Check a member's Confluence or Jira Data Center token or login once before it is saved.
+
+        (Confluence: GET /rest/api/user/current; Jira: GET /rest/api/2/myself — each client's test_connection.)
+
+        Returns ``{"identity": ...}`` when Confluence accepted it, and None when it
+        could not decide (unreachable, a server error, a space setting the admin
+        must fix): that login is saved unchecked. Raises a typed 422 when Confluence
+        refused it (401 or an anonymous answer), or when the account is behind a
+        CAPTCHA, so a wrong token never reads as "Connected".
+        """
+        import json
+        from app.core.egress import acheck_connection_params
+        from app.errors import AppError, ErrorCode
+        from app.schemas.data_source_registry import overlay_system_credentials
+        config = connection.config
+        if isinstance(config, str):
+            config = json.loads(config or "{}")
+        config = config or {}
+        creds = overlay_system_credentials(connection, credentials, auth_mode)
+        try:
+            await acheck_connection_params(connection.type, {**config, **creds})
+            client = self._resolve_client_by_type(data_source_type=connection.type, config=config,
+                                                  credentials={**creds, "auth_type": auth_mode})
+            outcome = await client.atest_connection()
+        except Exception as exc:
+            # The class name only: the text may hold a URL or a secret.
+            logger.info("%s member login not checked: %s", connection.type, type(exc).__name__)
+            return None
+        outcome = outcome if isinstance(outcome, dict) else {}
+        refused = outcome.get("login_refused")
+        if refused:
+            jira = connection.type == "jira_dc"
+            if refused == "captcha":
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_CAPTCHA if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_CAPTCHA
+            else:
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_REJECTED if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_REJECTED
+            raise AppError(code, outcome.get("message") or "The server did not accept this login.", status_code=422)
+        if outcome.get("success"):
+            return {"identity": (outcome.get("details") or {}).get("identity")}
+        if outcome.get("reachable"):
+            # Confluence accepted the login; only the connection's space list is off (an admin fix).
+            return None
+        return None
 
     async def _check_kms_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
         """Log in to KMS once with a member's login before it is saved.
