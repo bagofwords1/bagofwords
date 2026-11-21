@@ -5027,6 +5027,39 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			}
 			break
 
+		case 'visualization.refined': {
+			// create_data's background visualization inference landed (or gave
+			// up): swap in the refined data_model/view and clear `viz_pending`,
+			// so a figure waiting on it draws and a result card re-renders.
+			const blocks = sysMessage.completion_blocks || []
+			const blk = blocks.find((b: any) => payload.tool_execution_id && b.tool_execution?.id === payload.tool_execution_id)
+				|| blocks.find((b: any) => payload.step_id && b.tool_execution?.created_step_id === payload.step_id)
+			const te: any = blk?.tool_execution
+			if (te) {
+				const rj = { ...(te.result_json || {}) }
+				delete rj.viz_pending
+				if (payload.refined && payload.data_model) {
+					rj.data_model = payload.data_model
+					if (payload.view) rj.view = payload.view
+					if (te.created_step) te.created_step = { ...te.created_step, data_model: payload.data_model }
+					if (Array.isArray(te.created_visualizations) && te.created_visualizations[0] && payload.view) {
+						te.created_visualizations = [{ ...te.created_visualizations[0], view: payload.view }, ...te.created_visualizations.slice(1)]
+					}
+				}
+				te.result_json = rj
+			}
+			if (payload.refined && typeof window !== 'undefined') {
+				window.dispatchEvent(new CustomEvent('visualization:refined', { detail: {
+					tool_execution_id: payload.tool_execution_id,
+					step_id: payload.step_id,
+					visualization_id: payload.visualization_id,
+					data_model: payload.data_model,
+					view: payload.view,
+				} }))
+			}
+			break
+		}
+
 		case 'decision.partial':
 		case 'decision.final':
 			// Update plan decision information

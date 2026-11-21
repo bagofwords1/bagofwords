@@ -1541,6 +1541,25 @@ onMounted(() => {
     } catch {}
   }
   listen('visualization:updated', handleVizUpdated)
+  // create_data's background visualization inference landed. The props side
+  // (result_json / created_step) is patched by the report page; this patches
+  // the copies the card fetched itself before the refinement was written.
+  function handleVizRefined(ev: CustomEvent) {
+    try {
+      const d: any = (ev as any)?.detail || {}
+      const te: any = props.toolExecution
+      const mine = (d.tool_execution_id && String(te?.id) === String(d.tool_execution_id))
+        || (d.step_id && String(te?.created_step_id || '') === String(d.step_id))
+      if (!mine) return
+      if (stepOverride.value && d.data_model) {
+        stepOverride.value = { ...stepOverride.value, data_model: JSON.parse(JSON.stringify(d.data_model)) }
+      }
+      if (hydratedVisualization.value && d.view) {
+        hydratedVisualization.value = { ...hydratedVisualization.value, view: JSON.parse(JSON.stringify(d.view)) }
+      }
+    } catch {}
+  }
+  listen('visualization:refined', handleVizRefined)
   // Live theme updates from dashboard
   function handleThemeChanged(ev: CustomEvent) {
     try {
