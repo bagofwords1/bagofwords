@@ -5,7 +5,7 @@
 //
 // shots: the Groups tab and the Sales members dialog, as the org admin and as
 //        lena@ (Sales manager). Missing UI (e.g. no Groups tab) is captured as is.
-// flow:  lena signs in, opens Groups, adds olga@ to Sales, promotes pete@,
+// flow:  lena signs in, clicks Admin in the app sidebar (lands on Groups), adds olga@ to Sales, promotes pete@,
 //        removes sam@; then checks sam lost the Sales agent. Records a video and
 //        exits 1 if any step's expectation fails.
 const { chromium } = require('playwright');
@@ -67,7 +67,14 @@ async function flow() {
   const { context, page } = await login(browser, 'lena@example.com', {
     deviceScaleFactor: 1, recordVideo: { dir: outDir, size: { width: 1360, height: 860 } },
   });
-  await openGroups(page);
+  // Reach Groups the way a manager would: the sidebar's Admin entry from home.
+  await page.goto(`${ORIGIN}/`, { waitUntil: 'networkidle' }).catch(() => {});
+  await page.waitForTimeout(2000);
+  const adminEntry = page.locator('a[href^="/settings/"]').filter({ hasText: /admin/i });
+  expect(await adminEntry.count() > 0, 'manager sees the Admin entry in the app sidebar');
+  await adminEntry.first().click();
+  await page.waitForTimeout(2500);
+  expect(page.url().includes('tab=groups'), 'Admin entry opens the Groups tab');
   const rows = await page.locator('tbody tr').allInnerTexts();
   expect(rows.some((r) => r.includes('Sales')), 'manager sees Sales on the Groups tab');
   expect(!rows.some((r) => r.includes('Finance')), 'manager does not see Finance');

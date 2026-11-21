@@ -866,7 +866,7 @@
   import UserProfileModal from '~/components/UserProfileModal.vue'
   import NotificationModal from '~/components/NotificationModal.vue'
   import ChangelogModal from '~/components/ChangelogModal.vue'
-  import { useCan, useCanAccessMonitoring } from '~/composables/usePermissions'
+  import { useCan, useCanAny, useCanAccessMonitoring } from '~/composables/usePermissions'
   import { useAdminNav, isAdminRoute, useAdminReturnPath } from '~/composables/useAdminNav'
   import AdminSidebarNav from '~/components/AdminSidebarNav.vue'
 
@@ -956,7 +956,13 @@
     'manage_identity_providers',
   ]
   const canAccessAdminArea = computed(() =>
-    adminAreaPermissions.some(permission => useCan(permission))
+    adminAreaPermissions.some(permission => useCan(permission)) || isGroupManagerOnly.value
+  )
+  // A group manager holds `manage_members` on their group(s) only, not
+  // org-wide, so none of the permissions above match. Their one admin page is
+  // Groups (filtered to the groups they manage), so the entry opens there.
+  const isGroupManagerOnly = computed(() =>
+    !adminAreaPermissions.some(permission => useCan(permission)) && useCanAny('manage_members', 'group')
   )
 
   const mainNavItems: NavItem[] = [
@@ -983,7 +989,8 @@
     // Inside the console the sidebar already is the admin nav, with its own
     // "Back to app" — a second Admin entry would only point at itself.
     if (tab && canAccessAdminArea.value && !isAdminMode.value) {
-      items.push({ href: `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
+      const href = isGroupManagerOnly.value ? '/settings/members?tab=groups' : `/settings/${tab.name}`
+      items.push({ href, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
     }
     return items
   })

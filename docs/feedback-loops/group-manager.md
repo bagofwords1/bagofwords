@@ -258,6 +258,32 @@ fails on the previous commit:
   `test_rbac.py`, `test_agent_folders`, `test_membership`): 137 passed.
 - Live attack table: 37/37.
 
+## Follow-up: the Admin entry for group managers
+
+**Problem.** A group manager who isn't an org admin had no way to reach the
+Groups page except typing the URL. The app sidebar's Admin entry
+(`frontend/layouts/default.vue`) appears only for org-wide admin permissions,
+and a manager holds `manage_members` on their group only. The first browser
+flow navigated to `/settings/members?tab=groups` directly, which hid this.
+
+**Fix.** A user whose only admin power is managing groups now gets the Admin
+entry (`useCanAny('manage_members', 'group')`), and it opens on
+`/settings/members?tab=groups`. Plain members still get no Admin entry, and
+org admins' entry is unchanged.
+
+**Checked in the browser:**
+
+```
+before:  FAIL  manager: admin entry=false
+after:   PASS  manager: admin entry=true landing=/settings/members?tab=groups
+         PASS  member:  admin entry=false
+         PASS  admin:   admin entry=true landing=/settings/members
+```
+
+`tools/agent/group_manager_ui.cjs flow` now starts from home and clicks Admin
+(9/9 steps). Evidence: `before-manager-home.png`, `after-manager-home.png`,
+`after-manager-admin-click.png`.
+
 ## What this proves / regression notes
 
 - **What a manager can reach.** They can only change who is in the groups
