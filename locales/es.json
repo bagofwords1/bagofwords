@@ -1553,6 +1553,7 @@
       "worked": "Trabajó",
       "working": "Trabajando",
       "workingFor": "Trabajando durante {duration}",
+      "failedCount": "{count} con error",
       "viewSteps": "Ver pasos",
       "hideSteps": "Ocultar pasos",
       "checks": "{count} comprobaciones",

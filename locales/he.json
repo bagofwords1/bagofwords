@@ -1553,6 +1553,7 @@
       "worked": "עבד",
       "working": "עובד",
       "workingFor": "עובד כבר {duration}",
+      "failedCount": "שגיאות: {count}",
       "viewSteps": "הצגת השלבים",
       "hideSteps": "הסתרת השלבים",
       "checks": "{count} בדיקות",

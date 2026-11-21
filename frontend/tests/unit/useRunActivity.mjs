@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   computeRunActivity,
+  computeRunToolGroups,
   describeDataOutput,
   findFinalBlock,
 } from '../../composables/useRunActivity.ts'
@@ -384,4 +385,22 @@ console.log('useRunActivity: shared-link payload assertions passed')
     ['data', 'createdTable', 'table'],
   ])
   assert.equal(a.steps[1].labelParams.title, 'Tracks wide')
+}
+
+// A tool group counts failed calls even when the run recovered: the row's
+// warning icon follows only the latest call, the count keeps earlier failures.
+{
+  const failedThenOk = [
+    tool('inspect_data', {}, { te: { status: 'error', error_message: 'boom' } }),
+    tool('inspect_data', {}, { te: { result_json: { success: false } } }),
+    tool('inspect_data'),
+  ]
+  const [g] = computeRunToolGroups(failedThenOk)
+  assert.equal(g.failedCount, 2)
+  assert.equal(g.failed, false)
+  const [clean] = computeRunToolGroups([tool('inspect_data'), tool('inspect_data')])
+  assert.equal(clean.failedCount, 0)
+  const [stillRunning] = computeRunToolGroups([tool('inspect_data', {}, { te: { status: 'running' } })], undefined, false)
+  assert.equal(stillRunning.failedCount, 0)
+  console.log('useRunActivity: tool-group failure count passed')
 }

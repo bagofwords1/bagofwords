@@ -353,6 +353,7 @@
 												:duration="runFoldDuration(m)"
 												:translate="responseT"
 												:live="m.status === 'in_progress'"
+												:elapsed="liveElapsed(m)"
 												:has-steps="!!runFold(m)?.steps.length"
 												@toggle="toggleRun(m)"
 											/>
@@ -630,9 +631,8 @@
 
 									</div>
 
-                                    <div v-if="showWaitingIndicator(m) && runFold(m)?.steps.length" class="flex h-6 items-center text-ink" role="status" :aria-label="$t('prompt.working')">
-                                        <span class="h-2.5 w-2.5 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
-                                    </div>
+                                    <!-- Live line under the steps: the timer runs for the whole run; the dot only while nothing else shows progress. -->
+                                    <RunLiveIndicator v-if="m.status === 'in_progress' && !m.sigkill && runFold(m)?.steps.length" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" :dot="showWaitingIndicator(m)" />
 
 									<!-- Show status messages for stopped/error completions -->
 									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
@@ -1252,6 +1252,7 @@
 <script setup lang="ts">
 import GenericTool from '~/components/tools/GenericTool.vue'
 import RunToolGroupRow from '~/components/RunToolGroupRow.vue'
+import RunLiveIndicator from '~/components/RunLiveIndicator.vue'
 import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
@@ -2720,6 +2721,31 @@ function formatRunDuration(ms: number): string {
 	const s = Math.max(0, Math.round(ms / 1000))
 	if (s < 60) return `${s}s`
 	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// Live elapsed time beside the working dot, ticking once a second while any
+// run is in progress (one shared clock; stopped when nothing is live). Counts
+// from the turn's created_at — the same origin completion.finished measures
+// clientRunMs from — so the final "Worked for" continues the number shown.
+const liveNowMs = ref(Date.now())
+let liveClock: ReturnType<typeof setInterval> | null = null
+watch(hasInProgressCompletion, (on) => {
+	if (typeof window === 'undefined') return
+	if (on && !liveClock) {
+		liveNowMs.value = Date.now()
+		liveClock = setInterval(() => { liveNowMs.value = Date.now() }, 1000)
+	} else if (!on && liveClock) {
+		clearInterval(liveClock)
+		liveClock = null
+	}
+}, { immediate: true })
+onBeforeUnmount(() => { if (liveClock) clearInterval(liveClock) })
+function liveElapsed(m: ChatMessage): string {
+	if (m.status !== 'in_progress') return ''
+	const started = parseServerTimestamp(m.created_at)
+	if (started === null) return ''
+	const ms = liveNowMs.value - started
+	return ms >= 1000 ? formatRunDuration(ms) : ''
 }
 
 // Hide sub-2s runs — same threshold GenericTool uses for tool durations, so

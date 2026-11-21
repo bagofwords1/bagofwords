@@ -574,6 +574,9 @@ export interface RunToolGroup {
   counts: Record<string, number>
   settled: boolean
   failed?: boolean
+  /** Members whose call failed, including ones the run recovered from; shown
+      as a count on the row so a collapsed group never looks clean. */
+  failedCount: number
   current: { name: string; title: string; status: string }
   icon: string
   running: boolean
@@ -605,13 +608,15 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
     if (!te) { group = undefined; continue }
     const category = toolCategory(String(te.tool_name || ''))
     if (!group) {
-      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
+      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, failedCount: 0, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
       groups.push(group)
     }
     group.blockIds.push(String(block.id))
     group.counts[category] = (group.counts[category] || 0) + 1
     if (!group.categories.includes(category)) group.categories.push(category)
     const running = RUNNING_STATUSES.has(String(te.status || ''))
+    const callFailed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+    if (callFailed) group.failedCount += 1
     // Prefer the latest running call; otherwise follow the latest completed call.
     if (running || !group.running) {
       group.icon = GROUP_ICONS[category]
@@ -621,7 +626,7 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
         status: String(te.status || ''),
       }
       // Match the warning to the displayed call; historical failures stay on their own rows.
-      group.failed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+      group.failed = callFailed
     }
     group.running ||= running
   }
