@@ -16,40 +16,7 @@
  *   - custom tables are switched off for the organization
  * The backend enforces every one of these again on preview and save.
  */
-import { FAST_CONNECTION_SUFFIX } from '~/composables/useFastTable'
-
-export interface CacheCandidate {
-  connectionId: string
-  dataSourceId: string
-  clientKey: string
-}
-
-export interface CacheConnection {
-  id: string
-  name: string
-  type?: string
-}
-
-/**
- * Where the one query behind a tool result ran, or null when the result is
- * not a single query against a single connection.
- *
- * Read from the per-query timing records, which every viewer of the result
- * gets. The query text itself is not in a listed result (it is fetched for
- * the dialog, see `fetchCacheDefinition`), so nothing here depends on it.
- */
-export function cacheCandidateFrom(resultJson: any): CacheCandidate | null {
-  const timings = resultJson?.query_timings
-  if (!Array.isArray(timings) || timings.length !== 1) return null
-  const timing = timings[0] || {}
-  if (timing.error) return null
-  const connectionId = timing.connection_id ? String(timing.connection_id) : ''
-  const dataSourceId = timing.data_source_id ? String(timing.data_source_id) : ''
-  const clientKey = timing.client_key ? String(timing.client_key) : ''
-  if (!connectionId || !dataSourceId) return null
-  if (clientKey.endsWith(FAST_CONNECTION_SUFFIX)) return null
-  return { connectionId, dataSourceId, clientKey }
-}
+import type { CacheCandidate, CacheConnection } from '~/utils/cacheCandidate'
 
 /**
  * The full query text behind a result, from the server. Returns the reason
@@ -68,22 +35,6 @@ export async function fetchCacheDefinition(
   } catch {
     return { error: 'Failed' }
   }
-}
-
-/**
- * A custom-table name from a result's title. Names follow the backend rule
- * ^[A-Za-z_][A-Za-z0-9_]{0,62}$; a title with nothing usable falls back to a
- * generic name the admin will rename in the dialog.
- */
-export function cacheTableNameFor(title?: string | null): string {
-  const base = String(title || '')
-    .normalize('NFKD')
-    .replace(/[^A-Za-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '')
-    .toLowerCase()
-  if (!base) return 'cached_table'
-  const safe = /^[a-z_]/.test(base) ? base : `t_${base}`
-  return safe.slice(0, 63).replace(/_+$/g, '')
 }
 
 /**
