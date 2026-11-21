@@ -7939,6 +7939,7 @@
         "title": "Destruktiva",
         "hint": "Raderar eller låser. Frågar alltid först."
       }
-    }
+    },
+    "builtinBadge": "Inbyggd"
   }
 }

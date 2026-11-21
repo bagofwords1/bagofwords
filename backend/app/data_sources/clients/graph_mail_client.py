@@ -617,6 +617,8 @@ class GraphMailClient(ConnectorActionsMixin, GraphDriveClient):
             payload: Dict[str, Any] = {"message": {"body": _body(body)}}
             if to:
                 payload["message"]["toRecipients"] = _recipients(to)
+            if cc:
+                payload["message"]["ccRecipients"] = _recipients(cc)
             d = graph_write(self, "POST", f"/me/messages/{self._mid(reply_to_message_id)}/{verb}", payload)
             if subject and d.get("id"):
                 graph_write(self, "PATCH", f"/me/messages/{self._mid(d['id'])}", {"subject": subject})

@@ -68,7 +68,7 @@
           :disabled="responding" @click="respond(true, false)"
         >{{ t('tools.mcp.allowOnce') }}</button>
         <button
-          v-if="!mandatoryApproval"
+          v-if="!mandatoryApproval && actionEffect !== 'destructive' && !display.locked"
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(true, true)"
         >{{ t(shellPermissions ? 'tools.remoteShell.always' : 'tools.mcp.alwaysAllow') }}</button>
@@ -259,26 +259,19 @@ const approvalOutcomeLabel = computed(() => {
   return o.approved ? t('tools.mcp.allowedByYou') : t('tools.mcp.deniedByYou')
 })
 
-// Underscore keys (_execution_target, _via_agent) are display context the
-// backend attaches to the card; they are never sent to the tool.
-const toolArgs = computed(() => {
-  const a = confirmation.value?.arguments
-  if (!a || typeof a !== 'object') return a
-  return Object.fromEntries(Object.entries(a).filter(([k]) => !k.startsWith('_')))
-})
-// Built-in connector actions carry a one-line preview ("Send to …: subject")
-// and their effect group, so the person approving reads what will happen.
-const actionPreview = computed(() => String(confirmation.value?.arguments?._preview || ''))
+// Card-only context (the agent the call goes through, a preview and the
+// effect) arrives in `confirmation.display`, apart from the arguments: the
+// card always shows every argument the tool will receive.
+const display = computed(() => (confirmation.value?.display || {}) as Record<string, any>)
+const actionPreview = computed(() => String(display.value.preview || ''))
 const actionEffect = computed(() => {
-  const e = confirmation.value?.arguments?._effect
+  const e = display.value.effect
   return ['read', 'modify', 'external', 'destructive'].includes(e) ? e : ''
 })
-// The agent this call goes through — its rule decided that the call asks.
-const viaAgentName = computed(() =>
-  confirmation.value?.via_agent?.name || confirmation.value?.arguments?._via_agent?.name || '')
+const viaAgentName = computed(() => display.value.via_agent?.name || '')
 
 const confirmationArgs = computed(() => {
-  const a = toolArgs.value
+  const a = confirmation.value?.arguments
   if (!a || !Object.keys(a).length) return ''
   try { return JSON.stringify(a, null, 2) } catch { return String(a) }
 })
@@ -288,7 +281,7 @@ const showArgs = ref(false)
 const argsOneLine = computed(() => {
   if (!confirmation.value) return ''
   const name = confirmation.value.tool_name || 'tool'
-  const a = toolArgs.value
+  const a = confirmation.value.arguments
   if (!a || !Object.keys(a).length) return `${name}()`
   try { return `${name}(${JSON.stringify(a)})` } catch { return `${name}(…)` }
 })

@@ -1138,6 +1138,9 @@ Do not use when:
                 "tool_name": data.tool_name,
                 "content_type": content_type,
                 "file_id": output.get("file_id"),
+                # The agent whose rule authorized the call (an 'allow' call
+                # has no separate decision event).
+                "via_agent": output.get("via_agent"),
             },
         )
 
@@ -1353,21 +1356,30 @@ Do not use when:
             from app.data_sources.clients.remote_server_client import action_digest
             approval_snapshot = None
             confirmation_arguments = dict(data.arguments or {})
+            # Card-only context, kept out of the arguments so the card shows
+            # every argument the tool receives: the agent the call goes
+            # through, and for built-in actions a one-line preview and the
+            # effect group ("External, visible to others").
+            confirmation_display: Dict[str, Any] = {}
             if via_agent:
-                # Underscore keys are display context for the card, never
-                # sent to the tool (same convention as _execution_target).
-                confirmation_arguments["_via_agent"] = via_agent
-            # Built-in connector actions: a one-line preview and the effect
-            # group ("External, visible to others") for the card.
+                confirmation_display["via_agent"] = via_agent
+            if getattr(tool_record, "effect", None):
+                # Lets the card withhold choices the effect forbids
+                # ("Always allow" on a destructive tool).
+                confirmation_display["effect"] = tool_record.effect
+            if getattr(tool_record, "policy_locked", False):
+                # A locked policy cannot be loosened by a preference, so the
+                # card does not offer "Always allow".
+                confirmation_display["locked"] = True
             from app.data_sources.clients.connector_actions import NATIVE_ACTION_TYPES, actions_for_type
             if connection.type in NATIVE_ACTION_TYPES:
                 action = next((a for a in actions_for_type(connection.type) if a.name == data.tool_name), None)
                 if action is not None:
                     try:
-                        confirmation_arguments["_preview"] = action.preview(dict(data.arguments or {}))
+                        confirmation_display["preview"] = action.preview(dict(data.arguments or {}))
                     except Exception:
                         pass
-                    confirmation_arguments["_effect"] = action.effect
+                    confirmation_display["effect"] = action.effect
             if connection.type == "remote_ssh":
                 from app.services.connection_service import ConnectionService
                 remote_credentials = await ConnectionService().resolve_credentials(db, connection, user)
@@ -1412,6 +1424,7 @@ Do not use when:
                 connection_tool_id=str(tool_record.id),
                 tool_name=data.tool_name,
                 arguments=confirmation_arguments,
+                display=confirmation_display,
                 timeout_seconds=self._ASK_TIMEOUT_S,
             )
             # Release the session's transaction before blocking on the user —
@@ -1429,7 +1442,7 @@ Do not use when:
                     "connection_name": connection.name,
                     "connection_tool_id": str(tool_record.id),
                     "arguments": confirmation_arguments,
-                    "via_agent": via_agent,
+                    "display": confirmation_display,
                     "timeout_seconds": self._ASK_TIMEOUT_S,
                 })
                 sigkill = runtime_ctx.get("sigkill_event")

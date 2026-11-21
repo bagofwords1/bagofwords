@@ -8871,6 +8871,7 @@
         "title": "Destructive",
         "hint": "Deletes or locks things. Always asks first."
       }
-    }
+    },
+    "builtinBadge": "Built-in"
   }
 }

@@ -38,6 +38,7 @@ from app.services.tool_policy_service import (
     TOOL_POLICY_AUTO,
     TOOL_POLICY_DENY,
     agent_admin_setting,
+    clamp_to_effect,
     is_policy_locked,
     normalize_tool_policy,
     resolve_effective_policy,
@@ -237,7 +238,7 @@ class ConnectionToolGateway:
                             policy=policy,
                             connection_tool_id=str(ct.id),
                             user_policy=user_policy,
-                            effective_policy=display_policy(conn, ct.name, policy, user_policy, locked=is_policy_locked(ct)),
+                            effective_policy=clamp_to_effect(ct, display_policy(conn, ct.name, policy, user_policy, locked=is_policy_locked(ct))),
                         )
                     )
         return result

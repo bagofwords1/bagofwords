@@ -165,3 +165,20 @@ def test_missing_scopes_accepts_any_alternative():
     assert missing_scopes(post, {"Group.ReadWrite.All"}) == []
     assert missing_scopes(post, {"Chat.Read"}) == ["ChannelMessage.Send"]
     assert missing_scopes(post, None) == []
+
+
+@pytest.mark.parametrize("mode", ["new", "reply", "reply_all", "forward"])
+def test_cc_reaches_the_draft_in_every_mode(fake, mode):
+    c = _client(GraphMailClient, fake, ["Mail.ReadWrite"])
+    args = {"mode": mode, "body": "FYI", "cc": ["finance@contoso.test", "lee@contoso.test"]}
+    if mode == "new":
+        args.update(to=["billing@vendor.test"], subject="Invoice")
+    else:
+        args["reply_to_message_id"] = _inbox_ids(fake)[0]
+    if mode == "forward":
+        args["to"] = ["auditor@contoso.test"]
+    r = c.call_tool("create_draft", args)
+    assert r["success"], r
+    draft = fake.messages[r["data"]["draft_id"]]
+    assert sorted(x["emailAddress"]["address"] for x in draft.get("ccRecipients") or []) == [
+        "finance@contoso.test", "lee@contoso.test"]

@@ -28,6 +28,7 @@ from app.models.user import User
 from app.services.tool_policy_service import (
     ToolPolicyService,
     agent_admin_setting,
+    clamp_to_effect,
     policy_not_allowed_for,
     VALID_TOOL_POLICIES,
     normalize_tool_policy,
@@ -102,8 +103,8 @@ def _tool_row(
         policy_locked=bool(getattr(tool, "policy_locked", False)),
         effect=getattr(tool, "effect", None),
         user_policy=user_policy,
-        effective_policy=display_policy(conn, tool.name, policy, user_policy,
-                                        locked=bool(getattr(tool, "policy_locked", False))),
+        effective_policy=clamp_to_effect(tool, display_policy(conn, tool.name, policy, user_policy,
+                                        locked=bool(getattr(tool, "policy_locked", False)))),
     )
 
 

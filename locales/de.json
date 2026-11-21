@@ -7939,6 +7939,7 @@
         "title": "Destruktiv",
         "hint": "Löscht oder sperrt. Fragt immer zuerst."
       }
-    }
+    },
+    "builtinBadge": "Integriert"
   }
 }
