@@ -4857,6 +4857,8 @@
     "connection.kms_session_refused": "KMS Lighthouse hat die Anmeldung akzeptiert, aber ihre Sitzung abgelehnt. Sie kann daher nicht verwendet werden und wurde nicht gespeichert. Fragen Sie den KMS-Administrator, ob dieses Konto die KMS-API verwenden darf.",
     "connection.confluence_login_rejected": "Confluence hat dieses persönliche Zugriffstoken bzw. diese Anmeldung nicht akzeptiert, daher wurde es nicht gespeichert. Prüfen Sie es oder erstellen Sie in Confluence unter Profil > Persönliche Zugriffstoken ein neues Token.",
     "connection.confluence_login_captcha": "Confluence verlangt für dieses Konto nach fehlgeschlagenen Anmeldungen ein CAPTCHA, daher wurde nichts gespeichert. Melden Sie sich einmal im Browser bei Confluence an, um es aufzuheben, oder verwenden Sie ein persönliches Zugriffstoken.",
+    "connection.jira_login_rejected": "Jira hat dieses persönliche Zugriffstoken bzw. diese Anmeldung nicht akzeptiert, daher wurde es nicht gespeichert. Prüfen Sie es oder erstellen Sie in Jira unter Profil > Persönliche Zugriffstoken ein neues Token.",
+    "connection.jira_login_captcha": "Jira verlangt für dieses Konto nach fehlgeschlagenen Anmeldungen ein CAPTCHA, daher wurde nichts gespeichert. Melden Sie sich einmal im Browser bei Jira an, um es aufzuheben, oder verwenden Sie ein persönliches Zugriffstoken.",
     "access_request.disabled": "Zugriffsanfragen sind für diese Organisation deaktiviert.",
     "access_request.not_allowed": "Dieses Dashboard benötigt keine Zugriffsanfrage.",
     "access_request.already_has_access": "Du hast bereits Zugriff auf dieses Dashboard.",

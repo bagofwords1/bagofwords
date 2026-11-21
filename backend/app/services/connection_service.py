@@ -1955,7 +1955,7 @@ class ConnectionService:
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
             and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse",
-                                    "confluence_dc")
+                                    "confluence_dc", "jira_dc")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -1971,8 +1971,8 @@ class ConnectionService:
         if connection.type == "kms_lighthouse":
             # Raises when KMS refuses the login, before anything is stored.
             checked = await self._check_kms_member_login(connection, payload.auth_mode, credentials)
-        elif connection.type == "confluence_dc":
-            # Raises when Confluence refuses the token or login, before anything is stored.
+        elif connection.type in ("confluence_dc", "jira_dc"):
+            # Raises when Confluence / Jira refuses the token or login, before anything is stored.
             checked = await self._check_confluence_member_login(connection, payload.auth_mode, credentials)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
@@ -1982,7 +1982,7 @@ class ConnectionService:
         row.last_used_at = None
         row.encrypt_credentials(credentials)
         result = {"success": True, "auth_mode": payload.auth_mode}
-        if connection.type in ("kms_lighthouse", "confluence_dc"):
+        if connection.type in ("kms_lighthouse", "confluence_dc", "jira_dc"):
             # The identity belongs to this login only: a new login drops the old one.
             metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "verified_identity"}
             identity = checked.get("identity") if checked else None
@@ -1997,7 +1997,9 @@ class ConnectionService:
         return result
 
     async def _check_confluence_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
-        """Check a member's Confluence token or login once (GET /rest/api/user/current) before it is saved.
+        """Check a member's Confluence or Jira Data Center token or login once before it is saved.
+
+        (Confluence: GET /rest/api/user/current; Jira: GET /rest/api/2/myself — each client's test_connection.)
 
         Returns ``{"identity": ...}`` when Confluence accepted it, and None when it
         could not decide (unreachable, a server error, a space setting the admin
@@ -2021,14 +2023,17 @@ class ConnectionService:
             outcome = await client.atest_connection()
         except Exception as exc:
             # The class name only: the text may hold a URL or a secret.
-            logger.info("confluence_dc member login not checked: %s", type(exc).__name__)
+            logger.info("%s member login not checked: %s", connection.type, type(exc).__name__)
             return None
         outcome = outcome if isinstance(outcome, dict) else {}
         refused = outcome.get("login_refused")
         if refused:
-            code = (ErrorCode.CONNECTION_CONFLUENCE_LOGIN_CAPTCHA if refused == "captcha"
-                    else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_REJECTED)
-            raise AppError(code, outcome.get("message") or "Confluence did not accept this login.", status_code=422)
+            jira = connection.type == "jira_dc"
+            if refused == "captcha":
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_CAPTCHA if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_CAPTCHA
+            else:
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_REJECTED if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_REJECTED
+            raise AppError(code, outcome.get("message") or "The server did not accept this login.", status_code=422)
         if outcome.get("success"):
             return {"identity": (outcome.get("details") or {}).get("identity")}
         if outcome.get("reachable"):

@@ -65,6 +65,9 @@ from app.schemas.data_sources.configs import (
     ConfluenceDcConfig,
     ConfluenceDcTokenCredentials,
     ConfluenceDcUserPassCredentials,
+    JiraDcConfig,
+    JiraDcTokenCredentials,
+    JiraDcUserPassCredentials,
     SharePointOnpremKerberosCredentials,
     ExchangeOnpremConfig,
     ExchangeOnpremNtlmCredentials,
@@ -944,6 +947,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "jira_dc": DataSourceRegistryEntry(
+        type="jira_dc",
+        category="services",
+        title="Jira Data Center (on-prem)",
+        description=(
+            "Query issues, change history, comments, worklogs, sprints and releases from a self-hosted Jira "
+            "Data Center or Server as tables, and read one issue as a document (read-only, live). Jira "
+            "permissions apply; per-user access with each person's own personal access token or login."
+        ),
+        config_schema=JiraDcConfig,
+        credentials_auth=AuthOptions(
+            default="token",
+            by_auth={
+                "token": AuthVariant(title="Personal access token (Bearer)", schema=JiraDcTokenCredentials,
+                                     scopes=["system", "user"]),
+                "userpass": AuthVariant(title="Username and password (Basic)", schema=JiraDcUserPassCredentials,
+                                        scopes=["system", "user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.jira_dc_client.JiraDcClient",
+        requires_license="enterprise",
         version="beta",
     ),
     "monday": DataSourceRegistryEntry(

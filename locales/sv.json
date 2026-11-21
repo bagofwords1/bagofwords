@@ -4857,6 +4857,8 @@
     "connection.kms_session_refused": "KMS Lighthouse godkände inloggningen men nekade dess session, så den kan inte användas och sparades inte. Fråga KMS-administratören om det här kontot får använda KMS-API:t.",
     "connection.confluence_login_rejected": "Confluence godkände inte den här personliga åtkomsttoken eller inloggningen, så den sparades inte. Kontrollera den, eller skapa en ny token i Confluence under Profil > Personliga åtkomsttoken.",
     "connection.confluence_login_captcha": "Confluence kräver en CAPTCHA för det här kontot efter misslyckade inloggningar, så den sparades inte. Logga in i Confluence en gång i en webbläsare för att häva det, eller använd en personlig åtkomsttoken.",
+    "connection.jira_login_rejected": "Jira godkände inte den här personliga åtkomsttoken eller inloggningen, så den sparades inte. Kontrollera den, eller skapa en ny token i Jira under Profil > Personliga åtkomsttoken.",
+    "connection.jira_login_captcha": "Jira kräver en CAPTCHA för det här kontot efter misslyckade inloggningar, så den sparades inte. Logga in i Jira en gång i en webbläsare för att häva det, eller använd en personlig åtkomsttoken.",
     "access_request.disabled": "Åtkomstbegäranden är avstängda för den här organisationen.",
     "access_request.not_allowed": "Den här instrumentpanelen behöver ingen åtkomstbegäran.",
     "access_request.already_has_access": "Du har redan åtkomst till den här instrumentpanelen.",

@@ -182,7 +182,7 @@ async function onSave() {
     // Manual-identity file connectors store per-user credentials on the
     // connection row that runtime resolution reads (see
     // ConnectionService.save_windows_user_credentials).
-    const endpoint = ['sharepoint_onprem', 'exchange_onprem', 'documentum', 'kms_lighthouse', 'confluence_dc'].includes(connectionType.value) && connectionId.value
+    const endpoint = ['sharepoint_onprem', 'exchange_onprem', 'documentum', 'kms_lighthouse', 'confluence_dc', 'jira_dc'].includes(connectionType.value) && connectionId.value
       ? `/connections/${connectionId.value}/my-credentials`
       : `/data_sources/${ds.value.id}/my-credentials`
     const { error } = await useMyFetch(endpoint, { method: 'POST', body: form.value })

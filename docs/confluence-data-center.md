@@ -94,16 +94,10 @@ are fixed strings that never contain a URL, a response body or a credential.
 * **Lifecycle**: Server reached end of life in Feb 2024. The current DC LTS is
   10.2, and Atlassian has announced end of life for all DC products on
   28 Mar 2029.
-* **Prior art**:
-  * **sooperset/mcp-atlassian** (MIT): DC PATs per request, `CONFLUENCE_SPACES_FILTER`,
-    `READ_ONLY_MODE`, storage→markdown, proxy and CA settings.
-  * **Onyx's Confluence connector**: CQL `lastmodified` incremental sync and
-    permission sync. Useful if indexing is ever added.
-  * **LangChain / atlassian-python-api**: `cloud=False`, `verify_ssl`,
-    `content_format=EXPORT_VIEW`.
-
-  We chose a hand-written `requests` client over `atlassian-python-api`, to keep
-  egress pinning, fixed error texts and the response cap under our control.
+* **HTTP client**: hand-written `requests` code rather than a vendor SDK, to keep
+  egress pinning, fixed error texts and the response cap under our control. The
+  shared Data Center HTTP layer lives in `_atlassian_dc_http.py` and is also used
+  by the Jira Data Center connector.
 
 ## Not in this version
 

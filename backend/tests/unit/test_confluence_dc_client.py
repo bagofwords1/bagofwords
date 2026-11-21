@@ -16,6 +16,7 @@ from pathlib import Path
 import pydantic
 import pytest
 
+from app.data_sources.clients import _atlassian_dc_http as dc
 from app.data_sources.clients import confluence_dc_client as cc
 from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
 from app.data_sources.clients.base import SearchStopped
@@ -56,7 +57,7 @@ def confluence_server():
 def conf(confluence_server, monkeypatch):
     mock = confluence_server["mock"]
     mock.reset()
-    monkeypatch.setattr(cc, "_sleep", lambda s: None)   # a 429 retry must not slow the suite
+    monkeypatch.setattr(dc, "_sleep", lambda s: None)   # a 429 retry must not slow the suite
     yield confluence_server
     mock.reset()
 

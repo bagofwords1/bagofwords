@@ -65,6 +65,7 @@ const normalizeType = (raw: string) => {
     // aliases
     if (t === 'sharepoint_onprem') t = 'sharepoint'
     if (t === 'exchange_onprem') t = 'outlook_mail'
+    if (t === 'jira_dc') t = 'jira'
     if (t === 'postgres') t = 'postgresql'
     if (t === 'sqlserver' || t === 'sql_server') t = 'mssql'
     if (t === 'awsathena') t = 'aws_athena'

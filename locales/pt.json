@@ -4857,6 +4857,8 @@
     "connection.kms_session_refused": "O KMS Lighthouse aceitou o início de sessão, mas recusou a sessão correspondente, por isso não pode ser usado e não foi guardado. Pergunte ao administrador do KMS se esta conta pode usar a API do KMS.",
     "connection.confluence_login_rejected": "O Confluence não aceitou este token de acesso pessoal ou login, por isso ele não foi salvo. Verifique-o ou crie um novo token no Confluence em Perfil > Tokens de acesso pessoal.",
     "connection.confluence_login_captcha": "O Confluence exige um CAPTCHA para esta conta após logins com falha, por isso nada foi salvo. Entre no Confluence uma vez pelo navegador para liberar, ou use um token de acesso pessoal.",
+    "connection.jira_login_rejected": "O Jira não aceitou este token de acesso pessoal ou login, por isso ele não foi salvo. Verifique-o ou crie um novo token no Jira em Perfil > Tokens de acesso pessoal.",
+    "connection.jira_login_captcha": "O Jira exige um CAPTCHA para esta conta após logins com falha, por isso nada foi salvo. Entre no Jira uma vez pelo navegador para liberar, ou use um token de acesso pessoal.",
     "access_request.disabled": "As solicitações de acesso estão desativadas para esta organização.",
     "access_request.not_allowed": "Este painel não precisa de uma solicitação de acesso.",
     "access_request.already_has_access": "Você já tem acesso a este painel.",

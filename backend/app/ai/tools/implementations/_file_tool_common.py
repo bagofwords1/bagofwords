@@ -52,6 +52,8 @@ FILE_SOURCE_TYPES = {
     # that strip file rows from Tables views (schema_context_builder,
     # data_source_service) — it has no file catalog rows to strip.
     "servicenow",
+    # Jira Data Center: tables plus issues as documents (live; same rule as servicenow).
+    "jira_dc",
 }
 
 
@@ -138,19 +140,19 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
             f"Documentum denied access to that object for the current identity on '{name}' — the "
             "repository ACL does not grant Browse/Read. Do not retry; tell the user which document was denied."
         )
-    from app.data_sources.clients.confluence_dc_client import ConfluenceHTTPError
-    if isinstance(exc, ConfluenceHTTPError) and exc.kind in ("auth", "captcha"):
-        name = connection_name or "Confluence"
+    from app.data_sources.clients._atlassian_dc_http import AtlassianHTTPError
+    if isinstance(exc, AtlassianHTTPError) and exc.kind in ("auth", "captcha"):
+        name = connection_name or "this source"
         return (
-            f"Confluence did not accept the credentials for '{name}' ({exc}). Do NOT retry: repeated "
+            f"The server did not accept the credentials for '{name}' ({exc}). Do NOT retry: repeated "
             "password attempts can lock the account behind a CAPTCHA. For a user-required connection the "
-            f"user must connect '{name}' with their own Confluence personal access token; otherwise an "
-            "admin must update the connection's credentials. Continue with the remaining sources."
+            f"user must connect '{name}' with their own personal access token; otherwise an admin must "
+            "update the connection's credentials. Continue with the remaining sources."
         )
-    if isinstance(exc, ConfluenceHTTPError) and exc.kind == "throttled":
-        name = connection_name or "Confluence"
+    if isinstance(exc, AtlassianHTTPError) and exc.kind == "throttled":
+        name = connection_name or "this source"
         return (
-            f"Confluence is rate-limiting '{name}' right now. Do NOT retry this call in a loop; tell the "
+            f"'{name}' is rate-limiting requests right now. Do NOT retry this call in a loop; tell the "
             "user the source is temporarily throttled and continue with the remaining sources."
         )
     if isinstance(exc, SharePointHTTPError) and exc.status == 401:

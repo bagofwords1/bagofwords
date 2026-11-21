@@ -19,46 +19,33 @@ URL, a provider response body or a credential.
 """
 from __future__ import annotations
 
-import base64
 import json
 import logging
-import os
 import re
-import threading
 import time
 from datetime import datetime
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-import requests
-import urllib3
-import http.client
-
-from app.core.egress import pinned_session
+from app.data_sources.clients import _atlassian_dc_http as dc
+from app.data_sources.clients._atlassian_dc_http import (
+    AtlassianDcHttp, AtlassianError, AtlassianHTTPError, flag as _flag, parse_base_url, resolve_auth,
+)
 from app.data_sources.clients._confluence_html import html_to_text
 from app.data_sources.clients._file_source_common import DocumentText, FileTooLargeError, GlobScopeError
 from app.data_sources.clients.base import Capability, DataSourceClient, SearchStopped
 from app.data_sources.clients.progress import discovery_progress
-from app.schemas.data_sources.configs import CONFLUENCE_TOKEN_FORMAT_MESSAGE, CONFLUENCE_TOKEN_RE
+from app.schemas.data_sources.configs import CONFLUENCE_TOKEN_FORMAT_MESSAGE
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_RESULTS = 200
-_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
-_DEFAULT_TIMEOUT = (10, 60)          # (connect, read) seconds
-_MIN_TIMEOUT_S = 1
-_CHUNK_BYTES = 64 * 1024
 _PAGE_ROWS = 50                      # requested per call; the server may cap it lower (25 on DC)
 _MAX_SEARCH_CALLS = 20
 _MAX_LIST_CALLS = 40
 _MAX_SPACES = 100
 _MAX_QUERY_CHARS = 200
 _SNIPPET_CHARS = 300
-_RATE_LIMIT_RETRIES = 2
-_MAX_RETRY_AFTER_S = 10.0
-_TRANSPORT_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError, http.client.HTTPException,
-                     OSError, ValueError)
-
-_CONTEXT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9._~-]+$")
+_RATE_LIMIT_RETRIES = dc.RATE_LIMIT_RETRIES
 _SPACE_KEY_RE = re.compile(r"^~?[A-Za-z0-9_.@-]{1,255}$")
 _DIGITS_RE = re.compile(r"[0-9]{1,19}")
 _ID_RE = re.compile(r"^(page|blogpost|space):(.+)$", re.IGNORECASE)
@@ -70,36 +57,14 @@ _SLASH_IN_TITLE = "∕"          # DIVISION SLASH: a "/" inside a title, so path
 # --------------------------------------------------------------------- messages
 _URL_MESSAGE = ("Confluence URL must be an HTTP(S) URL such as https://confluence.example.com or "
                 "https://intranet.example.com/confluence (include the context path, if any).")
-_HTTPS_REQUIRED = "HTTPS is required. Enable Allow HTTP only for an isolated test lab."
 _NO_CREDENTIAL = "Provide a Confluence personal access token, or a username and password."
-_BAD_SPACES = ("Spaces must be a comma-separated list of space keys such as ENG, HR or ~jdoe "
-               "(the key from the space's URL, not its name).")
-_TOKEN_REJECTED = ("Confluence did not accept the personal access token (HTTP 401). It may be wrong, expired or "
-                   "revoked, or personal access tokens may be turned off by the Confluence administrator.")
-_PASSWORD_REJECTED = ("Confluence did not accept the username and password (HTTP 401). Check them; if the site "
-                      "signs in through SSO, use a personal access token instead.")
-_CAPTCHA = ("Confluence requires a CAPTCHA for this account after failed logins, so API logins are refused "
-            "(HTTP 401). Sign in to Confluence once in a browser to clear it, or use a personal access token.")
 _ANONYMOUS = ("Confluence treated the request as anonymous, so the credentials were not used. Check the "
               "username and password or the personal access token.")
-_REDIRECTED = ("Confluence redirected the request (often to a single sign-on or login page, or to another "
-               "address). Check the URL and its context path; if the site signs in through SSO, use a "
-               "personal access token.")
-_NOT_API = ("The server answered, but not with the Confluence REST API. Check the URL, including the context "
-            "path (for example https://intranet.example.com/confluence).")
-_FORBIDDEN = "Confluence refused access to that content for this identity (HTTP 403)."
+_BAD_SPACES = ("Spaces must be a comma-separated list of space keys such as ENG, HR or ~jdoe "
+               "(the key from the space's URL, not its name).")
 _NOT_FOUND = ("Not found, or this identity may not view it (Confluence hides restricted content). "
               "Use an id exactly as listed by search_files or list_files.")
-_THROTTLED = ("Confluence is rate-limiting requests right now (HTTP 429). Do not retry in a loop; "
-              "try again in a minute.")
-_SERVER = "Confluence answered with an error (HTTP {status}). Try again later."
-_UNREACHABLE = "Could not reach Confluence. Check the URL, the network path and the server's TLS certificate."
-_TLS = ("Could not verify Confluence's TLS certificate. Add the issuing CA to the deployment trust store "
-        "(REQUESTS_CA_BUNDLE).")
-_TIMEOUT = "Confluence did not answer in time."
-_TOO_LARGE = "Confluence's answer is larger than the 16 MB limit."
 _BAD_QUERY_400 = "Confluence could not parse that search; try plain words."
-_BAD_REQUEST = "Confluence refused the request (HTTP 400)."
 _BAD_ID = ("That is not a Confluence id; use an id exactly as listed (page:<digits> or blogpost:<digits>), "
            "or a Confluence page URL.")
 _SPACE_READ = "That id is a space; use list_files with the space key as folder_id to see its pages."
@@ -113,36 +78,12 @@ _TOO_LARGE_READ = "Page exceeds the configured byte limit; increase it explicitl
 _BAD_QUERY_JSON = 'A Confluence query must be an id, or a JSON object with a file_id, e.g. {"file_id": "page:123"}.'
 
 
-class ConfluenceError(ValueError):
+class ConfluenceError(AtlassianError):
     """A fixed, user-facing Confluence connector error."""
 
 
-class ConfluenceHTTPError(ConfluenceError):
+class ConfluenceHTTPError(AtlassianHTTPError, ConfluenceError):
     """One failed Confluence exchange. ``kind`` is a stable machine word; the text is fixed."""
-
-    def __init__(self, status: int, kind: str, message: str):
-        super().__init__(message)
-        self.status = status
-        self.kind = kind
-
-
-class _DeadlineTimeout(ConfluenceHTTPError):
-    def __init__(self):
-        super().__init__(0, "deadline", _TIMEOUT)
-
-
-# Patched by tests so a 429 retry does not sleep.
-_sleep = time.sleep
-
-
-def _flag(value) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in ("1", "true", "yes", "on")
-    return bool(value)
-
-
-def _text(value) -> str | None:
-    return value if isinstance(value, str) and value != "" else None
 
 
 def _parse_spaces(value) -> tuple[str, ...]:
@@ -194,18 +135,6 @@ def _normalise_date(value) -> str | None:
         return None
 
 
-def _status_message(status: int) -> tuple[str, str]:
-    if status == 403:
-        return "forbidden", _FORBIDDEN
-    if status == 404:
-        return "not_found", _NOT_FOUND
-    if status == 400:
-        return "bad_request", _BAD_REQUEST
-    if status == 429:
-        return "throttled", _THROTTLED
-    return "server", _SERVER.format(status=status)
-
-
 def planner_scope_note(config: dict) -> str:
     """The planner-facing note for a confluence_dc connection (pure, no I/O)."""
     cfg = config or {}
@@ -226,40 +155,23 @@ def planner_scope_note(config: dict) -> str:
     )
 
 
-class ConfluenceDcClient(DataSourceClient):
+class ConfluenceDcClient(AtlassianDcHttp, DataSourceClient):
     capabilities = {Capability.LIST_FILES, Capability.READ_FILE, Capability.SEARCH_FILES}
     # Always list live with the caller's identity: there is no catalog.
     cheap_live_listing = True
     is_document_based = True
+    product = "Confluence"
+    api_root = "/rest/api"
+    log_name = "confluence_dc"
+    http_error_class = ConfluenceHTTPError
+    not_found_message = _NOT_FOUND
 
     def __init__(self, base_url: str, spaces: str | None = None, include_blogposts: bool = True,
                  max_results: int = _DEFAULT_MAX_RESULTS, allow_http: bool = False, index_mode: str = "none",
                  username: str | None = None, password: str | None = None,
                  personal_access_token: str | None = None, auth_type: str | None = None, **kwargs):
-        raw_url = base_url.strip() if isinstance(base_url, str) else ""
-        parsed, bad_url = None, False
-        try:
-            parsed = urlsplit(raw_url)
-            _ = parsed.port  # raises ValueError for a port outside 0-65535
-        except ValueError:
-            bad_url = True
-        # Raised outside the except block so no parser error rides along as context.
-        if (bad_url or parsed.scheme not in ("http", "https") or not parsed.hostname
-                or "@" in parsed.netloc or any(ch.isspace() for ch in parsed.netloc)
-                or parsed.query or parsed.fragment or "#" in raw_url or "?" in raw_url):
-            raise ConfluenceError(_URL_MESSAGE)
-        if parsed.scheme == "http" and not _flag(allow_http):
-            raise ConfluenceError(_HTTPS_REQUIRED)
-        # The path is the context path. A pasted ".../rest/api" is accepted and dropped.
-        path = unquote(parsed.path).rstrip("/")
-        if path.lower().endswith("/rest/api"):
-            path = path[: -len("/rest/api")]
-        segments = [s for s in path.split("/") if s]
-        if any(seg in (".", "..") or not _CONTEXT_SEGMENT_RE.match(seg) for seg in segments):
-            raise ConfluenceError(_URL_MESSAGE)
-        self.host = parsed.netloc.lower()
-        self.context_path = "".join("/" + s for s in segments)
-        self._base = f"{parsed.scheme.lower()}://{self.host}{self.context_path}"
+        self.host, self.context_path, self._base = parse_base_url(
+            base_url, allow_http, error_class=ConfluenceError, url_message=_URL_MESSAGE, api_suffixes=("/rest/api",))
         self.spaces = _parse_spaces(spaces)
         self._space_set = {k.casefold() for k in self.spaces}
         self.include_blogposts = _flag(include_blogposts) if include_blogposts is not None else True
@@ -269,30 +181,9 @@ class ConfluenceDcClient(DataSourceClient):
             self.max_results = _DEFAULT_MAX_RESULTS
         self.index_mode = "none"
 
-        username, password = _text(username), _text(password)
-        username = username.strip() if username else None
-        token = _text(personal_access_token)
-        token = token.strip() if token else None
-        has_userpass, has_token = bool(username) and bool(password), bool(token)
-        if auth_type == "token" and has_token:
-            self.auth_method = "token"
-        elif auth_type == "userpass" and has_userpass:
-            self.auth_method = "userpass"
-        elif has_token:
-            self.auth_method = "token"
-        elif has_userpass:
-            self.auth_method = "userpass"
-        else:
-            raise ConfluenceError(_NO_CREDENTIAL)
-        if self.auth_method == "token":
-            if not CONFLUENCE_TOKEN_RE.fullmatch(token):
-                raise ConfluenceError(CONFLUENCE_TOKEN_FORMAT_MESSAGE)
-            self._auth_header = "Bearer " + token
-        else:
-            pair = f"{username}:{password}".encode("utf-8", "surrogatepass")
-            self._auth_header = "Basic " + base64.b64encode(pair).decode("ascii")
-        self._username = username if self.auth_method == "userpass" else None
-        self._local = threading.local()
+        self.auth_method, self._auth_header, self._username = resolve_auth(
+            username, password, personal_access_token, auth_type, error_class=ConfluenceError,
+            no_credential=_NO_CREDENTIAL, token_format_message=CONFLUENCE_TOKEN_FORMAT_MESSAGE)
 
     # ------------------------------------------------------------------ meta
     @property
@@ -309,99 +200,6 @@ class ConfluenceDcClient(DataSourceClient):
         )
 
     # ------------------------------------------------------------------ http
-    def _session(self) -> requests.Session:
-        # requests.Session is not thread-safe: one per worker thread.
-        session = getattr(self._local, "session", None)
-        if session is None:
-            session = pinned_session()
-            session.trust_env = False   # no ambient proxy or .netrc credentials
-            session.verify = os.environ.get("REQUESTS_CA_BUNDLE") or True
-            session.headers["Accept"] = "application/json"
-            session.headers["Authorization"] = self._auth_header
-            self._local.session = session
-        return session
-
-    def _send(self, op: str, path: str, params=None, deadline=None) -> tuple[int, bytes, dict]:
-        """One GET. Returns (status, body, headers); transport failures raise a fixed error."""
-        url = self._base + "/rest/api" + path
-        started = time.monotonic()
-        timeout = _DEFAULT_TIMEOUT
-        if deadline is not None:
-            left = deadline - started
-            if left <= 0:
-                raise _DeadlineTimeout()
-            left = max(_MIN_TIMEOUT_S, left)
-            timeout = (min(_DEFAULT_TIMEOUT[0], left), min(_DEFAULT_TIMEOUT[1], left))
-        status, chunks, headers, failure = 0, [], {}, None
-        try:
-            with self._session().get(url, params=params, timeout=timeout, allow_redirects=False,
-                                     stream=True) as response:
-                status = response.status_code
-                headers = {k.lower(): v for k, v in response.headers.items()}
-                if status == 200:
-                    size = 0
-                    for chunk in response.iter_content(_CHUNK_BYTES):
-                        size += len(chunk)
-                        if size > _MAX_RESPONSE_BYTES:
-                            failure = "too_large"
-                            break
-                        chunks.append(chunk)
-                        if deadline is not None and time.monotonic() >= deadline:
-                            failure = "deadline"
-                            break
-        except requests.exceptions.SSLError:
-            failure = "tls"
-        except (requests.exceptions.Timeout, TimeoutError):
-            failure = "timeout"
-        except _TRANSPORT_ERRORS as exc:
-            failure = "unreachable"
-            logger.debug("confluence_dc %s transport failure: %s", op, type(exc).__name__)
-        # Raised outside the except blocks, so no exception chain carries the URL.
-        if failure == "deadline" or (failure == "timeout" and deadline is not None
-                                     and deadline - time.monotonic() < _MIN_TIMEOUT_S):
-            raise _DeadlineTimeout()
-        if failure:
-            message = {"tls": _TLS, "timeout": _TIMEOUT, "too_large": _TOO_LARGE}.get(failure, _UNREACHABLE)
-            raise ConfluenceHTTPError(status, failure, message)
-        logger.debug("confluence_dc %s -> %s in %d ms", op, status, int((time.monotonic() - started) * 1000))
-        return status, b"".join(chunks), headers
-
-    def _get(self, op: str, path: str, params=None, deadline=None):
-        """GET ``{base}/rest/api{path}`` and return its JSON; maps every failure to a fixed error."""
-        for attempt in range(_RATE_LIMIT_RETRIES + 1):
-            status, body, headers = self._send(op, path, params, deadline)
-            if status != 429 or attempt == _RATE_LIMIT_RETRIES:
-                break
-            wait = self._retry_after(headers)
-            if deadline is not None and time.monotonic() + wait >= deadline:
-                break
-            logger.info("confluence_dc %s rate-limited; retrying in %.1fs", op, wait)
-            _sleep(wait)
-        if status == 401:
-            if "captcha" in (headers.get("x-authentication-denied-reason") or "").lower():
-                raise ConfluenceHTTPError(401, "captcha", _CAPTCHA)
-            raise ConfluenceHTTPError(401, "auth", _TOKEN_REJECTED if self.auth_method == "token" else _PASSWORD_REJECTED)
-        if 300 <= status < 400:
-            raise ConfluenceHTTPError(status, "redirect", _REDIRECTED)
-        if status != 200:
-            kind, message = _status_message(status)
-            raise ConfluenceHTTPError(status, kind, message)
-        if "json" not in (headers.get("content-type") or "application/json").lower():
-            raise ConfluenceHTTPError(200, "not_api", _NOT_API)
-        try:
-            return json.loads(body)
-        except (ValueError, RecursionError):
-            pass
-        raise ConfluenceHTTPError(200, "not_api", _NOT_API)
-
-    @staticmethod
-    def _retry_after(headers: dict) -> float:
-        raw = headers.get("retry-after")
-        try:
-            return max(0.0, min(_MAX_RETRY_AFTER_S, float(raw)))
-        except (TypeError, ValueError):
-            return 2.0
-
     def _pages(self, op: str, path: str, params: dict, cap: int, budget: list, deadline=None, cancel_check=None):
         """Yield result records across start/limit pages until ``cap`` records, a short page or the call budget.
 
@@ -420,7 +218,7 @@ class ConfluenceDcClient(DataSourceClient):
             payload = self._get(op, path, {**params, "start": str(start), "limit": str(limit)}, deadline)
             results = payload.get("results") if isinstance(payload, dict) else None
             if not isinstance(results, list):
-                raise ConfluenceHTTPError(200, "not_api", _NOT_API)
+                raise self._error(200, "not_api")
             for record in results:
                 if isinstance(record, dict):
                     served += 1
@@ -504,7 +302,7 @@ class ConfluenceDcClient(DataSourceClient):
                 result["login_refused"] = exc.kind if exc.kind == "captcha" else "rejected"
             elif exc.kind == "not_found":
                 # /user/current is on every Confluence: a 404 there means this is not its REST API.
-                result["message"] = _NOT_API
+                result["message"] = self._msg("not_api")
             return result
         except ConfluenceError as exc:
             return {"success": False, "message": str(exc)}
@@ -554,9 +352,9 @@ class ConfluenceDcClient(DataSourceClient):
             if stop.stop_reason == "cancelled" and not stop.files:
                 raise SearchStopped("cancelled", files)
             raise
-        except _DeadlineTimeout:
-            raise SearchStopped("deadline", files)
         except ConfluenceHTTPError as exc:
+            if exc.kind == "deadline":
+                raise SearchStopped("deadline", files)
             if exc.kind == "bad_request":
                 raise ConfluenceHTTPError(400, "bad_request", _BAD_QUERY_400)
             raise
@@ -744,7 +542,7 @@ class ConfluenceDcClient(DataSourceClient):
         record = self._get("read", f"/content/{content_id}",
                            {"expand": "body.export_view,version,space,ancestors"})
         if not isinstance(record, dict) or str(record.get("id")) != content_id:
-            raise ConfluenceHTTPError(200, "not_api", _NOT_API)
+            raise self._error(200, "not_api")
         ctype = record.get("type")
         if ctype not in ("page", "blogpost") or (kind in ("page", "blogpost") and kind != ctype):
             raise ConfluenceError(_UNSUPPORTED_TYPE)

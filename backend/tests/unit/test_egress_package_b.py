@@ -161,6 +161,21 @@ async def test_confluence_dc_base_url_never_contacts_metadata(trap, host, scheme
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["https", "http"])
+@pytest.mark.parametrize("host", METADATA_FORMS)
+async def test_jira_dc_base_url_never_contacts_metadata(trap, host, scheme):
+    """Jira Data Center names its destination (with a context path) in `base_url`."""
+    from app.services.connection_service import ConnectionService
+
+    t = trap()
+    res = await ConnectionService().test_connection_params(
+        "jira_dc", {"base_url": f"{scheme}://{host}/jira", "allow_http": True},
+        {"personal_access_token": "TkRBeE5UWTNPRGt3TVRJek9rRnNhV05sVUVGVQ"})
+    assert res["success"] is False
+    assert t.hits == []
+
+
+@pytest.mark.asyncio
 async def test_connection_to_internal_database_still_attempted_and_blocked_with_flag(trap, monkeypatch):
     from app.services.connection_service import ConnectionService
 
