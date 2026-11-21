@@ -3922,8 +3922,17 @@ class OutlookMailConfig(BaseModel):
 class TeamsMessagesConfig(BaseModel):
     """Microsoft Teams needs no admin-side scope: each user's Microsoft sign-in
     decides which channels and chats are visible, and messages are always
-    searched live (nothing is copied into BOW)."""
-    pass
+    searched live (nothing is copied into BOW).
+
+    ``allowed_post_channels`` only matters once a connection admin turns on
+    the post_message action: posts may then go only to these channels."""
+    allowed_post_channels: Optional[str] = Field(
+        None,
+        title="Channels agents may post to",
+        description=("Comma- or newline-separated channel names (e.g. 'SOC › Alerts' or 'Alerts') or "
+                     "channel ids. Empty: any channel the signed-in user can post in."),
+        json_schema_extra={"ui:type": "textarea"},
+    )
 
 
 # Slack

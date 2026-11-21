@@ -1732,7 +1732,8 @@
       "allowedByYou": "Von dir erlaubt",
       "deniedByYou": "Von dir abgelehnt",
       "records": "{n} Datensätze",
-      "recordsPartial": "{shown} von {total} Datensätzen"
+      "recordsPartial": "{shown} von {total} Datensätzen",
+      "viaAgent": "Über {name}"
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
@@ -7917,5 +7918,42 @@
     },
     "or": "ODER",
     "and": "UND"
+  },
+  "connectionTools": {
+    "tab": "Tools",
+    "intro": "Legen Sie fest, was Agenten in diesem System tun dürfen. Agenten und Benutzer können ein Tool strenger, aber nie lockerer als eine hier gesperrte Einstellung machen.",
+    "empty": "Diese Verbindung hat noch keine Tools.",
+    "loadFailed": "Die Tools konnten nicht geladen werden.",
+    "saveFailed": "Die Änderung konnte nicht gespeichert werden.",
+    "on": "An",
+    "off": "Aus",
+    "enabled": "{name} ist für Agenten verfügbar",
+    "enableGroup": "Alle Tools der Gruppe {group} aktivieren",
+    "policyFor": "Richtlinie für {name}",
+    "lock": "Richtlinie von {name} sperren",
+    "unlock": "Richtlinie von {name} entsperren",
+    "lockHint": "Gesperrt: Agenten und Benutzer können sie strenger, aber nie lockerer machen.",
+    "needsScope": "Benötigt {scope}",
+    "missingScopes": "Ihre Anmeldung enthält {scopes} nicht. Ein Admin erteilt es in der Entra-App-Registrierung; melden Sie sich danach erneut an.",
+    "grantAccess": "Erneut anmelden",
+    "builtinReadHint": "Immer verfügbar: Lesen ändert nie etwas.",
+    "effect": {
+      "read": {
+        "title": "Lesen",
+        "hint": "Schlägt nach; ändert nichts."
+      },
+      "modify": {
+        "title": "Ändern",
+        "hint": "Ändert eigene Daten des Benutzers; rückgängig zu machen."
+      },
+      "external": {
+        "title": "Extern",
+        "hint": "Andere sehen es, und es lässt sich nicht zurücknehmen. Automatische Prüfung wird nicht angeboten."
+      },
+      "destructive": {
+        "title": "Destruktiv",
+        "hint": "Löscht oder sperrt. Fragt immer zuerst."
+      }
+    }
   }
 }

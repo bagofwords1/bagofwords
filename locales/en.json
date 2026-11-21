@@ -1983,7 +1983,8 @@
         "openLink": "Open link",
         "cancel": "Cancel",
         "contextShared": "The app shared what you selected with the assistant."
-      }
+      },
+      "viaAgent": "Via {name}"
     },
     "remoteOp": {
       "read_file": {
@@ -8882,5 +8883,42 @@
     "copied": "Copied",
     "copyFailed": "Couldn't copy",
     "viewCode": "View code"
+  },
+  "connectionTools": {
+    "tab": "Tools",
+    "intro": "Choose what agents can do in this system. Agents and users can make a tool stricter, never looser than a locked setting here.",
+    "empty": "This connection has no tools yet.",
+    "loadFailed": "Couldn't load the tools.",
+    "saveFailed": "Couldn't save the change.",
+    "on": "On",
+    "off": "Off",
+    "enabled": "{name} is available to agents",
+    "enableGroup": "Turn on all {group} tools",
+    "policyFor": "Policy for {name}",
+    "lock": "Lock the policy of {name}",
+    "unlock": "Unlock the policy of {name}",
+    "lockHint": "Locked: agents and users can make this stricter, never looser.",
+    "needsScope": "Needs {scope}",
+    "missingScopes": "Your sign-in doesn't include {scopes}. An admin grants it in the Entra app registration; then sign in again.",
+    "grantAccess": "Sign in again",
+    "builtinReadHint": "Always available: reading never changes anything.",
+    "effect": {
+      "read": {
+        "title": "Read",
+        "hint": "Looks things up; changes nothing."
+      },
+      "modify": {
+        "title": "Modify",
+        "hint": "Changes the user's own data; can be undone."
+      },
+      "external": {
+        "title": "External",
+        "hint": "Others see it and it can't be taken back. Automatic review is not offered."
+      },
+      "destructive": {
+        "title": "Destructive",
+        "hint": "Deletes or locks things. Always asks first."
+      }
+    }
   }
 }

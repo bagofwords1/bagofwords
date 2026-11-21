@@ -8,6 +8,7 @@ import asyncio
 import importlib
 import logging
 import json
+import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
@@ -1074,6 +1075,12 @@ class ConnectionService:
                 for key in RUNTIME_CONFIG_KEYS:
                     if key not in new_config and key in current_config:
                         new_config = {**new_config, key: current_config[key]}
+                # Server-managed: the scopes the connection's enabled write
+                # actions need (see _refresh_action_scopes). Never taken from
+                # the request, never dropped by a form save.
+                new_config = {k: v for k, v in new_config.items() if k != "action_scopes"}
+                if isinstance(current_config, dict) and current_config.get("action_scopes"):
+                    new_config["action_scopes"] = current_config["action_scopes"]
                 current_config = new_config
             connection.config = json.dumps(new_config) if isinstance(new_config, dict) else new_config
             connection_changed = True
@@ -3469,6 +3476,59 @@ class ConnectionService:
             return False
         return catalog_ownership_for(connection_type, config) == "per_user"
 
+    async def sync_native_actions(self, db: AsyncSession, connection: Connection) -> bool:
+        """Make a built-in connector's write actions exist as tool rows.
+
+        The actions are defined in code (``ConnectorAction``); this keeps the
+        connection's ConnectionTool rows in step: a new action is added with
+        its effect's safe default (off — write tools never start on), an
+        existing row keeps the admin's settings while its description and
+        schema follow the code, and an action the code no longer has is
+        switched off and marked stale rather than deleted (agents' settings
+        and history keep pointing at it). No network. Returns True on change.
+        """
+        from app.data_sources.clients.connector_actions import EFFECT_DEFAULTS, actions_for_type
+
+        actions = actions_for_type(connection.type)
+        if not actions:
+            return False
+        rows = (await db.execute(
+            select(ConnectionTool).where(ConnectionTool.connection_id == str(connection.id))
+        )).scalars().all()
+        existing = {t.name: t for t in rows}
+        changed = False
+        for action in actions:
+            spec = action.to_tool()
+            row = existing.pop(action.name, None)
+            if row is None:
+                enabled, policy = EFFECT_DEFAULTS[action.effect]
+                insert = _dialect_insert(db)
+                await db.execute(insert(ConnectionTool).values(
+                    id=str(uuid.uuid4()), connection_id=str(connection.id), name=action.name,
+                    description=action.description, input_schema=action.input_schema,
+                    is_enabled=enabled, policy=policy, policy_locked=False,
+                    effect=action.effect, source="native", metadata_json=spec["metadata"],
+                ).on_conflict_do_nothing(index_elements=["connection_id", "name"]))
+                changed = True
+                continue
+            if (row.description != action.description or row.input_schema != action.input_schema
+                    or row.effect != action.effect or row.source != "native"
+                    or row.metadata_json != spec["metadata"]):
+                row.description = action.description
+                row.input_schema = action.input_schema
+                row.effect = action.effect
+                row.source = "native"
+                row.metadata_json = spec["metadata"]
+                changed = True
+        for row in existing.values():
+            if row.source == "native" and not (row.metadata_json or {}).get("stale"):
+                row.is_enabled = False
+                row.metadata_json = {**(row.metadata_json or {}), "stale": True}
+                changed = True
+        if changed:
+            await db.commit()
+        return changed
+
     async def refresh_tools(
         self,
         db: AsyncSession,
@@ -3569,6 +3629,8 @@ class ConnectionService:
                         tool.metadata_json = payload["metadata"]
                     if payload.get("explicit_policy"):
                         tool.policy = payload["explicit_policy"]
+                    tool.effect = effect_from_hints(payload.get("metadata")) or tool.effect
+                    tool.source = _tool_source(connection.type)
                     updated_count += 1
                 else:
                     new_tools.append(dict(
@@ -3584,6 +3646,8 @@ class ConnectionService:
                         # allow. Auto-policied tools keep whatever an admin
                         # sets later (only new rows are seeded).
                         policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
+                        effect=effect_from_hints(payload.get("metadata")),
+                        source=_tool_source(connection.type),
                     ))
                     created_count += 1
 
@@ -3660,7 +3724,10 @@ class ConnectionService:
         db: AsyncSession,
         connection_id: str,
     ) -> List[ConnectionTool]:
-        """Get all tools for a connection."""
+        """Get all tools for a connection (built-in actions synced first)."""
+        connection = await db.get(Connection, str(connection_id))
+        if connection is not None:
+            await self.sync_native_actions(db, connection)
         result = await db.execute(
             select(ConnectionTool)
             .filter(ConnectionTool.connection_id == connection_id)
@@ -3675,6 +3742,7 @@ class ConnectionService:
         is_enabled: bool = None,
         policy: str = None,
         connection_id: Optional[str] = None,
+        policy_locked: Optional[bool] = None,
     ) -> ConnectionTool:
         """Update a single tool's enabled state or policy.
 
@@ -3699,7 +3767,15 @@ class ConnectionService:
                     status_code=400,
                     detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
                 )
+            from app.services.tool_policy_service import policy_not_allowed_for
+            reason = policy_not_allowed_for(tool, normalized)
+            if reason:
+                raise HTTPException(status_code=400, detail=reason)
             tool.policy = normalized
+        if policy_locked is not None:
+            tool.policy_locked = bool(policy_locked)
+        if is_enabled is not None:
+            await self._refresh_action_scopes(db, str(tool.connection_id))
 
         await db.commit()
         await db.refresh(tool)
@@ -3725,5 +3801,54 @@ class ConnectionService:
             raise HTTPException(status_code=404, detail="Tool not found")
         for tool in tools:
             tool.is_enabled = is_enabled
+        if tools:
+            await self._refresh_action_scopes(db, str(tools[0].connection_id))
         await db.commit()
         return tools
+
+    async def _refresh_action_scopes(self, db: AsyncSession, connection_id: str) -> None:
+        """Record on the connection which extra sign-in scopes its enabled
+        write actions need (``config.action_scopes``).
+
+        The Microsoft sign-in, its callback and token refresh all read this
+        (``get_oauth_params``), so turning on send_email makes the next sign-in
+        ask for Mail.Send, and a refresh never silently drops a granted scope.
+        Turning a tool off removes its scope from the next sign-in; the tool is
+        blocked by its row either way. Caller commits.
+        """
+        from app.data_sources.clients.connector_actions import NATIVE_ACTION_TYPES, actions_for_type
+
+        connection = await db.get(Connection, str(connection_id))
+        if connection is None or connection.type not in NATIVE_ACTION_TYPES:
+            return
+        enabled = {t.name for t in (await db.execute(
+            select(ConnectionTool).where(ConnectionTool.connection_id == str(connection_id),
+                                         ConnectionTool.is_enabled.is_(True))
+        )).scalars().all()}
+        scopes = sorted({alts[0] for a in actions_for_type(connection.type) if a.name in enabled
+                         for alts in a.required_scopes})
+        cfg = connection.config
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = {}
+        cfg = dict(cfg or {})
+        if cfg.get("action_scopes", []) == scopes:
+            return
+        if scopes:
+            cfg["action_scopes"] = scopes
+        else:
+            cfg.pop("action_scopes", None)
+        connection.config = json.dumps(cfg) if isinstance(connection.config, str) else cfg
+
+
+def _tool_source(conn_type: Optional[str]) -> Optional[str]:
+    if conn_type in ("remote_ssh", "remote_smb"):
+        return "remote"
+    return conn_type if conn_type in ("mcp", "custom_api") else None
+
+
+def effect_from_hints(metadata):
+    from app.data_sources.clients.connector_actions import effect_from_hints as _f
+    return _f(metadata)

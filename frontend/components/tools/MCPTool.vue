@@ -29,6 +29,17 @@
       class="mt-1.5 ms-1 border-s-2 border-amber-300/70 dark:border-amber-600/50 ps-2.5 py-0.5 space-y-1.5"
       data-testid="mcp-approval-card"
     >
+      <div v-if="actionPreview" class="text-chat-2 text-ink" data-testid="mcp-approval-preview">
+        <span
+          v-if="actionEffect"
+          class="me-1.5 text-2xs px-1 py-0.5 rounded"
+          :class="actionEffect === 'external' || actionEffect === 'destructive' ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'"
+        >{{ t(`connectionTools.effect.${actionEffect}.title`) }}</span>
+        <bdi>{{ actionPreview }}</bdi>
+      </div>
+      <div v-if="viaAgentName" class="text-chat-2 text-ink-muted" data-testid="mcp-approval-via-agent">
+        {{ t('tools.mcp.viaAgent', { name: viaAgentName }) }}
+      </div>
       <button
         v-if="argsOneLine && !isShell"
         type="button"
@@ -248,8 +259,26 @@ const approvalOutcomeLabel = computed(() => {
   return o.approved ? t('tools.mcp.allowedByYou') : t('tools.mcp.deniedByYou')
 })
 
-const confirmationArgs = computed(() => {
+// Underscore keys (_execution_target, _via_agent) are display context the
+// backend attaches to the card; they are never sent to the tool.
+const toolArgs = computed(() => {
   const a = confirmation.value?.arguments
+  if (!a || typeof a !== 'object') return a
+  return Object.fromEntries(Object.entries(a).filter(([k]) => !k.startsWith('_')))
+})
+// Built-in connector actions carry a one-line preview ("Send to …: subject")
+// and their effect group, so the person approving reads what will happen.
+const actionPreview = computed(() => String(confirmation.value?.arguments?._preview || ''))
+const actionEffect = computed(() => {
+  const e = confirmation.value?.arguments?._effect
+  return ['read', 'modify', 'external', 'destructive'].includes(e) ? e : ''
+})
+// The agent this call goes through — its rule decided that the call asks.
+const viaAgentName = computed(() =>
+  confirmation.value?.via_agent?.name || confirmation.value?.arguments?._via_agent?.name || '')
+
+const confirmationArgs = computed(() => {
+  const a = toolArgs.value
   if (!a || !Object.keys(a).length) return ''
   try { return JSON.stringify(a, null, 2) } catch { return String(a) }
 })
@@ -259,7 +288,7 @@ const showArgs = ref(false)
 const argsOneLine = computed(() => {
   if (!confirmation.value) return ''
   const name = confirmation.value.tool_name || 'tool'
-  const a = confirmation.value.arguments
+  const a = toolArgs.value
   if (!a || !Object.keys(a).length) return `${name}()`
   try { return `${name}(${JSON.stringify(a)})` } catch { return `${name}(…)` }
 })

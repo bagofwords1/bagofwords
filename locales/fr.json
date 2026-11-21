@@ -1732,7 +1732,8 @@
       "allowedByYou": "Autorisé par vous",
       "deniedByYou": "Refusé par vous",
       "records": "{n} enregistrements",
-      "recordsPartial": "{shown} sur {total} enregistrements"
+      "recordsPartial": "{shown} sur {total} enregistrements",
+      "viaAgent": "Via {name}"
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"
@@ -7917,5 +7918,42 @@
     },
     "or": "OU",
     "and": "ET"
+  },
+  "connectionTools": {
+    "tab": "Outils",
+    "intro": "Choisissez ce que les agents peuvent faire dans ce système. Les agents et les utilisateurs peuvent rendre un outil plus strict, jamais moins strict qu'un réglage verrouillé ici.",
+    "empty": "Cette connexion n'a pas encore d'outils.",
+    "loadFailed": "Impossible de charger les outils.",
+    "saveFailed": "Impossible d'enregistrer la modification.",
+    "on": "Activé",
+    "off": "Désactivé",
+    "enabled": "{name} est disponible pour les agents",
+    "enableGroup": "Activer tous les outils {group}",
+    "policyFor": "Règle pour {name}",
+    "lock": "Verrouiller la règle de {name}",
+    "unlock": "Déverrouiller la règle de {name}",
+    "lockHint": "Verrouillée : les agents et utilisateurs peuvent la rendre plus stricte, jamais moins.",
+    "needsScope": "Nécessite {scope}",
+    "missingScopes": "Votre connexion n'inclut pas {scopes}. Un administrateur l'accorde dans l'inscription d'application Entra, puis reconnectez-vous.",
+    "grantAccess": "Se reconnecter",
+    "builtinReadHint": "Toujours disponibles : la lecture ne modifie jamais rien.",
+    "effect": {
+      "read": {
+        "title": "Lecture",
+        "hint": "Consulte ; ne modifie rien."
+      },
+      "modify": {
+        "title": "Modifier",
+        "hint": "Modifie les données de l'utilisateur ; réversible."
+      },
+      "external": {
+        "title": "Externe",
+        "hint": "D'autres le voient et c'est irréversible. La revue automatique n'est pas proposée."
+      },
+      "destructive": {
+        "title": "Destructif",
+        "hint": "Supprime ou bloque. Demande toujours avant."
+      }
+    }
   }
 }

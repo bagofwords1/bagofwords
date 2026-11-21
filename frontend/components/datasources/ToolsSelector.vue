@@ -226,6 +226,7 @@
                   data-testid="tool-http-path"
                 >{{ tool.metadata.path }}</code>
                 <span v-if="!tool.is_enabled" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">off</span>
+                <UIcon v-if="tool.policy_locked" name="heroicons-lock-closed" class="w-3 h-3 text-amber-600 shrink-0" :title="$t('connectionTools.lockHint')" data-testid="tool-policy-locked" />
                 <span v-if="canUpdate && !tool.has_overlay" class="text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500 dark:text-blue-300" title="Inherits connection default">default</span>
               </button>
               <span class="text-2xs text-ink-muted truncate min-w-0">{{ tool.description }}</span>
@@ -250,10 +251,7 @@
                     @change="(e: Event) => setToolPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
                     class="text-2xs border border-gray-200 dark:border-gray-700 rounded px-1 py-0.5 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none focus:border-blue-400"
                   >
-                    <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
-                    <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                    <option v-if="tool.name !== 'execute_shell' || conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
-                    <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+                    <option v-for="p in toolPolicies(tool, conn)" :key="p" :value="p">{{ policyLabel(p) }}</option>
                   </select>
                   <span
                     v-else
@@ -278,10 +276,7 @@
                     data-testid="my-policy-select"
                   >
                     <option value="">{{ $t('toolsSelector.policyInherit', { policy: policyLabel(tool.policy) }) }}</option>
-                    <option value="allow">{{ $t('toolsSelector.policyAllow') }}</option>
-                    <option value="ask">{{ $t('toolsSelector.policyAsk') }}</option>
-                    <option v-if="tool.name !== 'execute_shell' || conn.type !== 'remote_ssh'" value="auto">{{ $t('toolsSelector.policyAuto') }}</option>
-                    <option value="deny">{{ $t('toolsSelector.policyDeny') }}</option>
+                    <option v-for="p in toolPolicies(tool, conn)" :key="p" :value="p">{{ policyLabel(p) }}</option>
                   </select>
                 </div>
               </div>
@@ -651,6 +646,17 @@ function methodChipClass(method: string): string {
     DELETE: 'bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400',
   }
   return map[(method || '').toUpperCase()] || 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+}
+
+// Policies a tool may take: its effect limits them (external: no automatic
+// review; destructive: never silent), and remote shell has no auto mode.
+const EFFECT_POLICIES: Record<string, string[]> = {
+  external: ['allow', 'ask', 'deny'],
+  destructive: ['ask', 'deny'],
+}
+function toolPolicies(tool: any, conn: any): string[] {
+  const base = EFFECT_POLICIES[tool?.effect] || ['allow', 'ask', 'auto', 'deny']
+  return tool?.name === 'execute_shell' && conn?.type === 'remote_ssh' ? base.filter(p => p !== 'auto') : base
 }
 
 function policyLabel(policy: string): string {

@@ -1885,7 +1885,8 @@
         "openLink": "Abrir enlace",
         "cancel": "Cancelar",
         "contextShared": "La aplicación compartió tu selección con el asistente."
-      }
+      },
+      "viaAgent": "A través de {name}"
     },
     "remoteOp": {
       "read_file": {
@@ -8853,5 +8854,42 @@
     "copied": "Copiado",
     "copyFailed": "No se pudo copiar",
     "viewCode": "Ver código"
+  },
+  "connectionTools": {
+    "tab": "Herramientas",
+    "intro": "Elige qué pueden hacer los agentes en este sistema. Los agentes y usuarios pueden hacer una herramienta más estricta, nunca más permisiva que un ajuste bloqueado aquí.",
+    "empty": "Esta conexión aún no tiene herramientas.",
+    "loadFailed": "No se pudieron cargar las herramientas.",
+    "saveFailed": "No se pudo guardar el cambio.",
+    "on": "Activada",
+    "off": "Desactivada",
+    "enabled": "{name} está disponible para los agentes",
+    "enableGroup": "Activar todas las herramientas de {group}",
+    "policyFor": "Política para {name}",
+    "lock": "Bloquear la política de {name}",
+    "unlock": "Desbloquear la política de {name}",
+    "lockHint": "Bloqueada: los agentes y usuarios pueden hacerla más estricta, nunca más permisiva.",
+    "needsScope": "Requiere {scope}",
+    "missingScopes": "Tu inicio de sesión no incluye {scopes}. Un administrador lo concede en el registro de la aplicación de Entra; después, vuelve a iniciar sesión.",
+    "grantAccess": "Volver a iniciar sesión",
+    "builtinReadHint": "Siempre disponibles: leer nunca cambia nada.",
+    "effect": {
+      "read": {
+        "title": "Lectura",
+        "hint": "Consulta datos; no cambia nada."
+      },
+      "modify": {
+        "title": "Modificar",
+        "hint": "Cambia datos del propio usuario; se puede deshacer."
+      },
+      "external": {
+        "title": "Externas",
+        "hint": "Otros lo ven y no se puede deshacer. No se ofrece la revisión automática."
+      },
+      "destructive": {
+        "title": "Destructivas",
+        "hint": "Elimina o bloquea cosas. Siempre pregunta antes."
+      }
+    }
   }
 }

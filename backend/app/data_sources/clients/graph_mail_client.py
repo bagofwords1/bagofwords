@@ -22,7 +22,14 @@ from typing import Any, Callable, Dict, List, Optional
 import httpx
 
 from app.data_sources.clients.base import Capability
-from app.data_sources.clients.graph_drive_client import GRAPH_BASE, GraphDriveClient
+from app.data_sources.clients.connector_actions import (
+    EFFECT_EXTERNAL,
+    EFFECT_MODIFY,
+    ActionError,
+    ConnectorAction,
+    ConnectorActionsMixin,
+)
+from app.data_sources.clients.graph_drive_client import GRAPH_BASE, GraphDriveClient, graph_write
 from app.data_sources.clients.mail_common import (
     clamp_mail_results,
     decode_cursor,
@@ -55,7 +62,141 @@ def _received(m: dict) -> Optional[datetime]:
         return None
 
 
-class GraphMailClient(GraphDriveClient):
+# ---------------------------------------------------------------- actions
+#
+# Write actions (BOW-209). Each one is a ConnectionTool row on an Outlook
+# connection, off until a connection admin turns it on, and every call passes
+# the tool policy (allow / ask / auto / deny) of the agent it goes through.
+# Graph references: message-update, message-move, user-post-messages,
+# message-createreply / createreplyall / createforward, message-send, user-sendmail.
+
+_MSG_ID = {"type": "string", "description": "The message id, exactly as list_emails / search_email returned it."}
+_RECIPIENTS = {"type": "array", "items": {"type": "string"}, "description": "Email addresses."}
+
+
+def _recipients(addrs) -> list:
+    if isinstance(addrs, str):
+        addrs = [a for a in addrs.replace(";", ",").split(",")]
+    return [{"emailAddress": {"address": a.strip()}} for a in (addrs or []) if str(a).strip()]
+
+
+def _short(text, n=80) -> str:
+    t = " ".join(str(text or "").split())
+    return t if len(t) <= n else t[: n - 1] + "…"
+
+
+def _body(text: str) -> dict:
+    content = str(text or "")
+    is_html = "<" in content and ">" in content and any(t in content.lower() for t in ("<p", "<br", "<div", "<b>", "<ul", "<a "))
+    return {"contentType": "html" if is_html else "text", "content": content}
+
+
+def _draft_preview(a) -> str:
+    mode = a.get("mode") or "new"
+    text = _short(a.get("subject") or a.get("body"), 60)
+    if mode in ("reply", "reply_all"):
+        label = "Reply-all draft" if mode == "reply_all" else "Reply draft"
+        return f"{label}: {text}"
+    if mode == "forward":
+        return f"Forward draft to {_join(a.get('to')) or '—'}: {text}"
+    return f"Draft to {_join(a.get('to')) or '—'}: {text}"
+
+
+def _join(addrs) -> str:
+    if isinstance(addrs, str):
+        return addrs
+    return ", ".join(str(a) for a in (addrs or []))
+
+
+OUTLOOK_ACTIONS = (
+    ConnectorAction(
+        name="flag_email",
+        description=("Flag, unflag or complete an email, and/or mark it read or unread. "
+                     "Changes only the signed-in user's own mailbox."),
+        effect=EFFECT_MODIFY,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "message_id": _MSG_ID,
+                "flag": {"type": "string", "enum": ["flagged", "complete", "notFlagged"],
+                         "description": "New follow-up flag state."},
+                "is_read": {"type": "boolean", "description": "Mark as read (true) or unread (false)."},
+            },
+            "required": ["message_id"],
+        },
+        required_scopes=(("Mail.ReadWrite",),),
+        handler="action_flag_email",
+        preview=lambda a: " · ".join(x for x in (
+            f"Flag: {a.get('flag')}" if a.get("flag") else "",
+            ("Mark read" if a.get("is_read") else "Mark unread") if a.get("is_read") is not None else "",
+        ) if x) or "Update email",
+    ),
+    ConnectorAction(
+        name="move_email",
+        description=("Move an email to another folder of the signed-in user's mailbox (a folder path or "
+                     "name such as 'Inbox/Invoices', or archive, inbox, deleteditems). "
+                     "Returns the message's new id: Graph gives a moved message a new id."),
+        effect=EFFECT_MODIFY,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "message_id": _MSG_ID,
+                "destination": {"type": "string", "description": "Folder path, name or id, or archive / inbox / deleteditems."},
+            },
+            "required": ["message_id", "destination"],
+        },
+        required_scopes=(("Mail.ReadWrite",),),
+        handler="action_move_email",
+        preview=lambda a: f"Move to {a.get('destination')}",
+    ),
+    ConnectorAction(
+        name="create_draft",
+        description=("Save an email as a draft in the user's Drafts folder — nothing is sent. "
+                     "mode=new writes a new message; reply / reply_all / forward start from "
+                     "reply_to_message_id. Send it later with send_email(draft_id=...)."),
+        effect=EFFECT_MODIFY,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["new", "reply", "reply_all", "forward"], "default": "new"},
+                "to": _RECIPIENTS,
+                "cc": _RECIPIENTS,
+                "subject": {"type": "string"},
+                "body": {"type": "string", "description": "Plain text, or simple HTML."},
+                "reply_to_message_id": {"type": "string", "description": "Required for reply / reply_all / forward."},
+            },
+            "required": ["body"],
+        },
+        required_scopes=(("Mail.ReadWrite",),),
+        handler="action_create_draft",
+        preview=lambda a: _draft_preview(a),
+    ),
+    ConnectorAction(
+        name="send_email",
+        description=("Send an email from the signed-in user's mailbox. Pass draft_id to send a draft "
+                     "created with create_draft (preferred), or to / subject / body to send a new "
+                     "message directly. Recipients receive it immediately; it cannot be recalled."),
+        effect=EFFECT_EXTERNAL,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "draft_id": {"type": "string", "description": "Id of a draft from create_draft."},
+                "to": _RECIPIENTS,
+                "cc": _RECIPIENTS,
+                "subject": {"type": "string"},
+                "body": {"type": "string"},
+            },
+        },
+        required_scopes=(("Mail.Send",),),
+        handler="action_send_email",
+        preview=lambda a: (f"Send draft {a.get('draft_id')}" if a.get("draft_id") else
+                           f"Send to {_join(a.get('to')) or '—'}: {_short(a.get('subject'), 60)}"),
+    ),
+)
+
+
+
+class GraphMailClient(ConnectorActionsMixin, GraphDriveClient):
     """Outlook/Exchange mail over Microsoft Graph, shaped as a file source.
 
     Declares the MAIL capabilities (not the file ones) so the agent surfaces the
@@ -68,6 +209,7 @@ class GraphMailClient(GraphDriveClient):
     """
 
     capabilities = {Capability.LIST_EMAILS, Capability.READ_EMAIL, Capability.SEARCH_EMAILS}
+    actions = OUTLOOK_ACTIONS
 
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("mode", "outlook_mail")
@@ -422,3 +564,78 @@ class GraphMailClient(GraphDriveClient):
             return {"success": False, "message": f"Signed in as {who}, but the mailbox is unreadable: {detail}"}
 
         return {"success": True, "message": f"Connected as {who}"}
+
+    # ---------------------------------------------------------- actions
+    # Write actions (see OUTLOOK_ACTIONS above). The tool policy has already
+    # allowed the call when one of these runs; each sends exactly one write.
+
+    @staticmethod
+    def _mid(message_id: str) -> str:
+        if not message_id:
+            raise ActionError("message_id is required.")
+        return urllib.parse.quote(str(message_id), safe="")
+
+    def action_flag_email(self, message_id: str, flag: Optional[str] = None, is_read: Optional[bool] = None) -> dict:
+        patch: Dict[str, Any] = {}
+        if flag:
+            if flag not in ("flagged", "complete", "notFlagged"):
+                raise ActionError("flag must be flagged, complete or notFlagged.")
+            patch["flag"] = {"flagStatus": flag}
+        if is_read is not None:
+            patch["isRead"] = bool(is_read)
+        if not patch:
+            raise ActionError("Nothing to change: pass flag and/or is_read.")
+        m = graph_write(self, "PATCH", f"/me/messages/{self._mid(message_id)}", patch)
+        return {"message_id": m.get("id") or message_id, "subject": m.get("subject"),
+                "flag": ((m.get("flag") or {}).get("flagStatus")), "is_read": m.get("isRead")}
+
+    def action_move_email(self, message_id: str, destination: str) -> dict:
+        if not destination:
+            raise ActionError("destination is required.")
+        try:
+            folder = self.resolve_mail_folder(destination)
+        except ValueError as e:
+            raise ActionError(str(e))
+        m = graph_write(self, "POST", f"/me/messages/{self._mid(message_id)}/move", {"destinationId": folder["id"]})
+        return {"old_message_id": message_id, "new_message_id": m.get("id"),
+                "folder": folder.get("path") or destination, "subject": m.get("subject"),
+                "note": "Use new_message_id from now on: Graph gives a moved message a new id."}
+
+    def action_create_draft(self, body: str, mode: str = "new", to=None, cc=None,
+                            subject: Optional[str] = None, reply_to_message_id: Optional[str] = None) -> dict:
+        mode = (mode or "new").lower()
+        if mode == "new":
+            msg: Dict[str, Any] = {"subject": subject or "", "body": _body(body),
+                                   "toRecipients": _recipients(to)}
+            if cc:
+                msg["ccRecipients"] = _recipients(cc)
+            d = graph_write(self, "POST", "/me/messages", msg)
+        elif mode in ("reply", "reply_all", "forward"):
+            if not reply_to_message_id:
+                raise ActionError(f"reply_to_message_id is required for mode={mode}.")
+            verb = {"reply": "createReply", "reply_all": "createReplyAll", "forward": "createForward"}[mode]
+            payload: Dict[str, Any] = {"message": {"body": _body(body)}}
+            if to:
+                payload["message"]["toRecipients"] = _recipients(to)
+            d = graph_write(self, "POST", f"/me/messages/{self._mid(reply_to_message_id)}/{verb}", payload)
+            if subject and d.get("id"):
+                graph_write(self, "PATCH", f"/me/messages/{self._mid(d['id'])}", {"subject": subject})
+        else:
+            raise ActionError("mode must be new, reply, reply_all or forward.")
+        return {"draft_id": d.get("id"), "subject": d.get("subject") or subject,
+                "to": [self._addr(r) for r in (d.get("toRecipients") or [])], "web_url": d.get("webLink"),
+                "sent": False}
+
+    def action_send_email(self, draft_id: Optional[str] = None, to=None, cc=None,
+                          subject: Optional[str] = None, body: Optional[str] = None) -> dict:
+        if draft_id:
+            graph_write(self, "POST", f"/me/messages/{self._mid(draft_id)}/send")
+            return {"sent": True, "draft_id": draft_id}
+        if not to:
+            raise ActionError("Pass draft_id, or to + subject + body.")
+        msg: Dict[str, Any] = {"subject": subject or "", "body": _body(body or ""), "toRecipients": _recipients(to)}
+        if cc:
+            msg["ccRecipients"] = _recipients(cc)
+        graph_write(self, "POST", "/me/sendMail", {"message": msg, "saveToSentItems": True})
+        return {"sent": True, "to": [r["emailAddress"]["address"] for r in msg["toRecipients"]],
+                "subject": subject}

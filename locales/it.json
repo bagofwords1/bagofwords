@@ -1732,7 +1732,8 @@
       "allowedByYou": "Consentito da te",
       "deniedByYou": "Negato da te",
       "records": "{n} record",
-      "recordsPartial": "{shown} di {total} record"
+      "recordsPartial": "{shown} di {total} record",
+      "viaAgent": "Tramite {name}"
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"
@@ -7917,5 +7918,42 @@
     },
     "or": "O",
     "and": "E"
+  },
+  "connectionTools": {
+    "tab": "Strumenti",
+    "intro": "Scegli cosa possono fare gli agenti in questo sistema. Agenti e utenti possono rendere uno strumento più restrittivo, mai meno di un'impostazione bloccata qui.",
+    "empty": "Questa connessione non ha ancora strumenti.",
+    "loadFailed": "Impossibile caricare gli strumenti.",
+    "saveFailed": "Impossibile salvare la modifica.",
+    "on": "Attivo",
+    "off": "Disattivato",
+    "enabled": "{name} è disponibile per gli agenti",
+    "enableGroup": "Attiva tutti gli strumenti {group}",
+    "policyFor": "Criterio per {name}",
+    "lock": "Blocca il criterio di {name}",
+    "unlock": "Sblocca il criterio di {name}",
+    "lockHint": "Bloccato: agenti e utenti possono renderlo più restrittivo, mai meno.",
+    "needsScope": "Richiede {scope}",
+    "missingScopes": "Il tuo accesso non include {scopes}. Un amministratore lo concede nella registrazione dell'app Entra; poi accedi di nuovo.",
+    "grantAccess": "Accedi di nuovo",
+    "builtinReadHint": "Sempre disponibili: la lettura non modifica mai nulla.",
+    "effect": {
+      "read": {
+        "title": "Lettura",
+        "hint": "Consulta; non modifica nulla."
+      },
+      "modify": {
+        "title": "Modifica",
+        "hint": "Modifica i dati dell'utente; reversibile."
+      },
+      "external": {
+        "title": "Esterne",
+        "hint": "Altri lo vedono e non si può annullare. La revisione automatica non è disponibile."
+      },
+      "destructive": {
+        "title": "Distruttive",
+        "hint": "Elimina o blocca. Chiede sempre prima."
+      }
+    }
   }
 }

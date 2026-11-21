@@ -1732,7 +1732,8 @@
       "allowedByYou": "Tillåtet av dig",
       "deniedByYou": "Nekat av dig",
       "records": "{n} poster",
-      "recordsPartial": "{shown} av {total} poster"
+      "recordsPartial": "{shown} av {total} poster",
+      "viaAgent": "Via {name}"
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"
@@ -7917,5 +7918,42 @@
     },
     "or": "ELLER",
     "and": "OCH"
+  },
+  "connectionTools": {
+    "tab": "Verktyg",
+    "intro": "Välj vad agenter får göra i det här systemet. Agenter och användare kan göra ett verktyg striktare, aldrig mildare än en låst inställning här.",
+    "empty": "Den här anslutningen har inga verktyg ännu.",
+    "loadFailed": "Det gick inte att läsa in verktygen.",
+    "saveFailed": "Det gick inte att spara ändringen.",
+    "on": "På",
+    "off": "Av",
+    "enabled": "{name} är tillgängligt för agenter",
+    "enableGroup": "Slå på alla verktyg i {group}",
+    "policyFor": "Policy för {name}",
+    "lock": "Lås policyn för {name}",
+    "unlock": "Lås upp policyn för {name}",
+    "lockHint": "Låst: agenter och användare kan göra den striktare, aldrig mildare.",
+    "needsScope": "Kräver {scope}",
+    "missingScopes": "Din inloggning saknar {scopes}. En administratör beviljar det i Entra-appregistreringen; logga sedan in igen.",
+    "grantAccess": "Logga in igen",
+    "builtinReadHint": "Alltid tillgängliga: läsning ändrar aldrig något.",
+    "effect": {
+      "read": {
+        "title": "Läsa",
+        "hint": "Slår upp; ändrar inget."
+      },
+      "modify": {
+        "title": "Ändra",
+        "hint": "Ändrar användarens egna data; kan ångras."
+      },
+      "external": {
+        "title": "Externa",
+        "hint": "Andra ser det och det kan inte ångras. Automatisk granskning erbjuds inte."
+      },
+      "destructive": {
+        "title": "Destruktiva",
+        "hint": "Raderar eller låser. Frågar alltid först."
+      }
+    }
   }
 }
