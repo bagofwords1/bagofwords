@@ -20,6 +20,13 @@
  *   is removed, never shown: a made-up citation must not read as a source.
  * - Sources are numbered per message, in order of first mention.
  * - Text inside a code fence is quoted, not cited.
+ *
+ * Figures: `{{show:<visualization id>}}` on a line of its own places the result
+ * itself in the answer. With `figures` on, it becomes a `<bow-figure>` block
+ * (a markstream custom node drawn by components/markdown/ChatFigure.vue) and
+ * takes a number like a citation, so figure 1 is source 1. A single value is
+ * never a figure: the sentence states it. Surfaces without figures drop the
+ * marker (the server does the same for plain-text surfaces, citations.py).
  */
 import type { DataOutput } from './useRunActivity'
 
@@ -30,9 +37,20 @@ const MARKER_RE = /[ \t]*\{\{\s*cite\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}/g
 // markers with the preceding text, without rewriting the stored answer.
 const STANDALONE_CITATIONS_RE = /(\S)[ \t]*(?:\r?\n[ \t]*)+(\{\{[ \t]*cite[ \t]*:[ \t]*[0-9A-Za-z-]{1,64}[ \t]*\}\}(?:[ \t]*\{\{[ \t]*cite[ \t]*:[ \t]*[0-9A-Za-z-]{1,64}[ \t]*\}\})*)[ \t]*(?=\r?\n|$)/g
 const CODE_FENCE_RE = /(```[\s\S]*?```)/
+// Also absorbs the wrapping a model sometimes adds: `{{show:…}}`, ({{show:…}}).
+// Optional `highlight="USA, Canada"`: the categories the sentence is about.
+const FIGURE_RE = /[ \t]*(?:\(\s*)?`?\{\{\s*show\s*:\s*([0-9A-Za-z-]{1,64})((?:\s+[a-z]+\s*=\s*"[^"{}]*")*)\s*\}\}`?(?:\s*\))?[ \t]*/g
+const HIGHLIGHT_ATTR_RE = /\bhighlight\s*=\s*"([^"{}]*)"/
+const MAX_HIGHLIGHT_CHARS = 120
+const FIGURE_SLOT_RE = /\u0000F([^\u0000]*)\u0000/g
+const EMPTY_LINES_RE = /\n{3,}/g
+/** Custom tags the answer renderer must pass to markstream (`customHtmlTags`). */
+export const FIGURE_TAGS = ['bow-figure'] as const
+const ANY_MARKER_RE = new RegExp(`${MARKER_RE.source}|${FIGURE_RE.source}`, 'g')
 // The start of a marker still being streamed: "{", "{{", "{{ci", "{{cite:3f9a",
 // "{{cite:3f9a1c2e}" …
-const PARTIAL_MARKER_RE = /[ \t]*\{(?:\{(?:\s*(?:c(?:i(?:t(?:e(?:\s*(?::[^{}]*\}?)?)?)?)?)?)?)?)?$/
+// The same for a figure marker: "{{s", "{{show:3f9a" …
+const PARTIAL_MARKER_RE = /[ \t]*\{(?:\{(?:\s*(?:(?:c(?:i(?:t(?:e(?:\s*(?::[^{}]*\}?)?)?)?)?)?)|(?:s(?:h(?:o(?:w(?:\s*(?::[^{}]*\}?)?)?)?)?)?))?)?)?$/
 
 /** A tool call whose result can be cited: `create_data`, or `describe_entity`
     in create mode. Mirrors isDataResultCall in useRunActivity (kept local so
@@ -107,7 +125,25 @@ function eachProse(text: string, convert: (prose: string, last: boolean) => stri
 /** `text` without any citation marker (clipboard, plain-text uses). */
 export function stripCitations(text: string): string {
   if (!text || !text.includes('{{')) return text || ''
-  return eachProse(text, (prose) => prose.replace(MARKER_RE, ''))
+  return eachProse(text, (prose) => prose.replace(MARKER_RE, '').replace(FIGURE_RE, '').replace(EMPTY_LINES_RE, '\n\n'))
+}
+
+/** Figures are blocks: each one named inside a paragraph (even mid-sentence)
+    is lifted out and placed right after that paragraph, and the sentence is
+    tidied where the marker stood. */
+function placeFigures(text: string): string {
+  if (!text.includes('\u0000F')) return text
+  return text.split(/\n{2,}/).map((para) => {
+    const figures: string[] = []
+    const prose = para.replace(FIGURE_SLOT_RE, (_m, tag: string) => { figures.push(tag); return '\u0001' })
+    if (!figures.length) return para
+    // Tidy only where a marker stood.
+    const tidy = prose
+      .replace(/[ \t]*\u0001[ \t]*(?=[.,;:!?])/g, '')
+      .replace(/[ \t]*\u0001[ \t]*/g, ' ')
+      .trim()
+    return [tidy, ...figures].filter(Boolean).join('\n\n')
+  }).join('\n\n')
 }
 
 /**
@@ -122,13 +158,26 @@ export function citeText(
   text: string,
   sources: CitationSource[],
   numbering: CitationSource[] = [],
-  opts?: { streaming?: boolean },
+  opts?: { streaming?: boolean; figures?: boolean },
 ): CitedText {
   const cited: CitationSource[] = []
   if (!text || !text.includes('{')) return { markdown: text || '', cited }
   const markdown = eachProse(text, (prose, last) => {
-    let out = prose.replace(STANDALONE_CITATIONS_RE, '$1 $2').replace(MARKER_RE, (_m, raw: string) => {
-      const source = matchSource(raw, sources)
+    // One pass in reading order, so chips and figures share one numbering.
+    let out = prose.replace(STANDALONE_CITATIONS_RE, '$1 $2').replace(ANY_MARKER_RE, (_m, citeRaw: string | undefined, showRaw: string | undefined, showAttrs: string | undefined) => {
+      if (showRaw !== undefined) {
+        const source = matchSource(showRaw, sources)
+        if (!opts?.figures || !source || source.output.kind === 'number' || source.output.kind === 'none') return ''
+        if (!numbering.includes(source)) numbering.push(source)
+        if (!cited.includes(source)) cited.push(source)
+        const key = source.key.replace(/[^0-9A-Za-z_-]/g, '')
+        // Only the categories, as text: ChatFigure checks them against the data.
+        const hl = (HIGHLIGHT_ATTR_RE.exec(showAttrs || '')?.[1] || '').slice(0, MAX_HIGHLIGHT_CHARS)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').trim()
+        // A slot for now: the figure goes after the paragraph it was named in.
+        return `\u0000F<bow-figure source="${key}" number="${numbering.indexOf(source) + 1}"${hl ? ` highlight="${hl}"` : ''}></bow-figure>\u0000`
+      }
+      const source = matchSource(citeRaw || '', sources)
       if (!source) return ''
       if (!numbering.includes(source)) numbering.push(source)
       if (!cited.includes(source)) cited.push(source)
@@ -138,6 +187,7 @@ export function citeText(
       const link = `${CITATION_HREF_PREFIX}${source.key}${title ? ` "${title}"` : ''}`
       return `\u00A0[${numbering.indexOf(source) + 1}](${link})`
     })
+    out = placeFigures(out).replace(EMPTY_LINES_RE, '\n\n')
     if (opts?.streaming && last) out = out.replace(PARTIAL_MARKER_RE, '')
     return out
   })
