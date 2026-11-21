@@ -462,3 +462,45 @@ def test_extraction_lands_in_a_duckdb_artifact(monkeypatch, tmp_path):
     con.close()
     assert n == 300
     assert lo == BASE and hi == BASE + timedelta(days=299)
+
+
+# --------------------------------------------------------------------------
+# The organization's request limit
+# --------------------------------------------------------------------------
+
+def _limited(client, max_requests):
+    from app.data_sources.fast import limits as fast_limits
+
+    client.extraction_limits = fast_limits.FastLimits(max_requests=max_requests)
+    return client
+
+
+def test_the_request_limit_comes_from_the_organization_not_a_constant(monkeypatch):
+    """The same extraction stops under a low limit and completes under a
+    higher one; nothing else differs between the two runs."""
+    monkeypatch.setattr(pbs, "MAX_RESPONSE_ROWS", 20)
+    low, _ = _client(monkeypatch, {SALES_DS: FakeDax(_sales(600), ceiling_rows=20)})
+    with pytest.raises(RuntimeError, match="16 requests"):
+        _collect(PowerBISource(_limited(low, 16)), "EVALUATE Sales")
+
+    server = FakeDax(_sales(600), ceiling_rows=20)
+    high, _ = _client(monkeypatch, {SALES_DS: server})
+    _names, rows = _collect(PowerBISource(_limited(high, 400)), "EVALUATE Sales")
+    assert len({r[0] for r in rows}) == 600
+    assert sum("FILTER(" in q for q in server.queries) > 16
+
+
+def test_a_result_the_request_limit_cannot_carry_is_refused_when_saving(monkeypatch):
+    """More rows than requests x rows-per-request can never arrive, so the
+    estimate says so before any window is fetched."""
+    monkeypatch.setattr(pbs, "MAX_RESPONSE_ROWS", 20)
+    server = FakeDax(_sales(600), ceiling_rows=20)
+    client, _ = _client(monkeypatch, {SALES_DS: server})
+    est = extractor.estimate(_limited(client, 16), "EVALUATE Sales")
+    assert est.rows == 600 and est.source_max_rows == 16 * 20
+    with pytest.raises(extractor.ExtractionRefused):
+        extractor.check_budget(est)
+    assert not any("FILTER(" in q for q in server.queries)
+
+    roomy = extractor.estimate(_limited(client, 400), "EVALUATE Sales")
+    extractor.check_budget(roomy)

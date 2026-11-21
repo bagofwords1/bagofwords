@@ -52,6 +52,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Iterator, List, Optional, Tuple
 
+from app.data_sources.fast import limits as fast_limits
+
 logger = logging.getLogger(__name__)
 
 # Measured ceilings of one executeQueries response. Both truncate silently.
@@ -66,8 +68,10 @@ SAMPLE_ROWS = 200
 
 # A windowed extraction that needs more requests than this has stopped
 # converging. Bounded so a refresh fails with a reason rather than spending the
-# tenant's rate budget (~120 requests/min) on nothing.
-MAX_WINDOW_REQUESTS = 512
+# tenant's rate budget (~120 requests/min) on nothing. The default; an
+# organization moves it in its settings (fast/limits.py), together with the
+# row limit: at 100,000 rows a request, more rows need more requests.
+MAX_WINDOW_REQUESTS = fast_limits.DEFAULTS.max_requests
 
 _ISO_DT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$")
 _INTERNAL_COL_RE = re.compile(r"RowNumber-[0-9A-Fa-f-]{36}")
@@ -111,7 +115,20 @@ class PowerBISource:
             est.note += f"; sample failed: {e}"
             return est
         ceiling = response_ceiling(len(sample.columns))
-        if rows > ceiling and sample.cursor is None:
+        max_requests = fast_limits.of(self.client).max_requests
+        if rows > ceiling * max_requests:
+            # More rows than the request limit can carry even with every
+            # response full. Said at save time, not after an hour of requests.
+            est.source_max_rows = ceiling * max_requests
+            est.source_max_rows_note = (
+                f"This query returns {rows:,} rows. Power BI serves at most "
+                f"{ceiling:,} rows per request for a result this wide, and one "
+                f"refresh may make {max_requests:,} requests, so at most "
+                f"{ceiling * max_requests:,} rows can be extracted. Aggregate or "
+                f"filter the query, or have an admin raise the request limit in "
+                f"the organization's settings."
+            )
+        elif rows > ceiling and sample.cursor is None:
             # One response cannot carry the result and there is nothing to
             # window on. Refusing at save time beats discovering it on the
             # first refresh.
@@ -215,15 +232,19 @@ class PowerBISource:
             emitted += len(rows)
             yield from _tables(rows, batch_rows, schema)
 
-        windows = list(reversed(_initial_windows(lo, hi, total, kind, ceiling)))
+        max_requests = fast_limits.of(self.client).max_requests
+        windows = list(reversed(_initial_windows(lo, hi, total, kind, ceiling, max_requests)))
         while windows:
             w_lo, w_hi, closed = windows.pop()
             requests_made += 1
-            if requests_made > MAX_WINDOW_REQUESTS:
+            if requests_made > max_requests:
                 raise RuntimeError(
-                    f"Extraction did not converge after {MAX_WINDOW_REQUESTS} "
-                    f"requests. This usually means the query returns different "
-                    f"rows each time it runs, or that too many rows share one "
+                    f"Extraction stopped after {max_requests:,} requests, the "
+                    f"limit for one refresh. Either the result needs more "
+                    f"requests than that ({total:,} rows at up to {ceiling:,} "
+                    f"per request; an admin can raise the request limit in the "
+                    f"organization's settings), or the query returns different "
+                    f"rows each time it runs, or too many rows share one "
                     f"{cursor} value."
                 )
             rows, nbytes = self._run(
@@ -587,7 +608,8 @@ def _literal(kind: str, v) -> str:
     return repr(float(v))
 
 
-def _initial_windows(lo, hi, total: int, kind: str, ceiling: int):
+def _initial_windows(lo, hi, total: int, kind: str, ceiling: int,
+                     max_requests: int = MAX_WINDOW_REQUESTS):
     """The windows to start from, sized by the count instead of guessed.
 
     Aiming at half the ceiling per window, because data is rarely uniform
@@ -595,7 +617,7 @@ def _initial_windows(lo, hi, total: int, kind: str, ceiling: int):
     stretch. Whatever still overflows is split by the loop.
     """
     target = max(1, ceiling // 2)
-    count = max(1, min(math.ceil(total / target), MAX_WINDOW_REQUESTS // 2))
+    count = max(1, min(math.ceil(total / target), max_requests // 2))
     if count == 1:
         return [(lo, hi, True)]
     if kind == KIND_DATETIME:

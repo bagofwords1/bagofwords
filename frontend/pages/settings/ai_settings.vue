@@ -261,6 +261,10 @@ const pendingLlmValue = ref(false)
 const FEATURE_PARENT: Record<string, string> = {
     enable_artifact_verification: 'allow_llm_see_data',
     enable_demo_data_generation: 'enable_training_mode',
+    custom_table_max_rows: 'enable_custom_queries',
+    custom_table_max_gb: 'enable_custom_queries',
+    custom_table_max_scan_gb: 'enable_custom_queries',
+    custom_table_max_requests: 'enable_custom_queries',
     ml_training_row_limit: 'enable_ml_training',
     sandbox_web_fetch_max_urls: 'enable_sandbox_web_fetch',
     sandbox_browser_allow_mutating_requests: 'enable_sandbox_browser',

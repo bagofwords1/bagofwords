@@ -690,3 +690,19 @@ def test_windows_materialize_into_a_queryable_artifact(monkeypatch, tmp_path):
         assert con.execute('SELECT count(DISTINCT uuid) FROM "raw_events"').fetchone()[0] == 25
     finally:
         con.close()
+
+
+def test_the_request_limit_comes_from_the_organization(monkeypatch):
+    """The same windowed extraction stops under a low request limit and
+    completes under a higher one."""
+    from app.data_sources.fast import limits as fast_limits
+
+    src, _ = _source(FakeHogQL(_events(400), EVENT_TYPES), monkeypatch, ceiling=10)
+    src.client.extraction_limits = fast_limits.FastLimits(max_requests=16)
+    with pytest.raises(RuntimeError, match="16 requests"):
+        _collect(src, "SELECT * FROM events")
+
+    src, _ = _source(FakeHogQL(_events(400), EVENT_TYPES), monkeypatch, ceiling=10)
+    src.client.extraction_limits = fast_limits.FastLimits(max_requests=400)
+    _names, rows = _collect(src, "SELECT * FROM events")
+    assert len(rows) == 400

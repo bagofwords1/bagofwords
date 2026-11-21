@@ -3651,6 +3651,22 @@
           "name": "Egna tabeller (beta)",
           "description": "Låter anslutningsadministratörer definiera SQL som BOW materialiserar till en krypterad lokal kopia enligt ett schema, så att agenter svarar utifrån det cachade resultatet i stället för att fråga källan vid varje tur. Beta: avstängt som standard."
         },
+        "custom_table_max_rows": {
+          "name": "Radgräns för anpassad tabell",
+          "description": "Flest rader en anpassad tabell får innehålla. En fråga som beräknas eller visar sig returnera fler nekas och tidigare data fortsätter att användas. 1 000 till 100 000 000."
+        },
+        "custom_table_max_gb": {
+          "name": "Storleksgräns för anpassad tabell (GB)",
+          "description": "Största beräknade resultat, och största cachade fil, för en anpassad tabell. 1 till 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Gräns för läsning i källan för anpassad tabell (GB)",
+          "description": "Mest data källan får läsa för en uppdatering, när källan rapporterar det före körning (BigQuery, Snowflake). 1 till 10 240."
+        },
+        "custom_table_max_requests": {
+          "name": "Gräns för antal anrop för anpassad tabell",
+          "description": "Flest anrop en uppdatering får göra till en källa som läses sida för sida (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Höj den tillsammans med radgränsen: Power BI returnerar högst 100 000 rader per anrop och tillåter cirka 120 anrop per minut. 16 till 10 000."
+        },
         "enable_agent_notes": {
           "name": "Agentanteckningar",
           "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."

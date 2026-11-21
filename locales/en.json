@@ -4148,6 +4148,22 @@
           "name": "Custom tables (beta)",
           "description": "Let connection admins define a query (SQL, or DAX on Power BI) that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
         },
+        "custom_table_max_rows": {
+          "name": "Custom table row limit",
+          "description": "Most rows one custom table may hold. A query estimated or found to return more is refused and the previous data keeps being served. 1,000 to 100,000,000."
+        },
+        "custom_table_max_gb": {
+          "name": "Custom table size limit (GB)",
+          "description": "Largest estimated result, and largest cached file, for one custom table. 1 to 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Custom table source scan limit (GB)",
+          "description": "Most data the source may read for one refresh, where the source reports it before running (BigQuery, Snowflake). 1 to 10,240."
+        },
+        "custom_table_max_requests": {
+          "name": "Custom table request limit",
+          "description": "Most requests one refresh may make to a source that is read page by page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Raise it together with the row limit: Power BI returns at most 100,000 rows per request and allows about 120 requests a minute. 16 to 10,000."
+        },
         "enable_agent_notes": {
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."

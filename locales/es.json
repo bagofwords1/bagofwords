@@ -4062,6 +4062,22 @@
           "name": "Tablas personalizadas (beta)",
           "description": "Permite a los administradores de conexiones definir SQL que BOW materializa en una copia local cifrada según una programación, de modo que los agentes respondan desde el resultado almacenado en lugar de consultar la fuente en cada turno. Beta: desactivado por defecto."
         },
+        "custom_table_max_rows": {
+          "name": "Límite de filas de tabla personalizada",
+          "description": "Máximo de filas que puede contener una tabla personalizada. Una consulta que se estime o resulte devolver más se rechaza y se siguen sirviendo los datos anteriores. De 1.000 a 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Límite de tamaño de tabla personalizada (GB)",
+          "description": "Mayor resultado estimado, y mayor archivo en caché, para una tabla personalizada. De 1 a 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Límite de lectura en origen de tabla personalizada (GB)",
+          "description": "Máximo de datos que el origen puede leer en una actualización, cuando el origen lo informa antes de ejecutar (BigQuery, Snowflake). De 1 a 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Límite de solicitudes de tabla personalizada",
+          "description": "Máximo de solicitudes que una actualización puede hacer a un origen que se lee página a página (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Auméntelo junto con el límite de filas: Power BI devuelve como máximo 100.000 filas por solicitud y permite unas 120 solicitudes por minuto. De 16 a 10.000."
+        },
         "enable_agent_notes": {
           "name": "Notas del agente",
           "description": "Permite al agente mantener notas de trabajo por informe (un cuaderno) que escribe y lee mientras responde: planes, hallazgos y tareas pendientes. Las notas se muestran en el informe pero no son conocimiento compartido. Cuando está desactivado, las herramientas de notas se ocultan y las notas no se inyectan en el contexto."

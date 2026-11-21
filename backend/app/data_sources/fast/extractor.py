@@ -24,20 +24,23 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from app.data_sources.fast import artifacts, sql_dialect
+from app.data_sources.fast import limits as fast_limits
 
 logger = logging.getLogger(__name__)
 
-# Defaults. Overridable per-connection via config later; conservative enough
-# that a careless SELECT * is refused rather than absorbed.
-DEFAULT_MAX_ROWS = 5_000_000
-DEFAULT_MAX_BYTES = 2 * 1024 * 1024 * 1024      # 2 GiB estimated source bytes
+# Defaults, conservative enough that a careless SELECT * is refused rather
+# than absorbed. An organization overrides rows, bytes and scan bytes in its
+# settings, inside the ranges in fast/limits.py; every caller that extracts
+# passes the organization's values rather than relying on these.
+DEFAULT_MAX_ROWS = fast_limits.DEFAULTS.max_rows           # 5,000,000
+DEFAULT_MAX_BYTES = fast_limits.DEFAULTS.max_bytes         # 2 GiB estimated source bytes
 DEFAULT_MAX_SECONDS = 1800                       # 30 min per refresh
 # Bytes the SOURCE may read per refresh, where it can tell us in advance
 # (Snowflake, BigQuery). Deliberately much larger than the artifact ceiling: a
 # rollup that scans 50 GB to produce 5,000 rows is the best possible custom
 # query, not one to refuse. This exists to catch the refresh that quietly costs
 # real money every hour.
-DEFAULT_MAX_SCAN_BYTES = 100 * 1024 * 1024 * 1024   # 100 GiB
+DEFAULT_MAX_SCAN_BYTES = fast_limits.DEFAULTS.max_scan_bytes   # 100 GiB
 BATCH_ROWS = 50_000
 
 # The preview shown in the authoring modal is always bounded, no matter what the
