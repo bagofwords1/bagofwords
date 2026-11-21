@@ -1202,9 +1202,18 @@ def test_answer_for_another_report_does_not_carry_over(env, test_client, alembic
 
 
 def test_always_writes_the_personal_preference(env, test_client, alembic_config):
+    # mystery_action has no annotations, so no effect class limits its policy.
+    r = _answer(env, test_client, alembic_config, "mystery_action", approved=True, scope="always")
+    assert r.status_code == 200, r.text
+    assert env.tools()["mystery_action"]["user_policy"] == "allow"
+
+
+def test_always_on_a_destructive_tool_is_not_saved(env, test_client, alembic_config):
+    # delete_branch carries destructiveHint: "always allow" is honoured for this
+    # call but never stored, since a destructive tool may not run silently (#1847).
     r = _answer(env, test_client, alembic_config, "delete_branch", approved=True, scope="always")
     assert r.status_code == 200, r.text
-    assert env.tools()["delete_branch"]["user_policy"] == "allow"
+    assert env.tools()["delete_branch"].get("user_policy") in (None, "")
 
 
 def test_unknown_scope_is_rejected(env, test_client, alembic_config):
