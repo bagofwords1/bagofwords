@@ -126,6 +126,13 @@ class CustomQueryPreviewRequest(BaseModel):
     refresh_config: Optional[CustomQueryRefreshConfig] = None
 
 
+class CustomQueryFromResult(BaseModel):
+    """The query behind one result the agent produced, as the starting
+    definition of a custom table on the connection that answered it."""
+
+    definition_sql: str
+
+
 class CustomQueryTarget(BaseModel):
     """One place a custom table on this connection can run against — a Power
     BI semantic model, with the tables the catalog knows in it."""
@@ -194,12 +201,17 @@ class CustomQuerySchema(BaseModel):
     last_full_refresh_at: Optional[str] = None
     # A first load still in progress: windows finished so far.
     load_progress: Optional[dict] = None
+    # A refresh running right now: {"rows", "source_rows", "started_at",
+    # "trigger"}. `source_rows` is None until the source has been counted.
+    # Set by the list route only; absent when nothing is running.
+    refresh_progress: Optional[dict] = None
 
     class Config:
         from_attributes = True
 
     @classmethod
-    def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None) -> "CustomQuerySchema":
+    def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None,
+                   refresh_progress: Optional[dict] = None) -> "CustomQuerySchema":
         meta = cq.metadata_json if isinstance(getattr(cq, "metadata_json", None), dict) else {}
         target = meta.get("target") if isinstance(meta.get("target"), dict) else None
         state = getattr(cq, "refresh_state", None)
@@ -245,6 +257,7 @@ class CustomQuerySchema(BaseModel):
             checkpoint=state.get("checkpoint") if isinstance(state.get("checkpoint"), dict) else None,
             last_full_refresh_at=state.get("last_full_refresh_at"),
             load_progress=progress,
+            refresh_progress=refresh_progress,
         )
 
 

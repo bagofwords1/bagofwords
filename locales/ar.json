@@ -1884,6 +1884,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "تعديل كود الاستعلام",
+      "saveAsCachedTable": "حفظ كجدول مخزّن مؤقتًا",
+      "saveAsCachedTableTooltip": "تخزين هذا الاستعلام مؤقتًا على الاتصال ليجيب الوكلاء من نسخة محلية",
+      "saveAsCachedTableFailed": "تعذّر فتح هذه النتيجة للتخزين المؤقت",
       "editCode": "تعديل الكود",
       "edit": "تعديل",
       "rows": "{count} صف",

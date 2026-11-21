@@ -247,6 +247,40 @@ def _comparable(a, b) -> bool:
         return False
 
 
+def single_query_of(result_json, connection_id: str) -> Optional[str]:
+    """The one query a tool result ran against `connection_id`, or None.
+
+    None unless the result is exactly one captured statement, as text, that
+    this connection answered without error and without going through a cached
+    table. Each exclusion is a result with no single definition worth keeping:
+    several queries (which one?), a structured request (not editable as a
+    query), another connection's query, a failed one, or one that already read
+    a cached copy.
+    """
+    from app.services.client_keys import FAST_SUFFIX
+
+    result = result_json if isinstance(result_json, dict) else {}
+    queries, timings = result.get("executed_queries"), result.get("query_timings")
+    if not isinstance(queries, list) or not isinstance(timings, list):
+        return None
+    if len(queries) != 1 or len(timings) != 1:
+        return None
+    query = queries[0]
+    timing = timings[0] if isinstance(timings[0], dict) else {}
+    if not isinstance(query, str) or not query.strip() or timing.get("error"):
+        return None
+    if str(timing.get("connection_id") or "") != str(connection_id):
+        return None
+    if str(timing.get("client_key") or "").endswith(FAST_SUFFIX):
+        return None
+    return query.strip()
+
+
+# How often a one-shot load writes its row count to its run row. Frequent
+# enough to read as live, rare enough to be noise next to the load itself.
+PROGRESS_INTERVAL_SECONDS = 1.0
+
+
 class _Run:
     """One refresh in flight: what it was asked, what it found, what it did.
 
@@ -264,6 +298,9 @@ class _Run:
         self.client = None
         self.load: Optional[dict] = None
         self.rows_read = 0
+        # The source's own row count for a one-shot load, once it has been
+        # asked; with `rows_read` it is how far the load has got.
+        self.source_rows: Optional[int] = None
         self.windows_done = 0
         self.rendered_query: Optional[str] = None
         self.window_from = None
@@ -694,6 +731,64 @@ class CustomQueryService:
             "filters_at_source": incremental.filters_at_source(client, definition_sql),
         }
 
+    async def definition_from_result(
+        self, db: AsyncSession, connection: Connection, organization, current_user: User,
+        tool_execution_id: str,
+    ) -> str:
+        """The query behind a result the agent produced, for "save as cached
+        table": the one statement that result ran against `connection`.
+
+        Refused unless the result is a single captured query answered by this
+        connection directly. More than one query has no single definition to
+        keep, a structured (non-text) request is not something the custom
+        table dialog can edit, and a result already read from a cached table
+        would cache the cache.
+
+        The caller is a connection admin (the route requires it), but the
+        result belongs to somebody's report: they must also be able to open
+        that report and see its code, or this would be a way to read the
+        queries of reports they cannot see.
+        """
+        from app.core.code_visibility import can_view_code
+        from app.core.derived_access import can_view_report
+        from app.core.permission_resolver import resolve_permissions
+        from app.models.agent_execution import AgentExecution
+        from app.models.report import Report
+        from app.models.tool_execution import ToolExecution
+        from sqlalchemy.orm import selectinload
+
+        self.ensure_accelerable(connection)
+        not_found = HTTPException(status_code=404, detail="Result not found")
+        row = (await db.execute(
+            select(ToolExecution, AgentExecution)
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(ToolExecution.id == str(tool_execution_id),
+                   AgentExecution.organization_id == str(organization.id))
+        )).first()
+        if row is None:
+            raise not_found
+        tool_execution, agent_execution = row
+        report = None
+        if agent_execution.report_id:
+            report = (await db.execute(
+                select(Report).options(selectinload(Report.data_sources))
+                .where(Report.id == agent_execution.report_id)
+            )).scalar_one_or_none()
+        if report is None or not await can_view_report(db, current_user, organization, report):
+            raise not_found
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        if not can_view_code(resolved):
+            raise HTTPException(status_code=403, detail="You cannot view the query behind this result")
+
+        query = single_query_of(tool_execution.result_json, str(connection.id))
+        if query is None:
+            raise HTTPException(
+                status_code=422,
+                detail="This result cannot be saved as a cached table: it needs to come from one "
+                       "query against this connection.",
+            )
+        return query
+
     async def create(
         self,
         db: AsyncSession,
@@ -1087,6 +1182,37 @@ class CustomQueryService:
             await self._drain(finish_cancelled())
             raise
 
+    async def _reporting_progress(self, run: "_Run", work):
+        """Await `work` (a one-shot load) while writing how far it has got to
+        its run row, so anyone watching the table sees rows arrive instead of
+        a spinner. A one-shot load is one blocking call; without this its run
+        row says nothing between "started" and "finished".
+
+        Written through the run history's own session, like every other
+        progress note, and only when something moved. Failing to write is
+        never the load's problem.
+        """
+        async def report():
+            last = None
+            while True:
+                await asyncio.sleep(PROGRESS_INTERVAL_SECONDS)
+                now = (run.rows_read, run.source_rows)
+                if now == last:
+                    continue
+                last = now
+                await runs.progress(
+                    run.run_id, rows_read=run.rows_read,
+                    inputs={"connection_id": run.connection_id, "source_rows": run.source_rows},
+                )
+
+        reporter = asyncio.create_task(report())
+        try:
+            return await work
+        finally:
+            reporter.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await reporter
+
     def _decide(self, run: "_Run") -> str:
         """Which shape of work this refresh is, with the reason logged."""
         config, state, cq = run.config, run.state, run.cq
@@ -1236,7 +1362,8 @@ class CustomQueryService:
             )
 
             if decision == "single":
-                outcome = await self._in_thread(run, lambda: self._work_single(run))
+                outcome = await self._reporting_progress(
+                    run, self._in_thread(run, lambda: self._work_single(run)))
                 await self._publish(run, outcome, full=True)
                 return
 
@@ -1354,15 +1481,19 @@ class CustomQueryService:
         )
 
     def _work_single(self, run: "_Run"):
+        def on_rows(total: int) -> None:
+            run.rows_read = total
+
         try:
             est = extractor.estimate(run.client, run.sql)
             self._check_budget(est, run.limits)
+            run.source_rows = int(est.rows) if est.rows else None
             run.rendered_query = run.sql
             return extractor.extract_to_artifact(
                 run.client, run.sql, run.name, run.connection_id,
                 max_rows=run.limits.max_rows, max_bytes=run.limits.max_bytes,
                 should_abort=run.abort.is_set, run_id=run.run_id, config=run.config,
-                previous_rows=run.previous_rows,
+                previous_rows=run.previous_rows, on_rows=on_rows,
             )
         except _PASS_THROUGH:
             raise

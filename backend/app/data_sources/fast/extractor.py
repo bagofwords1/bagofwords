@@ -243,6 +243,7 @@ def extract_to_artifact(
     run_id: str | None = None,
     config=None,
     previous_rows: int | None = None,
+    on_rows: Callable[[int], None] | None = None,
 ) -> ExtractResult:
     """Stream `sql` into a fresh encrypted DuckDB artifact — a full load.
 
@@ -267,7 +268,7 @@ def extract_to_artifact(
     part_path, key = loader.new_part(connection_id)
     limits = loader.Limits(max_rows=max_rows, max_bytes=max_bytes,
                            deadline=started + max_seconds, should_abort=should_abort,
-                           max_seconds=max_seconds)
+                           max_seconds=max_seconds, on_rows=on_rows)
     try:
         read = loader.load_window(src, sql, part_path, key, relation_name, run_id, limits,
                                   batch_rows=BATCH_ROWS)
