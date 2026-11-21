@@ -38,7 +38,7 @@
         v-else-if="embedUrl"
         :src="frameSrc"
         :title="name || $t('filePreview.document')"
-        class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white"
+        class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-surface"
         :class="{ 'flex-1 min-h-0': expanded }"
         :style="expanded ? undefined : { height: frameHeight }"
       />
@@ -72,7 +72,7 @@
             type="button"
             class="px-1.5 py-0.5 rounded text-2xs border transition-colors"
             :class="id === activeImageId
-              ? 'border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-900/30'
+              ? 'border-blue-400 text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30'
               : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'"
             @click="activeIndex = i"
           >

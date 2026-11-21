@@ -4,7 +4,7 @@
     <div class="flex items-center space-x-2">
       <UIcon name="heroicons:document-text" class="w-4 h-4 text-green-600" />
       <span class="font-medium text-gray-900 dark:text-white">{{ resource.name }}</span>
-      <span class="px-2 py-1 text-xs bg-green-100 dark:bg-green-900/50 text-green-700 rounded">Markdown</span>
+      <span class="px-2 py-1 text-xs bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 rounded">Markdown</span>
     </div>
 
     <!-- Description -->

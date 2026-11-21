@@ -12,7 +12,7 @@
 
     <Transition name="slide">
       <div v-if="toolHeaderExpanded && status !== 'running' && errorMessage" class="mt-2">
-        <div class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

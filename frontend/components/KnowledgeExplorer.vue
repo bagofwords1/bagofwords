@@ -517,7 +517,7 @@
                   <div v-if="creatingPrimary || editingPrimary" class="mt-6 border-t border-gray-100 pt-5 dark:border-gray-800">
                     <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <input v-text-dir v-model="primaryDraft.title" type="text" :aria-label="$t('agentsPage.untitled')" :placeholder="$t('agentsPage.untitled')" class="min-w-0 flex-1 bg-transparent text-sm font-medium text-gray-900 outline-none placeholder:text-ink-subtle dark:text-white" />
-                      <div class="flex shrink-0 items-center gap-1.5"><button class="h-7 rounded-md px-3 text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800" @click="cancelPrimary">{{ $t('agentsPage.cancel') }}</button><button class="h-7 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? $t('agentsPage.saving') : $t('agentsPage.save') }}</button></div>
+                      <div class="flex shrink-0 items-center gap-1.5"><button class="h-7 rounded-md px-3 text-xs text-ink-muted hover:bg-gray-100 dark:hover:bg-gray-800" @click="cancelPrimary">{{ $t('agentsPage.cancel') }}</button><button class="h-7 rounded-md bg-blue-600 px-3 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50" :disabled="primarySaving || !primaryDraft.text.trim()" @click="savePrimary">{{ primarySaving ? $t('agentsPage.saving') : $t('agentsPage.save') }}</button></div>
                     </div>
                     <div class="prose-instruction"><InstructionEditor key="primary-edit" v-model="primaryDraft.text" mode="wysiwyg" :editable="true" :data-source-ids="[agentView.agentId]" :placeholder="$t('agentsPage.primaryPlaceholder')" /></div>
                     <p class="mt-2 text-end text-[11px] text-gray-400 dark:text-gray-500 tabular-nums select-none" data-testid="instruction-token-count">{{ $t('agentsPage.tokenCount', { count: formatTokens(estimateTokens(primaryDraft.text)) }) }}</p>
@@ -707,7 +707,7 @@
             <div class="flex items-center gap-2 min-w-0">
               <UIcon :name="fileIcon(previewFile.content_type, previewFile.filename)" class="w-4 h-4 text-ink-muted shrink-0" />
               <span class="text-xs font-medium text-gray-700 dark:text-gray-300 truncate">{{ previewFile.filename }}</span>
-              <span class="text-2xs text-gray-300 dark:text-gray-600 shrink-0">{{ previewFile.content_type }}</span>
+              <span class="text-2xs text-ink-muted shrink-0">{{ previewFile.content_type }}</span>
             </div>
             <div class="flex items-center gap-1.5">
               <button v-if="previewUrl" class="h-7 px-3 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="downloadPreview">{{ $t('agentsPage.open') }}</button>
@@ -1074,7 +1074,7 @@
         </div>
         <div class="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
           <div v-if="versionsLoading" class="p-3 text-center text-2xs text-ink-muted">{{ $t('agentsPage.loading') }}</div>
-          <div v-else-if="versions.length === 0" class="p-6 text-center text-2xs text-gray-300 dark:text-gray-600">{{ $t('agentsPage.noHistory') }}</div>
+          <div v-else-if="versions.length === 0" class="p-6 text-center text-2xs text-ink-muted">{{ $t('agentsPage.noHistory') }}</div>
           <button v-for="(v, i) in versions" :key="v.id" type="button"
                   class="group/h w-full text-start px-2.5 py-2 rounded-lg flex items-center justify-between transition-colors"
                   :class="diff && diff.versionId === v.id ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'"

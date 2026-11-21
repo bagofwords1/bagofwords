@@ -48,7 +48,7 @@
     <div v-if="connectionId && canPreview" class="space-y-1.5" data-testid="member-identity-preview">
       <div class="flex items-center justify-between gap-2">
         <span class="text-xs text-gray-600 dark:text-gray-400">{{ $t('data.memberIdentity.previewTitle') }}</span>
-        <span v-if="preview && hasBinding" class="text-2xs text-gray-500" data-testid="member-identity-counts">
+        <span v-if="preview && hasBinding" class="text-2xs text-ink-muted" data-testid="member-identity-counts">
           {{ $t('data.memberIdentity.previewCounts', { ok: preview.ok_count, blocked: preview.blocked_count }) }}
         </span>
       </div>

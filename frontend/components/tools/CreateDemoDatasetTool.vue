@@ -35,7 +35,7 @@
             <span v-if="datasetEmoji" class="text-base leading-none flex-shrink-0">{{ datasetEmoji }}</span>
             <Icon v-else name="heroicons-circle-stack" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate" dir="auto">{{ connectionName || args.name }}</span>
-            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-ink-muted flex-shrink-0">
               {{ t('tools.createDemoDataset.badge') }}
             </span>
             <span class="flex-1"></span>
@@ -117,7 +117,7 @@
               <input
                 v-if="interactive"
                 type="checkbox"
-                class="mt-0.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-0 flex-shrink-0"
+                class="mt-0.5 h-3 w-3 rounded border-line-strong text-blue-600 focus:ring-0 flex-shrink-0"
                 :checked="isChecked(a.name)"
                 :disabled="!canCreateAgents"
                 @click.stop
@@ -138,7 +138,7 @@
                 <span class="mt-0.5 flex flex-wrap gap-1">
                   <span
                     v-for="tn in a.tables" :key="tn"
-                    class="text-chat-3 px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono"
+                    class="text-chat-3 px-1.5 py-0 rounded-full bg-gray-100 dark:bg-gray-800 text-ink-muted font-mono"
                   >{{ tn }}</span>
                 </span>
               </span>
@@ -177,7 +177,7 @@
             <span class="flex-1"></span>
             <template v-if="!showFeedback">
               <button
-                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-ink-muted hover:text-ink-2 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 :disabled="responding"
                 data-testid="demo-dataset-request-changes"
                 @click="showFeedback = true"
@@ -194,7 +194,7 @@
             </template>
             <template v-else>
               <button
-                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-ink-muted hover:text-ink-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
               >{{ t('tools.createDemoDataset.cancel') }}</button>

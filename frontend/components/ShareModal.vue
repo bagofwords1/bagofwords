@@ -104,7 +104,7 @@
                                 </button>
                             </span>
                             <input ref="inputRef" v-model="inputValue" type="text" data-testid="share-add-input"
-                                class="flex-1 min-w-[140px] border-none outline-none text-sm bg-transparent p-0 placeholder:text-gray-500"
+                                class="flex-1 min-w-[140px] border-none outline-none text-sm bg-transparent p-0 placeholder:text-ink-muted"
                                 :placeholder="pendingPrincipals.length ? '' : (groups.length > 0 ? $t('dashboardCollab.share.addPeopleAndGroups') : $t('dashboardCollab.share.addPeople'))"
                                 @keydown.enter.prevent="handleEnter"
                                 @keydown.,.prevent="handleComma"
@@ -244,10 +244,10 @@
                                 <template #option="{ option }">
                                     <!-- Public without make_public (collab01): listed, off, and says why. -->
                                     <div class="flex items-start gap-2.5 py-0.5" :data-testid="option.disabledReason ? 'share-public-locked' : undefined">
-                                        <Icon :name="option.icon" class="w-4 h-4 flex-shrink-0 mt-0.5 text-gray-500" />
+                                        <Icon :name="option.icon" class="w-4 h-4 flex-shrink-0 mt-0.5 text-ink-muted" />
                                         <div class="flex flex-col">
                                             <span class="text-sm">{{ option.label }}</span>
-                                            <span class="text-xs text-gray-500 whitespace-normal">{{ option.disabledReason || option.description }}</span>
+                                            <span class="text-xs text-ink-muted whitespace-normal">{{ option.disabledReason || option.description }}</span>
                                         </div>
                                     </div>
                                 </template>

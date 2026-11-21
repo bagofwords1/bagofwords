@@ -389,7 +389,7 @@
                         <HistoryNotes :dashboard-id="dashboardId" :can-edit="hasCap('settings')" :mode="artifactMode" />
                     </div>
                     <div v-if="visited.refreshes" v-show="tab === 'refreshes'" data-testid="settings-refreshes">
-                        <HistoryRefreshes :dashboard-id="dashboardId" :active="isOpen && tab === 'refreshes'" />
+                        <HistoryRefreshes :dashboard-id="dashboardId" :active="isOpen && tab === 'refreshes'" :expand-failure="focusFailure" />
                     </div>
                     <!-- History: one instance for its tabs; the menu picks the section. -->
                     <div v-if="visited.history" v-show="isHistoryTab" data-testid="settings-history">
@@ -823,8 +823,12 @@ function requestClose() {
     isOpen.value = false
 }
 
-function open(at: Tab = 'general') {
+// Opened from "Refresh failing" (?settings=refreshes): the newest failed
+// refresh opens with its error.
+const focusFailure = ref(false)
+function open(at: Tab = 'general', opts: { focusFailure?: boolean } = {}) {
     tab.value = at
+    focusFailure.value = !!opts.focusFailure
     transferOpen.value = false
     for (const k of Object.keys(visited)) delete visited[k]
     isOpen.value = true

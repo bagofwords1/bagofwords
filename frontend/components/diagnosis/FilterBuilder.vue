@@ -6,7 +6,7 @@
             :class="open ? 'ring-2 ring-blue-500' : 'ring-gray-300 dark:ring-gray-700'"
             @click="toggle"
         >
-            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5 text-gray-500" />
+            <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5 text-ink-muted" />
             <span>{{ $t('monitoring.diagnosis.filterButton') }}</span>
         </button>
 
@@ -41,7 +41,7 @@
                             @click="pickField(f)"
                         >
                             <span class="text-sm text-gray-900 dark:text-white flex-grow">{{ f.name }}</span>
-                            <span class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ f.type }}</span>
+                            <span class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ f.type }}</span>
                             <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-ink-muted" />
                         </button>
                     </template>
@@ -50,7 +50,7 @@
 
             <!-- Step 2: pick values -->
             <template v-else>
-                <div class="flex items-center gap-1.5 px-2.5 pt-1.5 pb-2 text-xs text-gray-500">
+                <div class="flex items-center gap-1.5 px-2.5 pt-1.5 pb-2 text-xs text-ink-muted">
                     <button type="button" class="inline-flex" @click="field = null">
                         <UIcon name="i-heroicons-chevron-left" class="w-3 h-3" />
                     </button>
@@ -90,7 +90,7 @@
                 </template>
 
                 <div class="flex items-center justify-between gap-2 px-2.5 pt-2 mt-1 border-t border-gray-100 dark:border-gray-800">
-                    <span class="font-mono text-2xs text-gray-500 truncate">{{ preview || '…' }}</span>
+                    <span class="font-mono text-2xs text-ink-muted truncate">{{ preview || '…' }}</span>
                     <UButton size="xs" color="blue" :disabled="!preview" @click="add">{{ $t('monitoring.diagnosis.addFilter') }}</UButton>
                 </div>
             </template>

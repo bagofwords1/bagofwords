@@ -16,8 +16,8 @@
           {{ caseName || t('tools.editEval.unnamed') }}
         </NuxtLink>
         <span v-if="suiteName" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ suiteName }}</span>
-        <span v-if="caseStatus === 'draft'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-100 text-amber-800 flex-shrink-0">{{ t('tools.editEval.statusDraft') }}</span>
-        <span v-else-if="caseStatus === 'active'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800 flex-shrink-0">{{ t('tools.editEval.statusActive') }}</span>
+        <span v-if="caseStatus === 'draft'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 flex-shrink-0">{{ t('tools.editEval.statusDraft') }}</span>
+        <span v-else-if="caseStatus === 'active'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 flex-shrink-0">{{ t('tools.editEval.statusActive') }}</span>
         <span v-else-if="caseStatus === 'archived'" class="ms-1 text-chat-3 px-1 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 flex-shrink-0">{{ t('tools.editEval.statusArchived') }}</span>
       </div>
       <div v-if="changedFields.length" class="ms-1 mt-0.5 text-chat-2 text-gray-500 dark:text-gray-400">

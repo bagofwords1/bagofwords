@@ -261,6 +261,7 @@
                             :star-pending="pendingStars.has(dashboard.id)"
                             @edit="editDashboard(dashboard)"
                             @toggle-star="toggleStar(dashboard)"
+                            @show-refreshes="showRefreshes(dashboard)"
                         />
                     </div>
 
@@ -287,6 +288,7 @@
                                 :star-pending="pendingStars.has(dashboard.id)"
                                 @edit="editDashboard(dashboard)"
                                 @toggle-star="toggleStar(dashboard)"
+                                @show-refreshes="showRefreshes(dashboard)"
                             />
                         </ul>
                     </div>
@@ -386,6 +388,14 @@
                 </div>
             </div>
         </div>
+
+        <!-- "Refresh failing" for an editor with no conversation on it. -->
+        <DashboardRefreshesModal
+            v-model="refreshesOpen"
+            :dashboard="refreshesFor"
+            :editing="!!refreshesFor && editingId === refreshesFor.id"
+            @edit="refreshesFor && editDashboard(refreshesFor)"
+        />
     </div>
 </template>
 
@@ -393,6 +403,7 @@
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import DashboardCard from '~/components/dashboards/DashboardCard.vue'
 import DashboardFilterPopover from '~/components/dashboards/DashboardFilterPopover.vue'
+import DashboardRefreshesModal from '~/components/dashboards/DashboardRefreshesModal.vue'
 import DashboardRow from '~/components/dashboards/DashboardRow.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import {
@@ -423,6 +434,7 @@ import {
     type FacetNames,
     type FilterChip,
     isolate,
+    refreshesLink,
 } from '~/utils/dashboardList'
 
 const { t } = useI18n()
@@ -897,6 +909,18 @@ const editDashboard = async (d: any) => {
     } finally {
         editingId.value = null
     }
+}
+
+// "Refresh failing": what failed. Their own conversation on it: its
+// settings, on Refreshes, the failure open. Else the refreshes right here --
+// nothing is copied or run just to look.
+const refreshesFor = ref<any | null>(null)
+const refreshesOpen = ref(false)
+const showRefreshes = (d: any) => {
+    const link = refreshesLink(d)
+    if (link) return navigateTo(link)
+    refreshesFor.value = d
+    refreshesOpen.value = true
 }
 
 onMounted(async () => {

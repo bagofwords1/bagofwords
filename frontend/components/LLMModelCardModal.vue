@@ -132,7 +132,7 @@
                     </UTooltip>
                     <div class="flex items-center gap-1.5">
                         <UTooltip v-if="model.context_window_tokens_override != null" :text="$t('settings.llms.contextResetTooltip')">
-                            <button type="button" class="text-ink-muted hover:text-gray-600" @click="resetContextWindow">
+                            <button type="button" class="text-ink-muted hover:text-ink-2" @click="resetContextWindow">
                                 <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
                             </button>
                         </UTooltip>
@@ -156,7 +156,7 @@
                     </UTooltip>
                     <div class="flex items-center gap-1.5">
                         <UTooltip v-if="model.config?.temperature != null" :text="$t('settings.llms.temperatureResetTooltip')">
-                            <button type="button" class="text-ink-muted hover:text-gray-600" data-testid="card-temperature-reset" @click="resetTemperature">
+                            <button type="button" class="text-ink-muted hover:text-ink-2" data-testid="card-temperature-reset" @click="resetTemperature">
                                 <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
                             </button>
                         </UTooltip>

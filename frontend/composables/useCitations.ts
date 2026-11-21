@@ -11,7 +11,9 @@
  * tests/unit/useCitations.mjs.
  *
  * Rules:
- * - A source is a successful `create_data` result. Its key is the id of the
+ * - A source is a successful data result: a `create_data` call, or a
+ *   `describe_entity` call that materialized a saved query (should_create).
+ *   Its key is the id of the
  *   block that produced it.
  * - A marker names a source by visualization id, in full or by its leading
  *   characters (8 or more). A marker that names no source — or more than one —
@@ -32,8 +34,19 @@ const CODE_FENCE_RE = /(```[\s\S]*?```)/
 // "{{cite:3f9a1c2e}" …
 const PARTIAL_MARKER_RE = /[ \t]*\{(?:\{(?:\s*(?:c(?:i(?:t(?:e(?:\s*(?::[^{}]*\}?)?)?)?)?)?)?)?)?$/
 
+/** A tool call whose result can be cited: `create_data`, or `describe_entity`
+    in create mode. Mirrors isDataResultCall in useRunActivity (kept local so
+    this module stays dependency-free for the bundler-less unit tests). */
+function isDataResultCall(te: any): boolean {
+  const name = String(te?.tool_name || '')
+  if (name === 'create_data') return true
+  if (name !== 'describe_entity') return false
+  return te?.arguments_json?.should_create === true
+    || !!(te?.created_step_id || te?.created_step || te?.created_widget)
+}
+
 export interface CitationSource {
-  /** Id of the block whose create_data call produced the result. */
+  /** Id of the block whose tool call produced the result. */
   key: string
   /** Visualization ids of the result. */
   ids: string[]
@@ -68,7 +81,7 @@ export function collectSources(blocks: any[], describe: (te: any) => DataOutput)
   const out: CitationSource[] = []
   for (const b of blocks || []) {
     const te = b?.tool_execution
-    if (te?.tool_name !== 'create_data' || te.status !== 'success') continue
+    if (!isDataResultCall(te) || te.status !== 'success') continue
     const ids = vizIds(te)
     if (!ids.length) continue
     const output = describe(te)

@@ -120,7 +120,7 @@
                 :data-testid="`card-param-${spec.name}`" />
             </label>
             <span v-for="spec in identityCardSpecs" :key="spec.name"
-              class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-2xs">
+              class="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-2xs">
               {{ spec.label || spec.name }}: scoped to you
             </span>
             <button v-if="editableCardSpecs.length && !readonly" @click.stop="runCardParams" :disabled="cardRunLoading"
@@ -209,6 +209,7 @@
                       :view="normalizedView"
                       :reportThemeName="reportThemeName"
                       :reportOverrides="reportOverrides"
+                      :expandable="false"
                     />
                     <template #fallback>
                       <div class="flex items-center justify-center w-full h-full">
@@ -236,7 +237,7 @@
                 v-if="(showTabs && activeTab === 'table') || (!showTabs && isTableType)"
                 :class="tableHeightClass"
               >
-                <RenderTable :widget="widget" :step="{ ...(filteredStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
+                <RenderTable :widget="widget" :step="{ ...(filteredStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" :expandable="false" />
               </div>
             </Transition>
 
@@ -432,7 +433,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
+import { computed, ref, watch, defineAsyncComponent, inject, provide, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
@@ -454,6 +455,7 @@ import {
   evaluateFilters as sharedEvaluateFilters,
   type FilterGroup
 } from '~/composables/useSharedFilters'
+import { GRID_FILTER_BRIDGE, createReportFilterBridge } from '~/utils/valueFilter'
 
 interface ToolExecution {
   id: string
@@ -731,6 +733,25 @@ function handleSharedFilterUpdate(ev: Event) {
   if (reportId.value && detail.reportId !== reportId.value) return
   sharedFilters.value = JSON.parse(JSON.stringify(detail.filters || []))
 }
+
+// The table's header filter writes into these same shared filters (one
+// condition per column), so there is ONE filter here: what a header filters,
+// the chart and the Filters popover show too. The grid lists values from
+// every row, not just the filtered ones.
+provide(GRID_FILTER_BRIDGE, createReportFilterBridge({
+  filters: () => sharedFilters.value,
+  vizId: () => (reportId.value && visualizationId.value ? String(visualizationId.value) : null),
+  rows: () => {
+    const rows = effectiveStep.value?.data?.rows
+    return Array.isArray(rows) ? rows : []
+  },
+  commit: (groups) => {
+    sharedFilters.value = JSON.parse(JSON.stringify(groups))
+    window.dispatchEvent(new CustomEvent('filter:updated', {
+      detail: { reportId: reportId.value, filters: sharedFilters.value, source: filterInstanceId }
+    }))
+  },
+}))
 
 // Count active filters for this visualization
 const activeFilterCount = computed(() => {

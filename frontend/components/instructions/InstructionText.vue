@@ -45,11 +45,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import DocMermaid from '~/components/dashboard/DocMermaid.vue'
-import { countDirWords, dominantTextDir, resolveDirTree, type DirNode, type DirNodeKind } from '~/utils/textDirection'
+import { dominantTextDir } from '~/utils/textDirection'
+import { createInstructionMarkdown } from '~/utils/instructionMarkdown'
 import {
   buildMentionMatcher,
   parseMentionSegments,
@@ -134,65 +134,9 @@ const plainDir = computed(() =>
 // ─── Markdown rendering ──────────────────────────────────────────────────────
 // Mirrors InstructionEditor's pipeline so read-only and edit views render identically.
 
-const md = new MarkdownIt({ html: true, breaks: false, linkify: false })
-
-// Per-block direction: the same rules as chat markdown and the instruction
-// editor (resolveDirTree in utils/textDirection.ts) — one decision for the
-// whole instruction by word majority, lists and tables on one side, items and
-// cells following them, short blocks following the text around them. Each
-// block token gets an explicit dir, so RTL blocks right-align and list markers
-// / blockquote bars flip to the correct edge (via the logical CSS in
-// instruction-prose.css). Code doesn't vote and stays LTR.
-const DIR_KIND_BY_TOKEN: Record<string, DirNodeKind> = {
-  paragraph_open: 'block', heading_open: 'block', blockquote_open: 'quote',
-  bullet_list_open: 'list', ordered_list_open: 'list', list_item_open: 'item',
-  // Tables need it most: without a dir of their own an RTL table inherits the
-  // document's LTR and lays its columns out left-to-right.
-  table_open: 'table', tr_open: 'row', th_open: 'cell', td_open: 'cell',
-}
-
-// A table wider than the panel has nowhere to go: it is squeezed until every
-// cell wraps. Wrap each one in its own scroll container (the editor gets the
-// equivalent for free from the Table extension's `.tableWrapper`).
-md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
-  '<div class="md-table-wrap">' + self.renderToken(tokens, idx, options)
-md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
-  self.renderToken(tokens, idx, options) + '</div>'
-
-md.core.ruler.push('block_dir', (state) => {
-  const roots: DirNode<any>[] = []
-  const stack: DirNode<any>[] = []
-  const docCounts = { rtl: 0, ltr: 0 }
-  for (const token of state.tokens) {
-    const kind = DIR_KIND_BY_TOKEN[token.type]
-    if (kind) {
-      const node: DirNode<any> = { kind, counts: { rtl: 0, ltr: 0 }, text: '', children: [], ref: token }
-      ;(stack.length ? stack[stack.length - 1].children : roots).push(node)
-      stack.push(node)
-      continue
-    }
-    if (token.nesting === -1 && stack.length && token.type.replace(/_close$/, '_open') === stack[stack.length - 1].ref.type) {
-      stack.pop()
-      continue
-    }
-    if (token.type !== 'inline') continue
-    for (const child of token.children || []) {
-      if (child.type !== 'text' && child.type !== 'code_inline') continue
-      for (const node of stack) node.text += child.content
-      if (child.type === 'code_inline') continue // identifiers don't vote
-      countDirWords(child.content, docCounts)
-      for (const node of stack) countDirWords(child.content, node.counts)
-    }
-  }
-  const uiDir = typeof document !== 'undefined' && document.documentElement.getAttribute('dir') === 'rtl' ? 'rtl' : null
-  resolveDirTree(roots, docCounts, { fallback: uiDir, settled: true })
-  const apply = (node: DirNode<any>) => {
-    if (node.dir) node.ref.attrSet('dir', node.dir)
-    if (node.signedNumber) node.ref.attrSet('data-bidi-num', '')
-    node.children.forEach(apply)
-  }
-  roots.forEach(apply)
-})
+// Same pipeline as the tracked-changes diff (utils/instructionMarkdown.ts):
+// per-block direction by word majority (resolveDirTree) and scrollable tables.
+const md = createInstructionMarkdown()
 
 // Same dictionary-driven parse as the plain-text branch above, so a multi-word
 // mention chips identically whether the instruction renders as markdown or not.

@@ -45,7 +45,7 @@
                     <template v-if="instructionAction[instruction.id]">
                       <span 
                         class="px-2 py-0.5 text-2xs rounded-full border"
-                        :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 dark:bg-green-950 text-green-700 border-green-100 dark:border-green-800' : 'bg-red-50 dark:bg-red-950 text-red-700 border-red-100 dark:border-red-800'"
+                        :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-100 dark:border-green-800' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border-red-100 dark:border-red-800'"
                       >
                         {{ instructionAction[instruction.id] === 'approved' ? $t('onboarding.context.approved') : $t('onboarding.context.removed') }}
                       </span>

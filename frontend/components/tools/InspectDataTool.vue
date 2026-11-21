@@ -39,7 +39,7 @@
           <span v-else-if="executionDone" class="text-gray-500 dark:text-gray-400">{{ t('tools.inspectData.executed') }}</span>
         </div>
         <!-- Execution error from stdout -->
-        <div v-if="latestStdoutError" class="text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-12 overflow-y-auto">
+        <div v-if="latestStdoutError" class="text-chat-2 text-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-12 overflow-y-auto">
           <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
         </div>
       </div>
@@ -83,7 +83,7 @@
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>

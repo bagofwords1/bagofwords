@@ -57,7 +57,7 @@
               </div>
             </div>
           </Transition>
-          <div class="mt-0.5 ms-4 text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1">
+          <div class="mt-0.5 ms-4 text-chat-2 text-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1">
             {{ attempt.error }}
           </div>
         </div>
@@ -107,7 +107,7 @@
             <span v-if="executionDone && formatExecutionDuration" class="ms-1.5 text-ink-muted">· {{ formatExecutionDuration }}</span>
           </div>
           <!-- Execution error from stdout (live only, before it gets captured in result_json.errors) -->
-          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-16 overflow-y-auto">
+          <div v-if="latestStdoutError && !failedAttempts.length" class="mt-1 ms-4 text-chat-2 text-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-16 overflow-y-auto">
             <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
           </div>
         </div>
