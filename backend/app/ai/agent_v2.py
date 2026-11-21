@@ -5852,6 +5852,11 @@ class AgentV2:
             # Pass prompt_text to enable intelligent instruction search
             try:
                 self.context_hub.message_builder.use_durable_transcript = True
+                # A scheduled run re-fetches live data each time: earlier runs'
+                # results replay as digests, so the prompt stays flat run over run.
+                self.context_hub.message_builder.durable_digest_prior_results = bool(
+                    getattr(self.head_completion, "scheduled_prompt_id", None)
+                )
             except Exception:
                 pass
             with tracer.start_as_current_span("agent.context_initial_load") as span:
