@@ -6,7 +6,7 @@
         <h3 class="text-lg font-semibold">{{ $t('data.manageConnection') }}</h3>
         <button :aria-label="$t('common.close')" class="ms-auto text-ink-muted hover:text-ink-2" @click="open = false"><UIcon name="heroicons-x-mark" class="w-5 h-5" /></button>
       </div>
-      <!-- Settings | Queries (connection managers: what BOW runs on this connection) -->
+      <!-- Settings | Tools | Queries (connection managers: what agents may do here, what BOW runs here) -->
       <div v-if="canSeeQueries" class="flex gap-5 shrink-0" role="tablist" data-testid="connection-modal-tabs">
         <button
           v-for="tab in tabs"
@@ -22,6 +22,9 @@
       </div>
       <div v-if="activeTab === 'queries' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
         <ConnectionQueriesPanel :connection-id="connection.id" :active="open && activeTab === 'queries'" />
+      </div>
+      <div v-else-if="activeTab === 'tools' && canSeeQueries" class="min-h-0 overflow-y-auto -mx-5 border-t border-gray-100 dark:border-gray-800 px-6 py-6 md:px-8 md:max-h-[70vh]" role="tabpanel">
+        <ConnectionToolsPanel :connection-id="connection.id" :connection-type="connection.type" :active="open && activeTab === 'tools'" :can-manage="canSeeQueries" :can-sign-in="connection?.allowed_user_auth_modes?.includes('oauth')" />
       </div>
       <div v-else class="md:grid min-h-0 overflow-y-auto md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] -mx-5 border-t border-gray-100 dark:border-gray-800">
         <div class="min-w-0 px-6 py-6 md:px-8 md:max-h-[70vh] md:overflow-y-auto">
@@ -70,6 +73,7 @@
 <script setup lang="ts">
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import ConnectionQueriesPanel from '~/components/datasources/ConnectionQueriesPanel.vue'
+import ConnectionToolsPanel from '~/components/datasources/ConnectionToolsPanel.vue'
 import { useCan } from '~/composables/usePermissions'
 import type { ConnectionIndexing } from '~/composables/useConnectionStatus'
 import { connectionSignInError } from '~/composables/useConnectionSignIn'
@@ -81,9 +85,14 @@ const { t, locale } = useI18n()
 // The Queries tab lists every query BOW sends to this connection and lets the
 // viewer kill one: connection managers only (the API enforces the same).
 const canSeeQueries = computed(() => !!props.connection?.id && useCan('manage_connection', { type: 'connection', id: String(props.connection.id) }))
-const activeTab = ref<'settings' | 'queries'>('settings')
+const activeTab = ref<'settings' | 'tools' | 'queries'>('settings')
+// Connection types whose tools an admin manages here: tool providers and
+// built-in connectors with write actions (Outlook, Teams).
+const TOOL_TYPES = ['mcp', 'custom_api', 'remote_ssh', 'remote_smb', 'outlook_mail', 'teams_messages']
+const hasTools = computed(() => TOOL_TYPES.includes(props.connection?.type))
 const tabs = computed(() => [
   { key: 'settings' as const, label: t('connectionQueries.tabSettings') },
+  ...(hasTools.value ? [{ key: 'tools' as const, label: t('connectionTools.tab') }] : []),
   { key: 'queries' as const, label: t('connectionQueries.tabQueries') },
 ])
 watch(open, value => { if (value) activeTab.value = 'settings' })

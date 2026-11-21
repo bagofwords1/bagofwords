@@ -616,6 +616,7 @@ Do not use when:
         from app.models.connection import Connection
         from app.models.connection_tool import ConnectionTool
         from app.services.connection_service import ConnectionService
+        from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES
 
         # Resolve connection — only allow MCP/API connections on the agents
         # this run executes against. The run's agents are the scope when the
@@ -638,7 +639,7 @@ Do not use when:
         elif report:
             for ds in (report.data_sources or []):
                 for conn in (ds.connections or []):
-                    if conn.type in ("mcp", "custom_api", "remote_ssh", "remote_smb"):
+                    if conn.type in CALLABLE_TOOL_CONNECTION_TYPES:
                         allowed_conn_ids.add(str(conn.id))
             enforce_scope = bool(allowed_conn_ids)
 
@@ -649,7 +650,7 @@ Do not use when:
                     Connection.name == data.connection_id,
                 ),
                 Connection.organization_id == str(organization.id),
-                Connection.type.in_(["mcp", "custom_api", "remote_ssh", "remote_smb"]),
+                Connection.type.in_(list(CALLABLE_TOOL_CONNECTION_TYPES)),
             )
         )
         connection = conn_result.scalars().first()
@@ -730,6 +731,12 @@ Do not use when:
         tool_record = tool_result.scalar_one_or_none()
         if connection.type in ("remote_ssh", "remote_smb") and tool_record is None:
             yield self._policy_end_event(data.tool_name, "Remote operation is not in the connection's discovered tool catalog.", blocked_by="deny")
+            return
+        # A built-in connector's actions run only as registered tool rows, so
+        # every call passes the policy below; anything else is refused.
+        from app.data_sources.clients.connector_actions import NATIVE_ACTION_TYPES
+        if connection.type in NATIVE_ACTION_TYPES and tool_record is None:
+            yield self._policy_end_event(data.tool_name, f"'{data.tool_name}' is not an action of this connection.", blocked_by="deny")
             return
         # Capture the tool's declared input schema up front so that, on any
         # downstream failure, we can hand the agent the *correct* argument shape
@@ -1350,6 +1357,17 @@ Do not use when:
                 # Underscore keys are display context for the card, never
                 # sent to the tool (same convention as _execution_target).
                 confirmation_arguments["_via_agent"] = via_agent
+            # Built-in connector actions: a one-line preview and the effect
+            # group ("External, visible to others") for the card.
+            from app.data_sources.clients.connector_actions import NATIVE_ACTION_TYPES, actions_for_type
+            if connection.type in NATIVE_ACTION_TYPES:
+                action = next((a for a in actions_for_type(connection.type) if a.name == data.tool_name), None)
+                if action is not None:
+                    try:
+                        confirmation_arguments["_preview"] = action.preview(dict(data.arguments or {}))
+                    except Exception:
+                        pass
+                    confirmation_arguments["_effect"] = action.effect
             if connection.type == "remote_ssh":
                 from app.services.connection_service import ConnectionService
                 remote_credentials = await ConnectionService().resolve_credentials(db, connection, user)

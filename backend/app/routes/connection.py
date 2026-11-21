@@ -1984,10 +1984,52 @@ async def get_connection_tools_list(
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
     tools = await connection_service.get_connection_tools(db, connection_id)
+    # A built-in action the code no longer has stays as a switched-off row
+    # (history points at it) but is not offered for management.
     return [
         _tool_schema(t)
         for t in tools
+        if not (t.metadata_json or {}).get("stale")
     ]
+
+
+@router.get("/{connection_id}/tools/permissions")
+async def get_connection_tool_permissions(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Which permissions each built-in write action is missing for the caller.
+
+    Reads the scopes on the token the caller's calls would use (their own
+    Microsoft sign-in, or the connection's app). ``known`` is False when no
+    token is available yet (not signed in) or it cannot be read; nothing is
+    refused on that basis — the call itself reports the provider's answer.
+    """
+    import asyncio
+    from app.data_sources.clients.connector_actions import (
+        NATIVE_ACTION_TYPES, actions_for_type, missing_scopes,
+    )
+    from app.errors.redact import redact_error
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+    if connection.type not in NATIVE_ACTION_TYPES:
+        return {"known": False, "granted": [], "missing": {}}
+    try:
+        client = await connection_service.construct_client(db, connection, current_user)
+        if hasattr(client, "_token"):
+            await asyncio.to_thread(client._token)
+        granted = client.granted_scopes() if hasattr(client, "granted_scopes") else None
+    except Exception as e:
+        return {"known": False, "granted": [], "missing": {}, "reason": redact_error(e)[:200]}
+    if granted is None:
+        return {"known": False, "granted": [], "missing": {}}
+    return {
+        "known": True,
+        "granted": sorted(granted),
+        "missing": {a.name: missing_scopes(a, granted) for a in actions_for_type(connection.type)},
+    }
 
 
 @router.put("/{connection_id}/tools/batch", response_model=List[ConnectionToolSchema])

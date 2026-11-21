@@ -263,6 +263,7 @@ async def build_mcp_tool_catalog(
     from app.models.domain_connection import domain_connection
     from app.models.report_data_source_association import report_data_source_association
     from app.services.mcp_context_injection import filter_locked_from_schema
+    from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES
     from app.services.tool_policy_service import (
         ToolPolicyService, pick_via_agent,
     )
@@ -288,7 +289,7 @@ async def build_mcp_tool_catalog(
                     select(domain_connection.c.connection_id)
                     .where(domain_connection.c.data_source_id.in_(scope_ds_ids))
                 ),
-                Connection.type.in_(["mcp", "custom_api", "remote_ssh", "remote_smb"]),
+                Connection.type.in_(list(CALLABLE_TOOL_CONNECTION_TYPES)),
             )
         )).scalars().all()
         if not conns:

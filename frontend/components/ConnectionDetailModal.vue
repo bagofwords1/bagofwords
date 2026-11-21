@@ -93,14 +93,37 @@
   />
 
   <!-- Integration Edit Modal (OneDrive, Google Drive, Outlook, Gmail, …) -->
-  <UModal v-model="showIntegrationEditModal" :ui="{ width: 'sm:max-w-lg' }">
+  <UModal v-model="showIntegrationEditModal" :ui="{ width: integrationHasActions ? 'sm:max-w-2xl' : 'sm:max-w-lg' }">
     <div class="p-6">
       <div class="flex items-center gap-2 mb-4">
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
         <h2 class="text-lg font-semibold">{{ $t('data.editConnection') }}</h2>
       </div>
+      <!-- Settings | Tools for built-in connectors with write actions (Outlook, Teams). -->
+      <div v-if="integrationHasActions" class="flex gap-5 mb-4 border-b border-gray-100 dark:border-gray-800" role="tablist" data-testid="integration-modal-tabs">
+        <button
+          v-for="tab in ['settings', 'tools']"
+          :key="tab"
+          type="button"
+          role="tab"
+          :aria-selected="integrationTab === tab"
+          class="relative -mb-px pb-2 text-sm border-b-2 transition-colors"
+          :class="integrationTab === tab ? 'border-blue-500 text-ink font-medium' : 'border-transparent text-ink-muted hover:text-ink'"
+          :data-testid="`connection-tab-${tab}`"
+          @click="integrationTab = tab as 'settings' | 'tools'"
+        >{{ tab === 'tools' ? $t('connectionTools.tab') : $t('connectionQueries.tabSettings') }}</button>
+      </div>
+      <div v-if="integrationHasActions && integrationTab === 'tools'" class="max-h-[70vh] overflow-y-auto" role="tabpanel">
+        <ConnectionToolsPanel
+          :connection-id="connection.id"
+          :connection-type="connection.type"
+          :active="showIntegrationEditModal && integrationTab === 'tools'"
+          :can-manage="canUpdateDataSource"
+          :can-sign-in="connection?.allowed_user_auth_modes?.includes('oauth')"
+        />
+      </div>
       <IntegrationConnectionForm
-        v-if="showIntegrationEditModal"
+        v-else-if="showIntegrationEditModal"
         :integration-type="connection?.type"
         :integration-title="connection?.name"
         :editConnection="connection"
@@ -128,6 +151,7 @@ import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
+import ConnectionToolsPanel from '~/components/datasources/ConnectionToolsPanel.vue'
 import { useCan } from '~/composables/usePermissions'
 import { getEffectiveStatus, statusDotClass, statusLabelKey, isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
@@ -239,6 +263,10 @@ const _INTEGRATION_TYPES = [
   'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages', 'slack_messages',
 ]
 const isIntegrationManaged = computed(() => _INTEGRATION_TYPES.includes(props.connection?.type))
+// Built-in connectors whose write actions an admin manages on a Tools tab.
+const integrationHasActions = computed(() => ['outlook_mail', 'teams_messages'].includes(props.connection?.type))
+const integrationTab = ref<'settings' | 'tools'>('settings')
+watch(() => showIntegrationEditModal.value, (v) => { if (v) integrationTab.value = 'settings' })
 
 // Registry data_shape carried on the connection payload — drives which count
 // and noun the modal shows ("Files 12", not "Tables 0" for OneDrive). Older

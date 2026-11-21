@@ -47,7 +47,7 @@ from app.services.remote_shell_policy import display_policy
 
 logger = logging.getLogger(__name__)
 
-TOOL_CONNECTION_TYPES = ("mcp", "custom_api", "remote_ssh", "remote_smb")
+from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES as TOOL_CONNECTION_TYPES
 
 
 @dataclass

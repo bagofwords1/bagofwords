@@ -272,3 +272,21 @@ class ToolPolicyService:
         if head is not None and getattr(head, "scheduled_prompt_id", None):
             return False
         return True
+
+
+def policy_not_allowed_for(tool, policy: Optional[str]) -> Optional[str]:
+    """A reason ``policy`` may not be set on ``tool`` given its effect, else None.
+
+    External actions (others see them, they cannot be undone) may not be left
+    to a model judge (``auto``); destructive ones never run silently (``allow``).
+    """
+    from app.data_sources.clients.connector_actions import allowed_policies
+
+    effect = getattr(tool, "effect", None)
+    p = normalize_tool_policy(policy, default=None)
+    if not effect or p is None:
+        return None
+    allowed = allowed_policies(effect)
+    if p not in allowed:
+        return f"'{p}' is not allowed for a {effect} tool ({getattr(tool, 'name', '')}); choose one of {', '.join(allowed)}."
+    return None

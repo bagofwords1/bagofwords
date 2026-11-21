@@ -10050,6 +10050,20 @@ class AgentV2:
             return observation
         native = sorted(getattr(self, "_native_mcp_names", None) or ())
         deferred = bool(getattr(self, "_deferred_mcp_tools", None))
+        # A connector's write actions are named mcp__<connection>__<action>,
+        # its read tools are not (list_emails, search_email, ...). A model that
+        # generalises the prefix (mcp__Outlook__search_email) is pointed at the
+        # real tool by name instead of only at the MCP list.
+        bare = name.rsplit("__", 1)[-1]
+        offered = {t.name for t in (getattr(self.planner, "tool_catalog", None) or [])}
+        if bare and bare in offered and not bare.startswith("mcp__"):
+            observation["error"]["message"] += (
+                f". '{bare}' is a built-in tool: call it as '{bare}' (with the connection's id), "
+                "without the mcp__ prefix."
+            )
+            observation["suggested_tool"] = bare
+            logger.warning("[agent] unknown tool %s → suggested %s", name, bare)
+            return observation
         if native or deferred:
             shown = native[: self._UNKNOWN_TOOL_SUGGESTIONS]
             observation["available_mcp_tools"] = shown

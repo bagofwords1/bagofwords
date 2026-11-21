@@ -28,6 +28,7 @@ from app.models.user import User
 from app.services.tool_policy_service import (
     ToolPolicyService,
     agent_admin_setting,
+    policy_not_allowed_for,
     VALID_TOOL_POLICIES,
     normalize_tool_policy,
     resolve_effective_policy,
@@ -134,6 +135,16 @@ class MyToolPolicyBatchUpdate(BaseModel):
     tool_ids: List[str]
     # None / "" clears the preference (revert to the admin policy).
     policy: Optional[str] = None
+
+
+def _check_effect_policies(tools, policy) -> None:
+    """400 when ``policy`` is not allowed for a tool's effect (see policy_not_allowed_for)."""
+    if not policy:
+        return
+    for t in tools:
+        reason = policy_not_allowed_for(t, policy)
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
 
 
 async def _load_agent(db: AsyncSession, data_source_id: str, organization: Organization) -> DataSource:
@@ -299,6 +310,7 @@ async def update_agent_tools_batch(
 
     ds = await _load_agent(db, data_source_id, organization)
     tools = await _load_agent_tools(db, ds, data.tool_ids)
+    _check_effect_policies(tools, policy)
 
     ov_q = await db.execute(
         select(DataSourceConnectionTool).where(
@@ -416,6 +428,7 @@ async def set_my_tool_policies_batch(
 
     ds = await _load_agent(db, data_source_id, organization)
     tools = await _load_agent_tools(db, ds, data.tool_ids)
+    _check_effect_policies(tools, normalized)
 
     policy_svc = ToolPolicyService()
     changed = 0
@@ -482,6 +495,7 @@ async def update_agent_tool(
                 status_code=400,
                 detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
             )
+        _check_effect_policies([tool], normalized)
         data.policy = normalized
 
     # Upsert overlay
@@ -636,6 +650,7 @@ async def set_my_tool_policy(
             status_code=400,
             detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
         )
+    _check_effect_policies([tool], normalized)
 
     await ToolPolicyService().set_user_preference(db, str(current_user.id), str(tool.id), normalized)
     await db.commit()

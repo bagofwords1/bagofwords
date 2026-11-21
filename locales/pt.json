@@ -7903,5 +7903,42 @@
     },
     "or": "OU",
     "and": "E"
+  },
+  "connectionTools": {
+    "tab": "Ferramentas",
+    "intro": "Escolha o que os agentes podem fazer neste sistema. Agentes e usuários podem deixar uma ferramenta mais restrita, nunca mais permissiva que uma configuração bloqueada aqui.",
+    "empty": "Esta conexão ainda não tem ferramentas.",
+    "loadFailed": "Não foi possível carregar as ferramentas.",
+    "saveFailed": "Não foi possível salvar a alteração.",
+    "on": "Ativada",
+    "off": "Desativada",
+    "enabled": "{name} está disponível para os agentes",
+    "enableGroup": "Ativar todas as ferramentas de {group}",
+    "policyFor": "Política para {name}",
+    "lock": "Bloquear a política de {name}",
+    "unlock": "Desbloquear a política de {name}",
+    "lockHint": "Bloqueada: agentes e usuários podem deixá-la mais restrita, nunca mais permissiva.",
+    "needsScope": "Requer {scope}",
+    "missingScopes": "Seu login não inclui {scopes}. Um administrador concede isso no registro do aplicativo no Entra; depois, entre novamente.",
+    "grantAccess": "Entrar novamente",
+    "builtinReadHint": "Sempre disponíveis: ler nunca altera nada.",
+    "effect": {
+      "read": {
+        "title": "Leitura",
+        "hint": "Consulta; não altera nada."
+      },
+      "modify": {
+        "title": "Modificar",
+        "hint": "Altera dados do próprio usuário; pode ser desfeito."
+      },
+      "external": {
+        "title": "Externas",
+        "hint": "Outras pessoas veem e não dá para desfazer. A revisão automática não é oferecida."
+      },
+      "destructive": {
+        "title": "Destrutivas",
+        "hint": "Exclui ou bloqueia coisas. Sempre pergunta antes."
+      }
+    }
   }
 }
