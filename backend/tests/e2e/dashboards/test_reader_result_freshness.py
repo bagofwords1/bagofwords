@@ -8,6 +8,9 @@ auth policy, the reader's groups -- are covered on the conversation's
 surfaces in tests/e2e/rbac/test_viewer_result_freshness.py; both go through
 the same check.)
 """
+import uuid
+from datetime import datetime, timedelta
+
 import pytest
 from sqlalchemy import text
 
@@ -445,8 +448,6 @@ def test_the_upgrade_does_not_serve_a_copied_result_once_its_copy_changed(migrat
     """A copy that changed after the upgrade copied it -- before the
     revisions after the copy ran, or after them -- outdates the readers'
     copied results; an unchanged copy keeps serving them."""
-    from datetime import datetime, timedelta
-
     from alembic import command
 
     from tests.fixtures.dashboard_corpus.alembic_at import alembic_pointed_at, upgrade_test_db_to_head
@@ -471,3 +472,106 @@ def test_the_upgrade_does_not_serve_a_copied_result_once_its_copy_changed(migrat
     _changed_at(corpus_rows, sales["step"], datetime.utcnow())
     assert _own_rows(test_client, c, sales, "has_results") is None
     assert _own_rows(test_client, c, sales, "direct_share") is None
+
+
+def _copied_between_readers(corpus, corpus_rows) -> str:
+    """The conversation's step changed after has_results ran and before
+    direct_share did (as in the test above); its id."""
+    source = corpus.ids["run_viewer_results/q_sales/step"]
+    ran = {r["user_id"]: _when(r["last_run_at"]) for r in _rows(
+        corpus_rows, "SELECT user_id, MAX(last_run_at) AS last_run_at FROM step_user_results "
+                     "WHERE step_id = :s GROUP BY user_id", s=source)}
+    earlier, later = ran[corpus.cast.id("has_results")], ran[corpus.cast.id("direct_share")]
+    assert earlier < later
+    _changed_at(corpus_rows, source, earlier + (later - earlier) / 2)
+    return source
+
+
+def _upgraded_with(test_client, corpus, corpus_rows, between) -> dict:
+    """The upgrade, with `between` done after the copy (dashfc08, up to
+    vrstamp01) and before the revisions after it: a database that ran a
+    release with dashfc08 for a while. The copy of q_sales."""
+    from tests.fixtures.dashboard_corpus.alembic_at import upgrade_test_db_to_head
+
+    upgrade_test_db_to_head("vrstamp01")
+    copy = _copy_of(test_client, corpus, corpus_rows, "run_viewer_results", "q_sales")
+    between(copy)
+    upgrade_test_db_to_head()
+    return copy
+
+
+@pytest.mark.e2e
+def test_the_upgrade_serves_a_copied_result_after_the_conversation_was_deleted(corpus, corpus_rows, test_client):
+    """Deleting the conversation of a published dashboard unlinks it from
+    the dashboard. The copies still came from that conversation: each reader
+    keeps the result that was current before the upgrade."""
+    _copied_between_readers(corpus, corpus_rows)
+
+    def delete_the_conversation(copy):
+        resp = test_client.delete(f"/api/reports/{corpus.reports['run_viewer_results']}",
+                                  headers=as_(corpus, "owner"))
+        assert resp.status_code == 200, resp.text
+        assert _rows(corpus_rows, "SELECT report_id FROM artifacts WHERE id = :d",
+                     d=copy["did"]) == [{"report_id": None}]
+
+    copy = _upgraded_with(test_client, corpus, corpus_rows, delete_the_conversation)
+    assert _own_rows(test_client, corpus, copy, "direct_share") == ["של direct_share 1"]
+    assert _own_rows(test_client, corpus, copy, "has_results") is None
+
+
+@pytest.mark.e2e
+def test_the_upgrade_serves_a_copied_result_after_another_conversation_took_the_dashboard_over(
+        corpus, corpus_rows, test_client, monkeypatch):
+    """An editor's conversation joins the published dashboard, and the
+    owner's conversation is deleted: the editor's becomes the dashboard's
+    own. The copies still came from the owner's conversation."""
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", [].append)  # the join's rerun is not run
+    _copied_between_readers(corpus, corpus_rows)
+
+    def hand_over(copy):
+        did = copy["did"]
+        grant = test_client.put(f"/api/artifacts/{did}/sharing", headers=as_(corpus, "owner"),
+                                json={"visibility": "internal", "editor_user_ids": [corpus.cast.id("member")]})
+        assert grant.status_code == 200, grant.text
+        joined = test_client.post(f"/api/artifacts/{did}/edit", headers=as_(corpus, "member"))
+        assert joined.status_code == 200, joined.text
+        resp = test_client.delete(f"/api/reports/{corpus.reports['run_viewer_results']}",
+                                  headers=as_(corpus, "owner"))
+        assert resp.status_code == 200, resp.text
+        assert _rows(corpus_rows, "SELECT report_id FROM artifacts WHERE id = :d",
+                     d=did) == [{"report_id": joined.json()["report_id"]}]
+
+    copy = _upgraded_with(test_client, corpus, corpus_rows, hand_over)
+    assert _own_rows(test_client, corpus, copy, "direct_share") == ["של direct_share 1"]
+    assert _own_rows(test_client, corpus, copy, "has_results") is None
+
+
+@pytest.mark.e2e
+def test_the_upgrade_does_not_take_the_time_of_an_older_step_that_holds_the_same_data(
+        corpus, corpus_rows, test_client):
+    """The conversation's query kept an older step holding the same data
+    (byte for byte, as on an install without encryption) as the one the
+    upgrade copied. That step changed after the copy: the copied results
+    are refused, never served on the older step's time."""
+    import sqlalchemy as sa
+
+    source = corpus.ids["run_viewer_results/q_sales/step"]
+    (first_run,) = _rows(corpus_rows, "SELECT MIN(last_run_at) AS at FROM step_user_results WHERE step_id = :s",
+                         s=source)
+    older_at = _when(first_run["at"]) - timedelta(days=1)
+    # An older run of the query (no route keeps one beside the step it shows).
+    steps = sa.Table("steps", sa.MetaData(), autoload_with=corpus_rows.engine)
+    kept = [c for c in steps.c if c.name not in ("id", "slug", "created_at", "updated_at")]
+    older = str(uuid.uuid4())
+    with corpus_rows.engine.begin() as conn:
+        conn.execute(steps.insert().from_select(
+            ["id", "slug", "created_at", "updated_at", *(c.name for c in kept)],
+            sa.select(sa.literal(older), sa.literal(f"older-{older[:8]}"), sa.literal(older_at),
+                      sa.literal(older_at), *kept).where(steps.c.id == source)))
+
+    def the_step_changed(copy):
+        corpus_rows.update("steps", source, data=STALE, updated_at=datetime.utcnow())
+
+    copy = _upgraded_with(test_client, corpus, corpus_rows, the_step_changed)
+    assert _own_rows(test_client, corpus, copy, "direct_share") is None
+    assert _own_rows(test_client, corpus, copy, "has_results") is None

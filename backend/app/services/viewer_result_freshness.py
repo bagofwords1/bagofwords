@@ -207,7 +207,9 @@ async def compute_stamp(db, step, *, user_id: str, organization_id: str, execute
         try:
             tainted, _ = await step_identity_scope(
                 db, step, release_lookup=release_lookup if release is not None else None)
-        except Exception:
+        except Exception as e:
+            logger.warning("Viewer result stamp: could not tell whose rows step %s reads, stamping the reader's "
+                           "identity too: %s", getattr(step, "id", None), e)
             tainted = True  # unknown: stamp the identity too (closed)
     if identity is None and (tainted or any(ct.rls_enabled for ct in relations)):
         identity = await _identity(db, user_id, organization_id)

@@ -341,7 +341,7 @@ async def _run_copy(db, step_id: str, artifact, release, *, run_user, credential
         stamp = await stamp_columns(db, step, user_id=str(run_user.id),
                                     organization_id=str(release.organization_id),
                                     executed_as=executed_as, release=release, release_lookup=lookup)
-    prior =(await db.execute(
+    prior = (await db.execute(
         select(StepUserResult).options(lazyload("*")).where(
             StepUserResult.step_id == str(step.id), StepUserResult.user_id == str(run_user.id))
         .order_by(StepUserResult.last_run_at.desc().nullslast()).limit(1)
