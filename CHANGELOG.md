@@ -9,11 +9,16 @@
 - Added a "Refresh to vN" prompt on an open dashboard when a newer version is saved elsewhere (#1841)
 - Added an Ask / Auto / Allow all permission mode for connection tools on each report, and "Allow for this report" on the approval card (#1786) — defaults and the Allow all switch under Settings → AI
 - Added a built-in safety blocklist that refuses catastrophic connection-tool calls such as disk wipes, `rm -rf /`, `DROP DATABASE` and `DELETE` without `WHERE`, whatever the mode or tool setting (#1786)
+- Added arrow-key and Enter navigation to the agent and model pickers in the prompt box (#1854)
+- Added a live timer next to the run-activity dot, and a "· N failed" count on tool groups that recovered from a failed call (#1854)
 - Changed a connection tool call to follow the rule of the agent it goes through (#1847)
 - Changed System logs to be off by default (#1843) — turn on with `system_logs.enabled` / `BOW_SYSTEM_LOGS_ENABLED=true`
 - Fixed a large log backlog wiping older System logs (#1843)
 - Fixed running eval and sub-agent cards, and their Stop button, folding out of view (#1840)
 - Fixed the run-activity dot disappearing, resizing and jumping during a live run (#1839)
+- Fixed the answer header flashing "BoW" before the model name, and showing the starting model after the Auto router switched (#1854)
+- Fixed missing spaces in "Inspecting" and "Searched" tool labels (#1854)
+- Fixed sending a prompt snapping the view instead of scrolling smoothly (#1854)
 - Fixed answered clarify questions showing as raw "Q: … A: …" text instead of a question and answer (#1850)
 - Fixed scheduled tasks growing their prompt, and cost, with every run by replaying earlier runs' full tool results (#1851)
 - Fixed a folder conversation failing outright when all its agents need the user's sign-in; it now asks for it (#1852)
