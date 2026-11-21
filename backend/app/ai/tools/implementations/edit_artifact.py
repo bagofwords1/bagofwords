@@ -223,6 +223,12 @@ class EditArtifactTool(Tool):
         if artifact.mode == "page":
             # The id list can be right while the new code carries the slip.
             new_code = correct_code_viz_refs(new_code, merged_viz_ids)
+            # Deterministic repairs (module statements, names wrongly taken
+            # from React): each removes something that cannot work in the
+            # page runtime, so working code is left byte-for-byte.
+            from app.ai.tools.implementations._artifact_refs import normalize_page_code
+            new_code, _repair_notes = normalize_page_code(new_code)
+            id_notes.extend(_repair_notes)
 
         # Embedded files: existing, minus removals, plus new. Ids are compared
         # normalised. Every requested id must resolve; the same answer for
@@ -403,14 +409,18 @@ class EditArtifactTool(Tool):
                 screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
                 fatal = self._create_tool.fatal_render_errors(render_errors)
                 if fatal:
+                    from app.ai.tools.implementations._artifact_refs import render_error_hint
+                    _fix_hint = render_error_hint(fatal[0])
                     yield self._fail(
                         artifact, "render_failed",
                         f"The edited code fails to render: {fatal[0]}",
-                        {"render_errors": render_errors, "remediation": "Fix the ops to resolve the render error and retry."},
+                        {"render_errors": render_errors, "remediation": (
+                            (f"{_fix_hint} " if _fix_hint else "")
+                            + "Fix the ops to resolve the render error and retry.")},
                     )
                     return
             except Exception as e:
-                logger.warning(f"edit_artifact: render validation unavailable, persisting unvalidated: {e}")
+                logger.error(f"edit_artifact: render check unavailable, saving WITHOUT a render check: {e}")
 
         # Persist as the next version (stored rows are never rewritten).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
@@ -522,6 +532,9 @@ class EditArtifactTool(Tool):
         # An edit can add a cut dataset, so the planner hears about it here too.
         partial_data = partial_data_used(artifact_data.get("visualizations", []), new_code) if artifact.mode == "page" else []
 
+        # False when a page was saved without being rendered (no usable
+        # browser on this server): the chat card and the model are told.
+        render_checked = bool(screenshot_b64) if artifact.mode == "page" else None
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -538,6 +551,7 @@ class EditArtifactTool(Tool):
                     # card show the same Diff badge as historical edits.
                     "diff_applied": True,
                     "code": new_code,
+                    **({"render_checked": render_checked} if render_checked is not None else {}),
                 },
                 "observation": {
                     **review_images,
@@ -545,7 +559,7 @@ class EditArtifactTool(Tool):
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified. "
-                        + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + ("Render validated. " if render_checked is not False else self._create_tool.RENDER_UNCHECKED_NOTE.strip() + " ")
                         + partial_data_warning(partial_data)
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
@@ -555,6 +569,7 @@ class EditArtifactTool(Tool):
                     "version": new_artifact.version,
                     "diff_applied": True,
                     "applied_ops": len(data.edits),
+                    **({"render_checked": False} if render_checked is False else {}),
                     **({"warnings": id_notes} if id_notes else {}),
                 },
             },

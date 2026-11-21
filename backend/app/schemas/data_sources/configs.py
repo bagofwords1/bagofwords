@@ -597,6 +597,50 @@ class BigQueryCredentials(BaseModel):
     )
 
 
+class BigQueryDefaultCredentials(BaseModel):
+    """Keyless auth: the connection runs as the deployment's own Google
+    identity (Application Default Credentials) and stores no secret. What that
+    identity is — an attached service account, GKE Workload Identity, or a
+    Workload Identity Federation config named by GOOGLE_APPLICATION_CREDENTIALS
+    — is set up by the operator on the server, never through this form.
+    """
+    # The marker the client switches on. It travels with the credentials so
+    # every code path that builds a client sees it; the form never shows it.
+    use_application_default_credentials: bool = Field(
+        True,
+        title="Use Application Default Credentials",
+        description="Authenticate as the identity configured on the server instead of a service account key.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
+    )
+    target_service_account: Optional[str] = Field(
+        None,
+        max_length=254,
+        title="Service account to impersonate (optional)",
+        description="Email of a service account to run queries as, e.g. reader@my-project.iam.gserviceaccount.com. The server's identity needs the Service Account Token Creator role on it. Leave blank to query as the server's identity itself.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Google OAuth 2.0 Client ID for user sign-in (from Google Cloud Console > Credentials > OAuth 2.0 Client IDs)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Google OAuth 2.0 Client Secret for user sign-in",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+    @model_validator(mode="after")
+    def validate_default_credentials(cls, model: "BigQueryDefaultCredentials") -> "BigQueryDefaultCredentials":
+        if not model.use_application_default_credentials:
+            raise ValueError("Application Default Credentials must remain enabled for this authentication method.")
+        from app.data_sources.google_default_credentials import normalize_target_service_account
+        model.target_service_account = normalize_target_service_account(model.target_service_account)
+        return model
+
+
 class BigQueryConfig(BaseModel):
     project_id: str = Field(..., title="Project ID", description="", json_schema_extra={"ui:type": "string"})
     dataset: str = Field(..., title="Dataset", description="", json_schema_extra={"ui:type": "string"})
@@ -1495,6 +1539,29 @@ class MssqlConfig(SQLConfig):
         title="Additional Connection Parameters",
         description="Extra ODBC keywords sent as-is, e.g. ApplicationIntent=ReadOnly. Security keys (Encrypt, credentials, driver) cannot be overridden.",
         json_schema_extra={"ui:type": "keyvalue"}
+    )
+    # Reader-safety settings, applied to every session BOW opens (see
+    # MSSQLClient.session_setup_sql). They make BOW give way to the
+    # database's own writers instead of deadlocking with or blocking them.
+    deadlock_priority_low: bool = Field(
+        True,
+        title="Yield in Deadlocks",
+        description="Run BOW queries with DEADLOCK_PRIORITY LOW, so in a deadlock SQL Server stops the BOW query instead of your application's transaction.",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    lock_timeout_seconds: int = Field(
+        15,
+        ge=0,
+        le=3600,
+        title="Lock Timeout (seconds)",
+        description="How long a BOW query waits for a lock held by another session before it fails. Keep it shorter than the query timeout. 0 means wait with no limit.",
+        json_schema_extra={"ui:type": "number"}
+    )
+    isolation_level: Literal["default", "snapshot", "read_uncommitted"] = Field(
+        "default",
+        title="Isolation Level",
+        description="default: READ COMMITTED, the server default (lock-free if the database has READ_COMMITTED_SNAPSHOT on). snapshot: reads take no locks; the database needs ALLOW_SNAPSHOT_ISOLATION ON, and long reads (such as large extractions) grow the tempdb version store while they run. read_uncommitted: reads take no locks but can return uncommitted (dirty) data.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["default", "snapshot", "read_uncommitted"]}
     )
 
 
@@ -3087,6 +3154,66 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         return self
 
 
+# Exchange Server (on-premises) mail — read-only, over Exchange Web Services.
+class ExchangeOnpremConfig(BaseModel):
+    ews_url: str = Field(
+        ...,
+        title="Exchange server URL",
+        description=(
+            "Address of your Exchange server, e.g. https://mail.example.com. "
+            "The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.exchangeOnprem.urlTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.urlDescription"},
+    )
+    shared_mailboxes: Optional[str] = Field(
+        None,
+        title="Shared mailboxes",
+        description=(
+            "Optional. Addresses of shared or team mailboxes to include, separated by commas, "
+            "e.g. support@example.com, sales@example.com. Exchange decides who may open each one: "
+            "people only see the mailboxes their account already has access to."
+        ),
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.exchangeOnprem.sharedTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.sharedDescription"},
+    )
+    include_own_mailbox: bool = Field(
+        True,
+        title="Include the account's own mailbox",
+        description=(
+            "Turn off when signing in with a service account whose own mailbox is not relevant. "
+            "The first shared mailbox then becomes the default."
+        ),
+        json_schema_extra={"ui:type": "boolean", "ui:titleKey": "data.exchangeOnprem.ownTitle",
+                           "ui:descriptionKey": "data.exchangeOnprem.ownDescription"},
+    )
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
+
+    @model_validator(mode="after")
+    def check_mailboxes(self):
+        from app.data_sources.clients.exchange_onprem_client import normalize_ews_url, parse_shared_mailboxes
+        normalize_ews_url(self.ews_url, self.allow_http)
+        if not parse_shared_mailboxes(self.shared_mailboxes) and not self.include_own_mailbox:
+            raise ValueError("List at least one shared mailbox, or include the account's own mailbox.")
+        return self
+
+
+class ExchangeOnpremNtlmCredentials(BaseModel):
+    username: str = Field(..., min_length=1, title="Domain username", description="DOMAIN\\username or user@domain. Mail is read with this account's own permissions.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class ExchangeOnpremKerberosCredentials(BaseModel):
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: Optional[str] = Field(None, title="Service principal", description="Optional service-account UPN. Administrators must mount krb5.conf and the client keytab (KRB5_CLIENT_KTNAME), or provide a ticket cache. This authenticates as the service account, not as the signed-in BOW user.", json_schema_extra={"ui:type": "string"})
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
+
+
 # OpenText Documentum (Documentum REST Services, read-only file connector).
 class DocumentumConfig(BaseModel):
     rest_url: str = Field(
@@ -3575,6 +3702,33 @@ class TeamsMessagesConfig(BaseModel):
     pass
 
 
+# Slack
+class SlackCredentials(BaseModel):
+    """The organization's own internal Slack app. Each user then signs in with
+    Slack and BOW reads with that user's token, so they see only their own
+    channels and DMs."""
+    oauth_client_id: str = Field(
+        ...,
+        title="Slack App Client ID",
+        description="From your Slack app's Basic Information page (api.slack.com/apps).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: str = Field(
+        ...,
+        title="Slack App Client Secret",
+        description="From your Slack app's Basic Information page.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class SlackMessagesConfig(BaseModel):
+    """Slack needs no admin-side configuration: each user's own sign-in decides
+    which channels and DMs are visible, and messages are always read live.
+    Which channels an AGENT reads is set per agent (the agent's Slack
+    "Channels" picker, stored in data_source_connection_settings)."""
+    pass
+
+
 # Google Drive
 class GoogleDriveCredentials(BaseModel):
     oauth_client_id: str = Field(
@@ -3692,17 +3846,12 @@ class NetworkDirConfig(BaseModel):
         "fulltext",
         title="Indexing",
         description=(
-            "How much to store about the files — and so how well the agent "
-            "can search them. Live: nothing stored; search is by file name "
-            "plus a slow scan of the source. File list: names, sizes and "
-            "dates. Keywords: also up to 50 keywords per file, from the start "
-            "of its text. Full text: also a search index of every word in "
-            "every file (PDF, Office, CSV, text, email), so the agent finds "
-            "exact words, IDs and phrases anywhere, with the page or sheet. "
-            "The index holds the words, not the files, and is removed with "
-            "the connection. Only changed files are re-read."
+            "Live mode reads files on demand. File list stores names, sizes, and dates. "
+            "Keywords and Full text also store decoded PCAP and QVD data for SQL queries. "
+            "Full text indexes document contents for search. Refresh processes changed files."
         ),
         json_schema_extra={
+            "ui:descriptionKey": "data.networkDirIndexDescription",
             "ui:type": "select",
             "enum": ["none", "metadata", "content", "fulltext"],
             "ui:enumLabels": {
@@ -3983,6 +4132,22 @@ class QlikSenseConfig(BaseModel):
         json_schema_extra={"ui:type": "string"},
     )
 
+    app_filter: Optional[str] = Field(
+        None,
+        title="App Filter",
+        description="Optional comma-separated app names or IDs within the selected spaces. Use IDs for names containing commas.",
+        json_schema_extra={"ui:type": "string", "ui:titleKey": "data.qlikOnPrem.appFilterTitle",
+                           "ui:descriptionKey": "data.qlikCloud.appFilterDescription"},
+    )
+    max_concurrency: int = Field(
+        4, ge=1, le=4,
+        title="Concurrent Apps",
+        description="Maximum apps opened at once during indexing (1–4). Choose 1 for large apps.",
+        json_schema_extra={"ui:type": "select", "ui:options": [1, 2, 3, 4],
+                           "ui:titleKey": "data.qlikOnPrem.concurrencyTitle",
+                           "ui:descriptionKey": "data.qlikOnPrem.concurrencyDescription"},
+    )
+
 
 # Qlik Sense Enterprise on Windows (on-prem)
 class QlikSenseOnPremCertCredentials(BaseModel):
@@ -4055,7 +4220,7 @@ class QlikSenseOnPremCertCredentials(BaseModel):
 class QlikSenseOnPremConfig(BaseModel):
     """Connection form for QSEoW — deliberately small, like the Power BI and
     BigQuery forms. Crawl-behavior knobs (impersonate_app_owner,
-    include_master_items, include_lineage, max_apps,
+    include_master_items, include_lineage, include_sheet_objects, max_apps,
     timeout_sec) stay client constructor defaults rather than form fields:
     they tune discovery internals, not connection identity."""
 
@@ -5096,6 +5261,7 @@ __all__ = [
     "AWSCostCredentials",
     "AWSAthenaCredentials",
     "AWSAthenaDefaultCredentials",
+    "BigQueryDefaultCredentials",
     "VerticaCredentials",
     "AwsRedshiftCredentials",
     "TableauCredentials",

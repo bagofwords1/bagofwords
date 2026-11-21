@@ -1,6 +1,5 @@
-"""Folder activity contains attribution only. Detailed console reads recheck content access."""
-
-from datetime import timezone
+"""Agent attribution for runs (exposure, observed use) and the monitoring visibility
+rules built on it. Detailed console reads recheck content access."""
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -60,6 +59,27 @@ async def record_used_agents(db, execution_id, agents, outcomes, resolved_file_a
         )
 
 
+async def record_exposed_agents(db, execution_id, agent_ids):
+    """Add agents to a run's exposure (idempotent; the set only grows).
+
+    Commits on its own, like the other run-tracking writes, so the row survives
+    a run that fails afterwards — a run whose exposure is missing is hidden from
+    scoped managers, never shown with too little attribution.
+    """
+    from app.models.agent_execution import execution_exposed_agents as exposed
+
+    ids = sorted({str(a) for a in agent_ids or () if a and not str(a).startswith("builtin:")})
+    if not execution_id or not ids:
+        return
+    insert = pg_insert if db.get_bind().dialect.name == "postgresql" else sqlite_insert
+    await db.execute(
+        insert(exposed)
+        .values([{"execution_id": str(execution_id), "agent_id": a} for a in ids])
+        .on_conflict_do_nothing()
+    )
+    await db.commit()
+
+
 def historic_folder_reports():
     return select(knowledge.c.report_id).union(
         select(roster.c.report_id),
@@ -97,58 +117,115 @@ async def can_open(db, report, user, org, managed):
     return bool(required and required <= set(managed))
 
 
-async def activity(db, org, user, managed, start, end, limit=50):
-    if start and start.tzinfo:
-        start = start.astimezone(timezone.utc).replace(tzinfo=None)
-    if end and end.tzinfo:
-        end = end.astimezone(timezone.utc).replace(tzinfo=None)
-
-    query = (
-        select(AE.id, AE.created_at, AE.status, AE.report_id, AE.completion_id, used.c.agent_id, DataSource.name)
-        .join(used, used.c.execution_id == AE.id)
-        .join(DataSource, DataSource.id == used.c.agent_id)
-        .where(
-            AE.organization_id == org.id,
-            DataSource.organization_id == org.id,
-            AE.starting_folder_id.is_not(None),
-            DataSource.deleted_at.is_(None),
-        )
-    )
-    if managed is not None:
-        query = query.where(used.c.agent_id.in_(managed))
-    if start:
-        query = query.where(AE.created_at >= start)
-    if end:
-        query = query.where(AE.created_at <= end)
-    rows = await db.execute(query.order_by(AE.created_at.desc(), AE.id, used.c.agent_id).limit(limit))
-    results, permissions = [], {}
-    for eid, date, status, rid, cid, aid, name in rows:
-        if rid not in permissions:
-            report = await db.get(Report, rid)
-            permissions[rid] = bool(report and await can_open(db, report, user, org, managed))
-        results.append(
-            dict(
-                execution_id=eid,
-                created_at=date,
-                status=status,
-                agent_id=aid,
-                agent_name=name,
-                completion_id=cid if permissions[rid] else None,
-                report_id=rid if permissions[rid] else None,
-            )
-        )
-    return results
-
-
-def agent_links():
-    """Agents attributed to reports for monitoring (explicit pins and observed use)."""
+def agent_links(include_exposure=False):
+    """Agents attributed to reports for monitoring (explicit pins and observed
+    use; with ``include_exposure``, also every agent a run was given)."""
+    from app.models.agent_execution import execution_exposed_agents as exposed
     from app.models.report_data_source_association import report_data_source_association as pins
 
-    return (
-        select(pins.c.report_id, pins.c.data_source_id)
-        .union(select(AE.report_id, used.c.agent_id).join(used, used.c.execution_id == AE.id))
-        .subquery()
+    from sqlalchemy import union
+
+    parts = [
+        select(pins.c.report_id, pins.c.data_source_id),
+        select(AE.report_id, used.c.agent_id).join(used, used.c.execution_id == AE.id),
+    ]
+    if include_exposure:
+        parts.append(select(AE.report_id, exposed.c.agent_id).join(exposed, exposed.c.execution_id == AE.id))
+    return union(*parts).subquery()
+
+
+# ---------------------------------------------------------------------------
+# Scoped-manager visibility (see app.core.console_access).
+#
+# A run's EXPOSURE is every agent it was given (execution_exposed_agents) plus
+# every agent it used. A scoped manager may see a run when:
+#
+#   * its exposure is non-empty and every agent in it is one they manage, AND
+#   * the same holds for every EARLIER run in the same report — a run's context
+#     replays the conversation so far (prompts, answers, query results), so a
+#     turn that touched an unmanaged agent taints every turn after it.
+#
+# Runs recorded before exposure existed fall back to the old attribution: the
+# report's pinned agents and observed use. An Auto run from back then has
+# neither and stays hidden, exactly as before.
+# ---------------------------------------------------------------------------
+
+def out_of_scope_runs(scope_ids):
+    """Runs that, on their own, reach an agent outside ``scope_ids`` or are
+    attributable to no agent at all.
+
+    Every helper here uses its own aliases and never correlates: they are
+    embedded in queries that already select from agent_executions / reports,
+    and auto-correlation would silently bind them to the outer row instead.
+    """
+    from sqlalchemy import and_, or_, union
+    from sqlalchemy.orm import aliased
+    from app.models.agent_execution import execution_exposed_agents as exposed
+    from app.models.report_data_source_association import report_data_source_association as pins
+
+    scope_ids = [str(s) for s in scope_ids]
+    run = aliased(AE)
+    recorded = select(exposed.c.execution_id).correlate(None)
+    legacy = select(run.id).where(
+        run.id.not_in(recorded),
+        or_(
+            run.report_id.is_(None),
+            run.report_id.in_(select(pins.c.report_id).where(pins.c.data_source_id.not_in(scope_ids)).correlate(None)),
+            and_(
+                run.report_id.not_in(select(pins.c.report_id).correlate(None)),
+                run.id.not_in(select(used.c.execution_id).correlate(None)),
+            ),
+        ),
+    ).correlate(None)
+    return union(
+        select(exposed.c.execution_id).where(exposed.c.agent_id.not_in(scope_ids)).correlate(None),
+        select(used.c.execution_id).where(used.c.agent_id.not_in(scope_ids)).correlate(None),
+        legacy,
     )
+
+
+def visible_runs(scope_ids):
+    """Runs a manager of ``scope_ids`` may see: in scope themselves and with no
+    out-of-scope run at or before them in the same report. None = org-wide."""
+    if scope_ids is None:
+        return None
+    from sqlalchemy import exists
+    from sqlalchemy.orm import aliased
+
+    run, earlier = aliased(AE), aliased(AE)
+    tainted = exists().where(
+        earlier.report_id == run.report_id,
+        earlier.created_at <= run.created_at,
+        earlier.id.in_(out_of_scope_runs(scope_ids)),
+    ).correlate(run)
+    return select(run.id).where(run.report_id.is_not(None), ~tainted).correlate(None)
+
+
+def reports_in_scope(scope_ids):
+    """Reports a manager of ``scope_ids`` may see IN FULL — every run visible.
+
+    Used by report-level aggregates (messages, usage, cost, feedback) and
+    drill-downs that list every run, which cannot show part of a report. A
+    report counts once something attributes it (a run or a pinned agent), and a
+    pin outside scope still excludes it, as before. None = org-wide.
+    """
+    if scope_ids is None:
+        return None
+    from sqlalchemy.orm import aliased
+    from app.models.report_data_source_association import report_data_source_association as pins
+
+    scope_ids = [str(s) for s in scope_ids]
+    run, report = aliased(AE), aliased(Report)
+    attributed = select(run.report_id).where(run.report_id.is_not(None)).correlate(None).union(
+        select(pins.c.report_id).correlate(None))
+    tainted = select(run.report_id).where(
+        run.report_id.is_not(None), run.id.in_(out_of_scope_runs(scope_ids))).correlate(None)
+    outside_pin = select(pins.c.report_id).where(pins.c.data_source_id.not_in(scope_ids)).correlate(None)
+    return select(report.id).where(
+        report.id.in_(attributed),
+        report.id.not_in(tainted),
+        report.id.not_in(outside_pin),
+    ).correlate(None)
 
 
 def execution_links():

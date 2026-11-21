@@ -15,6 +15,11 @@ from app.services.artifact_preview_noise import is_preview_noise_error
 logger = logging.getLogger(__name__)
 
 
+def is_browser_tool(name: str) -> bool:
+    """The catalog entries refresh_browser_tool_catalog owns."""
+    return str(name or "").startswith("browser_")
+
+
 async def refresh_browser_tool_catalog(catalog, candidates, runtime_ctx):
     """Refresh only browser tools, preserving other run-specific catalog filters."""
     import logging
@@ -31,7 +36,7 @@ async def refresh_browser_tool_catalog(catalog, candidates, runtime_ctx):
             "Browser eligibility could not be checked; hiding browser tools", exc_info=True)
     if not preview_allowed:
         await session_manager.close_preview(runtime_ctx)
-    result = [t for t in (catalog or []) if not t.name.startswith("browser_")]
+    result = [t for t in (catalog or []) if not is_browser_tool(t.name)]
     if available:
         result.extend(candidates)
     return result

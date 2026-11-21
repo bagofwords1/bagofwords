@@ -1,5 +1,115 @@
 # Release Notes
 
+## Version 0.0.630 (November 20, 2026)
+- Added resizable, movable data-grid columns that keep their layout, and a single value-list filter per column (#1828)
+- Added content-sized columns to dashboard tables, resizable and movable by drag (#1834)
+- Added the refresh history, with the failure shown, behind a dashboard's "Refresh failing" badge (#1832)
+- Changed instruction diffs to render as markdown, right-to-left per block in RTL languages (#1826)
+- Changed remote SSH/SMB file reads in the report chat to show the file and server instead of the raw tool name (#1827)
+- Changed instruction and dashboard tool cards in the report chat to open by default (#1831)
+- Fixed dark-mode contrast gaps: white cards, unreadable labels and chips, and the LLM usage chart tooltip (#1830, #1837)
+- Fixed sidebar menus swallowing the next click (#1835)
+- Fixed the Reports group/sort button sitting out of line with the row star column (#1833)
+- Fixed a saved query's table missing under the answer when a run folds (#1829)
+- Fixed tool-card header labels running together (#1831)
+
+## Version 0.0.629 (November 18, 2026)
+- Added Clone agent in the agent menu: copies tables, tools, prompts and files, with instructions copied, shared or left out (#1807)
+- Added Import agent under Agents → New: rebuilds an agent from its export zip, with instructions imported as drafts (#1810)
+- Added Monitoring access to Auto runs for agent managers when the run could only reach agents they manage (#1811)
+- Added what changed, who handled it and a link to where it is fixed in review notifications, and a training-mode conversation prefilled from the item (#1809)
+- Added automatic saving of each Settings → General field, without a Save button; removing a framing site asks first (#1796)
+- Added project agents pre-selected on a new report opened from a project (#1806)
+- Added the full report or project name on hover in the sidebar when it is cut off, and a Reports icon in the collapsed sidebar (#1814)
+- Added Qlik Cloud app filtering, up to four apps indexed at once, and master items, variables, sheets and charts in Qlik Cloud schemas (#1818)
+- Added multiple organizations on one deployment as a supported mode: instance administrators create organizations from the top-left menu — `BOW_SUPERUSER_EMAILS`, `features.allow_multiple_organizations`, Enterprise license
+- Added mapping from identity-provider groups to organizations and roles at sign-in — `oidc_providers[].org_mapping`
+- Added folders reserved for one organization's file connections — `security.organization_file_roots`
+- Added a numbered citation on the answer's claims that previews, and opens, the result behind it; chat channels get the same as `[1]` footnotes (#1770)
+- Added GPT-6.2 Sol and Astra to the OpenAI models; Sol is the new managed OpenAI default — $2/$10 per million tokens, up from Terra's $1/$5 (#1820)
+- Added named PII protection policies assigned per LLM provider, with an Exempt option, under Settings → PII Protection (#1821) — Enterprise
+- Changed a steered prompt to appear above the step that picked it up, on the report page, after a reload and on shared links (#1802)
+- Changed, on multi-organization deployments only: creating an organization needs an instance administrator, a personal API key works only in its own organization, an existing account joins another organization by invite, a sign-up domain is assigned by an instance administrator, and a first sign-in links to an existing account by email only from a trusted provider — `trust_email_for_linking`
+- Changed `security.block_private_outbound` to also cover Cosmos DB, Couchbase, Iceberg, Azure Blob and Kubernetes endpoints and SQL Server failover hosts
+- Changed a run's steps, charts included, to sit behind one row above the answer, live while it works and settled once it ends (#1770)
+- Changed PII protection to redact only the user's prompt and the data; instructions, schemas and other agent context reach the model as written, image-generation prompts are now redacted, and a blocked request ends the turn without retrying (#1821)
+- Fixed every chat failing on Azure OpenAI with the default content filter; content-filter blocks now show a named error (#1803)
+- Fixed MCP and custom API agents losing their tools when a SQL or file agent shares the report (#1815)
+- Fixed Qlik Cloud tables showing no columns after indexing (#1818)
+- Fixed shared conversations not using the organization's language and direction (#1800)
+- Fixed the agent trace modal sliding off-screen when scrolling (#1812)
+- Fixed a schema change being silent for 7 days after an earlier one was handled (#1809)
+- Fixed sandbox step runs being slower from a repeated import (#1805)
+- Fixed file-based connections (DuckDB, CSV, QVD, PBIX, SQLite) being able to read or write files outside their own data — `security.unsafe_allow_unrestricted_file_connectors` restores the old behaviour
+- Fixed database connection options being injectable through the database name; options written after the name such as `mydb?sslmode=require` still apply, except ones that read local files or redirect the connection
+- Fixed Git repository indexing following symlinks out of the repository; symlinked files are no longer indexed
+- Fixed linked local files being pulled into document previews — `security.office_convert_confinement`
+- Fixed records from another organization being reachable by id through mentions, instruction references, entities, eval runs, report sharing, LLM model settings and the agent's metadata search
+- Fixed "public" agents being usable by people outside the organization that owns them
+- Fixed Slack, Teams and WhatsApp messages reaching the wrong organization when two organizations share a workspace, tenant or number; connecting one to a second organization is refused
+- Fixed SCIM in one organization changing or deactivating an account that also belongs to another
+- Fixed users being able to change their own sign-in email
+- Fixed notifications from one organization showing in another
+- Fixed a removed member keeping roles, access grants and API keys after being invited again
+- Fixed saved queries and dashboards failing with a missing-key error after an agent or connection is renamed (#1822)
+
+## Version 0.0.628 (November 18, 2026)
+- Added Admin → System logs: read, search, filter and delete the server's own logs in the app (#1697) — kept 7 days, up to 1 GB; `BOW_SYSTEM_LOGS_DIR`, `BOW_SYSTEM_LOGS_RETENTION_DAYS`, `BOW_SYSTEM_LOGS_MAX_SIZE_MB`
+
+## Version 0.0.627 (November 18, 2026)
+- Added keyless BigQuery connections that use the server's Google identity instead of a service-account key (#1794) — enable with `BOW_ALLOW_GOOGLE_DEFAULT_CREDENTIALS=true`
+
+## Version 0.0.626 (November 18, 2026)
+- Added Slack as a data source: each user signs in with their own Slack account, and each agent reads only the channels picked for it (#1785)
+- Fixed "Save and Run" on an eval test case failing silently and creating duplicate test cases on retry (#1787)
+
+## Version 0.0.625 (November 17, 2026)
+- Added Rerun on a chat message: sends the same prompt again with its mentions, attached images, mode and model (#1771)
+- Added `/clear` in the report prompt box: starts a fresh agent context while earlier turns stay visible (#1767)
+- Added `missing_folder_rules` to the MCP `create_report` and `get_context` responses, and `applies_in` to `create_instruction` and `edit_instruction` (#1762)
+- Added inherited folder and connection access to the agent access panel (#1780)
+- Fixed the Approve/Deny card disappearing after a page reload or in a second tab (#1766)
+- Fixed an agent losing all its MCP tools when one of its connections fails, and agents created mid-run not getting theirs (#1763)
+- Fixed Qlik Sense on-prem metric choices not applying through nested variables (#1783)
+- Fixed the agents page listing folders you have no grant on unless Show all is on (#1781)
+
+## Version 0.0.624 (November 16, 2026)
+- Added the full dashboard name on hover when it is cut off, in the dashboards grid and list, the dashboard header and the "open a dashboard" list (#1730)
+- Fixed dashboards rendering blank or failing to save when the model names its root component something other than `App`, wraps its export, or imports `createRoot` (#1735)
+- Fixed tool calls from self-hosted Gemma 4 on vLLM failing or losing arguments when the model quotes a string without its delimiter (#1750)
+
+## Version 0.0.623 (November 16, 2026)
+- Added a Queries tab in Manage connection: running and past queries with their SQL, who sent them, wait and run time, and a Kill button (#1753)
+- Added a "Waiting for a free slot" status on chats whose query is queued behind a connection's concurrency limit (#1753) — `BOW_QUERY_SLOT_WAIT_SECONDS` (default 60)
+- Added allowing your own sites to show BOW in an iframe (#1755) — Settings → General → "Sites that can show BOW"
+- Added Qlik Sense on-prem sheet and chart catalog: the agent reads a chart's own data, reuses its expressions, and looks up field values (#1752)
+- Added attaching recent uploads and Google Drive / OneDrive files from the prompt box, without re-uploading (#1728)
+- Changed a connection's concurrent-query limit to hold across all workers and replicas, not per process (#1753)
+- Changed the default concurrent queries per connection from 4 to 12; organizations still on the old default of 4 move to 12 (#1753)
+- Removed the Folder activity card from Monitoring and Diagnosis; pick a folder in the agent selector instead (#1758)
+- Fixed Qlik Sense on-prem queries with a misspelled field returning zeros instead of an error (#1752)
+- Fixed a private Qlik sheet's title showing on every table of its app (#1752)
+- Fixed viewers of a shared dashboard whose agent they can't use getting a failed run instead of "ask an admin for access" (#1751)
+- Fixed every request about a report loading the report's whole history (#1751)
+
+## Version 0.0.622 (November 15, 2026)
+- Added MCP tools to browse agent folders, scope a report to folders or agents, and share one instruction across several folders (#1742)
+- Added an optional dashboard description, set in Settings → General and shown on hover in the dashboard list (#1732)
+- Added querying packet captures (PCAP/PCAPNG) and QVD files in network directory connections, as a packets table and a table per QVD (#1746)
+- Added a "Not render-checked" note on dashboards saved when the server cannot render them (#1745)
+- Added an isolation level choice for SQL Server connections (#1739) — "Isolation Level" (default: READ COMMITTED; snapshot, read uncommitted)
+- Changed the agent to stop after four failed dashboard builds in a row and say so (#1745)
+- Changed SQL Server queries to stop waiting on a row another session has locked after 15 seconds, and to be the side SQL Server gives up in a deadlock (#1739) — "Lock Timeout (seconds)" and "Yield in Deadlocks" on the connection (defaults: 15, on; 0 = no limit)
+- Fixed dashboards built by smaller models failing on imports, exports, or helpers taken from `bow` or `React` (#1745)
+- Fixed scheduled tasks' reports all being named "Scheduled task"; a report now takes its task's name and follows renames (#1736)
+- Fixed reports becoming "not found" after a folder instruction they used was detached, turned off or deleted (#1742)
+- Fixed authors being unable to publish instructions while another curator's suggestion awaited review (#1742)
+- Fixed folder-scoped instructions listed under "Global instructions" in Pending changes (#1737)
+- Fixed agent-authored instructions in a folder-scoped report being pinned to the folder's agents instead of the folder (#1738)
+- Fixed the agent scope picker always showing a folder icon, even for a single agent or all agents (#1731)
+- Fixed SQL Server timeouts BOW could not stop being reported only in logs; the error and the connection test name the missing permission (#1739)
+- Fixed unreadable packet captures being decoded again on every refresh; a failed file now shows a specific reason in `indexed_files` and is retried only when it changes or the host is fixed (#1747)
+
 ## Version 0.0.621 (November 15, 2026)
 - Fixed dashboards, documents and query reads failing when the agent miscopies a chart id; an unknown id now names itself and the charts that can be used (#1729)
 

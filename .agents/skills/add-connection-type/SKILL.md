@@ -76,7 +76,9 @@ uv run pytest tests/e2e/test_data_source.py tests/e2e/test_connection.py --db=sq
 uv run pytest tests/integrations/ds_clients.py -k "<type>" -v
 ```
 
-5. **Live UI pass**: `tools/agent/boot_stack.sh` + `seed_org.py`, then in the
+5. **Live UI pass**: `tools/agent/boot_stack.sh` + `seed_org.py` (in a DevBox,
+   `BOW_SANDBOX_DEVBOX=1`, neither: the stack is running and seeded; a new
+   client or dependency is picked up by `bow-stack restart backend`), then in the
    app: create the connection → "Test connection" succeeds → Tables Selector
    lists tables → run a prompt that queries it. Screenshot the connect form
    and the tables list (**ui-evidence** skill) — the form is

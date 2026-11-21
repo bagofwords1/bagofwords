@@ -88,6 +88,13 @@ class FastRelation:
         return f is not None and not f.unrestricted
 
 
+def lock_query_session(con):
+    """Seal a session after trusted code has registered its authorized relations."""
+    con.execute("SET python_enable_replacements=false")
+    con.execute("SET enable_external_access=false")
+    con.execute("SET lock_configuration=true")
+
+
 class FastQueryClient(DataSourceClient):
     """DuckDB over encrypted local artifacts. Read-only by construction."""
 
@@ -156,21 +163,7 @@ class FastQueryClient(DataSourceClient):
             # enable_external_access=false blocks ATTACH of other files,
             # read_parquet/read_csv of arbitrary paths, and COPY ... TO.
             # lock_configuration=true stops generated SQL re-enabling either.
-            for pragma in (
-                "SET enable_external_access = false",
-                "SET lock_configuration = true",
-            ):
-                try:
-                    con.execute(pragma)
-                except Exception as e:
-                    logger.error(
-                        "fast.connect.lockdown_failed",
-                        extra={"pragma": pragma, "error": str(e)},
-                    )
-                    raise RuntimeError(
-                        f"Refusing to serve accelerated data without sandbox "
-                        f"lockdown ({pragma}): {e}"
-                    )
+            lock_query_session(con)
 
             logger.info(
                 "fast.connect.ready",

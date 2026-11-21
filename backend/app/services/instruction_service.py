@@ -76,7 +76,7 @@ SETTLED_HUNK_KEY = "__settled__"
 VOIDED_HUNK_KEY = "__voided__"
 
 
-async def _resolve_reference_data_source(db, data_source_id):
+async def _resolve_reference_data_source(db, data_source_id, organization_id):
     """Display fields for the agent an instruction reference points at.
 
     Returns None when the agent is gone. Loads every connection in the
@@ -94,7 +94,7 @@ async def _resolve_reference_data_source(db, data_source_id):
         .select_from(DataSource)
         .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
         .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
-        .where(DataSource.id == data_source_id)
+        .where(DataSource.id == data_source_id, DataSource.organization_id == organization_id)
         .order_by(Connection.created_at, Connection.id)
     )
     found = rows.all()
@@ -1611,6 +1611,7 @@ class InstructionService:
                         from app.services.review_service import review_service
                         await review_service.resolve_for_instruction(
                             db, organization_id=str(organization.id), instruction_id=str(instruction.id),
+                            how="suggestion_reviewed", by_user_id=str(current_user.id) if current_user else None,
                         )
                     except Exception:
                         pass
@@ -3013,7 +3014,8 @@ class InstructionService:
             flag_modified(build, "rejected_hunks")
         try:
             from app.services.review_service import review_service
-            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=iid)
+            await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=iid,
+                                                         how="suggestion_voided")
         except Exception:
             pass
 
@@ -3118,7 +3120,10 @@ class InstructionService:
             resolved_all = bool(remaining) and not remaining.get("suggestions")
             if resolved_all:
                 from app.services.review_service import review_service
-                await review_service.resolve_for_instruction(db, organization_id=str(organization.id), instruction_id=str(instruction_id))
+                await review_service.resolve_for_instruction(
+                    db, organization_id=str(organization.id), instruction_id=str(instruction_id),
+                    how="suggestion_rejected", by_user_id=str(current_user.id) if current_user else None,
+                )
         except Exception:
             pass
         await self._emit_review_verdict_events(
@@ -4652,6 +4657,24 @@ class InstructionService:
                 if str(object_id) not in bucket:
                     bucket.append(str(object_id))
 
+        # Folder placements for every row (light + full): the pending/review
+        # grouping files a folder-scoped instruction (no agents) under its folder,
+        # not the global bucket — it needs the folder each row lives in. One flat
+        # SELECT keyed by instruction id, never N+1.
+        folder_map: Dict[str, List[dict]] = {}
+        if instructions:
+            from app.models.folder import folder_instructions, Folder
+            fi_rows = await db.execute(
+                select(folder_instructions.c.instruction_id, Folder.id, Folder.name)
+                .join(Folder, Folder.id == folder_instructions.c.folder_id)
+                .where(
+                    folder_instructions.c.instruction_id.in_([str(i.id) for i in instructions]),
+                    Folder.deleted_at.is_(None),
+                )
+            )
+            for iid, fid, fname in fi_rows.all():
+                folder_map.setdefault(str(iid), []).append({"id": str(fid), "name": fname})
+
         list_items: List = []
         for inst in instructions:
             ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
@@ -4662,6 +4685,7 @@ class InstructionService:
                 list_items.append(
                     InstructionListItemSchema(
                         scope_mode=inst.scope_mode,
+                        folders=folder_map.get(str(inst.id), []),
                         id=str(inst.id),
                         title=getattr(inst, "title", None),
                         preview=build_preview(inst.text),
@@ -4696,6 +4720,7 @@ class InstructionService:
             list_items.append(
                 InstructionListSchema(
                     scope_mode=inst.scope_mode,
+                    folders=folder_map.get(str(inst.id), []),
                     id=str(inst.id),
                     text=inst.text,
                     status=inst.status,
@@ -5109,8 +5134,8 @@ class InstructionService:
                 logger.warning(f"Skipping evals in export for {data_source_id}: {e}")
 
             # queries/*.yaml — one file per saved query (Entity) scoped to this
-            # agent. Export-only (no round-trip import, like the rest of the
-            # bundle). Visibility matches the agent's "Queries" panel: EntityService
+            # agent. The whole bundle round-trips through POST /agents/import
+            # (AgentBundleImportService). Visibility matches the agent's "Queries" panel: EntityService
             # .list_entities applies the same bow/accessibility/workshop scoping,
             # so a viewer gets live queries plus their own drafts/suggestions —
             # the "like instructions" rule. Best-effort: skip on any failure.
@@ -5727,6 +5752,7 @@ class InstructionService:
             primary_result = await db.execute(
                 select(DataSourceModel).where(
                     DataSourceModel.primary_instruction_id == str(instruction.id),
+                    DataSourceModel.organization_id == instruction.organization_id,
                     DataSourceModel.deleted_at.is_(None),
                 )
             )
@@ -5755,14 +5781,18 @@ class InstructionService:
                 ref_data = {k: v for k, v in ref_data.items() if not k.startswith('_')}
                 
                 # Fetch and add the referenced object
-                referenced_obj = await self.reference_service._fetch_referenced_object(db, ref.object_type, ref.object_id)
+                referenced_obj = await self.reference_service._fetch_referenced_object(
+                    db, ref.object_type, ref.object_id, instruction.organization_id
+                )
                 if referenced_obj:
                     if ref.object_type == "metadata_resource":
                         from app.schemas.metadata_resource_schema import MetadataResourceSchema
                         ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for metadata resources
-                        ds_info = await _resolve_reference_data_source(db, referenced_obj.data_source_id)
+                        ds_info = await _resolve_reference_data_source(
+                            db, referenced_obj.data_source_id, instruction.organization_id
+                        )
                         if ds_info:
                             ref_data.update(ds_info)
                             ref_data["data_source_id"] = referenced_obj.data_source_id
@@ -5772,7 +5802,9 @@ class InstructionService:
                         ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for datasource tables
-                        ds_info = await _resolve_reference_data_source(db, referenced_obj.datasource_id)
+                        ds_info = await _resolve_reference_data_source(
+                            db, referenced_obj.datasource_id, instruction.organization_id
+                        )
                         if ds_info:
                             ref_data.update(ds_info)
                             ref_data["data_source_id"] = referenced_obj.datasource_id

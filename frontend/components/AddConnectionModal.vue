@@ -79,10 +79,10 @@
                   </div>
                   <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ tile.title }}</div>
                   <div v-if="tile.isMcp || tile.locked" class="mt-1 flex items-center justify-center gap-1">
-                    <span v-if="tile.isMcp" class="text-2xs font-medium uppercase tracking-wide text-blue-600 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
+                    <span v-if="tile.isMcp" class="text-2xs font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300 bg-blue-100 dark:bg-blue-950 px-1.5 py-0.5 rounded">
                       {{ $t('data.mcpBadge') }}
                     </span>
-                    <span v-if="tile.locked" class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
+                    <span v-if="tile.locked" class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-1.5 py-0.5 rounded">
                       {{ $t('data.enterprise') }}
                     </span>
                   </div>
@@ -136,7 +136,7 @@
                 <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
                 <DataSourceIcon v-else class="h-4" :type="demo.type" />
                 {{ demo.name }}
-                <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
+                <span class="text-2xs font-medium uppercase tracking-wide text-purple-600 dark:text-purple-300 bg-purple-100 dark:bg-purple-950 px-1 py-0.5 rounded">{{ $t('data.sampleTag') }}</span>
               </button>
             </div>
           </div>
@@ -218,7 +218,7 @@
               <p v-if="!createdConnection && !formState.busy && !formState.error" class="text-sm leading-6 text-gray-500 dark:text-gray-400 mb-7">{{ $t('data.setupReadyHint') }}</p>
               <ol class="space-y-5 my-6">
                 <li class="flex items-center gap-3 text-sm">
-                  <UIcon :name="createdConnection ? 'i-heroicons-check-circle' : formState.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-circle-stack'" class="w-5 h-5 flex-none" :class="createdConnection ? 'text-green-600' : formState.busy ? 'animate-spin text-gray-600' : 'text-ink-muted'" />
+                  <UIcon :name="createdConnection ? 'i-heroicons-check-circle' : formState.busy ? 'i-heroicons-arrow-path' : 'i-heroicons-circle-stack'" class="w-5 h-5 flex-none" :class="createdConnection ? 'text-green-600' : formState.busy ? 'animate-spin text-ink-muted' : 'text-ink-muted'" />
                   <span>{{ createdConnection ? $t('data.setupSaved') : $t('data.setupConnection') }}</span>
                 </li>
                 <li class="flex items-center gap-3 text-sm" :class="!createdConnection ? 'text-ink-muted' : ''">
@@ -226,9 +226,21 @@
                   <span>{{ selectedDataSource?.data_shape === 'tools' ? $t('data.toolsLabel') : $t('data.schemaDiscovery') }}</span>
                 </li>
               </ol>
-              <p v-if="formState.busy" class="text-sm text-gray-500 mb-4">{{ $t('data.setupConnecting') }}</p>
+              <!-- A source that is each person's own once they sign in themselves
+                   (a mailbox): offer it as a connector for everyone, like the
+                   sign-in integrations do. Not shown for a shared account. -->
+              <CreatePublicAgentToggle
+                v-if="offersPersonalConnector && !createdConnection"
+                v-model:enabled="createConnector"
+                v-model:name="connectorName"
+                :title="selectedDataSource?.title"
+                noun="connection"
+                class="mb-5"
+                data-test="personal-connector-toggle"
+              />
+              <p v-if="formState.busy" class="text-sm text-ink-muted mb-4">{{ $t('data.setupConnecting') }}</p>
               <div v-if="formState.error" role="alert" class="text-sm text-red-600 break-words whitespace-pre-wrap mb-4">{{ formState.error }}</div>
-              <p v-if="createdConnection && indexingState?.status === 'failed'" class="text-sm text-gray-500 mb-3">{{ $t('data.setupSavedDiscoveryFailed') }}</p>
+              <p v-if="createdConnection && indexingState?.status === 'failed'" class="text-sm text-ink-muted mb-3">{{ $t('data.setupSavedDiscoveryFailed') }}</p>
               <div v-if="formState.warning" role="status" class="text-sm text-amber-700 dark:text-amber-400 break-words whitespace-pre-wrap mb-4">{{ formState.warning }}</div>
               <p v-if="retestResult" role="status" class="text-sm whitespace-pre-wrap break-words mb-4" :class="retestResult.success ? 'text-green-600' : 'text-red-600'">{{ retestResult.message }}</p>
               <ConnectionIndexingProgress v-if="createdConnection" :indexing="indexingState" :show-logs="true" />
@@ -369,7 +381,33 @@ async function testAgain() {
   }
 }
 const connectionForm = ref<InstanceType<typeof ConnectForm> | null>(null)
-const formState = ref({ busy: false, error: '', warning: '' })
+const formState = ref<{ busy: boolean; error: string; warning: string; requireUserAuth?: boolean }>({ busy: false, error: '', warning: '' })
+// Personal-connector types (registry `personal_connector`) with "each user
+// signs in" switched on: also create the org-wide connector for it.
+const createConnector = ref(true)
+const connectorName = ref('')
+const offersPersonalConnector = computed(() =>
+  !!selectedDataSource.value?.personal_connector && !!formState.value.requireUserAuth)
+
+async function createPersonalConnector(connection: any) {
+  const title = selectedDataSource.value?.title
+  try {
+    const { error } = await createPublicAgent(connection.id, {
+      name: connectorName.value || connection.name || title,
+      type: connection.type,
+      authModes: connection.allowed_user_auth_modes,
+    })
+    if (error.value) throw error.value
+    toast.add({
+      title: t('data.integrationReady'),
+      description: t('data.integrationReadyDesc', { name: connection.name || title }),
+      color: 'green',
+    })
+  } catch (e: any) {
+    // The connection itself was saved; only the connector failed (e.g. a duplicate name).
+    toast.add({ title: t('data.integrationAgentFailed'), description: e?.data?.detail || String(e), color: 'yellow' })
+  }
+}
 function primaryAction() {
   if (createdConnection.value && indexingState.value?.status !== 'failed') finishConnect()
   else connectionForm.value?.connect()
@@ -637,10 +675,19 @@ function backToSelect() {
   mcpPrefill.value = null
   customApiPrefill.value = null
   formDirty.value = false
+  createConnector.value = true
+  connectorName.value = ''
   step.value = 'select'
 }
 
 function handleConnectionSuccess(connection: any) {
+  // First save of a personal-connector type with "each user signs in" on:
+  // also create the org-wide connector. Before the branches below, because
+  // live sources skip indexing and return early.
+  if (!createdConnection.value && offersPersonalConnector.value && createConnector.value
+      && (connection?.auth_policy ?? 'user_required') === 'user_required') {
+    createPersonalConnector(connection)
+  }
   // Tool-provider connections (OneDrive, Google Drive, etc.) have no schema
   // to index — close the modal as soon as the save succeeds, same as MCP.
   if (SKIP_INDEXING_TYPES.value.some((t: any) => t.type === connection?.type)) {

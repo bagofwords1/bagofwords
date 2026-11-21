@@ -340,6 +340,22 @@ tools/agent/boot_stack.sh
 cd backend && uv run python ../tools/agent/seed_org.py --demo
 ```
 
+DevBox (`BOW_SANDBOX_DEVBOX=1`) — skip the block above: `bow-stack` already runs
+the stack on `$BOW_DATABASE_URL` with the admin, org, Claude 4.5 Haiku (default
+model) and the demo data source provisioned. Add only the extra sources, as the
+DevBox admin (see the root `AGENTS.md`, "DevBox"):
+
+```bash
+source tools/agent/devbox_env.sh
+cd backend && uv run python ../tools/agent/seed_org.py --sqlite-sources 5
+bow-stack status    # logs: bow-stack logs backend
+```
+
+The provisioned Anthropic provider already covers the **LLM** bullet below.
+For `BOW_FORCE_PARALLEL_TOOLS=1`, run
+`BOW_FORCE_PARALLEL_TOOLS=1 bow-stack restart backend` (the backend inherits the
+environment of the shell that starts it; a later plain restart drops it again).
+
 - **Five data sources**: extend `tools/agent/seed_org.py` (or add
   `tools/agent/seed_multi_ds.py`) to create N SQLite data sources through the
   real API (`sqlite_client.py` exists in

@@ -127,7 +127,7 @@
                                     <UButton size="xs" color="red" variant="ghost" @click="disconnectUserCredentials(conn.id)">Disconnect</UButton>
                                 </template>
                                 <template v-else>
-                                    <span class="inline-flex items-center text-gray-500 text-xs">
+                                    <span class="inline-flex items-center text-ink-muted text-xs">
                                         <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
                                         User credentials required
                                     </span>
@@ -138,7 +138,7 @@
                     </div>
 
                     <!-- Empty state -->
-                    <div v-if="connections.length === 0" class="text-center py-8 text-gray-500">
+                    <div v-if="connections.length === 0" class="text-center py-8 text-ink-muted">
                         <UIcon name="heroicons-link" class="w-8 h-8 mx-auto mb-2 text-ink-muted" />
                         <p class="text-sm">No connections linked to this agent.</p>
                         <UButton
@@ -168,7 +168,7 @@
             </template>
 
             <div class="space-y-4">
-                <p class="text-sm text-gray-600">Select a connection to link to this agent.</p>
+                <p class="text-sm text-ink-muted">Select a connection to link to this agent.</p>
 
                 <!-- Loading state -->
                 <div v-if="loadingOrgConnections" class="flex items-center justify-center py-4">
@@ -180,8 +180,8 @@
                     <label
                         v-for="conn in availableConnections"
                         :key="conn.id"
-                        class="flex items-center p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50"
-                        :class="{ 'border-blue-500 bg-blue-50': selectedConnectionId === conn.id }"
+                        class="flex items-center p-3 border border-line rounded-lg cursor-pointer hover:bg-surface-subtle"
+                        :class="{ 'border-blue-500 bg-blue-50 dark:bg-blue-950': selectedConnectionId === conn.id }"
                     >
                         <input
                             type="radio"
@@ -192,8 +192,8 @@
                         />
                         <DataSourceIcon :type="conn.type" class="h-6 me-3" />
                         <div class="flex-1 min-w-0">
-                            <div class="font-medium text-gray-900 truncate">{{ conn.name }}</div>
-                            <div class="text-xs text-gray-500">{{ conn.type }}</div>
+                            <div class="font-medium text-ink truncate">{{ conn.name }}</div>
+                            <div class="text-xs text-ink-muted">{{ conn.type }}</div>
                         </div>
                         <UIcon
                             v-if="selectedConnectionId === conn.id"
@@ -204,7 +204,7 @@
                 </div>
 
                 <!-- No connections available -->
-                <div v-else class="text-center py-4 text-gray-500">
+                <div v-else class="text-center py-4 text-ink-muted">
                     <p class="text-sm">No available connections to link.</p>
                     <p class="text-xs mt-1">Connections you can build agents on and that aren't already linked will appear here.</p>
                 </div>

@@ -34,6 +34,7 @@ from app.data_sources.clients._file_source_common import (
     read_excel_sheet,
     tag_sheets,
     FileTooLargeError,
+    GlobScopeError,
     NamedBytes,
 )
 from app.data_sources.clients.base import Capability, DataSourceClient
@@ -423,10 +424,19 @@ class GoogleDriveClient(DataSourceClient):
         file_id = self._resolve_file_id(file_id)
         meta = self._get(
             f"{DRIVE_BASE}/files/{file_id}",
-            params={"fields": "id,name,mimeType,size", "supportsAllDrives": "true"},
+            params={
+                "fields": "id,name,mimeType,size,parents,driveId",
+                "supportsAllDrives": "true",
+            },
         )
         mime = meta.get("mimeType", "")
         name = meta.get("name", "")
+        # Enforce the connection's scope BEFORE downloading a single byte. The
+        # catalog/search paths filter their listings, but a read by id (the
+        # picker's attach, the read_file tool) must re-check: an id the OAuth
+        # token can reach is not automatically inside THIS connection's folder /
+        # shared drive / allowed types.
+        self._assert_in_scope(name, mime, meta)
         size = meta.get("size")
         if max_bytes and size is not None and int(size) > max_bytes:
             raise FileTooLargeError(
@@ -453,26 +463,98 @@ class GoogleDriveClient(DataSourceClient):
         params = {
             **self._drive_params(),
             "q": f"(name contains '{safe}' or fullText contains '{safe}') and trashed=false",
-            "fields": "files(id,name,mimeType,modifiedTime,size,webViewLink)",
+            # `parents` is needed to drop hits outside the connection's scoped
+            # folder — Drive search is drive-wide and ignores `in parents`.
+            # `nextPageToken` lets us page past a page that is entirely
+            # out-of-scope (see the loop below).
+            "fields": "nextPageToken,files(id,name,mimeType,modifiedTime,size,webViewLink,parents)",
             "pageSize": "100",
         }
-        data = self._get(f"{DRIVE_BASE}/files", params=params)
-        results = []
-        for entry in data.get("files", []):
-            mime = entry.get("mimeType", "")
-            if mime == GOOGLE_FOLDER_MIME:
-                continue
-            if not self._allowed(entry.get("name", ""), mime):
-                continue
-            results.append({
-                "id": entry["id"],
-                "name": entry.get("name"),
-                "mime_type": mime,
-                "size": entry.get("size"),
-                "modified_at": entry.get("modifiedTime"),
-                "web_url": entry.get("webViewLink"),
-            })
+        # A shared-drive connection is already bounded by driveId; only a
+        # folder-scoped connection needs post-filtering (mirrors how the Graph
+        # client keeps OneDrive search inside the connection's folder). Because
+        # that filter runs AFTER the provider pages, a whole page can be dropped
+        # while in-scope matches sit on a later page — so follow nextPageToken
+        # until enough in-scope hits are collected or the provider is exhausted.
+        # A page cap bounds the cost: a huge drive with no in-scope match still
+        # terminates. The caller caps the result at <=100, so that is the target.
+        SEARCH_TARGET = 100
+        SEARCH_MAX_PAGES = 10
+        scoped = self.folder_id
+        ancestry: Dict[str, bool] = {}
+        results: List[dict] = []
+        pages = 0
+        while True:
+            data = self._get(f"{DRIVE_BASE}/files", params=params)
+            for entry in data.get("files", []):
+                mime = entry.get("mimeType", "")
+                if mime == GOOGLE_FOLDER_MIME:
+                    continue
+                if not self._allowed(entry.get("name", ""), mime):
+                    continue
+                if scoped and not self._within_scoped_folder(entry.get("parents") or [], scoped, ancestry):
+                    continue
+                results.append({
+                    "id": entry["id"],
+                    "name": entry.get("name"),
+                    "mime_type": mime,
+                    "size": entry.get("size"),
+                    "modified_at": entry.get("modifiedTime"),
+                    "web_url": entry.get("webViewLink"),
+                })
+                if len(results) >= SEARCH_TARGET:
+                    return results
+            pages += 1
+            token = data.get("nextPageToken")
+            if not token or pages >= SEARCH_MAX_PAGES:
+                break
+            params["pageToken"] = token
         return results
+
+    def _assert_in_scope(self, name: str, mime: str, meta: dict) -> None:
+        """Raise GlobScopeError unless this file is one the connection exposes —
+        the same scope the listing/search paths apply, re-checked on a read by
+        id so an in-token-but-out-of-scope file can't be pulled directly. Mirror
+        order: allowed type, then shared-drive membership, then folder ancestry
+        (an unscoped personal-Drive connection has no folder/driveId gate and is
+        bounded only by the token + the allowed-type list)."""
+        if mime != GOOGLE_FOLDER_MIME and not self._allowed(name, mime):
+            raise GlobScopeError(f"'{name}' is not an allowed file type for this connection.")
+        if self.shared_drive_id and str(meta.get("driveId") or "") != self.shared_drive_id:
+            raise GlobScopeError(f"'{name}' is outside this connection's shared drive.")
+        if self.folder_id and not self._within_scoped_folder(meta.get("parents") or [], self.folder_id, {}):
+            raise GlobScopeError(f"'{name}' is outside this connection's folder.")
+
+    def _within_scoped_folder(self, parents: List[str], scoped_id: str, cache: Dict[str, bool]) -> bool:
+        """True if any of a hit's `parents` is the scoped folder or — when the
+        connection is recursive — a descendant of it. Walks each parent up to
+        the scoped root, memoizing each folder's verdict so a shared ancestor
+        is resolved once across the whole result page."""
+        return any(self._folder_reaches_scope(pid, scoped_id, cache) for pid in parents)
+
+    def _folder_reaches_scope(self, folder_id: str, scoped_id: str, cache: Dict[str, bool], _depth: int = 0) -> bool:
+        if folder_id == scoped_id:
+            return True
+        # Non-recursive connection: only direct children count, so a parent
+        # that isn't the scoped folder itself is out of scope.
+        if not self.recursive or _depth > 50:
+            return False
+        if folder_id in cache:
+            return cache[folder_id]
+        cache[folder_id] = False  # break cycles while this chain resolves
+        try:
+            meta = self._get(
+                f"{DRIVE_BASE}/files/{folder_id}",
+                params={"supportsAllDrives": "true", "fields": "id,parents"},
+            )
+        except Exception:
+            return False
+        reached = any(
+            self._folder_reaches_scope(pid, scoped_id, cache, _depth + 1)
+            for pid in (meta.get("parents") or [])
+        )
+        cache[folder_id] = reached
+        return reached
 
     # ----------------------------------------- DataSourceClient compatibility
 

@@ -20,6 +20,14 @@ skip sections 1 and 2 entirely; if it is unset or `0`, skip section 0.
 - Playwright browsers are pre-installed in the default location: don't set
   `executablePath` or `PLAYWRIGHT_BROWSERS_PATH`, and never run
   `playwright install` (this overrides the `executablePath` note in section 3).
+- Log in as the DevBox admin: `source tools/agent/devbox_env.sh` exports its
+  login as `BOW_EMAIL`/`BOW_PASSWORD` (and `BOW_ADMIN_EMAIL`/`BOW_ADMIN_PASSWORD`).
+- The database in section 5 is `$BOW_DATABASE_URL` (`$BOW_SQLITE_DB` after
+  sourcing `devbox_env.sh`), not `backend/db/app.db`; the backend log is
+  `bow-stack logs backend` (`$BOW_WORKSPACE/run/backend.log`).
+- Branches: `bow-stack switch <ref>`, not `git checkout`. A fresh database:
+  `bow-stack reset-db`, never deleting db files.
+- Full mapping of setup steps to DevBox equivalents: root `AGENTS.md`, "DevBox".
 - Sections 3–6 (driving the UI, agents, verification, iterating) still apply.
 
 ## 1. Boot the sandbox

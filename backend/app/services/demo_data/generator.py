@@ -8,10 +8,11 @@ writes one pandas/numpy function::
 
     def generate(n, rng, tables, start, end) -> pd.DataFrame
 
-which runs in the same sandbox rules as every other generated code path
-(``validate_python_code``: no file/network/process access) plus a ban on
-DataFrame file sinks (``to_csv`` & co.), on the shared code-exec pool, under a
-timeout. ``tables`` holds the already generated tables, which is how child
+which runs where every other generated code path runs: in the code sandbox
+(``app/ai/code_execution/sandbox``), a separate confined process that holds
+none of the API worker's memory, environment or files. The static rules
+(``validate_python_code``: no file/network/process access, plus a ban on
+DataFrame file sinks, ``to_csv`` & co.) are checked first as a second layer. ``tables`` holds the already generated tables, which is how child
 rows reference real parent keys and honor cross-table rules ("refunds only for
 delivered orders").
 
@@ -266,6 +267,10 @@ def validate_generator_code(code: str) -> None:
         raise _ValidationError("No top-level `def generate(n, rng, tables, start, end)` found")
 
 
+# The sandbox child compiles the job's code as "<string>".
+_SANDBOX_FRAME_RE = re.compile(r'File "<string>", line (\d+)')
+
+
 def _failing_line(exc: BaseException, code: Optional[str]) -> str:
     """' (line N: <source>)' for the deepest frame inside the generator, so a
     retry sees which statement failed instead of only the exception text."""
@@ -277,6 +282,12 @@ def _failing_line(exc: BaseException, code: Optional[str]) -> str:
     for fr in traceback.extract_tb(exc.__traceback__):
         if fr.filename == "<demo_generator>":
             lineno = fr.lineno
+    # Raised in the sandbox: the traceback arrives as text. The generator's
+    # code comes first in the job, so its line numbers are unchanged; frames
+    # past its end belong to the wrapper.
+    for found in _SANDBOX_FRAME_RE.findall(getattr(exc, "traceback_text", "") or ""):
+        if int(found) <= len(lines):
+            lineno = int(found)
     if not lineno or lineno > len(lines):
         return ""
     return f" (line {lineno}: {lines[lineno - 1].strip()[:200]})"
@@ -295,20 +306,113 @@ def _run_generator_sync(code: str, n: int, seed: int, frames: Dict[str, pd.DataF
     return fn(n, rng, view, start, end)
 
 
+# Appended to the generator inside the sandbox. The sandbox calls
+# `generate_df`; this adapts it to the generator contract. Parent tables come
+# in through `load_entity` (each call returns a copy, so a generator mutating
+# a parent frame cannot corrupt it), and the frame goes back over the
+# sandbox's Arrow channel. json/text cells are rendered to their final text
+# here, with the same rule `coerce_and_validate` applies, because Arrow would
+# otherwise merge the keys of differently shaped dicts in one column.
+_SANDBOX_WRAPPER = '''
+
+def generate_df(ds_clients, excel_files, load_entity, params):
+    import json as _json
+    if not callable(globals().get("generate")):
+        raise TypeError("`generate` is not a function")
+    _rng = np.random.default_rng(params["seed"])
+    _tables = {_name: load_entity(_name) for _name in params["tables"]}
+    _out = generate(params["n"], _rng, _tables, params["start"], params["end"])
+    if not isinstance(_out, pd.DataFrame):
+        raise TypeError("generate() returned %s, expected a pandas DataFrame" % type(_out).__name__)
+    _out = _out.reset_index(drop=True)
+
+    def _missing(v):
+        return v is None or (isinstance(v, float) and np.isnan(v))
+
+    for _col, _type in (params.get("column_types") or {}).items():
+        if _col not in _out.columns or not isinstance(_out[_col], pd.Series):
+            continue
+        if _type == "json":
+            _out[_col] = _out[_col].map(lambda v: None if _missing(v) else (
+                _json.dumps(v, default=str) if isinstance(v, (dict, list)) else str(v)))
+        elif _type == "text":
+            _out[_col] = _out[_col].map(lambda v: None if _missing(v) else str(v))
+    return _out
+'''
+
+
+def _run_generator_sandboxed(code: str, n: int, seed: int, frames: Dict[str, pd.DataFrame],
+                             start: pd.Timestamp, end: pd.Timestamp, timeout_s: float,
+                             column_types: Optional[Dict[str, str]],
+                             cancel_event: Any) -> Any:
+    """Blocking: one sandboxed run of the generator (call from a worker thread)."""
+    from dataclasses import replace
+
+    from app.ai.code_execution.sandbox.config import SandboxLimits
+    from app.ai.code_execution.sandbox.runner import SandboxJob, SandboxTimeoutError, run_job
+
+    limits = SandboxLimits.from_env()
+    budget = max(1, min(limits.timeout_seconds, int(timeout_s)))
+    limits = replace(
+        limits, timeout_seconds=budget,
+        cpu_seconds=min(limits.cpu_seconds, budget) if limits.cpu_seconds else 0,
+    )
+    job = SandboxJob(
+        mode="data",
+        code=code.rstrip() + "\n" + _SANDBOX_WRAPPER,
+        loadables={"entities": dict(frames)},
+        params={
+            "n": n, "seed": seed, "tables": list(frames), "start": start, "end": end,
+            "column_types": dict(column_types or {}),
+        },
+    )
+    try:
+        result = run_job(job, limits=limits, cancel_event=cancel_event, log=logger)
+    except SandboxTimeoutError as e:
+        raise _ValidationError(
+            f"Generation took longer than {budget}s — vectorize with numpy instead of Python loops"
+        ) from e
+    return result.df
+
+
 async def run_generator(code: str, *, n: int, seed: int, frames: Dict[str, pd.DataFrame],
                         start: pd.Timestamp, end: pd.Timestamp,
-                        timeout_s: float = DEFAULT_EXEC_TIMEOUT_S) -> Any:
+                        timeout_s: float = DEFAULT_EXEC_TIMEOUT_S,
+                        column_types: Optional[Dict[str, str]] = None) -> Any:
+    """Run one generator and return what it produced.
+
+    The code runs in the code sandbox, like every other generated code path,
+    and under the same knobs (``BOW_CODE_SANDBOX``, ``BOW_SANDBOX_*``).
+    ``BOW_CODE_SANDBOX=inprocess`` is the debug-only escape hatch it is
+    everywhere else.
+    """
+    import threading
+
     from app.ai.code_execution.code_execution import _CODE_EXEC_POOL
+    from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
 
     validate_generator_code(code)
     loop = asyncio.get_running_loop()
-    fut = loop.run_in_executor(_CODE_EXEC_POOL, _run_generator_sync, code, n, seed, frames, start, end)
+    if sandbox_mode() == MODE_INPROCESS:
+        fut = loop.run_in_executor(_CODE_EXEC_POOL, _run_generator_sync, code, n, seed, frames, start, end)
+        try:
+            return await asyncio.wait_for(fut, timeout=timeout_s)
+        except asyncio.TimeoutError as e:
+            raise _ValidationError(
+                f"Generation took longer than {int(timeout_s)}s — vectorize with numpy instead of Python loops"
+            ) from e
+
+    cancel_event = threading.Event()
+    fut = loop.run_in_executor(
+        _CODE_EXEC_POOL, _run_generator_sandboxed,
+        code, n, seed, frames, start, end, timeout_s, column_types, cancel_event,
+    )
     try:
-        return await asyncio.wait_for(fut, timeout=timeout_s)
-    except asyncio.TimeoutError as e:
-        raise _ValidationError(
-            f"Generation took longer than {int(timeout_s)}s — vectorize with numpy instead of Python loops"
-        ) from e
+        # The sandbox enforces the budget itself (it kills the child).
+        return await fut
+    except asyncio.CancelledError:
+        cancel_event.set()
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -533,11 +637,16 @@ class DemoDatasetGenerator:
                 raw = await run_generator(
                     code, n=table.row_count, seed=seed, frames=frames,
                     start=start, end=end, timeout_s=self.exec_timeout_s,
+                    column_types={c.name: c.type for c in table.columns},
                 )
                 df, warnings = coerce_and_validate(raw, table, frames, spec, today=self.today)
                 return df, TableResult(name=table.name, rows=len(df), attempts=attempt, warnings=warnings, code=code)
             except Exception as e:
-                error = f"{type(e).__name__}: {e}{_failing_line(e, code)}"
+                # An error raised inside the sandbox already reads "Type: message".
+                error = (str(e) if hasattr(e, "exc_type") else f"{type(e).__name__}: {e}") + _failing_line(e, code)
+                if getattr(e, "terminal_execution_error", False):
+                    # The host cannot run the sandbox: another attempt cannot help.
+                    raise TableGenerationError(table.name, error, attempt, code=code) from e
                 logger.info("demo generator: %s attempt %s failed: %s", table.name, attempt, error[:300])
         raise TableGenerationError(table.name, error or "generation failed", self.max_attempts, code=code)
 

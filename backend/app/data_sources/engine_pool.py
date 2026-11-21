@@ -47,9 +47,10 @@ import time
 from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, Optional, Tuple, Union
 
 import sqlalchemy
+import sqlalchemy.event
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +71,11 @@ except ImportError:
 # Per-engine pool sizing. Deliberately small: this is a cap on how many
 # connections BOW holds open against ONE source, and the whole point is to be
 # gentle with a box that cannot take load. Concurrency beyond this queues.
+# The pool's ceiling (5 + 7 = 12) matches the default app-wide concurrent-query
+# limit (query_concurrency.DEFAULT_MAX_CONCURRENT_QUERIES): every slot of a
+# connection may land on one worker. Overflow connections open only under load.
 DEFAULT_POOL_SIZE = 5
-DEFAULT_MAX_OVERFLOW = 5
+DEFAULT_MAX_OVERFLOW = 7
 DEFAULT_POOL_RECYCLE_S = 1800   # 30 min, under a typical idle-session timeout
 DEFAULT_POOL_TIMEOUT_S = 30
 
@@ -150,19 +154,34 @@ def _key(uri: str, connect_args: Optional[Dict[str, Any]], key_extra: Optional[s
 
 
 def get_engine(
-    uri: str,
+    uri: "Union[str, sqlalchemy.engine.URL]",
     connect_args: Optional[Dict[str, Any]] = None,
     *,
     key_extra: Optional[str] = None,
     pool_size: int = DEFAULT_POOL_SIZE,
     max_overflow: int = DEFAULT_MAX_OVERFLOW,
+    on_connect: Optional[Callable[[Any, Any], None]] = None,
     **engine_kwargs: Any,
 ) -> sqlalchemy.engine.Engine:
     """Return a pooled engine for `uri`, creating it once.
 
     Inside an ``ephemeral()`` block this instead returns a fresh NullPool
     engine that is never cached and is disposed at context exit.
+
+    ``on_connect(dbapi_connection, connection_record)`` runs once on every new
+    physical connection, before anything else uses it (the SQL Server client
+    sets its per-session lock options there). It is attached when the engine
+    is built and is NOT part of the cache key: a caller whose hook can vary
+    must put what varies into ``key_extra``, or it gets an engine built with
+    somebody else's hook.
     """
+    # A client may pass a URL object so no field is re-parsed out of a string
+    # (see clients/_sa_url.py). The engine is built from the object; the
+    # rendered form stays the cache identity, which is what dispose_for_uri
+    # is handed.
+    url = uri
+    if not isinstance(uri, str):
+        uri = uri.render_as_string(hide_password=False)
     bucket = _ephemeral_engines.get()
     if bucket is not None:
         kwargs = {
@@ -171,7 +190,9 @@ def get_engine(
         kwargs["poolclass"] = sqlalchemy.pool.NullPool
         if connect_args:
             kwargs["connect_args"] = connect_args
-        eng = sqlalchemy.create_engine(uri, **kwargs)
+        eng = sqlalchemy.create_engine(url, **kwargs)
+        if on_connect is not None:
+            sqlalchemy.event.listen(eng, "connect", on_connect)
         bucket.append(eng)
         return eng
 
@@ -200,7 +221,11 @@ def get_engine(
     kwargs.update(engine_kwargs)
     if connect_args:
         kwargs["connect_args"] = connect_args
-    eng = sqlalchemy.create_engine(uri, **kwargs)
+    eng = sqlalchemy.create_engine(url, **kwargs)
+    if on_connect is not None:
+        # Before the engine is published, so no connection can be opened
+        # without it.
+        sqlalchemy.event.listen(eng, "connect", on_connect)
 
     evicted = None
     with _lock:

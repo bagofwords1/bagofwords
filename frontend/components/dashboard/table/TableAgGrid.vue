@@ -15,7 +15,9 @@
       <AgGridComponent 
         class="text-xs h-full"
         :columnDefs="columns" 
-        :rowData="rows" 
+        :rowData="rows"
+        :stateKey="gridStateKey"
+        :expandable="expandable"
       />
     </div>
     <div 
@@ -32,14 +34,17 @@
 import { toRefs, ref, watch, computed } from 'vue'
 import { useDashboardTheme } from '../composables/useDashboardTheme'
 import AgGridComponent from '../../AgGridComponent.vue'
+import { buildGridColumns } from '~/utils/gridColumns'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   widget?: any
   step?: any
   view?: Record<string, any> | null
   reportThemeName?: string | null
   reportOverrides?: Record<string, any> | null
-}>()
+  // false where the host has its own expand control
+  expandable?: boolean
+}>(), { expandable: true })
 
 const { reportThemeName, reportOverrides } = toRefs(props)
 const { tokens } = useDashboardTheme(reportThemeName?.value, reportOverrides?.value, props.view || null)
@@ -80,42 +85,17 @@ const rows = ref<any[]>([])
 
 const updateData = () => {
   try {
-    const step = props.step || {}
-    const data = step?.data || {}
-    if (Array.isArray(data.columns)) {
-      columns.value = data.columns.map((col: any) => {
-        const info = data?.info?.column_info?.[col.field]
-        let statsText = ''
-        if (info) {
-          if (info.dtype === 'int64' || info.dtype === 'float64') {
-            statsText = `${info.dtype}\nmin: ${info.min}\nmax: ${info.max}\nmean: ${Number(info.mean).toFixed(2)}`
-          } else if (info.dtype === 'object') {
-            statsText = `${info.dtype}\nunique: ${info.unique_count}/${info.count}`
-          }
-        }
-        return {
-          field: col.field,
-          headerName: col.headerName,
-          sortable: true,
-          filter: true,
-          headerTooltip: statsText,
-          headerComponent: 'CustomHeader',
-          headerComponentParams: { 
-            statsText,
-            themeTokens: tokens.value
-          },
-          valueGetter: (params: any) => params.data[col.field]
-        }
-      })
-    } else {
-      columns.value = []
-    }
+    const data = props.step?.data || {}
+    columns.value = Array.isArray(data.columns) ? buildGridColumns(data, tokens.value) : []
     rows.value = Array.isArray(data.rows) ? data.rows : []
   } catch {
     columns.value = []
     rows.value = []
   }
 }
+
+// Each viewer's layout (widths, order, sort) for this dashboard widget.
+const gridStateKey = computed(() => (props.widget?.id ? `widget:${props.widget.id}` : ''))
 
 watch(() => props.step, updateData, { deep: true, immediate: true })
 // headerComponentParams embed theme colors — rebuild on a live color-mode flip

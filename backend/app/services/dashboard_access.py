@@ -163,9 +163,10 @@ CAP_SETTINGS = "settings"        # schedule, chat, Data tab, link name, notes
 CAP_RUN_IDENTITY = "run_identity"  # viewer <-> creator credentials, "editors can share"
 CAP_TRANSFER = "transfer"        # hand the dashboard to another editor
 CAP_ANALYTICS = "analytics"      # read the dashboard's view counts
+CAP_DELETE = "delete"            # delete the dashboard and every version of it
 
 _EDITOR_CAPS = {CAP_VIEW, CAP_EDIT, CAP_PUBLISH, CAP_SHARE, CAP_SETTINGS, CAP_ANALYTICS}
-_OWNER_CAPS = _EDITOR_CAPS | {CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, CAP_TRANSFER}
+_OWNER_CAPS = _EDITOR_CAPS | {CAP_MAKE_PUBLIC, CAP_RUN_IDENTITY, CAP_TRANSFER, CAP_DELETE}
 
 
 async def capabilities(db, artifact: Artifact, user) -> set[str]:

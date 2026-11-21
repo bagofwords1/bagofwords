@@ -1,6 +1,9 @@
 
 ### Local Development
 
+> In a DevBox (`BOW_SANDBOX_DEVBOX=1`) none of this is needed: the stack is already set up and run by
+> `bow-stack` (`bow-stack --help`). See `AGENTS.md`, "DevBox".
+
 #### Prerequisites
 - Python 3.13 (3.12+ supported)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (package manager)

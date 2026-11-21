@@ -193,9 +193,12 @@ assert.equal(baseOf({ type: 'documentum', config: { rest_url: 'https://dctm', re
 assert.equal(baseOf({ type: 'network_dir', config: { root_path: '/mnt/share' } }), '/mnt/share')
 
 // The components as they render: their real templates, with the card's and the panel's real helpers.
+// The components use <script setup lang="ts">, so their templates may hold TypeScript
+// expressions (`dsId!`). Compile them as TS, as the Nuxt build does, then strip the types.
 const templateOf = (sfc, id) => {
-  const { code } = compileTemplate({ source: parse(sfc).descriptor.template.content, filename: `${id}.vue`, id })
-  return new Function('Vue', code
+  const { code } = compileTemplate({ source: parse(sfc).descriptor.template.content, filename: `${id}.vue`, id,
+    compilerOptions: { isTS: true } })
+  return new Function('Vue', js([code])
     .replace(/import \{([^}]*)\} from "vue"/, (_, names) => `const {${names.replace(/ as /g, ': ')}} = Vue`)
     .replace('export function render', 'return function render'))(Vue)
 }

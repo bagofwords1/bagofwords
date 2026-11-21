@@ -82,7 +82,7 @@
                   <UIcon name="i-heroicons-calendar" class="w-3 h-3" />
                   <bdi>{{ formatDates(e) }}</bdi>
                 </span>
-                <span v-if="e.expired" class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ $t('profile.memory.past') }}</span>
+                <span v-if="e.expired" class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ $t('profile.memory.past') }}</span>
                 <button
                   v-for="tg in displayTags(e)"
                   :key="tg"

@@ -51,6 +51,8 @@ so `client_path` stays `None`.
 
 ## Environment setup (fresh sandbox)
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip this section and the `/tmp/venv312` venv: run the commands below with `uv run` from `backend/` (the DevBox venv is ready and `BOW_DATABASE_URL` is set; don't re-export it), and add the driver with `uv pip install --python "$UV_PROJECT_ENVIRONMENT/bin/python" pydruid==0.6.9`. Port **8888 is taken by the DevBox's sandboxd**, so point the live leg at the Broker (8082) or move the Druid Router. See the root `AGENTS.md`, "DevBox".
+
 The app targets **Python 3.12**. The sandbox default `python` may be 3.11 — use
 3.12 explicitly.
 

@@ -9,7 +9,7 @@
         >
             <template #label>
                 <span class="flex items-center gap-1.5">
-                    <UIcon name="i-heroicons-calendar" class="w-4 h-4 text-gray-500" />
+                    <UIcon name="i-heroicons-calendar" class="w-4 h-4 text-ink-muted" />
                     <span>{{ selected.label }}</span>
                 </span>
             </template>

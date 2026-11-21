@@ -1,44 +1,26 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header (click to expand/collapse results) -->
-    <Transition name="fade" appear>
-      <div
-        class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400"
-        :class="agents.length ? 'cursor-pointer' : ''"
-        @click="agents.length && toggleCollapsed()"
-        :aria-expanded="!isCollapsed"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <span>{{ llmTitle || (queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents') }}</span>
-        </span>
-        <span v-else class="text-gray-700 dark:text-gray-300 flex items-center min-w-0">
-          <Icon
-            v-if="agents.length"
-            :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'"
-            class="w-3 h-3 text-ink-muted me-1 flex-shrink-0 rtl-flip"
-          />
-          <span class="align-middle flex-shrink-0">{{ llmTitle || (total === 1 ? 'Found 1 agent' : `Found ${total} agents`) }}</span>
-          <span v-if="llmTitle" class="ms-1.5 text-chat-3 text-ink-muted flex-shrink-0">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span>
-          <!-- inline icon preview of the matched agents -->
-          <span v-if="agents.length" class="ms-2 flex items-center gap-0.5 min-w-0 overflow-hidden">
-            <DataSourceIcon
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-magnifying-glass" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ llmTitle || (queryLabel ? `Searching agents for ${queryLabel}` : 'Searching agents') }}</template>
+      <template v-else>{{ llmTitle || (total === 1 ? 'Found 1 agent' : `Found ${total} agents`) }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else><span v-if="llmTitle" class="ms-1.5 text-chat-3 text-ink-muted flex-shrink-0">· {{ total === 1 ? '1 agent' : `${total} agents` }}</span><span v-if="agents.length" class="ms-2 flex items-center gap-0.5 min-w-0 overflow-hidden"><DataSourceIcon
               v-for="a in agents.slice(0, 8)"
               :key="a.id"
               :type="a.type"
               :connector-key="a.connector_key"
               :icon-token="a.icon_token" :icon="a.icon"
               class="w-3.5 h-3.5 flex-shrink-0"
-            />
-            <span v-if="agents.length > 8" class="ms-0.5 text-chat-3 text-ink-muted flex-shrink-0">+{{ agents.length - 8 }}</span>
-          </span>
-        </span>
-      </div>
-    </Transition>
+            /><span v-if="agents.length > 8" class="ms-0.5 text-chat-3 text-ink-muted flex-shrink-0">+{{ agents.length - 8 }}</span></span></template></div>
 
     <!-- Results list (collapsed by default; click header to toggle) -->
     <Transition name="fade">
-      <div v-if="!isCollapsed && agents.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && agents.length" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul class="ms-1 space-y-0.5 leading-snug">
           <li
             v-for="(a, idx) in agents"
@@ -57,7 +39,7 @@
             </span>
             <span
               v-if="a.focused"
-              class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 flex-shrink-0"
+              class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300 flex-shrink-0"
             >focused</span>
             <!-- Lifecycle stage (Development / Training / Disabled), same as
                  the agent selector — not the raw publish_status ("draft"). -->
@@ -69,7 +51,7 @@
               v-if="a.needs_signin"
               @click.stop="signInAgent(a)"
               :disabled="signingInId === a.id"
-              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors flex-shrink-0"
+              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors flex-shrink-0"
             >
               <Spinner v-if="signingInId === a.id" class="w-2.5 h-2.5 animate-spin" />
               <Icon v-else name="heroicons-key" class="w-2.5 h-2.5" />
@@ -91,10 +73,16 @@
       :data-source="selectedConnectDs"
       @saved="showCredsModal = false"
     />
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref } from 'vue'
@@ -177,16 +165,6 @@ async function signInAgent(a: any) {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }

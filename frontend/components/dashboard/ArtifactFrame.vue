@@ -36,7 +36,7 @@
                 :disabled="isSavingRename || !renameDraft.trim()"
                 class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
               >
-                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-gray-500" />
+                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-ink-muted" />
                 <Icon v-else name="heroicons:check" class="w-3.5 h-3.5 text-emerald-600" />
               </button>
             </UTooltip>
@@ -66,26 +66,30 @@
             data-testid="frame-version-picker"
             @update:model-value="onPick"
             :popper="{ placement: 'bottom-start' }"
-            :ui-menu="{ width: 'w-80', container: 'z-50 group' }"
+            :ui-menu="{ width: 'w-80', container: 'z-50 group', option: { disabled: 'cursor-default opacity-100' } }"
             :ui="{ option: { base: 'py-1.5' } }"
           >
             <template #label>
               <span class="flex items-center gap-1.5 min-w-0 text-xs">
                 <Icon :name="modeIcon(selectedArtifactItem?.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-                <span v-text-dir class="truncate">{{ selectedDashboardTitle }}</span>
+                <TruncatedLabel :text="selectedDashboardTitle" :description="selectedArtifactItem?.description" data-testid="frame-dashboard-title" />
                 <span class="text-ink-muted shrink-0">·</span>
                 <Icon v-if="viewing" name="heroicons:eye" class="w-3.5 h-3.5 shrink-0 text-blue-500" />
                 <span class="font-medium tabular-nums shrink-0">v{{ viewing ? viewing.version : selectedArtifactItem?.version }}</span>
               </span>
             </template>
             <template #option="{ option }">
-              <!-- A dashboard's heading (only with several dashboards) -->
+              <!-- A dashboard's heading (only with several dashboards). It is a
+                   disabled option, but muted by its colours, not by the menu's
+                   disabled opacity (ui-menu above): that opacity would also fade
+                   the full-name tooltip inside it, letting the rows below show
+                   through. -->
               <div v-if="option.header" class="w-full min-w-0 pt-1" data-testid="frame-dashboard-heading">
-                <div class="flex items-center gap-1.5 text-xs font-medium text-gray-900 dark:text-white min-w-0">
+                <div class="flex items-center gap-1.5 text-xs font-medium text-ink-muted min-w-0">
                   <Icon :name="modeIcon(option.mode)" class="w-3.5 h-3.5 flex-shrink-0 text-ink-muted" />
-                  <span v-text-dir class="truncate">{{ option.title }}</span>
+                  <TruncatedLabel :text="option.title" :description="option.description" />
                 </div>
-                <div class="text-2xs text-ink-muted ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
+                <div class="text-2xs text-ink-subtle ps-5">{{ $t('dashboardCollab.versions.createdOn', { when: formatRelativeTime(option.created_at) }) }}</div>
               </div>
               <div v-else-if="option.allVersions" class="flex items-center gap-1.5 w-full text-xs text-blue-600 dark:text-blue-400" data-testid="frame-version-all">
                 <Icon name="heroicons:clock" class="w-3.5 h-3.5" />{{ $t('dashboardCollab.versions.allVersions') }}
@@ -109,7 +113,7 @@
           <button
             v-if="offeredArtifactId"
             @click="acceptOfferedArtifact"
-            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded border border-emerald-200 transition-colors flex items-center gap-1"
           >
             <Icon name="heroicons:sparkles" class="w-3 h-3" />
             New artifact — view
@@ -151,7 +155,7 @@
           :rename="canRename ? renameTo : undefined"
           :resources-available="resourcesAvailable && !verificationPreview"
           :show-analytics="(isReportOwner || dashboardCaps.includes('analytics')) && !verificationPreview"
-          @history-changed="onHistoryChanged" @saved="onSettingsSaved" />
+          @history-changed="onHistoryChanged" @saved="onSettingsSaved" @deleted="onDashboardDeleted" />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
              rows: rename, every export (download), full screen, new tab.
@@ -357,7 +361,7 @@
         class="absolute inset-0 z-30 flex items-center justify-center overflow-y-auto py-8 px-4 bg-white/95 dark:bg-gray-900/95"
       >
         <div v-if="hydration.phase === 'running'" class="flex flex-col items-center gap-3 text-center max-w-sm">
-          <Spinner class="w-6 h-6 text-gray-400" />
+          <Spinner class="w-6 h-6 text-ink-muted" />
           <div class="text-sm text-gray-700 dark:text-gray-200">{{ t('artifactFrame.hydrating.title') }}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('artifactFrame.hydrating.progress', { done: hydration.done, total: hydration.total }) }}
@@ -558,7 +562,7 @@
         <div class="flex items-center gap-2 mb-2">
           <Icon name="heroicons:paint-brush" class="w-3.5 h-3.5 text-indigo-500" />
           <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Polish this element</span>
-          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-gray-600">
+          <button @click="cancelPolishPrompt" class="ms-auto text-ink-muted hover:text-ink-2">
             <Icon name="heroicons:x-mark" class="w-3.5 h-3.5" />
           </button>
         </div>
@@ -646,6 +650,7 @@
 
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
+import { handleTableLayoutMessage, loadTableLayouts } from '~/utils/artifactTableLayout';
 import type { ActivityEvent } from '~/composables/useArtifactRuntime'
 import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, watch, toRaw, nextTick, provide } from 'vue';
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
@@ -658,6 +663,7 @@ import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
 import PresenceAvatars from './collab/PresenceAvatars.vue';
 import Spinner from '../Spinner.vue';
+import TruncatedLabel from '../TruncatedLabel.vue';
 import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
@@ -702,6 +708,7 @@ interface ArtifactItem {
   mode: string;
   status?: string;
   name?: string | null;       // a name someone gave the version (collab01)
+  description?: string | null; // not sent yet; shown on hover under the title once it is
 }
 
 // Download the iframe libraries now, in parallel with the artifact/data
@@ -1608,7 +1615,7 @@ const dashboardGroups = computed(() => {
   return [...groups.entries()].map(([key, rows]) => {
     const versions = [...rows].sort((x, y) => y.version - x.version);
     const first = [...rows].sort((x, y) => new Date(x.created_at).getTime() - new Date(y.created_at).getTime())[0];
-    return { key, title: versions[0]?.title || 'Untitled', mode: versions[0]?.mode, created_at: first?.created_at, versions };
+    return { key, title: versions[0]?.title || 'Untitled', description: versions[0]?.description, mode: versions[0]?.mode, created_at: first?.created_at, versions };
   }).sort((x, y) => new Date(y.versions[0]?.created_at || 0).getTime() - new Date(x.versions[0]?.created_at || 0).getTime());
 });
 const selectedDashboardKey = computed(() => (selectedArtifactItem.value ? dashboardKeyOf(selectedArtifactItem.value) : undefined));
@@ -1636,7 +1643,7 @@ const pickerOptions = computed(() => {
   for (const g of dashboardGroups.value) {
     if (several) {
       out.push({ value: `heading:${g.key}`, label: g.title, header: true, disabled: true,
-                 title: g.title, mode: g.mode, created_at: g.created_at });
+                 title: g.title, description: g.description, mode: g.mode, created_at: g.created_at });
     }
     const isSelected = g.key === selectedDashboardKey.value;
     const rows: any[] = g.versions.map(a => ({
@@ -1914,6 +1921,25 @@ function reviewChanges() {
 
 // The settings window: its History tabs open from the ⋯ menu too.
 const settingsModalRef = ref<any>(null);
+// "Refresh failing" on the dashboards list deep-links to
+// ?dashboard=<id>&settings=refreshes: once that dashboard's settings window
+// is mounted, it opens on Refreshes with the failure shown, and the query
+// goes so a reload does not reopen it.
+const settingsPromptHandled = ref(false);
+watch(
+  () => [paramRoute.query.settings, paramRoute.query.dashboard, selectedArtifact.value?.artifact_id, !!settingsModalRef.value] as const,
+  ([settings, dashboard, shown, ready]) => {
+    if (settings !== 'refreshes' || !ready || settingsPromptHandled.value) return;
+    // Another of the conversation's dashboards is showing: wait for the one asked for.
+    if (typeof dashboard === 'string' && dashboard && shown !== dashboard) return;
+    settingsPromptHandled.value = true;
+    settingsModalRef.value?.open?.('refreshes', { focusFailure: true });
+    const q = { ...paramRoute.query };
+    delete q.settings;
+    navigateTo({ query: q }, { replace: true });
+  },
+  { immediate: true },
+);
 // An access-request notification deep-links to ?share=access_requests: open
 // the share settings once the modal is mounted, then drop the query so a
 // reload does not reopen it.
@@ -1940,6 +1966,14 @@ const publishKey = ref(0);
 function onHistoryChanged() {
   publishKey.value += 1;
   loadDashboardMeta(true);
+}
+
+// The owner deleted the dashboard from its settings: the conversation stays,
+// the pane goes on with whatever artifact is left (or none).
+async function onDashboardDeleted() {
+  selectedArtifactId.value = undefined;
+  selectedArtifact.value = null;
+  await fetchArtifactsList(true);
 }
 
 // Viewer settings saved: re-render the canvas for the display-only ones that
@@ -2763,9 +2797,14 @@ onUnmounted(() => {
   if (isPolishMode.value) exitPolishMode();
 });
 
+// The dashboard (artifact_id), not the version: a viewer's table layouts
+// survive a new version and are shared with the published view.
+const tableLayoutKey = () => selectedArtifact.value?.artifact_id || selectedArtifact.value?.id || selectedArtifactId.value || '';
+
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
   if (event.source !== iframeRef.value?.contentWindow && event.source !== fullscreenRuntimeFrame.value?.contentWindow) return;
+  if (handleTableLayoutMessage(event.data, tableLayoutKey())) return;
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
@@ -2812,6 +2851,8 @@ function sendDataToIframe() {
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
     runtime: artifactRuntime(),
+    // This viewer's DataTable layouts — hand-set widths, column order (utils/artifactTableLayout).
+    table_layouts: loadTableLayouts(tableLayoutKey()),
     ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {}),
     // Each push replaces the app's data: keep the preview's real policy in it.
     ...(props.verificationPreview && previewConversationPolicy ? { _fixture_conversation_policy: previewConversationPolicy } : {}),

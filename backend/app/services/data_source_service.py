@@ -1,5 +1,6 @@
 from app.data_sources.client_parameters import merge_client_credentials, filter_client_parameters
 import asyncio
+import copy
 import logging
 import os
 
@@ -597,6 +598,24 @@ class DataSourceService:
 
         return connections_list
 
+    async def _org_member_user_ids(self, db: AsyncSession, organization: Organization, user_ids, tolerate=frozenset()):
+        """``user_ids`` checked against the organization.
+
+        Every id must belong to the organization (404 otherwise). Ids in
+        ``tolerate`` that do not are left out of the result instead.
+        """
+        if not user_ids:
+            return user_ids
+        from app.services.rbac_service import principals_in_org
+        valid = await principals_in_org(db, str(organization.id), PRINCIPAL_TYPE_USER, user_ids)
+        kept = []
+        for uid in user_ids:
+            if str(uid) in valid:
+                kept.append(uid)
+            elif str(uid) not in tolerate:
+                raise HTTPException(status_code=404, detail="User not found")
+        return kept
+
     async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str], permissions: Optional[List[str]] = None):
         """
         Create memberships for a list of user IDs.
@@ -646,6 +665,37 @@ class DataSourceService:
 
         await db.commit()
 
+    async def enforce_agent_cap(self, db: AsyncSession, organization: Organization) -> None:
+        """Per-organization agent (data source) cap from the enterprise license.
+        No-op when unlicensed/unset (max_agents == -1 → unlimited). Shared by
+        every path that adds an agent (create, clone)."""
+        from app.ee.license import get_max_agents
+        max_agents = get_max_agents()
+        if max_agents < 0:
+            return
+        current_agents = (await db.execute(
+            select(func.count(DataSource.id)).filter(DataSource.organization_id == organization.id)
+        )).scalar() or 0
+        if current_agents >= max_agents:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    f"Agent limit reached for your license ({max_agents}). "
+                    "Contact sales to increase your agent count."
+                ),
+            )
+
+    @staticmethod
+    def enforce_connector_license(connection_types: List[Optional[str]]) -> None:
+        """402 when any connector type needs an enterprise license."""
+        from app.ee.license import is_datasource_allowed
+        for conn_type in connection_types:
+            if conn_type and not is_datasource_allowed(conn_type):
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"The {conn_type} connector requires an enterprise license."
+                )
+
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
         if data_source.folder_id is not None:
             from app.services.folder_service import require_folder_manager
@@ -656,25 +706,7 @@ class DataSourceService:
         if data_source_dict['name'] == '':
             raise HTTPException(status_code=400, detail="Data source name is required")
 
-        # Enforce per-organization agent (data source) cap from the enterprise license.
-        # No-op when unlicensed/unset (max_agents == -1 → unlimited).
-        from app.ee.license import get_max_agents
-        max_agents = get_max_agents()
-        if max_agents >= 0:
-            count_result = await db.execute(
-                select(func.count(DataSource.id)).filter(
-                    DataSource.organization_id == organization.id
-                )
-            )
-            current_agents = count_result.scalar() or 0
-            if current_agents >= max_agents:
-                raise HTTPException(
-                    status_code=402,
-                    detail=(
-                        f"Agent limit reached for your license ({max_agents}). "
-                        "Contact sales to increase your agent count."
-                    ),
-                )
+        await self.enforce_agent_cap(db, organization)
 
         # Remove legacy generation flags (generation now deferred to llm_sync after table selection)
         data_source_dict.pop("generate_summary", None)
@@ -688,7 +720,9 @@ class DataSourceService:
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         channel_availability = data_source_dict.pop("channel_availability", None)
         kind = data_source_dict.pop("kind", None)
-        member_user_ids = data_source_dict.pop("member_user_ids", [])
+        member_user_ids = await self._org_member_user_ids(
+            db, organization, data_source_dict.pop("member_user_ids", [])
+        )
         member_bindings = data_source_dict.pop("member_bindings", None)
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
@@ -753,13 +787,7 @@ class DataSourceService:
             ds_type = connections_to_link[0].type
 
             # Check enterprise license for ALL restricted data sources
-            from app.ee.license import is_datasource_allowed
-            for conn in connections_to_link:
-                if not is_datasource_allowed(conn.type):
-                    raise HTTPException(
-                        status_code=402,
-                        detail=f"The {conn.type} connector requires an enterprise license."
-                    )
+            self.enforce_connector_license([conn.type for conn in connections_to_link])
 
             # Extract remaining connection fields that won't be used
             data_source_dict.pop("type", None)
@@ -1366,7 +1394,12 @@ class DataSourceService:
 
         # Serialize primary_instruction if present
         primary_instruction_data = None
-        if data_source.primary_instruction_id and data_source.primary_instruction:
+        if (
+            data_source.primary_instruction_id
+            and data_source.primary_instruction
+            # Never serialise an instruction of another organization.
+            and str(data_source.primary_instruction.organization_id) == str(data_source.organization_id)
+        ):
             try:
                 pi = data_source.primary_instruction
                 refs = []
@@ -2075,9 +2108,16 @@ class DataSourceService:
             from app.schemas.data_source_registry import credentials_schema_for, get_entry, supports_user_auth
             entry = get_entry(data_source_type)
             # Filter auth variants by policy if provided (system_only vs user_required)
+            from app.schemas.data_source_registry import auth_variant_enabled
+
             def allowed(mode: str) -> bool:
+                variant = entry.credentials_auth.by_auth.get(mode)
+                # A method that borrows the deployment's own identity is only
+                # offered once the operator has enabled it.
+                if variant is not None and not auth_variant_enabled(variant):
+                    return False
                 try:
-                    scopes = (entry.credentials_auth.by_auth.get(mode) or {}).scopes or []
+                    scopes = (variant or {}).scopes or []
                 except Exception:
                     scopes = []
                 if not auth_policy or auth_policy == "system_only":
@@ -2116,6 +2156,7 @@ class DataSourceService:
                 "data_shape": entry.data_shape,
                 "catalog_ownership": entry.catalog_ownership,
                 "ui_form": entry.ui_form,
+                "personal_connector": entry.personal_connector,
                 # Numbered setup steps rendered above the fields (None for most types).
                 "setup_guide": meta.get("setup_guide"),
                 "auth": {
@@ -2125,6 +2166,7 @@ class DataSourceService:
                     "by_auth": {
                         k: {
                             "title": v.title,
+                            "description": v.description,
                             "scopes": list(v.scopes or []),
                             "catalog_ownership": v.catalog_ownership or entry.catalog_ownership,
                         }
@@ -2644,6 +2686,7 @@ class DataSourceService:
             from app.services.connection_service import (
                 _check_network_dir_root,
                 _check_tool_provider_url,
+                _prepare_auth_credentials,
                 _reject_unsafe_google_keys,
                 _validate_connection_config,
             )
@@ -2652,6 +2695,7 @@ class DataSourceService:
                 _check_tool_provider_url(data_source_type, config)
                 _check_network_dir_root(data_source_type, config)
                 _reject_unsafe_google_keys(credentials)
+                credentials = _prepare_auth_credentials(data_source_type, config, credentials) or {}
             except HTTPException as e:
                 return {"success": False, "message": e.detail}
 
@@ -2849,7 +2893,8 @@ class DataSourceService:
         params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys and not k.startswith("oauth_")}
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(conn.type, params)
-        return ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        return bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
 
     @staticmethod
     def is_execution_live(ds) -> bool:
@@ -3050,6 +3095,7 @@ class DataSourceService:
         self, db: AsyncSession, data_source: DataSource, current_user: User | None,
         *, connection_errors: Optional[list] = None,
         row_filter_user: Any = SAME_AS_CURRENT_USER,
+        run_agents: Optional[tuple] = None,
     ) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
@@ -3066,6 +3112,12 @@ class DataSourceService:
         else's credentials for a viewer's result ("run on my behalf") passes
         the viewer, so the rows stay the viewer's. None means anonymous,
         exactly as for `current_user`.
+
+        `run_agents` is ``(run_agent_ids, pinned_agent_ids)`` when the
+        clients are for a report run: a connection narrowed per agent (Slack
+        channels) then gets the run's scope (``slack_channel_scope.run_scope``),
+        the same one the chat tools and the planner note use. Without it, the
+        agent's own scope.
 
         By default the first connection that fails aborts the whole data
         source. Passing a `connection_errors` list opts into building each
@@ -3112,9 +3164,20 @@ class DataSourceService:
         # keeps both the client set and the model's context off dead
         # connections. If every connection is inactive we return no clients;
         # the data source then drops out downstream (AgentV2 `_has_client`).
+        #
+        # Tool-provider connections (MCP / custom API / remote server) are
+        # built whatever the flag says. Their clients never reach generated
+        # code (codegen_clients drops them), and their tools are called
+        # through execute_mcp, which ignores the flag. Skipping them left the
+        # agent with no client, and AgentV2 then dropped it, taking its tools
+        # out of the run, but only when another agent DID build a client. So
+        # the same agent worked alone and vanished beside a SQL or file agent.
+        # A connection that really cannot be set up still fails its build
+        # below, which keeps the agent out as before.
+        from app.services.connection_tool_gateway import TOOL_CONNECTION_TYPES
         active_connections = [
             conn for conn in data_source.connections
-            if getattr(conn, "is_active", True)
+            if getattr(conn, "is_active", True) or conn.type in TOOL_CONNECTION_TYPES
         ]
 
         clients: Dict[str, Any] = {}
@@ -3143,11 +3206,13 @@ class DataSourceService:
 
                 params = merge_client_credentials(config, creds)
                 params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+                params.update(await self._agent_connection_overrides(db, data_source, conn, run_agents))
 
                 allowed = filter_client_parameters(ClientClass, params)
 
                 await _acheck_connection_destination(conn.type, params)
-                client = ClientClass(**allowed)
+                from app.data_sources.clients._duckdb_lockdown import bind_organization
+                client = bind_organization(ClientClass(**allowed), getattr(conn, "organization_id", None))
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
                 await self._attach_table_scope(db, client, data_source, conn)
@@ -3194,6 +3259,7 @@ class DataSourceService:
                     only_key = f"{data_source.name}:{active_connections[0].name}"
                     if only_key in stand_ins:
                         stand_ins[data_source.name] = stand_ins[only_key]
+                await self._attach_former_client_keys(db, data_source, active_connections, stand_ins)
                 try:
                     error.unavailable_clients = stand_ins
                 except Exception:
@@ -3207,7 +3273,60 @@ class DataSourceService:
             if only_key in clients:
                 clients[data_source.name] = clients[only_key]
 
+        await self._attach_former_client_keys(db, data_source, active_connections, clients)
         return clients
+
+    async def _attach_former_client_keys(
+        self, db: AsyncSession, data_source: DataSource, active_connections: list, clients: Dict[str, Any],
+    ) -> None:
+        """Leave on each client the keys it had before a rename.
+
+        Saved code spells the agent's and the connection's names in its
+        client key, so after a rename the old key must keep reaching the
+        same client. The old keys are not added to `clients` -- the prompt
+        lists that dict, and new code should use the current name -- but
+        recorded on the client (client_keys.FORMER_KEYS_ATTR); the code
+        executor adds them to what it hands the code
+        (client_keys.with_former_keys). Which old keys a source may answer to
+        is client_keys.former_client_keys' rule: never one another live
+        source carries or used to carry.
+        """
+        from app.models.former_names import former_bare_connections, former_names, names_of
+        from app.services.client_keys import FAST_SUFFIX, FORMER_KEYS_ATTR, former_client_keys
+
+        try:
+            source_formers = former_names(data_source)
+            connections = [
+                (conn.name, former_names(conn), f"{data_source.name}:{conn.name}{FAST_SUFFIX}" in clients,
+                 str(conn.id))
+                for conn in active_connections
+            ]
+            if not source_formers and not any(c[1] for c in connections):
+                return
+            others = (await db.execute(
+                select(DataSource.name, DataSource.previous_names).where(
+                    DataSource.organization_id == data_source.organization_id,
+                    DataSource.deleted_at.is_(None),
+                    DataSource.id != data_source.id,
+                )
+            )).all()
+            old_keys = former_client_keys(
+                data_source.name, source_formers, connections,
+                [(name, names_of(formers, name)) for name, formers in others],
+                bare_owners=former_bare_connections(data_source),
+            )
+            by_current: Dict[str, list] = {}
+            for old, current in old_keys.items():
+                by_current.setdefault(current, []).append(old)
+            for current, olds in by_current.items():
+                client = clients.get(current)
+                if client is not None:
+                    setattr(client, FORMER_KEYS_ATTR, tuple(olds))
+        except Exception:
+            # A rename's old keys are a convenience for saved code; failing to
+            # work them out must not take the source's clients down.
+            logger.warning("construct_clients: former client keys failed for %s",
+                           getattr(data_source, "id", None), exc_info=True)
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
                                      connection, row_filter_user: User | None = None):
@@ -3373,6 +3492,24 @@ class DataSourceService:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
 
+    async def _agent_connection_overrides(self, db, data_source, conn, run_agents=None) -> Dict[str, Any]:
+        """The agent's narrowing of a shared connection, as client params —
+        today the Slack channel scope. Every client built here (run start,
+        code execution, inspect) carries it, so generated code handed
+        ``ds_clients`` can't read past it. In a run, the run's scope (see
+        ``construct_clients``); otherwise the agent's own. Empty for every
+        other type."""
+        if getattr(conn, "type", None) != "slack_messages":
+            return {}
+        from app.services.slack_channel_scope import client_overrides, run_scope, scope_for_agents
+        if run_agents is not None:
+            run_ids, pinned = run_agents
+            ids = [str(i) for i in (run_ids or [])]
+            if str(data_source.id) not in ids:
+                ids.append(str(data_source.id))
+            return client_overrides(await run_scope(db, str(conn.id), ids, pinned or ()))
+        return client_overrides(await scope_for_agents(db, str(conn.id), [str(data_source.id)]))
+
     async def _attach_table_scope(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
         """Attach the agent's table selection to a SQL client so it holds at
         query time (enforced by the code-execution wrapper, see
@@ -3391,6 +3528,28 @@ class DataSourceService:
         from app.models.datasource_table import DataSourceTable
         from app.models.connection_table import ConnectionTable
 
+        network_tables = bool(getattr(client, "index_file_tables", False))
+        if network_tables:
+            from app.data_sources.clients._network_dir_tables import attach_catalog
+            selected = (await db.execute(
+                select(ConnectionTable.name, ConnectionTable.columns, ConnectionTable.metadata_json)
+                .join(DataSourceTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active.is_(True),
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_(True),
+                )
+            )).all()
+            files = (await db.execute(select(
+                ConnectionTable.name,
+                ConnectionTable.metadata_json["network_dir"]["cache_version"].as_string(),
+            ).where(
+                ConnectionTable.connection_id == str(connection.id),
+                ConnectionTable.metadata_json["network_dir"]["sql_table"].as_string().is_not(None),
+            ))).all()
+            attach_catalog(client, selected, files)
+            return
         if not dialect_for_client(client):
             return
         rows = (await db.execute(
@@ -3575,6 +3734,12 @@ class DataSourceService:
                     )
                 )
                 existing_member_ids = {str(r) for r in existing_result.scalars().all()}
+                # New members must belong to this organization. An id that is
+                # already on the list but has since left the organization (the
+                # form re-sends the whole list) is dropped, not refused.
+                member_user_ids = await self._org_member_user_ids(
+                    db, organization, member_user_ids, tolerate=existing_member_ids
+                )
                 newly_added_member_ids = [
                     str(uid) for uid in member_user_ids
                     if str(uid) not in existing_member_ids and str(uid) != str(current_user.id)
@@ -3591,7 +3756,20 @@ class DataSourceService:
         
         # Handle primary_instruction_id explicitly (allow None to clear it)
         if 'primary_instruction_id' in update_data:
-            data_source_db.primary_instruction_id = update_data.pop('primary_instruction_id')
+            _primary_id = update_data.pop('primary_instruction_id')
+            if _primary_id is not None:
+                # The primary instruction must be one of this organization's.
+                from app.models.instruction import Instruction
+                from app.errors import ErrorCode
+                _owned = (await db.execute(
+                    select(Instruction.id).where(
+                        Instruction.id == str(_primary_id),
+                        Instruction.organization_id == organization.id,
+                    )
+                )).scalar_one_or_none()
+                if _owned is None:
+                    raise AppError.not_found(ErrorCode.INSTRUCTION_NOT_FOUND, "Instruction not found")
+            data_source_db.primary_instruction_id = _primary_id
 
         # Agent/connector: "auto" clears the explicit choice (derived again).
         if 'kind' in update_data:
@@ -4338,7 +4516,7 @@ class DataSourceService:
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
             "network_dir", "s3", "gcs", "azure_blob", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
-            "outlook_mail", "gmail_mail", "teams_messages",
+            "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
         ]
@@ -4365,7 +4543,8 @@ class DataSourceService:
             _file_ct_subq = (
                 select(ConnectionTable.id)
                 .join(Connection, ConnectionTable.connection_id == Connection.id)
-                .where(Connection.type.in_(_FILE_SOURCE_TYPES))
+                .where(Connection.type.in_(_FILE_SOURCE_TYPES),
+                       ConnectionTable.metadata_json["network_dir_relation"].as_boolean().is_not(True))
             ).scalar_subquery()
 
         def _excl(q):
@@ -4521,7 +4700,7 @@ class DataSourceService:
         # the visible symptom users reported as "it only shows one source".
         connections_query = _active(_scope(connections_query))
         if exclude_file_source_types:
-            connections_query = connections_query.where(Connection.type.notin_(_FILE_SOURCE_TYPES))
+            connections_query = connections_query.where(ConnectionTable.id.notin_(_file_ct_subq))
         connections_result = await db.execute(connections_query)
         distinct_connections = [
             ConnectionInfo(id=str(row[0]), name=row[1], type=row[2])
@@ -5194,7 +5373,8 @@ class DataSourceService:
         }
         allowed = filter_client_parameters(ClientClass, params)
         await _acheck_connection_destination(connection.type, params)
-        return ClientClass(**allowed)
+        from app.data_sources.clients._duckdb_lockdown import bind_organization
+        return bind_organization(ClientClass(**allowed), getattr(connection, "organization_id", None))
 
     async def get_user_data_source_schema(
         self,
@@ -6566,6 +6746,11 @@ class DataSourceService:
         # Get data source to verify it exists
         data_source = await self.get_data_source(db, data_source_id, organization)
 
+        # The principal must belong to this organization.
+        if member.principal_type in (PRINCIPAL_TYPE_USER, "group"):
+            from app.services.rbac_service import assert_principal_in_org
+            await assert_principal_in_org(db, str(organization.id), member.principal_type, member.principal_id)
+
         # Check if membership already exists (legacy table)
         existing = await db.execute(
             select(DataSourceMembership).filter(
@@ -6828,7 +7013,9 @@ class DataSourceService:
         # Extract domain-specific fields
         name = data_source_dict.get("name")
         is_public = data_source_dict.get("is_public", False)
-        member_user_ids = data_source_dict.pop("member_user_ids", [])
+        member_user_ids = await self._org_member_user_ids(
+            db, organization, data_source_dict.pop("member_user_ids", [])
+        )
         generate_summary = data_source_dict.pop("generate_summary", False)
         generate_conversation_starters = data_source_dict.pop("generate_conversation_starters", False)
         generate_ai_rules = data_source_dict.pop("generate_ai_rules", False)
@@ -7107,6 +7294,16 @@ class DataSourceService:
             )
         )
 
+        # This agent's settings for the connection (e.g. its Slack channels):
+        # same reason — they must not come back silently on a relink.
+        from app.models.data_source_connection_setting import DataSourceConnectionSetting
+        await db.execute(
+            delete(DataSourceConnectionSetting).where(
+                DataSourceConnectionSetting.data_source_id == data_source_id,
+                DataSourceConnectionSetting.connection_id == connection_id,
+            )
+        )
+
         await db.commit()
         return {"message": "Connection removed from agent"}
 
@@ -7117,9 +7314,15 @@ class DataSourceService:
         connection,
         max_auto_select: int | None = None,
         *, commit: bool = True, after_commit: list | None = None,
+        prior_active_tables: dict | None = None,
     ):
         """
         Create DataSourceTable (DomainTable) entries from ConnectionTable entries.
+
+        ``prior_active_tables`` ({name: columns}) is the agent's active tables
+        as they were before the caller re-discovered the connection. A table
+        dropped upstream has already been pruned by then, so without it the
+        schema-change diff could never report a removed table.
         Links domain tables to connection tables for schema access.
         
         Args:
@@ -7161,11 +7364,24 @@ class DataSourceService:
         # loop. Keyed by table name; value is a stable signature of the columns.
         # Captured for active tables only — the agent only "uses" active tables,
         # so an inactive table's schema drift isn't worth a re-eval.
-        pre_schema_sig = {
-            t.name: self._column_signature(t.columns)
+        # The columns themselves are kept (copied: the rows are updated in place
+        # below) so the notification can say WHAT changed, not just which
+        # tables; the change-detection signature is derived from them.
+        pre_schema_cols = {
+            t.name: copy.deepcopy(list(t.columns or []))
             for t in existing_rows
             if getattr(t, "is_active", False)
         }
+        # Every table name the agent knew before, active or not — a table not
+        # in here after the sync is new on the connection.
+        pre_all_names = {t.name for t in existing_rows}
+        # Tables refresh_schema already pruned (snapshotted by the caller as a
+        # fresh list, so no second copy is needed).
+        for name, cols in (prior_active_tables or {}).items():
+            if name not in pre_schema_cols:
+                pre_schema_cols[name] = list(cols or [])
+                pre_all_names.add(name)
+        pre_schema_sig = {name: self._column_signature(cols) for name, cols in pre_schema_cols.items()}
         # Unlinked rows (connection_table_id is NULL) keyed by name. These are
         # legacy name-keyed rows from the old save_or_update_tables path. We adopt
         # them below instead of creating a duplicate linked row, which both
@@ -7288,7 +7504,11 @@ class DataSourceService:
                         is_active=(
                             False
                             if getattr(conn_table, "kind", None) == "bow"
-                            else should_activate
+                            else should_activate or (
+                                connection.type == "network_dir"
+                                and conn_table.name in {"packets", "indexed_files"}
+                                and (conn_table.metadata_json or {}).get("network_dir_relation") is True
+                            )
                         ),
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,
@@ -7425,7 +7645,23 @@ class DataSourceService:
                     if changed:
                         from app.services.agent_reliability_service import AgentReliabilityService
                         from app.models.agent_automation_run import TRIGGER_TABLE_CHANGE
-                        hint = "Table/column structure changed: " + ", ".join(changed[:8])
+                        from app.services.schema_diff import compute_schema_diff, summary_line
+                        # Tables that appeared on the connection but were not
+                        # activated for this agent: listed for context only
+                        # (they don't trigger anything on their own).
+                        all_post_rows = (await db.execute(
+                            select(DataSourceTable.name, DataSourceTable.is_active).where(
+                                DataSourceTable.datasource_id == data_source.id,
+                            )
+                        )).all()
+                        new_inactive = [n for n, active in all_post_rows
+                                        if not active and n not in pre_all_names]
+                        diff = compute_schema_diff(
+                            pre_schema_cols,
+                            {t.name: list(t.columns or []) for t in post_rows},
+                            new_inactive_tables=new_inactive,
+                        )
+                        hint = summary_line(diff)
                         AgentReliabilityService().schedule(
                             organization_id=str(data_source.organization_id),
                             data_source_id=str(data_source.id),
@@ -7435,6 +7671,9 @@ class DataSourceService:
                         from app.services.review_producers import emit_schema_changed
                         await emit_schema_changed(
                             db, str(data_source.organization_id), str(data_source.id), summary=hint,
+                            diff=diff, agent_name=getattr(data_source, "name", None),
+                            connection_name=getattr(connection, "name", None),
+                            connection_id=str(connection.id) if getattr(connection, "id", None) else None,
                         )
             except Exception:
                 logger.debug("sync_domain_tables: reliability trigger skipped", exc_info=True)

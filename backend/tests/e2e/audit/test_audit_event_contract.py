@@ -217,8 +217,17 @@ def test_rename_after_the_event_does_not_rewrite_the_evidence(test_client, boots
     old_email = member["email"]
     assert test_client.post("/api/api_keys", json={"name": "before-rename"}, headers=h(member["token"], admin["org_id"])).status_code == 200
     new_email = f"renamed_{uuid.uuid4().hex[:8]}@test.com"
-    r = test_client.patch("/api/users/me", json={"email": new_email}, headers={"Authorization": f"Bearer {member['token']}"})
-    assert r.status_code == 200, r.text
+    # A user cannot change their own login email, and no API renames another
+    # user's; an operator-side rename is written directly.
+    async def _rename():
+        from sqlalchemy import update
+        from app.dependencies import async_session_maker
+        from app.models.user import User
+        async with async_session_maker() as db:
+            await db.execute(update(User).where(User.id == member["user_id"]).values(email=new_email))
+            await db.commit()
+    _run(_rename())
+    assert test_client.post("/api/auth/jwt/login", data={"username": new_email, "password": member["password"]}).status_code == 200
 
     row = _one(test_client, admin, "api_key.created", user_id=member["user_id"])
     assert row["actor_snapshot"]["email"] == old_email

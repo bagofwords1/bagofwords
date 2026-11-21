@@ -13,12 +13,12 @@
                 <!-- Title & Git Info -->
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0">
-                        <div v-if="instructionForm.title" class="text-sm font-sans font-bold text-gray-900 tracking-wide" :class="{ 'uppercase': props.uppercaseTitle }">
+                        <div v-if="instructionForm.title" class="text-sm font-sans font-bold text-ink tracking-wide" :class="{ 'uppercase': props.uppercaseTitle }">
                             {{ instructionForm.title }}
                         </div>
                         <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1 mt-0.5">
                             <Icon name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
-                            <span class="text-2xs font-mono text-gray-500 truncate">{{ filePath }}</span>
+                            <span class="text-2xs font-mono text-ink-muted truncate">{{ filePath }}</span>
                         </div>
                     </div>
                     <div class="flex items-center gap-2 shrink-0">
@@ -41,11 +41,11 @@
                                     :key="v.id"
                                     type="button"
                                     @click.stop="selectVersion(v.id)"
-                                    class="w-full flex items-center gap-2 px-2.5 py-1.5 text-2xs hover:bg-gray-50 transition-colors text-start"
-                                    :class="selectedVersionId === v.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700'"
+                                    class="w-full flex items-center gap-2 px-2.5 py-1.5 text-2xs hover:bg-surface-subtle transition-colors text-start"
+                                    :class="selectedVersionId === v.id ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300' : 'text-ink-2'"
                                 >
                                     <span class="font-mono font-medium shrink-0">v{{ v.version_number }}</span>
-                                    <span v-if="v.id === currentVersionId" class="text-2xs px-1 py-0.5 bg-green-100 text-green-700 rounded shrink-0">
+                                    <span v-if="v.id === currentVersionId" class="text-2xs px-1 py-0.5 bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 rounded shrink-0">
                                         {{ $t('instructionGlobalCreate.versions.current') }}
                                     </span>
                                     <span class="text-ink-muted truncate">{{ formatVersionDate(v.created_at) }}</span>
@@ -64,12 +64,12 @@
 
                 <!-- Version diff view (selected historical version vs. current) -->
                 <div v-if="isComparingHistorical" class="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-800">
-                    <div class="px-3 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-2">
+                    <div class="px-3 py-2 bg-surface-subtle border-b border-line flex items-center justify-between gap-2">
                         <div class="flex items-center gap-2 text-2xs">
-                            <span class="text-gray-500">{{ $t('instructionGlobalCreate.versions.compareLabel') }}:</span>
-                            <span class="font-mono font-medium text-gray-700">v{{ selectedVersion?.version_number }}</span>
+                            <span class="text-ink-muted">{{ $t('instructionGlobalCreate.versions.compareLabel') }}:</span>
+                            <span class="font-mono font-medium text-ink-2">v{{ selectedVersion?.version_number }}</span>
                             <Icon name="heroicons:arrow-right" class="w-3 h-3 text-ink-muted rtl-flip" />
-                            <span class="font-mono font-medium text-gray-700">{{ $t('instructionGlobalCreate.versions.current') }}</span>
+                            <span class="font-mono font-medium text-ink-2">{{ $t('instructionGlobalCreate.versions.current') }}</span>
                         </div>
                         <UButton
                             v-if="canRevertInstructions"
@@ -86,7 +86,7 @@
                     </div>
                     <div v-if="isLoadingSelectedVersion" class="flex items-center justify-center py-8">
                         <Spinner class="w-4 h-4 me-2" />
-                        <span class="text-2xs text-gray-500">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
+                        <span class="text-2xs text-ink-muted">{{ $t('instructionGlobalCreate.versions.label') }}...</span>
                     </div>
                     <template v-else>
                         <ClientOnly v-if="hasVersionDiff">
@@ -98,7 +98,7 @@
                             />
                         </ClientOnly>
                         <!-- Non-text field changes (title, status, references...). -->
-                        <div v-if="versionFieldChanges.length > 0" class="px-3 py-2 space-y-1" :class="hasVersionDiff ? 'border-t border-gray-200' : ''">
+                        <div v-if="versionFieldChanges.length > 0" class="px-3 py-2 space-y-1" :class="hasVersionDiff ? 'border-t border-line' : ''">
                             <div class="text-2xs font-medium uppercase tracking-wide text-ink-muted">
                                 {{ $t('instructionGlobalCreate.versions.fieldChanges') }}
                             </div>
@@ -107,13 +107,13 @@
                                 :key="change.field"
                                 class="flex items-baseline gap-2 text-2xs"
                             >
-                                <span class="font-medium text-gray-600 shrink-0">{{ formatFieldName(change.field) }}:</span>
+                                <span class="font-medium text-ink-muted shrink-0">{{ formatFieldName(change.field) }}:</span>
                                 <span class="text-red-600 line-through truncate">{{ formatFieldValue(change.field, change.from) }}</span>
                                 <Icon name="heroicons:arrow-right" class="w-3 h-3 text-ink-muted shrink-0 rtl-flip" />
                                 <span class="text-green-700 truncate">{{ formatFieldValue(change.field, change.to) }}</span>
                             </div>
                         </div>
-                        <div v-if="!hasVersionDiff && versionFieldChanges.length === 0" class="px-3 py-4 text-2xs text-gray-500 italic">
+                        <div v-if="!hasVersionDiff && versionFieldChanges.length === 0" class="px-3 py-4 text-2xs text-ink-muted italic">
                             {{ $t('instructionGlobalCreate.versions.noChanges') }}
                         </div>
                     </template>
@@ -160,7 +160,7 @@
                                 </button>
                                 <button
                                     type="button"
-                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100 transition-colors disabled:opacity-50"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                                     :disabled="tracked.isResolving.value"
                                     @click="onAcceptTracked"
                                 >
@@ -169,7 +169,7 @@
                                 </button>
                                 <button
                                     type="button"
-                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-gray-600 bg-white border border-gray-200 rounded hover:bg-gray-50 transition-colors disabled:opacity-50"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 text-2xs font-medium text-ink-muted bg-surface border border-line rounded hover:bg-surface-subtle transition-colors disabled:opacity-50"
                                     :disabled="tracked.isResolving.value"
                                     @click="onRejectTracked"
                                 >
@@ -204,7 +204,7 @@
                     <!-- Created By -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.createdBy') }}</span>
-                        <div class="inline-flex items-center gap-1 text-gray-700 min-w-0">
+                        <div class="inline-flex items-center gap-1 text-ink-2 min-w-0">
                             <Icon :name="getSourceTypeIcon()" class="w-3 h-3 shrink-0" :class="getSourceTypeIconClass()" />
                             <span class="truncate">{{ getCreatorDisplayName() }}</span>
                         </div>
@@ -214,11 +214,11 @@
                     <!-- Approved By (if exists) -->
                     <div v-if="props.instruction?.reviewed_by" class="flex items-center gap-1.5">
                         <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.approvedBy') }}</span>
-                        <span class="text-gray-700 truncate">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
+                        <span class="text-ink-2 truncate">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
                     </div>
                 </div>
 
-                <div class="border-t border-gray-100"></div>
+                <div class="border-t border-line-subtle"></div>
 
                 <!-- Metadata Display (read-only) -->
                 <div class="flex flex-col gap-2.5 text-xs">
@@ -233,7 +233,7 @@
                     <!-- Category -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-ink-muted">{{ $t('instructionGlobalCreate.fields.category') }}</span>
-                        <div class="inline-flex items-center text-gray-700">
+                        <div class="inline-flex items-center text-ink-2">
                             <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 me-1" />
                             {{ formatCategory(instructionForm.category) }}
                         </div>
@@ -242,7 +242,7 @@
                     <!-- Load Mode -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-ink-muted">{{ $t('instructionGlobalCreate.fields.loading') }}</span>
-                        <div class="inline-flex items-center text-gray-700">
+                        <div class="inline-flex items-center text-ink-2">
                             <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 me-1" />
                             {{ getLoadModeLabel(instructionForm.load_mode) }}
                         </div>
@@ -251,7 +251,7 @@
                     <!-- Visibility -->
                     <div class="flex items-center gap-1.5">
                         <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3 text-ink-muted" />
-                        <span class="text-gray-600">{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
+                        <span class="text-ink-muted">{{ instructionForm.is_seen ? $t('instructionGlobalCreate.status.visible') : $t('instructionGlobalCreate.status.hidden') }}</span>
                     </div>
                 </div>
 
@@ -274,14 +274,23 @@
                 <!-- Scope (read-only) -->
                 <div class="space-y-2 text-xs">
                     <!-- Data Agents -->
-                    <div class="flex items-start gap-1.5">
+                    <div data-testid="instruction-scope-agents" class="flex items-start gap-1.5">
                         <span class="text-ink-muted shrink-0">{{ $t('instructionGlobalCreate.fields.agents') }}</span>
-                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">{{ $t('instructionGlobalCreate.allAgents') }}</span>
-                        <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
+                        <span v-if="isGlobalScope" class="text-ink-2">{{ $t('instructionGlobalCreate.allAgents') }}</span>
+                        <div v-else-if="instructionFolders.length > 0 || getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
+                            <div
+                                v-for="folder in instructionFolders"
+                                :key="folder.id"
+                                data-testid="instruction-scope-folder"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-subtle border border-line rounded text-2xs text-ink-2"
+                            >
+                                <Icon name="heroicons:folder" class="w-3 h-3 text-ink-muted" />
+                                {{ folder.name }}
+                            </div>
                             <div
                                 v-for="ds in getSelectedDataSourceObjects"
                                 :key="ds.id"
-                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs text-gray-700"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-subtle border border-line rounded text-2xs text-ink-2"
                             >
                                 <DataSourceIcon :type="ds.type" :icon-token="ds.icon_token" :icon="ds.icon" class="h-3" />
                                 {{ ds.name }}
@@ -298,7 +307,7 @@
                             <div
                                 v-for="ref in selectedReferences"
                                 :key="ref.id"
-                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-2xs text-gray-700"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-subtle border border-line rounded text-2xs text-ink-2"
                             >
                                 <!-- DS icon for tables/tools (shows which agent) -->
                                 <template v-if="ref.data_source_type && (ref.type === 'datasource_table' || ref.type === 'connection_tool')">
@@ -310,7 +319,7 @@
                                     v-else
                                     :name="getRefIconHeroicons(ref.type)"
                                     class="w-3 h-3 shrink-0"
-                                    :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'"
+                                    :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-ink-muted'"
                                 />
                                 {{ ref.name || ref.text_preview?.slice(0, 30) + '...' }}
                             </div>
@@ -374,24 +383,24 @@
                         <!-- Git sync status -->
                         <template v-if="props.isGitSourced">
                             <UTooltip v-if="props.isGitSynced" :text="$t('instructionGlobalCreate.tooltips.stopSyncing')" :popper="{ placement: 'top' }">
-                                <button type="button" class="flex items-center gap-1 text-2xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors" @click="$emit('unlink-from-git')">
+                                <button type="button" class="flex items-center gap-1 text-2xs text-green-600 dark:text-green-300 bg-green-50 dark:bg-green-950 px-1.5 py-0.5 rounded hover:bg-green-100 dark:hover:bg-green-900/50 transition-colors" @click="$emit('unlink-from-git')">
                                     <GitBranchIcon class="w-3 h-3" />
                                     {{ $t('instructionGlobalCreate.status.synced') }}
                                     <Icon name="heroicons:x-mark" class="w-3 h-3" />
                                 </button>
                             </UTooltip>
                             <template v-else>
-                                <span class="text-2xs text-ink-muted bg-gray-100 px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
+                                <span class="text-2xs text-ink-muted bg-surface-muted px-1.5 py-0.5 rounded">{{ $t('instructionGlobalCreate.status.unlinked') }}</span>
                                 <UTooltip :text="$t('instructionGlobalCreate.tooltips.resumeSyncing')" :popper="{ placement: 'top' }">
                                     <button type="button" class="text-2xs text-blue-500 hover:text-blue-600 transition-colors" @click="$emit('relink-to-git')">{{ $t('instructionGlobalCreate.actions.relink') }}</button>
                                 </UTooltip>
                             </template>
                         </template>
                         <!-- Editor mode toggle -->
-                        <div class="flex items-center rounded-md border border-gray-200 overflow-hidden text-2xs font-medium">
-                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-gray-100 text-gray-800' : 'text-ink-muted hover:text-gray-600 hover:bg-gray-50'">Rich</button>
-                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'raw' ? 'bg-gray-100 text-gray-800' : 'text-ink-muted hover:text-gray-600 hover:bg-gray-50'">MD</button>
-                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-gray-200 transition-colors" :class="editorMode === 'code' ? 'bg-gray-100 text-gray-800' : 'text-ink-muted hover:text-gray-600 hover:bg-gray-50'">&lt;/&gt;</button>
+                        <div class="flex items-center rounded-md border border-line overflow-hidden text-2xs font-medium">
+                            <button type="button" @click="editorMode = 'wysiwyg'" class="px-2 py-1 transition-colors" :class="editorMode === 'wysiwyg' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-2 hover:bg-surface-subtle'">Rich</button>
+                            <button type="button" @click="editorMode = 'raw'" class="px-2 py-1 border-l border-line transition-colors" :class="editorMode === 'raw' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-2 hover:bg-surface-subtle'">MD</button>
+                            <button type="button" @click="editorMode = 'code'" class="px-2 py-1 border-l border-line transition-colors" :class="editorMode === 'code' ? 'bg-surface-muted text-ink-2' : 'text-ink-muted hover:text-ink-2 hover:bg-surface-subtle'">&lt;/&gt;</button>
                         </div>
                     </div>
                 </div>
@@ -401,7 +410,7 @@
                     <!-- Git file path (only when git-sourced) -->
                     <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1.5 pb-1">
                         <Icon name="heroicons:code-bracket" class="w-3 h-3 text-ink-muted shrink-0" />
-                        <span class="text-xs font-mono text-gray-500 truncate">{{ filePath }}</span>
+                        <span class="text-xs font-mono text-ink-muted truncate">{{ filePath }}</span>
                     </div>
                     
                     <!-- WYSIWYG / raw markdown editor -->
@@ -454,7 +463,7 @@
                             type="button"
                             @click="$emit('toggle-analyze')"
                             class="inline-flex items-center gap-1 text-xs text-ink-muted
-                                   hover:text-gray-600
+                                   hover:text-ink-muted
                                    transition-colors"
                         >
                             <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
@@ -507,7 +516,7 @@
                         class="w-full"
                     >
                         <template #label>
-                            <div class="inline-flex items-center text-xs text-gray-700">
+                            <div class="inline-flex items-center text-xs text-ink-2">
                                 <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 me-1" />
                                 {{ formatCategory(instructionForm.category) }}
                             </div>
@@ -534,7 +543,7 @@
                         :ui-menu="{ width: 'w-full' }"
                     >
                         <template #label>
-                            <div class="inline-flex items-center text-xs text-gray-700">
+                            <div class="inline-flex items-center text-xs text-ink-2">
                                 <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 me-1" />
                                 {{ getLoadModeLabel(instructionForm.load_mode) }}
                             </div>
@@ -545,7 +554,7 @@
                                     <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
                                     <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                <span class="text-2xs text-gray-500 ms-4">{{ option.description }}</span>
+                                <span class="text-2xs text-ink-muted ms-4">{{ option.description }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -568,7 +577,7 @@
                     >
                         <template #label>
                             <div class="flex items-center flex-wrap gap-1">
-                                <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 text-xs">{{ $t('instructionGlobalCreate.plusLabels') }}</span>
+                                <span v-if="selectedLabelObjects.length === 0" class="text-ink-muted text-xs">{{ $t('instructionGlobalCreate.plusLabels') }}</span>
                                 <span
                                     v-for="label in selectedLabelObjects.slice(0, 2)"
                                     :key="label.id"
@@ -578,7 +587,7 @@
                                     <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
                                     {{ label.name }}
                                 </span>
-                                <span v-if="selectedLabelObjects.length > 2" class="text-2xs text-gray-500">
+                                <span v-if="selectedLabelObjects.length > 2" class="text-2xs text-ink-muted">
                                     {{ $t('instructionGlobalCreate.plusMore', { n: selectedLabelObjects.length - 2 }) }}
                                 </span>
                             </div>
@@ -596,11 +605,11 @@
                             <div v-else class="flex items-center w-full py-0.5 gap-1">
                                 <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
                                 <div class="min-w-0 flex-1">
-                                    <p class="text-2xs font-medium text-gray-900 truncate">{{ option.name }}</p>
+                                    <p class="text-2xs font-medium text-ink truncate">{{ option.name }}</p>
                                 </div>
                                 <button
                                     type="button"
-                                    class="p-0.5 rounded hover:bg-gray-100 text-ink-muted"
+                                    class="p-0.5 rounded hover:bg-surface-muted text-ink-muted"
                                     @mousedown.prevent
                                     @click.stop="openEditLabelModal(option as InstructionLabel)"
                                 >
@@ -635,7 +644,7 @@
                     </UTooltip>
                 </div>
 
-                <div class="border-t border-gray-100"></div>
+                <div class="border-t border-line-subtle"></div>
 
                 <!-- Scope: Data Sources -->
                 <div>
@@ -650,12 +659,16 @@
                         class="w-full"
                     >
                         <template #label>
-                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">{{ $t('instructionGlobalCreate.allSources') }}</span>
+                            <span v-if="isAllDataSourcesSelected && instructionFolders.length > 0" class="flex items-center gap-1 text-xs text-ink-2">
+                                <Icon name="heroicons:folder" class="w-3 h-3 text-ink-muted" />
+                                <span class="truncate max-w-[140px]">{{ instructionFolders.map(f => f.name).join(', ') }}</span>
+                            </span>
+                            <span v-else-if="isAllDataSourcesSelected" class="text-xs text-ink-2">{{ $t('instructionGlobalCreate.allSources') }}</span>
                             <span v-else-if="selectedDataSources.length === 0" class="text-ink-muted text-xs">{{ $t('instructionGlobalCreate.fields.sources') }}</span>
-                            <div v-else class="flex items-center gap-1 text-xs text-gray-700">
+                            <div v-else class="flex items-center gap-1 text-xs text-ink-2">
                                 <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" :icon-token="getSelectedDataSourceObjects[0]?.icon_token" :icon="getSelectedDataSourceObjects[0]?.icon" class="h-3" />
                                 <span class="truncate max-w-[100px]">{{ getSelectedDataSourceObjects[0]?.name }}</span>
-                                <span v-if="getSelectedDataSourceObjects.length > 1" class="text-gray-500">{{ $t('instructionGlobalCreate.plusN', { n: getSelectedDataSourceObjects.length - 1 }) }}</span>
+                                <span v-if="getSelectedDataSourceObjects.length > 1" class="text-ink-muted">{{ $t('instructionGlobalCreate.plusN', { n: getSelectedDataSourceObjects.length - 1 }) }}</span>
                             </div>
                         </template>
                         <template #option="{ option }">
@@ -688,25 +701,25 @@
                     >
                         <template #label>
                             <span v-if="selectedReferences.length === 0" class="text-ink-muted text-xs">{{ $t('instructionGlobalCreate.fields.referencesShort') }}</span>
-                            <div v-else class="flex items-center gap-1 text-xs text-gray-700">
-                                <Icon :name="getRefIconHeroicons(selectedReferences[0].type)" class="w-3 h-3 text-gray-500" />
+                            <div v-else class="flex items-center gap-1 text-xs text-ink-2">
+                                <Icon :name="getRefIconHeroicons(selectedReferences[0].type)" class="w-3 h-3 text-ink-muted" />
                                 <span class="truncate max-w-[120px]">{{ selectedReferences[0].name }}</span>
-                                <span v-if="selectedReferences.length > 1" class="text-gray-500">{{ $t('instructionGlobalCreate.plusN', { n: selectedReferences.length - 1 }) }}</span>
+                                <span v-if="selectedReferences.length > 1" class="text-ink-muted">{{ $t('instructionGlobalCreate.plusN', { n: selectedReferences.length - 1 }) }}</span>
                             </div>
                         </template>
                         <template #option="{ option }">
                             <div class="w-full py-0.5">
                                 <div class="flex items-center gap-1.5">
-                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 flex-shrink-0" :class="option.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'" />
-                                    <span class="text-2xs font-medium text-gray-900 break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
+                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 flex-shrink-0" :class="option.type === 'instruction' ? 'text-indigo-500' : 'text-ink-muted'" />
+                                    <span class="text-2xs font-medium text-ink break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
                                 </div>
                                 <div v-if="option.data_source_name" class="flex items-center gap-1">
                                     <DataSourceIcon :type="option.data_source_type" :icon-token="option.data_source_icon_token" :icon="option.data_source_icon" class="h-2.5 flex-shrink-0" />
-                                    <span class="text-2xs text-gray-500 truncate">{{ option.data_source_name }}</span>
+                                    <span class="text-2xs text-ink-muted truncate">{{ option.data_source_name }}</span>
                                 </div>
                                 <div v-else-if="option.type === 'instruction'" class="flex items-center gap-1">
                                     <Icon name="heroicons:cube" class="w-2.5 h-2.5 text-indigo-400 flex-shrink-0" />
-                                    <span class="text-2xs text-gray-500">{{ $t('instructionGlobalCreate.instruction') }}</span>
+                                    <span class="text-2xs text-ink-muted">{{ $t('instructionGlobalCreate.instruction') }}</span>
                                 </div>
                             </div>
                         </template>
@@ -764,12 +777,12 @@
     <UModal v-model="showUnlinkConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
             <div class="flex items-start gap-3 mb-4">
-                <div class="shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                <div class="shrink-0 w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center">
                     <Icon name="heroicons:link-slash" class="w-4 h-4 text-amber-600" />
                 </div>
                 <div>
-                    <h3 class="text-sm font-semibold text-gray-900 mb-1">{{ $t('instructionGlobalCreate.unlinkDialog.title') }}</h3>
-                    <p class="text-sm text-gray-600">
+                    <h3 class="text-sm font-semibold text-ink mb-1">{{ $t('instructionGlobalCreate.unlinkDialog.title') }}</h3>
+                    <p class="text-sm text-ink-muted">
                         {{ $t('instructionGlobalCreate.unlinkDialog.bodyBefore') }}<span class="font-medium">{{ $t('instructionGlobalCreate.unlinkDialog.pushToGit') }}</span>{{ $t('instructionGlobalCreate.unlinkDialog.bodyAfter') }}
                     </p>
                 </div>
@@ -788,10 +801,10 @@
     <!-- Delete Confirmation Modal (non-git) -->
     <UModal v-model="showDeleteConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
-            <p class="text-sm text-gray-700 mb-3">
+            <p class="text-sm text-ink-2 mb-3">
                 {{ $t('instructionGlobalCreate.deleteDialog.title') }}
             </p>
-            <p class="text-xs text-gray-500 mb-4">
+            <p class="text-xs text-ink-muted mb-4">
                 {{ $t('instructionGlobalCreate.deleteDialog.cannotUndo') }}
             </p>
             <div class="flex justify-end gap-2">
@@ -808,15 +821,15 @@
     <!-- Delete Git-Synced Confirmation Modal -->
     <UModal v-model="showDeleteGitConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
-            <p class="text-sm text-gray-700 mb-3">
+            <p class="text-sm text-ink-2 mb-3">
                 {{ $t('instructionGlobalCreate.deleteGitDialog.title') }}
             </p>
             <div class="space-y-2 mb-4">
-                <div class="flex items-start gap-2 text-xs text-gray-600">
+                <div class="flex items-start gap-2 text-xs text-ink-muted">
                     <span class="text-red-500 font-medium shrink-0">{{ $t('instructionGlobalCreate.deleteGitDialog.deleteLabel') }}</span>
                     <span>{{ $t('instructionGlobalCreate.deleteGitDialog.deleteHint') }}</span>
                 </div>
-                <div class="flex items-start gap-2 text-xs text-gray-600">
+                <div class="flex items-start gap-2 text-xs text-ink-muted">
                     <span class="text-orange-500 font-medium shrink-0">{{ $t('instructionGlobalCreate.deleteGitDialog.unlinkDeleteLabel') }}</span>
                     <span>{{ $t('instructionGlobalCreate.deleteGitDialog.unlinkDeleteHint') }}</span>
                 </div>
@@ -1277,6 +1290,23 @@ const isAllDataSourcesSelected = computed(() => {
 
 const getSelectedDataSourceObjects = computed(() => {
     return availableDataSources.value.filter(ds => selectedDataSources.value.includes(ds.id))
+})
+
+// Shared folders the instruction is filed under. A folder-scoped instruction
+// carries no agents of its own (`data_sources` is empty, `scope_mode` is
+// 'targeted'), so an empty agent list alone does not mean "all agents".
+const instructionFolders = computed<{ id: string; name: string }[]>(() => {
+    const inst = fullInstruction.value || props.instruction
+    return Array.isArray(inst?.folders) ? inst.folders : []
+})
+
+// Org-wide only when nothing narrows it: no agents, no folders, and the server
+// did not mark it targeted. A new (unsaved) instruction has neither field, so
+// it keeps the previous behavior.
+const isGlobalScope = computed(() => {
+    if (!isAllDataSourcesSelected.value || instructionFolders.value.length > 0) return false
+    const inst = fullInstruction.value || props.instruction
+    return inst?.scope_mode !== 'targeted'
 })
 
 const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))

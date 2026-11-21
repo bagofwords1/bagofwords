@@ -93,6 +93,7 @@ from app.routes import (
     metadata_resource,
     bow_settings,
     product_updates,
+    frame_ancestors,
     external_platform,
     external_user_mapping,
     slack_webhook,
@@ -123,10 +124,12 @@ from app.routes import (
     prompt as prompt_routes,
     excel,
     agent_yaml,
+    agent_bundle_import,
     eval_yaml,
     data_source_tools,
     agent_lists,
     changelog,
+    app_log,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 from app.ee.routes import router as enterprise_router
@@ -134,6 +137,9 @@ from app.ee.license import get_license_info, has_feature
 
 # Initialize logging
 loggers = setup_logging()
+# Settings → System logs: buffers log records once the app has started.
+from app.services.app_log_service import install_log_handler  # noqa: E402
+install_log_handler()
 logger = get_logger(__name__)
 # Initialize OpenTelemetry if enabled (before app creation)
 setup_telemetry(settings.bow_config.otel)
@@ -218,6 +224,8 @@ fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_provi
 current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
+from app.routes import invite as invite_routes
+app.include_router(invite_routes.router, prefix="/api")
 app.include_router(user_memory.router, prefix="/api")
 
 # Determine auth mode
@@ -338,10 +346,12 @@ app.include_router(usage_limits.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
+app.include_router(app_log.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
 app.include_router(product_updates.router, prefix="/api")
+app.include_router(frame_ancestors.router, prefix="/api")
 app.include_router(changelog.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
@@ -371,6 +381,7 @@ app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
 app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
+app.include_router(agent_bundle_import.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
@@ -492,6 +503,16 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
+
+    # Sites admins allowed to frame BOW: load them now (bounded, never fatal)
+    # so the first framed page after a restart is not refused.
+    from app.services import frame_ancestors_service
+    await frame_ancestors_service.warm()
+
+    # Instance administrators named in BOW_SUPERUSER_EMAILS (no-op when unset;
+    # idempotent across workers; never fatal).
+    from app.core.instance_admin import sync_superusers_at_startup
+    await sync_superusers_at_startup()
 
     # Object storage (storage.backend = s3 | azure): prove read/write/delete
     # before serving, so bad credentials fail the pod instead of every upload.
@@ -677,6 +698,37 @@ async def startup_event():
             )
         except Exception as e:
             logger.error(f"Failed to schedule custom table run history purge job: {e}")
+
+    # Connection query history (query_executions): stamp rows whose worker
+    # died as stale (their lease already stopped them holding a slot), and
+    # drop finished history past its retention.
+    if is_scheduler_leader:
+        try:
+            from app.data_sources.query_executions import run_stale_sweep, run_history_purge
+            scheduler.add_job(
+                run_stale_sweep,
+                trigger="interval",
+                minutes=1,
+                id="query_executions_stale_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=300,
+            )
+            scheduler.add_job(
+                run_history_purge,
+                trigger="cron",
+                hour=3,
+                minute=50,
+                id="query_executions_history_purge",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled jobs: query_executions stale sweep (1 min) and history purge (daily)")
+        except Exception as e:
+            logger.error(f"Failed to schedule query history jobs: {e}")
 
     # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
     if is_scheduler_leader:
@@ -1010,6 +1062,20 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to start license refresher: {e}")
 
+    # Settings → System logs. Every worker writes its own log files, so like
+    # the license refresher this runs in every worker. Stream capture is
+    # installed here rather than at import so test runs, which never start the
+    # app, keep their own stdout/stderr untouched.
+    try:
+        from app.services import app_log_service
+
+        # uvicorn may have configured its loggers after import; attach again.
+        app_log_service.install_log_handler()
+        app_log_service.install_stream_capture()
+        app_log_service.start()
+    except Exception as e:
+        logger.error(f"Failed to start system logs writer: {e}")
+
     # Validate license at startup
     license_info = get_license_info()
     license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
@@ -1069,6 +1135,12 @@ async def shutdown_event():
             await slack_socket_task
         except Exception:
             pass
+    try:
+        from app.services import app_log_service
+
+        app_log_service.stop()
+    except Exception:
+        pass
     license_refresher_stop = getattr(app.state, "license_refresher_stop", None)
     if license_refresher_stop is not None:
         license_refresher_stop.set()

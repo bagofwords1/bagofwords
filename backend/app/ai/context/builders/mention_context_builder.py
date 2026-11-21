@@ -61,7 +61,9 @@ class MentionContextBuilder:
                     }
                     files.append(item)
                 elif m.type == MentionType.DATA_SOURCE:
-                    ds = await self.db.get(DataSource, str(m.object_id))
+                    ds = await self._get_in_org(DataSource, m.object_id)
+                    if ds is None:
+                        continue
                     item = {
                         "id": str(m.object_id),
                         "name": getattr(ds, "name", m.mention_content),
@@ -72,7 +74,9 @@ class MentionContextBuilder:
                     if item is not None:
                         tables.append(item)
                 elif m.type == MentionType.ENTITY:
-                    ent = await self.db.get(Entity, str(m.object_id))
+                    ent = await self._get_in_org(Entity, m.object_id)
+                    if ent is None:
+                        continue
                     tags = (getattr(ent, "tags", None) or [])[:max_tags_preview]
                     # Derive columns and sample from the POLICY-resolved data:
                     # on a user-scoped source the cached snapshot is the
@@ -106,7 +110,9 @@ class MentionContextBuilder:
                 elif m.type == MentionType.INSTRUCTION:
                     # Force-include the mentioned instruction/skill's full content
                     # regardless of load_mode / agent scoping (mirrors FILE).
-                    ins = await self.db.get(Instruction, str(m.object_id))
+                    ins = await self._get_in_org(Instruction, m.object_id)
+                    if ins is None:
+                        continue
                     item = {
                         "id": str(m.object_id),
                         "title": getattr(ins, "title", None) or m.mention_content,
@@ -142,6 +148,23 @@ class MentionContextBuilder:
             tree = await queryable_folder_tree(self.db, self.organization, self.user)
             folders = [{"id": fid, "name": folder_path(tree, fid)} for fid in dict.fromkeys(ids) if fid in tree]
         return MentionsSection(folders=folders[:max_items_per_group], files=files, data_sources=data_sources, tables=tables, entities=entities, instructions=instructions)
+
+    async def _get_in_org(self, model, object_id):
+        """Load a mentioned row only if it belongs to this run's organization.
+
+        A mention's object_id comes from the client, so an id is not proof the
+        row is the caller's organization's. Anything else is dropped.
+        """
+        org_id = getattr(self.organization, "id", None) or getattr(self.report, "organization_id", None)
+        if not org_id or not object_id:
+            return None
+        res = await self.db.execute(
+            select(model).where(
+                model.id == str(object_id),
+                model.organization_id == str(org_id),
+            )
+        )
+        return res.scalars().first()
 
     async def _resolve_table_mention(self, m: Mention, max_columns_preview: int) -> Optional[dict]:
         """Render a mentioned table only if this run's schema context shows it.

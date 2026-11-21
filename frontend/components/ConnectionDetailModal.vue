@@ -5,7 +5,7 @@
         <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-6 shrink-0" />
         <div class="min-w-0 flex-1">
           <h2 class="font-semibold text-gray-900 dark:text-white break-words">{{ connection?.name }}</h2>
-          <div v-if="headerStatus" class="access-meta flex flex-wrap items-center gap-x-1.5 mt-1 text-gray-500" role="status">
+          <div v-if="headerStatus" class="access-meta flex flex-wrap items-center gap-x-1.5 mt-1 text-ink-muted" role="status">
             <Spinner v-if="headerStatus === 'indexing'" class="w-3 h-3" />
             <span v-else class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(headerStatus)" />
             <span :class="{ 'text-red-600 dark:text-red-400': headerStatus === 'error' }">{{ $t(statusLabelKey(headerStatus)) }}</span>
@@ -16,10 +16,10 @@
       </header>
       <p v-if="headerStatus === 'error' && !canUpdateDataSource" class="access-meta mt-3 text-gray-600 dark:text-gray-400">{{ $t('data.contactConnectionAdmin') }}</p>
       <div class="access-meta mt-3 flex items-start gap-2" data-testid="connection-used-by">
-        <span class="shrink-0 text-gray-500">{{ $t('data.usedBy') }}</span>
+        <span class="shrink-0 text-ink-muted">{{ $t('data.usedBy') }}</span>
         <Spinner v-if="loadingAgents" class="w-3 h-3 mt-0.5 text-ink-muted" />
-        <span v-else-if="agentsError" class="text-gray-500">{{ $t('data.requestFailed') }}</span>
-        <span v-else-if="!accessibleAgents.length" class="text-gray-500">{{ $t('data.noAccessibleAgents') }}</span>
+        <span v-else-if="agentsError" class="text-ink-muted">{{ $t('data.requestFailed') }}</span>
+        <span v-else-if="!accessibleAgents.length" class="text-ink-muted">{{ $t('data.noAccessibleAgents') }}</span>
         <span v-else class="min-w-0 text-gray-700 dark:text-gray-300">
           <template v-for="(agent, i) in accessibleAgents" :key="agent.id"><span v-if="i">, </span><span class="inline-flex items-center gap-1 align-middle"><DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" :icon="agent.icon" class="w-3.5 h-3.5 shrink-0" /><span class="break-words">{{ agent.name }}</span></span></template>
         </span>
@@ -34,11 +34,11 @@
                 <input v-if="canChooseIdentity" type="radio" name="connection-query-identity" :value="option.value" :checked="queryIdentity === option.value" @change="setIdentity(option.value)" class="mt-0.5 h-4 w-4 shrink-0 accent-blue-500" />
                 <span class="min-w-0">
                   <span class="block text-gray-900 dark:text-gray-100">{{ option.label }}</span>
-                  <span class="access-meta block mt-0.5 text-gray-500">{{ option.description }}</span>
+                  <span class="access-meta block mt-0.5 text-ink-muted">{{ option.description }}</span>
                 </span>
               </component>
               <div v-if="option.value === 'self' && personalAccess" :class="{ 'ms-7': canChooseIdentity }">
-                <div v-if="!needsSignIn" class="access-meta flex flex-wrap mt-1.5 items-center gap-1.5 text-gray-500" role="status" data-testid="personal-access-status">
+                <div v-if="!needsSignIn" class="access-meta flex flex-wrap mt-1.5 items-center gap-1.5 text-ink-muted" role="status" data-testid="personal-access-status">
                   <Spinner v-if="accessStatus === 'indexing'" class="w-3 h-3" />
                   <span v-else class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(accessStatus)" />
                   <span :class="{ 'text-red-600 dark:text-red-400': accessStatus === 'error' }">{{ $t(statusLabelKey(accessStatus)) }}</span>
@@ -48,7 +48,7 @@
                   <button v-if="needsSignIn" @click="openCredentialsModal" :disabled="connecting || switchingIdentity" class="access-button bg-blue-600 text-white hover:bg-blue-700"><Spinner v-if="connecting" class="w-3.5 h-3.5" />{{ $t('data.signIn') }}</button>
                   <template v-else>
                     <button @click="reloadMySchema" :disabled="reloadingMySchema || isIndexingActive(indexingState) || switchingIdentity" class="access-button border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"><Spinner v-if="reloadingMySchema || isIndexingActive(indexingState)" class="w-3.5 h-3.5" />{{ reloadingMySchema || isIndexingActive(indexingState) ? $t('data.refreshing') : $t('data.refreshAccess') }}</button>
-                    <button @click="disconnect" :disabled="disconnecting || switchingIdentity" class="access-meta font-medium text-gray-500 hover:text-red-600 disabled:opacity-50">{{ disconnecting ? $t('data.disconnecting') : $t('data.signOut') }}</button>
+                    <button @click="disconnect" :disabled="disconnecting || switchingIdentity" class="access-meta font-medium text-ink-muted hover:text-red-600 disabled:opacity-50">{{ disconnecting ? $t('data.disconnecting') : $t('data.signOut') }}</button>
                   </template>
                 </div>
               </div>
@@ -236,7 +236,7 @@ const connectionAsDataSource = computed(() =>
 // the SQL-flavored enterprise sections (auto-reindex, rate limit). Distinct
 // from data_shape: OneDrive is files-shaped but still integration-managed.
 const _INTEGRATION_TYPES = [
-  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages',
+  'mcp', 'custom_api', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail', 'teams_messages', 'slack_messages',
 ]
 const isIntegrationManaged = computed(() => _INTEGRATION_TYPES.includes(props.connection?.type))
 

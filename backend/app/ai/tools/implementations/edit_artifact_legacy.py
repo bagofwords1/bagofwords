@@ -967,7 +967,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                 async with async_session_maker() as fresh_db:
                     _removed_rows = await fresh_db.execute(
                         select(Visualization.id, Visualization.title).where(
-                            Visualization.id.in_(list(removed_viz_ids))
+                            Visualization.id.in_(list(removed_viz_ids)),
+                            # Only this report's own visualizations are named.
+                            Visualization.report_id == report_id,
                         )
                     )
                     _found_removed = {str(rid): (rtitle or "Untitled") for rid, rtitle in _removed_rows.all()}

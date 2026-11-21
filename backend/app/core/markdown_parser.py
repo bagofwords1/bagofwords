@@ -1,5 +1,6 @@
 from pathlib import Path
 from collections import defaultdict
+from app.core.git_file_walker import repo_glob
 import logging
 import re
 import yaml
@@ -25,7 +26,7 @@ class MarkdownResourceExtractor:
 
     def extract_all_resources(self):
         """Extract all Markdown files from the project directory."""
-        markdown_files = list(self.project_dir.glob('**/*.md'))
+        markdown_files = repo_glob(self.project_dir, '**/*.md')
         
         for md_file in markdown_files:
             try:

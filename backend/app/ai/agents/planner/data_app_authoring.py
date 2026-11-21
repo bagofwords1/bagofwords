@@ -95,6 +95,30 @@ OUTPUT
 Supply complete, readable JSX in <script type="text/babel"> with function App()
 and ReactDOM.createRoot(document.getElementById('root')).render(<App />).
 Hooks run unconditionally at the top of components. Do not import libraries.
+Components, hooks and helpers are GLOBALS: write vizById(...), <KPICard .../>,
+useState(...) directly. No import, no export, and never take them from React or
+from bow (only SDK features such as bow.data and bow.records live on bow).
+
+MINIMAL WORKING PAGE - keep this skeleton; replace the uuid, fields and layout:
+<script type="text/babel">
+function App() {
+  const data = useArtifactData();            // null while loading
+  const sales = vizById("<viz uuid>");       // bind each dataset by its id
+  if (!data || !sales) return <LoadingSpinner />;
+  const rows = sales.rows || [];
+  const total = rows.reduce((sum, r) => sum + (Number(r.revenue) || 0), 0);
+  return (
+    <div className="p-6 space-y-6">
+      <PageHeader title="Revenue by genre" />
+      <KPICard title="Total revenue" value={fmt(total)} viz={sales} />
+      <SectionCard title="By genre">
+        <DataTable viz={sales} />
+      </SectionCard>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
 Name intermediate computations and keep statements readable for surgical edits.
 Existing dashboards retain their runtime, visual design and supported behavior
 on ordinary edits. Only redesign them when the user asks for a redesign.

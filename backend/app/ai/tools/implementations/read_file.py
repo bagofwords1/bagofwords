@@ -781,9 +781,13 @@ class ReadFileTool(Tool):
         )
         sheet_ref, sheet_name_id = _sheet_keys(data.file_id, data.sheet)
         version = None
+        # The cache is keyed on the connection the client was actually built
+        # for, never on the id string the model supplied (which resolves
+        # forgivingly and is not unique to a connection).
+        cache_conn_id = str(conn_obj.id) if getattr(conn_obj, "id", None) else None
         # Session files are already local + immutable — the connector cache
         # buys nothing and its keying assumes a connection id.
-        if not per_user and session_file is None:
+        if not per_user and session_file is None and cache_conn_id:
             try:
                 version = await client.afile_version(data.file_id)
             except GlobScopeError as e:
@@ -798,7 +802,7 @@ class ReadFileTool(Tool):
         # serving it back would defeat the model's explicit request. The fresh
         # image render then overwrites the entry below.
         if version and not data.as_images:
-            cached = _file_cache.read(data.connection_id, sheet_ref, version)
+            cached = _file_cache.read(cache_conn_id, sheet_ref, version)
             # Never serve a TRUNCATED render from cache: the cached text is
             # frozen at the caps of whichever call populated it, so (a) a
             # retry asking for more (bigger max_chars/max_rows) would get the
@@ -1079,7 +1083,7 @@ class ReadFileTool(Tool):
                              "image_file_ids", "preview")
             }
             _file_cache.write(
-                data.connection_id, sheet_ref, version,
+                cache_conn_id, sheet_ref, version,
                 rendered=cache_rendered, image_pngs=image_pngs, pages_total=pages_total,
             )
 

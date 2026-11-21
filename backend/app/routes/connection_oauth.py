@@ -129,6 +129,14 @@ async def _ensure_connection_access(
 ) -> None:
     """Raise 403 if the user doesn't have access to this connection."""
     from app.routes.connection import _user_can_access_connection, _is_org_admin, _can_manage_connection
+    from app.core.permission_resolver import principal_belongs_to_org
+    # These routes carry no X-Organization-Id (the callback is a provider
+    # redirect), so the organization comes from the connection itself: the
+    # caller must be bound to it. Answered like an unknown id.
+    if not connection.organization_id or not await principal_belongs_to_org(
+        db, user, connection.organization_id
+    ):
+        raise HTTPException(status_code=404, detail="Connection not found")
     org = connection.organization
     is_admin = await _is_org_admin(db, user, org) if org else False
     if is_admin:
@@ -248,7 +256,11 @@ async def oauth_authorize(
         params["access_type"] = "offline"
         params["prompt"] = "consent"
     # Only send a scope when we actually have one (Notion DCR issues no scopes).
-    if oauth_params.get("scopes"):
+    if oauth_params.get("provider_name") == "slack":
+        # Slack's v2 flow takes USER scopes as a comma-separated `user_scope`;
+        # `scope` is for bot scopes and would mint a bot token instead.
+        params["user_scope"] = oauth_params["scopes"]
+    elif oauth_params.get("scopes"):
         params["scope"] = _normalize_scopes(oauth_params["scopes"])
     # RFC 8707 resource indicator — audience-bind the token to the MCP server.
     if oauth_params.get("audience"):

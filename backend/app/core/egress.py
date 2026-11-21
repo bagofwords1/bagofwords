@@ -718,7 +718,7 @@ async def open_pinned_socket(
 CONNECTION_HOST_KEYS = ("host", "hostname", "server", "server_hostname")
 CONNECTION_URL_KEYS = (
     "url", "base_url", "server_url", "site_url", "instance_url", "api_url",
-    "cluster_url", "endpoint_url", "sts_endpoint_url",
+    "cluster_url", "endpoint_url", "sts_endpoint_url", "ews_url",
     # OAuth token endpoints the backend POSTs client secrets to (SAP Datasphere,
     # custom OAuth APIs) are egress targets like any other server URL.
     "token_url",
@@ -727,6 +727,77 @@ CONNECTION_URL_KEYS = (
 # "login" / "acme" or a full host), or that only one connector uses (Neo4j's
 # ``uri``, neo4j+s://host:7687).
 _TYPE_HOST_KEYS = {"salesforce": ("domain",), "neo4j": ("uri",)}
+# Destination fields whose names are too generic to check for every connector
+# (``endpoint``, ``uri``, ``connection_string``): declared per type. Each
+# value is a host, a URL or a host list in a form ``hosts_in`` reads.
+_TYPE_DESTINATION_KEYS = {
+    "cosmosdb": ("endpoint",),
+    "couchbase": ("connection_string",),
+    "iceberg": ("uri", "s3_endpoint", "oauth2_server_uri"),
+    "azure_blob": ("account_url",),
+}
+
+
+def _azure_connection_string_hosts(value: str) -> list[str]:
+    """Hosts an Azure Storage connection string points at: explicit
+    ``*Endpoint=`` URLs and the account under a custom ``EndpointSuffix``."""
+    parts: dict[str, str] = {}
+    for item in str(value or "").split(";"):
+        k, sep, v = item.partition("=")
+        if sep and k.strip():
+            parts[k.strip().lower()] = v.strip()
+    out: list[str] = []
+    for k, v in parts.items():
+        if k.endswith("endpoint"):
+            out.extend(h for h in hosts_in(v) if h not in out)
+    suffix, account = parts.get("endpointsuffix"), parts.get("accountname")
+    if suffix and account:
+        out.append(f"{account}.blob.{suffix}")
+    return out
+
+
+def _kubernetes_access_file_hosts(value: str) -> list[str]:
+    """API servers named by a cluster access file (``server: https://…``)."""
+    import re
+
+    out: list[str] = []
+    for server in re.findall(r"""(?im)^[\s-]*["']?server["']?\s*:\s*["']?([^\s"',}]+)""", str(value or "")):
+        out.extend(h for h in hosts_in(server) if h not in out)
+    return out
+
+
+# SQL Server: extra ODBC keywords that name another server (a mirroring
+# partner, an alias of SERVER). Values look like ``host``, ``host,1433``,
+# ``tcp:host,1433`` or ``host\\instance``.
+_MSSQL_HOST_PARAMS = ("failoverpartner", "failover_partner", "failover partner", "addr", "address")
+
+
+def _mssql_additional_param_hosts(value: Any) -> list[str]:
+    import re
+
+    out: list[str] = []
+    if not isinstance(value, dict):
+        return out
+    for key, v in value.items():
+        if str(key).strip().lower() not in _MSSQL_HOST_PARAMS:
+            continue
+        host = re.split(r"[,\\\\]", str(v or "").strip(), maxsplit=1)[0].strip()
+        host = re.sub(r"^(tcp|np|lpc|admin):", "", host, flags=re.I)
+        if host and host not in out:
+            out.append(host)
+    return out
+
+
+# Fields that carry a destination inside a larger document.
+_TYPE_HOST_EXTRACTORS = {
+    "azure_blob": {"connection_string": _azure_connection_string_hosts},
+    "kubernetes": {"access_file": _kubernetes_access_file_hosts},
+    "MSSQL": {"additional_params": _mssql_additional_param_hosts},
+}
+
+# A Snowflake account identifier becomes part of the host name the driver
+# dials (<account>.snowflakecomputing.com): it may only be an identifier.
+_SNOWFLAKE_ACCOUNT_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
 def hosts_in(value: Any) -> list[str]:
@@ -762,11 +833,16 @@ def connection_hosts(conn_type: Optional[str], params: Optional[dict]) -> list[s
     params = params or {}
     keys = [(k, False) for k in CONNECTION_HOST_KEYS + CONNECTION_URL_KEYS]
     keys += [(k, True) for k in _TYPE_HOST_KEYS.get(conn_type or "", ())]
+    keys += [(k, False) for k in _TYPE_DESTINATION_KEYS.get(conn_type or "", ())]
     for key, only_full in keys:
         v = params.get(key)
         if not isinstance(v, str) or (only_full and "." not in v and "://" not in v):
             continue
         out.extend(h for h in hosts_in(v) if h not in out)
+    for key, extract in _TYPE_HOST_EXTRACTORS.get(conn_type or "", {}).items():
+        v = params.get(key)
+        if isinstance(v, (str, dict)):
+            out.extend(h for h in extract(v) if h not in out)
     return out
 
 
@@ -775,6 +851,10 @@ def check_connection_params(
 ) -> None:
     """Admin-tier check of every host a connector config names. Unresolvable
     hosts pass (the driver fails them itself). Raises ``UnsafeURLError``."""
+    if conn_type == "snowflake":
+        account = (params or {}).get("account")
+        if isinstance(account, str) and not set(account.strip()) <= _SNOWFLAKE_ACCOUNT_CHARS:
+            raise UnsafeURLError("The Snowflake account identifier contains characters that are not allowed.")
     for host in connection_hosts(conn_type, params):
         check_host(host, policy, require_resolution=False)
 

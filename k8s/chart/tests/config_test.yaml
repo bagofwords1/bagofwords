@@ -175,3 +175,95 @@ tests:
       - equal:
           path: data.FORWARDED_ALLOW_IPS
           value: "10.0.0.0/8,192.168.1.5"
+
+  - it: renders no multi-organization settings by default
+    asserts:
+      - notExists:
+          path: data.BOW_SUPERUSER_EMAILS
+      - notMatchRegex:
+          path: data.bowConfig
+          pattern: "security:"
+      - notMatchRegex:
+          path: data.bowConfig
+          pattern: "org_mapping|trust_email_for_linking"
+
+  - it: passes instance administrators through as BOW_SUPERUSER_EMAILS
+    set:
+      config.superuserEmails:
+        - it-admin@example.com
+        - platform@example.com
+    asserts:
+      - equal:
+          path: data.BOW_SUPERUSER_EMAILS
+          value: "it-admin@example.com,platform@example.com"
+
+  - it: writes the security settings into bow-config as given
+    set:
+      config.security:
+        block_private_outbound: true
+        organization_file_roots:
+          org-1: ["/mnt/finance"]
+    asserts:
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^security:$'
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^  block_private_outbound: true$'
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^  organization_file_roots:\s+org-1:\s+- /mnt/finance$'
+
+  - it: renders an identity provider's organization mapping in both forms
+    set:
+      config.oidcProviders:
+        - name: entra
+          issuer: https://login.example.com/tenant/v2.0
+          clientId: abc
+          clientSecret: "${BOW_OIDC_ENTRA_CLIENT_SECRET}"
+          trustEmailForLinking: false
+          orgMapping:
+            - group: 5d1f8a52-0c11-4d6f-9a3e-6f0f6f1a0001
+              organization: Finance
+            - group: Finance Leads
+              organization: Finance
+              role: admin
+            - "5d1f8a52-0c11-4d6f-9a3e-6f0f6f1a0002:HR:member"
+    asserts:
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^    trust_email_for_linking: false$'
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^    org_mapping:\s+- group: "5d1f8a52-0c11-4d6f-9a3e-6f0f6f1a0001"\s+organization: "Finance"\s+role: "member"$'
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^      - group: "Finance Leads"\s+organization: "Finance"\s+role: "admin"$'
+      - matchRegex:
+          path: data.bowConfig
+          pattern: '(?m)^      - "5d1f8a52-0c11-4d6f-9a3e-6f0f6f1a0002:HR:member"$'
+
+  - it: leaves email linking to the automatic rule when it is not set
+    set:
+      config.oidcProviders:
+        - name: okta
+          issuer: https://example.okta.com/oauth2/default
+          clientId: abc
+          clientSecret: "${BOW_OIDC_OKTA_CLIENT_SECRET}"
+    asserts:
+      - notMatchRegex:
+          path: data.bowConfig
+          pattern: "org_mapping|trust_email_for_linking"
+
+  - it: refuses a mapping rule without an organization
+    set:
+      config.oidcProviders:
+        - name: entra
+          issuer: https://login.example.com/tenant/v2.0
+          clientId: abc
+          clientSecret: "${BOW_OIDC_ENTRA_CLIENT_SECRET}"
+          orgMapping:
+            - group: some-group
+    asserts:
+      - failedTemplate:
+          errorMessage: "config.oidcProviders[].orgMapping[].organization is required"

@@ -363,11 +363,11 @@ class OpenAi(LLMClient):
 
         # OpenAI surfaces cache hits via prompt_tokens_details.cached_tokens,
         # inside prompt_tokens. Caching is automatic on prefixes >= 1024 tokens
-        # and OpenAI has no write concept. A gateway fronting Claude (LiteLLM)
+        # and newer models also report billed writes by TTL. A Claude gateway
         # also reports the cache write it billed — cache_creation_tokens in the
         # details, or Anthropic's own field name at the top level — and the
         # TTL split behind it.
-        details = _sub("prompt_tokens_details")
+        details = _sub("prompt_tokens_details") or _sub("input_tokens_details")
         cache_read = details.get("cached_tokens") or 0
         cache_write = (details.get("cache_creation_tokens") or details.get("cache_write_tokens")
                        or raw.get("cache_creation_input_tokens") or 0)
@@ -375,18 +375,23 @@ class OpenAi(LLMClient):
         ttl = _as_dict(ttl) if ttl is not None else {}
         write_1h = int(ttl.get("ephemeral_1h_input_tokens") or 0)
         write_5m = int(ttl.get("ephemeral_5m_input_tokens") or 0)
-        if cache_write and not (write_5m or write_1h):
+        openai_writes = _as_dict(details.get("cache_write_tokens_details"))
+        write_12h = int(openai_writes.get("ttl_12h_tokens") or 0)
+        if openai_writes:
+            cache_write = cache_write or int(openai_writes.get("ttl_30m_tokens") or 0) + write_12h
+        if cache_write and not (write_5m or write_1h or openai_writes):
             write_5m = int(cache_write)  # no TTL split: the cheaper, default TTL
         # Reasoning tokens ride inside completion_tokens and bill at the
         # output rate; tracked separately so thinking spend is attributable.
-        reasoning = _sub("completion_tokens_details").get("reasoning_tokens") or 0
+        reasoning = (_sub("completion_tokens_details") or _sub("output_tokens_details")).get("reasoning_tokens") or 0
         return LLMUsage(
-            prompt_tokens=int(raw.get("prompt_tokens") or raw.get("prompt_tokens_cost") or 0),
-            completion_tokens=int(raw.get("completion_tokens") or raw.get("completion_tokens_cost") or 0),
+            prompt_tokens=int(raw.get("prompt_tokens") or raw.get("input_tokens") or raw.get("prompt_tokens_cost") or 0),
+            completion_tokens=int(raw.get("completion_tokens") or raw.get("output_tokens") or raw.get("completion_tokens_cost") or 0),
             cache_read_tokens=int(cache_read),
             cache_creation_tokens=int(cache_write),
             cache_write_5m_tokens=write_5m,
             cache_write_1h_tokens=write_1h,
+            cache_write_12h_tokens=write_12h,
             reasoning_tokens=int(reasoning),
         )
 
@@ -699,6 +704,7 @@ class OpenAi(LLMClient):
             cache_creation_tokens=final_usage.cache_creation_tokens,
             cache_write_5m_tokens=final_usage.cache_write_5m_tokens,
             cache_write_1h_tokens=final_usage.cache_write_1h_tokens,
+            cache_write_12h_tokens=final_usage.cache_write_12h_tokens,
             reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
@@ -708,5 +714,6 @@ class OpenAi(LLMClient):
             cache_creation_tokens=final_usage.cache_creation_tokens,
             cache_write_5m_tokens=final_usage.cache_write_5m_tokens,
             cache_write_1h_tokens=final_usage.cache_write_1h_tokens,
+            cache_write_12h_tokens=final_usage.cache_write_12h_tokens,
             reasoning_tokens=reasoning_tokens,
         ))

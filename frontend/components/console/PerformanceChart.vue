@@ -20,7 +20,7 @@
                 <div v-else-if="!chartOptions" class="flex items-center justify-center h-full">
                     <div class="text-center">
                         <div class="text-ink-muted text-sm">No performance data available</div>
-                        <div class="text-gray-300 dark:text-gray-600 text-xs mt-1">No activity with performance metrics found</div>
+                        <div class="text-ink-muted text-xs mt-1">No activity with performance metrics found</div>
                     </div>
                 </div>
                 <VChart

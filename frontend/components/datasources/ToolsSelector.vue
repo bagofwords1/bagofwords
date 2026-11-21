@@ -139,7 +139,7 @@
                 @click="bulkSetEnabled(conn.id, false)"
               >{{ $t('toolsSelector.bulkDisable') }}</button>
               <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
-              <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
+              <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.adminPolicy') }}</span>
               <select
                 :value="''"
                 :disabled="bulkBusy"
@@ -162,7 +162,7 @@
               >{{ $t('toolsSelector.reset') }}</button>
             </template>
             <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
-            <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.myPolicy') }}</span>
+            <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.myPolicy') }}</span>
             <select
               :value="''"
               :disabled="bulkBusy"
@@ -226,7 +226,7 @@
                   data-testid="tool-http-path"
                 >{{ tool.metadata.path }}</code>
                 <span v-if="!tool.is_enabled" class="text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">off</span>
-                <span v-if="canUpdate && !tool.has_overlay" class="text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500" title="Inherits connection default">default</span>
+                <span v-if="canUpdate && !tool.has_overlay" class="text-2xs px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-500 dark:text-blue-300" title="Inherits connection default">default</span>
               </button>
               <span class="text-2xs text-ink-muted truncate min-w-0">{{ tool.description }}</span>
               <div class="flex items-center gap-2 ms-auto flex-shrink-0">
@@ -243,7 +243,7 @@
                 />
                 <!-- Admin policy: editable for agent admins, read-only badge otherwise -->
                 <div class="flex items-center gap-1" :title="$t('toolsSelector.adminPolicyTip')">
-                  <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.adminPolicy') }}</span>
+                  <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.adminPolicy') }}</span>
                   <select
                     v-if="canUpdate"
                     :value="tool.policy"
@@ -269,7 +269,7 @@
                 >{{ $t('toolsSelector.reset') }}</button>
                 <!-- Per-user policy: every member controls their own -->
                 <div v-if="tool.policy !== 'deny'" class="flex items-center gap-1" :title="$t('toolsSelector.myPolicyTip')">
-                  <span class="text-2xs uppercase tracking-wide text-gray-300 dark:text-gray-600">{{ $t('toolsSelector.myPolicy') }}</span>
+                  <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('toolsSelector.myPolicy') }}</span>
                   <select
                     :value="tool.user_policy || ''"
                     @change="(e: Event) => setMyPolicy(conn.id, tool.id, (e.target as HTMLSelectElement).value)"
@@ -306,7 +306,7 @@
                     :key="pname"
                     class="flex items-baseline gap-2 text-xs"
                   >
-                    <code class="text-2xs text-blue-700 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded">{{ pname }}</code>
+                    <code class="text-2xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded">{{ pname }}</code>
                     <span class="text-ink-muted">{{ prop.type || 'any' }}</span>
                     <span v-if="(tool.input_schema.required || []).includes(pname)" class="text-2xs text-red-400">required</span>
                     <span v-if="prop.description" class="text-gray-500 dark:text-gray-400 truncate">— {{ prop.description }}</span>

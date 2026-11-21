@@ -1,3 +1,4 @@
+from app.ai.llm.pii.context import pii_context
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
@@ -171,11 +172,11 @@ class Planner:
         {build_language_directive(self.organization_settings)}
         **General Organization Instructions**:
         **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
-        {instructions_context}
+        {pii_context(instructions_context)}
 
         **Context**:
         - **Schemas**:
-        {schemas}
+        {pii_context(schemas)}
 
         - **Previous messages**:
         {previous_messages}

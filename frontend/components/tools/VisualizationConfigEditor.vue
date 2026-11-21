@@ -408,7 +408,7 @@
               <input v-model="local.comparisonLabel" placeholder="e.g. vs last period" class="w-full border rounded px-2 py-1" />
             </div>
             <label class="flex items-center space-x-2 text-xs">
-              <input type="checkbox" v-model="local.invertTrend" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <input type="checkbox" v-model="local.invertTrend" class="rounded border-line-strong text-blue-600 focus:ring-blue-500" />
               <span class="text-gray-600 dark:text-gray-400">Invert trend (down is good)</span>
             </label>
           </div>
@@ -417,7 +417,7 @@
         <!-- Sparkline section -->
         <div class="border-t pt-3 mt-3">
           <label class="flex items-center space-x-2 text-xs mb-2">
-            <input type="checkbox" v-model="local.sparklineEnabled" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <input type="checkbox" v-model="local.sparklineEnabled" class="rounded border-line-strong text-blue-600 focus:ring-blue-500" />
             <span class="text-gray-600 dark:text-gray-400 font-medium">Enable Sparkline</span>
           </label>
 
@@ -509,13 +509,13 @@
           <div class="space-y-2">
             <!-- Legend - show for chart types that support it -->
             <label v-if="isType(['bar_chart','line_chart','area_chart','pie_chart','radar_chart'])" class="flex items-center space-x-2 text-xs">
-              <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <input type="checkbox" v-model="local.legendVisible" class="rounded border-line-strong text-blue-600 focus:ring-blue-500" />
               <span class="text-gray-600 dark:text-gray-400">Show Legend</span>
             </label>
 
             <div v-if="isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="space-y-2">
               <label class="flex items-center space-x-2 text-xs">
-                <input type="checkbox" v-model="local.xAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <input type="checkbox" v-model="local.xAxisVisible" class="rounded border-line-strong text-blue-600 focus:ring-blue-500" />
                 <span class="text-gray-600 dark:text-gray-400">Show X Axis</span>
               </label>
 
@@ -552,7 +552,7 @@
               </div>
 
               <label class="flex items-center space-x-2 text-xs">
-                <input type="checkbox" v-model="local.yAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <input type="checkbox" v-model="local.yAxisVisible" class="rounded border-line-strong text-blue-600 focus:ring-blue-500" />
                 <span class="text-gray-600 dark:text-gray-400">Show Y Axis</span>
               </label>
 
@@ -571,7 +571,7 @@
             </div>
 
             <label v-if="isType(['bar_chart','line_chart','area_chart'])" class="flex items-center space-x-2 text-xs">
-              <input type="checkbox" v-model="local.showGrid" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <input type="checkbox" v-model="local.showGrid" class="rounded border-line-strong text-blue-600 focus:ring-blue-500" />
               <span class="text-gray-600 dark:text-gray-400">Show Grid lines</span>
             </label>
           </div>

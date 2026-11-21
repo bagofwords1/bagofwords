@@ -26,6 +26,19 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   ssr: false,
 
+  // Security (CVE-2026-128070 / SNYK-JS-NUXTSCHEMA-22552450 + -22552451):
+  // @nuxt/schema's findWorkspaceDir can resolve the workspace root to a PARENT
+  // directory (triggered by a stray lockfile or settings-only workspace file
+  // above the package), and Nuxt then adds that wider tree to the Vite dev
+  // server's file-system allow-list — letting `nuxt dev`, when reachable from
+  // an untrusted network, serve files from it via `/_nuxt/@fs/`. Pinning the
+  // workspace to this frontend package is the advisory's own non-breaking
+  // mitigation (the upstream fix is the Nuxt 4 upgrade, deferred — see .snyk).
+  // Production is unaffected: it ships a static `nuxt generate` .output served
+  // by FastAPI, with no Vite dev server. Paired with `vite.server.fs.allow`
+  // (['.'] + optional node_modules) below for defence in depth.
+  workspaceDir: typeof __dirname !== "undefined" ? __dirname : process.cwd(),
+
   modules: [
     "@nuxt/ui",
     "@sidebase/nuxt-auth",
@@ -97,6 +110,7 @@ export default defineNuxtConfig({
     // after it.
     '~/assets/css/tokens.css',
     '~/assets/css/instruction-prose.css',
+    '~/assets/css/chat-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
     '~/assets/css/data-table.css',

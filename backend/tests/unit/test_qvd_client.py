@@ -187,7 +187,7 @@ def test_convert_streaming_cancels_midway(tmp_path, monkeypatch):
 
     out = tmp_path / "out.parquet"
     with pytest.raises(IndexingCancelled):
-        c._run_convert_streaming(
+        c.convert_to_parquet(
             str(_FIXTURE), out, cancel_check=cancel_after_a_bit,
         )
     assert not out.exists(), "cancelled convert must not leave output"

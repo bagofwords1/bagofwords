@@ -9,6 +9,8 @@ branch_labels = depends_on = None
 
 
 def upgrade():
+    if sa.inspect(op.get_bind()).has_table("folder_execution_agents"):
+        return
     op.add_column("agent_executions", sa.Column("starting_folder_id", sa.String(36)))
     op.create_table(
         "folder_execution_agents",

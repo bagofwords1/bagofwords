@@ -168,6 +168,9 @@ class ConversationTraceResponse(BaseModel):
     total_llm_cost_usd: Optional[float] = None
     turns: List[ConversationTurnSchema] = []
     checkins: List[CheckinTraceSchema] = []
+    # Turns withheld from a scoped agent manager: the first turn that reached an
+    # agent they don't manage, and every turn after it (its context carries it).
+    hidden_turns: int = 0
 
 
 

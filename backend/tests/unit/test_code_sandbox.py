@@ -206,6 +206,28 @@ def generate_df(ds_clients, excel_files):
     assert parent != os.getpid()
 
 
+def test_fork_server_preloads_what_every_child_run_imports():
+    """Every data run calls `invoke_generate_df`, which imports `query_params`
+    (and pydantic through `param_schema`). The fork server loads it once so a
+    forked child does not pay that import on every step run. It must still
+    load nothing that reaches the database."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys\n"
+        "import app.ai.code_execution.sandbox.zygote\n"
+        "print('app.ai.code_execution.query_params' in sys.modules,"
+        " 'sqlalchemy' in sys.modules)\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-c", probe],
+        cwd=str(Path(__file__).resolve().parents[2]),
+        capture_output=True, text=True, timeout=60, check=True,
+    ).stdout.split()
+    assert out == ["True", "False"]
+
+
 def test_spawn_fallback_when_fork_server_is_disabled(monkeypatch):
     from app.ai.code_execution.sandbox import runner as r
 
@@ -382,14 +404,18 @@ def generate_df(ds_clients, excel_files):
 def test_abort_before_the_query_thread_registers_still_cancels_the_query(monkeypatch):
     # The runner's abort thread and the wrapper's query thread race at job
     # cancellation. If the abort lands before the query thread is running,
-    # it must be remembered and honoured once the thread starts, not lost.
+    # it must be remembered and honoured, not lost: the statement is never
+    # handed to the source at all (nothing to cancel there).
     from app.data_sources import query_cancellation
+    from app.data_sources.query_executions import QueryRunStoppedError
 
     released = threading.Event()
     cancelled = threading.Event()
+    called = threading.Event()
 
     class Client:
         def execute_query(self, query):
+            called.set()
             released.wait(timeout=10)
             return pd.DataFrame({"ok": [1]})
 
@@ -405,8 +431,9 @@ def test_abort_before_the_query_thread_registers_still_cancels_the_query(monkeyp
     wrapper = QueryCapturingClientWrapper(client, [], [], query_timeout_seconds=30)
     wrapper.cancel_active_query()  # abort arrives first: nothing is running yet
     assert not cancelled.is_set()
-    df = wrapper.execute_query("SELECT 1")  # the query path picks the abort up itself
-    assert cancelled.is_set() and df["ok"].tolist() == [1]
+    with pytest.raises(QueryRunStoppedError):
+        wrapper.execute_query("SELECT 1")  # the query path picks the abort up itself
+    assert not called.is_set()
 
     # And the ordinary order still works: a running query is cancelled directly.
     released.clear()

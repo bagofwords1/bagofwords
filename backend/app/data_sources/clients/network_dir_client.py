@@ -112,12 +112,21 @@ def _is_within(path: Path, base: Path) -> bool:
         return False
 
 
-def check_network_dir_root(root_path: str) -> Path:
+def check_network_dir_root(
+    root_path: str, organization_id: Optional[str] = None, organization_rules: bool = True
+) -> Path:
     """Resolve ``root_path`` (all symlinks followed) and refuse roots outside
     policy. Raises ValueError. With ``security.network_dir_allowed_roots`` set
     the realpath must be inside one listed prefix; unset, system and app
-    directories are refused (see ``_SYSTEM_DIRS``)."""
+    directories are refused (see ``_SYSTEM_DIRS``). An organization the
+    operator gave its own roots (``security.organization_file_roots``) must
+    also stay inside those; ``organization_id`` defaults to the organization
+    of the current request."""
     root = Path(root_path).expanduser().resolve()
+    if organization_rules:
+        from app.data_sources.clients._duckdb_lockdown import check_organization_roots
+
+        check_organization_roots(root, organization_id)
     allowed = None
     try:
         from app.settings.config import settings
@@ -148,6 +157,7 @@ class NetworkDirClient(DataSourceClient):
     # offered in the catalog whenever a network_dir is attached. A read-only
     # instance narrows `self.capabilities` in __init__ so the runtime capability
     # check (resolve_file_client) still rejects writes.
+    sql_literal_style = "standard"
     capabilities = {
         Capability.LIST_FILES,
         Capability.READ_FILE,
@@ -168,6 +178,16 @@ class NetworkDirClient(DataSourceClient):
     # (``Connection.get_client`` → ``ClientClass(**config)``), so any keyword
     # here would be reachable from a user-saved network_dir connection.
     _root_policy_exempt = False
+
+    @classmethod
+    def capabilities_for_config(cls, config):
+        if isinstance(config, str):
+            config = json.loads(config)
+        config = config or {}
+        mode = normalize_index_mode(config.get("index_mode"), index_content_legacy=config.get("index_content"))
+        if not cls._root_policy_exempt and mode in CONTENT_INDEX_MODES:
+            return cls.capabilities | {Capability.QUERY}
+        return cls.capabilities
 
     @classmethod
     def for_app_owned_dir(cls, root_path: str, **kwargs) -> NetworkDirClient:
@@ -205,7 +225,9 @@ class NetworkDirClient(DataSourceClient):
         super().__init__()
         self.root_path = (root_path or "").strip()
         if self.root_path:
-            self._checked_root()
+            # The owning organization is bound after construction; its
+            # directory assignment is checked on first use (`_checked_root`).
+            self._checked_root(organization_rules=False)
         self.allowed_extensions = self._parse_exts(allowed_extensions)
         # Include-globs scope the connection to matching files AND act as an
         # access boundary enforced in `_resolve` (a read of a real-but-off-glob
@@ -231,6 +253,9 @@ class NetworkDirClient(DataSourceClient):
             Capability.SEARCH_FILES,
             Capability.GREP_FILES,
         }
+        self.index_file_tables = self.index_content and not self._root_policy_exempt
+        if self.index_file_tables:
+            self.capabilities.add(Capability.QUERY)
         if self.writable:
             self.capabilities = self.capabilities | {Capability.WRITE_FILE}
 
@@ -267,17 +292,27 @@ class NetworkDirClient(DataSourceClient):
         except Exception:
             return ()
 
-    def _checked_root(self) -> Path:
+    def _checked_root(self, organization_rules: bool = True) -> Path:
         """Resolve ``root_path`` through the connection-root policy, or only
         through the filesystem for an app-owned root (``for_app_owned_dir``)."""
         if self._root_policy_exempt:
             return Path(self.root_path).expanduser().resolve()
         real = os.path.realpath(os.path.expanduser(self.root_path))
-        allowed = self._allowed_roots_key()
+        if not organization_rules:
+            return check_network_dir_root(self.root_path, organization_rules=False)
+        from app.data_sources.clients import _duckdb_lockdown as lockdown
+
+        organization_id = getattr(self, "_bow_organization_id", None)
+        assignments = lockdown._security_setting("organization_file_roots") or {}
+        allowed = (
+            self._allowed_roots_key(),
+            tuple(sorted((k, tuple(v)) for k, v in assignments.items())),
+            lockdown._organization_id(organization_id),
+        )
         cached = self._root_checked
         if cached and cached[0] == real and cached[1] == allowed:
             return cached[2]
-        root = check_network_dir_root(self.root_path)
+        root = check_network_dir_root(self.root_path, organization_id)
         self._root_checked = (real, allowed, root)
         return root
 
@@ -948,7 +983,13 @@ class NetworkDirClient(DataSourceClient):
     def description(self) -> str:
         scope = self.root_path or "(unconfigured)"
         mode = "read/write" if self.writable else "read-only"
-        return f"Network directory {scope} ({mode})"
+        sql = (
+            " Use execute_query with DuckDB SELECT or DESCRIBE for indexed captures and QVDs. "
+            "Query indexed_files for file_id, table_name, status and reason. "
+            "Report pending, failed, or truncated coverage when reporting totals. Discover fields with duckdb_columns() filtered by table_name and column_name. "
+            "packets contains frames from ready captures; quote dotted protocol fields and UNNEST repeated values."
+        ) if self.index_file_tables else ""
+        return f"Network directory {scope} ({mode}).{sql}"
 
     @property
     def is_document_based(self) -> bool:
@@ -1016,11 +1057,17 @@ class NetworkDirClient(DataSourceClient):
         """
         from app.data_sources.clients.progress import make_reporter
 
+        from app.data_sources.clients import _network_dir_tables as derived
+
+        cache_owner = getattr(self, "_bow_connection_id", None) or self.root_path
         if self.index_mode == INDEX_NONE:
+            derived.forget_versions(cache_owner, prior_catalog, set())
             # Live mode: nothing is cached; the tool layer lists/reads directly.
             return []
-        root = self._root()
         files = self.list_files(recursive=self.recursive)
+        schemas_by_table = {}
+        current_versions = set()
+        self.pending_file_conversions = False
         reporter = make_reporter(progress_callback)
         reporter.phase("indexing files", total=len(files))
         tables: List[Table] = []
@@ -1037,7 +1084,33 @@ class NetworkDirClient(DataSourceClient):
                 f"File '{f['name']}' (type: {f.get('mime_type') or _ext(f['name']) or 'unknown'})."
             )
             fulltext = self.index_mode == INDEX_FULLTEXT and section_sink is not None
-            if fulltext:
+            if self.index_file_tables and _ext(name) in derived.EXTENSIONS:
+                try:
+                    source = derived.Source.resolve(self, name)
+                    if not getattr(self, "defer_file_conversion", False):
+                        source.prepare(self, lambda: reporter.item(name, done=len(tables)))
+                    source = derived.Source.resolve(self, name)
+                    status, reason = source.status()
+                    if status != "ready" and not source.too_large:
+                        self.pending_file_conversions = True
+                    meta.update(sql_table=source.table_name, status=status, reason=reason,
+                                cache_version=source.artifact.stem)
+                    current_versions.add(source.artifact.stem)
+                    schemas = schemas_by_table.setdefault(source.table_name, [])
+                    if fulltext:
+                        version = f"{f.get('size')}:{f.get('modified_at')}"
+                        if not section_sink.is_current(name, version):
+                            section_sink.write(name, name, version,
+                                               FileSections([name_section(name)], status="no_text"))
+                    description += f" SQL table {source.table_name}: {status}."
+                    if status == "ready":
+                        schema = source.schema()
+                        schemas.append(schema)
+                except IndexingCancelled:
+                    raise
+                except (OSError, ValueError) as exc:
+                    meta.update(status="failed", reason=str(exc))
+            elif fulltext:
                 meta["index_version"] = 2
                 version = f"{f.get('size')}:{f.get('modified_at')}"
                 if section_sink.is_current(f["id"], version):
@@ -1122,6 +1195,20 @@ class NetworkDirClient(DataSourceClient):
             # Per-file progress tick — also the cancel checkpoint: the runner's
             # callback raises IndexingCancelled here once a cancel is requested.
             reporter.tick(f["id"])
+        if not self._last_walk_truncated:
+            derived.forget_versions(cache_owner, prior_catalog, current_versions)
+        if schemas_by_table:
+            by_name = {t.name: t for t in tables}
+            for relation in derived.catalog_relations(schemas_by_table):
+                if relation.name == "indexed_files":
+                    relation.metadata_json["catalog_capped"] = self._last_walk_truncated
+                # An extensionless real file may also be named "packets".
+                # Retain both the file metadata and the SQL schema on that row.
+                if relation.name in by_name:
+                    relation.metadata_json.update(by_name[relation.name].metadata_json)
+                    tables[tables.index(by_name[relation.name])] = relation
+                else:
+                    tables.append(relation)
         reporter.done()
         if section_sink is not None and self.index_mode == INDEX_FULLTEXT:
             section_sink.walk_truncated = bool(self._last_walk_truncated)
@@ -1145,8 +1232,11 @@ class NetworkDirClient(DataSourceClient):
         tables = self.get_schemas()
         if not tables:
             return "No files available in the configured directory."
-        lines = [f"Available files ({len(tables)}):"]
+        lines = [f"Directory catalog ({len(tables)} entries):"]
         for t in tables:
+            if (t.metadata_json or {}).get("network_dir_relation"):
+                lines.append(f"- {t.name} (SQL table). {t.description}")
+                continue
             meta = (t.metadata_json or {}).get("network_dir", {})
             lines.append(f"- {t.name} ({meta.get('mime_type') or 'file'})")
         return "\n".join(lines)
@@ -1154,7 +1244,7 @@ class NetworkDirClient(DataSourceClient):
     def execute_query(
         self, query: Optional[str] = None, table_name: Optional[str] = None, **kwargs
     ):
-        """Document-based read: `table_name` or `query` names a file to read."""
+        """Read a file by id or run a read-only query against indexed tables."""
         if isinstance(query, str) and query.strip().startswith("{"):
             try:
                 spec = json.loads(query)
@@ -1166,5 +1256,23 @@ class NetworkDirClient(DataSourceClient):
         if table_name:
             return self.read_file(table_name, sheet=kwargs.get("sheet"))
         if query:
+            if self.index_file_tables:
+                # Preserve the historical file-id form, including SQL-looking names.
+                # read_file enforces the directory scope even for a matching real path.
+                import duckdb
+                try:
+                    is_file = (self._root() / query).is_file()
+                except (OSError, ValueError):
+                    is_file = False
+                if is_file:
+                    return self.read_file(query, sheet=kwargs.get("sheet"))
+                try:
+                    statements = duckdb.extract_statements(query)
+                except duckdb.ParserException:
+                    return self.read_file(query, sheet=kwargs.get("sheet"))
+                if not statements:
+                    return self.read_file(query, sheet=kwargs.get("sheet"))
+                from app.data_sources.clients._network_dir_tables import query_tables
+                return query_tables(self, query)
             return self.read_file(query, sheet=kwargs.get("sheet"))
         raise ValueError("Provide table_name or query (file id) to read a file")

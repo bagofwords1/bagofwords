@@ -103,15 +103,17 @@
             <!-- Workspace header. With a single org this is just a link home
                  (the only desktop path to '/'). With several, it doubles as the
                  org switcher and carries 'Home' as its first item so that path
-                 isn't lost. Users with one org see no switcher affordance. -->
-            <UDropdown v-if="hasMultipleOrgs" :items="organizationDropdownItems"
+                 isn't lost. Users with one org see no switcher affordance,
+                 unless they may create another organization: the menu is
+                 where "Create organization" lives. -->
+            <UDropdown v-if="showOrganizationMenu" :items="organizationDropdownItems"
               :popper="{ placement: isCollapsed ? 'right-start' : 'bottom-start' }" class="min-w-0"
               :ui="{ width: 'w-56', item: { size: 'text-sm', padding: 'px-2 py-1.5' } }">
               <template #item="{ item }">
                 <img v-if="item.iconUrl" :src="item.iconUrl" alt="" class="w-4 h-4 shrink-0 rounded object-contain" />
                 <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-ink-muted" />
                 <span v-else class="w-4 h-4 shrink-0"></span>
-                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+                <span class="truncate text-gray-700 dark:text-gray-200" :data-testid="item.testId || undefined">{{ item.label }}</span>
                 <UIcon v-if="item.isCurrent" name="i-heroicons-check" class="w-4 h-4 shrink-0 ms-auto text-ink-muted" />
               </template>
               <button :class="workspaceButtonClass" :aria-label="$t('nav.switchOrganization')">
@@ -187,6 +189,21 @@
                 <span v-if="showText" class="font-medium">{{ $t('nav.newReport') }}</span>
               </template>
             </button>
+        </li>
+
+        <!-- Collapsed rail only: the expanded sidebar lists reports inline (and its
+             "Reports" header links to /reports), so the rail needs its own entry. -->
+        <li v-if="isCollapsed">
+          <NuxtLink to="/reports" :aria-label="$t('nav.reports')" :class="[
+            'flex items-center justify-center px-2.5 py-1.5 w-full rounded-md',
+            isRouteActive('/reports') ? 'text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium' : 'text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70'
+          ]">
+            <UTooltip :text="$t('nav.reports')" :popper="{ placement: tooltipPlacement }">
+              <span class="flex items-center justify-center w-5 h-5 text-base">
+                <UIcon name="i-heroicons-document-duplicate" />
+              </span>
+            </UTooltip>
+          </NuxtLink>
         </li>
 
         <template v-for="item in mainNavItems" :key="item.href">
@@ -293,7 +310,7 @@
             ]">
               <!-- Drop cue: the folder opens while a report hovers this row. -->
               <UIcon :name="dropProjectId === project.id ? 'i-heroicons-folder-open' : 'i-heroicons-folder'" class="w-4 h-4 shrink-0" :style="project.color ? { color: project.color } : undefined" :class="!project.color ? 'text-ink-muted' : ''" />
-              <span v-text-dir class="flex-1 truncate">{{ project.name }}</span>
+              <span v-text-dir class="flex-1 truncate" @mouseenter="showTitleTip($event, project.name)" @mouseleave="hideTitleTip">{{ project.name }}</span>
               <UIcon v-if="!project.is_owner || project.member_count > 0 || project.access === 'org'" name="i-heroicons-user-group" class="w-3.5 h-3.5 shrink-0 text-gray-300 dark:text-gray-600 group-hover/project:opacity-0 transition-opacity" />
             </NuxtLink>
             <button
@@ -322,7 +339,9 @@
 
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
       <div v-if="!isCollapsed" class="min-h-0 flex flex-col mt-4" :style="reportsSectionStyle">
-        <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
+        <!-- pe-1.5 (not 2.5): centers the w-5 group/sort button on the row
+             star / ellipsis column below (~16px from the inline-end edge). -->
+        <div class="ps-2.5 pe-1.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
           <div class="flex items-center gap-1 min-w-0">
             <button
               type="button"
@@ -403,6 +422,8 @@
                     <span v-text-dir
                       class="flex-1 truncate"
                       :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
+                      @mouseenter="showTitleTip($event, report.title)"
+                      @mouseleave="hideTitleTip"
                     >{{ report.title || $t('reports.untitled') }}</span>
                   </NuxtLink>
                   <!-- Project membership: a thin color rule at the leading edge
@@ -535,7 +556,7 @@
                !isCollapsed && !myQuota ? 'items-center' : ''
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-surface-muted" />
                 <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full">
                   {{ userInitial }}
                 </div>
@@ -556,7 +577,7 @@
                 ></span>
               </span>
               <template v-else-if="!isCollapsed">
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-surface-muted shrink-0" />
                 <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>
@@ -628,15 +649,19 @@
   <McpModal v-if="showMcpModal" v-model="showMcpModal" />
 
   <UserProfileModal v-if="showProfileModal" v-model="showProfileModal" />
+  <OrganizationCreateOrganizationModal v-if="canCreateOrganization" v-model="showCreateOrganizationModal" />
 
   <ChangelogModal v-model="showChangelogModal" />
 
   <!-- Sidebar report actions: share / rename / delete (singletons bound to menuReport) -->
   <!-- Teleported to body so it escapes the sidebar's transform/overflow clipping. -->
   <Teleport to="body">
-    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70]" @click="reportMenuOpen = false" @contextmenu.prevent="reportMenuOpen = false">
+    <!-- Non-blocking layer (pointer-events-none): an outside press closes the
+         menu via useDismissOnOutsidePress AND still reaches its target. -->
+    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70] pointer-events-none">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
+        ref="reportMenuPanel"
+        class="absolute pointer-events-auto w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: reportMenuPos.y + 'px', left: reportMenuPos.x + 'px' }"
         @click.stop
       >
@@ -655,11 +680,25 @@
     </div>
   </Teleport>
 
+  <!-- Full-title tooltip for truncated sidebar report/project names. Teleported
+       so it escapes the sidebar's overflow clipping; sits beside the sidebar
+       (right in LTR, left in RTL) so it never covers neighbouring rows. -->
+  <Teleport to="body">
+    <div
+      v-if="titleTip"
+      v-text-dir
+      role="tooltip"
+      class="fixed z-[60] max-w-xs px-2 py-1 rounded-md shadow ring-1 ring-gray-200 dark:ring-gray-800 text-xs leading-snug break-words pointer-events-none bg-white text-gray-900 dark:bg-gray-900 dark:text-white"
+      :style="titleTip.style"
+    >{{ titleTip.text }}</div>
+  </Teleport>
+
   <!-- Sidebar project actions: rename / delete (teleported like the report menu) -->
   <Teleport to="body">
-    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70]" @click="projectMenuOpen = false" @contextmenu.prevent="projectMenuOpen = false">
+    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70] pointer-events-none">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
+        ref="projectMenuPanel"
+        class="absolute pointer-events-auto w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: projectMenuPos.y + 'px', left: projectMenuPos.x + 'px' }"
         @click.stop
       >
@@ -1301,13 +1340,19 @@
       projectDialogBusy.value = false
     }
   }
+  const projectMenuPanel = ref<HTMLElement | null>(null)
+  const projectMenuAnchor = ref<HTMLElement | null>(null)
   const openProjectMenu = (e: MouseEvent, project: any) => {
+    // Same ⋯ again toggles closed (the outside-press handler ignores the anchor).
+    if (projectMenuOpen.value && menuProject.value?.id === project.id) { projectMenuOpen.value = false; return }
+    projectMenuAnchor.value = e.currentTarget as HTMLElement | null
     menuProject.value = project
     const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
     const y = Math.min(e.clientY, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 140)
     projectMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
     projectMenuOpen.value = true
   }
+  useDismissOnOutsidePress(projectMenuOpen, projectMenuPanel, projectMenuAnchor, () => { projectMenuOpen.value = false })
   const currentProjectActionsAvailable = (project: any) => !!(project?.can_manage || project?.is_owner)
   const currentProjectActions = computed(() => {
     const project = menuProject.value
@@ -1478,7 +1523,42 @@
   const deleteOpen = ref(false)
   const deleting = ref(false)
 
+  // ── Full-title tooltip for truncated sidebar rows ─────────────────────
+  // Only shown when the title is actually clipped (scrollWidth > clientWidth),
+  // after a short delay, anchored to the row's outer edge so it reads as a
+  // continuation of the clipped label rather than covering the list.
+  const titleTip = ref<{ text: string; style: Record<string, string> } | null>(null)
+  let titleTipTimer: ReturnType<typeof setTimeout> | null = null
+  const hideTitleTip = () => {
+    if (titleTipTimer) { clearTimeout(titleTipTimer); titleTipTimer = null }
+    titleTip.value = null
+  }
+  const showTitleTip = (e: MouseEvent, text: string | null | undefined) => {
+    hideTitleTip()
+    const el = e.currentTarget as HTMLElement | null
+    if (!el || !text || draggingReport.value) return
+    if (el.scrollWidth <= el.clientWidth) return
+    titleTipTimer = setTimeout(() => {
+      const row = (el.closest('li') as HTMLElement | null) || el
+      const r = row.getBoundingClientRect()
+      const style: Record<string, string> = {
+        top: `${r.top + r.height / 2}px`,
+        transform: 'translateY(-50%)',
+      }
+      if (isRtl.value) style.right = `${window.innerWidth - r.left + 8}px`
+      else style.left = `${r.right + 8}px`
+      titleTip.value = { text, style }
+    }, 350)
+  }
+  watch([reportMenuOpen, projectMenuOpen, draggingReport, () => route.fullPath], hideTitleTip)
+  onBeforeUnmount(hideTitleTip)
+
+  const reportMenuPanel = ref<HTMLElement | null>(null)
+  const reportMenuAnchor = ref<HTMLElement | null>(null)
   const openReportMenu = (e: MouseEvent, report: any) => {
+    // Same ⋯ again toggles closed (the outside-press handler ignores the anchor).
+    if (reportMenuOpen.value && menuReport.value?.id === report.id) { reportMenuOpen.value = false; return }
+    reportMenuAnchor.value = e.currentTarget as HTMLElement | null
     menuReport.value = report
     // Clamp so the 208px-wide menu never runs off the right/bottom edge.
     const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
@@ -1486,6 +1566,7 @@
     reportMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
     reportMenuOpen.value = true
   }
+  useDismissOnOutsidePress(reportMenuOpen, reportMenuPanel, reportMenuAnchor, () => { reportMenuOpen.value = false })
 
   // Flat action list for the teleported menu, derived from the active report.
   const currentReportActions = computed(() => {
@@ -1712,6 +1793,13 @@
   // link home and nothing hints that switching exists.
   const hasMultipleOrgs = computed<boolean>(() => userOrganizations.value.length > 1)
 
+  // Instance administrators on a licensed multi-organization deployment (the
+  // server decides and enforces; this only shows the entry point). They get
+  // the menu even with a single organization, or nobody could add the second.
+  const canCreateOrganization = computed<boolean>(() => (currentUser.value as any)?.can_create_organization === true)
+  const showOrganizationMenu = computed<boolean>(() => hasMultipleOrgs.value || canCreateOrganization.value)
+  const showCreateOrganizationModal = ref(false)
+
   const organizationDropdownItems = computed(() => {
     // whoami returns the orgs unordered (no ORDER BY on the membership join), so
     // sort here — otherwise the rows of a primary header control can reshuffle
@@ -1737,6 +1825,12 @@
         disabled: org.id === organization.value?.id,
         click: () => setOrganization(org.id),
       })),
+      ...(canCreateOrganization.value ? [[{
+        label: t('nav.createOrganization'),
+        icon: 'i-heroicons-plus',
+        testId: 'create-organization-menu-item',
+        click: () => { showCreateOrganizationModal.value = true },
+      }]] : []),
     ]
   })
 

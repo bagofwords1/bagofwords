@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from app.ai.llm.pricing import is_gpt62_chat
 from app.ai.llm.reasoning import (
     capability_model, clamp_effort, client_mode, client_reasons, efforts_for_client, lightest_effort,
     merge_raw_params, raw_params_for, selected_effort, supports_openai_summary,
@@ -37,6 +38,27 @@ from app.ai.llm.types import (
     WebSearchResultEvent,
     WebSearchStartEvent,
 )
+
+
+def _filtered_categories(content_filters: Any) -> list[str]:
+    """Categories Azure marked ``filtered`` in a response's ``content_filters``.
+
+    Azure adds ``content_filters`` (a list of ``{"content_filter_results":
+    {"jailbreak": {"detected": true, "filtered": true}, ...}}``) to a response
+    its filter cut. The SDK may hand it over as plain dicts or as objects.
+    """
+    def _get(obj: Any, key: str) -> Any:
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    found: list[str] = []
+    for entry in content_filters or []:
+        results = _get(entry, "content_filter_results")
+        if results is not None and not isinstance(results, dict):
+            results = results.model_dump() if hasattr(results, "model_dump") else vars(results)
+        for name, result in (results or {}).items():
+            if _get(result, "filtered") and name not in found:
+                found.append(name)
+    return found
 
 
 class OpenAIResponsesClient(LLMClient):
@@ -212,15 +234,12 @@ class OpenAIResponsesClient(LLMClient):
             apply_chat_reasoning(self, model_id, params, thinking)
         stream = await client.chat.completions.create(**params)
 
-        prompt_tokens = 0
-        completion_tokens = 0
+        usage = LLMUsage()
         try:
             async for chunk in stream:
+                if getattr(chunk, "usage", None) is not None:
+                    usage = OpenAi._extract_usage(chunk.usage)
                 if not chunk.choices:
-                    usage_raw = getattr(chunk, "usage", None)
-                    if usage_raw:
-                        prompt_tokens = getattr(usage_raw, "prompt_tokens", 0) or prompt_tokens
-                        completion_tokens = getattr(usage_raw, "completion_tokens", 0) or completion_tokens
                     continue
                 if max_output_tokens is not None and getattr(chunk.choices[0], "finish_reason", None) == "length":
                     raise ValueError("Model output limit reached")
@@ -229,7 +248,7 @@ class OpenAIResponsesClient(LLMClient):
                     yield content
         finally:
             await (getattr(stream, "aclose", None) or stream.close)()
-            self._set_last_usage(LLMUsage(prompt_tokens=prompt_tokens, completion_tokens=completion_tokens))
+            self._set_last_usage(usage)
 
     @staticmethod
     def _translate_messages(messages: list[Message]) -> list[dict]:
@@ -338,16 +357,6 @@ class OpenAIResponsesClient(LLMClient):
             for t in tools
         ]
 
-    @staticmethod
-    def _extract_usage(response_usage: Any) -> tuple[int, int, int]:
-        if response_usage is None:
-            return 0, 0, 0
-        prompt = getattr(response_usage, "input_tokens", 0) or 0
-        completion = getattr(response_usage, "output_tokens", 0) or 0
-        details = getattr(response_usage, "input_tokens_details", None)
-        cache_read = getattr(details, "cached_tokens", 0) if details else 0
-        return int(prompt), int(completion), int(cache_read or 0)
-
     async def inference_stream_v2(
         self,
         model_id: str,
@@ -381,7 +390,10 @@ class OpenAIResponsesClient(LLMClient):
         if self.temperature is not None and not model_id.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6")):
             request_kwargs["temperature"] = self.temperature
         if system:
-            request_kwargs["instructions"] = system
+            if is_gpt62_chat(capability_model(self, model_id)):
+                input_items.insert(0, {"role": "developer", "content": system})
+            else:
+                request_kwargs["instructions"] = system
         request_tools: list[dict] = self._translate_tools(tools) if tools else []
         if use_web_search:
             # Provider-executed server tool. Runs inside the Responses API and
@@ -428,11 +440,10 @@ class OpenAIResponsesClient(LLMClient):
         # Track open tool calls: call_id → {name, args_buffer}
         open_calls: dict[str, dict] = {}
         reasoning_active = False
-        reasoning_tokens = 0
-        prompt_tokens = 0
-        completion_tokens = 0
-        cache_read_tokens = 0
+        usage = LLMUsage()
         stop_reason = "end_turn"
+        raw_stop_reason: Optional[str] = None
+        filter_categories: list[str] = []
 
         stream = await self.async_client.responses.create(**request_kwargs)
         async for event in stream:
@@ -530,26 +541,35 @@ class OpenAIResponsesClient(LLMClient):
                     stop_reason = "tool_use"
                     yield ToolUseCompleteEvent(id=pending["call_id"], name=pending["name"], input=parsed)
 
-            elif etype == "response.completed":
+            # A stream ends with response.completed, or with response.incomplete
+            # when it was cut short. Azure OpenAI ends a prompt its content
+            # filter blocked (e.g. Prompt Shields' jailbreak detector) with
+            # HTTP 200, a canned "I'm sorry, but I cannot assist with that
+            # request." text delta, then response.incomplete carrying
+            # incomplete_details.reason == "content_filter". Reading only
+            # response.completed turned that into a successful answer.
+            elif etype in ("response.completed", "response.incomplete"):
                 response = getattr(event, "response", None)
-                usage = getattr(response, "usage", None) if response else None
-                prompt_tokens, completion_tokens, cache_read_tokens = self._extract_usage(usage)
-                output_details = getattr(usage, "output_tokens_details", None)
-                reasoning_tokens = int(getattr(output_details, "reasoning_tokens", 0) or 0)
+                usage = OpenAi._extract_usage(getattr(response, "usage", None))
                 status = getattr(response, "status", None) if response else None
-                if status == "incomplete":
-                    stop_reason = "max_tokens"
+                if status == "incomplete" or etype == "response.incomplete":
+                    details = getattr(response, "incomplete_details", None) if response else None
+                    reason = details.get("reason") if isinstance(details, dict) else getattr(details, "reason", None)
+                    raw_stop_reason = reason or "incomplete"
+                    stop_reason = "other" if reason == "content_filter" else "max_tokens"
+                    if reason == "content_filter":
+                        filter_categories = _filtered_categories(
+                            getattr(response, "content_filters", None) if response else None
+                        )
 
-        yield MessageStopEvent(stop_reason=stop_reason)
+        yield MessageStopEvent(stop_reason=stop_reason, raw_stop_reason=raw_stop_reason,
+                               content_filter_categories=filter_categories)
         yield UsageEvent(
-            input_tokens=prompt_tokens,
-            output_tokens=completion_tokens,
-            cache_read_tokens=cache_read_tokens,
-            reasoning_tokens=reasoning_tokens,
+            input_tokens=usage.prompt_tokens,
+            output_tokens=usage.completion_tokens,
+            cache_read_tokens=usage.cache_read_tokens,
+            cache_creation_tokens=usage.cache_creation_tokens,
+            cache_write_12h_tokens=usage.cache_write_12h_tokens,
+            reasoning_tokens=usage.reasoning_tokens,
         )
-        self._set_last_usage(LLMUsage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            cache_read_tokens=cache_read_tokens,
-            reasoning_tokens=reasoning_tokens,
-        ))
+        self._set_last_usage(usage)

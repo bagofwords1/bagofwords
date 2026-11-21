@@ -9,6 +9,8 @@
                         class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-ink-subtle dark:placeholder:text-gray-500"
                         required>
                 </div>
+                <p v-if="errorMessage" role="alert" class="mt-3 text-sm text-red-600 dark:text-red-400"
+                    data-testid="organization-new-error">{{ errorMessage }}</p>
                 <div class="mt-3">
                     <button type="submit"
                         class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
@@ -34,6 +36,9 @@ const { organization, ensureOrganization, fetchOrganization } = useOrganization(
 const { getSession } = useAuth()
 
 const name = ref('');
+const errorMessage = ref('');
+const { t } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 
 definePageMeta({
     auth: true,
@@ -53,6 +58,7 @@ async function createOrg() {
         name: name.value,
     };
 
+    errorMessage.value = '';
     try {
         const response = await useMyFetch('/organizations', {
             method: 'POST',
@@ -63,7 +69,10 @@ async function createOrg() {
         });
 
         if (response.error.value) {
-            throw new Error(`Could not create organization: ${response.error.value}`);
+            // Refused (e.g. only an instance administrator may add an
+            // organization here): say why instead of leaving the form inert.
+            errorMessage.value = getErrorMessage(response.error.value, t('createOrganization.failed'));
+            return;
         }
 
         // Refresh the session to get the new organization

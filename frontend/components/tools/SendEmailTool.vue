@@ -1,37 +1,17 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-envelope" class="w-3 h-3 me-1.5 text-ink-muted" />
-          {{ t('tools.sendEmail.sending') }}
-        </span>
-        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-envelope" class="w-3 h-3 me-1.5 text-blue-500" />
-          <span dir="auto" class="truncate max-w-[300px]">{{ t('tools.sendEmail.sentPrefix', { subject: truncatedSubject }) }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip"
-          />
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ t('tools.sendEmail.failed') }}</span>
-          <Icon
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-            class="w-3 h-3 ms-1 text-ink-muted rtl-flip"
-          />
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-envelope" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">{{ t('tools.sendEmail.sending') }}</template>
+      <template v-else-if="isSuccess">{{ t('tools.sendEmail.sentPrefix', { subject: truncatedSubject }) }}</template>
+      <template v-else>{{ t('tools.sendEmail.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded && status !== 'running'" class="mt-2 space-y-2">
+      <div v-if="toolHeaderExpanded && status !== 'running'" class="mt-2 space-y-2">
         <div class="border border-gray-150 rounded-md overflow-hidden">
           <div class="px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b border-gray-150 flex items-center gap-2">
             <span class="text-chat-3 text-gray-600 dark:text-gray-400 font-medium">{{ t('tools.sendEmail.subject') }}</span>
@@ -47,15 +27,21 @@
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 const { t } = useResponseI18n()
 
 import { computed, ref } from 'vue'
@@ -134,18 +120,6 @@ function toggleExpanded() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-
-@keyframes shimmer {
-  0% { background-position: 0% 0; }
-  100% { background-position: 100% 0; }
-}
-
 .fade-enter-active, .fade-leave-active {
   transition: opacity 0.2s ease;
 }

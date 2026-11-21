@@ -23,7 +23,7 @@
     </div>
 
     <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-      <input v-model="form.allow_downloads" type="checkbox" class="rounded border-gray-300" />
+      <input v-model="form.allow_downloads" type="checkbox" class="rounded border-line-strong" />
       {{ $t('data.browserForm.allowDownloads') }}
     </label>
 

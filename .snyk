@@ -231,6 +231,40 @@ ignore:
           still pin flat ^6.0.1), so no upgrade or resolution remediates it.
           Re-review when upstream flat ships a fix.
         expires: 2026-12-21T00:00:00.000Z
+  # CVE-2026-128070 — @nuxt/schema findWorkspaceDir resolves the workspace root
+  # to a parent directory when a stray lockfile or settings-only workspace file
+  # sits above the package, so `nuxt dev` adds that wider tree to the Vite dev
+  # server's filesystem allow-list and serves it via `/_nuxt/@fs/`. Dev-server-
+  # only: "the default localhost bind and production builds are unaffected"
+  # (Snyk advisory). Production ships a static `nuxt generate` .output served by
+  # FastAPI — no Vite/Nitro dev server, no Node runtime — so the sink never runs
+  # in the shipped artifact. Mitigated now in frontend/nuxt.config.ts by pinning
+  # `workspaceDir` to the frontend package (the advisory's own workaround), which
+  # stops the allow-list from widening. The upstream fix is @nuxt/schema 4.6.4 /
+  # 4.0.0 (the Nuxt 4 major upgrade) and cannot be forced under nuxt 3; deferred
+  # to the tracked Nuxt 4 upgrade alongside the other nuxt-3 dev/build ignores.
+  SNYK-JS-NUXTSCHEMA-22552450:
+    - '*':
+        reason: >-
+          Dev-server-only @nuxt/schema findWorkspaceDir path-widening
+          (CVE-2026-128070); runs only under `nuxt dev`, never in production,
+          which ships a static `nuxt generate` .output served by FastAPI (no
+          Vite dev server). Mitigated by pinning `workspaceDir` in
+          frontend/nuxt.config.ts (the advisory's workaround). Fix is
+          @nuxt/schema 4.6.4 (the Nuxt 4 major upgrade) and cannot be forced
+          under nuxt 3. Deferred to the Nuxt 4 upgrade; re-review on expiry.
+        expires: 2026-12-21T00:00:00.000Z
+  SNYK-JS-NUXTSCHEMA-22552451:
+    - '*':
+        reason: >-
+          Dev-server-only @nuxt/schema findWorkspaceDir path-widening
+          (CVE-2026-128070); runs only under `nuxt dev`, never in production,
+          which ships a static `nuxt generate` .output served by FastAPI (no
+          Vite dev server). Mitigated by pinning `workspaceDir` in
+          frontend/nuxt.config.ts (the advisory's workaround). Fix is
+          @nuxt/schema 4.6.4 (the Nuxt 4 major upgrade) and cannot be forced
+          under nuxt 3. Deferred to the Nuxt 4 upgrade; re-review on expiry.
+        expires: 2026-12-21T00:00:00.000Z
 exclude:
   code:
     - 'backend/tests'
