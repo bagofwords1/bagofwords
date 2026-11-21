@@ -1483,7 +1483,9 @@ class DataSourceService:
         """
         from app.schemas.data_source_registry import get_entry
         allowed = {"site_url", "drive_name", "folder_path", "root_path", "bucket",
-                   "prefix", "include_globs", "index_mode", "index_content", "recursive"}
+                   "prefix", "include_globs", "index_mode", "index_content", "recursive",
+                   # Confluence Data Center: the space keys the connection is limited to.
+                   "spaces"}
         result = []
         for conn in await self.get_domain_connections(db, data_source_id, organization):
             if get_entry(conn.type).data_shape != "files":
@@ -4519,6 +4521,7 @@ class DataSourceService:
             "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages",
             "github_repo", "gitlab_repo", "bitbucket_repo",
             "kms_lighthouse",
+            "confluence_dc",
         ]
         _file_ct_subq = None
         # Per-user file catalogs (OneDrive, Outlook, personal Drive) have no

@@ -1042,6 +1042,7 @@ class SchemaContextBuilder:
         "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages", "slack_messages",
         "github_repo", "gitlab_repo", "bitbucket_repo",
         "kms_lighthouse",
+        "confluence_dc",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
@@ -1052,6 +1053,8 @@ class SchemaContextBuilder:
         # over paging the whole catalog.
         "onenote",
         "kms_lighthouse",
+        # Confluence Data Center: CQL full-text search, as the connection's identity.
+        "confluence_dc",
         # Teams: Microsoft Search over chatMessage, as the signed-in user.
         "teams_messages",
         # Slack: search.messages, as the signed-in user.
@@ -1156,6 +1159,8 @@ class SchemaContextBuilder:
             elif c.type == "kms_lighthouse":
                 # Folder id 0 is a real id; only a missing or blank value is left out.
                 base = " / ".join(str(cfg[k]) for k in ("base_url", "root_folder_id") if cfg.get(k) not in (None, ""))
+            elif c.type == "confluence_dc":
+                base = " / ".join(str(cfg[k]) for k in ("base_url", "spaces") if cfg.get(k))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
@@ -1186,6 +1191,11 @@ class SchemaContextBuilder:
                 from app.data_sources.clients.kms_lighthouse_client import planner_scope_note
                 enforces_scope = False
                 note = planner_scope_note(cfg)
+            if c.type == "confluence_dc":
+                # The space list (when set) is a hard scope the client enforces on
+                # search, browse and read; with no list the identity is the scope.
+                from app.data_sources.clients.confluence_dc_client import planner_scope_note as _confluence_note
+                note = _confluence_note(cfg)
             if c.type == "exchange_onprem":
                 # Says whose mail this is: one shared service account, or each
                 # user's own sign-in. The tool surface alone cannot tell.

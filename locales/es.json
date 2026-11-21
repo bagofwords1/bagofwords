@@ -5526,6 +5526,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse no aceptó este inicio de sesión, así que no se guardó. Comprueba el usuario y la contraseña, o el token de API, y vuelve a intentarlo.",
     "connection.kms_login_paused": "KMS Lighthouse rechazó este inicio de sesión hace poco, así que los nuevos intentos con él están en pausa unos minutos y no se guardó. Revisa el inicio de sesión o vuelve a intentarlo más tarde.",
     "connection.kms_session_refused": "KMS Lighthouse aceptó el inicio de sesión pero rechazó su sesión, así que no se puede usar y no se guardó. Pregunta al administrador de KMS si esta cuenta puede usar la API de KMS.",
+    "connection.confluence_login_rejected": "Confluence no aceptó este token de acceso personal o inicio de sesión, así que no se guardó. Revísalo o crea un token nuevo en Confluence, en Perfil > Tokens de acceso personal.",
+    "connection.confluence_login_captcha": "Confluence exige un CAPTCHA para esta cuenta tras inicios de sesión fallidos, así que no se guardó. Inicia sesión una vez en Confluence desde el navegador para resolverlo, o usa un token de acceso personal.",
+    "connection.jira_login_rejected": "Jira no aceptó este token de acceso personal o inicio de sesión, así que no se guardó. Revísalo o crea un token nuevo en Jira, en Perfil > Tokens de acceso personal.",
+    "connection.jira_login_captcha": "Jira exige un CAPTCHA para esta cuenta tras inicios de sesión fallidos, así que no se guardó. Inicia sesión una vez en Jira desde el navegador para resolverlo, o usa un token de acceso personal.",
     "access_request.disabled": "Las solicitudes de acceso están desactivadas para esta organización.",
     "access_request.not_allowed": "Este panel no necesita una solicitud de acceso.",
     "access_request.already_has_access": "Ya tienes acceso a este panel.",
@@ -8461,6 +8465,9 @@
     "subtitle": "Filas de ejemplo de {connection}, leídas en vivo desde el origen.",
     "close": "Cerrar",
     "button": "Vista previa"
+  },
+  "confluenceFileScope": {
+    "allSpaces": "Todos los espacios que esta identidad puede ver"
   },
   "kmsFileScope": {
     "headerSubtitle": "La carpeta raíz indica dónde empieza la navegación. Los permisos de KMS deciden qué puede buscar y leer el agente.",
