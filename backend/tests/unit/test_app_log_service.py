@@ -158,6 +158,100 @@ def test_a_file_that_reaches_the_segment_size_is_closed(tmp_path):
         svc.reset()
 
 
+def _backlog(config, tag, count, line_chars):
+    """Buffer ``count`` lines while the directory cannot be written, as during
+    a storage outage, then make it writable again. Returns the messages."""
+    messages = [f"{tag} {i:06d} " + "b" * line_chars for i in range(count)]
+    config.directory.rmdir()
+    config.directory.write_text("not a directory")  # a real write failure
+    try:
+        for m in messages:
+            log.info(m)
+        assert svc.flush() == 0
+    finally:
+        config.directory.unlink()
+        config.directory.mkdir()
+    return messages
+
+
+def _lines_on_disk(config, tag):
+    return [m for p in _files(config) for line in p.read_text().splitlines()
+            if (m := json.loads(line)["m"]).startswith(tag)]
+
+
+@pytest.fixture
+def fresh(tmp_path):
+    svc.install_log_handler()
+    svc.reset()
+    yield tmp_path / "logs"
+    svc.reset()
+
+
+@pytest.mark.parametrize("max_bytes, line_chars, backlog_bytes", [
+    (1024 ** 2, 300, 3 * 1024 ** 2),        # backlog 3x the whole cap
+    (4 * 1024 ** 2, 5_000, 2 * 1024 ** 2),  # backlog 4x one file
+    (16 * 1024 ** 2, 20_000, 5 * 1024 ** 2),
+])
+def test_a_backlog_is_spread_over_files_no_larger_than_the_segment_size(fresh, max_bytes, line_chars, backlog_bytes):
+    config = _config(fresh, max_bytes=max_bytes)
+    svc.configure(config)
+    tag = uuid.uuid4().hex
+    messages = _backlog(config, tag, backlog_bytes // line_chars, line_chars)
+
+    svc.flush()
+
+    one_line = line_chars + 200  # the JSON around a message
+    assert len(_files(config)) >= backlog_bytes // config.segment_bytes
+    assert all(p.stat().st_size <= config.segment_bytes + one_line for p in _files(config))
+    assert sorted(_lines_on_disk(config, tag)) == messages  # each line once
+
+
+@pytest.mark.parametrize("max_bytes, cap_multiple", [(1024 ** 2, 3), (2 * 1024 ** 2, 1.5)])
+def test_cleanup_after_a_backlog_larger_than_the_cap_keeps_the_newest_lines(fresh, max_bytes, cap_multiple):
+    config = _config(fresh, max_bytes=max_bytes)
+    svc.configure(config)
+    tag = uuid.uuid4().hex
+    line_chars = 400
+    messages = _backlog(config, tag, int(max_bytes * cap_multiple) // line_chars, line_chars)
+    svc.flush()
+
+    svc.cleanup(config)
+
+    kept = sorted(_lines_on_disk(config, tag))
+    assert svc.size_bytes(config) <= config.max_bytes
+    assert kept, "the newest lines must survive the size cap"
+    assert kept == messages[-len(kept):]  # only the oldest were deleted
+    assert len(kept) * line_chars >= config.max_bytes * 0.5
+
+
+def test_a_write_that_fails_partway_neither_loses_nor_duplicates_lines(fresh, monkeypatch):
+    config = _config(fresh, max_bytes=1024 ** 2)
+    svc.configure(config)
+    tag = uuid.uuid4().hex
+    messages = [f"{tag} {i:06d} " + "c" * 500 for i in range(1500)]  # ~6 files
+    for m in messages:
+        log.info(m)
+    real_open = open
+    opened = []
+
+    def disk_full_on_the_third_file(path, *args, **kwargs):
+        if str(path).endswith(".jsonl"):
+            opened.append(path)
+            if len(set(opened)) == 3:
+                raise OSError(28, "No space left on device")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(svc, "open", disk_full_on_the_third_file, raising=False)
+    assert svc.flush() == 0
+    assert svc.writer_status(config)["write_error"] is True
+    monkeypatch.setattr(svc, "open", real_open, raising=False)
+
+    svc.flush()
+
+    assert sorted(_lines_on_disk(config, tag)) == messages
+    assert svc.writer_status(config)["write_error"] is False
+
+
 @pytest.mark.parametrize("age_days, kept", [(8, False), (7.01, False), (6.9, True), (1, True)])
 def test_cleanup_deletes_files_older_than_the_retention(cfg, age_days, kept):
     tag = uuid.uuid4().hex
