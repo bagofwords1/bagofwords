@@ -2386,6 +2386,22 @@ TOPN(10,
     SUMMARIZECOLUMNS(Customers[Name], "Total", SUM(Orders[Value])),
     [Total], DESC
 )
+
+-- Two-step aggregation (group, then group the result): do BOTH steps in DAX.
+-- Here: total per order first, then the average order total per segment.
+EVALUATE
+VAR PerOrder =
+    ADDCOLUMNS(
+        SUMMARIZE('Order Lines', 'Order Lines'[OrderId], Customers[Segment]),
+        "OrderTotal", CALCULATE(SUM('Order Lines'[Amount]))
+    )
+RETURN
+    GROUPBY(
+        PerOrder,
+        Customers[Segment],
+        "Orders", COUNTX(CURRENTGROUP(), 1),
+        "AvgOrderTotal", AVERAGEX(CURRENTGROUP(), [OrderTotal])
+    )
 ```
 
 ### Query Cost and Performance
@@ -2400,6 +2416,14 @@ latency directly; an unbounded scan of a large table can take minutes.
   whole table.
 - Push filters into the DAX with CALCULATETABLE / FILTER. Never fetch
   everything and filter in pandas.
+- When the answer needs two rounds of grouping (a total per order, then an
+  average per segment; a value taken once per parent row, then summed), keep
+  both rounds in ONE query: build the first grouping in a VAR with
+  SUMMARIZE + ADDCOLUMNS, then GROUPBY that VAR. Inside GROUPBY only the X
+  iterators over CURRENTGROUP() work (SUMX, AVERAGEX, MINX, MAXX, COUNTX) -
+  plain SUM / AVERAGE on the VAR's column fail. Never download the detail
+  rows to finish the grouping in pandas: that is the slow path, and a large
+  detail result can be cut off by the API's response limits without an error.
 - The row cap applied to the returned DataFrame does NOT make the query
   cheaper - the full result is fetched first. Bound the result in the DAX.
 - Measures are the model's OWN business logic. When one exists for what is
