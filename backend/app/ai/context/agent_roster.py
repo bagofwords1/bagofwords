@@ -290,6 +290,42 @@ def render_agent_roster_xml(
     return "\n".join(lines)
 
 
+# Cap on agents listed as needing sign-in: enough to cover a real org's
+# per-user connections without letting one person's unconnected backlog bloat
+# every planner turn.
+SIGNIN_REQUIRED_CAP = int(os.environ.get("BOW_SIGNIN_REQUIRED_CAP", "10"))
+
+
+def render_signin_required_xml(agents: List[Tuple[str, str, str]], cap: int = SIGNIN_REQUIRED_CAP) -> str:
+    """``<agents_needing_signin>`` — agents this person can use once they sign in.
+
+    ``agents`` is ``[(id, name, one_liner), ...]``. These agents are withheld
+    from the run (each person signs in to them and this one has not), so their
+    schema is never loaded; without this block the planner would not know they
+    exist and would answer from the wrong agent or say there is no such data.
+    Only names and one-liners are listed: the same facts the agent selector
+    already shows this person next to its Connect button.
+    """
+    if not agents:
+        return ""
+    shown = agents[: max(1, cap)]
+    lines = [f'<agents_needing_signin count="{len(agents)}">']
+    lines.append(
+        "  The user can use these agents but has not signed in to them yet, so their "
+        "data is NOT available in this run. If answering needs one of them, do not "
+        "answer from another agent and do not guess: call request_agent_signin with "
+        "its id so the user gets a Connect button, then stop. Never mention these "
+        "agents unless the request needs one."
+    )
+    for aid, name, one_liner in shown:
+        body = _xml_escape(one_liner) if one_liner else ""
+        lines.append(f'  <agent id="{_xml_escape(aid)}" name={quoteattr(name or "")}>{body}</agent>')
+    if len(agents) > len(shown):
+        lines.append(f"  <more count=\"{len(agents) - len(shown)}\"/>")
+    lines.append("</agents_needing_signin>")
+    return "\n".join(lines)
+
+
 def _counts_from_sections(schema_sections: List[Any]) -> Tuple[Dict[str, int], Dict[str, str]]:
     count_map: Dict[str, int] = {}
     kind_map: Dict[str, str] = {}

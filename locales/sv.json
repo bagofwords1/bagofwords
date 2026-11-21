@@ -2246,6 +2246,13 @@
       "unknownState": "Fjärrprocessen kan fortfarande köras. Kontrollera dess status innan du försöker igen.",
       "exitCode": "Avslutningskod: {code}",
       "cancelledBeforeExecution": "Avbrutet före körning."
+    },
+    "requestAgentSignin": {
+      "checking": "Kontrollerar agenter…",
+      "connect": "Anslut",
+      "connected": "Ansluten",
+      "askAgain": "Fråga igen",
+      "readyHint": "Ansluten. Kör frågan igen för att använda den."
     }
   },
   "entityCreate": {

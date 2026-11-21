@@ -172,6 +172,16 @@ assert.equal(computeRunActivity([
   tool('clarify', {}, { block: { content: 'Which year?' } }),
 ], { runStatus: 'success' }), null)
 
+// So does a run that ended asking the user to sign in to an agent: its Connect
+// card must not fold into the steps — even as the run's only block.
+for (const before of [[], [tool('search_agents', { query: ['sales'] })]]) {
+  assert.equal(computeRunActivity([
+    ...before,
+    tool('request_agent_signin', { agent_ids: ['a1'] },
+      { block: { content: 'Connect Sales below.', plan_decision: { analysis_complete: true } } }),
+  ], { runStatus: 'success' }), null)
+}
+
 // A direct answer has no steps to view; reasoning alone still counts as activity.
 assert.equal(computeRunActivity([final()], { runStatus: 'success' }), null)
 assert.ok(computeRunActivity([{ ...final(), reasoning: 'thinking…' }], { runStatus: 'success' }))

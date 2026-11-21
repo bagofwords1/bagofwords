@@ -2246,6 +2246,13 @@
       "unknownState": "Le processus distant peut encore être en cours. Vérifiez son état avant de réessayer.",
       "exitCode": "Code de sortie : {code}",
       "cancelledBeforeExecution": "Annulé avant l’exécution."
+    },
+    "requestAgentSignin": {
+      "checking": "Vérification des agents…",
+      "connect": "Se connecter",
+      "connected": "Connecté",
+      "askAgain": "Redemander",
+      "readyHint": "Connecté. Relancez votre question pour l’utiliser."
     }
   },
   "entityCreate": {

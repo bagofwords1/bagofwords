@@ -2587,6 +2587,13 @@
       "unknownState": "The remote process may still be running. Check its state before retrying.",
       "exitCode": "Exit code: {code}",
       "cancelledBeforeExecution": "Cancelled before execution."
+    },
+    "requestAgentSignin": {
+      "checking": "Checking agents…",
+      "connect": "Connect",
+      "connected": "Connected",
+      "askAgain": "Ask again",
+      "readyHint": "Connected. Run your question again to use it."
     }
   },
   "entityCreate": {
