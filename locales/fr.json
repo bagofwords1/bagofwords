@@ -942,7 +942,35 @@
         "dismiss": "Fermer"
       }
     },
-    "recent": "Récents"
+    "recent": "Récents",
+    "permissionMode": {
+      "title": "Autorisations des outils",
+      "tooltip": "Autorisations des outils : {mode}",
+      "default": "par défaut",
+      "allowAllBanner": "Tout autoriser est actif : l'agent exécute les outils de connexion sans demander. Les outils bloqués ou refusés ne s'exécutent jamais.",
+      "switchToAsk": "Passer à Demander",
+      "saveFailed": "Impossible de changer le mode d'autorisation",
+      "modes": {
+        "ask": {
+          "label": "Demander",
+          "hint": "Chaque outil suit son propre réglage ; demande avant toute modification."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Les appels en lecture seule s'exécutent ; un modèle décide du reste et demande en cas de doute."
+        },
+        "allow_all": {
+          "label": "Tout autoriser",
+          "hint": "Les outils qui demanderaient s'exécutent sans demander, dans ce rapport uniquement."
+        }
+      },
+      "unknown": {
+        "label": "Mode inconnu",
+        "hint": "Impossible de charger les paramètres d'autorisation : le mode de la prochaine exécution est inconnu."
+      },
+      "loadFailed": "Impossible de charger les paramètres d'autorisation",
+      "retry": "Réessayer"
+    }
   },
   "reports": {
     "title": "Rapports",
@@ -1733,7 +1761,34 @@
       "deniedByYou": "Refusé par vous",
       "records": "{n} enregistrements",
       "recordsPartial": "{shown} sur {total} enregistrements",
-      "viaAgent": "Via {name}"
+      "viaAgent": "Via {name}",
+      "allowForReport": "Autoriser pour ce rapport",
+      "allowForReportHint": "Ne plus demander pour cet outil dans ce rapport",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Exécuté sans demander (Tout autoriser)",
+          "refused": "Non exécuté"
+        },
+        "readOnly": {
+          "allowed": "Exécuté sans demander : lecture seule",
+          "refused": "Non exécuté"
+        },
+        "blocklist": {
+          "allowed": "Autorisé",
+          "refused": "Refusé par la liste de blocage de sécurité"
+        },
+        "rememberedReport": {
+          "allowed": "Autorisé pour ce rapport",
+          "refused": "Refusé pour ce rapport"
+        },
+        "unattended": {
+          "allowed": "Autorisé par le réglage des exécutions sans surveillance",
+          "refused": "Non exécuté : nécessite une approbation et personne ne regarde"
+        },
+        "unknownTool": {
+          "refused": "Non exécuté : cet outil n'est pas dans la liste des outils de la connexion"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"
@@ -2226,11 +2281,12 @@
       "glob": "Motif générique",
       "hint": "Les règles ciblent des commandes complètes dans ce répertoire. Les préfixes autorisés excluent les opérateurs et expansions du shell.",
       "always": "Toujours autoriser les correspondances",
-      "session": "Autoriser pour cette session",
+      "session": "Autoriser pour ce rapport (8 heures)",
       "mine": "Mes règles shell",
       "override": "Ces règles ne concernent que vous. Toujours autoriser ou Toujours refuser au niveau de la connexion est prioritaire.",
       "save": "Enregistrer les règles",
-      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez."
+      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez.",
+      "sessionHint": "Exécute les commandes correspondantes dans ce rapport sans demander pendant les 8 prochaines heures."
     },
     "shell": {
       "command": "Commande shell",
@@ -3668,6 +3724,34 @@
           "name": "Vue Monde",
           "description": "Affiche sur la page Agents un interrupteur qui ouvre Monde : une carte des agents, des connaissances, des sources et du travail qui relient votre organisation. Chaque utilisateur ne voit que ce à quoi il a accès."
         }
+      },
+      "permissionMode": {
+        "title": "Mode d'autorisation des outils",
+        "description": "Comment l'agent décide d'exécuter les outils de connexion et les commandes shell distantes. Les utilisateurs choisissent un mode par rapport dans la zone de saisie ; les outils désactivés ou refusés et la liste de blocage de sécurité s'appliquent dans tous les modes.",
+        "defaultMode": "Mode par défaut des nouveaux rapports",
+        "unattended": "Exécutions sans surveillance",
+        "unattendedOptions": {
+          "refuse": "Refuser",
+          "settings": "Utiliser les réglages de chaque outil",
+          "allow": "Autoriser"
+        },
+        "unattendedHints": {
+          "refuse": "Les exécutions planifiées, webhook, API et autres exécutions sans surveillance ignorent tout outil qui demanderait une approbation.",
+          "settings": "Les outils en Auto passent par l'examen du modèle ; ceux en Demander sont ignorés.",
+          "allow": "Les outils qui demanderaient une approbation s'exécutent dans les exécutions planifiées, webhook et API. Les discussions sur d'autres canaux les ignorent toujours."
+        },
+        "allowAll": "Permettre « Tout autoriser »",
+        "allowAllDescription": "Permet aux utilisateurs de désactiver les demandes d'approbation pour un rapport, ou d'en faire le mode par défaut des nouveaux rapports. S'applique uniquement aux exécutions du propriétaire du rapport pendant qu'il les suit.",
+        "judgeModel": "Modèle pour les décisions automatiques",
+        "judgeModelHint": "Automatique utilise le modèle de décision du routeur quand le routage en utilise un, sinon le petit modèle par défaut.",
+        "judgeModelOptions": {
+          "automatic": "Automatique",
+          "small": "Petit modèle par défaut",
+          "unavailable": "Modèle indisponible",
+          "notLoaded": "Modèle enregistré (liste non chargée)"
+        },
+        "judgeModelLoadFailed": "Impossible de charger les modèles de décision.",
+        "judgeModelRetry": "Réessayer"
       }
     },
     "llms": {
@@ -4732,6 +4816,9 @@
     "shell_confirmation.invalid_scope": "Portée d'autorisation non valide.",
     "shell_confirmation.report_required": "Les autorisations de session nécessitent un rapport.",
     "shell_confirmation.rule_mismatch": "Règle de commande non valide, ou le motif ne correspond pas à cette commande.",
+    "tool_permission_mode.allow_all_off": "« Tout autoriser » est désactivé pour cette organisation.",
+    "tool_permission_mode.allow_all_default_needs_switch": "« Tout autoriser » ne peut être le mode par défaut que lorsqu'il est activé.",
+    "tool_permission_mode.judge_model_unavailable": "Choisissez un modèle de décision activé pour le juge du mode Auto.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
@@ -7619,7 +7706,14 @@
     "inheritedHint": "Ces personnes et groupes accèdent à cet agent via un dossier ou une connexion. Modifiez leur accès à la source.",
     "viaFolder": "Via le dossier {name}",
     "viaConnection": "Via la connexion {name}",
-    "inheritedHidden": "D'autres personnes peuvent avoir accès via un dossier ou une connexion que vous ne gérez pas."
+    "inheritedHidden": "D'autres personnes peuvent avoir accès via un dossier ou une connexion que vous ne gérez pas.",
+    "permissionCap": {
+      "title": "Plafond du mode d'autorisation",
+      "hint": "Limite le mode d'autorisation des rapports qui utilisent cet agent. Demander : chaque outil suit son propre réglage. Auto : un modèle peut décider.",
+      "none": "Aucun plafond",
+      "ask": "Demander",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "M'envoyer les nouveautés du produit",

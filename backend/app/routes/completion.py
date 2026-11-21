@@ -483,19 +483,30 @@ async def respond_to_mcp_tool_confirmation(
         if meta.get("user_id") and str(current_user.id) != str(meta["user_id"]):
             raise HTTPException(status_code=403, detail="Only the user who started this run can respond")
 
+    # How far the answer reaches: once | report | always. The shell card's
+    # older values map on (session = this report, user = always); a client
+    # that only sends `remember` means always.
+    raw_scope = body.get("permission_scope")
+    if raw_scope is not None and not isinstance(raw_scope, str):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+    scope = {"session": "report", "user": "always"}.get(raw_scope, raw_scope) if raw_scope else (
+        "always" if remember else "once")
+    if scope not in ("once", "report", "always"):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+    if scope == "report" and (row is None or not row.report_id):
+        raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "'For this report' needs a report")
+    remember = scope == "always"
+
     shell_target = (row.arguments or {}).get("_execution_target", {}) if row is not None else {}
-    shell_scope = body.get("permission_scope") or ("user" if remember else "once")
+    shell_scope = {"once": "once", "report": "session", "always": "user"}[scope]
     shell_rule = None
     if shell_target.get("shell_permissions"):
         from app.schemas.data_sources.remote_server import ShellRule
-        if shell_scope not in ("once", "session", "user"):
-            raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_INVALID_SCOPE, "Invalid permission scope")
+        # The scope and its report were checked above for every row.
         if shell_target.get("mandatory_approval"):
             shell_scope = "once"
         remember = shell_scope != "once"
         if remember:
-            if shell_scope == "session" and not row.report_id:
-                raise AppError.bad_request(ErrorCode.SHELL_CONFIRMATION_REPORT_REQUIRED, "Session permissions require a report")
             try:
                 shell_rule = ShellRule.model_validate({
                     "pattern": body.get("command_pattern") or row.arguments.get("command"),
@@ -559,6 +570,9 @@ async def respond_to_mcp_tool_confirmation(
             remember=remember,
             user_id=str(current_user.id),
             response=extra_response,
+            # "For this report" is only reused for MCP tool-policy asks (see
+            # ToolConfirmationService.report_decision); elsewhere it is once.
+            scope=scope if row.kind == KIND_MCP_TOOL_POLICY or scope != "report" else "once",
         )
         if row is None:
             raise HTTPException(status_code=404, detail="Confirmation not found or expired")
@@ -571,6 +585,7 @@ async def respond_to_mcp_tool_confirmation(
         {
             "approved": approved,
             "remember": remember,
+            "scope": (row.scope if row is not None and getattr(row, "scope", None) else scope),
             "resolved_by_user_id": str(current_user.id),
             "resolved_by_name": getattr(current_user, "name", None) or None,
             "response": extra_response,

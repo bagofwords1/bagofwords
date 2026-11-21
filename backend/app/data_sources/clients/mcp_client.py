@@ -102,11 +102,16 @@ def default_policy_for_hints(hints: Dict[str, bool]) -> Optional[str]:
 
 
 def is_read_only_tool(metadata: Any) -> bool:
-    """True when a stored ConnectionTool's metadata records readOnlyHint=true."""
+    """True when a stored ConnectionTool's metadata says the tool only reads:
+    readOnlyHint=true and not destructiveHint=true (the same rule as
+    default_policy_for_hints). The hints are under ``annotations`` for MCP
+    tools; remote-server tools store them at the top level."""
     if not isinstance(metadata, dict):
         return False
     hints = metadata.get("annotations")
-    return isinstance(hints, dict) and hints.get("readOnlyHint") is True
+    if not isinstance(hints, dict):
+        hints = metadata
+    return hints.get("readOnlyHint") is True and hints.get("destructiveHint") is not True
 
 
 # A pooled session the server no longer knows answers 404 → the SDK reports

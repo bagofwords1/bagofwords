@@ -1018,6 +1018,34 @@
         "nothing": "Todavía no hay nada que borrar",
         "failed": "No se pudo borrar el contexto"
       }
+    },
+    "permissionMode": {
+      "title": "Permisos de herramientas",
+      "tooltip": "Permisos de herramientas: {mode}",
+      "default": "predeterminado",
+      "allowAllBanner": "Permitir todo está activo: el agente ejecuta herramientas de conexión sin preguntar. Las herramientas bloqueadas o denegadas nunca se ejecutan.",
+      "switchToAsk": "Cambiar a Preguntar",
+      "saveFailed": "No se pudo cambiar el modo de permisos",
+      "modes": {
+        "ask": {
+          "label": "Preguntar",
+          "hint": "Cada herramienta sigue su propia configuración; pregunta antes de cambios."
+        },
+        "auto": {
+          "label": "Automático",
+          "hint": "Las llamadas de solo lectura se ejecutan; un modelo decide el resto y pregunta si duda."
+        },
+        "allow_all": {
+          "label": "Permitir todo",
+          "hint": "Las herramientas que preguntan se ejecutan sin preguntar, solo en este informe."
+        }
+      },
+      "unknown": {
+        "label": "Modo desconocido",
+        "hint": "No se pudo cargar la configuración de permisos, así que no se sabe qué modo usará la próxima ejecución."
+      },
+      "loadFailed": "No se pudo cargar la configuración de permisos",
+      "retry": "Reintentar"
     }
   },
   "reports": {
@@ -1886,7 +1914,34 @@
         "cancel": "Cancelar",
         "contextShared": "La aplicación compartió tu selección con el asistente."
       },
-      "viaAgent": "A través de {name}"
+      "viaAgent": "A través de {name}",
+      "allowForReport": "Permitir en este informe",
+      "allowForReportHint": "No volver a preguntar por esta herramienta en este informe",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Ejecutada sin preguntar (Permitir todo)",
+          "refused": "No ejecutada"
+        },
+        "readOnly": {
+          "allowed": "Ejecutada sin preguntar: solo lectura",
+          "refused": "No ejecutada"
+        },
+        "blocklist": {
+          "allowed": "Permitida",
+          "refused": "Rechazada por la lista de bloqueo de seguridad"
+        },
+        "rememberedReport": {
+          "allowed": "Permitida en este informe",
+          "refused": "Denegada en este informe"
+        },
+        "unattended": {
+          "allowed": "Permitida por la configuración de ejecuciones desatendidas",
+          "refused": "No ejecutada: requiere aprobación y nadie está mirando"
+        },
+        "unknownTool": {
+          "refused": "No se ejecutó: esta herramienta no está en la lista de herramientas de la conexión"
+        }
+      }
     },
     "remoteOp": {
       "read_file": {
@@ -2535,11 +2590,12 @@
       "glob": "Patrón con comodines",
       "hint": "Las reglas coinciden con comandos completos en este directorio. Los permisos por prefijo excluyen operadores y expansiones del shell.",
       "always": "Permitir siempre coincidencias",
-      "session": "Permitir en esta sesión",
+      "session": "Permitir en este informe (8 horas)",
       "mine": "Mis reglas de shell",
       "override": "Estas reglas solo se aplican a ti. Permitir siempre o Denegar siempre de la conexión tiene prioridad.",
       "save": "Guardar reglas",
-      "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo."
+      "failed": "No se pudieron cargar o guardar las reglas. Revisa el JSON e inténtalo de nuevo.",
+      "sessionHint": "Ejecuta los comandos que coincidan en este informe sin preguntar durante las próximas 8 horas."
     },
     "readReport": {
       "window": "mensajes {start}–{end} / {total}",
@@ -4146,6 +4202,34 @@
           "name": "Vista Mundo",
           "description": "Muestra en la página de Agentes un interruptor que abre Mundo: un mapa de los agentes, el conocimiento, las fuentes y el trabajo que conectan tu organización. Cada usuario ve solo lo que tiene permiso para ver."
         }
+      },
+      "permissionMode": {
+        "title": "Modo de permisos de herramientas",
+        "description": "Cómo decide el agente si ejecuta herramientas de conexión y comandos de shell remoto. Los usuarios eligen un modo por informe en el cuadro de mensajes; las herramientas desactivadas o denegadas y la lista de bloqueo de seguridad se aplican en todos los modos.",
+        "defaultMode": "Modo predeterminado para informes nuevos",
+        "unattended": "Ejecuciones sin nadie mirando",
+        "unattendedOptions": {
+          "refuse": "Rechazar",
+          "settings": "Usar la configuración de cada herramienta",
+          "allow": "Permitir"
+        },
+        "unattendedHints": {
+          "refuse": "Las ejecuciones programadas, de webhook, de API y otras sin supervisión omiten cualquier herramienta que preguntaría.",
+          "settings": "Las herramientas en Automático usan la revisión del modelo; las de Preguntar se omiten.",
+          "allow": "Las herramientas que preguntarían se ejecutan en las ejecuciones programadas, de webhook y de API. Los chats de otros canales las siguen omitiendo."
+        },
+        "allowAll": "Permitir \"Permitir todo\"",
+        "allowAllDescription": "Permite a los usuarios desactivar las solicitudes de aprobación en un informe, o hacerlo el modo predeterminado de los informes nuevos. Solo se aplica a las ejecuciones del propietario del informe mientras las sigue.",
+        "judgeModel": "Modelo para las decisiones automáticas",
+        "judgeModelHint": "Automático usa el modelo de decisión del enrutador cuando el enrutamiento usa uno; si no, el modelo pequeño predeterminado.",
+        "judgeModelOptions": {
+          "automatic": "Automático",
+          "small": "Modelo pequeño predeterminado",
+          "unavailable": "Modelo no disponible",
+          "notLoaded": "Modelo guardado (lista no cargada)"
+        },
+        "judgeModelLoadFailed": "No se pudieron cargar los modelos de decisión.",
+        "judgeModelRetry": "Reintentar"
       }
     },
     "llms": {
@@ -5385,6 +5469,9 @@
     "shell_confirmation.invalid_scope": "Alcance de permiso no válido.",
     "shell_confirmation.report_required": "Los permisos de sesión requieren un informe.",
     "shell_confirmation.rule_mismatch": "Regla de comando no válida, o el patrón no coincide con este comando.",
+    "tool_permission_mode.allow_all_off": "Permitir todo está desactivado para esta organización.",
+    "tool_permission_mode.allow_all_default_needs_switch": "Permitir todo solo puede ser el predeterminado mientras esté activado.",
+    "tool_permission_mode.judge_model_unavailable": "Elige un modelo de decisión habilitado para el juez de Automático.",
     "connection.config_invalid": "Configuración de conexión no válida: {detail}",
     "connection.athena_mode_switch": "Una conexión de Athena no puede cambiar entre una base de datos y varias. Crea una conexión nueva.",
     "catalog_discovery_incomplete": "La actualización del catálogo falló porque la detección quedó incompleta. Se conservaron el catálogo anterior y las selecciones de tablas.",
@@ -8553,7 +8640,14 @@
     "inheritedHint": "Estas personas y grupos acceden a este agente a través de una carpeta o conexión. Cambia su acceso en el origen.",
     "viaFolder": "A través de la carpeta {name}",
     "viaConnection": "A través de la conexión {name}",
-    "inheritedHidden": "Otras personas pueden tener acceso a través de una carpeta o conexión que no administras."
+    "inheritedHidden": "Otras personas pueden tener acceso a través de una carpeta o conexión que no administras.",
+    "permissionCap": {
+      "title": "Límite del modo de permisos",
+      "hint": "Limita el modo de permisos de los informes que usan este agente. Preguntar: cada herramienta sigue su propia configuración. Automático: un modelo puede decidir.",
+      "none": "Sin límite",
+      "ask": "Preguntar",
+      "auto": "Automático"
+    }
   },
   "productUpdates": {
     "checkbox": "Envíame novedades del producto",

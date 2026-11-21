@@ -1,5 +1,18 @@
 <template>
     <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'px-3 pt-2 pb-2 sm:px-4'">
+        <!-- Allow all is on for this report: say so for as long as it is. -->
+        <div
+            v-if="allowAllActive"
+            data-testid="allow-all-banner"
+            class="mb-2 px-3 py-1.5 rounded-md border border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200 text-xs flex items-center gap-2"
+            role="status"
+        >
+            <Icon name="heroicons-shield-exclamation" class="w-4 h-4 flex-shrink-0" />
+            <span class="flex-1 min-w-0">{{ $t('prompt.permissionMode.allowAllBanner') }}</span>
+            <button type="button" class="underline flex-shrink-0 hover:text-amber-900 dark:hover:text-amber-100" @click="selectPermissionMode('ask')">
+                {{ $t('prompt.permissionMode.switchToAsk') }}
+            </button>
+        </div>
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
              from a queued chip's "send now" action. Report pages only: the
@@ -600,6 +613,23 @@
                         </button>
                     </UTooltip>
 
+                    <!-- Permission mode for tool calls (Ask / Auto / Allow all).
+                         Hidden where the box edits something else (a scheduled
+                         task), whose runs nobody watches anyway. -->
+                    <PermissionModePicker
+                        v-if="props.persistSelection"
+                        :key="'perm-' + (props.popoverOffset || 0)"
+                        :model-value="permissionMode"
+                        :org-default="orgPermissionDefault"
+                        :allow-all-enabled="allowAllEnabled"
+                        :agent-cap="agentPermissionCap"
+                        :unknown="permissionSettingsFailed"
+                        :stored-unknown="storedPermissionModeUnknown"
+                        :compact="isCompactPrompt"
+                        @update:model-value="selectPermissionMode"
+                        @retry="retryPermissionMode"
+                    />
+
                     <!-- Model selector: search, provider groups, effort -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="selectedModelTooltip" :popper="{ strategy: 'fixed', placement: 'top' }">
@@ -702,6 +732,7 @@ import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import ConnectorsMenu from '~/components/connectors/ConnectorsMenu.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import ModelPickerPanel from '@/components/prompt/ModelPickerPanel.vue'
+import PermissionModePicker from '@/components/prompt/PermissionModePicker.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import { parseSlashCommand, matchingSlashCommands, parseCompactArgs, type CompactArgs, type ParsedSlashCommand, type SlashCommandDef } from '~/utils/slashCommands'
@@ -798,6 +829,8 @@ const props = defineProps({
     initialModel: { type: String, default: '' },
     // Initial reasoning level (report.reasoning_effort); '' = Default
     initialEffort: { type: String, default: '' },
+    // Initial permission mode (report.permission_mode); '' = the org default
+    initialPermissionMode: { type: String, default: '' },
     // Save model / effort picks onto the report. Off where the box edits
     // something else that has its own model (a scheduled task), so
     // configuring the task never changes the conversation's model.
@@ -865,6 +898,7 @@ const canCreateInstructions = computed(() => canManageInstructionsForSelectedAge
 
 const { t, locale } = useI18n()
 const toast = useToast()
+const { getErrorMessage } = useErrorMessage()
 const text = ref('')
 const composerInputAreaRef = ref<HTMLElement | null>(null)
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
@@ -1219,10 +1253,221 @@ const modelIdForPayload = computed<string | null>(() =>
 )
 
 async function loadRouting() {
+    // useMyFetch reports HTTP failures in error, it does not throw.
+    const { data, error } = await useMyFetch('/api/organization/settings')
+    if (error?.value || !data.value) {
+        // The mode the server applies is unknown: never show the Ask label for it.
+        permissionSettingsFailed.value = true
+        if (props.persistSelection) toast.add({ title: t('prompt.permissionMode.loadFailed'), color: 'red' })
+        return
+    }
+    permissionSettingsFailed.value = false
+    const cfg = (data.value as any)?.config
+    routingOn.value = !!cfg?.model_routing?.value
+    const pm = cfg?.tool_permission_mode?.value || {}
+    allowAllEnabled.value = pm.allow_all_enabled === true
+    // Allow all can be the org default only while its switch is on.
+    const defaults = allowAllEnabled.value ? ['ask', 'auto', 'allow_all'] : ['ask', 'auto']
+    orgPermissionDefault.value = (defaults.includes(pm.default_mode) ? pm.default_mode : 'ask')
+}
+
+// ── Permission mode (Ask / Auto / Allow all) ───────────────────────────────
+// null = follow the org default (which may be Allow all while its switch is
+// on). The landing page sends a mode only when the user picked one, so a new
+// report starts from the default.
+type PermissionMode = 'ask' | 'auto' | 'allow_all'
+const PERMISSION_MODES = ['ask', 'auto', 'allow_all']
+const asPermissionMode = (v: any): PermissionMode | null => (PERMISSION_MODES.includes(v) ? v : null)
+const permissionMode = ref<PermissionMode | null>(asPermissionMode(props.initialPermissionMode))
+const orgPermissionDefault = ref<PermissionMode>('ask')
+const allowAllEnabled = ref(false)
+// The org settings failed to load: the default and the switch are unknown.
+const permissionSettingsFailed = ref(false)
+// The strictest cap among the report's agents (ask | auto), else null. The
+// run applies the strictest cap of its agents, so the chip and the banner
+// show the capped mode. An Auto report has no agents attached here: no cap
+// is shown for it.
+const agentPermissionCap = computed<'ask' | 'auto' | null>(() => {
+    const caps = (selectedDataSources.value || []).map((ds: any) => ds?.max_permission_mode)
+    return caps.includes('ask') ? 'ask' : caps.includes('auto') ? 'auto' : null
+})
+// The banner follows the mode the next run uses: the report's own, else the
+// default. Never in a scheduled task's editor (persistSelection off): it edits
+// no report, and its runs are unattended. If the settings failed to load, a
+// report's own Allow all still shows it.
+const allowAllActive = computed(() => {
+    if (!props.persistSelection) return false
+    // An agent of the report caps the mode below Allow all (the run applies it).
+    if (agentPermissionCap.value) return false
+    if (permissionSettingsFailed.value) return permissionMode.value === 'allow_all'
+    return (permissionMode.value ?? orgPermissionDefault.value) === 'allow_all' && allowAllEnabled.value
+})
+
+// The last mode the server is known to hold for this report. Saves and
+// read-backs go one at a time: a pick made while one is in flight is sent
+// after it, so the server applies them in the order they were made and only
+// the latest pick decides the chip.
+let confirmedPermissionMode: PermissionMode | null = permissionMode.value
+let permissionSavePending = false
+let permissionReadPending = false
+// The saves and reads in flight, as one promise: true when the last one
+// worked. A prompt sent meanwhile waits for it (the run reads the stored
+// mode), and is not sent if it failed.
+let permissionSaveLoop: Promise<boolean> | null = null
+// A save got no answer (a timeout, a network fault): the client gave up, but
+// the server may still apply it. Until it is seen applied, or this long has
+// passed, every send reads the stored mode first.
+let unconfirmedPermissionSave: { wanted: PermissionMode | null, until: number } | null = null
+const UNCONFIRMED_SAVE_WINDOW_MS = 120000
+// The report's stored mode could not be read back after such a save: it is
+// unknown, the chip says so, and nothing is sent until it is read or saved.
+const storedPermissionModeUnknown = ref(false)
+
+function selectPermissionMode(m: PermissionMode | null) {
+    permissionMode.value = m
+    persistPermissionMode()
+}
+
+function persistPermissionMode() {
+    // Landing page: there is no report yet; the choice rides on the create call.
+    if (!props.report_id || !props.persistSelection) return
+    permissionSavePending = true
+    runPermissionSync()
+}
+
+function runPermissionSync(): Promise<boolean> {
+    if (!permissionSaveLoop) {
+        permissionSaveLoop = syncPermissionMode().finally(() => { permissionSaveLoop = null })
+    }
+    return permissionSaveLoop
+}
+
+async function syncPermissionMode(): Promise<boolean> {
+    let ok = true
+    while (permissionSavePending || permissionReadPending) {
+        if (permissionSavePending) {
+            permissionSavePending = false
+            ok = await savePermissionMode()
+        } else {
+            permissionReadPending = false
+            ok = await readStoredPermissionMode()
+        }
+    }
+    return ok
+}
+
+// A save or read that hangs must not hold the composer: past this it has no answer.
+const PERMISSION_SAVE_TIMEOUT_MS = 15000
+
+async function savePermissionMode(): Promise<boolean> {
+    const wanted = permissionMode.value
+    let error: any = null
     try {
-        const { data } = await useMyFetch('/api/organization/settings')
-        routingOn.value = !!(data.value as any)?.config?.model_routing?.value
-    } catch {}
+        const res = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ permission_mode: wanted || '' }),
+            timeout: PERMISSION_SAVE_TIMEOUT_MS,
+        })
+        error = res.error?.value
+    } catch (e) {
+        // A throw (no organization, a network fault) is a failed save too.
+        error = e
+    }
+    if (!error) {
+        confirmedPermissionMode = wanted
+        storedPermissionModeUnknown.value = false
+        return true
+    }
+    const answered = !!(error?.statusCode || error?.status || error?.response?.status)
+    if (!answered) {
+        // No answer: the server may have applied the change, or may still
+        // apply it. Read the stored mode back and show that.
+        unconfirmedPermissionSave = { wanted, until: Date.now() + UNCONFIRMED_SAVE_WINDOW_MS }
+        if (!await readStoredPermissionMode()) return false
+        if (confirmedPermissionMode === wanted) return true  // it was applied
+        if (!permissionSavePending) {
+            toast.add({ title: t('prompt.permissionMode.saveFailed'), description: t('errors.network'), color: 'red' })
+        }
+        return false
+    }
+    if (!permissionSavePending) {
+        // e.g. Allow all was switched off for the org meanwhile: show the
+        // mode the server will actually use. (A newer pick still to be sent
+        // decides instead.)
+        permissionMode.value = confirmedPermissionMode
+        toast.add({ title: t('prompt.permissionMode.saveFailed'), description: getErrorMessage(error), color: 'red' })
+    }
+    return false
+}
+
+// Read the report's stored mode and show it. False when it cannot be read:
+// the chip then says the mode is unknown.
+async function readStoredPermissionMode(): Promise<boolean> {
+    let data: any = null
+    let error: any = null
+    try {
+        const res = await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'GET',
+            // Never an answer shared with a read that started before the save.
+            query: { _: Date.now() },
+            timeout: PERMISSION_SAVE_TIMEOUT_MS,
+        })
+        data = res.data?.value
+        error = res.error?.value
+    } catch (e) {
+        error = e
+    }
+    if (error || !data) {
+        storedPermissionModeUnknown.value = true
+        if (!permissionSavePending) {
+            toast.add({ title: t('prompt.permissionMode.loadFailed'), description: t('errors.network'), color: 'red' })
+        }
+        return false
+    }
+    const stored = asPermissionMode(data.permission_mode)
+    storedPermissionModeUnknown.value = false
+    confirmedPermissionMode = stored
+    if (unconfirmedPermissionSave
+        && (stored === unconfirmedPermissionSave.wanted || Date.now() > unconfirmedPermissionSave.until)) {
+        unconfirmedPermissionSave = null
+    }
+    // A newer pick still to be sent decides the chip instead.
+    if (!permissionSavePending) permissionMode.value = stored
+    return true
+}
+
+function retryPermissionMode() {
+    if (permissionSettingsFailed.value) loadRouting()
+    if (storedPermissionModeUnknown.value && props.report_id && props.persistSelection) {
+        permissionReadPending = true
+        runPermissionSync()
+    }
+}
+
+// Whether a prompt may be sent now, as far as the permission mode goes. Waits
+// for a mode switch still being saved (false if it failed). While the stored
+// mode is not known for sure (a save got no answer), it is read first: false
+// if it cannot be read, or if it is not the mode the chip showed. The chip
+// then shows the stored mode, a toast names it, and the next send goes out:
+// a prompt is only ever sent under the mode the user saw.
+async function permissionModeSettled(): Promise<boolean> {
+    if (permissionSaveLoop && !await permissionSaveLoop) return false
+    if (!props.report_id || !props.persistSelection) return true
+    if (!storedPermissionModeUnknown.value && !unconfirmedPermissionSave) return true
+    const wasUnknown = storedPermissionModeUnknown.value
+    const shown = permissionMode.value
+    permissionReadPending = true
+    if (!await runPermissionSync()) return false
+    if (wasUnknown || permissionMode.value !== shown) {
+        const now = permissionMode.value ?? orgPermissionDefault.value
+        toast.add({
+            title: t('prompt.permissionMode.tooltip', { mode: t(`prompt.permissionMode.modes.${now}.label`) }),
+            color: 'amber',
+        })
+        return false
+    }
+    return true
 }
 
 // Legacy popper (for current Nuxt UI stable)
@@ -1787,6 +2032,7 @@ function buildSubmitPayload() {
         mode: mode.value,                 // 'chat' | 'training'
         model_id: modelIdForPayload.value,    // backend model id ('auto' → null → router engages)
         reasoning_effort: selectedEffort.value,  // null = Default
+        permission_mode: permissionMode.value,   // null = the org default
         files: imageFiles                 // image files for immediate display in chat
     }
 }
@@ -1841,6 +2087,20 @@ async function submit() {
     if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return
     if (isSubmitting.value || !canSubmit.value) return
     if (isListening.value) abortVoiceInput()
+
+    // A permission-mode switch still being saved, or a stored mode that is
+    // not known for sure: the run reads the stored mode, so wait for it; if
+    // that failed or changed the chip (a toast says so) send nothing.
+    if (props.report_id && (permissionSaveLoop || unconfirmedPermissionSave || storedPermissionModeUnknown.value)) {
+        isSubmitting.value = true
+        let saved = false
+        try {
+            saved = await permissionModeSettled()
+        } finally {
+            isSubmitting.value = false
+        }
+        if (!saved || !canSubmit.value) return
+    }
 
     // A completion is running: Enter/arrow adds the prompt to the queue
     // instead of starting (or clobbering) a run.
@@ -2136,10 +2396,16 @@ defineExpose({
         if (isSubmitting.value || isHydratingDataSources.value || hasFilesUploading.value
             || !selectedModel.value || !hasDataSourceOrFile.value) return null
         if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return null
+        // A mode switch still being saved: the run reads the stored mode.
+        if (!await permissionModeSettled()) return null
         if (!modelId) return { model_id: null }
         const known = models.value.some(m => String(m.id) === String(modelId))
         return { model_id: known ? modelId : modelIdForPayload.value }
     },
+    // A control outside the box that sends a prompt itself (starter and
+    // follow-up questions) waits for a mode switch still being saved; false
+    // if that save failed (its toast says so): send nothing then.
+    permissionModeSettled,
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
     submitPrompt: async (value: string) => {
@@ -2162,6 +2428,14 @@ watch(() => props.initialMode, (newVal) => {
         mode.value = newVal
     }
 }, { immediate: true })
+
+// Adopt the report's saved permission mode when it arrives (hydrate only, never
+// persist back).
+watch(() => props.initialPermissionMode, (v) => {
+    const next = asPermissionMode(v)
+    confirmedPermissionMode = next
+    if (next !== permissionMode.value) permissionMode.value = next
+})
 
 // Adopt the report's saved reasoning level when it arrives (same rule as the
 // model below: hydrate the ref directly so it never persists back).
@@ -2222,6 +2496,7 @@ async function createReport() {
         // sentinel and means nothing on create.
         if (payload.model_id) body.model_id = payload.model_id
         if (payload.reasoning_effort) body.reasoning_effort = payload.reasoning_effort
+        if (payload.permission_mode) body.permission_mode = payload.permission_mode
         if (projectExplicitlyPicked.value) {
             if (currentProject.value?.id) body.project_id = currentProject.value.id
             else delete body.project_id

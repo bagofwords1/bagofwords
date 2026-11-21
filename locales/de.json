@@ -942,7 +942,35 @@
         "dismiss": "Schließen"
       }
     },
-    "recent": "Zuletzt verwendet"
+    "recent": "Zuletzt verwendet",
+    "permissionMode": {
+      "title": "Tool-Berechtigungen",
+      "tooltip": "Tool-Berechtigungen: {mode}",
+      "default": "Standard",
+      "allowAllBanner": "Alles erlauben ist aktiv: Der Agent führt Verbindungstools ohne Nachfrage aus. Gesperrte und verweigerte Tools laufen nie.",
+      "switchToAsk": "Zu Fragen wechseln",
+      "saveFailed": "Berechtigungsmodus konnte nicht geändert werden",
+      "modes": {
+        "ask": {
+          "label": "Fragen",
+          "hint": "Jedes Tool folgt seiner Einstellung; fragt vor Änderungen."
+        },
+        "auto": {
+          "label": "Automatisch",
+          "hint": "Nur-Lese-Aufrufe laufen; ein Modell entscheidet den Rest und fragt im Zweifel."
+        },
+        "allow_all": {
+          "label": "Alles erlauben",
+          "hint": "Tools, die fragen würden, laufen ohne Nachfrage – nur in diesem Bericht."
+        }
+      },
+      "unknown": {
+        "label": "Modus unbekannt",
+        "hint": "Die Berechtigungseinstellungen konnten nicht geladen werden, daher ist der Modus des nächsten Laufs unbekannt."
+      },
+      "loadFailed": "Die Berechtigungseinstellungen konnten nicht geladen werden",
+      "retry": "Erneut versuchen"
+    }
   },
   "reports": {
     "title": "Berichte",
@@ -1733,7 +1761,34 @@
       "deniedByYou": "Von dir abgelehnt",
       "records": "{n} Datensätze",
       "recordsPartial": "{shown} von {total} Datensätzen",
-      "viaAgent": "Über {name}"
+      "viaAgent": "Über {name}",
+      "allowForReport": "Für diesen Bericht erlauben",
+      "allowForReportHint": "In diesem Bericht nicht erneut für dieses Tool fragen",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Ohne Nachfrage ausgeführt (Alles erlauben)",
+          "refused": "Nicht ausgeführt"
+        },
+        "readOnly": {
+          "allowed": "Ohne Nachfrage ausgeführt: nur lesend",
+          "refused": "Nicht ausgeführt"
+        },
+        "blocklist": {
+          "allowed": "Erlaubt",
+          "refused": "Von der Sicherheits-Sperrliste abgelehnt"
+        },
+        "rememberedReport": {
+          "allowed": "Für diesen Bericht erlaubt",
+          "refused": "Für diesen Bericht abgelehnt"
+        },
+        "unattended": {
+          "allowed": "Durch die Einstellung für unbeaufsichtigte Läufe erlaubt",
+          "refused": "Nicht ausgeführt: braucht eine Freigabe, niemand schaut zu"
+        },
+        "unknownTool": {
+          "refused": "Nicht ausgeführt: Dieses Tool steht nicht in der Tool-Liste der Verbindung"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"
@@ -2226,11 +2281,12 @@
       "glob": "Platzhaltermuster",
       "hint": "Regeln gelten für vollständige Befehle in diesem Arbeitsverzeichnis. Präfixfreigaben schließen Shell-Operatoren und Erweiterungen aus.",
       "always": "Passende Befehle immer erlauben",
-      "session": "Für diese Sitzung erlauben",
+      "session": "Für diesen Bericht erlauben (8 Stunden)",
       "mine": "Meine Shell-Regeln",
       "override": "Diese Regeln gelten nur für Sie. Immer erlauben oder Immer verweigern für die Verbindung hat Vorrang.",
       "save": "Regeln speichern",
-      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON."
+      "failed": "Regeln konnten nicht geladen oder gespeichert werden. Prüfen Sie das JSON.",
+      "sessionHint": "Führt passende Befehle in diesem Bericht für die nächsten 8 Stunden ohne Nachfrage aus."
     },
     "shell": {
       "command": "Shell-Befehl",
@@ -3668,6 +3724,34 @@
           "name": "Weltansicht",
           "description": "Zeigt auf der Agenten-Seite einen Schalter, der die Welt öffnet: eine Karte der Agenten, des Wissens, der Quellen und der Arbeit, die Ihre Organisation verbinden. Jeder Benutzer sieht nur, worauf er Zugriff hat."
         }
+      },
+      "permissionMode": {
+        "title": "Tool-Berechtigungsmodus",
+        "description": "Wie der Agent entscheidet, ob er Verbindungstools und Remote-Shell-Befehle ausführt. Nutzer wählen pro Bericht einen Modus im Eingabefeld; deaktivierte und verweigerte Tools sowie die Sicherheits-Sperrliste gelten in jedem Modus.",
+        "defaultMode": "Standardmodus für neue Berichte",
+        "unattended": "Läufe ohne Zuschauer",
+        "unattendedOptions": {
+          "refuse": "Ablehnen",
+          "settings": "Tool-Einstellungen verwenden",
+          "allow": "Erlauben"
+        },
+        "unattendedHints": {
+          "refuse": "Geplante, Webhook-, API- und andere unbeaufsichtigte Ausführungen überspringen jedes Tool, das nachfragen würde.",
+          "settings": "Tools auf Automatisch nutzen die Modellprüfung; Tools auf Fragen werden übersprungen.",
+          "allow": "Tools, die nachfragen würden, laufen in geplanten, Webhook- und API-Ausführungen. Chats in anderen Kanälen überspringen sie weiterhin."
+        },
+        "allowAll": "„Alles erlauben“ zulassen",
+        "allowAllDescription": "Erlaubt Benutzern, Freigabeanfragen für einen Bericht abzuschalten oder dies zum Standard für neue Berichte zu machen. Gilt nur für die eigenen Ausführungen des Berichtsbesitzers, während er zusieht.",
+        "judgeModel": "Modell für Auto-Entscheidungen",
+        "judgeModelHint": "Automatisch nutzt das Entscheidungsmodell des Routers, wenn das Routing eines verwendet, sonst das kleine Standardmodell.",
+        "judgeModelOptions": {
+          "automatic": "Automatisch",
+          "small": "Kleines Standardmodell",
+          "unavailable": "Nicht verfügbares Modell",
+          "notLoaded": "Gespeichertes Modell (Liste nicht geladen)"
+        },
+        "judgeModelLoadFailed": "Die Entscheidungsmodelle konnten nicht geladen werden.",
+        "judgeModelRetry": "Erneut versuchen"
       }
     },
     "llms": {
@@ -4732,6 +4816,9 @@
     "shell_confirmation.invalid_scope": "Ungültiger Berechtigungsbereich.",
     "shell_confirmation.report_required": "Sitzungsberechtigungen erfordern einen Bericht.",
     "shell_confirmation.rule_mismatch": "Ungültige Befehlsregel, oder das Muster passt nicht zu diesem Befehl.",
+    "tool_permission_mode.allow_all_off": "„Alles erlauben“ ist für diese Organisation ausgeschaltet.",
+    "tool_permission_mode.allow_all_default_needs_switch": "„Alles erlauben“ kann nur Standard sein, solange es eingeschaltet ist.",
+    "tool_permission_mode.judge_model_unavailable": "Wählen Sie ein aktiviertes Entscheidungsmodell für den Prüfer im Modus „Automatisch“.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Die Katalogaktualisierung ist fehlgeschlagen, da die Erkennung unvollständig war. Der bisherige Katalog und die Tabellenauswahl wurden beibehalten.",
@@ -7619,7 +7706,14 @@
     "inheritedHint": "Diese Personen und Gruppen erreichen den Agenten über einen Ordner oder eine Verbindung. Ändern Sie den Zugriff an der Quelle.",
     "viaFolder": "Über Ordner {name}",
     "viaConnection": "Über Verbindung {name}",
-    "inheritedHidden": "Andere haben möglicherweise Zugriff über einen Ordner oder eine Verbindung, die Sie nicht verwalten."
+    "inheritedHidden": "Andere haben möglicherweise Zugriff über einen Ordner oder eine Verbindung, die Sie nicht verwalten.",
+    "permissionCap": {
+      "title": "Obergrenze für den Berechtigungsmodus",
+      "hint": "Begrenzt den Berechtigungsmodus von Berichten, die diesen Agenten nutzen. Fragen: Jedes Tool folgt seiner eigenen Einstellung. Automatisch: Ein Modell kann entscheiden.",
+      "none": "Keine Obergrenze",
+      "ask": "Fragen",
+      "auto": "Automatisch"
+    }
   },
   "productUpdates": {
     "checkbox": "Produkt-Updates an mich senden",

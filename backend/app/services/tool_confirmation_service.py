@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 
 KIND_MCP_TOOL_POLICY = "mcp_tool_policy"
 
+# How far a user's answer reaches (ToolConfirmation.scope).
+SCOPE_ONCE = "once"
+SCOPE_REPORT = "report"
+SCOPE_ALWAYS = "always"
+SCOPES = (SCOPE_ONCE, SCOPE_REPORT, SCOPE_ALWAYS)
+
 
 class ToolConfirmationService:
     async def create(
@@ -105,6 +111,7 @@ class ToolConfirmationService:
         remember: bool,
         user_id: Optional[str],
         response: Optional[dict] = None,
+        scope: Optional[str] = None,
     ) -> Optional[ToolConfirmation]:
         """Record the decision. Idempotent: a row that is already resolved keeps
         its first decision, so a double click (or a retry after a dropped
@@ -126,6 +133,7 @@ class ToolConfirmationService:
             .values(
                 status=status,
                 remember=bool(remember),
+                scope=scope if scope in SCOPES else ("always" if remember else "once"),
                 response=response,
                 resolved_by_user_id=str(user_id) if user_id else None,
                 resolved_at=datetime.utcnow(),
@@ -134,6 +142,34 @@ class ToolConfirmationService:
         )
         await db.commit()
         return await self.get(db, confirmation_id)
+
+    async def report_decision(
+        self, db: AsyncSession, *, report_id: str, user_id: str, connection_tool_id: str,
+    ) -> Optional[bool]:
+        """The user's latest "for this report" answer for one connection tool,
+        or None. True = allow, False = deny. Only MCP tool-policy rows count;
+        remote shell keeps its own per-command session rules."""
+        if not (report_id and user_id and connection_tool_id):
+            return None
+        row = (await db.execute(
+            select(ToolConfirmation.status)
+            .where(
+                ToolConfirmation.kind == KIND_MCP_TOOL_POLICY,
+                ToolConfirmation.scope == SCOPE_REPORT,
+                ToolConfirmation.report_id == str(report_id),
+                ToolConfirmation.user_id == str(user_id),
+                ToolConfirmation.resolved_by_user_id == str(user_id),
+                ToolConfirmation.connection_tool_id == str(connection_tool_id),
+                ToolConfirmation.status.in_(
+                    [ToolConfirmation.STATUS_APPROVED, ToolConfirmation.STATUS_DENIED]
+                ),
+            )
+            .order_by(ToolConfirmation.resolved_at.desc())
+            .limit(1)
+        )).first()
+        if row is None:
+            return None
+        return row[0] == ToolConfirmation.STATUS_APPROVED
 
     async def expire(self, db: AsyncSession, confirmation_id: str) -> None:
         """Mark a still-pending row expired once the run stops waiting."""
@@ -173,6 +209,7 @@ class ToolConfirmationService:
                 # its first poll and made the Allow/Deny buttons appear dead.
                 status = row.status if row is not None else None
                 remember = bool(row.remember) if row is not None else False
+                scope = row.scope if row is not None else None
                 resolved_by = row.resolved_by_user_id if row is not None else None
                 extra = row.response if row is not None else None
                 await session.rollback()
@@ -184,6 +221,7 @@ class ToolConfirmationService:
         decision = {
             "approved": status == ToolConfirmation.STATUS_APPROVED,
             "remember": remember,
+            "scope": scope or ("always" if remember else "once"),
             "resolved_by_user_id": str(resolved_by) if resolved_by else None,
         }
         if extra is not None:

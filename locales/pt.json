@@ -942,7 +942,35 @@
         "dismiss": "Dispensar"
       }
     },
-    "recent": "Recentes"
+    "recent": "Recentes",
+    "permissionMode": {
+      "title": "Permissões de ferramentas",
+      "tooltip": "Permissões de ferramentas: {mode}",
+      "default": "padrão",
+      "allowAllBanner": "Permitir tudo está ativo: o agente executa ferramentas de conexão sem perguntar. Ferramentas bloqueadas ou negadas nunca são executadas.",
+      "switchToAsk": "Mudar para Perguntar",
+      "saveFailed": "Não foi possível mudar o modo de permissões",
+      "modes": {
+        "ask": {
+          "label": "Perguntar",
+          "hint": "Cada ferramenta segue sua própria configuração; pergunta antes de alterações."
+        },
+        "auto": {
+          "label": "Automático",
+          "hint": "Chamadas somente leitura são executadas; um modelo decide o resto e pergunta quando tem dúvida."
+        },
+        "allow_all": {
+          "label": "Permitir tudo",
+          "hint": "Ferramentas que perguntariam são executadas sem perguntar, só neste relatório."
+        }
+      },
+      "unknown": {
+        "label": "Modo desconhecido",
+        "hint": "Não foi possível carregar as configurações de permissão, por isso o modo da próxima execução é desconhecido."
+      },
+      "loadFailed": "Não foi possível carregar as configurações de permissão",
+      "retry": "Tentar novamente"
+    }
   },
   "reports": {
     "title": "Relatórios",
@@ -1733,7 +1761,34 @@
       "deniedByYou": "Negado por você",
       "records": "{n} registros",
       "recordsPartial": "{shown} de {total} registros",
-      "viaAgent": "Via {name}"
+      "viaAgent": "Via {name}",
+      "allowForReport": "Permitir neste relatório",
+      "allowForReportHint": "Não perguntar de novo por esta ferramenta neste relatório",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Executada sem perguntar (Permitir tudo)",
+          "refused": "Não executada"
+        },
+        "readOnly": {
+          "allowed": "Executada sem perguntar: somente leitura",
+          "refused": "Não executada"
+        },
+        "blocklist": {
+          "allowed": "Permitida",
+          "refused": "Recusada pela lista de bloqueio de segurança"
+        },
+        "rememberedReport": {
+          "allowed": "Permitida neste relatório",
+          "refused": "Negada neste relatório"
+        },
+        "unattended": {
+          "allowed": "Permitida pela configuração de execuções sem supervisão",
+          "refused": "Não executada: precisa de aprovação e ninguém está olhando"
+        },
+        "unknownTool": {
+          "refused": "Não executado: esta ferramenta não está na lista de ferramentas da conexão"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Pensou na resposta"
@@ -2226,11 +2281,12 @@
       "glob": "Padrão com curingas",
       "hint": "As regras correspondem a comandos completos neste diretório. Permissões por prefixo excluem operadores e expansões do shell.",
       "always": "Sempre permitir correspondências",
-      "session": "Permitir nesta sessão",
+      "session": "Permitir neste relatório (8 horas)",
       "mine": "Minhas regras de shell",
       "override": "Estas regras aplicam-se apenas a você. Sempre permitir ou Sempre negar da conexão tem prioridade.",
       "save": "Salvar regras",
-      "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente."
+      "failed": "Não foi possível carregar ou salvar as regras. Verifique o JSON e tente novamente.",
+      "sessionHint": "Executa os comandos correspondentes neste relatório sem perguntar pelas próximas 8 horas."
     },
     "shell": {
       "command": "Comando shell",
@@ -3668,6 +3724,34 @@
           "name": "Vista Mundo",
           "description": "Mostra na página Agentes um botão que abre o Mundo: um mapa dos agentes, do conhecimento, das fontes e do trabalho que ligam a sua organização. Cada utilizador vê apenas aquilo a que tem acesso."
         }
+      },
+      "permissionMode": {
+        "title": "Modo de permissões de ferramentas",
+        "description": "Como o agente decide se executa ferramentas de conexão e comandos de shell remoto. Os usuários escolhem um modo por relatório na caixa de mensagem; ferramentas desativadas ou negadas e a lista de bloqueio de segurança valem em todos os modos.",
+        "defaultMode": "Modo padrão para novos relatórios",
+        "unattended": "Execuções sem ninguém olhando",
+        "unattendedOptions": {
+          "refuse": "Recusar",
+          "settings": "Usar a configuração de cada ferramenta",
+          "allow": "Permitir"
+        },
+        "unattendedHints": {
+          "refuse": "Execuções agendadas, de webhook, de API e outras sem supervisão pulam qualquer ferramenta que pediria aprovação.",
+          "settings": "Ferramentas em Automático passam pela revisão do modelo; as em Perguntar são puladas.",
+          "allow": "Ferramentas que pediriam aprovação rodam em execuções agendadas, de webhook e de API. Chats em outros canais continuam pulando-as."
+        },
+        "allowAll": "Permitir \"Permitir tudo\"",
+        "allowAllDescription": "Permite que os usuários desativem os pedidos de aprovação em um relatório, ou que isso seja o padrão dos novos relatórios. Vale apenas para as execuções do dono do relatório enquanto ele acompanha.",
+        "judgeModel": "Modelo para as decisões automáticas",
+        "judgeModelHint": "Automático usa o modelo de decisão do roteador quando o roteamento usa um; caso contrário, o modelo pequeno padrão.",
+        "judgeModelOptions": {
+          "automatic": "Automático",
+          "small": "Modelo pequeno padrão",
+          "unavailable": "Modelo indisponível",
+          "notLoaded": "Modelo salvo (lista não carregada)"
+        },
+        "judgeModelLoadFailed": "Não foi possível carregar os modelos de decisão.",
+        "judgeModelRetry": "Tentar novamente"
       }
     },
     "llms": {
@@ -4732,6 +4816,9 @@
     "shell_confirmation.invalid_scope": "Escopo de permissão inválido.",
     "shell_confirmation.report_required": "As permissões de sessão exigem um relatório.",
     "shell_confirmation.rule_mismatch": "Regra de comando inválida, ou o padrão não corresponde a este comando.",
+    "tool_permission_mode.allow_all_off": "\"Permitir tudo\" está desativado para esta organização.",
+    "tool_permission_mode.allow_all_default_needs_switch": "\"Permitir tudo\" só pode ser o padrão enquanto estiver ativado.",
+    "tool_permission_mode.judge_model_unavailable": "Escolha um modelo de decisão ativado para o juiz do modo Automático.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "A atualização do catálogo falhou porque a descoberta ficou incompleta. O catálogo anterior e as seleções de tabelas foram mantidos.",
@@ -7619,7 +7706,14 @@
     "inheritedHint": "Estas pessoas e grupos chegam a este agente através de uma pasta ou conexão. Altere o acesso na origem.",
     "viaFolder": "Via pasta {name}",
     "viaConnection": "Via conexão {name}",
-    "inheritedHidden": "Outras pessoas podem ter acesso através de uma pasta ou conexão que você não gerencia."
+    "inheritedHidden": "Outras pessoas podem ter acesso através de uma pasta ou conexão que você não gerencia.",
+    "permissionCap": {
+      "title": "Limite do modo de permissão",
+      "hint": "Limita o modo de permissão dos relatórios que usam este agente. Perguntar: cada ferramenta segue a própria configuração. Automático: um modelo pode decidir.",
+      "none": "Sem limite",
+      "ask": "Perguntar",
+      "auto": "Automático"
+    }
   },
   "productUpdates": {
     "checkbox": "Enviar novidades do produto para mim",
