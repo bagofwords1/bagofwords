@@ -290,10 +290,6 @@ NONPARSING_CLIENTS = [
     ("sap_hana_client", "SapHanaClient"),
     ("pinot_client", "PinotClient"),
 ]
-NONPARSING_REFUSAL = (
-    "The table selection on this connection cannot be checked for this connection type. "
-    "Enable all tables on the connection to let the agent query it."
-)
 
 
 def _nonparsing_client(module, name, scope):
@@ -323,12 +319,16 @@ NONPARSING_CODE = (
 
 
 @pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)
-def test_a_client_the_check_cannot_parse_is_refused_when_any_table_is_disabled(module, name):
+def test_a_client_without_a_parser_dialect_reads_enabled_tables_while_one_is_disabled(module, name):
+    # The full matrix is in test_nonparsing_table_scope.py.
     client, sent = _nonparsing_client(module, name, TableScope.from_names(active=["orders"], inactive=["payroll"]))
-    with pytest.raises(TableAccessError) as refused:
-        StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
-    assert str(refused.value) == NONPARSING_REFUSAL
-    assert sent == []
+    df, _, _ = StreamingCodeExecutor().execute_code(code=NONPARSING_CODE, ds_clients={"src": client}, excel_files=[])
+    assert df["n"].iloc[0] == 3
+    assert sent == ["SELECT COUNT(*) AS n FROM orders"]
+    with pytest.raises(TableAccessError, match="PAYROLL is not enabled for this agent"):
+        StreamingCodeExecutor().execute_code(code=NONPARSING_CODE.replace("orders", "payroll"),
+                                             ds_clients={"src": client}, excel_files=[])
+    assert sent == ["SELECT COUNT(*) AS n FROM orders"]
 
 
 @pytest.mark.parametrize("module, name", NONPARSING_CLIENTS)

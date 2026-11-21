@@ -554,10 +554,12 @@ def _opens_dollar_quote(code: str) -> bool:
     return False
 
 
-def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = False) -> list[tuple[str, str]]:
+def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = False,
+                         normalize: bool = False) -> list[tuple[str, str]]:
     """`sql` with its literals and comments emptied (its comments kept as
-    written with `keep_comments`), in each way `engine` may read it, each
-    with the reading's name."""
+    written with `keep_comments`; normalized with `normalize`, see
+    `_generic_reading`), in each way `engine` may read it, each with the
+    reading's name."""
     out = []
     for backslash in (False, True) if engine in _NONPARSING_BACKSLASH else (False,):
         for percent in (False, True) if engine in _NONPARSING_PERCENT_COMMENTS else (False,):
@@ -567,8 +569,22 @@ def _nonparsing_readings(sql: str, engine: Optional[str], keep_comments: bool = 
                 name = "with " + " and ".join(parts) if parts else "with standard quoting"
                 out.append((name, _generic_reading(sql, False, backslash, brackets=engine in _NONPARSING_BRACKETS,
                                                    backticks=backticks, percent_comments=percent,
-                                                   keep_comments=keep_comments)))
+                                                   keep_comments=keep_comments, normalize=normalize)))
     return out
+
+
+def nonparsing_normalized(sql: str, engine: Optional[str]) -> str:
+    """`sql` normalized (`_generic_reading`) the one way every reading
+    `engine` may take of it agrees on. Raises ReadOnlyViolation when the
+    readings differ, or when one cannot be normalized."""
+    texts = {text for _reading, text in _nonparsing_readings(sql, engine, normalize=True)}
+    if len(texts) != 1:
+        raise ReadOnlyViolation(
+            "The query reads differently under this source's quoting rules (a backslash, a backtick or a % "
+            "changes where a string, a name or a comment ends). Remove them, or write each string with "
+            "doubled quotes ('it''s')."
+        )
+    return texts.pop()
 
 
 def _check_nonparsing(sql: str, engine: Optional[str]) -> None:
@@ -1419,7 +1435,8 @@ def _reading_starts(hash_comments: bool, brackets: bool, backticks: bool, percen
 
 
 def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: Optional[bool] = None, *,
-                     backticks: bool = True, percent_comments: bool = False, keep_comments: bool = False) -> str:
+                     backticks: bool = True, percent_comments: bool = False, keep_comments: bool = False,
+                     normalize: bool = False) -> str:
     """`sql` with each literal, quoted name and comment replaced by a space:
     quotes doubled to escape them, `` `...` `` names unless `backticks` is
     off, plus `#` (or `%`) line comments and backslash escapes when asked
@@ -1428,7 +1445,12 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
     only before whitespace or a control character. With `keep_comments`,
     each comment stays as written (read as a comment, so a quote inside it
     opens nothing). From anything left open, the rest is read as code. One
-    pass."""
+    pass.
+
+    With `normalize`, a comment becomes a space, a string `''` and a quoted
+    name `"name"` with its text as read (`_normalized_name`); anything left
+    open, a comment opened inside a block comment and a name `_normalized_name`
+    refuses raise ReadOnlyViolation."""
     if brackets is None:
         brackets = not (hash_comments or backslash)
     starts = _reading_starts(hash_comments, brackets, backticks, percent_comments)
@@ -1454,11 +1476,39 @@ def _generic_reading(sql: str, hash_comments: bool, backslash: bool, brackets: O
         else:
             end = _quoted_end(sql, start, "]" if mark == "[" else mark, backslash and mark in "'\"")
         if end < 0:
+            if normalize:
+                raise ReadOnlyViolation(_UNREADABLE)
             out.append(sql[start:])
             break
-        out.append(sql[start:end] if keep_comments and mark in ("--", "#", "%", "/*") else " ")
+        if normalize:
+            if mark == "/*" and "/*" in sql[m.end():end - 2]:
+                raise _comment_inside_comment()
+            if mark in ("--", "#", "%", "/*"):
+                out.append(" ")
+            else:
+                out.append("''" if mark == "'" else _normalized_name(sql[start + 1:end - 1], mark))
+        else:
+            out.append(sql[start:end] if keep_comments and mark in ("--", "#", "%", "/*") else " ")
         i = end
     return "".join(out)
+
+
+# What a quoted name may hold in a normalized reading (`_generic_reading`).
+_NORMALIZED_NAME = re.compile(r"[A-Za-z0-9_ -]+")
+
+
+def _normalized_name(text: str, mark: str) -> str:
+    """A quoted name's text between its quotes, written `"text"`: a doubled
+    closing quote read as one. A name holding anything but ASCII letters,
+    digits, spaces, `_` and `-` (so no quote, dot or backslash) is refused."""
+    if mark != "[":
+        text = text.replace(mark * 2, mark)
+    if not _NORMALIZED_NAME.fullmatch(text):
+        raise ReadOnlyViolation(
+            "A quoted name holds a character other than an ASCII letter, a digit, a space, '_' or '-', which "
+            "the table checks for this source do not read. Use the name without it."
+        )
+    return '"' + text + '"'
 
 
 def _quoted_end(sql: str, start: int, close: str, backslash: bool) -> int:

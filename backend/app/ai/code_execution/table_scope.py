@@ -43,9 +43,11 @@ that run SQL held in a string such as Postgres `query_to_xml`), the query is
 refused rather than run unchecked.
 
 Scope: SQL clients whose dialect sqlglot knows (see `sql_guard.CLIENT_DIALECTS`).
-SQL clients without one (guard profile "nonparsing_sql") cannot be checked
-table by table: while their selection disables any table, every query is
-refused (`enforce_table_scope`). Non-SQL clients (Mongo, Splunk, Salesforce,
+SQL clients without one (guard profile "nonparsing_sql": Db2, IBM i, Vertica,
+SQL Anywhere, SAP HANA, Pinot) are checked while their selection disables any
+table, on the text every reading of the engine's quoting rules agrees on,
+parsed with one pinned dialect per engine and cross-checked token by token
+(`check_nonparsing_table_scope`). Non-SQL clients (Mongo, Splunk, Salesforce,
 API and MCP connectors) are not checked here. This is a second layer: the hard boundary is still the grants of
 the database login behind the connection.
 """
@@ -65,6 +67,7 @@ from app.ai.code_execution.sql_guard import (
     check_engine_reading,
     dialect_for_client,
     duckdb_read,
+    nonparsing_normalized,
 )
 
 logger = logging.getLogger(__name__)
@@ -827,9 +830,6 @@ def check_table_scope(
     With `exact_catalogs`, a table must be `<db>.<table>`, optionally behind one of
     those catalogs, and equal an active name part for part (no suffix matching).
     """
-    from app.ai.code_execution.sql_parser import parse_guard_sql
-    from sqlglot import exp
-
     try:
         check_engine_reading(sql, dialect)
     except ReadOnlyViolation as e:
@@ -842,14 +842,30 @@ def check_table_scope(
             _refuse_denied(denied)
             return
         sql = select
+    _check_statements(_parsed(sql, dialect), dialect, scope, exact_catalogs, denied)
+
+
+def _parsed(sql: str, dialect: str) -> list:
+    """The statements of `sql` as sqlglot's `dialect` parses them ("" is
+    its generic dialect); a parse failure is refused."""
+    from app.ai.code_execution.sql_parser import parse_guard_sql
+    from sqlglot import exp
+
     try:
-        statements = [s for s in parse_guard_sql(sql, dialect)
-                      if s is not None and not isinstance(s, exp.Semicolon)]
+        return [s for s in parse_guard_sql(sql, dialect)
+                if s is not None and not isinstance(s, exp.Semicolon)]
     except Exception as e:  # any parser failure: the tables cannot be verified
         logger.info("table_scope: %s parser could not read query: %s", dialect, str(e)[:200])
         raise TableScopeViolation(
             f"{_UNVERIFIED} Rewrite it as a plain SELECT over the agent's enabled tables."
         ) from e
+
+
+def _check_statements(statements: list, dialect: str, scope: TableScope,
+                      exact_catalogs: tuple[str, ...] | None, denied: list[str]) -> None:
+    """The table scope checks on parsed `statements` (`check_table_scope`);
+    `denied` holds the tables already found not enabled."""
+    from sqlglot import exp
 
     for stmt in statements:
         if isinstance(stmt, exp.Use):
@@ -951,6 +967,72 @@ NONPARSING_SCOPE_REFUSAL = (
     "Enable all tables on the connection to let the agent query it."
 )
 
+# ---------------------------------------------------------------------------
+# SQL clients without a sqlglot dialect (guard profile "nonparsing_sql")
+# ---------------------------------------------------------------------------
+
+# The sqlglot dialect each engine's normalized text is parsed with (engine
+# names as in `client_profiles`; IBM i is "db2"): Vertica's SQL as Postgres,
+# SQL Anywhere's and HANA's as T-SQL, Db2's and Pinot's with sqlglot's
+# generic dialect ("").
+_NONPARSING_PARSE_DIALECTS = {"vertica": "postgres", "sybase": "tsql", "hana": "tsql", "db2": "", "pinot": ""}
+
+# The tokens normalized text (`nonparsing_normalized`) may hold: whitespace,
+# an emptied string, a quoted name, a number, a name, and plain SQL
+# punctuation and operators. Anything else is refused.
+_NONPARSING_TOKEN = re.compile(
+    r"(?P<space>[ \t\r\n]+)"
+    r"|(?P<string>'')"
+    r"|(?P<quoted>\"[^\"]*\")"
+    r"|(?P<number>(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)"
+    r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*)"
+    r"|(?P<punct>::|<>|<=|>=|!=|\|\||[(),.;=<>*+\-/%|])"
+)
+_WORD_CHARS = frozenset(string.ascii_letters + string.digits + "_")
+
+# Words refused anywhere outside strings and quoted names. TABLE: Db2's
+# TABLE(...) and FINAL / NEW / OLD TABLE (no read names it otherwise).
+# PLACEHOLDER: the parameters of a HANA calculation view.
+_NONPARSING_DENIED_WORDS = {
+    "db2": frozenset({"table"}),
+    "vertica": frozenset({"table"}),
+    "sybase": frozenset({"table"}),
+    "hana": frozenset({"table", "placeholder"}),
+    "pinot": frozenset({"table"}),
+}
+# Functions that read a table (or a file) named in a string, run SQL held in
+# a string, or act on a table by name, refused as a call (a name before
+# `(`). Every engine's list also gets a call written with its schema
+# (`schema.function(...)`), refused in `_nonparsing_cross_check`.
+_NONPARSING_DENIED_CALLS = {
+    # XQuery reads columns and runs SQL named in its string
+    # (db2-fn:xmlcolumn, db2-fn:sqlquery); IBM i reads files.
+    "db2": re.compile(r"xmltable|xmlquery|xmlexists|get_(?:clob|blob|dbclob)_from_file|get_xml_file|ifs_read\w*"),
+    # Meta-functions and machine-learning functions that take a table name
+    # in a string: statistics, export, partition and purge functions, flex
+    # table keys, model training and data preparation.
+    "vertica": re.compile(
+        r"(?:analyze|export|import|drop|copy|move|swap|partition|purge|get|set|clear|enable|disable|compute"
+        r"|build|materialize|restore|merge|infer|evaluate|do|start|make|alter|close|cancel|interrupt|reload"
+        r"|rebalance|save|mark|upgrade|summarize|detect|one_hot_encoder|normalize|cross)_\w*"
+        r"|purge|refresh|audit|reorganize|arima|autoregressor|bisecting_kmeans|kmeans|kprototypes|linear_reg"
+        r"|logistic_reg|moving_average|naive_bayes|pls_reg|poisson_reg|rf_classifier|rf_regressor"
+        r"|svm_classifier|svm_regressor|xgb_classifier|xgb_regressor|iforest|pca|svd|balance|impute|normalize"
+        r"|corr_matrix|chi_squared"),
+    # OPENSTRING / OPENXML read rows from a value; system and extended
+    # procedures (sa_, sp_, xp_) run as functions; READ_CLIENT_FILE.
+    "sybase": re.compile(r"openstring|openxml|read_client_file|(?:sa|sp|xp)_\w*"),
+    "hana": re.compile(r"placeholder"),
+    # lookUp reads a dimension table named in a string; IN_SUBQUERY runs a
+    # query held in a string.
+    "pinot": re.compile(r"lookup|in_subquery|in_partitioned_subquery"),
+}
+# Words after which a FROM clause has ended, at the depth it stands.
+_FROM_CLAUSE_ENDS = frozenset({
+    "where", "group", "having", "order", "limit", "fetch", "offset", "union", "except", "intersect", "minus",
+    "window", "qualify", "for", "select", "values",
+})
+
 
 def _disables_a_table(scope: TableScope) -> bool:
     """Whether any table is disabled in `scope`, in any of the spellings it
@@ -958,12 +1040,227 @@ def _disables_a_table(scope: TableScope) -> bool:
     return any(s is not None and s.inactive for s in (scope, scope.exact, scope.ascii_folded, scope.legacy))
 
 
+def _names_collide_by_case(scope: TableScope) -> bool:
+    """Whether a disabled name equals an enabled one once lowered: the engine
+    may hold both (a quoted name keeps its case on Db2 and HANA), and a
+    selection compared lowered cannot tell them apart."""
+    if scope.exact is None:
+        return False
+    active = {tuple(p.lower() for p in name) for name in scope.exact.active}
+    return any(tuple(p.lower() for p in name) in active for name in scope.exact.inactive)
+
+
+def _nonparsing_refusal(reason: str) -> TableScopeViolation:
+    return TableScopeViolation(f"{_UNVERIFIED} {reason}")
+
+
+def _nonparsing_tokens(text: str) -> list[tuple[str, str]]:
+    """The tokens (kind, text) of normalized text, whitespace left out.
+    Refused: a character outside `_NONPARSING_TOKEN` (so `@`, `#`, `$`, a
+    backtick, a backslash, `[`, `?`, `{`, a lone `:` or `!`, and anything
+    outside ASCII), a number with a name glued to it, a quoted name glued to
+    a quote, `//` and `*/`, and a `;` before the last token."""
+    tokens: list[tuple[str, str]] = []
+    i, n = 0, len(text)
+    while i < n:
+        m = _NONPARSING_TOKEN.match(text, i)
+        if m is None:
+            c = text[i]
+            shown = repr(c) if " " < c <= "~" else f"U+{ord(c):04X}"
+            raise _nonparsing_refusal(
+                f"It has {shown} outside a string or a quoted name, which the table checks for this source "
+                "do not read. Remove it.")
+        kind, value, end = m.lastgroup, m.group(), m.end()
+        if kind == "number" and end < n and text[end] in _WORD_CHARS:
+            raise _nonparsing_refusal(f"It has a name starting with a digit ({text[i:end + 1]}...). Quote the name.")
+        if kind == "quoted" and end < n and text[end] in "'\"":
+            raise _nonparsing_refusal("It has a quoted name directly followed by a quote. Put a space between them.")
+        if value == "/" and i > 0 and text[i - 1] in "/*":
+            raise _nonparsing_refusal(f"It has '{text[i - 1]}/' outside a string. Put a space between them.")
+        if kind != "space":
+            tokens.append((kind, value))
+        i = end
+    if any(value == ";" for _kind, value in tokens[:-1]):
+        raise _nonparsing_refusal("Only a single statement is allowed.")
+    return tokens
+
+
+def _nonparsing_cross_check(tokens: list[tuple[str, str]], statements: list | None, scope: TableScope,
+                            engine: str) -> None:
+    """A check of the normalized tokens that does not use sqlglot:
+
+      * each name after FROM or JOIN, or after a comma in a FROM clause (the
+        FROM of a SELECT at the same depth, in any subquery, WITH body or
+        UNION branch), is a table or WITH entry the parse (`statements`)
+        found; a call, a `/` (IBM i system naming) or anything but a name or
+        a subquery there is refused;
+      * no name, quoted or not, equals the last part of a disabled table's
+        name, compared case-insensitively;
+      * no word of `_NONPARSING_DENIED_WORDS`, no call of
+        `_NONPARSING_DENIED_CALLS`, and no call written with its schema.
+
+    With `statements` None (text that did not parse), everything but the
+    comparison with the parse, to name a reason for the refusal."""
+    from sqlglot import exp
+
+    reported: set[Name] = set()
+    for stmt in statements or ():
+        for table in stmt.find_all(exp.Table):
+            if isinstance(table.this, exp.Identifier):
+                reported.add(tuple(p.lower() for p in (table.catalog, table.db, table.name) if p))
+        for cte in stmt.find_all(exp.CTE):
+            ident = _cte_ident(cte)
+            if ident is not None:
+                reported.add((str(ident.name).lower(),))
+    disabled = frozenset(ref[-1].casefold() for s in (scope, scope.exact) if s is not None for ref in s.inactive)
+    denied_words = _NONPARSING_DENIED_WORDS[engine]
+    denied_calls = _NONPARSING_DENIED_CALLS[engine]
+
+    def name_of(token):
+        kind, value = token
+        return value[1:-1] if kind == "quoted" else value if kind == "word" else None
+
+    def check_name(name):
+        if name.casefold() in disabled:
+            raise TableScopeViolation(
+                f"{name.upper()} is the name of a table that is not enabled for this agent. On this connection "
+                "type a query may not use that name anywhere outside a string (as a column or an alias too). "
+                "Query the agent's enabled tables without it.")
+
+    frames = [[False, False]]  # per depth: a SELECT seen, inside its FROM clause
+    expect_item = False
+    i, n = 0, len(tokens)
+    while i < n:
+        kind, value = tokens[i]
+        nxt = tokens[i + 1][1] if i + 1 < n else None
+        name = name_of(tokens[i])
+        if name is not None:
+            check_name(name)
+        if kind == "word" and value.lower() in denied_words:
+            raise _nonparsing_refusal(f"{value.upper()} is not allowed in agent queries on this connection type, "
+                                      "because the table it reads cannot be checked.")
+        if kind == "word" and nxt == "(" and denied_calls.fullmatch(value.lower()):
+            raise _unverifiable_function(value)
+        if value == "(" and i >= 2 and tokens[i - 2][1] == "." and name_of(tokens[i - 1]) is not None:
+            raise _nonparsing_refusal("A function called with its schema name is not allowed on this connection "
+                                      "type, because the table it reads cannot be checked.")
+        if expect_item:
+            expect_item = False
+            if value == "(":
+                if nxt is None or nxt.lower() not in ("select", "with", "values"):
+                    raise _nonparsing_refusal("In a FROM clause, parentheses may only hold a subquery.")
+            elif name is not None:
+                parts, j = [name], i + 1
+                while j + 1 < n and tokens[j][1] == "." and name_of(tokens[j + 1]) is not None:
+                    parts.append(name_of(tokens[j + 1]))
+                    check_name(parts[-1])
+                    j += 2
+                after = tokens[j][1] if j < n else None
+                if after == "(":
+                    raise _nonparsing_refusal(
+                        f"'{'.'.join(parts)}(...)' is not allowed as a query source, because the table it reads "
+                        "cannot be checked.")
+                if after == "/":
+                    raise _nonparsing_refusal(
+                        "A table named LIBRARY/TABLE (system naming) is not read by the table checks. "
+                        "Write LIBRARY.TABLE.")
+                if statements is not None and tuple(p.lower() for p in parts) not in reported:
+                    raise _nonparsing_refusal(f"'{'.'.join(parts)}' could not be read as a table. Rewrite the "
+                                              "FROM clause as plain table names, joins and subqueries.")
+                i = j
+                continue
+            else:
+                raise _nonparsing_refusal(f"'{value}' is not allowed where a FROM clause names a table.")
+        if value == "(":
+            frames.append([False, False])
+        elif value == ")":
+            frames.pop()
+            if not frames:
+                raise _nonparsing_refusal("Its parentheses do not match.")
+        elif kind == "word":
+            word, frame = value.lower(), frames[-1]
+            if word == "select":
+                frame[0], frame[1] = True, False
+            elif word == "from" and frame[0]:
+                frame[1] = expect_item = True
+            elif word == "join" and frame[1]:
+                expect_item = True
+            elif word in _FROM_CLAUSE_ENDS:
+                frame[1] = False
+        elif value == "," and frames[-1][1]:
+            expect_item = True
+        i += 1
+    if len(frames) != 1 or expect_item:
+        raise _nonparsing_refusal("Its parentheses or its FROM clause are not complete.")
+
+
+def _nonparsing_schema(client, engine: str) -> str | None:
+    """The schema a qualified table name must name where the catalog stores
+    bare names: a Vertica connection's schema, Pinot's default database.
+    None where the catalog stores qualified names (or the schema is not
+    known)."""
+    if engine == "vertica":
+        schema = getattr(client, "schema", None)
+        return schema.lower() if isinstance(schema, str) and schema.strip() else ""
+    if engine == "pinot":
+        return "default"
+    return None
+
+
+def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schema: str | None = None) -> None:
+    """Raise TableScopeViolation unless every table `sql` reads is active, for
+    an engine sqlglot has no dialect for (`engine`, as in `client_profiles`).
+
+      1. Every reading the engine may take of `sql` gives one normalized
+         text (`nonparsing_normalized`), which holds only plain tokens
+         (`_nonparsing_tokens`).
+      2. That text, parsed with the engine's pinned dialect
+         (`_NONPARSING_PARSE_DIALECTS`), passes the checks every parsed
+         dialect gets (`_check_statements`); names are compared lowered.
+      3. With `schema` (a catalog that stores bare names), a qualified table
+         name must be `schema.table`.
+      4. The token check `_nonparsing_cross_check` agrees."""
+    from sqlglot import exp
+
+    if engine not in _NONPARSING_PARSE_DIALECTS:
+        raise TableScopeViolation(NONPARSING_SCOPE_REFUSAL)
+    try:
+        text = nonparsing_normalized(sql, engine)
+    except ReadOnlyViolation as e:
+        raise _nonparsing_refusal(str(e)) from e
+    tokens = _nonparsing_tokens(text)
+    dialect = _NONPARSING_PARSE_DIALECTS[engine]
+    if dialect:
+        try:
+            check_engine_reading(text, dialect)
+        except ReadOnlyViolation as e:
+            raise _nonparsing_refusal(str(e)) from e
+    try:
+        statements = _parsed(text, dialect)
+    except TableScopeViolation:
+        _nonparsing_cross_check(tokens, None, scope, engine)  # a more specific reason, if it finds one
+        raise
+    if schema is not None:
+        outside = [_display(ref) for stmt in statements for t in stmt.find_all(exp.Table)
+                   if isinstance(t.this, exp.Identifier) and (t.catalog or t.db)
+                   and (ref := tuple(p.lower() for p in (t.catalog, t.db, t.name) if p))
+                   and (len(ref) != 2 or ref[0] != schema)]
+        _refuse_denied(list(dict.fromkeys(outside)))
+    # Compared lowered: Vertica reads quoted names case-insensitively too.
+    _check_statements(statements, dialect, TableScope(active=scope.active, inactive=scope.inactive,
+                                                      default_database=scope.default_database),
+                      None, [])
+    _nonparsing_cross_check(tokens, statements, scope, engine)
+
+
 def enforce_table_scope(client, query) -> None:
     """Check `query` against the scope attached to `client`, if any.
 
-    A client whose SQL the check cannot parse (guard profile
-    "nonparsing_sql") is refused every query while its scope disables any
-    table, and is not checked otherwise. Non-SQL clients are not checked.
+    A client whose SQL sqlglot has no dialect for (guard profile
+    "nonparsing_sql") is checked by `check_nonparsing_table_scope` while its
+    scope disables any table, and is not checked otherwise; while a disabled
+    name equals an enabled one once lowered (`_names_collide_by_case`), every
+    query is refused. Non-SQL clients are not checked.
     """
     scope: TableScope | None = getattr(client, TABLE_SCOPE_ATTR, None)
     if not isinstance(scope, TableScope) or not isinstance(query, str) or not query.strip():
@@ -972,6 +1269,8 @@ def enforce_table_scope(client, query) -> None:
     if not dialect:
         profile = guard_profile(client)
         if profile is not None and profile.kind == "nonparsing_sql" and _disables_a_table(scope):
-            raise TableScopeViolation(NONPARSING_SCOPE_REFUSAL)
+            if _names_collide_by_case(scope):
+                raise TableScopeViolation(NONPARSING_SCOPE_REFUSAL)
+            check_nonparsing_table_scope(query, profile.engine, scope, _nonparsing_schema(client, profile.engine))
         return
     check_table_scope(query, dialect, scope, getattr(client, "exact_table_scope_catalogs", None))
