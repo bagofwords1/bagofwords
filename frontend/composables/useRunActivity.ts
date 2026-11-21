@@ -23,8 +23,9 @@
  * - The final message is the LAST block, when it carries user-facing prose and
  *   the run is known to be over (the planner marked it `analysis_complete`, or
  *   the run's status is `success`). A run that stopped, errored, or ended on a
- *   question (clarify) has no conclusion and never folds: its failure or its
- *   question must stay in view.
+ *   question (clarify) or a sign-in request (request_agent_signin) has no
+ *   conclusion and never folds: its failure, question or Connect card must
+ *   stay in view.
  * - Prose always breaks a step: a progress message is part of the chain and
  *   keeps its chronological place. Reasoning does not — it rides inside the
  *   step it preceded.
@@ -428,6 +429,11 @@ function toMs(v: any): number | null {
   return Number.isFinite(t) ? t : null
 }
 
+// A run that ends on one of these is waiting for the user (an answer to a
+// question, a sign-in to an agent): it has no conclusion, and its card must
+// stay in view instead of folding into the steps.
+const WAITS_ON_USER = new Set<string>(['clarify', 'request_agent_signin'])
+
 /**
  * The block that ends the run's conclusion, or null while there is none. When
  * it also carries a tool call, the prose block right before it is part of the
@@ -436,7 +442,7 @@ function toMs(v: any): number | null {
 export function findFinalBlock(blocks: any[], runStatus?: string): any | null {
   const last = (blocks || [])[blocks.length - 1]
   if (!last || !blockHasMessage(last)) return null
-  if (last.status === 'error' || last.tool_execution?.tool_name === 'clarify') return null
+  if (last.status === 'error' || WAITS_ON_USER.has(last.tool_execution?.tool_name)) return null
   const te = last.tool_execution
   if (te && !['success', 'error', 'failed'].includes(String(te.status || ''))) return null
   const over = runStatus === 'success' || (!!last.plan_decision?.analysis_complete && runStatus !== 'error' && runStatus !== 'stopped')

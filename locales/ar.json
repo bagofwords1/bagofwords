@@ -2246,6 +2246,13 @@
       "unknownState": "قد تكون العملية البعيدة لا تزال قيد التشغيل. تحقق من حالتها قبل إعادة المحاولة.",
       "exitCode": "رمز الخروج: {code}",
       "cancelledBeforeExecution": "أُلغي قبل التنفيذ."
+    },
+    "requestAgentSignin": {
+      "checking": "جارٍ التحقق من الوكلاء…",
+      "connect": "اتصال",
+      "connected": "متصل",
+      "askAgain": "اسأل مجددًا",
+      "readyHint": "تم الاتصال. أعد تشغيل سؤالك لاستخدامه."
     }
   },
   "entityCreate": {
