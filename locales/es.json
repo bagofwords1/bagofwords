@@ -5418,6 +5418,7 @@
     "system_logs.instance_admin_required": "Solo un administrador de la instancia puede usar los registros del sistema.",
     "system_logs.invalid_range": "La hora de inicio debe ser anterior a la de fin.",
     "system_logs.delete_failed": "No se pudieron eliminar los archivos de registro de {directory}. Comprueba que el directorio existe y que tiene permisos de escritura.",
+    "system_logs.disabled": "Los registros del sistema están desactivados en este servidor. Para activarlos, defina BOW_SYSTEM_LOGS_ENABLED=true (o system_logs.enabled en bow-config.yaml) y reinicie el servidor.",
     "verification.invalid": "Token de verificación no válido o expirado",
     "body.invalid_json": "Cuerpo JSON no válido",
     "organization.not_found": "Organización no encontrada",

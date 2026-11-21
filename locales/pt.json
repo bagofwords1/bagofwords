@@ -4765,6 +4765,7 @@
     "system_logs.instance_admin_required": "Somente um administrador da instância pode usar os logs do sistema.",
     "system_logs.invalid_range": "O horário de início deve ser anterior ao de término.",
     "system_logs.delete_failed": "Não foi possível excluir os arquivos de log em {directory}. Verifique se o diretório existe e permite gravação.",
+    "system_logs.disabled": "Os logs do sistema estão desativados neste servidor. Para ativá-los, defina BOW_SYSTEM_LOGS_ENABLED=true (ou system_logs.enabled no bow-config.yaml) e reinicie o servidor.",
     "verification.invalid": "Token de verificação inválido ou expirado",
     "body.invalid_json": "Corpo JSON inválido",
     "organization.not_found": "Organização não encontrada",

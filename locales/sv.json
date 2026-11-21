@@ -4765,6 +4765,7 @@
     "system_logs.instance_admin_required": "Endast en instansadministratör kan använda systemloggar.",
     "system_logs.invalid_range": "Starttiden måste vara före sluttiden.",
     "system_logs.delete_failed": "Det gick inte att radera loggfilerna i {directory}. Kontrollera att katalogen finns och är skrivbar.",
+    "system_logs.disabled": "Systemloggar är avstängda på den här servern. Slå på dem genom att ange BOW_SYSTEM_LOGS_ENABLED=true (eller system_logs.enabled i bow-config.yaml) och starta om servern.",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
     "body.invalid_json": "Ogiltig JSON-kropp",
     "organization.not_found": "Organisationen hittades inte",
