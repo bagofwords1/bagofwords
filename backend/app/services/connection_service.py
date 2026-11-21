@@ -3626,6 +3626,7 @@ class ConnectionService:
         is_enabled: bool = None,
         policy: str = None,
         connection_id: Optional[str] = None,
+        policy_locked: Optional[bool] = None,
     ) -> ConnectionTool:
         """Update a single tool's enabled state or policy.
 
@@ -3651,6 +3652,8 @@ class ConnectionService:
                     detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
                 )
             tool.policy = normalized
+        if policy_locked is not None:
+            tool.policy_locked = bool(policy_locked)
 
         await db.commit()
         await db.refresh(tool)

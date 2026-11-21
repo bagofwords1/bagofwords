@@ -1732,7 +1732,8 @@
       "allowedByYou": "Tillåtet av dig",
       "deniedByYou": "Nekat av dig",
       "records": "{n} poster",
-      "recordsPartial": "{shown} av {total} poster"
+      "recordsPartial": "{shown} av {total} poster",
+      "viaAgent": "Via {name}"
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"

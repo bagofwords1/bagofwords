@@ -1885,7 +1885,8 @@
         "openLink": "פתיחת קישור",
         "cancel": "ביטול",
         "contextShared": "האפליקציה שיתפה את הבחירה שלך עם העוזר."
-      }
+      },
+      "viaAgent": "דרך {name}"
     },
     "remoteOp": {
       "read_file": {

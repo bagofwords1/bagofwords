@@ -1732,7 +1732,8 @@
       "allowedByYou": "سمحت به",
       "deniedByYou": "رفضته",
       "records": "{n} سجلات",
-      "recordsPartial": "{shown} من {total} سجلات"
+      "recordsPartial": "{shown} من {total} سجلات",
+      "viaAgent": "عبر {name}"
     },
     "answerQuestion": {
       "thought": "فكّر في الإجابة"

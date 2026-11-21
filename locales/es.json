@@ -1885,7 +1885,8 @@
         "openLink": "Abrir enlace",
         "cancel": "Cancelar",
         "contextShared": "La aplicación compartió tu selección con el asistente."
-      }
+      },
+      "viaAgent": "A través de {name}"
     },
     "remoteOp": {
       "read_file": {

@@ -1732,7 +1732,8 @@
       "allowedByYou": "Von dir erlaubt",
       "deniedByYou": "Von dir abgelehnt",
       "records": "{n} Datensätze",
-      "recordsPartial": "{shown} von {total} Datensätzen"
+      "recordsPartial": "{shown} von {total} Datensätzen",
+      "viaAgent": "Über {name}"
     },
     "answerQuestion": {
       "thought": "Über Antwort nachgedacht"

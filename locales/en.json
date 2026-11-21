@@ -1983,7 +1983,8 @@
         "openLink": "Open link",
         "cancel": "Cancel",
         "contextShared": "The app shared what you selected with the assistant."
-      }
+      },
+      "viaAgent": "Via {name}"
     },
     "remoteOp": {
       "read_file": {

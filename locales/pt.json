@@ -1732,7 +1732,8 @@
       "allowedByYou": "Permitido por você",
       "deniedByYou": "Negado por você",
       "records": "{n} registros",
-      "recordsPartial": "{shown} de {total} registros"
+      "recordsPartial": "{shown} de {total} registros",
+      "viaAgent": "Via {name}"
     },
     "answerQuestion": {
       "thought": "Pensou na resposta"

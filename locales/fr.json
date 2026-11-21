@@ -1732,7 +1732,8 @@
       "allowedByYou": "Autorisé par vous",
       "deniedByYou": "Refusé par vous",
       "records": "{n} enregistrements",
-      "recordsPartial": "{shown} sur {total} enregistrements"
+      "recordsPartial": "{shown} sur {total} enregistrements",
+      "viaAgent": "Via {name}"
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"

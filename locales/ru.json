@@ -1732,7 +1732,8 @@
       "allowedByYou": "Разрешено вами",
       "deniedByYou": "Отклонено вами",
       "records": "{n} записей",
-      "recordsPartial": "{shown} из {total} записей"
+      "recordsPartial": "{shown} из {total} записей",
+      "viaAgent": "Через {name}"
     },
     "answerQuestion": {
       "thought": "Размышление об ответе"

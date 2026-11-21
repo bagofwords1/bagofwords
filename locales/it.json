@@ -1732,7 +1732,8 @@
       "allowedByYou": "Consentito da te",
       "deniedByYou": "Negato da te",
       "records": "{n} record",
-      "recordsPartial": "{shown} di {total} record"
+      "recordsPartial": "{shown} di {total} record",
+      "viaAgent": "Tramite {name}"
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"

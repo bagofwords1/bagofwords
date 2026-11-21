@@ -264,7 +264,7 @@ async def build_mcp_tool_catalog(
     from app.models.report_data_source_association import report_data_source_association
     from app.services.mcp_context_injection import filter_locked_from_schema
     from app.services.tool_policy_service import (
-        ToolPolicyService, resolve_effective_policy, strictest_admin_setting,
+        ToolPolicyService, pick_via_agent,
     )
 
     catalog = McpToolCatalog()
@@ -324,7 +324,7 @@ async def build_mcp_tool_catalog(
         )).all():
             agents_by_conn.setdefault(str(conn_id), set()).add(str(ds_id))
 
-        overlays_by_tool: Dict[str, list] = {}
+        overlays_by_tool: Dict[str, Dict[str, Any]] = {}
         all_agents = sorted({a for ids in agents_by_conn.values() for a in ids})
         if all_agents:
             for o in (await db.execute(
@@ -333,7 +333,7 @@ async def build_mcp_tool_catalog(
                     DataSourceConnectionTool.connection_tool_id.in_([str(t.id) for t in tools]),
                 )
             )).scalars().all():
-                overlays_by_tool.setdefault(str(o.connection_tool_id), []).append(o)
+                overlays_by_tool.setdefault(str(o.connection_tool_id), {})[str(o.data_source_id)] = o
 
         user_prefs = {}
         if user is not None:
@@ -341,26 +341,28 @@ async def build_mcp_tool_catalog(
                 db, str(user.id), [str(t.id) for t in tools]
             )
 
-        # Only tools the run can actually call: enabled and not denied, under
-        # the strictest setting across the agents that carry them.
-        eligible: List[Tuple[Any, str]] = []
+        # Only tools the run can actually call. Each tool goes through ONE of
+        # the run's agents (the least strict one that enables it); that
+        # agent's rule applies — agents' settings are never merged.
+        eligible: List[Tuple[Any, str, Optional[str]]] = []
         from app.services.mcp_apps import model_visible
+        from app.services.remote_shell_policy import display_policy
+        scope_order = {a: i for i, a in enumerate(scope_ds_ids)}
         for t in tools:
             # MCP Apps: app-only tools (visibility without "model") are for
             # the server's UI, never the agent.
             if not model_visible(getattr(t, "metadata_json", None)):
                 continue
-            agents = agents_by_conn.get(str(t.connection_id), set())
-            is_enabled, admin_policy = strictest_admin_setting(
-                t, overlays_by_tool.get(str(t.id), []), len(agents) or None,
+            agents = sorted(agents_by_conn.get(str(t.connection_id), set()),
+                            key=lambda a: scope_order.get(a, len(scope_order)))
+            conn_info = conn_by_id.get(str(t.connection_id))
+            pick = pick_via_agent(
+                t, agents, overlays_by_tool.get(str(t.id), {}), user_prefs.get(str(t.id)),
+                effective_fn=lambda admin, personal, _t=t, _c=conn_info: display_policy(_c, _t.name, admin, personal, locked=bool(getattr(_t, "policy_locked", False))),
             )
-            if not is_enabled:
+            if not pick.is_enabled or pick.effective == "deny":
                 continue
-            from app.services.remote_shell_policy import display_policy
-            effective = display_policy(conn_by_id.get(str(t.connection_id)), t.name, admin_policy, user_prefs.get(str(t.id)))
-            if effective == "deny":
-                continue
-            eligible.append((t, effective))
+            eligible.append((t, pick.effective, pick.agent_id))
         if not eligible:
             return catalog
 
@@ -378,10 +380,10 @@ async def build_mcp_tool_catalog(
             eligible,
             key=lambda it: (-usage.get((str(it[0].connection_id), it[0].name), 0), _sort_key(it)),
         )
-        native_ids = {str(t.id) for t, _ in ranked[:budget]}
+        native_ids = {str(it[0].id) for it in ranked[:budget]}
 
         taken: set = set()
-        for t, effective in eligible:
+        for t, effective, via_agent in eligible:
             cid = str(t.connection_id)
             info = conn_by_id.get(cid) or {}
             try:
@@ -397,7 +399,7 @@ async def build_mcp_tool_catalog(
                     "and may be declined.)"
                 )
             schema = normalize_schema(visible)
-            catalog.routing[name] = {"connection_id": cid, "tool_name": t.name}
+            catalog.routing[name] = {"connection_id": cid, "tool_name": t.name, "via_agent": via_agent}
             catalog.policies[(cid, t.name)] = effective
             if str(t.id) in native_ids:
                 catalog.native.append({
@@ -417,6 +419,7 @@ async def build_mcp_tool_catalog(
                     "connection_name": info.get("name") or "",
                     "tool_name": t.name,
                     "policy": effective,
+                    "via_agent": via_agent,
                 })
         if catalog.deferred:
             logger.info(

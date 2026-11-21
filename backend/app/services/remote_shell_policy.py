@@ -159,7 +159,7 @@ async def effective_shell_policy(db, connection, tool, resolution, user, argumen
     )
 
 
-def display_policy(connection, tool_name, admin, personal):
+def display_policy(connection, tool_name, admin, personal, locked=False):
     from app.services.tool_policy_service import resolve_effective_policy
 
     kind = connection.get("type") if isinstance(connection, dict) else getattr(connection, "type", None)
@@ -168,7 +168,7 @@ def display_policy(connection, tool_name, admin, personal):
         if admin == "deny" or not config_dict(config).get("enable_shell", True):
             return "deny"
         return resolve_shell_policy(config, "", personal=personal)
-    return resolve_effective_policy(admin, personal)
+    return resolve_effective_policy(admin, personal, locked=locked)
 
 
 async def resolve_shell_confirmation(db, row, *, approved, remember, user_id, rule, report_id=None):

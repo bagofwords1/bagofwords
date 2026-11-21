@@ -1940,6 +1940,22 @@ async def preview_custom_query_as_user(
 
 # ==================== Tool Management Routes (MCP / Custom API) ====================
 
+
+def _tool_schema(t) -> ConnectionToolSchema:
+    return ConnectionToolSchema(
+        id=str(t.id),
+        name=t.name,
+        description=t.description,
+        is_enabled=t.is_enabled,
+        policy=t.policy,
+        policy_locked=bool(getattr(t, "policy_locked", False)),
+        effect=getattr(t, "effect", None),
+        source=getattr(t, "source", None),
+        connection_id=str(t.connection_id),
+        input_schema=t.input_schema,
+        output_schema=t.output_schema,
+    )
+
 @router.post("/{connection_id}/refresh-tools", response_model=List[ConnectionToolSchema])
 @requires_resource_permission('connection', 'manage_connection')
 async def refresh_connection_tools(
@@ -1952,16 +1968,7 @@ async def refresh_connection_tools(
     connection = await connection_service.get_connection(db, connection_id, organization)
     tools = await connection_service.refresh_tools(db, connection, current_user)
     return [
-        ConnectionToolSchema(
-            id=str(t.id),
-            name=t.name,
-            description=t.description,
-            is_enabled=t.is_enabled,
-            policy=t.policy,
-            connection_id=str(t.connection_id),
-            input_schema=t.input_schema,
-            output_schema=t.output_schema,
-        )
+        _tool_schema(t)
         for t in tools
     ]
 
@@ -1978,16 +1985,7 @@ async def get_connection_tools_list(
     await _ensure_can_read_connection(db, organization, current_user, connection)
     tools = await connection_service.get_connection_tools(db, connection_id)
     return [
-        ConnectionToolSchema(
-            id=str(t.id),
-            name=t.name,
-            description=t.description,
-            is_enabled=t.is_enabled,
-            policy=t.policy,
-            connection_id=str(t.connection_id),
-            input_schema=t.input_schema,
-            output_schema=t.output_schema,
-        )
+        _tool_schema(t)
         for t in tools
     ]
 
@@ -2017,16 +2015,7 @@ async def batch_update_connection_tools(
     except Exception:
         pass
     return [
-        ConnectionToolSchema(
-            id=str(t.id),
-            name=t.name,
-            description=t.description,
-            is_enabled=t.is_enabled,
-            policy=t.policy,
-            connection_id=str(t.connection_id),
-            input_schema=t.input_schema,
-            output_schema=t.output_schema,
-        )
+        _tool_schema(t)
         for t in tools
     ]
 
@@ -2046,27 +2035,19 @@ async def update_tool(
     await connection_service.get_connection(db, connection_id, organization)
     tool = await connection_service.update_connection_tool(
         db, tool_id, is_enabled=data.is_enabled, policy=data.policy,
-        connection_id=str(connection_id),
+        policy_locked=data.policy_locked, connection_id=str(connection_id),
     )
     try:
         await audit_service.log(
             db=db, organization_id=organization.id, action="connection.tool_updated",
             user_id=current_user.id, resource_type="connection", resource_id=str(connection_id),
-            details={"tool_id": str(tool_id), "is_enabled": data.is_enabled, "policy": data.policy},
+            details={"tool_id": str(tool_id), "is_enabled": data.is_enabled, "policy": data.policy,
+                     "policy_locked": data.policy_locked},
             request=request,
         )
     except Exception:
         pass
-    return ConnectionToolSchema(
-        id=str(tool.id),
-        name=tool.name,
-        description=tool.description,
-        is_enabled=tool.is_enabled,
-        policy=tool.policy,
-        connection_id=str(tool.connection_id),
-        input_schema=tool.input_schema,
-        output_schema=tool.output_schema,
-    )
+    return _tool_schema(tool)
 
 
 # ── Queries view: what BOW is running / has run on this connection ──────────

@@ -562,6 +562,7 @@ Do not use when:
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         runtime_ctx.pop("_mcp_policy_approval", None)
         runtime_ctx.pop("_remote_shell_authorized", None)
+        runtime_ctx.pop("_mcp_via_agent", None)
         data = ExecuteMCPInput(**tool_input)
         organization_settings = runtime_ctx.get("settings")
 
@@ -921,6 +922,9 @@ Do not use when:
         policy_verdict = runtime_ctx.pop("_mcp_policy_verdict", None)
         if policy_verdict:
             output["policy_verdict"] = policy_verdict
+        via_agent = runtime_ctx.pop("_mcp_via_agent", None)
+        if via_agent:
+            output["via_agent"] = via_agent
         approval = runtime_ctx.pop("_mcp_policy_approval", None)
         if approval:
             output["approval"] = approval
@@ -1218,6 +1222,15 @@ Do not use when:
             db, tool=tool_record, data_source_ids=ds_ids, user=user
         )
 
+        # The agent this call goes through: its rule applied above. Shown on
+        # the approval card, the tool result and the audit trail.
+        via_agent = None
+        if resolution.via_agent_id:
+            from app.models.data_source import DataSource
+            ds = await db.get(DataSource, resolution.via_agent_id)
+            via_agent = {"id": resolution.via_agent_id, "name": getattr(ds, "name", None)}
+        runtime_ctx["_mcp_via_agent"] = via_agent
+
         if not resolution.is_enabled:
             yield self._policy_end_event(
                 data.tool_name,
@@ -1245,7 +1258,7 @@ Do not use when:
                 details={
                     "tool": "execute_mcp", "tool_name": data.tool_name,
                     "connection_id": str(connection.id), "policy": "deny",
-                    "user_policy": resolution.user_policy,
+                    "user_policy": resolution.user_policy, "via_agent": via_agent,
                 },
             )
             yield self._policy_end_event(
@@ -1280,6 +1293,7 @@ Do not use when:
                     "tool": "execute_mcp", "tool_name": data.tool_name,
                     "connection_id": str(connection.id),
                     "approved": bool(verdict.approve), "reason": verdict.reason,
+                    "via_agent": via_agent,
                 },
             )
             # Stash the verdict so run_stream persists it on the final tool
@@ -1311,7 +1325,7 @@ Do not use when:
                     details={
                         "tool": "execute_mcp", "tool_name": data.tool_name,
                         "connection_id": str(connection.id), "policy": "ask",
-                        "reason": "non_interactive_run",
+                        "reason": "non_interactive_run", "via_agent": via_agent,
                     },
                 )
                 yield self._policy_end_event(
@@ -1332,6 +1346,10 @@ Do not use when:
             from app.data_sources.clients.remote_server_client import action_digest
             approval_snapshot = None
             confirmation_arguments = dict(data.arguments or {})
+            if via_agent:
+                # Underscore keys are display context for the card, never
+                # sent to the tool (same convention as _execution_target).
+                confirmation_arguments["_via_agent"] = via_agent
             if connection.type == "remote_ssh":
                 from app.services.connection_service import ConnectionService
                 remote_credentials = await ConnectionService().resolve_credentials(db, connection, user)
@@ -1393,6 +1411,7 @@ Do not use when:
                     "connection_name": connection.name,
                     "connection_tool_id": str(tool_record.id),
                     "arguments": confirmation_arguments,
+                    "via_agent": via_agent,
                     "timeout_seconds": self._ASK_TIMEOUT_S,
                 })
                 sigkill = runtime_ctx.get("sigkill_event")

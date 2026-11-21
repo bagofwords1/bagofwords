@@ -37,6 +37,8 @@ from app.services.tool_policy_service import (
     TOOL_POLICY_ASK,
     TOOL_POLICY_AUTO,
     TOOL_POLICY_DENY,
+    agent_admin_setting,
+    is_policy_locked,
     normalize_tool_policy,
     resolve_effective_policy,
 )
@@ -217,8 +219,7 @@ class ConnectionToolGateway:
             for conn in conns:
                 for ct in tools_by_conn.get(str(conn.id), []):
                     overlay = overlays.get((ds_id, str(ct.id)))
-                    is_enabled = overlay.is_enabled if overlay else ct.is_enabled
-                    policy = normalize_tool_policy(overlay.policy if overlay else ct.policy)
+                    is_enabled, policy = agent_admin_setting(ct, overlay)
                     if not is_enabled and not include_disabled:
                         continue
                     user_policy = user_prefs.get(str(ct.id))
@@ -236,7 +237,7 @@ class ConnectionToolGateway:
                             policy=policy,
                             connection_tool_id=str(ct.id),
                             user_policy=user_policy,
-                            effective_policy=display_policy(conn, ct.name, policy, user_policy),
+                            effective_policy=display_policy(conn, ct.name, policy, user_policy, locked=is_policy_locked(ct)),
                         )
                     )
         return result
