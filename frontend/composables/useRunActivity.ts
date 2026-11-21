@@ -278,9 +278,11 @@ export interface RunActivity {
   stepOf: Record<string, RunStep>
   /** blockId of each step's first member -> step (header render anchor) */
   headerAt: Record<string, RunStep>
-  /** Blocks whose output stays reachable below the final message, in order. */
+  /** Blocks whose output stays reachable below the final message, in order,
+      followed by still-running work (`keepVisible`). */
   deliverableIds: string[]
-  /** Blocks shown in full — prose and tool card — while folded (approval cards). */
+  /** Blocks shown in full — prose and tool card — while folded (approval
+      cards), and, while live, running work with a Stop control. */
   openIds: string[]
   /** What the run is doing now, for the live row: the latest progress note or
       step title, one line. Empty when finished or unknown. */
@@ -463,6 +465,10 @@ export function computeRunActivity(
     isSuperseded?: (block: any) => boolean
     /** Blocks that must stay open while folded (a card waiting on the user). */
     keepOpen?: (block: any) => boolean
+    /** Blocks whose work outlives their tool call and that carry its Stop
+        control (a running eval, a sub-agent still investigating). They are
+        never hidden: open while live, kept under the answer once folded. */
+    keepVisible?: (block: any) => boolean
   },
 ): RunActivity | null {
   const list = blocks || []
@@ -521,6 +527,15 @@ export function computeRunActivity(
     latest.delete(key)
     latest.set(key, String(b.id))
   }
+  // Still-running work keeps its card (and Stop) in view: open in place while
+  // the run works, under the answer once it folds.
+  const deliverableIds = Array.from(latest.values())
+  const openIds = live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : []
+  for (const b of list) {
+    if (!opts?.keepVisible?.(b)) continue
+    const target = live ? openIds : deliverableIds
+    if (!target.includes(String(b.id))) target.push(String(b.id))
+  }
 
   const starts = list.map((b) => toMs(b?.started_at) ?? toMs(b?.tool_execution?.started_at)).filter((t): t is number => t !== null)
   const finalStart = final ? toMs(final.started_at) : null
@@ -544,8 +559,8 @@ export function computeRunActivity(
     toolGroups: computeRunToolGroups(list, opts?.breakBefore, !live),
     stepOf,
     headerAt,
-    deliverableIds: Array.from(latest.values()),
-    openIds: live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : [],
+    deliverableIds,
+    openIds,
     status: live ? liveStatus(before) : '',
     spanMs,
   }
