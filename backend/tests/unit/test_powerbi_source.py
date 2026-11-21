@@ -504,3 +504,24 @@ def test_a_result_the_request_limit_cannot_carry_is_refused_when_saving(monkeypa
 
     roomy = extractor.estimate(_limited(client, 400), "EVALUATE Sales")
     extractor.check_budget(roomy)
+
+
+def test_a_model_that_grows_past_one_response_after_the_count_is_not_stored_short(monkeypatch):
+    """Counted under the ceiling, over it by the time it is fetched: the
+    response stops at the ceiling without saying so, and that many rows is
+    more than were counted, so the count check alone would pass it."""
+    monkeypatch.setattr(pbs, "MAX_RESPONSE_ROWS", 50)
+    server = FakeDax(_sales(40), ceiling_rows=50)
+    client, _ = _client(monkeypatch, {SALES_DS: server})
+    original, grown = server.respond, []
+
+    def respond(dax):
+        answer = original(dax)
+        if "COUNTROWS" in dax and not grown:
+            grown.append(True)
+            server.rows = _sales(180)
+        return answer
+
+    server.respond = respond
+    _names, rows = _collect(PowerBISource(client), "EVALUATE Sales")
+    assert len({r[0] for r in rows}) == 180

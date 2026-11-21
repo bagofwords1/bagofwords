@@ -107,6 +107,12 @@ logger = logging.getLogger(__name__)
 # against a live 24.8 server holding 20M rows. The run found two things a fake
 # would not have: an abandoned Arrow stream keeps the client's HTTP session
 # locked, and Arrow carries Enum columns as bare integer codes.
+#
+# Analysis Services (fast/analysis_services_source.py) and SAP BusinessObjects
+# (fast/businessobjects_source.py) have native sources too, tested against
+# fake endpoints only; neither has been run against a live server. They are
+# offered acceleration as queryable connectors (`is_accelerable_type`) and are
+# deliberately in neither set below.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
@@ -291,7 +297,7 @@ class _Run:
         self.limits = fast_limits.of(self.client)
         # We write the window predicate ourselves unless the admin placed it
         # (placeholders) or the source takes it as request fields.
-        self.at_source = incremental.filters_at_source(self.client)
+        self.at_source = incremental.filters_at_source(self.client, self.sql)
         from app.data_sources.fast.sources import QuerySource, source_for
 
         # Read through the connector's plain `execute_query`: no source built
@@ -443,7 +449,10 @@ class CustomQueryService:
 
     @staticmethod
     def _needs_catalog(client) -> bool:
-        return hasattr(client, "attach_table_metadata") and hasattr(client, "execute_dax_rows")
+        # Clients addressed per target (a Power BI semantic model, an Analysis
+        # Services catalog) resolve it from the connection's indexed catalog.
+        return hasattr(client, "attach_table_metadata") and \
+            getattr(client, "EXTRACTION_SOURCE", None) is not None
 
     async def _prepare_client(
         self, db: AsyncSession, connection: Connection, client, target: Optional[dict]
@@ -682,7 +691,7 @@ class CustomQueryService:
             "estimate_supported": est.supported,
             "estimate_note": est.note,
             "budget_error": refused,
-            "filters_at_source": incremental.filters_at_source(client),
+            "filters_at_source": incremental.filters_at_source(client, definition_sql),
         }
 
     async def create(
