@@ -346,17 +346,6 @@
                                                 :expanded="isRunExpanded(m)" :duration="runFoldDuration(m)"
                                                 :translate="responseT" :has-steps="!!runFold(m)?.steps.length"
                                                 @toggle="toggleRun(m)" />
-                                            <!-- Initial thinking ends when visible text or a tool call arrives. -->
-											<RunActivityToggle
-												v-if="m.status === 'in_progress' && !runFold(m)?.steps.length && !visibleBlocks(m).some(blockHasMessage)"
-												:expanded="isRunExpanded(m)"
-												:duration="runFoldDuration(m)"
-												:translate="responseT"
-												:live="m.status === 'in_progress'"
-												:elapsed="liveElapsed(m)"
-												:has-steps="!!runFold(m)?.steps.length"
-												@toggle="toggleRun(m)"
-											/>
 											<!-- Sub-agent waves launched by this turn: one group line per wave -->
 											<SubAgentWaveStrip
 												v-for="w in wavesForMessage(m)"
@@ -631,8 +620,8 @@
 
 									</div>
 
-                                    <!-- Live line under the steps: dot + elapsed time for the whole run, so it never blinks out between steps or while text streams. -->
-                                    <RunLiveIndicator v-if="m.status === 'in_progress' && !m.sigkill && runFold(m)?.steps.length" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" />
+                                    <!-- Run-activity dot: always at the tail, for the whole live run (rules in composables/runWorkingDot.ts), with the elapsed time beside it. -->
+                                    <RunLiveIndicator v-if="showWaitingIndicator(m)" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" data-testid="run-working-dot" />
 
 									<!-- Show status messages for stopped/error completions -->
 									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
@@ -1258,8 +1247,9 @@ import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
-import { blockHasMessage, describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
+import { describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
+import { isRunWorking } from '~/composables/runWorkingDot'
 import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
@@ -3740,6 +3730,11 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 	       (toolExecution.created_widget || toolExecution.created_step)
 }
 
+// The run-activity dot: one circle at the message's tail for every live
+// frame (rules in composables/runWorkingDot.ts).
+function showWaitingIndicator(message: ChatMessage): boolean {
+    return isRunWorking(message, visibleBlocks(message), isAwaitingUser)
+}
 function getThoughtProcessLabel(block: CompletionBlock): string {
 	// Handle stopped blocks
 	if (block.status === 'stopped') {
