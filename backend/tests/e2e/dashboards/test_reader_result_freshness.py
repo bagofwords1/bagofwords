@@ -577,12 +577,12 @@ def test_the_upgrade_does_not_take_the_time_of_an_older_step_that_holds_the_same
     assert _own_rows(test_client, corpus, copy, "has_results") is None
 
 
-def _twin_of_sales(corpus, corpus_rows, at) -> str:
+def _twin_of_sales(corpus, corpus_rows, at, shown=True) -> str:
     """A second chart of the conversation's numbers: another query whose
     default step has the same title and the same data as q_sales's, last
-    changed at `at`, shown on the dashboard so the upgrade copies both. Its
-    step id. (Rows, as the corpus writes them: no route builds the
-    conversation as it was before the upgrade.)"""
+    changed at `at`. `shown` on the dashboard, the upgrade copies both; not
+    shown, it copies only q_sales. Its step id. (Rows, as the corpus writes
+    them: no route builds the conversation as it was before the upgrade.)"""
     import json
 
     import sqlalchemy as sa
@@ -595,10 +595,10 @@ def _twin_of_sales(corpus, corpus_rows, at) -> str:
         tbl = tables[name]
         kept = [c for c in tbl.c if c.name not in values]
         with corpus_rows.engine.begin() as conn:
-            conn.execute(tbl.insert().from_select(
+            assert conn.execute(tbl.insert().from_select(
                 [*values, *(c.name for c in kept)],
                 sa.select(*(sa.literal(v, type_=tbl.c[k].type) for k, v in values.items()), *kept)
-                .where(tbl.c.id == source_id)))
+                .where(tbl.c.id == source_id))).rowcount == 1
 
     qid, sid, vid = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
     copy("queries", corpus.ids[f"{key}/q_sales"], id=qid, title="הכנסות לפי חודש (עמודות)",
@@ -612,9 +612,33 @@ def _twin_of_sales(corpus, corpus_rows, at) -> str:
     with corpus_rows.engine.begin() as conn:
         content = conn.execute(sa.select(versions.c.content).where(versions.c.id == version)).scalar_one()
         content = json.loads(content) if isinstance(content, str) else dict(content)
-        content["visualization_ids"] = [*content["visualization_ids"], vid]
-        conn.execute(versions.update().where(versions.c.id == version).values(content=content))
+        # A version that lists its charts shows only those: the twin is shown if listed.
+        assert corpus.ids[f"{key}/q_sales/viz"] in content["visualization_ids"]
+        if shown:
+            content["visualization_ids"] = [*content["visualization_ids"], vid]
+            assert conn.execute(versions.update().where(versions.c.id == version)
+                                .values(content=content)).rowcount == 1
     return sid
+
+
+def _moved_to_a_new_step(corpus, corpus_rows, source) -> None:
+    """q_sales was run again under another title: it shows a new step, and
+    `source`, the step it showed, is kept beside it (query_service's run)."""
+    import sqlalchemy as sa
+
+    query = corpus.ids["run_viewer_results/q_sales"]
+    steps = sa.Table("steps", sa.MetaData(), autoload_with=corpus_rows.engine)
+    kept = [c for c in steps.c if c.name not in ("id", "slug", "title", "created_at", "updated_at")]
+    new, now = str(uuid.uuid4()), datetime.utcnow()
+    with corpus_rows.engine.begin() as conn:
+        assert conn.execute(steps.insert().from_select(
+            ["id", "slug", "title", "created_at", "updated_at", *(c.name for c in kept)],
+            sa.select(sa.literal(new), sa.literal(f"new-{new[:8]}"), sa.literal("הכנסות לפי רבעון"),
+                      sa.literal(now), sa.literal(now), *kept).where(steps.c.id == source))).rowcount == 1
+    corpus_rows.update("queries", query, default_step_id=new)
+    assert _rows(corpus_rows, "SELECT q.default_step_id AS shows, s.query_id AS kept_by FROM queries q "
+                              "JOIN steps s ON s.id = :src WHERE q.id = :q", q=query, src=source
+                 ) == [{"shows": new, "kept_by": query}]
 
 
 def _first_run(corpus, corpus_rows):
@@ -665,21 +689,11 @@ def test_the_upgrade_does_not_serve_a_copied_result_once_its_source_query_moved_
     title, so only the twin still matches the copy by title and data. The
     release holds two copies of that title: the copy is not given the
     twin's time, and its results stay refused."""
-    import sqlalchemy as sa
-
     source = _copied_between_readers(corpus, corpus_rows)
     _twin_of_sales(corpus, corpus_rows, _first_run(corpus, corpus_rows) - timedelta(days=1))
 
     def the_query_moved(copy):
-        steps = sa.Table("steps", sa.MetaData(), autoload_with=corpus_rows.engine)
-        kept = [c for c in steps.c if c.name not in ("id", "slug", "title", "created_at", "updated_at")]
-        new, now = str(uuid.uuid4()), datetime.utcnow()
-        with corpus_rows.engine.begin() as conn:
-            conn.execute(steps.insert().from_select(
-                ["id", "slug", "title", "created_at", "updated_at", *(c.name for c in kept)],
-                sa.select(sa.literal(new), sa.literal(f"new-{new[:8]}"), sa.literal("הכנסות לפי רבעון"),
-                          sa.literal(now), sa.literal(now), *kept).where(steps.c.id == source)))
-        corpus_rows.update("queries", corpus.ids["run_viewer_results/q_sales"], default_step_id=new)
+        _moved_to_a_new_step(corpus, corpus_rows, source)
 
     copy = _upgraded_with(test_client, corpus, corpus_rows, the_query_moved)
     # The twin was copied too: the release holds two copies of the title.
@@ -687,5 +701,25 @@ def test_the_upgrade_does_not_serve_a_copied_result_once_its_source_query_moved_
                                   "JOIN artifacts a ON a.published_release_id = q.artifact_release_id "
                                   "JOIN steps src ON src.title = s.title AND src.id = :src WHERE a.id = :d",
                      d=copy["did"], src=source)) == 2
+    assert _own_rows(test_client, corpus, copy, "direct_share") is None
+    assert _own_rows(test_client, corpus, copy, "has_results") is None
+
+
+@pytest.mark.e2e
+def test_the_upgrade_does_not_serve_a_copied_result_on_the_time_of_a_twin_the_dashboard_never_showed(
+        corpus, corpus_rows, test_client):
+    """The twin is not on the dashboard, so the release holds one copy of
+    the title. After the upgrade the copy's own query shows a new step under
+    another title, and the twin is the only step still shown under the
+    copy's: it is not the source, and the copy is not given its time."""
+    source = _copied_between_readers(corpus, corpus_rows)
+    _twin_of_sales(corpus, corpus_rows, _first_run(corpus, corpus_rows) - timedelta(days=1), shown=False)
+
+    copy = _upgraded_with(test_client, corpus, corpus_rows,
+                          lambda copy: _moved_to_a_new_step(corpus, corpus_rows, source))
+    assert len(_rows(corpus_rows, "SELECT s.id FROM steps s JOIN queries q ON q.id = s.query_id "
+                                  "JOIN artifacts a ON a.published_release_id = q.artifact_release_id "
+                                  "JOIN steps src ON src.title = s.title AND src.id = :src WHERE a.id = :d",
+                     d=copy["did"], src=source)) == 1
     assert _own_rows(test_client, corpus, copy, "direct_share") is None
     assert _own_rows(test_client, corpus, copy, "has_results") is None
