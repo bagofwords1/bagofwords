@@ -434,7 +434,11 @@ def _build_route_tables(application: FastAPI) -> None:
         route.matches(dict(scope))
 
 
-_build_route_tables(app)
+# `python main.py` imports this module as __main__ only to launch uvicorn,
+# which imports `main` again in the process that serves; building here would
+# only cost the launcher time and memory.
+if __name__ != "__main__":
+    _build_route_tables(app)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
