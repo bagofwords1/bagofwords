@@ -1,4 +1,4 @@
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 // The admin area's navigation, in one place. Before this, the same list lived
@@ -21,6 +21,9 @@ export interface AdminNavChild {
   description: string
   width: AdminPageWidth
   permission?: string
+  // With `resourceType`, holding `permission` on any one resource of that type
+  // is enough (e.g. a group manager sees the Groups page for their groups).
+  resourceType?: string
   feature?: string
 }
 
@@ -46,7 +49,8 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     children: [
       { key: 'members', label: 'settings.membersTabs.members', icon: 'i-heroicons-users', description: 'settings.adminPages.members', width: 'wide' },
       { key: 'roles', label: 'settings.membersTabs.roles', icon: 'i-heroicons-identification', description: 'settings.adminPages.roles', width: 'wide', permission: 'manage_roles', feature: 'custom_roles' },
-      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_groups', feature: 'custom_roles' },
+      // `manage_members` org-wide, or as the manager of at least one group.
+      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_members', resourceType: 'group', feature: 'custom_roles' },
       // Service accounts are a core (non-EE) capability — no feature flag.
       { key: 'service_accounts', label: 'settings.membersTabs.serviceAccounts', icon: 'i-heroicons-command-line', description: 'serviceAccounts.subtitle', width: 'wide', permission: 'manage_service_accounts' },
       { key: 'quotas', label: 'settings.membersTabs.quotas', icon: 'i-heroicons-scale', description: 'settings.adminPages.quotas', width: 'wide', permission: 'manage_settings', feature: 'usage_limits' },
@@ -82,9 +86,9 @@ export function useAdminNav() {
   const { hasFeature } = useEnterprise()
   const { data: currentUser } = useAuth()
 
-  const allowed = (permission?: string, feature?: string) => {
+  const allowed = (permission?: string, feature?: string, resourceType?: string) => {
     if (feature && !hasFeature(feature)) return false
-    if (permission && !useCan(permission)) return false
+    if (permission && !(resourceType ? useCanAny(permission, resourceType) : useCan(permission))) return false
     return true
   }
 
@@ -94,7 +98,7 @@ export function useAdminNav() {
       .filter(item => !item.superuserOnly || currentUser.value?.is_superuser === true)
       .map(item => ({
         ...item,
-        children: item.children?.filter(child => allowed(child.permission, child.feature)),
+        children: item.children?.filter(child => allowed(child.permission, child.feature, child.resourceType)),
       }))
   )
 
