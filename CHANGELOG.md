@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.631 (November 21, 2026)
+- Added inline figures in answers: charts and tables placed in the text, with highlighted categories and a ••• menu to add to a dashboard, save as a query, download or copy (#1844)
+- Added read-only Confluence and Jira Data Center (on-prem) connectors (#1842)
+- Added Outlook and Teams write actions (flag, move, draft and send email; post to channels and chats), off by default and managed in a new Tools tab on the connection (#1847)
+- Added a Connect button in chat when a question needs an agent the user hasn't signed in to yet (#1846)
+- Added a "Refresh to vN" prompt on an open dashboard when a newer version is saved elsewhere (#1841)
+- Changed a connection tool call to follow the rule of the agent it goes through (#1847)
+- Changed System logs to be off by default (#1843) — turn on with `system_logs.enabled` / `BOW_SYSTEM_LOGS_ENABLED=true`
+- Fixed a large log backlog wiping older System logs (#1843)
+- Fixed running eval and sub-agent cards, and their Stop button, folding out of view (#1840)
+- Fixed the run-activity dot disappearing, resizing and jumping during a live run (#1839)
+
 ## Version 0.0.630 (November 20, 2026)
 - Added resizable, movable data-grid columns that keep their layout, and a single value-list filter per column (#1828)
 - Added content-sized columns to dashboard tables, resizable and movable by drag (#1834)
