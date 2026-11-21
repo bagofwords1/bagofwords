@@ -85,7 +85,7 @@
             <span v-if="!isMessages" class="shrink-0 w-16 text-end tabular-nums text-ink-muted"><bdi>{{ formatBytes(f.size) }}</bdi></span>
             <span class="shrink-0 w-24 text-end text-ink-muted hidden sm:inline">{{ formatDate(f.modified_at) }}</span>
             <a v-if="isWebUrl(f.web_url)" :href="f.web_url" target="_blank" rel="noopener noreferrer" :title="$t('agentsPage.fileBrowserOpenInSource')"
-               class="shrink-0 text-gray-300 dark:text-gray-600 hover:text-blue-600 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100"
+               class="shrink-0 text-ink-subtle hover:text-blue-600 dark:hover:text-blue-400 opacity-0 group-hover:opacity-100 focus:opacity-100"
                @click.stop @keydown.enter.stop>
               <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5" />
             </a>

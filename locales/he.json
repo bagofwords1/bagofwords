@@ -1942,6 +1942,24 @@
         }
       }
     },
+    "remoteOp": {
+      "read_file": {
+        "running": "קורא את {name}…",
+        "done": "נקרא {name}"
+      },
+      "list_directory": {
+        "running": "מציג את תוכן {name}…",
+        "done": "הוצג תוכן {name}"
+      },
+      "search_file": {
+        "running": "מחפש \"{text}\" ב־{name}…",
+        "done": "חיפש \"{text}\" ב־{name}"
+      },
+      "system_status": {
+        "running": "בודק את מצב השרת…",
+        "done": "מצב השרת נבדק"
+      }
+    },
     "answerQuestion": {
       "thought": "חשב על התשובה"
     },
@@ -5396,7 +5414,21 @@
     "firstPage": "עמוד ראשון",
     "previousPage": "עמוד קודם",
     "nextPage": "עמוד הבא",
-    "lastPage": "עמוד אחרון"
+    "lastPage": "עמוד אחרון",
+    "inRangeStart": "מ־",
+    "inRangeEnd": "עד",
+    "resetFilter": "ניקוי",
+    "noRowsToShow": "אין שורות להצגה",
+    "filteredRows": "{shown} מתוך {total} שורות",
+    "clearFilters": "ניקוי סינונים",
+    "expand": "הגדלת הטבלה",
+    "collapse": "סגירת מסך מלא",
+    "search": "חיפוש…",
+    "selectAll": "בחירת הכול",
+    "blankValue": "(ריק)",
+    "noMatches": "אין ערכים תואמים",
+    "moreValues": "מוצגים {n} הראשונים — הקלידו כדי לצמצם",
+    "alsoFilteredAbove": "העמודה מסוננת גם ב״סינונים״ למעלה"
   },
   "sharedReport": {
     "backToApp": "חזרה לאפליקציה",
@@ -5852,6 +5884,7 @@
       "published": "פורסם {date}",
       "dataAsOf": "הנתונים עודכנו {time}",
       "refreshFailing": "הרענון נכשל",
+      "refreshFailingAction": "לצפייה בסיבת כשל הרענון",
       "lastEdit": "עריכה אחרונה: {time}",
       "scheduledRefresh": "רענון מתוזמן"
     },
@@ -5951,6 +5984,9 @@
       "failing": "{n} נכשל ברענון | {n} נכשלים ברענון",
       "stale": "{n} לא נערך 90 יום | {n} לא נערכו 90 יום",
       "show": "הציגו אותם"
+    },
+    "refreshes": {
+      "openEditor": "פתיחה בעורך"
     }
   },
   "excel": {
@@ -8852,5 +8888,36 @@
     "inviteNotSent": "לא ניתן היה לשלוח את ההזמנה אל {email}. אפשר להזמין שוב מעמוד החברים.",
     "adminAdded": "{email} נוסף כמנהל.",
     "failed": "לא ניתן היה ליצור את הארגון."
+  },
+  "vizFilter": {
+    "filter": "סינון",
+    "title": "סינונים",
+    "clear": "ניקוי",
+    "noData": "אין נתונים לסינון",
+    "noFilters": "לא הוחלו סינונים",
+    "addFilter": "הוספת סינון",
+    "column": "עמודה",
+    "value": "ערך",
+    "apply": "החלה",
+    "valuesMore": "{first} ועוד {n}",
+    "op": {
+      "equals": "שווה ל־",
+      "not_equals": "שונה מ־",
+      "contains": "מכיל",
+      "not_contains": "לא מכיל",
+      "starts_with": "מתחיל ב־",
+      "ends_with": "מסתיים ב־",
+      "is_empty": "ריק",
+      "is_not_empty": "לא ריק",
+      "before": "לפני",
+      "after": "אחרי",
+      "is_true": "אמת",
+      "is_false": "שקר",
+      "between": "בין",
+      "in": "אחד מ־",
+      "not_in": "אף אחד מ־"
+    },
+    "or": "או",
+    "and": "וגם"
   }
 }

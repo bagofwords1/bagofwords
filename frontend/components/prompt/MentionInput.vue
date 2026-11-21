@@ -110,7 +110,7 @@
               v-if="item.needs_connect"
               type="button"
               :disabled="connectingId === item.id"
-              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+              class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
               @click.stop="connectAgent(item)"
             >
               <Spinner v-if="connectingId === item.id" class="w-3 h-3" />
@@ -120,7 +120,7 @@
             <button
               v-else-if="['data_sources', 'tables', 'entities'].includes(category.name)"
               @click.stop="expandItem(item, category.name)"
-              class="text-ink-muted hover:text-gray-600 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="text-ink-muted hover:text-ink-2 p-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
             >
               <Icon name="heroicons-chevron-right" class="w-3.5 h-3.5" />
             </button>

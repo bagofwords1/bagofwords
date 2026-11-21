@@ -80,8 +80,8 @@
                 @mousemove="active = i"
             >
                 <span class="font-mono text-xs" :class="ctx.kind === 'field' ? 'text-blue-700 dark:text-blue-400' : 'text-gray-900 dark:text-white'">{{ s.label }}</span>
-                <span v-if="s.type" class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ s.type }}</span>
-                <span v-if="s.help" class="text-xs text-gray-500 truncate flex-grow">{{ s.help }}</span>
+                <span v-if="s.type" class="text-2xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted">{{ s.type }}</span>
+                <span v-if="s.help" class="text-xs text-ink-muted truncate flex-grow">{{ s.help }}</span>
                 <span v-if="s.count != null" class="text-xs text-ink-muted tabular-nums ms-auto">{{ s.count.toLocaleString() }}</span>
                 <span v-if="i === active" class="text-2xs text-ink-muted whitespace-nowrap">Tab · ↵</span>
             </button>

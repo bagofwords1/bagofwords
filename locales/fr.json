@@ -4761,7 +4761,21 @@
     "firstPage": "Première page",
     "previousPage": "Page précédente",
     "nextPage": "Page suivante",
-    "lastPage": "Dernière page"
+    "lastPage": "Dernière page",
+    "inRangeStart": "De",
+    "inRangeEnd": "À",
+    "resetFilter": "Effacer",
+    "noRowsToShow": "Aucune ligne à afficher",
+    "filteredRows": "{shown} sur {total} lignes",
+    "clearFilters": "Effacer les filtres",
+    "expand": "Agrandir le tableau",
+    "collapse": "Fermer le plein écran",
+    "search": "Rechercher…",
+    "selectAll": "Tout sélectionner",
+    "blankValue": "(Vide)",
+    "noMatches": "Aucune valeur correspondante",
+    "moreValues": "Les {n} premières sont affichées — tapez pour affiner",
+    "alsoFilteredAbove": "Cette colonne est aussi filtrée dans Filtres, plus haut"
   },
   "sharedReport": {
     "backToApp": "Retour à l’app",
@@ -5170,6 +5184,7 @@
       "published": "Publié le {date}",
       "dataAsOf": "Données actualisées {time}",
       "refreshFailing": "Échec de l’actualisation",
+      "refreshFailingAction": "Voir pourquoi l’actualisation a échoué",
       "lastEdit": "Dernière modification : {time}",
       "scheduledRefresh": "Actualisation planifiée"
     },
@@ -5269,6 +5284,9 @@
       "failing": "{n} en échec d’actualisation | {n} en échec d’actualisation",
       "stale": "{n} non modifié depuis 90 jours | {n} non modifiés depuis 90 jours",
       "show": "Les afficher"
+    },
+    "refreshes": {
+      "openEditor": "Ouvrir dans l’éditeur"
     }
   },
   "excel": {
@@ -7947,5 +7965,36 @@
     "inviteNotSent": "L'invitation à {email} n'a pas pu être envoyée. Invitez à nouveau cette personne depuis la page Membres.",
     "adminAdded": "{email} a été ajouté comme administrateur.",
     "failed": "Impossible de créer l'organisation."
+  },
+  "vizFilter": {
+    "filter": "Filtrer",
+    "title": "Filtres",
+    "clear": "Effacer",
+    "noData": "Aucune donnée à filtrer",
+    "noFilters": "Aucun filtre appliqué",
+    "addFilter": "Ajouter un filtre",
+    "column": "Colonne",
+    "value": "Valeur",
+    "apply": "Appliquer",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "égal à",
+      "not_equals": "différent de",
+      "contains": "contient",
+      "not_contains": "ne contient pas",
+      "starts_with": "commence par",
+      "ends_with": "se termine par",
+      "is_empty": "est vide",
+      "is_not_empty": "n'est pas vide",
+      "before": "avant",
+      "after": "après",
+      "is_true": "est vrai",
+      "is_false": "est faux",
+      "between": "entre",
+      "in": "est l'un de",
+      "not_in": "n'est aucun de"
+    },
+    "or": "OU",
+    "and": "ET"
   }
 }

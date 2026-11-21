@@ -4761,7 +4761,21 @@
     "firstPage": "الصفحة الأولى",
     "previousPage": "الصفحة السابقة",
     "nextPage": "الصفحة التالية",
-    "lastPage": "الصفحة الأخيرة"
+    "lastPage": "الصفحة الأخيرة",
+    "inRangeStart": "من",
+    "inRangeEnd": "إلى",
+    "resetFilter": "مسح",
+    "noRowsToShow": "لا توجد صفوف لعرضها",
+    "filteredRows": "{shown} من {total} صف",
+    "clearFilters": "مسح عوامل التصفية",
+    "expand": "تكبير الجدول",
+    "collapse": "إغلاق ملء الشاشة",
+    "search": "بحث…",
+    "selectAll": "تحديد الكل",
+    "blankValue": "(فارغ)",
+    "noMatches": "لا توجد قيم مطابقة",
+    "moreValues": "يتم عرض أول {n} — اكتب للتضييق",
+    "alsoFilteredAbove": "هذا العمود مُصفّى أيضًا في عوامل التصفية أعلاه"
   },
   "sharedReport": {
     "backToApp": "العودة إلى التطبيق",
@@ -5170,6 +5184,7 @@
       "published": "نُشرت {date}",
       "dataAsOf": "حُدّثت البيانات {time}",
       "refreshFailing": "فشل التحديث",
+      "refreshFailingAction": "عرض سبب فشل التحديث",
       "lastEdit": "آخر تعديل: {time}",
       "scheduledRefresh": "تحديث مُجدوَل"
     },
@@ -5269,6 +5284,9 @@
       "failing": "فشل التحديث: {n}",
       "stale": "بلا تعديل منذ 90 يومًا: {n}",
       "show": "اعرضها"
+    },
+    "refreshes": {
+      "openEditor": "فتح في المحرر"
     }
   },
   "excel": {
@@ -7947,5 +7965,36 @@
     "inviteNotSent": "تعذّر إرسال الدعوة إلى {email}. أعد دعوته من صفحة الأعضاء.",
     "adminAdded": "تمت إضافة {email} بصفة مسؤول.",
     "failed": "تعذّر إنشاء المؤسسة."
+  },
+  "vizFilter": {
+    "filter": "تصفية",
+    "title": "عوامل التصفية",
+    "clear": "مسح",
+    "noData": "لا توجد بيانات للتصفية",
+    "noFilters": "لم يتم تطبيق أي تصفية",
+    "addFilter": "إضافة تصفية",
+    "column": "العمود",
+    "value": "القيمة",
+    "apply": "تطبيق",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "يساوي",
+      "not_equals": "لا يساوي",
+      "contains": "يحتوي على",
+      "not_contains": "لا يحتوي على",
+      "starts_with": "يبدأ بـ",
+      "ends_with": "ينتهي بـ",
+      "is_empty": "فارغ",
+      "is_not_empty": "غير فارغ",
+      "before": "قبل",
+      "after": "بعد",
+      "is_true": "صحيح",
+      "is_false": "خطأ",
+      "between": "بين",
+      "in": "أحد",
+      "not_in": "ليس أحد"
+    },
+    "or": "أو",
+    "and": "و"
   }
 }

@@ -144,7 +144,7 @@
                                     <button
                                         type="button"
                                         :disabled="connectingId === ds.id"
-                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                                        class="flex-shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-2xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                                         @click.stop="openCredentialsModal(ds)"
                                     >
                                         <Spinner v-if="connectingId === ds.id" class="w-3 h-3" />

@@ -31,7 +31,7 @@
                                     <p v-text-dir.align class="text-xs text-gray-900 dark:text-white related-text" v-html="inst.highlightedHtml"></p>
                                     <div class="mt-1 flex items-center gap-2">
                                         <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"
-                                              :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
+                                              :class="inst.status === 'published' ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300' : inst.status === 'draft' ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
                                             {{ inst.status }}
                                         </span>
                                         <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
@@ -50,7 +50,7 @@
                                     </div>
                                     <div class="flex items-center gap-2">
                                         <span class="inline-flex px-1.5 py-0.5 rounded-full text-2xs"
-                                              :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
+                                              :class="inst.status === 'published' ? 'bg-green-100 dark:bg-green-950 text-green-800 dark:text-green-300' : inst.status === 'draft' ? 'bg-yellow-100 dark:bg-yellow-950 text-yellow-800 dark:text-yellow-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'">
                                             {{ inst.status }}
                                         </span>
                                         <span class="text-2xs text-gray-500 dark:text-gray-400">{{ $t('instructionModal.by', { name: inst.createdByName }) }}</span>
@@ -74,7 +74,7 @@
                     <div class="flex items-center gap-2">
                         <h3 class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('instructionModal.impact') }}</h3>
                         <UTooltip :text="impactTotalCount ? $t('instructionModal.impactTooltip', { matched: impactMatchedCount, total: impactTotalCount }) : $t('instructionModal.impactTooltipEmpty')">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
                                 {{ Math.round(impactScore * 100) }}%
                             </span>
                         </UTooltip>

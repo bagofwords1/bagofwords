@@ -18,7 +18,7 @@
                 <div class="text-xs font-medium text-gray-900 dark:text-white">
                   {{ ds.info.name }} <span class="text-gray-500 dark:text-gray-400">({{ ds.info.type }})</span>
                   <!-- Usage tracking indicator -->
-                  <span v-if="ds._usage_meta" class="ms-2 text-2xs px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700">
+                  <span v-if="ds._usage_meta" class="ms-2 text-2xs px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
                     {{ (ds.tables || []).length }} of {{ ds._usage_meta.tables_total }} tables
                   </span>
                 </div>
@@ -166,7 +166,7 @@
       >
         <Icon :name="expandedSections.has('instructions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 rtl-flip" />
         Instructions
-        <span v-if="instructionsItems.length" class="ms-2 text-2xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700">
+        <span v-if="instructionsItems.length" class="ms-2 text-2xs px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">
           {{ instructionsItems.length }}
         </span>
       </div>
@@ -175,7 +175,7 @@
           <!-- Build information -->
           <div v-if="props.build" class="mb-3 pb-3 border-b border-gray-200 dark:border-gray-700">
             <div class="text-2xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1.5">Build</div>
-            <div class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-indigo-50 dark:bg-indigo-950 text-indigo-700 border-indigo-200">
+            <div class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border-indigo-200">
               <span class="font-semibold">#{{ props.build.build_number }}</span>
               <span v-if="props.build.title" class="ms-1">{{ props.build.title }}</span>
               <span v-if="props.build.is_main" class="ms-1">(Main)</span>
@@ -258,7 +258,7 @@
                   <td class="px-3 py-2">
                     <span
                       class="text-2xs px-1.5 py-0.5 rounded"
-                      :class="ins.load_mode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : ins.load_mode === 'intelligent' ? 'bg-purple-100 dark:bg-purple-950 text-purple-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
+                      :class="ins.load_mode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : ins.load_mode === 'intelligent' ? 'bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
                     >
                       {{ getLoadModeLabel(ins.load_mode) }}
                     </span>
@@ -394,7 +394,7 @@
                         <span
                           v-for="table in (source.tables || [])"
                           :key="source.data_source_id + ':' + table"
-                          class="inline-flex items-center px-1.5 py-0.5 rounded text-2xs bg-indigo-50 dark:bg-indigo-950 text-indigo-700 border border-indigo-200"
+                          class="inline-flex items-center px-1.5 py-0.5 rounded text-2xs bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200"
                         >
                           <Icon name="heroicons-table-cells" class="w-3 h-3 me-1 text-indigo-400" />
                           {{ table }}
@@ -431,7 +431,7 @@
                   <div v-if="obs.observation.summary" class="mb-2">
                     <div
                       class="text-xs rounded px-2 py-1.5 border-s-2"
-                      :class="hasObservationError(obs) ? 'bg-red-50 dark:bg-red-950 border-red-300 text-red-800' : 'bg-green-50 dark:bg-green-950 border-green-300 text-green-800'"
+                      :class="hasObservationError(obs) ? 'bg-red-50 dark:bg-red-950 border-red-300 text-red-800 dark:text-red-300' : 'bg-green-50 dark:bg-green-950 border-green-300 text-green-800 dark:text-green-300'"
                     >
                       {{ obs.observation.summary }}
                     </div>
@@ -440,7 +440,7 @@
                   <!-- Error Details -->
                   <div v-if="obs.observation.error" class="mb-2">
                     <div class="text-2xs uppercase tracking-wide text-red-400 mb-0.5">Error</div>
-                    <div class="text-xs text-red-700 bg-red-50 dark:bg-red-950 rounded px-2 py-1.5 border border-red-200">
+                    <div class="text-xs text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950 rounded px-2 py-1.5 border border-red-200">
                       <template v-if="typeof obs.observation.error === 'string'">
                         {{ obs.observation.error }}
                       </template>
@@ -488,7 +488,7 @@
           </div>
 
           <!-- Visualization Updates Summary -->
-          <div v-if="visualizationUpdates.length" class="border rounded-md px-3 py-2 bg-teal-50 border-teal-200">
+          <div v-if="visualizationUpdates.length" class="border rounded-md px-3 py-2 bg-teal-50 dark:bg-teal-950 border-teal-200 dark:border-teal-800">
             <div class="flex items-center gap-2">
               <Icon name="heroicons-chart-bar" class="w-4 h-4 text-teal-500" />
               <span class="text-xs font-medium text-teal-900">{{ visualizationUpdates.length }} visualization{{ visualizationUpdates.length !== 1 ? 's' : '' }} created/updated</span>

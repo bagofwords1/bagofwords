@@ -35,11 +35,11 @@
             <Icon name="heroicons-cpu-chip" class="w-4 h-4 text-blue-500 flex-shrink-0" />
             <span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ agentName }}</span>
             <span class="inline-flex items-center gap-1 text-chat-3 px-1.5 py-0.5 rounded-full flex-shrink-0"
-              :class="agentActive ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-gray-800 text-gray-500'">
+              :class="agentActive ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'">
               <span class="w-1.5 h-1.5 rounded-full" :class="agentActive ? 'bg-emerald-500' : 'bg-gray-400'"></span>
               {{ agentActive ? t('tools.createAgent.statusActive') : t('tools.createAgent.statusInactive') }}
             </span>
-            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+            <span class="text-chat-3 px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-ink-muted flex-shrink-0">
               {{ isPublic ? t('tools.createAgent.public') : t('tools.createAgent.private') }}
             </span>
             <span class="flex-1"></span>
@@ -134,7 +134,7 @@
                   {{ inst.status }}
                 </span>
                 <span v-if="inst.load_mode === 'always'"
-                      class="text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
+                      class="text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted flex-shrink-0">
                   {{ getLoadModeLabel(inst.load_mode) }}
                 </span>
               </li>

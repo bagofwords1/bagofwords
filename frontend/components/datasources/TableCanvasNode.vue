@@ -5,7 +5,7 @@
     <Handle type="target" :position="Position.Left" :connectable="false" class="!bg-gray-400 !border-white" />
     <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 dark:border-gray-800">
       <input v-if="data.canUpdate" type="checkbox" :checked="data.active" :aria-label="t('tableErd.selectTable', { name: data.table.name })"
-        class="nodrag nopan h-3.5 w-3.5 rounded border-gray-300 accent-blue-500 shrink-0" @click.stop @change="data.toggle(!data.active)" />
+        class="nodrag nopan h-3.5 w-3.5 rounded border-line-strong accent-blue-500 shrink-0" @click.stop @change="data.toggle(!data.active)" />
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1.5 min-w-0" :title="data.table.connection_name">
           <span data-testid="erd-connection-icon" class="shrink-0"><DataSourceIcon :type="data.table.connection_type" class="h-3.5 w-3.5" /></span>

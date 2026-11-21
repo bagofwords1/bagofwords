@@ -4761,7 +4761,21 @@
     "firstPage": "Prima pagina",
     "previousPage": "Pagina precedente",
     "nextPage": "Pagina successiva",
-    "lastPage": "Ultima pagina"
+    "lastPage": "Ultima pagina",
+    "inRangeStart": "Da",
+    "inRangeEnd": "A",
+    "resetFilter": "Cancella",
+    "noRowsToShow": "Nessuna riga da mostrare",
+    "filteredRows": "{shown} di {total} righe",
+    "clearFilters": "Cancella filtri",
+    "expand": "Espandi tabella",
+    "collapse": "Chiudi schermo intero",
+    "search": "Cerca…",
+    "selectAll": "Seleziona tutto",
+    "blankValue": "(Vuoto)",
+    "noMatches": "Nessun valore corrispondente",
+    "moreValues": "Mostrati i primi {n}: digita per restringere",
+    "alsoFilteredAbove": "Questa colonna è filtrata anche in Filtri, sopra"
   },
   "sharedReport": {
     "backToApp": "Torna all’app",
@@ -5170,6 +5184,7 @@
       "published": "Pubblicata il {date}",
       "dataAsOf": "Dati aggiornati {time}",
       "refreshFailing": "Aggiornamento non riuscito",
+      "refreshFailingAction": "Scopri perché l’aggiornamento non è riuscito",
       "lastEdit": "Ultima modifica: {time}",
       "scheduledRefresh": "Aggiornamento pianificato"
     },
@@ -5269,6 +5284,9 @@
       "failing": "{n} con aggiornamento non riuscito | {n} con aggiornamento non riuscito",
       "stale": "{n} non modificata da 90 giorni | {n} non modificate da 90 giorni",
       "show": "Mostrale"
+    },
+    "refreshes": {
+      "openEditor": "Apri nell’editor"
     }
   },
   "excel": {
@@ -7947,5 +7965,36 @@
     "inviteNotSent": "Non è stato possibile inviare l'invito a {email}. Invita di nuovo la persona dalla pagina Membri.",
     "adminAdded": "{email} è stato aggiunto come amministratore.",
     "failed": "Impossibile creare l'organizzazione."
+  },
+  "vizFilter": {
+    "filter": "Filtra",
+    "title": "Filtri",
+    "clear": "Cancella",
+    "noData": "Nessun dato da filtrare",
+    "noFilters": "Nessun filtro applicato",
+    "addFilter": "Aggiungi filtro",
+    "column": "Colonna",
+    "value": "Valore",
+    "apply": "Applica",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "uguale a",
+      "not_equals": "diverso da",
+      "contains": "contiene",
+      "not_contains": "non contiene",
+      "starts_with": "inizia con",
+      "ends_with": "finisce con",
+      "is_empty": "è vuoto",
+      "is_not_empty": "non è vuoto",
+      "before": "prima di",
+      "after": "dopo",
+      "is_true": "è vero",
+      "is_false": "è falso",
+      "between": "tra",
+      "in": "è uno di",
+      "not_in": "non è uno di"
+    },
+    "or": "O",
+    "and": "E"
   }
 }

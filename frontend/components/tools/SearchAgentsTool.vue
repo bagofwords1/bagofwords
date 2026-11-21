@@ -39,7 +39,7 @@
             </span>
             <span
               v-if="a.focused"
-              class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 flex-shrink-0"
+              class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300 flex-shrink-0"
             >focused</span>
             <!-- Lifecycle stage (Development / Training / Disabled), same as
                  the agent selector — not the raw publish_status ("draft"). -->
@@ -51,7 +51,7 @@
               v-if="a.needs_signin"
               @click.stop="signInAgent(a)"
               :disabled="signingInId === a.id"
-              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 transition-colors flex-shrink-0"
+              class="ms-2 inline-flex items-center gap-1 px-2 py-0.5 text-chat-2 font-medium text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors flex-shrink-0"
             >
               <Spinner v-if="signingInId === a.id" class="w-2.5 h-2.5 animate-spin" />
               <Icon v-else name="heroicons-key" class="w-2.5 h-2.5" />
