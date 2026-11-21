@@ -42,6 +42,18 @@
             >
                 <LLMProviderIcon :provider="provider.provider_type" :icon="true" class="h-4 w-4" />
                 <span class="text-sm font-medium" :class="providerFilterId === provider.id ? '' : 'text-ink-2'">{{ provider.name }}</span>
+                <UTooltip v-if="piiBadge(provider.id)" :text="$t('settings.llms.piiBadgeTooltip')">
+                    <span
+                        data-testid="provider-pii-badge"
+                        class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-2xs font-medium"
+                        :class="piiBadge(provider.id)!.exempt
+                            ? 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                            : 'bg-surface-muted text-ink-muted'"
+                    >
+                        <UIcon name="i-heroicons-eye-slash" class="w-3 h-3" />
+                        {{ piiBadge(provider.id)!.label }}
+                    </span>
+                </UTooltip>
                 <UTooltip v-if="useCan('manage_llm_settings')" :text="$t('settings.llms.providerSettingsTooltip')">
                     <span
                         role="button"
@@ -77,7 +89,7 @@
                         </span>
                     </UTooltip>
                     <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
-                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-gray-600 cursor-help" />
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-ink-2 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-ink-2 space-y-1.5">
                                 <p class="font-semibold text-ink">{{ $t('settings.llms.autoRouterHowTitle') }}</p>
@@ -116,7 +128,7 @@
                         </span>
                     </UTooltip>
                     <UPopover v-else mode="hover" :popper="{ placement: 'bottom' }">
-                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-gray-600 cursor-help" />
+                        <UIcon name="i-heroicons-question-mark-circle" class="w-4 h-4 text-ink-muted hover:text-ink-2 cursor-help" />
                         <template #panel>
                             <div class="p-3 max-w-xs text-xs text-ink-2 space-y-1.5">
                                 <p class="font-semibold text-ink">{{ $t('settings.llms.fallbackHowTitle') }}</p>
@@ -258,7 +270,7 @@
                                         <button type="button" class="text-blue-500 hover:text-blue-700 mt-1" @click="saveHint(model)">
                                             <UIcon name="i-heroicons-check" class="w-4 h-4" />
                                         </button>
-                                        <button type="button" class="text-ink-muted hover:text-gray-600 mt-1" @click="editingHintId = null">
+                                        <button type="button" class="text-ink-muted hover:text-ink-2 mt-1" @click="editingHintId = null">
                                             <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
                                         </button>
                                     </div>
@@ -795,11 +807,31 @@ const getProviders = async () => {
     providers.value = (response.data.value as unknown as Provider[]) || [];
 }
 
+// PII protection: which policy each provider gets (read-only here; changed
+// on Settings → PII Protection). Shown only when it actually applies.
+const piiConfig = ref<any>(null);
+const loadPii = async () => {
+    if (!hasFeature('pii_protection')) return;
+    const res = await useMyFetch('/api/organization/settings');
+    piiConfig.value = res.status.value === 'success' ? (res.data.value as any)?.config?.pii_protection || null : null;
+};
+const piiBadge = (providerId: string): { label: string; exempt: boolean } | null => {
+    const cfg = piiConfig.value;
+    if (!cfg?.enabled) return null;
+    const assigned = cfg.provider_policies?.[providerId];
+    if (assigned === 'exempt') return { label: t('settings.llms.piiBadgeExempt'), exempt: true };
+    const policy = assigned && assigned !== 'default' && cfg.policies?.[assigned]
+        ? cfg.policies[assigned].name
+        : t('settings.pii.defaultPolicy');
+    return { label: t('settings.llms.piiBadge', { policy }), exempt: false };
+};
+
 onMounted(async () => {
     await getModels();
     await getProviders();
     await loadAutoRouter();
     await loadFallback();
+    await loadPii();
 });
 
 const handleProviderModalClose = async (value: boolean) => {

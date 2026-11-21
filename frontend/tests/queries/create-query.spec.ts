@@ -45,8 +45,11 @@ test('a query can be created by hand from the agent queries panel', async ({ pag
   await page.route(`**/api/entities/${created.id}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json',
       body: JSON.stringify({ ...created, data: { columns: [{ field: 'example' }], rows: [{ example: 1 }], info: { total_rows: 1 } } }) }));
-  await page.route('**/api/data_sources/active**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([agent]) }));
+  // The agents tree lists GET /api/data_sources (management inventory, since
+  // the folders work); other pickers still read /data_sources/active.
+  for (const list of ['**/api/data_sources?**', '**/api/data_sources/active**'])
+    await page.route(list, (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([agent]) }));
   await page.route(`**/api/data_sources/${AGENT_ID}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(agent) }));
 

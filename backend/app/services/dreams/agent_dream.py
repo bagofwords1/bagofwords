@@ -691,7 +691,13 @@ async def _notify_managers(db, *, organization, ds, outputs: Dict[str, Any], now
         await InboxService().notify_agent_managers(
             db, organization_id=str(organization.id), data_source_id=str(ds.id),
             type="nightly_learning", title=title[:200], body=body[:1000], link=link,
-            subject={"data_source_id": str(ds.id), "build_id": outputs.get("build_id")},
+            # `i18n` lets the inbox re-render the title in the viewer's locale.
+            # The body lists dynamic counts, so it stays as written ("custom"
+            # has no catalog entry and falls back to the stored text).
+            subject={"data_source_id": str(ds.id), "build_id": outputs.get("build_id"),
+                     "i18n": {"agent": ds.name or "Agent", "n": changes,
+                              "title_variant": "learned" if changes else "cleanup",
+                              "variant": "custom"}},
             group_key=f"nightly_learning:{ds.id}:{C.day_key(now)}",
         )
     except Exception:

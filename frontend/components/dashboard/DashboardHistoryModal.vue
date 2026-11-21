@@ -14,7 +14,7 @@
             <div v-if="!embedded" class="flex items-start justify-between gap-3 mb-3">
                 <div class="min-w-0">
                     <h2 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('dashboardCollab.history.title') }}</h2>
-                    <p class="text-sm text-gray-400">{{ tm('dashboardCollab.history.subtitle', mode) }}</p>
+                    <p class="text-sm text-ink-muted">{{ tm('dashboardCollab.history.subtitle', mode) }}</p>
                 </div>
                 <button type="button" :aria-label="$t('common.close')" data-testid="dashboard-history-close"
                     class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 outline-none shrink-0" @click="open = false">
@@ -34,7 +34,7 @@
                         @click="active = tab.key">
                         <Icon :name="tab.icon" class="w-3.5 h-3.5" />
                         <span>{{ tab.label }}</span>
-                        <span v-if="tab.count != null" class="text-[10px] tabular-nums text-gray-400">{{ tab.count }}</span>
+                        <span v-if="tab.count != null" class="text-[10px] tabular-nums text-ink-muted">{{ tab.count }}</span>
                     </button>
                 </div>
             </div>
@@ -44,7 +44,7 @@
                 <HistoryNotes v-if="active === 'notes'" :dashboard-id="dashboardId" :can-edit="can('settings')" :mode="mode" />
                 <HistoryOwner v-else-if="active === 'owner'" :dashboard-id="dashboardId" :mode="mode" @transferred="onTransferred" />
 
-                <div v-else-if="loading && !history" class="flex items-center gap-2 py-10 justify-center text-sm text-gray-400">
+                <div v-else-if="loading && !history" class="flex items-center gap-2 py-10 justify-center text-sm text-ink-muted">
                     <Spinner class="w-4 h-4" /> {{ $t('common.loading') }}
                 </div>
                 <div v-else-if="loadError && !history" class="py-10 flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400"

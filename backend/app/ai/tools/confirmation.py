@@ -134,6 +134,7 @@ async def stream_user_confirmation(
         report_id=str(report.id) if report else None,
         system_completion_id=str(system.id) if system is not None else None,
         head_completion_id=str(head.id) if head is not None else None,
+        tool_execution_id=runtime_ctx.get("tool_call_id"),
         user_id=str(user.id) if user else None,
         tool_name=tool_name,
         arguments=payload or {},

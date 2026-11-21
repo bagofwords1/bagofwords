@@ -7,7 +7,7 @@
             <span>{{ tm('dashboardCollab.history.notesHelp', mode) }}</span>
         </p>
 
-        <div v-if="loading" class="flex items-center gap-2 py-6 text-sm text-gray-400">
+        <div v-if="loading" class="flex items-center gap-2 py-6 text-sm text-ink-muted">
             <Spinner class="w-4 h-4" /> {{ $t('common.loading') }}
         </div>
         <div v-else-if="loadError" class="py-6 flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
@@ -20,7 +20,7 @@
                 :placeholder="tm('dashboardCollab.history.notesPlaceholder', mode)" :disabled="saving"
                 data-testid="history-notes-input" />
             <div class="flex flex-wrap items-center justify-between gap-2">
-                <span class="text-[11px] text-gray-400 tabular-nums">{{ $t('dashboardCollab.history.notesLength', { n: draft.length, max: MAX }) }}</span>
+                <span class="text-[11px] text-ink-muted tabular-nums">{{ $t('dashboardCollab.history.notesLength', { n: draft.length, max: MAX }) }}</span>
                 <div class="flex gap-2 ms-auto">
                     <UButton v-if="dirty" size="xs" color="gray" variant="ghost" :disabled="saving" @click="draft = saved">
                         {{ $t('common.cancel') }}
@@ -36,7 +36,7 @@
             <div v-if="saved" class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words rounded-lg bg-gray-50 dark:bg-gray-800 p-3"
                 dir="auto" data-testid="history-notes-readonly">{{ saved }}</div>
             <HistoryEmpty v-else icon="heroicons:document-text" :text="$t('dashboardCollab.history.notesEmpty')" />
-            <p class="text-[11px] text-gray-400 flex items-start gap-1.5">
+            <p class="text-[11px] text-ink-muted flex items-start gap-1.5">
                 <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-px" />
                 <span>{{ tm('dashboardCollab.history.notesReadOnly', mode) }}</span>
             </p>

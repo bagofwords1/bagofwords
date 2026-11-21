@@ -105,6 +105,7 @@ CASES = [
     # Windows auth, no ambient environment, a session per thread.
     ("mecm", lambda u: _client("mecm_client", "MecmClient")(server_url=_https(u), username="u", password="p"), None, NAME),
     ("sharepoint_onprem", lambda u: _client("sharepoint_onprem_client", "SharepointOnpremClient")(site_url=u, username="u", password="p", allow_http=True)),
+    ("exchange_onprem", lambda u: _client("exchange_onprem_client", "ExchangeOnpremClient")(ews_url=u, username="u", password="p", allow_http=True)),
     ("powerbi_report_server", lambda u: _client("powerbi_report_server_client", "PowerBIReportServerClient")(server_url=u, username="u", password="p")),
     # Deployment-owned trust, no ambient environment.
     ("netapp_ontap", lambda u: _client("netapp_ontap_client", "NetAppOntapClient")(url=u, username="u", password="p", allow_http=True)),
@@ -263,7 +264,11 @@ def test_the_direct_call_check_sees_every_import_form(source, flagged):
 
 
 # Modules that share their HTTP code with connectors that have their own row.
-_COVERED_THROUGH_SUBCLASSES = {"xmla_base"}  # analysis_services, sap_bw_xmla, infor_olap
+_COVERED_THROUGH_SUBCLASSES = {
+    "xmla_base",              # analysis_services, sap_bw_xmla, infor_olap
+    "_windows_auth_session",  # sharepoint_onprem, exchange_onprem
+    "_exchange_ews",          # exchange_onprem
+}
 
 
 def test_every_connector_on_requests_has_a_row_in_the_matrix():

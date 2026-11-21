@@ -208,14 +208,16 @@ async def _final_decision(planner):
 
 @pytest.mark.asyncio
 async def test_planner_rejects_stream_without_semantic_output():
-    """Stop + usage only — the exact production runaway shape (a few
-    completion tokens, zero text/tool events, unmapped stop reason)."""
+    """Stop + usage only — the production runaway shape (a few completion
+    tokens, zero text/tool events, unmapped stop reason). A content_filter
+    stop has its own, more specific error (see the content-filter tests
+    below), so this uses another unmapped reason."""
     from app.ai.llm.types import MessageStopEvent, UsageEvent
 
     planner = _bare_planner()
 
     async def _empty_stream(**kwargs):
-        yield MessageStopEvent(stop_reason="other", raw_stop_reason="content_filter")
+        yield MessageStopEvent(stop_reason="other", raw_stop_reason="refusal")
         yield UsageEvent(input_tokens=4478, output_tokens=4, cache_creation_tokens=8000)
 
     planner.llm.inference_stream_v2 = _empty_stream
@@ -227,7 +229,7 @@ async def test_planner_rejects_stream_without_semantic_output():
     assert not final.actions and final.action is None
     # Diagnostics survive: raw stop reason, event mix, token usage.
     details = final.error.details or {}
-    assert details.get("raw_stop_reason") == "content_filter"
+    assert details.get("raw_stop_reason") == "refusal"
     assert details.get("stream_event_counts", {}).get("message_stop") == 1
     assert final.metrics is not None and final.metrics.token_usage is not None
     assert final.metrics.token_usage.prompt_tokens == 4478
@@ -293,3 +295,80 @@ async def test_planner_accepts_text_only_stream():
     assert final.error is None
     assert final.analysis_complete is True
     assert (final.assistant_message or "").startswith("All done")
+
+
+# ── provider content filter ────────────────────────────────────────────────
+# A safety filter that cuts the response (finish_reason "content_filter") is
+# not an answer, whatever text or tool calls preceded the cut. It must reach
+# the agent as a classified content_filter error — never finalize as success,
+# and never as a generic retryable failure.
+
+def _content_filter_streams():
+    from app.ai.llm.types import (
+        MessageStopEvent, TextDeltaEvent, ToolUseCompleteEvent, ToolUseStartEvent, UsageEvent,
+    )
+
+    async def _with_text(**kwargs):
+        # The shape a customer saw as a "successful" refusal.
+        yield TextDeltaEvent(text="I'm sorry, but I cannot assist with that request.")
+        yield MessageStopEvent(stop_reason="other", raw_stop_reason="content_filter")
+        yield UsageEvent(input_tokens=500, output_tokens=12)
+
+    async def _with_tool_call(**kwargs):
+        yield ToolUseStartEvent(id="tu_1", name="create_data")
+        yield ToolUseCompleteEvent(id="tu_1", name="create_data", input={"title": "x"})
+        yield MessageStopEvent(stop_reason="other", raw_stop_reason="content_filter")
+        yield UsageEvent(input_tokens=500, output_tokens=20)
+
+    async def _empty(**kwargs):
+        yield MessageStopEvent(stop_reason="other", raw_stop_reason="content_filter")
+        yield UsageEvent(input_tokens=500, output_tokens=1)
+
+    return {"text": _with_text, "tool_call": _with_tool_call, "empty": _empty}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shape", ["text", "tool_call", "empty"])
+async def test_planner_turns_a_content_filter_stop_into_a_classified_error(shape):
+    planner = _bare_planner()
+    planner.llm.inference_stream_v2 = _content_filter_streams()[shape]
+
+    final = await _final_decision(planner)
+    assert final.error is not None, "a filtered response must not finalize as a valid turn"
+    assert final.analysis_complete is False
+    llm_error = (final.error.details or {}).get("llm_error") or {}
+    assert llm_error.get("code") == "content_filter"
+    assert (final.error.details or {}).get("raw_stop_reason") == "content_filter"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("categories", [["jailbreak"], ["violence", "hate"]])
+async def test_a_content_filter_error_names_the_categories_that_fired(categories):
+    from app.ai.llm.types import MessageStopEvent, TextDeltaEvent, UsageEvent
+
+    planner = _bare_planner()
+
+    async def _stream(**kwargs):
+        yield TextDeltaEvent(text="I'm sorry, but I cannot assist with that request.")
+        yield MessageStopEvent(stop_reason="other", raw_stop_reason="content_filter",
+                               content_filter_categories=categories)
+        yield UsageEvent(input_tokens=500, output_tokens=12)
+
+    planner.llm.inference_stream_v2 = _stream
+    final = await _final_decision(planner)
+    summary = ((final.error.details or {}).get("llm_error") or {}).get("summary", "")
+    for category in categories:
+        assert category in summary
+
+
+@pytest.mark.parametrize("code", ["content_filter"])
+def test_agent_does_not_retry_the_planner_on_deterministic_rejections(code):
+    assert agent_v2._planner_retry_is_pointless({"code": code, "summary": "x"}) is True
+
+
+@pytest.mark.parametrize("payload", [
+    None, {}, {"code": "rate_limit"}, {"code": "provider_error"}, {"code": "network"},
+    {"code": "context_length"}, {"code": "unknown"},
+])
+def test_agent_keeps_retrying_other_planner_errors(payload):
+    assert agent_v2._planner_retry_is_pointless(payload) is False

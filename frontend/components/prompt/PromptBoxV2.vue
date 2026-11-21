@@ -1,5 +1,5 @@
 <template>
-    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'p-3 pb-3 sm:p-4 sm:pb-8'">
+    <div ref="rootRef" class="flex-shrink-0 bg-white dark:bg-gray-900" :class="props.flush ? 'p-0' : 'px-3 pt-2 pb-2 sm:px-4'">
         <!-- Thinking indicator (visible while a completion is running).
              While running, Enter queues the typed prompt; steering happens
              from a queued chip's "send now" action. Report pages only: the
@@ -8,7 +8,7 @@
              only feedback needed. -->
         <Transition name="thinking-fade">
             <div
-                v-if="(isThinking || hasBackgroundTasks) && props.report_id"
+                v-if="((isThinking && (!hideWorkingIndicator || isAwaitingInput)) || hasBackgroundTasks) && props.report_id"
                 class="mb-2 px-1 flex items-center gap-2 text-xs select-none"
                 aria-live="polite"
                 data-testid="status-row"
@@ -17,17 +17,15 @@
                     <Icon name="heroicons:hand-raised" class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" />
                     <span class="text-gray-600 dark:text-gray-300">{{ $t('prompt.awaitingConfirmation') }}</span>
                 </template>
-                <template v-else-if="isThinking">
-                    <Spinner class="w-3.5 h-3.5 text-ink-muted flex-shrink-0" />
-                    <span class="thinking-shimmer">{{ thinkingLabel }}</span>
-                    <span class="text-ink-muted tabular-nums">{{ thinkingElapsedLabel }}</span>
+                <template v-else-if="isThinking && !hideWorkingIndicator">
+                    <span class="h-3 w-3 rounded-full bg-ink" role="status" :aria-label="$t('prompt.thinking')" />
                 </template>
                 <!-- Background sub-agents: independent of the working label — the
                      parent can be idle while children run (docs/design/sub-agents.md A9). -->
                 <BackgroundTasksIndicator
                     v-if="hasBackgroundTasks"
                     :waves="props.backgroundWaves as any[]"
-                    :has-working-label="isThinking"
+                    :has-working-label="isThinking && (!hideWorkingIndicator || isAwaitingInput)"
                     @stopSubAgent="(id) => emit('stopSubAgent', id)"
                     @stopWave="(id) => emit('stopWave', id)"
                     @scrollToMessage="(id) => emit('scrollToMessage', id)"
@@ -161,11 +159,11 @@
             >
                 <span class="text-green-500">●</span>
                 <span class="truncate max-w-[160px]">{{ excelSelectionLabel }}</span>
-                <span class="text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
+                <span class="text-ink-muted hover:text-ink-2 ms-0.5" @click.stop="excelSelectionDismissed = true">&times;</span>
             </button>
         </div>
 
-        <!-- /compact receipt: pending → running → result -->
+        <!-- /compact and /clear receipt: pending → running → result -->
         <div
             v-if="compactStatus.phase !== 'idle'"
             data-testid="compact-status"
@@ -179,10 +177,10 @@
             <Spinner v-if="compactStatus.phase === 'running'" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
             <UIcon v-else-if="compactStatus.phase === 'pending'" name="i-heroicons-clock" class="w-3.5 h-3.5 shrink-0" />
             <UIcon v-else-if="compactStatus.phase === 'error' || compactStatus.degraded" name="i-heroicons-exclamation-triangle" class="w-3.5 h-3.5 shrink-0 text-amber-500" />
-            <UIcon v-else name="i-heroicons-archive-box-arrow-down" class="w-3.5 h-3.5 shrink-0" />
+            <UIcon v-else :name="compactStatus.command === 'clear' ? 'i-heroicons-scissors' : 'i-heroicons-archive-box-arrow-down'" class="w-3.5 h-3.5 shrink-0" />
             <span class="flex-1 min-w-0 truncate">
-                <template v-if="compactStatus.phase === 'pending'">{{ $t('prompt.slash.compact.pending') }}</template>
-                <template v-else-if="compactStatus.phase === 'running'">{{ $t('prompt.slash.compact.running') }}</template>
+                <template v-if="compactStatus.phase === 'pending'">{{ compactStatus.command === 'clear' ? $t('prompt.slash.clear.pending') : $t('prompt.slash.compact.pending') }}</template>
+                <template v-else-if="compactStatus.phase === 'running'">{{ compactStatus.command === 'clear' ? $t('prompt.slash.clear.running') : $t('prompt.slash.compact.running') }}</template>
                 <template v-else>{{ compactStatus.message }}<template v-if="compactStatus.degraded"> · {{ $t('prompt.slash.compact.degraded') }}</template></template>
             </span>
             <button
@@ -239,7 +237,7 @@
                     :class="i === slashIndex ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-50 dark:hover:bg-gray-800/60'"
                     @mousedown.prevent="applySlashCommand(cmd)"
                 >
-                    <UIcon name="i-heroicons-archive-box-arrow-down" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
+                    <UIcon :name="cmd.icon || 'i-heroicons-archive-box-arrow-down'" class="w-4 h-4 mt-0.5 text-gray-500 dark:text-gray-400 shrink-0" />
                     <span class="min-w-0">
                         <span class="font-mono text-gray-900 dark:text-white">/{{ cmd.name }}</span>
                         <span class="block text-gray-500 dark:text-gray-400">{{ $t(cmd.descriptionKey) }}</span>
@@ -249,7 +247,7 @@
             </div>
 
             <!-- Input area -->
-            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-3 pb-3'" @keydown.capture="onComposerKeydown">
+            <div ref="composerInputAreaRef" :class="props.compact ? 'px-3 pt-2 pb-1' : 'px-4 pt-4 pb-5'" @keydown.capture="onComposerKeydown">
                 <!-- Instructions -->
                 <button
                 class="hidden"
@@ -275,7 +273,7 @@
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
                     :placeholder="placeholder"
-                    :rows="props.rows || (props.compact ? 1 : 2)"
+                    :rows="props.rows || 1"
                     :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
@@ -388,7 +386,7 @@
                         <UTooltip :text="isCompactPrompt ? modeLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
                             <button
                                 class="rounded-md px-2 py-1 text-xs flex items-center"
-                                :class="mode === 'training' ? 'text-sky-600 bg-sky-50 hover:bg-sky-100 border border-sky-200' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+                                :class="mode === 'training' ? 'text-sky-600 dark:text-sky-300 bg-sky-50 dark:bg-sky-950 hover:bg-sky-100 dark:hover:bg-sky-900/50 border border-sky-200 dark:border-sky-800' : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-800/50'"
                             >
                                 <Icon :name="modeIcon" class="w-4 h-4" />
                                 <span v-if="!isCompactPrompt" class="ms-1">{{ modeLabel }}</span>
@@ -726,6 +724,8 @@ const props = defineProps({
         default: null
     },
     latestInProgressCompletion: Object,
+    // The transcript owns the active-run indicator when its message is present.
+    hideWorkingIndicator: Boolean,
     // Live sub-agent waves of the report (GET /reports/{id}/sub-agents → waves);
     // drives the background-tasks indicator next to the working counter.
     backgroundWaves: { type: Array, default: () => [] },
@@ -788,8 +788,7 @@ const props = defineProps({
     // floats at the bottom of the report; inside a modal it just makes the box
     // narrower than every other field.
     flush: { type: Boolean, default: false },
-    // Visible lines in the editor. 0 keeps the chat-view default (1 compact,
-    // else 2); the automation modals ask for a taller box because a standing
+    // Visible lines in the editor. 0 keeps the one-line chat-view default; the automation modals ask for a taller box because a standing
     // task is written once and read back later, not dashed off like a chat.
     rows: { type: Number, default: 0 },
     // Show the project chip without a report behind it: the pick is held in the
@@ -805,7 +804,7 @@ const props = defineProps({
     persistSelection: { type: Boolean, default: true }
 })
 
-const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
+const emit = defineEmits(['update:availableFolders','update:folderIds','submitCompletion','queueCompletion','removeQueuedPrompt','steerQueuedPrompt','stopGeneration','update:modelValue','viewDashboard','scrollToMessage','editScheduledPrompt','deleteScheduledPrompt','scheduledPromptSaved','toggleScheduledPrompt','editTrainingInstruction','approveTrainingBuild','discardTrainingBuild','discardTrainingInstruction','openInstructions','update:selectedDataSources','update:availableDataSources','update:autoMode','update:mode','contextCompacted','contextCleared','filesChanged','projectChanged','reportCreating','reportCreateFailed','stopSubAgent','stopWave'])
 
 // ── Project chip / picker ────────────────────────────────────────────────
 // The chip mirrors the report's project and doubles as the move control:
@@ -931,62 +930,12 @@ let dragCounter = 0 // Track enter/leave for nested elements
 // Thinking indicator: covers the whole run, from the moment the user submits
 // (isSubmitting) through the in-progress completion reported by the parent.
 const isThinking = computed(() => isSubmitting.value || !!props.latestInProgressCompletion)
-const thinkingStartedAt = ref<number | null>(null)
-const thinkingElapsedSeconds = ref(0)
-let thinkingTimer: ReturnType<typeof setInterval> | null = null
-
-// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
-// elapsed time is off by the local timezone offset.
-function parseServerTimestamp(v: any): number | null {
-    if (!v) return null
-    const s = String(v)
-    const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
-    return Number.isNaN(t) ? null : t
-}
-
-// immediate: also starts the timer when the component mounts mid-run
-// (e.g. page refresh while a completion is streaming). In that case the
-// parent passes the run's server-side start on latestInProgressCompletion
-// so the elapsed counter resumes from the true start instead of 0s.
-watch(isThinking, (active) => {
-    if (active) {
-        if (thinkingTimer) return // submit → in-progress handoff: keep counting
-        const serverStart = parseServerTimestamp((props.latestInProgressCompletion as any)?.startedAt)
-        thinkingStartedAt.value = serverStart ?? Date.now()
-        thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
-        thinkingTimer = setInterval(() => {
-            if (thinkingStartedAt.value !== null) {
-                thinkingElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - thinkingStartedAt.value) / 1000))
-            }
-        }, 1000)
-    } else {
-        if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
-        thinkingStartedAt.value = null
-        thinkingElapsedSeconds.value = 0
-    }
-}, { immediate: true })
-
 const hasBackgroundTasks = computed(() => ((props.backgroundWaves as any[]) || []).some((w: any) =>
     ['collecting', 'running', 'firing'].includes(w?.status)
 ))
 
-const thinkingElapsedLabel = computed(() => {
-    const s = thinkingElapsedSeconds.value
-    if (s < 60) return `${s}s`
-    return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
-})
-
 // Run is paused on a confirmation card — the agent isn't working, the user is.
 const isAwaitingInput = computed(() => !!(props.latestInProgressCompletion as any)?.awaitingInput)
-
-// "Thinking" until the completion streams its first visible output (the parent
-// passes hasFirstToken on latestInProgressCompletion), then "Working".
-const thinkingLabel = computed(() => {
-    const completion: any = props.latestInProgressCompletion
-    return completion?.hasFirstToken
-        ? t('prompt.working', 'Working')
-        : t('prompt.thinking', 'Thinking')
-})
 
 // Excel selection hint
 const { isExcel, excelSelection } = useExcel()
@@ -1404,13 +1353,16 @@ const compactionState = computed<CompactionState | null>(() => contextEstimate.v
 // status chip above the composer is the user-visible receipt: pending (the
 // agent is still running), running, then what it bought — or why not.
 type CompactPhase = 'idle' | 'pending' | 'running' | 'done' | 'nothing' | 'error'
-const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean }>({ phase: 'idle' })
-const pendingCompact = ref<CompactArgs | null>(null)
+type ContextCommand = 'compact' | 'clear'
+// A context command held while the agent runs (both are idle-only server-side).
+type PendingContextAction = { command: 'compact', args: CompactArgs } | { command: 'clear' }
+const compactStatus = ref<{ phase: CompactPhase, message?: string, degraded?: boolean, command?: ContextCommand }>({ phase: 'idle' })
+const pendingCompact = ref<PendingContextAction | null>(null)
 let compactStatusTimer: ReturnType<typeof setTimeout> | null = null
 
-function setCompactStatus(phase: CompactPhase, message?: string, degraded = false) {
+function setCompactStatus(phase: CompactPhase, message?: string, degraded = false, command: ContextCommand = 'compact') {
     if (compactStatusTimer) { clearTimeout(compactStatusTimer); compactStatusTimer = null }
-    compactStatus.value = { phase, message, degraded }
+    compactStatus.value = { phase, message, degraded, command }
     if (phase === 'done' || phase === 'nothing') {
         compactStatusTimer = setTimeout(() => {
             if (compactStatus.value.phase === phase) compactStatus.value = { phase: 'idle' }
@@ -1426,11 +1378,17 @@ function dismissCompactStatus() {
 }
 
 async function compactContext(args: CompactArgs = {}) {
-    if (!props.report_id || isCompacting.value) return
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // Another context command is mid-request: hold this one, it fires
+        // when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'compact', args }
+        return
+    }
     if (props.latestInProgressCompletion) {
         // The agent is mid-run: compacting now would race the run's own
         // context. Hold the command and fire it the moment the run ends.
-        pendingCompact.value = args
+        pendingCompact.value = { command: 'compact', args }
         setCompactStatus('pending')
         return
     }
@@ -1450,7 +1408,7 @@ async function compactContext(args: CompactArgs = {}) {
                 // started, or the run that just ended is still wrapping up
                 // server-side. Stay pending and retry — on the next idle
                 // transition, and on a backoff while the composer is idle.
-                pendingCompact.value = args
+                pendingCompact.value = { command: 'compact', args }
                 setCompactStatus('pending')
                 scheduleCompactRetry()
                 return
@@ -1490,24 +1448,79 @@ async function compactContext(args: CompactArgs = {}) {
     }
 }
 
-// Fire a deferred /compact once the run that blocked it is over.
+// ── /clear ──────────────────────────────────────────────────────────────
+// A fresh agent context: earlier turns stay in the transcript behind a
+// "Context cleared" divider, but the agent no longer sees them. No LLM call.
+// Idle-only like /compact, and deferred the same way while a run streams.
+async function clearContext() {
+    if (!props.report_id) return
+    if (isCompacting.value) {
+        // A /compact (or another /clear) is mid-request. Dropping the command
+        // here left the user believing the context was cleared: hold it, it
+        // fires when that request settles (see the isCompacting watcher).
+        pendingCompact.value = { command: 'clear' }
+        return
+    }
+    if (props.latestInProgressCompletion) {
+        pendingCompact.value = { command: 'clear' }
+        setCompactStatus('pending', undefined, false, 'clear')
+        return
+    }
+    isCompacting.value = true
+    setCompactStatus('running', undefined, false, 'clear')
+    try {
+        const response = await useMyFetch(`/reports/${props.report_id}/context/clear`, { method: 'POST' })
+        const errorValue = (response as any)?.error?.value
+        if (errorValue) {
+            const status = errorValue?.statusCode || errorValue?.status || errorValue?.response?.status
+            if (status === 409) {
+                pendingCompact.value = { command: 'clear' }
+                setCompactStatus('pending', undefined, false, 'clear')
+                scheduleCompactRetry()
+                return
+            }
+            throw errorValue
+        }
+        compactRetryAttempt = 0
+        const result = (response as any)?.data?.value
+        if (result?.status === 'cleared') {
+            // The page draws the divider and drops the compaction divider.
+            emit('contextCleared', result)
+            setCompactStatus('done', t('prompt.slash.clear.done'), false, 'clear')
+        } else {
+            setCompactStatus('nothing', t('prompt.slash.clear.nothing'), false, 'clear')
+        }
+        await refreshContextEstimate(true)
+    } catch (err: any) {
+        console.error('Failed to clear context:', err)
+        const detail = err?.data?.detail || err?.message || ''
+        setCompactStatus('error', t('prompt.slash.clear.failed'), false, 'clear')
+        toast.add({ title: t('prompt.slash.clear.failed'), description: detail || undefined, color: 'red' })
+    } finally {
+        isCompacting.value = false
+    }
+}
+
+// Fire a deferred /compact or /clear once the run that blocked it is over.
 let compactRetryTimer: ReturnType<typeof setTimeout> | null = null
 let compactRetryAttempt = 0
 const COMPACT_RETRY_MAX = 8
 
 function firePendingCompact() {
     if (props.latestInProgressCompletion || !pendingCompact.value || isCompacting.value) return
-    const args = pendingCompact.value
+    const action = pendingCompact.value
     pendingCompact.value = null
-    compactContext(args)
+    if (action.command === 'clear') clearContext()
+    else compactContext(action.args)
 }
 
 function scheduleCompactRetry() {
     if (compactRetryTimer) clearTimeout(compactRetryTimer)
     if (compactRetryAttempt >= COMPACT_RETRY_MAX) {
         compactRetryAttempt = 0
+        const command = pendingCompact.value?.command || 'compact'
         pendingCompact.value = null
-        setCompactStatus('error', t('prompt.slash.compact.failed'))
+        setCompactStatus('error', t(command === 'clear' ? 'prompt.slash.clear.failed' : 'prompt.slash.compact.failed'), false, command)
         return
     }
     const delay = Math.min(1500 * Math.pow(1.6, compactRetryAttempt), 15000)
@@ -1523,10 +1536,21 @@ watch(() => props.latestInProgressCompletion, (running) => {
     compactRetryTimer = setTimeout(() => { compactRetryTimer = null; firePendingCompact() }, 800)
 })
 
+// A command held behind another context request runs as soon as that request
+// settles. Not when a retry is already scheduled (409 backoff) — that timer
+// owns the pending command.
+watch(isCompacting, (busy) => {
+    if (busy || !pendingCompact.value || compactRetryTimer) return
+    firePendingCompact()
+})
+
 function runSlashCommand(cmd: ParsedSlashCommand) {
     if (cmd.name === 'compact') {
         text.value = ''
         compactContext(parseCompactArgs(cmd.args))
+    } else if (cmd.name === 'clear') {
+        text.value = ''
+        clearContext()
     }
 }
 
@@ -2029,7 +2053,6 @@ onBeforeUnmount(() => {
     window.removeEventListener('prompt:prefill', handlePromptPrefill)
     window.removeEventListener('keydown', handleEscKey)
     if (compactRO) { compactRO.disconnect(); compactRO = null }
-    if (thinkingTimer) { clearInterval(thinkingTimer); thinkingTimer = null }
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
@@ -2104,6 +2127,19 @@ defineExpose({
     chooseFolder: (id: string) => dataSourceSelectorRef.value?.chooseFolder(id),
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
+    // Rerun (a control outside the box) passes the send button's gates, minus
+    // the text check: nothing uploading, a usable model, a settled agent scope.
+    // Returns null when the prompt can't be sent now, else the model to send:
+    // the earlier turn's model while this user can still pick it, otherwise
+    // the box's current choice (an explicit model id has no server fallback).
+    prepareRerun: async (modelId?: string | null): Promise<{ model_id: string | null } | null> => {
+        if (isSubmitting.value || isHydratingDataSources.value || hasFilesUploading.value
+            || !selectedModel.value || !hasDataSourceOrFile.value) return null
+        if (props.report_id && dataSourceSelectorRef.value && !await dataSourceSelectorRef.value.settleScope()) return null
+        if (!modelId) return { model_id: null }
+        const known = models.value.some(m => String(m.id) === String(modelId))
+        return { model_id: known ? modelId : modelIdForPayload.value }
+    },
     // Send a prompt on behalf of a control outside the box (the empty state's
     // starter questions), through the same gating as the send button.
     submitPrompt: async (value: string) => {
@@ -2260,23 +2296,6 @@ onBeforeUnmount(() => window.removeEventListener('report:mutated', onReportAgent
 <style scoped>
 .placeholder-gray-400::placeholder { color: #9ca3af; }
 
-/* Shining "Thinking" label, à la Codex */
-.thinking-shimmer {
-    background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-    background-size: 200% 100%;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: thinking-shimmer 2s linear infinite;
-}
-/* RTL locales (he/ar): sweep the shine in reading direction, right to left. */
-[dir="rtl"] .thinking-shimmer {
-    animation-direction: reverse;
-}
-@keyframes thinking-shimmer {
-    0% { background-position: -100% 0; }
-    100% { background-position: 100% 0; }
-}
 .thinking-fade-enter-active, .thinking-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .thinking-fade-enter-from, .thinking-fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

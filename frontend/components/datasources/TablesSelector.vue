@@ -123,7 +123,7 @@
           type="button"
           @click="toggleFilterMenu"
           class="h-7 w-7 inline-flex items-center justify-center rounded border"
-          :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'"
+          :class="hasActiveFilters ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'"
           :aria-label="`Filter ${props.itemNoun.plural}`"
         >
           <UIcon name="heroicons-funnel" class="w-4 h-4" />
@@ -329,7 +329,7 @@
       <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
         <Spinner class="w-6 h-6 text-ink-muted" aria-hidden="true" />
       </div>
-      <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
+      <div v-if="catalogError" class="py-4 text-xs text-ink-muted" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="canvasTables" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
@@ -421,7 +421,7 @@
                     <span v-if="table.rls_enabled" class="ms-2 text-2xs text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
                     <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-2xs text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-2xs px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
-                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-2xs px-1 py-0.5 rounded bg-yellow-100 dark:bg-yellow-950 text-yellow-700 dark:text-yellow-300">modified</span>
                     <UTooltip v-if="hiddenColumnCount(table)" :text="t('tableErd.columnsHiddenTooltip')">
                       <span
                         :data-testid="`cols-hidden-badge-${table.name}`"
@@ -615,7 +615,7 @@
                     </div>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 bg-blue-50 rounded">
+                  <div v-if="table.metadata_json.powerbi_report_server.upstream_source" class="border border-blue-100 dark:border-blue-800 bg-blue-50 dark:bg-blue-950 rounded">
                     <div class="text-xs font-medium text-blue-700 px-2 py-1 rounded-t">Upstream source</div>
                     <div class="text-xs text-blue-900 px-2 py-1 break-all">
                       {{ table.metadata_json.powerbi_report_server.upstream_source }}
@@ -655,7 +655,7 @@
                     <pre class="text-xs text-gray-700 dark:text-gray-300 px-2 py-1 whitespace-pre-wrap break-all">{{ table.metadata_json.powerbi_report_server.command_text }}</pre>
                   </div>
 
-                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 bg-yellow-50 rounded text-xs text-yellow-800 px-2 py-1">
+                  <div v-if="table.metadata_json.powerbi_report_server.query_note" class="border border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-950 rounded text-xs text-yellow-800 dark:text-yellow-300 px-2 py-1">
                     {{ table.metadata_json.powerbi_report_server.query_note }}
                   </div>
                 </div>
@@ -944,7 +944,7 @@ const schemaConnections = computed(() => {
   const ids = props.connectionFilter.split(',').filter(Boolean)
   return authConnections.value.filter(c =>
     (!ids.length || ids.includes(c.id))
-    && ['tables', 'objects'].includes(c.data_shape || 'tables')
+    && (c.has_file_tables || ['tables', 'objects'].includes(c.data_shape || 'tables'))
     && c.catalog_ownership !== 'none')
 })
 type SchemaRefreshAction = { connection: any; scope: 'user' | 'org' }

@@ -26,8 +26,9 @@ async def _assert_execution_visible(
 ) -> None:
     """Gate an execution-level drill-down by the report it belongs to.
 
-    Org-wide callers short-circuit; a scoped agent manager may only open runs on
-    reports that draw on an agent they manage.
+    Org-wide callers short-circuit; a scoped agent manager may only open a run
+    that reached only agents they manage, with no earlier turn of its report
+    that reached another one (ConsoleScope.assert_run_visible).
     """
     report_id = (await db.execute(
         select(AgentExecution.report_id).where(
@@ -37,7 +38,7 @@ async def _assert_execution_visible(
     )).scalar_one_or_none()
     if not report_id:
         raise HTTPException(status_code=404, detail="Agent execution not found")
-    await scope.assert_report_visible(db, str(report_id))
+    await scope.assert_run_visible(db, agent_execution_id, str(report_id))
 
 
 async def _trace(db, organization, user, execution_id):
@@ -117,7 +118,7 @@ async def get_report_conversation(
     scope: ConsoleScope = Depends(console_identity)
 ):
     """Get the whole report conversation as ordered turns for the trace modal."""
-    await scope.assert_report_visible(db, report_id)
+    runs = await scope.assert_report_partly_visible(db, report_id)
     return await console_service.get_report_conversation(
-        db, organization, report_id, viewer_id=str(current_user.id)
+        db, organization, report_id, viewer_id=str(current_user.id), visible_run_ids=runs
     )

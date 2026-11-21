@@ -12,7 +12,7 @@
             class="h-full ag-grid-themed ag-theme-custom"
             :style="agGridStyles"
         >
-            <AgGridComponent :columnDefs="columnDefs" :rowData="rowData" />
+            <AgGridComponent ref="gridComp" :columnDefs="columnDefs" :rowData="rowData" :stateKey="gridStateKey" :expandable="expandable" />
         </div>
     </div>
     <div 
@@ -34,14 +34,17 @@
 import { ref, watch, toRefs, computed, inject } from 'vue';
 import { CHAT_VIZ_TEXT_PX, chatGridPx } from '~/utils/chatVizText'
 import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
+import { buildGridColumns } from '~/utils/gridColumns'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     widget: any
     step: any
     view?: Record<string, any> | null
     reportThemeName?: string | null
     reportOverrides?: Record<string, any> | null
-}>()
+    // false where the host has its own expand control
+    expandable?: boolean
+}>(), { expandable: true })
 
 // Convert to refs
 const { step, reportThemeName, reportOverrides } = toRefs(props)
@@ -102,6 +105,10 @@ const isLoading = computed(() => {
   return ['running', 'queued', 'pending'].includes(String(status))
 })
 
+// Full screen, for hosts that place the expand control themselves.
+const gridComp = ref<any>(null)
+defineExpose({ expand: () => gridComp.value?.setExpanded(true) })
+
 // Make these reactive with ref
 const columnDefs = ref([]);
 const rowData = ref([]);
@@ -109,41 +116,20 @@ const rowData = ref([]);
 // Initial setup
 const updateData = () => {
     if (step.value?.data?.columns) {
-        columnDefs.value = step.value.data.columns.map(col => {
-            // Get stats info for this column
-            const columnInfo = step.value?.data?.info?.column_info?.[col.field];
-            let statsText = "";
-            if (columnInfo) {
-                if (columnInfo.dtype === 'int64' || columnInfo.dtype === 'float64') {
-                    statsText = `${columnInfo.dtype}\nmin: ${columnInfo.min}\nmax: ${columnInfo.max}\nmean: ${Number(columnInfo.mean).toFixed(2)}`;
-                } else if (columnInfo.dtype === 'object') {
-                    statsText = `${columnInfo.dtype}\nunique: ${columnInfo.unique_count}/${columnInfo.count}`;
-                }
-            }
-
-            return {
-                field: col.field,
-                headerName: col.headerName,
-                sortable: true,
-                filter: true,
-                headerTooltip: statsText,
-                headerComponent: 'CustomHeader',
-                headerComponentParams: {
-                    statsText,
-                    themeTokens: tokens.value
-                },
-                valueGetter: (params) => {
-                    return params.data[col.field];
-                }
-            };
-        });
+        columnDefs.value = buildGridColumns(step.value.data, tokens.value);
     }
-    
     if (step.value?.data?.rows) {
-        // Remove stats row logic and just set the rows directly
         rowData.value = step.value.data.rows;
     }
 }
+
+// The layout (widths, order, sort) a viewer gives this result is remembered
+// per widget, so it survives a re-run of the same query; a bare step (trace,
+// docs) falls back to its own id.
+const gridStateKey = computed(() => {
+    const id = props.widget?.id || step.value?.id
+    return id ? `table:${id}` : ''
+})
 
 // Watch for changes (tokens too — headerComponentParams embed theme colors,
 // so a live color-mode flip must rebuild the column defs)

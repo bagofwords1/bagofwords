@@ -65,4 +65,7 @@ async def viewer_optional(
     from app.core.request_origin import HOST_APP, set_origin
 
     set_origin(HOST_APP, str(ctx.host.id))
+    # An embedded session is for the host application's organization.
+    from app.core.request_org import set_request_organization_id
+    set_request_organization_id(str(ctx.host.organization_id))
     return ctx.user

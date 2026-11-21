@@ -6,6 +6,7 @@ They can wrap internal services/tools as needed.
 
 from .create_report import CreateReportTool
 from .get_context import GetContextTool
+from .folders import BrowseAgentsTool
 from .inspect_data import InspectDataMCPTool
 from .create_data import CreateDataMCPTool
 from .create_artifact import CreateArtifactMCPTool
@@ -38,6 +39,7 @@ MCP_TOOLS = {
     "stop_eval_run": StopEvalRunMCPTool,
     "get_eval_runs": GetEvalRunsMCPTool,
     "get_eval_run": GetEvalRunMCPTool,
+    "browse_agents": BrowseAgentsTool,
     "create_report": CreateReportTool,
     "get_context": GetContextTool,
     "inspect_data": InspectDataMCPTool,

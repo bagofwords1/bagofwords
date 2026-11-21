@@ -39,12 +39,12 @@
           <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-x-mark" :aria-label="t('artifactResources.clearFilter')" @click="clearFilter" />
         </div>
         <div v-if="schemaOpen && schema" class="rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2">
-          <h3 class="text-xs font-medium text-gray-500 mb-2">{{ t('artifactResources.schema') }}</h3>
+          <h3 class="text-xs font-medium text-ink-muted mb-2">{{ t('artifactResources.schema') }}</h3>
           <dl class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 text-xs"><div v-for="(field, name) in schema.fields" :key="name" class="flex justify-between gap-2 min-w-0"><dt class="font-mono truncate">{{ name }}</dt><dd class="text-ink-muted">{{ field.type }}</dd></div></dl>
         </div>
         <div class="overflow-auto max-h-80 border border-gray-200 dark:border-gray-700 rounded-lg" :aria-busy="loading">
           <table class="w-full text-xs text-start">
-            <thead class="sticky top-0 bg-gray-50 dark:bg-gray-800"><tr><th v-for="field in columns" :key="field" class="px-3 py-2 text-start font-medium text-gray-500 whitespace-nowrap">{{ field }}</th></tr></thead>
+            <thead class="sticky top-0 bg-gray-50 dark:bg-gray-800"><tr><th v-for="field in columns" :key="field" class="px-3 py-2 text-start font-medium text-ink-muted whitespace-nowrap">{{ field }}</th></tr></thead>
             <tbody><tr v-for="row in rows" :key="row.id" class="border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800">
               <td v-for="field in columns" :key="field" class="px-3 py-2 max-w-56 truncate"><button dir="auto" class="text-start w-full truncate" @click="selected = row">{{ display(row.data[field]) }}</button></td>
             </tr><tr v-if="!rows.length"><td :colspan="Math.max(1, columns.length)" class="py-8 px-3 text-center text-ink-muted">{{ loading ? t('common.loading') : t('artifactResources.empty') }}</td></tr></tbody>
@@ -55,11 +55,11 @@
       </div>
       <div v-else class="space-y-5">
         <USelectMenu v-model="days" :options="ranges" option-attribute="label" value-attribute="value" class="w-44" :aria-label="t('artifactResources.analytics')" :popper="{ placement: 'bottom-start' }" />
-        <div class="grid grid-cols-2 gap-4"><div class="border rounded-lg p-4"><p class="text-sm text-gray-500">{{ t('artifactResources.views') }}</p><p class="text-3xl font-semibold mt-2">{{ analytics?.views ?? '—' }}</p></div><div class="border rounded-lg p-4"><p class="text-sm text-gray-500">{{ t('artifactResources.viewers') }}</p><p class="text-3xl font-semibold mt-2">{{ analytics?.authenticatedViewers ?? '—' }}</p></div></div>
-        <p class="text-xs text-gray-500">{{ t('artifactResources.anonymousNote') }}</p>
+        <div class="grid grid-cols-2 gap-4"><div class="border rounded-lg p-4"><p class="text-sm text-ink-muted">{{ t('artifactResources.views') }}</p><p class="text-3xl font-semibold mt-2">{{ analytics?.views ?? '—' }}</p></div><div class="border rounded-lg p-4"><p class="text-sm text-ink-muted">{{ t('artifactResources.viewers') }}</p><p class="text-3xl font-semibold mt-2">{{ analytics?.authenticatedViewers ?? '—' }}</p></div></div>
+        <p class="text-xs text-ink-muted">{{ t('artifactResources.anonymousNote') }}</p>
         <div v-if="analytics?.daily?.length" class="space-y-2"><div v-for="day in analytics.daily" :key="day.date" class="flex items-center gap-3 text-xs"><span class="w-24">{{ day.date }}</span><div class="bg-blue-500 rounded h-4" :style="{width: `${Math.max(1, day.views / maxViews * 65)}%`}"/><span>{{ day.views }}</span></div></div>
-        <p v-else class="text-sm text-gray-500">{{ t('artifactResources.empty') }}</p>
-        <dl v-if="analytics" class="flex gap-6 text-sm"><div v-for="surface in ['embedded','standalone']" :key="surface"><dt class="text-gray-500">{{ t(`artifactResources.${surface}`) }}</dt><dd>{{ analytics.surfaces[surface] || 0 }}</dd></div></dl>
+        <p v-else class="text-sm text-ink-muted">{{ t('artifactResources.empty') }}</p>
+        <dl v-if="analytics" class="flex gap-6 text-sm"><div v-for="surface in ['embedded','standalone']" :key="surface"><dt class="text-ink-muted">{{ t(`artifactResources.${surface}`) }}</dt><dd>{{ analytics.surfaces[surface] || 0 }}</dd></div></dl>
       </div>
     </section>
   </component>

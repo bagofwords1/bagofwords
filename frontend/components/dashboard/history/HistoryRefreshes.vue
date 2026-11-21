@@ -4,7 +4,7 @@
          run that failed (or partly failed) the first error. Reads its own
          data; owner and editors only (the route checks). -->
     <div data-testid="history-refreshes">
-        <div v-if="loading && !runs.length" class="flex items-center gap-2 py-10 justify-center text-sm text-gray-400">
+        <div v-if="loading && !runs.length" class="flex items-center gap-2 py-10 justify-center text-sm text-ink-muted">
             <Spinner class="w-4 h-4" /> {{ $t('common.loading') }}
         </div>
         <div v-else-if="loadError && !runs.length" class="py-10 flex flex-col items-center gap-2 text-sm text-gray-500 dark:text-gray-400"
@@ -62,7 +62,7 @@
                                     <span v-if="run.status === 'partial' && run.steps_total" class="ms-1.5 text-xs text-gray-500 dark:text-gray-400 tabular-nums">
                                         {{ $t('dashboardCollab.refreshes.ofTotal', { done: run.steps_succeeded, total: run.steps_total }) }}
                                     </span>
-                                    <div v-if="run.status === 'skipped' && run.skip_reason" class="text-xs text-gray-400">
+                                    <div v-if="run.status === 'skipped' && run.skip_reason" class="text-xs text-ink-muted">
                                         {{ skipLabel(run.skip_reason) }}
                                     </div>
                                 </td>
@@ -90,7 +90,7 @@
                 </table>
             </div>
             <div class="flex items-center justify-between gap-2 mt-2">
-                <p class="text-[11px] text-gray-400">{{ $t('dashboardCollab.refreshes.kept') }}</p>
+                <p class="text-[11px] text-ink-muted">{{ $t('dashboardCollab.refreshes.kept') }}</p>
                 <UButton v-if="hasMore" size="xs" color="gray" variant="ghost" :loading="loading" :disabled="loading" data-testid="history-refreshes-more"
                     @click="load(true)">
                     {{ $t('dashboardCollab.refreshes.showMore') }}
@@ -103,10 +103,14 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import HistoryEmpty from './HistoryEmpty.vue'
+import { failureToOpen } from '~/utils/dashboardList'
 
 // `active`: the tab is showing -- each time it is, the list loads again
 // (the settings window keeps the tab mounted).
-const props = defineProps<{ dashboardId: string; active?: boolean }>()
+// `expandFailure`: reached from "Refresh failing" -- the newest failed run
+// opens with its error once the first page lands (the published version's
+// first: the card's status is the published refresh's).
+const props = defineProps<{ dashboardId: string; active?: boolean; expandFailure?: boolean }>()
 const { t } = useI18n()
 const { formatDateTime } = useFormatDate()
 const { getErrorMessage } = useErrorMessage()
@@ -137,6 +141,10 @@ async function load(more = false) {
         runs.value = more ? [...runs.value, ...(body.runs || [])] : (body.runs || [])
         hasMore.value = !!body.has_more
         nextBefore.value = body.next_before || null
+        if (!more && props.expandFailure && !opened.value.size) {
+            const run = failureToOpen(runs.value)
+            if (run) opened.value = new Set([run.id])
+        }
     } catch (e: any) {
         if (mine === request) loadError.value = getErrorMessage(e, t('dashboardCollab.refreshes.loadFailed'))
     } finally {

@@ -329,6 +329,23 @@
       '#root ::selection { background: color-mix(in srgb, var(--bow-accent) 22%, transparent); }',
       '@media (prefers-reduced-motion: reduce) { #root * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }',
       '@media print { .bow-dt-offpage { display: table-row !important; } .bow-dt-chrome { display: none !important; } .bow-dt-scroll { max-height: none !important; overflow: visible !important; } }',
+      // Print / PDF: the page decides the widths again and long text wraps —
+      // on-screen widths (and a hand-dragged 900px column) would run off the sheet.
+      '@media print { .bow-dt-table { table-layout: auto !important; width: 100% !important; min-width: 0 !important; } .bow-dt-table col { width: auto !important; } .bow-dt-table td, .bow-dt-table th, .bow-dt-table th [data-bow-dt-label] { white-space: normal !important; overflow: visible !important; text-overflow: clip !important; } }',
+      // The column divider in the header row: where to grab. Faint always,
+      // clear when the grab area is hovered or dragged.
+      '.bow-dt-resize::after { content: ""; position: absolute; inset-block: 22%; inset-inline-end: 0; width: 1px; background: currentColor; opacity: 0.18; transition: opacity 120ms, width 120ms; }',
+      'thead tr > th:last-child > .bow-dt-resize::after { opacity: 0; }',
+      '.bow-dt-resize:hover::after, .bow-dt-resize:active::after, th:has(+ th > .bow-dt-resize-start:hover) > .bow-dt-resize::after { opacity: 0.6; width: 2px; }',
+      '.bow-dt-resizing, .bow-dt-resizing * { cursor: col-resize !important; user-select: none !important; }',
+      // Touch screens have no hover tooltip: long text wraps inside its column
+      // there instead of being cut, so it can still be read.
+      '@media (hover: none) { .bow-dt-table td { white-space: normal !important; text-overflow: clip !important; } }',
+      // Moving a column: its header is tinted where it now sits, and a label
+      // with its name follows the pointer.
+      '.bow-dt-moving, .bow-dt-moving * { cursor: grabbing !important; user-select: none !important; }',
+      '.bow-dt-dragged { background-color: color-mix(in srgb, var(--bow-accent, #3b82f6) 12%, transparent) !important; }',
+      '.bow-dt-ghost { position: fixed; z-index: 2147483000; pointer-events: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: 500; letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--bow-ink, #111827); background: var(--bow-bg, #fff); border: 1px solid color-mix(in srgb, currentColor 18%, transparent); box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18); }',
       // A card that shows its own info icon (data-bow-viz-host) keeps the table's
       // toolbar clear of it: the CSV button sat under the icon in an untitled card.
       '[data-bow-viz-host] .bow-dt-toolbar { padding-inline-end: 1.75rem; }',
@@ -813,6 +830,10 @@
   window.addEventListener('message', function(e) {
     if (e.source !== window.parent || !e.data) return;
     if (e.data.type === 'ARTIFACT_DATA' && e.data.payload) {
+      // This viewer's DataTable layouts (hand-set widths, column order),
+      // stored by the host page (this frame has no storage) — _dtSavedLayout.
+      var tl = e.data.payload.table_layouts;
+      window.__bowTableLayouts = tl && typeof tl === 'object' && !Array.isArray(tl) ? tl : {};
       window.__setArtifactData(e.data.payload);
     } else if (e.data.type === 'ARTIFACT_PARAMS_STATUS') {
       window.__paramStore._status(e.data.payload || {});
@@ -1481,11 +1502,128 @@ function _dtDetectDir(cols, rows) {
     empty: 'text-sm text-ink-3 py-8 text-center', table: 'w-full text-sm tabular'
   };
 
+  // ── Column widths ──────────────────────────────────────────────────────────
+  // A column is as wide as its content needs, within 80–300px; a header longer
+  // than its values gets at most 140px and is cut with "…". Long text stays on
+  // one line, cut with "…" (the full value is the cell's tooltip), so rows
+  // keep one height. Spare room goes to the cut-off columns first (smallest
+  // shortfall first), then in proportion. A viewer can drag a header's edge;
+  // those widths are remembered per dashboard in their own browser, through
+  // the host page (the sandboxed frame has no storage).
+  var DT_MIN_COL = 80, DT_MAX_COL = 300, DT_MAX_HEADER = 140, DT_MIN_DRAG = 48, DT_SORT_ICON = 14;
+  var _dtCanvas = null;
+  function _dtFontOf(el) {
+    var cs = getComputedStyle(el);
+    return {
+      font: cs.font || (cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily),
+      upper: cs.textTransform === 'uppercase',
+      spacing: parseFloat(cs.letterSpacing) || 0,
+      pad: (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0)
+    };
+  }
+  function _dtTextWidth(text, f) {
+    if (!_dtCanvas) _dtCanvas = document.createElement('canvas');
+    var ctx = _dtCanvas.getContext('2d');
+    if (!ctx) return String(text).length * 7;
+    ctx.font = f.font;
+    var t = f.upper ? String(text).toUpperCase() : String(text);
+    return ctx.measureText(t).width + f.spacing * t.length;
+  }
+  // What each column needs: `w` (its width) and `full` (header and values
+  // uncut, for handing out spare room). Measured from the rendered cells, so
+  // number formatting and renderCell output count as shown.
+  // Keyed by field (from each header's data-bow-dt-field), so it does not
+  // depend on the column order; each column uses its own cell font (the
+  // first column is set in a heavier weight).
+  function _dtMeasure(table) {
+    var head = table.tHead && table.tHead.rows[0];
+    var body = table.tBodies[0];
+    if (!head || !body) return null;
+    var out = Object.create(null);
+    for (var j = 0; j < head.cells.length; j++) {
+      var th = head.cells[j];
+      var field = th.getAttribute('data-bow-dt-field');
+      if (field == null) continue;
+      var hf = _dtFontOf(th);
+      var label = th.querySelector('[data-bow-dt-label]');
+      var headerW = _dtTextWidth(label ? label.textContent : '', hf) + hf.pad + DT_SORT_ICON;
+      var valuesW = 0, cellFont = null;
+      for (var r = 0; r < body.rows.length && r < 300; r++) {
+        var td = body.rows[r].cells[j];
+        if (!td) continue;
+        if (!cellFont) cellFont = _dtFontOf(td);
+        var tw = _dtTextWidth(td.textContent || '', cellFont);
+        // A renderCell element (a badge with its own padding, a bar, an icon)
+        // needs what it lays out to, not just its text: the cell's scroll
+        // width (cells clip their overflow) minus the cell's padding.
+        if (td.firstElementChild) tw = Math.max(tw, td.scrollWidth - cellFont.pad);
+        if (tw > valuesW) valuesW = tw;
+      }
+      valuesW += cellFont ? cellFont.pad : 24;
+      var w = Math.max(valuesW, Math.min(headerW, DT_MAX_HEADER));
+      out[field] = { w: Math.round(Math.min(Math.max(w, DT_MIN_COL), DT_MAX_COL)), full: Math.ceil(Math.max(valuesW, headerW)) + 2 };
+    }
+    return out;
+  }
+  // Native tooltips only where text is actually cut: hovering a cell or a
+  // header whose text overflows shows it in full; anything shown whole has
+  // no tooltip (one listener on the table, no per-cell work).
+  function _dtCutTitle(e) {
+    var el = e.target && e.target.closest ? e.target.closest('td, th') : null;
+    if (!el || !el.closest('.bow-dt-table')) return;
+    var box = el.tagName === 'TH' ? (el.querySelector('[data-bow-dt-label]') || el) : el;
+    if (box.scrollWidth > box.clientWidth + 1) el.setAttribute('title', (box.textContent || '').trim());
+    else el.removeAttribute('title');
+  }
+  function _dtFillWidths(widths, auto, available) {
+    var ids = Object.keys(widths);
+    var used = 0;
+    ids.forEach(function(id) { used += widths[id]; });
+    var spare = Math.floor(available - used - 1);
+    if (!available || spare <= 0) return widths;
+    var out = {};
+    ids.forEach(function(id) { out[id] = widths[id]; });
+    var cut = ids.map(function(id) { return { id: id, need: Math.max(0, ((auto[id] && auto[id].full) || 0) - out[id]) }; })
+      .filter(function(x) { return x.need > 0; })
+      .sort(function(a, b) { return a.need - b.need; });
+    cut.forEach(function(x, i) {
+      var add = Math.min(x.need, Math.floor(spare / (cut.length - i)));
+      out[x.id] += add; spare -= add;
+    });
+    if (spare > 0) {
+      var total = 0;
+      ids.forEach(function(id) { total += out[id]; });
+      var given = 0;
+      ids.forEach(function(id, i) {
+        var add = i === ids.length - 1 ? spare - given : Math.floor(spare * out[id] / total);
+        out[id] += add; given += add;
+      });
+    }
+    return out;
+  }
+  // A table's layout: { widths: {field: px}, order: [field, ...] }.
+  function _dtSavedLayout(key) {
+    // Pushed with ARTIFACT_DATA, or baked into the first paint's data.
+    var all = window.__bowTableLayouts || (window.ARTIFACT_DATA && window.ARTIFACT_DATA.table_layouts);
+    var l = key && all && all[key];
+    if (!l || typeof l !== 'object') return null;
+    return {
+      widths: l.widths && typeof l.widths === 'object' && !Array.isArray(l.widths) ? l.widths : {},
+      order: Array.isArray(l.order) ? l.order.filter(function(f) { return typeof f === 'string'; }) : []
+    };
+  }
+  function _dtSaveLayout(key, layout) {
+    if (!key) return;
+    try { window.parent.postMessage({ type: 'ARTIFACT_TABLE_LAYOUT', key: key, widths: layout.widths, order: layout.order }, '*'); } catch (e) { /* no host */ }
+    if (!window.__bowTableLayouts || typeof window.__bowTableLayouts !== 'object') window.__bowTableLayouts = {};
+    window.__bowTableLayouts[key] = layout;
+  }
+
   window.DataTable = function(props) {
     var viz = props.viz || {};
     var baseRows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var colSource = Array.isArray(props.columns) && props.columns.length ? { columns: props.columns } : viz;
-    var cols = React.useMemo(function() {
+    var rawCols = React.useMemo(function() {
       var c = _infoCols(colSource, baseRows);
       // Rows passed explicitly may be a derived shape (a grouped/ranked array)
       // whose keys differ from viz.columns — fall back to the row keys rather
@@ -1497,6 +1635,19 @@ function _dtDetectDir(cols, rows) {
       }
       return c;
     }, [props.columns, viz.columns, baseRows]);
+    // The viewer can drag a header to a new place: their order first (columns
+    // it doesn't know — a query that gained one — stay after, as defined).
+    var widthKey = props.widthKey || (viz && viz.id ? 'viz:' + viz.id : null);
+    var _ord = React.useState(function() { var l = _dtSavedLayout(widthKey); return l ? l.order : []; }), order = _ord[0], setOrder = _ord[1];
+    var cols = React.useMemo(function() {
+      if (!order.length) return rawCols;
+      var byField = Object.create(null);
+      rawCols.forEach(function(c) { byField[c.field] = c; });
+      var out = [];
+      order.forEach(function(f) { if (byField[f]) { out.push(byField[f]); delete byField[f]; } });
+      rawCols.forEach(function(c) { if (byField[c.field]) out.push(c); });
+      return out;
+    }, [rawCols, order]);
     var sortable = props.sortable !== false;
     var selectable = props.selectable !== false;
     var exportable = props.exportable !== false;
@@ -1515,6 +1666,244 @@ function _dtDetectDir(cols, rows) {
     try { pageRtl = getComputedStyle(document.documentElement).direction === 'rtl'; } catch (e) {}
     var dir = props.dir || (pageRtl ? 'rtl' : _dtDetectDir(cols, baseRows));
     var L = _dtLabels(props.labels, _dtLang(props.lang, cols, baseRows));
+    // ---- widths (see _dtMeasure) ----
+    // autoWidth={false} keeps the browser's own layout (and long text wraps);
+    // resizable={false} hides the drag handles.
+    var autoWidth = props.autoWidth !== false;
+    var resizable = autoWidth && props.resizable !== false;
+    // reorderable={false}: headers can't be dragged to a new place.
+    var reorderable = autoWidth && props.reorderable !== false;
+    var tableRef = React.useRef(null), scrollRef = React.useRef(null);
+    var _aw = React.useState(null), autoW = _aw[0], setAutoW = _aw[1];
+    var _uw = React.useState(function() { var l = _dtSavedLayout(widthKey); return l ? l.widths : {}; }), userW = _uw[0], setUserW = _uw[1];
+    var _mv = React.useState(null), moving = _mv[0], setMoving = _mv[1];   // { field } while a header is dragged
+    var suppressClick = React.useRef(false);
+    // The latest layout, for saving one part without losing the other.
+    var layoutRef = React.useRef({ widths: userW, order: order });
+    layoutRef.current = { widths: userW, order: order };
+    function saveLayout(next) {
+      var l = Object.assign({}, layoutRef.current, next);
+      layoutRef.current = l;
+      _dtSaveLayout(widthKey, l);
+    }
+    var _av = React.useState(0), availW = _av[0], setAvailW = _av[1];
+    var touched = React.useRef(false);
+    // The set of columns, not their order: moving a column needs no new
+    // measurement (widths are per field).
+    var colKey = rawCols.map(function(c) { return c.field; }).join('\u0000');
+    // The scroll box only exists while there are rows: observe it again when
+    // it (re)appears, e.g. rows arriving after an empty first render.
+    var hasBody = !!(cols.length && baseRows.length);
+    // Generated code often passes rows={data.filter(...)} — a new array on
+    // every parent render with the same rows in it. Measure again only when
+    // the rows actually differ (count, first, last) or the columns do.
+    var lastMeasured = React.useRef(null);
+    var rowsSig = { n: baseRows.length, first: baseRows[0], last: baseRows[baseRows.length - 1], cols: colKey, compact: compact, body: hasBody };
+    var sameRows = function(a, b) { return a && b && a.n === b.n && a.first === b.first && a.last === b.last && a.cols === b.cols && a.compact === b.compact && a.body === b.body; };
+    React.useLayoutEffect(function() {
+      if (!autoWidth || !tableRef.current) return;
+      if (sameRows(lastMeasured.current, rowsSig)) return;
+      lastMeasured.current = rowsSig;
+      // Never let a measurement fail the dashboard (a rejected fonts.ready
+      // callback would surface as a render error).
+      var measure = function() {
+        try {
+          if (!tableRef.current) return;
+          var next = _dtMeasure(tableRef.current);
+          // Same numbers: keep the same object, so nothing re-renders.
+          setAutoW(function(prev) {
+            if (prev && next && Object.keys(prev).length === Object.keys(next).length && Object.keys(next).every(function(k) { return prev[k] && prev[k].w === next[k].w && prev[k].full === next[k].full; })) return prev;
+            return next;
+          });
+        } catch (err) { /* keep the last widths */ }
+      };
+      measure();
+      // Widths saved before the data arrived (the host sends them with it).
+      if (!touched.current) {
+        var saved = _dtSavedLayout(widthKey);
+        if (saved) {
+          setUserW(function(prev) { return JSON.stringify(prev) === JSON.stringify(saved.widths) ? prev : saved.widths; });
+          setOrder(function(prev) { return prev.join('\u0000') === saved.order.join('\u0000') ? prev : saved.order; });
+        }
+      }
+      // Web fonts change every measurement once they land.
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(measure, function() {});
+    });
+    React.useEffect(function() {
+      var el = scrollRef.current;
+      if (!autoWidth || !el || typeof ResizeObserver === 'undefined') return;
+      var ro = new ResizeObserver(function() { setAvailW(el.clientWidth); });
+      ro.observe(el);
+      setAvailW(el.clientWidth);
+      return function() { ro.disconnect(); };
+    }, [autoWidth, hasBody]);
+    var widths = React.useMemo(function() {
+      if (!autoWidth || !autoW) return null;
+      var base = Object.create(null), hand = false;
+      cols.forEach(function(c) {
+        var u = Object.prototype.hasOwnProperty.call(userW, c.field) ? userW[c.field] : null;
+        if (typeof u === 'number' && u > 0) { base[c.field] = u; hand = true; }
+        else base[c.field] = autoW[c.field] ? autoW[c.field].w : DT_MIN_COL;   // autoW has no prototype
+      });
+      // Only while nothing was sized by hand: fill the card (a drag sticks).
+      return hand ? base : _dtFillWidths(base, autoW, availW);
+    }, [autoWidth, autoW, userW, availW, colKey]);
+    var tableWidth = 0;
+    if (widths) cols.forEach(function(c) { tableWidth += widths[c.field] || 0; });
+    function startResize(e, field) {
+      if (!widths || e.button !== 0) return;
+      e.preventDefault(); e.stopPropagation();
+      var startX = e.clientX, startW = widths[field] || DT_MIN_COL;
+      // The edge sits at the end of the column: right in LTR, left in RTL.
+      var sign = getComputedStyle(e.currentTarget).direction === 'rtl' ? -1 : 1;
+      var latest = null;
+      touched.current = true;
+      // The drag starts from the widths on screen, so the other columns stay put.
+      var frozen = {};
+      cols.forEach(function(c) { frozen[c.field] = widths[c.field]; });
+      // Pointer capture: the drag keeps going when the pointer leaves the
+      // handle, the table or the dashboard frame, and always ends.
+      var handle = e.currentTarget;
+      try { handle.setPointerCapture(e.pointerId); } catch (err) { /* old browser */ }
+      var frame = 0;
+      var move = function(ev) {
+        // Released somewhere this frame never heard about (outside it).
+        if (ev.buttons === 0) { up(); return; }
+        var w = Math.max(DT_MIN_DRAG, Math.round(startW + (ev.clientX - startX) * sign));
+        latest = Object.assign({}, frozen); latest[field] = w;
+        // One re-render per painted frame, however fast the pointer reports.
+        if (!frame) frame = requestAnimationFrame(function() { frame = 0; if (latest) setUserW(latest); });
+      };
+      var done = false;
+      var up = function() {
+        if (done) return;
+        done = true;
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
+        handle.removeEventListener('lostpointercapture', up);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('blur', up);
+        document.documentElement.classList.remove('bow-dt-resizing');
+        if (frame) { cancelAnimationFrame(frame); frame = 0; }
+        if (latest) { setUserW(latest); saveLayout({ widths: latest }); }
+        latest = null;
+      };
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+      // A release outside the dashboard frame never reaches it: the capture is
+      // lost, the frame loses focus, or the next move arrives with no button
+      // down — any of these ends (and saves) the drag.
+      handle.addEventListener('lostpointercapture', up);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('blur', up);
+      document.documentElement.classList.add('bow-dt-resizing');
+    }
+    // Double-click a handle: the table back to how it was built — automatic
+    // widths, original column order.
+    function resetWidths(e) {
+      e.preventDefault(); e.stopPropagation();
+      touched.current = true;
+      setUserW({});
+      setOrder([]);
+      saveLayout({ widths: {}, order: [] });
+    }
+    // Drag a header to move its column, the way the results grid does: a
+    // label follows the pointer and the columns shift as it passes over them
+    // (no drop marker). A press that doesn't travel 5px is a click (sort);
+    // once it travels it is a move, and the click after it is swallowed.
+    function startMove(e, field) {
+      // Not on touch: a swipe across the header scrolls the table sideways.
+      if (!reorderable || e.button !== 0 || cols.length < 2 || e.pointerType === 'touch') return;
+      var table = tableRef.current;
+      var th = e.currentTarget;
+      if (!table) return;
+      var startX = e.clientX, startY = e.clientY, lastX = e.clientX, dragging = false, ghost = null, waiting = false;
+      var current = cols.map(function(c) { return c.field; });
+      var moved = false;
+      var pointerId = e.pointerId;
+      var label = (th.querySelector('[data-bow-dt-label]') || th).textContent;
+      var done = false;
+      var placeGhost = function(ev) { if (ghost) { ghost.style.left = (ev.clientX + 12) + 'px'; ghost.style.top = (ev.clientY - 14) + 'px'; } };
+      // The header cells in visual order (left to right), with their fields.
+      var visual = function() {
+        var ths = [].slice.call(table.tHead.rows[0].cells);
+        return ths.map(function(c) { return { field: c.getAttribute('data-bow-dt-field'), r: c.getBoundingClientRect() }; })
+          .sort(function(a, b) { return a.r.left - b.r.left; });
+      };
+      var move = function(ev) {
+        if (ev.buttons === 0) { end(); return; }
+        if (!dragging) {
+          if (Math.abs(ev.clientX - startX) < 5 && Math.abs(ev.clientY - startY) < 5) return;
+          dragging = true;
+          // Captured only once it is a drag (a capture would turn a plain click
+          // into a click on the table, and the header would never sort). On the
+          // table, not the header: the header cell itself moves in the DOM as
+          // columns shift, and moving a captured node drops the capture.
+          try { table.setPointerCapture(pointerId); } catch (err) { /* old browser */ }
+          document.documentElement.classList.add('bow-dt-moving');
+          ghost = document.createElement('div');
+          ghost.className = 'bow-dt-ghost';
+          ghost.textContent = label;
+          document.body.appendChild(ghost);
+          setMoving({ field: field });
+        }
+        placeGhost(ev);
+        var goingRight = ev.clientX > lastX, goingLeft = ev.clientX < lastX;
+        lastX = ev.clientX;
+        // One shift per painted frame: the next one measures the new layout.
+        if (waiting || (!goingRight && !goingLeft)) return;
+        var cells = visual();
+        var at = -1;
+        for (var i = 0; i < cells.length; i++) if (cells[i].field === field) at = i;
+        if (at < 0) return;
+        // Only the neighbour in the direction of travel, once the pointer is
+        // past its middle — so a column never swaps back and forth.
+        var next = goingRight ? cells[at + 1] : cells[at - 1];
+        if (!next) return;
+        var mid = next.r.left + next.r.width / 2;
+        if (goingRight ? ev.clientX <= mid : ev.clientX >= mid) return;
+        var a = current.indexOf(field), b = current.indexOf(next.field);
+        if (a < 0 || b < 0) return;
+        current = current.slice();
+        current.splice(a, 1);
+        current.splice(b, 0, field);
+        moved = true;
+        touched.current = true;
+        setOrder(current);
+        waiting = true;
+        requestAnimationFrame(function() { waiting = false; });
+      };
+      var end = function() {
+        if (done) return;
+        done = true;
+        table.removeEventListener('pointermove', move);
+        table.removeEventListener('pointerup', end);
+        table.removeEventListener('pointercancel', end);
+        table.removeEventListener('lostpointercapture', end);
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', end);
+        window.removeEventListener('blur', end);
+        document.documentElement.classList.remove('bow-dt-moving');
+        if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+        setMoving(null);
+        if (!dragging) return;
+        // The click that follows this release must not sort the column.
+        suppressClick.current = true;
+        setTimeout(function() { suppressClick.current = false; }, 0);
+        if (moved) saveLayout({ order: current });
+      };
+      table.addEventListener('pointermove', move);
+      table.addEventListener('pointerup', end);
+      table.addEventListener('pointercancel', end);
+      table.addEventListener('lostpointercapture', end);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', end);
+      window.addEventListener('blur', end);
+    }
     // Years and IDs are labels, not quantities: 2025, not "2,025" or "2.0K".
     // The name must end in the word (order_id, customerId, "Fiscal Year"; not
     // amount_paid or year_to_date) and every value must be a whole number.
@@ -1567,6 +1956,7 @@ function _dtDetectDir(cols, rows) {
     var end = paged ? Math.min(start + pageSize, sorted.length) : sorted.length;
     var domRows = sorted.slice(0, Math.max(end, Math.min(sorted.length, printCap)));
     function clickHeader(field) {
+      if (suppressClick.current) { suppressClick.current = false; return; }
       if (!sortable) return;
       setPage(0);
       setSort(function(s) {
@@ -1597,12 +1987,28 @@ function _dtDetectDir(cols, rows) {
     var thead = h('thead', { key: 'h', className: DT.thead }, h('tr', {}, cols.map(function(c, i) {
       var numeric = numericByField[c.field];
       var isSorted = sort && sort.field === c.field;
-      return h('th', { key: i, onClick: function() { clickHeader(c.field); }, 'aria-sort': isSorted ? (sort.desc ? 'descending' : 'ascending') : undefined,
-        className: DT.th + (compact ? ' py-1.5' : '') + ' ' + (numeric ? 'text-end' : 'text-start') + (sortable ? DT.thHover : '') },
-        h('span', { className: 'inline-flex items-center gap-1' }, [
-          h('span', { key: 't' }, c.header),
-          sortable ? h('span', { key: 'a', className: 'text-[9px] leading-none ' + (isSorted ? DT.sortOn : DT.sortOff) }, isSorted ? (sort.desc ? '▼' : '▲') : '⇅') : null
-        ]));
+      return h('th', { key: c.field, onClick: function() { clickHeader(c.field); }, 'aria-sort': isSorted ? (sort.desc ? 'descending' : 'ascending') : undefined,
+        'data-bow-dt-field': c.field,
+        onPointerDown: reorderable && widths ? function(e) { startMove(e, c.field); } : undefined,
+        className: DT.th + (compact ? ' py-1.5' : '') + ' ' + (numeric ? 'text-end' : 'text-start') + (sortable ? DT.thHover : '') + (widths ? ' relative overflow-hidden' : '')
+          + (moving && moving.field === c.field ? ' bow-dt-dragged' : '') },
+        [h('span', { key: 'l', className: widths ? 'flex items-center gap-1 min-w-0' + (numeric ? ' justify-end' : '') : 'inline-flex items-center gap-1' }, [
+          h('span', { key: 't', 'data-bow-dt-label': '', className: widths ? 'truncate' : undefined }, c.header),
+          sortable ? h('span', { key: 'a', className: 'shrink-0 text-[9px] leading-none ' + (isSorted ? DT.sortOn : DT.sortOff) }, isSorted ? (sort.desc ? '▼' : '▲') : '⇅') : null
+        ]),
+        // A boundary is grabbable on both sides: this column's end edge, and
+        // the next column's start edge (which resizes this one) — so a grab a
+        // few pixels past the line resizes instead of sorting the neighbour.
+        resizable && widths ? h('span', { key: 'r', 'aria-hidden': 'true', 'data-testid': 'bow-dt-resize',
+          className: 'bow-dt-chrome bow-dt-resize absolute inset-y-0 end-0 w-2 cursor-col-resize touch-none',
+          onPointerDown: function(e) { startResize(e, c.field); },
+          onClick: function(e) { e.stopPropagation(); },
+          onDoubleClick: resetWidths }) : null,
+        resizable && widths && i > 0 ? h('span', { key: 'rs', 'aria-hidden': 'true', 'data-testid': 'bow-dt-resize-start',
+          className: 'bow-dt-chrome bow-dt-resize-start absolute inset-y-0 start-0 w-1.5 cursor-col-resize touch-none',
+          onPointerDown: function(e) { startResize(e, cols[i - 1].field); },
+          onClick: function(e) { e.stopPropagation(); },
+          onDoubleClick: resetWidths }) : null]);
     })));
     var tbody = h('tbody', { key: 'b' }, domRows.map(function(row, i) {
       var onPage = i >= start && i < end;
@@ -1621,7 +2027,10 @@ function _dtDetectDir(cols, rows) {
           if (content == null) content = plainByField[c.field] && typeof raw === 'number' ? String(raw)
             : (numeric && typeof raw === 'number' && props.format) ? props.format(raw, c) : _infoCell(raw);
           var short = raw == null || typeof raw === 'number' || String(raw).length <= 28;
-          return h('td', { key: j, dir: 'auto', className: DT.td + (compact ? 'py-1 ' : '') + (numeric ? 'text-end tabular-nums' : 'text-start') + (short ? ' whitespace-nowrap' : '') + (j === 0 && props.emphasizeFirst !== false && !numeric ? ' font-medium text-ink' : '') }, content);
+          // Sized columns: one line, cut with "…", the full value on hover (_dtCutTitle).
+          var cut = !!widths;
+          return h('td', { key: j, dir: 'auto',
+            className: DT.td + (compact ? 'py-1 ' : '') + (numeric ? 'text-end tabular-nums' : 'text-start') + (cut ? ' truncate' : (short ? ' whitespace-nowrap' : '')) + (j === 0 && props.emphasizeFirst !== false && !numeric ? ' font-medium text-ink' : '') }, content);
         }));
     }));
     var footer = null;
@@ -1650,7 +2059,8 @@ function _dtDetectDir(cols, rows) {
     // print:hidden) still decide whether the table shows.
     return h('div', { dir: dir, 'data-testid': 'bow-datatable', className: 'relative' + (props.className ? ' ' + props.className : ''), style: props.style },
       empty ? [infoBtn, h('div', { key: 'e', className: DT.empty }, props.emptyText || L.empty)]
-        : [infoBtn, h('div', { key: 'body', style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' } }, [toolbar, h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { className: DT.table }, [thead, tbody])), footer])]);
+        : [infoBtn, h('div', { key: 'body', style: { display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)' } }, [toolbar, h('div', { key: 'scroll', ref: scrollRef, className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } }, h('table', { ref: tableRef, onMouseOver: widths ? _dtCutTitle : undefined, className: DT.table + ' bow-dt-table', style: widths ? { tableLayout: 'fixed', width: tableWidth + 'px', minWidth: tableWidth + 'px' } : undefined },
+            [widths ? h('colgroup', { key: 'cg' }, cols.map(function(c, i) { return h('col', { key: i, style: { width: (widths[c.field] || DT_MIN_COL) + 'px' } }); })) : null, thead, tbody])), footer])]);
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -5030,6 +5440,56 @@ function _dtDetectDir(cols, rows) {
       }
       return _origAppendChild.call(this, node);
     };
+  })();
+
+  // ── bow.<helper> ─────────────────────────────────────────────────────
+  // Every component and helper is a bare global (vizById, KPICard, …) and
+  // that is how pages are written. Models also reach for them through the
+  // SDK object — `bow.vizById(...)`, `<bow.KPICard>`, `const { KPICard } =
+  // bow` — because the SDK features (bow.data, bow.records, …) do live
+  // there; each of those used to be undefined and the page died with
+  // "useArtifactData is not a function". The same names are therefore
+  // readable through `bow` as well.
+  // ADDITIVE ONLY: a name the SDK already defines is never replaced, the
+  // properties are non-enumerable getters (so iterating or serialising
+  // `bow` is unchanged), and the bare globals are untouched.
+  var BOW_HELPER_NAMES = [
+    'useArtifactData', 'vizById', 'useParams', 'useParamOptions', 'useFilters', 'useCurrentUser',
+    'useConversation', 'usePresence', 'useTheme', 'setTheme', 'fmt', 'exportCSV', 'share',
+    'BOW_FONTS', 'BOW_THEMES',
+    'useState', 'useEffect', 'useMemo', 'useCallback', 'useRef',
+    'PageHeader', 'KPICard', 'SectionCard', 'DataTable', 'EChart', 'TrendChart', 'RankChart',
+    'FilterBar', 'FilterSelect', 'FilterSearch', 'FilterDateRange', 'Segmented', 'Tabs',
+    'Badge', 'Delta', 'Sparkline', 'ProgressBar', 'Icon', 'Eyebrow', 'Divider', 'EmptyState',
+    'LoadingSpinner', 'Modal', 'Drawer', 'InfoOverlay', 'InfoPopover', 'BowFile', 'BowPdfViewer',
+    'ChatComposer', 'ChatMessage', 'ChatMessages', 'ChatResult', 'ChatSuggestions', 'ChatThreads'
+  ];
+  function exposeHelpersOn(target) {
+    if (!target || (typeof target !== 'object' && typeof target !== 'function')) return;
+    BOW_HELPER_NAMES.forEach(function(name) {
+      if (name in target) return;
+      try {
+        Object.defineProperty(target, name, {
+          configurable: true, enumerable: false,
+          get: function() { return window[name]; }
+        });
+      } catch (e) { /* a frozen SDK object keeps exactly what it has */ }
+    });
+  }
+  // The SDK script assigns window.bow after this file runs, so the helpers are
+  // attached when that assignment happens (and right now if it already did).
+  (function() {
+    var existing = Object.getOwnPropertyDescriptor(window, 'bow');
+    if (existing && !existing.configurable) { exposeHelpersOn(window.bow); return; }
+    var current = existing && 'value' in existing ? existing.value : undefined;
+    exposeHelpersOn(current);
+    try {
+      Object.defineProperty(window, 'bow', {
+        configurable: true, enumerable: true,
+        get: function() { return current; },
+        set: function(next) { current = next; exposeHelpersOn(next); }
+      });
+    } catch (e) { /* leave window.bow as the host defined it */ }
   })();
 
 })();

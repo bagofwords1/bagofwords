@@ -43,7 +43,7 @@
         @click="nav ? onNavClick($event) : undefined"
         :class="nav ? [
           'flex items-center w-full rounded-lg border transition-all duration-200',
-          isRouteActive('/agents') ? 'border-gray-300 bg-white shadow-sm text-gray-900 font-semibold' : 'border-gray-200 bg-white shadow-sm text-gray-700 hover:border-gray-300 hover:shadow',
+          isRouteActive('/agents') ? 'border-line-strong bg-surface shadow-sm text-ink font-semibold' : 'border-line bg-surface shadow-sm text-ink-2 hover:border-line-strong hover:shadow',
           collapsed ? 'justify-center p-2' : 'gap-2.5 px-3 py-2'
         ] : [
           'flex items-center w-full rounded-lg transition-all duration-200',
@@ -66,7 +66,7 @@
             <span class="flex items-center justify-center">
               <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" :connector-key="navSelected.connections?.[0]?.connector_key" :icon-token="navSelected.icon_token" :icon="navSelected.icon" class="w-[18px] h-[18px] rounded" />
               <span v-else-if="navIconAgents.length" class="flex -space-x-1.5 items-center">
-                <DataSourceIcon v-for="(it, i) in navIconAgents" :key="i" :type="it.type" :connector-key="it.connector_key" :icon-token="it.icon_token" :icon="it.icon" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
+                <DataSourceIcon v-for="(it, i) in navIconAgents" :key="i" :type="it.type" :connector-key="it.connector_key" :icon-token="it.icon_token" :icon="it.icon" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-surface" />
               </span>
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
             </span>
@@ -154,7 +154,7 @@
                         'flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-2xs rounded border transition-colors',
                         connectingId === a.id
                           ? 'text-blue-400 bg-blue-50 dark:bg-blue-950 border-blue-100 cursor-default'
-                          : 'text-blue-600 bg-blue-50 dark:bg-blue-950 border-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/50'
+                          : 'text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/50'
                       ]"
                     >
                       <Spinner v-if="connectingId === a.id" class="w-3 h-3" />

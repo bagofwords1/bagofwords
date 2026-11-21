@@ -299,6 +299,8 @@ Extends the existing harness `tools/agent/custom_table_artifact_loop.py` /
 `tests/unit/test_fast_artifact_lifecycle.py` (real SQLite source, real
 encrypted DuckDB, real sessions):
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip the `uv sync` line (the venv is ready, and this sync would drop its `kerberos` extra). See the root `AGENTS.md`, "DevBox".
+
 ```sh
 cd backend && uv sync --frozen --extra dev
 uv run python ../tools/agent/custom_table_artifact_loop.py            # existing suite stays green
@@ -377,6 +379,7 @@ evidence KPI.
 
 ### Loop C — UI (stack + Playwright)
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip `boot_stack.sh` and `seed_org.py`; the stack is already running with the admin, org, LLM and demo data source provisioned (`bow-stack status`; pick up a new client or dependency with `bow-stack restart backend`). See the root `AGENTS.md`, "DevBox".
 `tools/agent/boot_stack.sh`, `seed_org.py`, Postgres container as the
 connection. Drive: enable incremental in `CustomQueryModal.vue`, run, open
 Runs tab, inspect a run, Full refresh, Resume. Before/after screenshots per

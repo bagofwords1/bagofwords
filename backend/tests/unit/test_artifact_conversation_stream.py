@@ -46,6 +46,7 @@ from sqlalchemy.exc import OperationalError
 import app.ai.llm.pii.loader as pii_loader
 import app.dependencies
 from app.ai.llm.pii.redactor import build_redactor
+from app.ai.llm.pii.policy import compile_config
 from app.dependencies import async_session_maker
 from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
@@ -592,7 +593,7 @@ def loader_clock(monkeypatch):
 def pii_unreadable(monkeypatch):
     """Licensed, the org's PII protection on, and its ruleset failing to load."""
     monkeypatch.setattr(pii_loader, "has_feature", lambda feature: True)
-    monkeypatch.setattr(pii_loader, "build_redactor", _broken)
+    monkeypatch.setattr(pii_loader, "compile_config", _broken)
     pii_loader.invalidate()
     yield monkeypatch
     pii_loader.invalidate()
@@ -641,7 +642,7 @@ async def test_a_failed_redactor_load_is_retried_for_later_tool_titles(pii_unrea
     async with asyncio.timeout(BOUND):
         head = [json.loads(await gen.__anext__()) for _ in range(2)]
         assert types(head) == ["started", "tool"] and head[1]["title"] is None
-        pii_unreadable.setattr(pii_loader, "build_redactor", build_redactor)  # the settings read recovers
+        pii_unreadable.setattr(pii_loader, "compile_config", compile_config)  # the settings read recovers
         loader_clock[0] += 2  # past the loader's failure backoff
         gate.set()
         rest = await read_all(gen)
@@ -823,7 +824,7 @@ async def test_a_pii_load_that_recovers_before_the_sweep_delivers_the_result_com
     try:
         async with asyncio.timeout(BOUND):
             await looked.wait()
-            pii_unreadable.setattr(pii_loader, "build_redactor", build_redactor)  # the settings read recovers
+            pii_unreadable.setattr(pii_loader, "compile_config", compile_config)  # the settings read recovers
             loader_clock[0] += 2  # past the loader's failure backoff
             gate.set()
             await consumer

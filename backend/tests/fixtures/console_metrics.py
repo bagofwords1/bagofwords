@@ -268,7 +268,8 @@ def seed_agent_executions():
     feedback={"direction", "message"},
     tools=[{"name", "action", "status", "duration_ms", "attempt", "error", "step_id"}],
     usage=[{"model", "provider", "prompt_tokens", "completion_tokens", "cache_read_tokens",
-    "cache_creation_tokens", "cost", "scope"}].
+    "cache_creation_tokens", "cost", "scope"}],
+    exposed=[agent ids the run was given], used=[agent ids it used].
     """
     def _seed(org_id, report_id, runs):
         from sqlalchemy import create_engine
@@ -362,6 +363,18 @@ def seed_agent_executions():
                     session.add(ae)
                     session.flush()
                     created_ids.append(ae.id)
+
+                    # The agents the run was given / used, as AgentV2 records
+                    # them (folder_monitoring.record_exposed_agents /
+                    # record_used_agents). Omit "exposed" for a run that
+                    # predates exposure recording.
+                    from app.models.agent_execution import execution_exposed_agents, folder_execution_agents
+                    for agent_id in run.get("exposed") or []:
+                        session.execute(execution_exposed_agents.insert().values(
+                            execution_id=ae.id, agent_id=agent_id))
+                    for agent_id in run.get("used") or []:
+                        session.execute(folder_execution_agents.insert().values(
+                            execution_id=ae.id, agent_id=agent_id))
 
                     for i, tool in enumerate(run.get("tools") or []):
                         status = tool.get("status", "success")

@@ -72,9 +72,9 @@
                                     </td>
                                     <td class="px-6 py-3">
                                         <div class="flex items-center gap-1.5 max-w-[520px]">
-                                            <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 text-amber-800 text-2xs font-medium px-2 py-0.5 shrink-0">Draft</span>
+                                            <span v-if="c.status === 'draft'" class="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-2xs font-medium px-2 py-0.5 shrink-0">Draft</span>
                                             <span v-else-if="c.status === 'archived'" class="inline-flex items-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-2xs font-medium px-2 py-0.5 shrink-0">Archived</span>
-                                            <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 text-purple-800 text-2xs font-medium px-2 py-0.5 shrink-0">Auto</span>
+                                            <span v-if="c.auto_generated" class="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 text-2xs font-medium px-2 py-0.5 shrink-0">Auto</span>
                                             <span class="truncate flex-1" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
                                         </div>
                                     </td>

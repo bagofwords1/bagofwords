@@ -1,40 +1,24 @@
 <template>
-  <div class="mt-1">
-    <Transition name="fade" appear>
-      <div class="mb-2 flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-        <span v-if="status === 'running'" class="flex items-center">
-          <Spinner class="w-3 h-3 me-1.5 shrink-0 text-ink-muted" />
-          <span class="tool-shimmer">
-            <template v-if="modelTitle">{{ modelTitle }}…</template>
-            <template v-else>Searching {{ noun.many }}<template v-if="queryLabel"> for {{ queryLabel }}</template>…</template>
-          </span>
-        </span>
-        <span
-          v-else
-          class="text-gray-700 dark:text-gray-300 flex items-center cursor-pointer"
-          @click="expanded = !expanded"
-          :aria-expanded="expanded"
-        >
-          <Icon :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-ink-muted rtl-flip" />
-          <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
-          <Icon v-else name="heroicons-magnifying-glass" class="w-3 h-3 me-1 text-ink-muted" />
-          <template v-if="modelTitle">
-            <span class="align-middle">{{ modelTitle }}</span>
-            <span v-if="files.length" class="ms-2 text-ink-muted">{{ files.length }} {{ files.length === 1 ? noun.one : noun.many }}</span>
-          </template>
-          <template v-else>
-            <span class="align-middle">Searched {{ noun.many }}<template v-if="queryLabel"> for&nbsp;</template></span>
-            <Transition v-if="queryLabel" name="fade-in" mode="out-in">
-              <span :key="queryLabel || ''" class="align-middle">{{ queryLabel }}</span>
-            </Transition>
-            <span v-if="files.length" class="ms-2 text-ink-muted">{{ files.length }} {{ files.length === 1 ? noun.one : noun.many }}</span>
-          </template>
-        </span>
-      </div>
-    </Transition>
+  <div class="min-w-0">
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-magnifying-glass" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">
+      <template v-if="modelTitle">{{ modelTitle }}…</template>
+      <template v-else>Searching {{ noun.many }}<template v-if="queryLabel"> for {{ queryLabel }}</template>…</template></template>
+      <template v-else>
+      <template v-if="modelTitle">{{ modelTitle }}</template>
+      <template v-else>Searched {{ noun.many }}<template v-if="queryLabel"> for&nbsp;</template>
+      <template v-if="queryLabel">{{ queryLabel }}</template></template></template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else>
+      <template v-if="modelTitle"><span v-if="files.length" class="ms-2 text-ink-muted">{{ files.length }} {{ files.length === 1 ? noun.one : noun.many }}</span></template>
+      <template v-else><span v-if="files.length" class="ms-2 text-ink-muted">{{ files.length }} {{ files.length === 1 ? noun.one : noun.many }}</span></template></template></div>
 
     <Transition name="fade" appear>
-      <div v-if="expanded && status !== 'running'" class="text-chat-2 text-gray-600 dark:text-gray-400">
+      <div v-if="toolHeaderExpanded && status !== 'running'" class="text-chat-2 text-gray-600 dark:text-gray-400">
         <ul v-if="files.length" class="ms-1 space-y-1 leading-snug">
           <li v-for="(f, idx) in files.slice(0, 10)" :key="f.id || idx">
             <div
@@ -84,12 +68,17 @@
     </Transition>
 
     <div v-if="status !== 'running' && !files.length && errorMessage" class="text-chat-2 text-amber-600 mt-1">{{ errorMessage }}</div>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
-import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon, FILE_SOURCE_TYPES, fileToolNoun } from '~/composables/useToolConnectionIcon'
@@ -190,15 +179,6 @@ function formatBytes(n: number): string {
 </script>
 
 <style scoped>
-@keyframes shimmer { 0% { background-position: -100% 0; } 100% { background-position: 100% 0; } }
-.tool-shimmer {
-  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
-  background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2s linear infinite;
-}
 .fade-enter-active, .fade-leave-active { transition: opacity 0.25s ease, transform 0.25s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(2px); }
 </style>

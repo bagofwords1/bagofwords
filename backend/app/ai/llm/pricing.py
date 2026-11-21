@@ -78,8 +78,7 @@ _RATES = {
         read=0.10, write_5m=1.25, write_1h=2.00,
         cached_inside_prompt_tokens=False, reports_cache=True,
     ),
-    # Automatic caching, no write concept and no write charge. Cached tokens
-    # ride inside prompt_tokens at full rate and are discounted 50%.
+    # Legacy OpenAI default. GPT-6.2 has separate read and write pricing.
     OPENAI: CacheRates(
         read=0.50, write_5m=None, write_1h=None,
         cached_inside_prompt_tokens=True, reports_cache=True,
@@ -234,10 +233,21 @@ def _family_rates(provider_type: Optional[str], model_id: Optional[str] = None) 
         if override is not None:
             return replace(rates, read=override)
     if family == OPENAI:
+        if is_gpt62_chat(model_id):
+            return replace(rates, read=0.05)
         override = _openai_read_rate_override(model_id)
         if override is not None:
             return replace(rates, read=override)
     return rates
+
+
+def is_gpt62_chat(model_id: Optional[str]) -> bool:
+    name = (model_id or "").lower().rsplit("/", 1)[-1]
+    return name in ("gpt-6.2-sol", "gpt-6.2-astra")
+
+
+def long_context_pricing(model_id: Optional[str], prompt_tokens: int) -> bool:
+    return prompt_tokens > 272_000 and is_gpt62_chat(model_id)
 
 
 def cached_input_cost(
@@ -248,6 +258,8 @@ def cached_input_cost(
     cache_write_1h_tokens: int,
     provider_type: Optional[str],
     model_id: Optional[str] = None,
+    cache_creation_tokens: int = 0,
+    cache_write_12h_tokens: int = 0,
 ) -> float:
     """Input-token cost in USD, cached tokens priced by family and TTL.
 
@@ -261,6 +273,9 @@ def cached_input_cost(
     rates = rates_for(provider_type, model_id)
     per_token = float(rate_per_million) / 1_000_000
 
+    if long_context_pricing(model_id, prompt_tokens):
+        per_token *= 2
+
     cost = max(int(prompt_tokens or 0), 0) * per_token
 
     reads = max(int(cache_read_tokens or 0), 0)
@@ -271,6 +286,11 @@ def cached_input_cost(
             cost -= reads * per_token * (1.0 - rates.read)
         else:
             cost += reads * per_token * rates.read
+
+    if is_gpt62_chat(model_id):
+        # Writes are already included in input. Charge only the premium.
+        writes_30m = max(cache_creation_tokens - cache_write_12h_tokens, 0)
+        cost += (0.25 * writes_30m + 1.5 * cache_write_12h_tokens) * per_token
 
     for tokens, ttl in ((cache_write_5m_tokens, TTL_5M), (cache_write_1h_tokens, TTL_1H)):
         n = max(int(tokens or 0), 0)

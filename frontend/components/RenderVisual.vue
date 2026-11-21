@@ -6,6 +6,7 @@
         :option="chartOptions"
         autoresize
         :loading="isLoading"
+        :theme="colorMode.value === 'dark' ? 'dark' : undefined"
        />
     </div>
     <div v-else-if="isLoading">
@@ -145,6 +146,7 @@ const props = defineProps<{
     resize?: boolean
 }>()
 
+const colorMode = useColorMode()
 const chartOptions = ref<EChartsOption>({})
 const isLoading = ref(false)
 const chartRenderKey = ref(0)
@@ -162,6 +164,7 @@ function getColors(): string[] {
 // --- Helper: Base Options ---
 function getBaseOptions(): EChartsOption {
     return {
+        backgroundColor: 'transparent',
         grid: {
             containLabel: true,
             left: '3%',
@@ -417,7 +420,7 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
         splitLine: { show: false }
     }
 
-    const gridColor = '#f7f7f9';
+    const gridColor = colorMode.value === 'dark' ? '#1f2937' : '#f7f7f9';
 
     // Units from the stored value-axis format (currency, percent, compact).
     const fmtValue = valueFormatter(props.view?.view?.axisY as any);
@@ -803,7 +806,7 @@ async function buildChartOptions() {
     }
 }
 
-watch([() => props.data?.rows, () => props.data_model, () => props.view], () => {
+watch([() => props.data?.rows, () => props.data_model, () => props.view, () => colorMode.value], () => {
     buildChartOptions();
 }, { immediate: true, deep: true });
 

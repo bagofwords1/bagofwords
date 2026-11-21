@@ -164,7 +164,13 @@ class SparkConnectClient(DataSourceClient):
         Auth and transport options are appended as `;key=value` params after the
         path separator, per the Spark Connect connection-string spec.
         """
-        url = f"sc://{self.host}:{self.port}/"
+        from app.data_sources.clients._sa_url import clean_host, clean_port
+
+        # `;` separates connection-string params, so it cannot be in the host.
+        host = clean_host(self.host)
+        if not host or ";" in host:
+            raise ValueError("The host name contains characters that are not allowed.")
+        url = f"sc://{host}:{clean_port(self.port)}/"
         params = []
         if self.use_ssl:
             params.append("use_ssl=true")

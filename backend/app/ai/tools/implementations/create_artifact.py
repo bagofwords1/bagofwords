@@ -14,8 +14,6 @@ from sqlalchemy.orm import selectinload
 from app.ai.tools.artifact_verification import with_automatic_artifact_check
 from app.services.artifact_payload import partial_data_used, partial_data_warning, row_count_fields
 from app.ai.tools.base import Tool
-from app.models.file import File
-from app.models.report_file_association import report_file_association
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +108,10 @@ class CreateArtifactTool(Tool):
         try:
             from playwright.async_api import async_playwright
         except ImportError:
+            logger.error(
+                "Artifact render check unavailable — dashboards are being saved WITHOUT a render "
+                "check until this is fixed: Playwright is not installed."
+            )
             return None, []
 
         js_errors: list[str] = []
@@ -186,7 +188,13 @@ class CreateArtifactTool(Tool):
                 finally:
                     os.unlink(tmp.name)
         except Exception as e:
-            logger.warning(f"Preview screenshot failed: {e}")
+            # Callers save the artifact anyway and report it as not
+            # render-checked (RENDER_UNCHECKED_NOTE); this line is what an
+            # operator finds when asking why broken dashboards get saved.
+            logger.error(
+                "Artifact render check unavailable — dashboards are being saved WITHOUT a render "
+                f"check until this is fixed (set BOW_CHROMIUM_EXECUTABLE to a working Chromium): {e}"
+            )
             return None, js_errors
 
     async def _generate_thumbnail_background(
@@ -237,13 +245,10 @@ class CreateArtifactTool(Tool):
         images: List[ImageInput] = []
         try:
             # Query files associated with this completion that are images
-            result = await db.execute(
-                select(File)
-                .join(report_file_association, report_file_association.c.file_id == File.id)
-                .where(report_file_association.c.completion_id == head_completion_id)
-                .where(File.content_type.startswith("image/"))
-            )
-            image_files = result.scalars().all()
+            # Upload links and Rerun links (prompt.file_ids) alike.
+            from app.services.completion_attachments import attached_files_by_completion
+            attached = await attached_files_by_completion(db, [str(head_completion_id)], images_only=True)
+            image_files = attached.get(str(head_completion_id), [])
 
             for f in image_files:
                 if not f.path:
@@ -395,6 +400,15 @@ class CreateArtifactTool(Tool):
     # stubborn defect can't consume the whole tool timeout — after this the
     # tool returns a structured failure and the planner decides.
     MAX_RENDER_REPAIR_ATTEMPTS = 5
+
+    # Appended to the observation of a page that was saved without a render:
+    # the model must not report an unrendered page as working.
+    RENDER_UNCHECKED_NOTE = (
+        " NOT RENDER-CHECKED: this server could not start its browser, so the code was saved "
+        "without being rendered and may fail when opened. Do NOT tell the user it works or "
+        "renders correctly. Say it was saved without a render check and ask them to open it "
+        "and report any error."
+    )
 
     @staticmethod
     def fatal_render_errors(errors: List[str]) -> List[str]:
@@ -1495,6 +1509,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         else:
             code = self._extract_code(buffer, mode=data.mode)
 
+        # Deterministic repairs (module statements, names wrongly taken from
+        # React): each removes something that cannot work in the page runtime,
+        # so they also hold where no browser can render.
+        if data.mode == "page":
+            from app.ai.tools.implementations._artifact_refs import normalize_page_code
+            code, _repair_notes = normalize_page_code(code)
+            warnings.extend(_repair_notes)
+
         # ═══════════════════════════════════════════════════════════════════════
         # Mode-specific processing: slides uses python-pptx, page skips to save
         # ═══════════════════════════════════════════════════════════════════════
@@ -1830,6 +1852,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             is_parse_failure = bool(render_errors) and all(e.startswith("[parse]") for e in render_errors)
             fatal_errors = self.fatal_render_errors(render_errors)
             first_error = fatal_errors[0] if fatal_errors else (render_errors[0] if render_errors else "unknown render error")
+            # The browser names the symptom; say what to change.
+            from app.ai.tools.implementations._artifact_refs import render_error_hint
+            _fix_hint = None if is_parse_failure else render_error_hint(first_error)
             failure_observation: Dict[str, Any] = {
                 "summary": (
                     f"Artifact '{data.title or 'Untitled'}' failed to parse (syntax error — "
@@ -1845,7 +1870,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "render_errors": render_errors,
                     "repair_attempts": repair_attempts,
                     "remediation": (
-                        "The code does not render. Fix it yourself against the exact error(s) above "
+                        (f"{_fix_hint} " if _fix_hint else "")
+                        + "The code does not render. Fix it yourself against the exact error(s) above "
                         "and call create_artifact again with the corrected `code` (a failed create "
                         "persists nothing); simplify the layout if the errors persist."
                     ),
@@ -1904,6 +1930,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             available=await artifact_verification_available(runtime_ctx, str(artifact.id)),
         )
         output["verification_hint"] = verification_hint
+        # False when the page was saved without being rendered (no usable
+        # browser on this server): the chat card says so instead of a plain tick.
+        render_checked = bool(screenshot_base64) if data.mode == "page" else None
+        if render_checked is not None:
+            output["render_checked"] = render_checked
 
         # Add UI preview fields (similar to read_artifact)
         code_lines = code.count('\n') + 1 if code else 0
@@ -1949,7 +1980,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 )
         elif data.mode == "page":
             if not screenshot_base64:
-                summary_msg += ". Static render preview unavailable; interactions have not been checked."
+                summary_msg += "." + self.RENDER_UNCHECKED_NOTE
             elif repair_attempts:
                 summary_msg += f". Render validation passed after {repair_attempts} in-tool repair attempt(s)."
             else:
@@ -1979,6 +2010,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
+        if render_checked is False:
+            observation["render_checked"] = False
         if render_errors:
             observation["render_errors"] = render_errors
         if repair_attempts:
@@ -2797,6 +2830,12 @@ Now create the dashboard:"""
 
         # Check if code already has an App function/component
         if re.search(r'function\s+App\s*\(', code) or re.search(r'(?:const|let|var)\s+App\s*=', code):
+            return code
+        # A page that mounts itself, or exports its root under another name
+        # (`export default ArtistDashboard`), already has a component: wrapping
+        # it inside a new App that returns nothing would render a blank page.
+        from app.ai.tools.implementations._artifact_refs import _MOUNTS_RE, exported_root
+        if _MOUNTS_RE.search(code) or exported_root(code):
             return code
 
         # Extract inner code between script tags

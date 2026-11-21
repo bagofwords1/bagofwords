@@ -567,6 +567,36 @@ def test_public_conversation_accessible_when_public(
 
 
 @pytest.mark.e2e
+def test_public_conversation_carries_org_locale(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """/c/{token} renders outside the app layout, so the payload carries the
+    sharing org's locale: default when unset, the org override once set — and
+    an anonymous viewer gets it too (that is who needs it most)."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+    report = create_report(title="Locale Conv", user_token=token, org_id=org_id, data_sources=[])
+    share_token = set_visibility(
+        report["id"], "conversation", "public", user_token=token, org_id=org_id,
+    ).json()["conversation_share_token"]
+
+    resp = test_client.get(f"/api/c/{share_token}")
+    assert resp.status_code == 200
+    assert resp.json()["locale"] == "en"
+
+    put = test_client.put("/api/organization/locale", json={"locale": "he"}, headers=headers)
+    assert put.status_code == 200, put.text
+
+    anon = test_client.get(f"/api/c/{share_token}")
+    assert anon.status_code == 200
+    assert anon.json()["locale"] == "he"
+
+
+@pytest.mark.e2e
 def test_public_conversation_blocked_when_private(
     test_client, create_report, set_visibility,
     create_user, login_user, whoami,

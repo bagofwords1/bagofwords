@@ -52,7 +52,7 @@
                                 <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.automations = !sectionOpen.automations">
                                     <UIcon :name="sectionOpen.automations ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.overview.automations') }}
-                                    <span v-if="automations.length" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ automations.length }}</span>
+                                    <span v-if="automations.length" class="normal-case font-normal text-ink-muted">{{ automations.length }}</span>
                                 </button>
                             </div>
                             <template v-if="sectionOpen.automations">
@@ -78,7 +78,7 @@
                                 <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.reports = !sectionOpen.reports">
                                     <UIcon :name="sectionOpen.reports ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.tabs.reports') }}
-                                    <span v-if="reportsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ reportsMeta.total }}</span>
+                                    <span v-if="reportsMeta.total" class="normal-case font-normal text-ink-muted">{{ reportsMeta.total }}</span>
                                 </button>
                                 <div v-if="sectionOpen.reports && reportsMeta.total_pages > 1" class="flex items-center gap-1 text-2xs text-ink-muted">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="reportsPage <= 1" @click="changeReportsPage(reportsPage - 1)" :aria-label="$t('common.previous')">
@@ -135,7 +135,7 @@
                                 <button type="button" class="flex items-center gap-1 text-2xs font-semibold text-ink-muted uppercase tracking-wider hover:text-gray-600 dark:hover:text-gray-300" @click="sectionOpen.dashboards = !sectionOpen.dashboards">
                                     <UIcon :name="sectionOpen.dashboards ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
                                     {{ $t('projects.tabs.dashboards') }}
-                                    <span v-if="dashboardsMeta.total" class="normal-case font-normal text-gray-300 dark:text-gray-600">{{ dashboardsMeta.total }}</span>
+                                    <span v-if="dashboardsMeta.total" class="normal-case font-normal text-ink-muted">{{ dashboardsMeta.total }}</span>
                                 </button>
                                 <div v-if="sectionOpen.dashboards && dashboardsMeta.total_pages > 1" class="flex items-center gap-1 text-2xs text-ink-muted">
                                     <button class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-40" :disabled="dashboardsPage <= 1" @click="changeDashboardsPage(dashboardsPage - 1)" :aria-label="$t('common.previous')">
@@ -203,7 +203,7 @@
                                         {{ (member.user_name || member.user_email || '?').charAt(0).toUpperCase() }}
                                     </div>
                                     <span class="flex-1 truncate text-xs text-gray-600 dark:text-gray-300">{{ member.user_name || member.user_email }}</span>
-                                    <span v-if="member.permissions.includes('owner')" class="text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.share.roleOwner') }}</span>
+                                    <span v-if="member.permissions.includes('owner')" class="text-2xs text-ink-muted">{{ $t('projects.share.roleOwner') }}</span>
                                     <button
                                         v-else-if="project.can_manage"
                                         class="flex items-center justify-center w-4 h-4 rounded text-gray-300 hover:text-red-500 opacity-0 group-hover/member:opacity-100 transition-opacity"
@@ -216,7 +216,7 @@
                                 </div>
                                 <p v-if="!projectMembers.length" class="text-xs text-ink-muted">{{ $t('projects.overview.onlyYou') }}</p>
                             </div>
-                            <p v-if="project.can_manage" class="mt-2 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.share.hint') }}</p>
+                            <p v-if="project.can_manage" class="mt-2 text-2xs text-ink-muted">{{ $t('projects.share.hint') }}</p>
                         </div>
 
                         <!-- Agents -->
@@ -272,7 +272,7 @@
                                 </div>
                             </div>
                             <p v-else class="text-xs text-ink-muted">{{ $t('projects.overview.noAgents') }}</p>
-                            <p class="mt-2 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.defaultsHint') }}</p>
+                            <p class="mt-2 text-2xs text-ink-muted">{{ $t('projects.settings.defaultsHint') }}</p>
                         </div>
 
                         <!-- Files (drag & drop) -->
@@ -309,7 +309,7 @@
                                 v-if="project.can_manage"
                                 type="button"
                                 class="mt-2 w-full py-3 rounded-md border border-dashed text-2xs transition-colors"
-                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-gray-600 hover:border-gray-300'"
+                                :class="isDraggingFiles ? 'border-blue-400 text-blue-500' : 'border-gray-200 dark:border-gray-700 text-ink-muted hover:text-ink-2 hover:border-gray-300'"
                                 @click="fileInputRef?.click()"
                             >
                                 <template v-if="uploadingFiles">{{ $t('projects.overview.uploading') }}</template>
@@ -332,12 +332,12 @@
                                     data-testid="instructions-editor"
                                 ></textarea>
                                 <div v-if="instructionsDirty" class="mt-1.5 flex items-center justify-end gap-1.5">
-                                    <button class="px-2 py-1 text-2xs rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
+                                    <button class="px-2 py-1 text-2xs rounded border border-gray-200 dark:border-gray-700 text-ink-muted hover:bg-gray-50 dark:hover:bg-gray-800" @click="instructionsDraft = project.instructions || ''">{{ $t('common.cancel') }}</button>
                                     <button class="px-2 py-1 text-2xs rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50" :disabled="savingInstructions" @click="saveInstructions">
                                         {{ savingInstructions ? $t('common.loading') : $t('common.save') }}
                                     </button>
                                 </div>
-                                <p v-else class="mt-1 text-2xs text-gray-300 dark:text-gray-600">{{ $t('projects.settings.instructionsHint') }}</p>
+                                <p v-else class="mt-1 text-2xs text-ink-muted">{{ $t('projects.settings.instructionsHint') }}</p>
                             </template>
                             <p v-text-dir.align v-else class="text-xs text-gray-500 dark:text-gray-400 whitespace-pre-line line-clamp-6">{{ project.instructions }}</p>
                         </div>

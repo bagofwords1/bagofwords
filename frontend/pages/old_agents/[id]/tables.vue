@@ -15,14 +15,14 @@
                     <span>{{ conn.name }}</span>
                 </div>
                 <span v-if="tableConnections.length > 3" class="text-xs text-ink-muted">+{{ tableConnections.length - 3 }}</span>
-                <button class="text-xs text-ink-muted hover:text-gray-600" @click="showManageModal = true">
+                <button class="text-xs text-ink-muted hover:text-ink-2" @click="showManageModal = true">
                     {{ t('agentPage.tables.manageConnections') }}
                 </button>
             </div>
 
             <AgentConnectionsModal v-model="showManageModal" />
 
-            <div v-if="anyIndexing" class="mb-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 px-3 py-2 text-xs text-blue-800">
+            <div v-if="anyIndexing" class="mb-3 flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 dark:bg-blue-950 px-3 py-2 text-xs text-blue-800 dark:text-blue-300">
                 <UIcon name="heroicons-arrow-path" class="w-4 h-4 animate-spin" />
                 <span>{{ t('agentPage.tables.schemaRefreshing') }}</span>
             </div>
@@ -92,7 +92,7 @@ onMounted(async () => {
 // grid never shows file rows. Gated on registryLoaded so shapes are known.
 const tableConnections = computed(() => (connections.value as any[]).filter((c: any) => {
   const shape = registryByType.value[c.type]?.data_shape
-  return shape === 'tables' || shape === 'objects' || (registryLoaded.value && !shape)
+  return c.has_file_tables || shape === 'tables' || shape === 'objects' || (registryLoaded.value && !shape)
 }))
 const tableConnectionIds = computed(() => tableConnections.value.map((c: any) => String(c.id)).join(','))
 

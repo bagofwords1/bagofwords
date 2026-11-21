@@ -13,6 +13,8 @@ const { chromium } = require('playwright');
 const [setupPath, reportArg, message, out] = process.argv.slice(2);
 const setup = JSON.parse(fs.readFileSync(setupPath, 'utf8'));
 const FRONT = process.env.BOW_FRONT_URL || 'http://localhost:3000';
+// Text the rendered dashboard must show (comma separated) to count as rendered.
+const EXPECT = (process.env.BOW_EXPECT_TEXT || 'Rock,826.65').split(',');
 const API = process.env.BOW_BASE_URL || 'http://localhost:8000';
 const headers = { Authorization: `Bearer ${setup.token}`, 'X-Organization-Id': setup.org_id, 'Content-Type': 'application/json' };
 
@@ -67,7 +69,13 @@ if (created && await tab.isVisible().catch(() => false)) {
     await page.waitForTimeout(2000);
     for (const f of page.frames()) {
       const text = await f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
-      if (text.includes('Rock') && text.includes('826.65')) rowsRendered = true;
+      if (EXPECT.every((needle) => text.includes(needle))) rowsRendered = true;
+    }
+    // The page's own error panel means the dashboard did not render, whatever
+    // a frame still holds.
+    if (await page.getByText('Dashboard failed to render').first().isVisible().catch(() => false)) {
+      rowsRendered = false;
+      break;
     }
   }
   await page.screenshot({ path: `${out}.dashboard.png`, fullPage: true });

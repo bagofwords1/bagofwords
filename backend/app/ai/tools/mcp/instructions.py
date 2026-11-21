@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
 from app.ai.tools.implementations._instruction_window import read_window
-from app.ai.tools.mcp.instruction_scope import in_scope, report_data_sources
+from app.ai.tools.mcp.instruction_scope import instruction_builder, report_data_sources
+from app.ai.tools.mcp.instruction_placement import PlacementRenderer, load_placements
 from app.models.user import User
 from app.models.organization import Organization
 from app.core.permission_resolver import resolve_permissions
@@ -112,9 +113,60 @@ def _pending(schema) -> bool:
     return getattr(schema, "current_build_status", None) == "pending_approval"
 
 
-def _detail(schema, *, can_edit: bool, window: Optional[Dict[str, Any]] = None) -> MCPInstructionDetail:
+async def _waiting_for_review(db, instruction_id) -> bool:
+    """Whether the instruction's newest version is still outside the live
+    (main) build — i.e. the change just written waits for review.
+
+    Read from the builds themselves: the detail schema's pending badge skips
+    a pending change whose text the live one already "covers", which is every
+    deletion-only edit, and would report a curator's unreviewed cut as live.
+    """
+    from sqlalchemy import select
+    from app.models.build_content import BuildContent
+    from app.models.instruction import Instruction
+    from app.models.instruction_build import InstructionBuild
+
+    current = await db.scalar(select(Instruction.current_version_id).where(Instruction.id == str(instruction_id)))
+    if current is None:
+        return False
+    live = await db.scalar(
+        select(BuildContent.instruction_version_id)
+        .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+        .where(BuildContent.instruction_id == str(instruction_id), InstructionBuild.is_main.is_(True),
+               InstructionBuild.deleted_at.is_(None), BuildContent.deleted_at.is_(None))
+        .limit(1)
+    )
+    if live is None:
+        # Not in the live build: waiting, unless the org has no live build at
+        # all (legacy data, read straight from the rows).
+        org_id = select(Instruction.organization_id).where(Instruction.id == str(instruction_id)).scalar_subquery()
+        has_main = await db.scalar(select(InstructionBuild.id).where(
+            InstructionBuild.organization_id == org_id, InstructionBuild.is_main.is_(True),
+            InstructionBuild.deleted_at.is_(None)).limit(1))
+        return has_main is not None
+    return str(live) != str(current)
+
+
+async def _open_suggestion(db, organization, user, instruction_id) -> bool:
+    """Whether a change to the instruction waits for review — the same answer
+    as /instructions/pending-changes (per-hunk, authoritative)."""
+    try:
+        ids = await InstructionService().get_pending_change_instruction_ids(
+            db, organization, user, candidate_ids=[str(instruction_id)],
+        )
+    except Exception:
+        logger.debug("pending check failed for %s", instruction_id, exc_info=True)
+        return await _waiting_for_review(db, instruction_id)
+    return str(instruction_id) in {str(i) for i in ids}
+
+
+def _detail(schema, *, can_edit: bool, window: Optional[Dict[str, Any]] = None,
+            placement: Optional[Dict[str, Any]] = None, pending: Optional[bool] = None) -> MCPInstructionDetail:
     """The instruction as MCP returns it. ``window`` (from read_window) replaces
-    the text with the part that was read and adds where it sits in the whole."""
+    the text with the part that was read and adds where it sits in the whole.
+    ``placement`` (from PlacementRenderer) says where it applies, as the caller
+    may see it."""
+    placement = placement or {}
     return MCPInstructionDetail(
         id=str(schema.id),
         title=getattr(schema, "title", None),
@@ -124,14 +176,33 @@ def _detail(schema, *, can_edit: bool, window: Optional[Dict[str, Any]] = None) 
         load_mode=getattr(schema, "load_mode", None),
         kind=getattr(schema, "kind", None),
         state=DB_TO_STATUS.get(getattr(schema, "status", None)),
-        agents=[
-            MCPInstructionAgentRef(id=str(ds.id), name=getattr(ds, "name", None))
-            for ds in (getattr(schema, "data_sources", None) or [])
-        ],
-        pending_review=_pending(schema),
+        scope=placement.get("scope"),
+        folders=placement.get("folders") or [],
+        agents=[MCPInstructionAgentRef(**a) for a in placement.get("agents") or []],
+        hidden_target_count=placement.get("hidden_target_count") or 0,
+        applies_nowhere=placement.get("applies_nowhere"),
+        pending_review=_pending(schema) if pending is None else pending,
         can_edit=can_edit,
         **(window["fields"] if window is not None else {}),
     )
+
+
+async def _placement(db, organization, user, inst_id, renderer: Optional[PlacementRenderer] = None):
+    renderer = renderer or PlacementRenderer(db, organization, user)
+    found = (await load_placements(db, [inst_id])).get(str(inst_id))
+    return await renderer.render(found) if found else None
+
+
+def _in_effect(db_status, pending: bool, *, created: bool = False) -> bool:
+    """Whether the rule reaches any report right now: it must be active, and a
+    rule that was just created must not be waiting for approval (a pending
+    edit leaves the live version in force)."""
+    return DB_TO_STATUS.get(db_status) == "active" and not (created and pending)
+
+
+# list_instructions fetches up to this many rows when it filters by placement,
+# then pages the matches itself.
+PLACEMENT_FILTER_FETCH = 1000
 
 
 class ListInstructionsMCPTool(MCPTool):
@@ -147,7 +218,8 @@ class ListInstructionsMCPTool(MCPTool):
         "List instructions from the current live build. "
         "Instructions are organizational knowledge that guide AI behavior. "
         "Returns instructions visible to the user based on their permissions. "
-        "Supports filtering by status, category, and text search. "
+        "Supports filtering by status, category, text search, folder_id, data_source_id and "
+        "scope (global/targeted). Each item says where it applies: scope, folders and agents. "
         f"Each item's text is cut to its first {LIST_TEXT_PREVIEW_CHARS} chars when longer "
         "(text_truncated: true, text_length = full length) — call read_instruction for the "
         "full text before quoting, following or editing an instruction."
@@ -167,18 +239,23 @@ class ListInstructionsMCPTool(MCPTool):
         """Execute list_instructions - returns instructions from main build."""
         
         input_data = MCPListInstructionsInput(**args)
+        # edit_instruction speaks active/inactive; accept the same words here.
+        if input_data.status in STATUS_TO_DB:
+            input_data.status = STATUS_TO_DB[input_data.status]
         permissions = await get_user_permissions(db, user, organization)
 
         # View is implicit: instruction_service filters by accessible data sources.
         instruction_service = InstructionService()
         
+        filtering = bool(input_data.folder_id or input_data.data_source_id or input_data.scope)
+
         # Get instructions from main build (build_id=None uses main)
         result = await instruction_service.get_instructions(
             db=db,
             organization=organization,
             current_user=user,
             skip=0,
-            limit=input_data.limit,
+            limit=PLACEMENT_FILTER_FETCH if filtering else input_data.limit,
             status=input_data.status,
             categories=[input_data.category] if input_data.category else None,
             include_own=True,
@@ -187,10 +264,32 @@ class ListInstructionsMCPTool(MCPTool):
             build_id=None,  # Main build
         )
         
+        items = list(result.get("items", []))
+        placements = await load_placements(db, [str(i.id) for i in items])
+        total = result.get("total", 0)
+        if filtering:
+            def keep(item) -> bool:
+                p = placements.get(str(item.id))
+                if p is None:
+                    return False
+                if input_data.scope and p.scope != input_data.scope:
+                    return False
+                if input_data.folder_id and input_data.folder_id not in p.folder_ids:
+                    return False
+                if input_data.data_source_id and input_data.data_source_id not in p.agent_ids:
+                    return False
+                return True
+            items = [i for i in items if keep(i)]
+            total = len(items)
+            items = items[: input_data.limit]
+
+        renderer = PlacementRenderer(db, organization, user)
         # Map to output schema
         instructions = []
-        for item in result.get("items", []):
+        for item in items:
             text = item.text or ""
+            p = placements.get(str(item.id))
+            view = await renderer.render(p) if p else {}
             instructions.append(MCPInstructionItem(
                 id=str(item.id),
                 title=item.title,
@@ -201,13 +300,17 @@ class ListInstructionsMCPTool(MCPTool):
                 status=item.status or "published",
                 load_mode=item.load_mode or "always",
                 source_type=item.source_type or "user",
+                scope=view.get("scope"),
+                folders=view.get("folders") or [],
+                agents=[MCPInstructionAgentRef(**a) for a in view.get("agents") or []],
+                hidden_target_count=view.get("hidden_target_count") or 0,
             ))
         
         logger.info(f"list_instructions: returned {len(instructions)} instructions for user {user.id}")
         
         return MCPListInstructionsOutput(
             instructions=instructions,
-            total=result.get("total", 0),
+            total=total,
         ).model_dump()
 
 
@@ -222,8 +325,8 @@ class ReadInstructionMCPTool(MCPTool):
     name = "read_instruction"
     read_only_hint = True
     description = (
-        "Read an instruction in full: text, category, load mode, the agents it applies to "
-        "(empty = global), whether a change is pending admin review, and whether you can edit it. "
+        "Read an instruction in full: text, category, load mode, where it applies (scope: "
+        "'global' or 'targeted', with its folders and agents), whether a change is pending admin review, and whether you can edit it. "
         "Use it for the entries get_context lists without text (pass report_id; instruction_ids "
         "reads several at once). list_instructions truncates text — read the full text here "
         "before editing. "
@@ -252,15 +355,33 @@ class ReadInstructionMCPTool(MCPTool):
                 "use instruction_id with them."
             )
 
-        report, scope_ids = None, None
+        report, in_report = None, None
         if data.report_id:
             try:
                 report = await self._load_report(db, data.report_id, user, organization)
             except HTTPException:
                 return self._fail("Report not found")
-            scope_ids = [str(ds.id) for ds in await report_data_sources(db, report, user, organization)]
+            # The report's scope is decided by the same builder get_context lists
+            # with (global rules, rules on the report's agents, rules on its
+            # folders — live, in mode/channel), so the two always agree. An empty
+            # agent list is not "global": a folder-only rule has none.
+            builder = instruction_builder(
+                db, organization, user, report, await report_data_sources(db, report, user, organization),
+            )
+            wanted = [data.instruction_id] if data.instruction_id else list(dict.fromkeys(data.instruction_ids))
+            # The text the report applies is the approved (live) version; a
+            # change still waiting for review is not part of it.
+            in_report = {
+                str(it.id): it.text for it in await builder.load_instructions_by_ids(wanted, load_mode_filter=None)
+            }
+
+        def _text(schema) -> str:
+            if in_report is not None and in_report.get(str(schema.id)) is not None:
+                return in_report[str(schema.id)]
+            return getattr(schema, "text", "") or ""
 
         svc = InstructionService()
+        renderer = PlacementRenderer(db, organization, user)
 
         async def _open(inst_id: str):
             schema = await svc.get_instruction(db, inst_id, organization, user)
@@ -268,8 +389,7 @@ class ReadInstructionMCPTool(MCPTool):
             # can't see stay hidden, even for admins who aren't members.
             if schema is None or not await svc.user_can_view_instruction(db, schema, user, organization):
                 return None
-            agents = [ds.id for ds in (getattr(schema, "data_sources", None) or [])]
-            if scope_ids is not None and not in_scope(agents, scope_ids):
+            if in_report is not None and str(schema.id) not in in_report:
                 return None
             return schema
 
@@ -279,7 +399,7 @@ class ReadInstructionMCPTool(MCPTool):
                 return self._fail("Instruction not found" + (" in this report" if report else ""))
             try:
                 window = read_window(
-                    getattr(schema, "text", "") or "",
+                    _text(schema),
                     getattr(schema, "title", None) or str(schema.id)[:8],
                     offset=data.offset,
                     col_offset=data.col_offset,
@@ -294,10 +414,17 @@ class ReadInstructionMCPTool(MCPTool):
                 return self._fail(f"Invalid grep_pattern: {e}")
             await self._record_read(db, organization, user, report, schema)
             can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
+            placement = await _placement(db, organization, user, schema.id, renderer)
+            pending = await _open_suggestion(db, organization, user, schema.id)
+            message = window["summary"]
+            if report is not None and pending and _text(schema) != (getattr(schema, "text", "") or ""):
+                message += (" A change to this instruction is waiting for review: this is the approved "
+                            "text the report applies. Read it without report_id to see the pending text "
+                            "before editing.")
             return MCPReadInstructionOutput(
                 success=True,
-                instruction=_detail(schema, can_edit=can_edit, window=window),
-                message=window["summary"],
+                instruction=_detail(schema, can_edit=can_edit, window=window, placement=placement, pending=pending),
+                message=message,
             ).model_dump()
 
         details, not_read, not_found, used = [], [], [], 2
@@ -309,11 +436,11 @@ class ReadInstructionMCPTool(MCPTool):
             if schema is None:
                 not_found.append(inst_id)
                 continue
-            window = read_window(
-                getattr(schema, "text", "") or "", getattr(schema, "title", None) or str(schema.id)[:8],
-            )
+            window = read_window(_text(schema), getattr(schema, "title", None) or str(schema.id)[:8])
             can_edit = await _can(require_instruction_authority(db, user, organization, schema, allow_owner=True))
-            detail = _detail(schema, can_edit=can_edit, window=window)
+            placement = await _placement(db, organization, user, schema.id, renderer)
+            detail = _detail(schema, can_edit=can_edit, window=window, placement=placement,
+                             pending=await _open_suggestion(db, organization, user, schema.id))
             cost = len(json.dumps(detail.model_dump(), default=str)) + 2
             if details and used + cost > BATCH_READ_BUDGET:
                 not_read.append(inst_id)
@@ -369,15 +496,30 @@ class ReadInstructionMCPTool(MCPTool):
             logger.debug("read_instruction: usage event failed", exc_info=True)
 
 
+def _dedupe(values) -> list:
+    return list(dict.fromkeys(str(v).strip() for v in (values or []) if v and str(v).strip()))
+
+
+NO_TARGET = (
+    "Say where the rule applies: folder_ids and/or data_source_ids (browse_agents lists the ones "
+    "you can use), or scope: 'global' for a rule that applies in every report (needs org-level "
+    "instruction admin)."
+)
+
+
 class CreateInstructionMCPTool(MCPTool):
     """Create an instruction — same rules and outcome as creating it in the web app."""
 
     name = "create_instruction"
     description = (
         "Create a new instruction that guides AI behavior when generating code and analyzing data. "
-        "Pass folder_id for a rule owned by one folder. Pass data_source_ids to scope it to agents you manage "
-        "instructions on; without them it is global (every agent), which needs org-level "
-        "instruction admin."
+        "Say where it applies: folder_ids (folders, from browse_agents) and/or data_source_ids "
+        "(agents) — one rule can be shared across several folders and agents. A folder rule applies "
+        "in reports scoped to that folder, for every agent in it including later ones, not in reports "
+        "pinned to single agents; the response's applies_in says where. You need "
+        "instruction-management rights on each. For a rule that applies in every report, pass "
+        "scope: 'global' instead (org-level instruction admin only). folder_id (one owning "
+        "folder) still works."
     )
 
     @property
@@ -390,25 +532,33 @@ class CreateInstructionMCPTool(MCPTool):
 
     async def execute(self, args, db, user, organization):
         input_data = MCPCreateInstructionInput(**args)
-        ds_ids = [str(i) for i in (input_data.data_source_ids or [])]
+        ds_ids = _dedupe(input_data.data_source_ids)
+        folder_ids = _dedupe(([input_data.folder_id] if input_data.folder_id else []) + (input_data.folder_ids or []))
 
-        # The web app's gates: POST /instructions needs manage_instructions on
-        # every listed agent; POST /instructions/global (no agents) needs it
-        # org-wide. An agent manager can't author an org-wide rule.
+        def fail(msg, code):
+            return MCPCreateInstructionOutput(
+                success=False, requires_approval=False, error_message=msg, rejected_reason=code,
+            ).model_dump()
+
+        if input_data.scope == "global" and (ds_ids or folder_ids):
+            return fail("A global rule applies in every report: pass scope 'global' without folders or "
+                        "agents, or drop scope to attach it to them.", "invalid_input")
+        if input_data.scope != "global" and not ds_ids and not folder_ids:
+            return fail(NO_TARGET, "no_target")
+
+        # The web app's gates (POST /instructions): manage_instructions on every
+        # listed folder and agent; a rule with no target needs it org-wide.
         try:
-            if input_data.folder_id:
-                if ds_ids:
-                    raise HTTPException(422, "Choose a folder or specific agents")
+            if folder_ids:
                 from app.services.folder_service import lock_tree
                 from app.services.folder_knowledge import require_capability
                 await lock_tree(db, organization, user)
-                await require_capability(db, organization, user, input_data.folder_id, "manage_instructions")
-            else:
+                for fid in folder_ids:
+                    await require_capability(db, organization, user, fid, "manage_instructions")
+            if ds_ids or not folder_ids:
                 await require_scope_authority(db, user, organization, ds_ids)
         except HTTPException as e:
-            return MCPCreateInstructionOutput(
-                success=False, requires_approval=False, error_message=_refusal(e),
-            ).model_dump()
+            return fail(_refusal(e), "permission_denied")
 
         svc = InstructionService()
         instruction_data = InstructionCreate(
@@ -424,25 +574,82 @@ class CreateInstructionMCPTool(MCPTool):
         try:
             result = await svc.create_instruction(
                 db=db, instruction_data=instruction_data, current_user=user,
-                organization=organization, folder_id=input_data.folder_id,
+                organization=organization, folder_id=input_data.folder_id, target_folder_ids=folder_ids,
             )
         except Exception as e:
             # A DB error's text carries the title and text as bound parameters.
             logger.error("create_instruction failed for user %s: %s", user_id, describe_for_log(e))
-            return MCPCreateInstructionOutput(
-                success=False, requires_approval=False, error_message=_refusal(e),
-            ).model_dump()
+            return fail(_refusal(e), "permission_denied" if getattr(e, "status_code", None) == 403 else "create_failed")
 
         # Report what the build layer actually did.
-        fresh = await svc.get_instruction(db, str(result.id), organization, user)
-        pending = _pending(fresh) if fresh is not None else True
-        logger.info("create_instruction: %s by user %s pending=%s", result.id, user.id, pending)
+        pending = await _waiting_for_review(db, result.id)
+        logger.info("create_instruction: %s by user %s pending=%s", result.id, user_id, pending)
+        # Where it applies as this caller may see it; the inputs stand in when
+        # the placement can't be read back.
+        placement = await _placement(db, organization, user, result.id) or {
+            "scope": "targeted" if (folder_ids or ds_ids) else "global",
+            "folders": [{"id": f} for f in folder_ids], "agents": [{"id": a} for a in ds_ids],
+        }
+        in_effect = _in_effect(getattr(result, "status", None), pending, created=True)
         return MCPCreateInstructionOutput(
             success=True,
             instruction_id=str(result.id), folder_id=input_data.folder_id,
+            scope="targeted" if (folder_ids or ds_ids) else "global",
+            folder_ids=folder_ids, data_source_ids=ds_ids,
+            applies_in=applies_in(placement, in_effect=in_effect, pending=pending),
+            in_effect=in_effect,
             build_status="pending_approval" if pending else "approved",
             requires_approval=pending,
         ).model_dump()
+
+
+def applies_in(placement: Optional[Dict[str, Any]], *, in_effect: bool = True, pending: bool = False) -> str:
+    """Where a rule takes effect, in the words a client should repeat.
+
+    ``placement`` is the caller's rendered view (PlacementRenderer), so the
+    counts cover only the folders and agents this caller may see; the rest are
+    mentioned without a number. A rule that is inactive, or was just created
+    and waits for approval, reaches no report yet, and the text says so first.
+    """
+    placement = placement or {}
+    if placement.get("scope") == "global":
+        where = "every report"
+    else:
+        folders, agents = len(placement.get("folders") or []), len(placement.get("agents") or [])
+        parts = []
+        if folders:
+            parts.append(
+                f"reports scoped to its {folders} folder(s) (create_report agent_folder_ids), for every "
+                "agent in them, including agents added later — not in reports pinned to individual agents or "
+                "title-only reports"
+            )
+        if agents:
+            parts.append(f"any report that uses one of its {agents} agent(s)")
+        if placement.get("hidden_target_count"):
+            parts.append("reports that reach its other folders or agents, which you can't see")
+        if not parts:
+            return "No report: it has no folder or agent."
+        where = "in " + "; and in ".join(parts)
+    if in_effect:
+        return where[0].upper() + where[1:] + "."
+    why = "it waits for approval" if pending else "it is inactive"
+    return f"No report yet: {why}. Once it is live: {where}."
+
+
+LAST_TARGET = (
+    "Edit rejected: this would detach the rule from its last folder/agent. A rule is never made "
+    "global by detaching it. To keep it, leave at least one folder or agent (or attach a new one "
+    "in the same call). To stop it applying anywhere, set status: 'inactive' or delete it with "
+    "delete_instruction. To apply it in every report, pass scope: 'global' (org-level "
+    "instruction admin only)."
+)
+
+
+def _resolve_targets(current: list, replace, add, remove) -> list:
+    out = list(current) if replace is None else _dedupe(replace)
+    out += [x for x in _dedupe(add) if x not in out]
+    gone = set(_dedupe(remove))
+    return [x for x in out if x not in gone]
 
 
 class EditInstructionMCPTool(MCPTool):
@@ -460,9 +667,13 @@ class EditInstructionMCPTool(MCPTool):
         "Text edits are anchored: pass `old_text` (an exact, unique snippet of the current text — "
         "read_instruction first) and `text` (its replacement). Only for an explicit rewrite, set "
         "replace_entire_text: true. Make several small anchored edits rather than one rewrite. "
-        "status 'inactive' turns it off, 'active' back on. data_source_ids replaces the agent "
-        "scope ([] = global). You need instruction-management rights on every agent it applies "
-        "to (and on the new scope); global instructions need org-level instruction admin."
+        "status 'inactive' turns it off, 'active' back on. Where it applies: add_folder_ids / "
+        "remove_folder_ids and add_data_source_ids / remove_data_source_ids attach or detach "
+        "single targets and keep the rest (folder_ids / data_source_ids replace the whole list). "
+        "Text-only edits keep every placement. Detaching the last target is refused — a rule "
+        "only becomes global with scope: 'global'. You need instruction-management rights on "
+        "every folder and agent it applies to (and on any you add); global instructions need "
+        "org-level instruction admin."
     )
 
     @property
@@ -496,28 +707,63 @@ class EditInstructionMCPTool(MCPTool):
             )
         if (data.old_text is not None or data.replace_entire_text) and data.text is None:
             return fail("old_text / replace_entire_text need `text` (the replacement).", "invalid_input")
+        target_args = (data.data_source_ids, data.add_data_source_ids, data.remove_data_source_ids,
+                       data.folder_ids, data.add_folder_ids, data.remove_folder_ids)
+        if data.scope == "global" and any(v for v in target_args):
+            return fail("scope 'global' detaches the rule from every folder and agent: don't pass "
+                        "folders or agents with it.", "invalid_input")
         if not any(v is not None for v in (
-            data.text, data.title, data.category, data.load_mode, data.status, data.data_source_ids,
+            data.text, data.title, data.category, data.load_mode, data.status, data.scope, *target_args,
         )):
             return fail("Nothing to change: pass at least one field.", "no_change")
 
-        # ── rights (web app's rules) ──
+        # ── placement: where the rule applies after this edit ──
         svc = InstructionService()
+        current = (await load_placements(db, [data.instruction_id])).get(str(data.instruction_id))
+        if current is None:
+            return fail(NOT_FOUND, "not_found")
+        to_global = data.scope == "global"
+        if to_global:
+            new_folders, new_agents = [], []
+        else:
+            new_folders = _resolve_targets(current.folder_ids, data.folder_ids, data.add_folder_ids, data.remove_folder_ids)
+            new_agents = _resolve_targets(current.agent_ids, data.data_source_ids, data.add_data_source_ids,
+                                          data.remove_data_source_ids)
+        folders_changed = set(new_folders) != set(current.folder_ids)
+        agents_changed = set(new_agents) != set(current.agent_ids)
+        placement_changed = folders_changed or agents_changed or (to_global and current.scope != "global")
+
+        # ── rights (web app's rules) ──
+        if placement_changed:
+            from app.services.folder_service import lock_tree
+            await lock_tree(db, organization, user)
         existing = await svc.get_instruction(db, data.instruction_id, organization, user)
         if existing is None:
             return fail(NOT_FOUND, "not_found")
         try:
-            await require_instruction_authority(db, user, organization, existing, allow_owner=True)
+            # Changing where a rule applies is governance: the author carve-out
+            # for a scope-less rule covers content only (as PUT /instructions).
+            await require_instruction_authority(db, user, organization, existing, allow_owner=not placement_changed)
         except HTTPException:
             if await svc.user_can_view_instruction(db, existing, user, organization):
                 return fail(
                     "Permission denied: you can read this instruction but not change it. Changing "
-                    "it needs instruction-management rights on every agent it applies to.",
+                    "it needs instruction-management rights on every folder and agent it applies to "
+                    "(including ones you may not see).",
                     "permission_denied",
                 )
             return fail(NOT_FOUND, "not_found")
+        if placement_changed and not to_global and not new_folders and not new_agents:
+            # Never silently global, never left active with nowhere to apply.
+            return fail(LAST_TARGET, "would_remove_last_target")
         try:
-            await require_scope_authority(db, user, organization, data.data_source_ids)
+            if placement_changed:
+                from app.services.folder_knowledge import require_capability
+                for fid in new_folders:
+                    await require_capability(db, organization, user, fid, "manage_instructions")
+                if new_agents or not new_folders:
+                    # [] (scope 'global') needs org-level instruction admin.
+                    await require_scope_authority(db, user, organization, new_agents)
         except HTTPException as e:
             return fail(_refusal(e), "permission_denied")
 
@@ -556,8 +802,8 @@ class EditInstructionMCPTool(MCPTool):
                     "be switched on or off.", "status_change_not_allowed",
                 )
             new_db_status = STATUS_TO_DB[data.status]
-            only_status = all(v is None for v in (
-                data.text, data.title, data.category, data.load_mode, data.data_source_ids,
+            only_status = not placement_changed and all(v is None for v in (
+                data.text, data.title, data.category, data.load_mode,
             ))
             if new_db_status == base_status and only_status:
                 return fail(f"The instruction is already {data.status}.", "no_change")
@@ -567,13 +813,26 @@ class EditInstructionMCPTool(MCPTool):
         changes = {
             "text": new_text, "title": data.title, "category": data.category,
             "load_mode": data.load_mode, "status": new_db_status,
-            "data_source_ids": data.data_source_ids,
+            # An explicit agent list is passed through even when unchanged (a
+            # no-op re-scope succeeds, as a save in the web app does).
+            "data_source_ids": new_agents if (agents_changed or to_global or data.data_source_ids is not None) else None,
         }
         update = InstructionUpdate(**{k: v for k, v in changes.items() if v is not None})
         # A failed commit expires the session's objects; read the id now.
         user_id = str(user.id)
         try:
-            updated = await svc.update_instruction(db, data.instruction_id, update, organization, user)
+            updated = await svc.update_instruction(
+                db, data.instruction_id, update, organization, user,
+                target_folder_ids=new_folders if (folders_changed or to_global) else None,
+            )
+            if updated is not None and current.owner_folder_id and current.owner_folder_id not in new_folders:
+                # Detached from its owning folder: it no longer belongs to that
+                # folder, so deleting that folder later must not take it along.
+                from sqlalchemy import update as sql_update
+                from app.models.instruction import Instruction
+                await db.execute(sql_update(Instruction).where(Instruction.id == data.instruction_id)
+                                 .values(owner_folder_id=None))
+                await db.commit()
         except HTTPException as e:
             logger.info("edit_instruction %s by %s refused: %s", data.instruction_id, user_id, e.detail)
             return fail(_refusal(e), "permission_denied" if e.status_code == 403 else "invalid_input")
@@ -584,7 +843,9 @@ class EditInstructionMCPTool(MCPTool):
             return fail(NOT_FOUND, "not_found")
 
         fresh = await svc.get_instruction(db, data.instruction_id, organization, user) or updated
-        pending = _pending(fresh)
+        pending = await _waiting_for_review(db, data.instruction_id)
+        placement = await _placement(db, organization, user, data.instruction_id)
+        in_effect = _in_effect(getattr(fresh, "status", None), pending)
         status_changed = new_db_status is not None and new_db_status != base_status
         logger.info("edit_instruction: %s by user %s pending=%s", data.instruction_id, user_id, pending)
         return MCPEditInstructionOutput(
@@ -596,7 +857,9 @@ class EditInstructionMCPTool(MCPTool):
             new_text=fresh.text if new_text is not None else None,
             previous_status=DB_TO_STATUS.get(base_status) if status_changed else None,
             new_status=data.status if status_changed else None,
-            instruction=_detail(fresh, can_edit=True),
+            instruction=_detail(fresh, can_edit=True, pending=pending, placement=placement),
+            applies_in=applies_in(placement, in_effect=in_effect) if placement else None,
+            in_effect=in_effect if placement else None,
         ).model_dump()
 
 

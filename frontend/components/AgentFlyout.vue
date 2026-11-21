@@ -67,7 +67,7 @@
             <button
               v-if="locked"
               @click.stop="emit('connect', agentDetails)"
-              class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+              class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors"
             >
               <Icon name="heroicons-key" class="w-3.5 h-3.5" />
               {{ $t('data.connect') }}

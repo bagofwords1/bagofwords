@@ -214,6 +214,8 @@ def restrict_self(
     rw_paths: Iterable[str] = (),
     read_files: Iterable[str] = (),
     rw_files: Iterable[str] = (),
+    execute_files: Iterable[str] = (),
+    socket_paths: Iterable[str] = (),
     block_tcp: bool = True,
     scope_signals: bool = True,
 ) -> LandlockReport:
@@ -222,6 +224,9 @@ def restrict_self(
     `read_paths` / `rw_paths` are directory hierarchies; `read_files` /
     `rw_files` are individual files (a rule on a file grants only file-level
     rights, so an uploaded file can be exposed without its siblings).
+    `socket_paths` are directories in which the process may create UNIX
+    socket files and nothing else: no reading, writing or removing (for a
+    program that insists on a local IPC socket in a fixed directory).
 
     Everything not listed is denied for every right the kernel's ABI handles.
     With `block_tcp` (ABI >= 4) the process can neither bind nor connect TCP.
@@ -251,7 +256,9 @@ def restrict_self(
         specs = [
             (read_paths, READ_RIGHTS & fs_mask),
             (rw_paths, RW_RIGHTS & fs_mask),
+            (socket_paths, FS_MAKE_SOCK),
             (read_files, FS_READ_FILE),
+            (execute_files, FS_READ_FILE | FS_EXECUTE),
             (rw_files, (FS_READ_FILE | FS_WRITE_FILE | FS_TRUNCATE) & fs_mask & file_rights_mask),
         ]
         seen = set()

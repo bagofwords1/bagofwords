@@ -2,6 +2,13 @@
 
 How Claude debugs, iterates, and validates changes in a local dev environment.
 
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip "Environment Setup" and "Sandbox Setup". `bow-stack` runs the
+> backend and frontend (same reload/HMR behaviour as below), the user, org, LLM and chinook demo data source are
+> provisioned, and Playwright browsers and vendored JS libs are installed. Log in as the DevBox admin
+> (`source tools/agent/devbox_env.sh`, then `POST /api/auth/jwt/login` with `$BOW_ADMIN_EMAIL` /
+> `$BOW_ADMIN_PASSWORD`) instead of registering; the database is `$BOW_DATABASE_URL`, not `backend/db/app.db`;
+> logs are `bow-stack logs backend`. Full mapping: the root `AGENTS.md`, "DevBox".
+
 ## How It Works
 
 Local dev is already running (`python main.py` + `yarn dev`). The DB is `backend/db/app.db` (persistent SQLite). Claude uses curl to drive the app, pytest for backend validation, Playwright for visual validation, and sqlite3 to inspect state.

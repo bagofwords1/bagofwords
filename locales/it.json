@@ -97,8 +97,19 @@
       "handle": "Reference"
     },
     "loadAll": "Load all items",
-    "stopLoading": "Stop loading",
-    "setting": "Mostra Mondo in Agenti"
+    "stopLoading": "Stop loading"
+  },
+  "filePicker": {
+    "searchPlaceholder": "Cerca file…",
+    "uploadFile": "Carica file",
+    "uploadTitle": "Carica file",
+    "clickOrDrag": "Clicca o trascina i file da caricare",
+    "dropHere": "Rilascia i file qui",
+    "files": "File",
+    "noFilesYet": "Nessun file ancora",
+    "connect": "Connetti",
+    "searching": "Ricerca…",
+    "noResults": "Nessun risultato"
   },
   "agentLanding": {
     "actions": "Azioni agente",
@@ -133,6 +144,8 @@
     "newInstructionDesc": "Una regola, una competenza o una nota per i tuoi agenti",
     "newAgent": "Agente",
     "newAgentDesc": "Collega dati, strumenti e tabelle",
+    "importAgent": "Importa agente",
+    "importAgentDesc": "Da uno zip di agente esportato",
     "searchPlaceholder": "Cerca ovunque…",
     "clearSearch": "Cancella ricerca",
     "searchAgentInstructions": "Cerca istruzioni…",
@@ -501,6 +514,7 @@
     "collapseSidebar": "Comprimi barra laterale",
     "resizeSidebar": "Ridimensiona barra laterale",
     "switchOrganization": "Cambia organizzazione",
+    "createOrganization": "Crea organizzazione",
     "version": "Versione",
     "loggedInAs": "Connesso come {name}",
     "prompts": "Prompt",
@@ -528,7 +542,7 @@
     "content": {
       "low_confidence": {
         "title": "Risposte a bassa confidenza",
-        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Avvia un addestramento per colmare le lacune."
+        "body": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Miglioralo in modalità addestramento per colmare le lacune."
       },
       "slow_query": {
         "title": "Query sui dati lente (>{secs}s)",
@@ -536,7 +550,10 @@
       },
       "schema_changed": {
         "title": "Lo schema della connessione è cambiato",
-        "body": "Tabelle o colonne di questa connessione sono cambiate. Riesegui valutazioni o addestramento per mantenere accurate le istruzioni."
+        "body": "Tabelle o colonne di questa connessione sono cambiate. Verificalo in modalità addestramento per mantenere accurate le istruzioni.",
+        "title_named": "{agent}: schema modificato in {connection}",
+        "title_agent": "{agent}: schema modificato",
+        "body_counts": "Tabelle aggiunte: {added} · rimosse: {removed} · modificate: {modified}. Controlla le tabelle e le istruzioni dell'agente."
       },
       "instruction_suggestion": {
         "body_ai": "Modifica di istruzione generata dall'IA in attesa di revisione.",
@@ -590,12 +607,125 @@
       "access_granted": {
         "title": "Ora puoi vedere {dashboard}",
         "body": "La tua richiesta di vedere «{dashboard}» è stata approvata."
+      },
+      "nightly_learning": {
+        "title": "{agent}: apprendimento notturno",
+        "title_learned": "{agent}: nuovi apprendimenti della notte ({n})",
+        "title_cleanup": "{agent}: pulizia notturna dei suggerimenti"
+      },
+      "query_error": {
+        "title": "Errori nelle query sui dati",
+        "body": "Alcune query sui dati di questo agente non sono riuscite. Miglioralo in modalità addestramento per colmare la lacuna."
       }
     },
     "checkin": {
       "badge": "Follow-up",
       "openReport": "Apri report",
       "assistantFallback": "Analista IA"
+    },
+    "filterAgents": "Agenti",
+    "filterShares": "Condivisioni",
+    "filterRuns": "Esecuzioni",
+    "filterConnections": "Connessioni",
+    "detail": {
+      "resolved": "Gestito",
+      "dismissed": "Gestito",
+      "open": "Apri",
+      "reviewTables": "Rivedi le tabelle",
+      "reviewInstruction": "Rivedi l'istruzione",
+      "viewQueries": "Vedi le query",
+      "openEvals": "Apri le valutazioni",
+      "viewChecks": "Vedi i controlli",
+      "openInReview": "Apri in Revisione",
+      "connection": "Connessione",
+      "by": "da {name}",
+      "reliabilityStarted": "Un controllo di affidabilità è partito {time}: vengono eseguite le valutazioni e, se falliscono, l'addestramento.",
+      "history": "Modifiche precedenti",
+      "historyEntry": "{added} aggiunte · {removed} rimosse · {modified} modificate",
+      "showDetails": "Dettagli",
+      "hideDetails": "Nascondi dettagli"
+    },
+    "diff": {
+      "addedTables": "Tabelle aggiunte",
+      "removedTables": "Tabelle rimosse",
+      "changedTables": "Tabelle modificate",
+      "newInactive": "Nuove nella connessione, non attive per questo agente",
+      "more": "+{n} altre tabelle"
+    },
+    "clearHandled": "Cancella gestiti",
+    "handled": {
+      "marked": "{name} l'ha segnato come gestito",
+      "suggestion_reviewed": "{name} ha esaminato il suggerimento",
+      "suggestion_rejected": "{name} ha rifiutato il suggerimento",
+      "suggestion_voided": "L'istruzione è cambiata",
+      "training_passed": "L'addestramento avviato da {name} è riuscito",
+      "eval_passed": "La valutazione avviata da {name} è riuscita",
+      "condition_cleared": "Il problema è scomparso",
+      "someone": "Qualcuno"
+    }
+  },
+  "reviewFeed": {
+    "title": "Revisione",
+    "subtitle": "Una coda condivisa per chi gestisce gli agenti: ciò che una persona gestisce si chiude per tutti.",
+    "refresh": "Aggiorna",
+    "close": "Chiudi",
+    "search": "Cerca…",
+    "allAgents": "Tutti gli agenti",
+    "resolvedFilter": "Gestiti",
+    "emptyTitle": "Sei in pari",
+    "emptyBody": "Niente da rivedere. Nuovi suggerimenti, modifiche allo schema e segnali di qualità appariranno qui.",
+    "emptyBodyAgent": "Niente da rivedere per questo agente. Nuovi suggerimenti, modifiche allo schema e segnali di qualità appariranno qui.",
+    "changes": "{n} modifiche",
+    "running": "In corso",
+    "resolved": "Gestito",
+    "dismiss": "Segna come gestito",
+    "agent": "Agente",
+    "nAgents": "{n} agenti",
+    "noEvals": "Questo agente non ha valutazioni. Aggiungi prima un caso di test.",
+    "nothingToRun": "Niente da eseguire",
+    "actionUnavailable": "Azione non disponibile",
+    "evalStarted": "Valutazione avviata",
+    "done": "Fatto",
+    "actionFailed": "Azione non riuscita",
+    "dismissFailed": "Impossibile ignorare",
+    "chipSuggestions": "Suggerimenti",
+    "chipSchema": "Schema",
+    "chipSlow": "Lente",
+    "chipLowConfidence": "Bassa affidabilità",
+    "typeSuggestion": "Suggerimento",
+    "typeSchema": "Modifica allo schema",
+    "typeSlow": "Query lenta",
+    "typeLowConfidence": "Bassa affidabilità",
+    "typeQueryError": "Errore di query",
+    "actionReview": "Rivedi",
+    "actionRunEval": "Esegui valutazione",
+    "focusResolved": "Questo elemento è già stato gestito.",
+    "focusGone": "Questo elemento non è più aperto. È stato risolto o chiuso.",
+    "all": "Tutti",
+    "openN": "{n} aperti",
+    "multipleAgents": "Più agenti",
+    "more": "Altre azioni",
+    "times": "{n} volte",
+    "actionTrainInChat": "Migliora in modalità addestramento",
+    "train": {
+      "schema": "Lo schema della connessione {connection} è cambiato:\n{changes}\n\nRivedi le istruzioni e le query salvate di questo agente che usano queste tabelle o colonne e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "schemaGeneric": "Lo schema della connessione {connection} è cambiato. Rivedi le istruzioni e le query salvate di questo agente che usano le tabelle o colonne modificate e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "tableAdded": "- Nuova tabella: {table}",
+      "tableRemoved": "- Tabella rimossa: {table}",
+      "colsAdded": "colonne aggiunte {cols}",
+      "colsRemoved": "colonne rimosse {cols}",
+      "typeChanged": "il tipo di {col} è cambiato da {from} a {to}",
+      "lowConfidence": "Queste domande a questo agente hanno ricevuto risposte con punteggio basso:\n{examples}\n\nTrova cosa manca o non è chiaro nelle istruzioni e suggerisci istruzioni che colmino queste lacune.",
+      "lowConfidenceGeneric": "{n} risposte di questo agente hanno ricevuto un punteggio sotto 3/5 nell'ultima settimana. Rivedi le conversazioni recenti, trova cosa manca o non è chiaro nelle istruzioni e suggerisci istruzioni che colmino queste lacune.",
+      "slow": "Queste query sui dati di questo agente sono state lente:\n{examples}\n\nTrova la causa comune e suggerisci istruzioni di protezione (ad esempio richiedere un filtro o evitare scansioni complete) perché le query restino veloci.",
+      "slowGeneric": "Le query sui dati di questo agente sono lente. Trova la causa comune e suggerisci istruzioni di protezione (ad esempio richiedere un filtro o evitare scansioni complete) perché le query restino veloci.",
+      "slowLine": "{q} ({s} s)",
+      "error": "Queste query sui dati di questo agente non sono riuscite:\n{examples}\n\nTrova la causa e suggerisci istruzioni perché l'agente scriva query valide.",
+      "errorGeneric": "Le query sui dati di questo agente non riescono. Trova la causa e suggerisci istruzioni perché l'agente scriva query valide.",
+      "errorLine": "{q}: {error}",
+      "generic": "Rivedi le conversazioni recenti di questo agente e suggerisci istruzioni che migliorino le sue risposte.",
+      "schemaUnnamed": "Lo schema della connessione di questo agente è cambiato. Rivedi le istruzioni e le query salvate dell'agente che usano tabelle o colonne modificate e suggerisci aggiornamenti perché le risposte restino corrette.",
+      "more": "- …e altre {n} modifiche"
     }
   },
   "auth": {
@@ -1250,9 +1380,22 @@
       "copyTurn": "Copia questo turno come JSON",
       "copied": "JSON della traccia copiato negli appunti",
       "failed": "Impossibile esportare la traccia"
-    }
+    },
+    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci"
   },
   "reportView": {
+    "runFold": {
+      "groups": {
+        "browser": "Navigazione web",
+        "search": "Ricerca",
+        "files": "Lettura di file",
+        "inspect": "Analisi dei dati",
+        "data": "{count} query eseguite",
+        "create": "Creazione e aggiornamento dei risultati",
+        "tools": "Utilizzo degli strumenti",
+        "results": "{count} query eseguite"
+      }
+    },
     "tabChat": "Chat",
     "tabSummary": "Riepilogo",
     "tabDashboard": "Dashboard",
@@ -1316,7 +1459,11 @@
     "compactionSummaryHint": "L'agente vede questo riepilogo al posto dei turni sopra la linea.",
     "compactingContext": "Compattazione del contesto…",
     "compactionTurns": "{turns} turni",
-    "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token"
+    "compactionLast": "Ultima compattazione: cronologia ~{before} → ~{after} token",
+    "piiBlocked": "La protezione dei dati personali ha bloccato questa richiesta a {model} (regola: {rules}).",
+    "piiBlockedNoModel": "La protezione dei dati personali ha bloccato questa richiesta (regola: {rules}).",
+    "piiDetectorUnavailable": "La protezione dei dati personali ha bloccato questa richiesta a {model}: il rilevatore di dati personali non è disponibile.",
+    "piiDetectorUnavailableNoModel": "La protezione dei dati personali ha bloccato questa richiesta: il rilevatore di dati personali non è disponibile."
   },
   "tools": {
     "common": {
@@ -1339,7 +1486,11 @@
       "duration": "Durata: {ms} ms",
       "edit": "Modifica",
       "generationStopped": "Generazione interrotta",
-      "code": "Codice"
+      "code": "Codice",
+      "waitingForSlot": "In attesa del turno su {connection} · {running}/{limit} in esecuzione",
+      "waitingForSlotAhead": "In attesa di un posto su {connection} · {running}/{limit} in esecuzione · {ahead} prima",
+      "waitingForSlotShort": "In attesa del turno su {connection}",
+      "theConnection": "la connessione"
     },
     "createData": {
       "bowSource": "BOW",
@@ -1410,7 +1561,9 @@
       "failedDashboard": "Impossibile creare la dashboard",
       "copied": "Copiato",
       "copiedDesc": "ID dell'artefatto copiato negli appunti",
-      "copyFailed": "Impossibile copiare"
+      "copyFailed": "Impossibile copiare",
+      "notRenderChecked": "Rendering non verificato",
+      "notRenderCheckedDesc": "Salvato senza verifica del rendering: il server non è riuscito ad avviare il browser. Aprilo per verificare che venga visualizzato."
     },
     "createDashboard": {
       "creating": "Creazione della dashboard",
@@ -1447,7 +1600,9 @@
       "copyIdTooltip": "Clicca per copiare l'ID",
       "copied": "Copiato",
       "copiedDesc": "ID dell'artefatto copiato negli appunti",
-      "copyFailed": "Impossibile copiare"
+      "copyFailed": "Impossibile copiare",
+      "notRenderChecked": "Rendering non verificato",
+      "notRenderCheckedDesc": "Salvato senza verifica del rendering: il server non è riuscito ad avviare il browser. Aprilo per verificare che venga visualizzato."
     },
     "createWidget": {
       "creatingDataModel": "Creazione del modello di dati",
@@ -2468,6 +2623,35 @@
       "googleTitle": "Sincronizzazione profilo Google"
     },
     "auditLogs": "Registri di audit",
+    "systemLogsTab": "Log di sistema",
+    "systemLogs": {
+      "title": "Log di sistema",
+      "subtitle": "L'output di log del server stesso, per la risoluzione dei problemi. Visibile solo agli amministratori.",
+      "retention": "I log vengono conservati per {days} giorni, fino a {max} in totale; oltre, vengono eliminati prima i più vecchi. In uso: {used}.",
+      "droppedNotice": "Non è stato possibile salvare {count} righe di questa istanza perché non è stato possibile scrivere nella cartella dei log.",
+      "writeError": "Questa istanza non può scrivere nella cartella dei log ({directory}). Verifica che esista e sia scrivibile.",
+      "searchPlaceholder": "Cerca nei messaggi…",
+      "from": "Da",
+      "to": "A",
+      "allInstances": "Tutte le istanze",
+      "thisInstance": "{id} (questa istanza)",
+      "errorsOnly": "Solo errori",
+      "autoRefresh": "Aggiornamento automatico",
+      "clearFilters": "Cancella filtri",
+      "refresh": "Aggiorna",
+      "rangeInvalid": "«Da» deve precedere «A».",
+      "empty": "Ancora nessuna riga corrispondente.",
+      "count": "Righe mostrate: {count}",
+      "countTruncated": "Sono mostrate le {count} righe più recenti. Restringi i filtri per vedere quelle precedenti.",
+      "deleteAll": "Elimina tutti i log",
+      "deleteTitle": "Eliminare tutti i log di sistema?",
+      "deleteMessage": "Tutte le righe di log salvate di tutte le istanze verranno eliminate definitivamente. Le nuove righe continueranno a essere registrate.",
+      "deleteConfirm": "Elimina tutto",
+      "cancel": "Annulla",
+      "deletedToast": "Tutti i log di sistema sono stati eliminati",
+      "deleteFailed": "Impossibile eliminare i log",
+      "loadFailed": "Impossibile caricare i log di sistema"
+    },
     "integrations": {
       "title": "Canali",
       "subtitle": "Configura piattaforme esterne come Slack e Microsoft Teams per la tua organizzazione.",
@@ -2959,10 +3143,12 @@
       "defaultRoleShort": "Ruolo predefinito"
     },
     "organizationName": "Nome dell'organizzazione",
+    "organizationNameRequired": "Il nome dell'organizzazione non può essere vuoto.",
     "organizationIcon": "Icona dell'organizzazione",
     "uploadIcon": "Carica icona",
     "iconConstraints": "PNG/JPEG, ≤ 512 KB.",
     "aiAnalystName": "Nome dell'analista IA",
+    "aiAnalystNameRequired": "Il nome dell'analista IA non può essere vuoto.",
     "showCredit": "Mostra credito \"Made with BOW\"",
     "language": {
       "title": "Lingua",
@@ -3336,7 +3522,7 @@
         },
         "max_concurrent_queries_per_connection": {
           "name": "Query contemporanee per connessione",
-          "description": "Quante query dell'agente possono essere eseguite contemporaneamente su una stessa connessione, per replica. Ciò che eccede attende un posto libero invece di fallire. Conviene abbassarlo per sorgenti on-premise delicate (Oracle, SQL Server) che non reggono scansioni parallele. La configurazione di una connessione può sovrascriverlo con il proprio valore 'max_concurrent_queries'."
+          "description": "Quante query dell'agente possono essere eseguite contemporaneamente su una stessa connessione, sommando tutti i worker e le repliche. Ciò che eccede attende un posto libero invece di fallire. Conviene abbassarlo per sorgenti on-premise delicate (Oracle, SQL Server) che non reggono scansioni parallele. La configurazione di una connessione può sovrascriverlo con il proprio valore 'max_concurrent_queries'."
         },
         "top_k_schema": {
           "name": "Top K degli schemi",
@@ -3469,6 +3655,10 @@
         "allow_access_requests": {
           "name": "Consenti richieste di accesso",
           "description": "Consente ai membri di chiedere l'accesso in lettura agli editor di una dashboard dalla pagina senza accesso. Se disattivato, la pagina indica solo il proprietario e non è possibile inviare nuove richieste; quelle già inviate restano gestibili."
+        },
+        "show_world": {
+          "name": "Vista Mondo",
+          "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
         }
       }
     },
@@ -3621,7 +3811,10 @@
         "restrictedDefaultHint": "Questo è il modello predefinito dell'organizzazione. I membri non elencati qui sotto ricevono il predefinito del loro gruppo.",
         "defaultForGroups": "Predefinito per i gruppi",
         "defaultForGroupsHint": "I membri di questi gruppi possono sempre usare questo modello."
-      }
+      },
+      "piiBadge": "PII: {policy}",
+      "piiBadgeExempt": "PII: non oscurato",
+      "piiBadgeTooltip": "La policy dati personali applicata ai prompt di questo provider. Modificala in Impostazioni → Protezione dei dati personali."
     },
     "licensePage": {
       "title": "Licenza",
@@ -3731,47 +3924,114 @@
       "systemDefault": "Usa il valore predefinito di sistema (UTC)"
     },
     "pii": {
-      "action": "Azione",
       "actionBlock": "Blocca",
       "actionReplace": "Sostituisci",
       "addPattern": "Aggiungi pattern",
       "addRule": "Aggiungi regola",
       "blocksRequest": "Blocca la richiesta",
-      "builtinDesc": "Rilevatori predefiniti per i dati personali più comuni. Attivali singolarmente e personalizza il token sostitutivo.",
-      "builtinTitle": "Regole integrate",
-      "customDesc": "Definisci i tuoi rilevatori. Una regola può contenere più pattern (espressioni regolari): basta una corrispondenza per attivarla.",
       "customTitle": "Regole personalizzate",
       "enterpriseBody": "La protezione dei dati personali è disponibile nel piano Enterprise. Contatta il tuo amministratore per abilitarla.",
       "enterpriseTitle": "Funzione enterprise",
-      "masterDesc": "Quando è attiva, il testo corrispondente viene oscurato in ogni prompt inviato a un LLM da questo spazio di lavoro.",
+      "masterDesc": "Quando è attiva, i prompt di ogni provider LLM vengono oscurati secondo la sua policy. Il prompt dell'utente e i dati vengono oscurati; istruzioni e schemi arrivano al modello così come sono scritti, a meno che una policy non oscuri anche quelli.",
       "masterLabel": "Abilita la protezione dei dati personali",
-      "modeBlock": "Blocca la richiesta",
-      "modeBlockDesc": "Non inviare il prompt se vengono rilevati dati personali. Sovrascrivibile per singola regola qui sotto.",
-      "modeLabel": "Azione predefinita quando vengono rilevati dati personali",
-      "modeReplace": "Sostituisci con un token",
-      "modeReplaceDesc": "Sostituisci ogni corrispondenza con il suo token e prosegui. Sovrascrivibile per singola regola qui sotto.",
       "noCustomRules": "Ancora nessuna regola personalizzata.",
       "patternPlaceholder": "es. \\bEMP-\\d+\\b",
       "patternRequired": "Ogni regola richiede almeno un pattern.",
-      "patterns": "Pattern (regex)",
       "removeRule": "Rimuovi",
       "replacement": "Sostituzione",
       "ruleName": "Nome della regola",
       "ruleNamePlaceholder": "es. Matricola",
       "saveError": "Salvataggio delle impostazioni dei dati personali non riuscito",
       "saved": "Impostazioni dei dati personali salvate",
-      "subtitle": "Oscura i dati personali nei prompt prima che vengano inviati a qualsiasi provider LLM. Le regole agiscono sul prompt completo: messaggio dell'utente, campioni di schema, anteprime dei dati e testo dei file caricati.",
+      "subtitle": "Oscura i dati personali nei prompt prima che vengano inviati a un provider LLM. Le regole si applicano al prompt dell'utente e ai dati che l'agente legge: risultati delle query, anteprime dei dati, testo dei file caricati e la conversazione.",
       "testBlocked": "Questo prompt verrebbe BLOCCATO (dati personali rilevati).",
-      "testButton": "Anteprima dell'oscuramento",
-      "testDesc": "Incolla un testo di esempio per vedere come verrà oscurato con le regole attuali.",
       "testMatches": "Corrispondenze: {rules}",
       "testNoMatches": "Nessun dato personale rilevato nell'esempio.",
       "testPlaceholder": "Incolla un testo con dati personali di esempio…",
-      "testResult": "Risultato",
       "testTitle": "Prova le tue regole",
-      "title": "Protezione dei dati personali"
+      "title": "Protezione dei dati personali",
+      "providersTitle": "Policy per provider",
+      "providersDesc": "Scegli la policy di ogni provider LLM. I provider senza scelta usano quella predefinita. Esentato invia i prompt senza oscurare, ad esempio a un modello self-hosted o nella tua VPC di cui ti fidi. Ciò che si vede nell'app viene oscurato con la policy predefinita in ogni caso.",
+      "noProviders": "Nessun provider LLM.",
+      "providerPolicyFor": "Policy dati personali per {name}",
+      "exemptOption": "Esentato (invia senza oscurare)",
+      "policiesTitle": "Policy",
+      "newPolicy": "Nuova policy",
+      "policyName": "Nome della policy",
+      "deletePolicy": "Elimina policy",
+      "deletePolicyConfirm": "Eliminare la policy \"{policy}\"? I provider che la usano tornano alla predefinita.",
+      "defaultPolicy": "Predefinita",
+      "defaultPolicyNote": "La predefinita vale per ogni provider senza una policy propria e oscura ciò che si vede nell'app. Non può essere rinominata né eliminata.",
+      "redactContextLabel": "Oscura anche istruzioni e schemi",
+      "redactContextDesc": "Disattivato: vengono oscurati solo il prompt dell'utente e i dati (risultati delle query, file, conversazione), mentre istruzioni, schemi e il resto del contesto dell'agente arrivano al modello così come sono. Attivato: viene oscurato tutto.",
+      "customDescShared": "Definisci i tuoi rilevatori una sola volta, con uno o più pattern (espressioni regolari). Ogni policy sceglie se usarli e cosa fanno.",
+      "testFailed": "Test non riuscito",
+      "actionPseudonymize": "Nascondi al modello",
+      "actionMask": "Maschera",
+      "masksValue": "Mantiene gli ultimi 4 caratteri",
+      "pseudonymizesValue": "Le persone vedono ancora il valore",
+      "detectorTitle": "Nomi, luoghi e organizzazioni",
+      "detectorUnavailable": "Rilevare nomi, luoghi e organizzazioni richiede un rilevatore di dati personali, e su questa istanza non ne è configurato nessuno. Chiedi all'amministratore di installare l'extra pii del backend o di configurare un servizio Presidio.",
+      "detectorErrorLabel": "Se il rilevatore non è disponibile",
+      "detectorErrorDesc": "Cosa succede a una richiesta quando il rilevatore non può controllarla.",
+      "detectorErrorBlock": "Blocca la richiesta",
+      "detectorErrorRegexOnly": "Inviala solo con le regole a pattern",
+      "testDetectorUnavailable": "Il rilevatore di dati personali non è disponibile, quindi questo testo verrebbe bloccato.",
+      "policiesListDesc": "Una policy è un insieme di regole su ciò che un modello può vedere. Apri una policy per modificarne le regole.",
+      "rulesOn": "{n} regola attiva | {n} regole attive",
+      "usedBy": "Usata da: {providers}.",
+      "usedByNone": "Nessun provider la usa.",
+      "policyNamePlaceholder": "es. Rigorosa",
+      "copyFrom": "Parti da una copia di",
+      "newRuleTitle": "Nuova regola personalizzata",
+      "editRuleTitle": "Modifica regola personalizzata",
+      "patterns": "Pattern",
+      "patternsHelp": "Espressioni regolari. Il testo che corrisponde a una di esse viene protetto.",
+      "deleteRuleTitle": "Elimina regola personalizzata",
+      "deleteRuleBody": "Eliminare \"{name}\"? Nessuna policy la userà più.",
+      "backToPolicies": "Tutte le policy",
+      "policyHeading": "Policy {policy}",
+      "policyNotFound": "Questa policy non esiste più.",
+      "offNotice": "La protezione PII è disattivata, quindi questa policy non è ancora applicata. Attivala dalla pagina delle policy.",
+      "rulesTitle": "Cosa proteggere",
+      "rulesDesc": "Attiva ciò che questa policy deve rilevare e scegli cosa vede il modello al suo posto.",
+      "groupPatterns": "Identificatori comuni",
+      "detectorNote": "Rilevati da un modello linguistico, non da un pattern. Controllati nel messaggio dell'utente e nei dati, mai nelle istruzioni o negli schemi.",
+      "manageCustom": "Gestisci regole personalizzate",
+      "ruleOff": "Disattivata",
+      "modelSees": "Cosa vede il modello",
+      "testLiveDesc": "Scrivi un testo di esempio per vedere cosa riceverebbe un modello con questa policy. Si aggiorna mentre scrivi e quando cambi le regole.",
+      "testInputLabel": "Testo di esempio",
+      "advancedTitle": "Avanzate",
+      "sensitivityFor": "Sensibilità: {name}",
+      "sensitivityDesc": "Una sensibilità più alta rileva di più e segnala più testo che non è un dato personale.",
+      "sensitivityHigh": "Alta: rileva di più",
+      "sensitivityBalanced": "Bilanciata",
+      "sensitivityLow": "Bassa: meno falsi positivi",
+      "sensitivityCustom": "Personalizzata ({n})",
+      "entities": {
+        "PERSON": "Nome di persona",
+        "LOCATION": "Luogo",
+        "ORGANIZATION": "Organizzazione",
+        "NRP": "Nazionalità, gruppo religioso o politico"
+      }
     },
-    "piiTab": "Dati personali"
+    "piiTab": "Dati personali",
+    "frameAncestors": {
+      "title": "Siti che possono mostrare BOW",
+      "description": "Le vostre applicazioni autorizzate a mostrare BOW in un frame, come un portale interno. L'elenco vale per tutte le organizzazioni di questa istanza.",
+      "placeholder": "https://portal.example.com",
+      "add": "Aggiungi",
+      "removeSite": "Rimuovi {site}",
+      "empty": "Nessun sito aggiunto. BOW può apparire solo nelle sue pagine e in Microsoft Office.",
+      "ssoNote": "L'accesso all'interno del frame funziona con email e password. Il Single Sign-On (SSO) non funziona in un frame.",
+      "readOnly": "In un'istanza con più organizzazioni, solo un amministratore dell'istanza può modificare questo elenco.",
+      "duplicate": "Questo sito è già nell'elenco.",
+      "invalidFormat": "Inserisci un indirizzo che inizi con https://, senza percorso. Ad esempio: https://portal.example.com",
+      "publicNote": "Questi indirizzi sono visibili a chiunque: i browser li ricevono con ogni pagina.",
+      "confirmRemoveTitle": "Rimuovere questo sito?",
+      "confirmRemoveBody": "{site} non potrà più mostrare BOW. Le pagine di quel sito che mostrano BOW smetteranno subito di funzionare."
+    }
   },
   "data": {
     "keepSavedSecret": "Lascia vuoto per mantenere il segreto salvato",
@@ -4190,6 +4450,11 @@
     "setupGuideTitle": "Passaggi di configurazione",
     "setupGuideCopy": "Copia",
     "setupGuideCopied": "Copiato",
+    "authDescriptions": {
+      "bigquery": {
+        "adc": "Non viene salvata alcuna chiave. Le query vengono eseguite con l'identità Google configurata sul server: un account di servizio collegato o una configurazione di Workload Identity Federation."
+      }
+    },
     "setupGuides": {
       "kubernetes": [
         {
@@ -4268,10 +4533,21 @@
       "legacy": "SharePoint 2010",
       "libraryDescription": "Nome della raccolta documenti, oppure * per tutte le raccolte visibili. Il campo vuoto seleziona la raccolta predefinita solo in modalità REST moderno."
     },
+    "exchangeOnprem": {
+      "urlTitle": "URL del server Exchange",
+      "urlDescription": "Indirizzo del server Exchange, ad es. https://mail.example.com. Il percorso di Exchange Web Services (/EWS/Exchange.asmx) viene aggiunto se lo ometti.",
+      "sharedTitle": "Cassette postali condivise",
+      "sharedDescription": "Facoltativo. Indirizzi delle cassette postali condivise o di team da includere, separati da virgole, ad es. support@example.com, sales@example.com. Exchange decide chi può aprire ciascuna: ogni persona vede solo le cassette a cui il proprio account ha già accesso.",
+      "ownTitle": "Includi la cassetta postale dell'account",
+      "ownDescription": "Disattiva questa opzione se accedi con un account di servizio la cui cassetta postale non è rilevante. La prima cassetta condivisa diventa quella predefinita."
+    },
     "athena": {
       "databaseDescription": "One Glue database name, or a comma-separated list of names, globs and !-exclusions to index several, e.g. *_db, !billing_db, analytics_history. With several, tables are named database.table.",
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
+    },
+    "qlikCloud": {
+      "appFilterDescription": "Nomi o ID delle app separati da virgole negli spazi selezionati (facoltativo). Se vuoto, include tutte le app corrispondenti. Usa gli ID per nomi contenenti virgole."
     },
     "qlikOnPrem": {
       "appFilterTitle": "Filtro applicazioni",
@@ -4285,6 +4561,7 @@
       "search_file": "Cerca nei file",
       "system_status": "Controlla lo stato del sistema"
     },
+    "networkDirIndexDescription": "La modalità in tempo reale legge i file su richiesta. L’elenco dei file conserva nomi, dimensioni e date. Le modalità Parole chiave e Testo completo salvano anche i dati PCAP e QVD decodificati per le query SQL. Il testo completo indicizza i documenti per la ricerca. L’aggiornamento elabora i file modificati.",
     "sshSetup": {
       "title": "Verifica identità del server",
       "hint": "Confronta l’impronta con quella fornita dall’amministratore o da registri SSH attendibili. Recuperare una chiave non la verifica.",
@@ -4400,7 +4677,21 @@
     "firstPage": "Prima pagina",
     "previousPage": "Pagina precedente",
     "nextPage": "Pagina successiva",
-    "lastPage": "Ultima pagina"
+    "lastPage": "Ultima pagina",
+    "inRangeStart": "Da",
+    "inRangeEnd": "A",
+    "resetFilter": "Cancella",
+    "noRowsToShow": "Nessuna riga da mostrare",
+    "filteredRows": "{shown} di {total} righe",
+    "clearFilters": "Cancella filtri",
+    "expand": "Espandi tabella",
+    "collapse": "Chiudi schermo intero",
+    "search": "Cerca…",
+    "selectAll": "Seleziona tutto",
+    "blankValue": "(Vuoto)",
+    "noMatches": "Nessun valore corrispondente",
+    "moreValues": "Mostrati i primi {n}: digita per restringere",
+    "alsoFilteredAbove": "Questa colonna è filtrata anche in Filtri, sopra"
   },
   "sharedReport": {
     "backToApp": "Torna all’app",
@@ -4410,6 +4701,22 @@
     "noDashboard": "Nessuna dashboard disponibile",
     "madeWith": "Realizzato con {brand}",
     "fork": "Crea copia"
+  },
+  "sharedConversation": {
+    "loading": "Caricamento conversazione…",
+    "signInTitle": "Accesso richiesto",
+    "signInBody": "Devi accedere per visualizzare questa conversazione.",
+    "signIn": "Accedi",
+    "deniedTitle": "Accesso negato",
+    "deniedBody": "Non hai l'autorizzazione per visualizzare questa conversazione. Chiedi al proprietario di condividerla con te.",
+    "goHome": "Vai alla home",
+    "notFoundTitle": "Conversazione non trovata",
+    "notFoundBody": "Questa conversazione potrebbe non essere più condivisa o non esistere.",
+    "byAuthor": "di {name}",
+    "fork": "Duplica",
+    "forking": "Duplicazione…",
+    "loadOlder": "Carica messaggi precedenti",
+    "poweredBy": "Con tecnologia {brand}"
   },
   "errors": {
     "shell_rules.tool_required": "Le regole dei comandi richiedono uno strumento shell remoto.",
@@ -4455,6 +4762,9 @@
     "connection.table_preview_failed": "Anteprima non riuscita: {reason}",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",
+    "system_logs.instance_admin_required": "Solo un amministratore dell’istanza può usare i log di sistema.",
+    "system_logs.invalid_range": "L'ora di inizio deve precedere l'ora di fine.",
+    "system_logs.delete_failed": "Impossibile eliminare i file di log in {directory}. Verifica che la cartella esista e sia scrivibile.",
     "verification.invalid": "Token di verifica non valido o scaduto",
     "body.invalid_json": "Corpo JSON non valido",
     "organization.not_found": "Organizzazione non trovata",
@@ -4552,7 +4862,33 @@
     "access_request.too_soon": "La tua richiesta precedente è stata rifiutata. Puoi richiederla di nuovo più tardi.",
     "access_request.no_approvers": "Al momento nessuno può approvare le richieste per questa dashboard.",
     "access_request.not_found": "Questa richiesta non esiste più.",
-    "access_request.already_decided": "Questa richiesta è già stata gestita."
+    "access_request.already_decided": "Questa richiesta è già stata gestita.",
+    "frame_ancestors.invalid": "Questi indirizzi di sito non sono validi: {origins}. Usa un indirizzo https senza percorso, ad esempio https://portal.example.com.",
+    "frame_ancestors.too_many": "Puoi indicare al massimo {max} siti.",
+    "connection.query_not_found": "Query non trovata su questa connessione.",
+    "connection.query_finished": "Questa query è già terminata ({status}).",
+    "connection.query_not_killable": "Questa query non può essere fermata da BOW: il suo client applica un proprio limite di tempo.",
+    "connection.slack_channels_not_slack": "La selezione dei canali è disponibile solo per le connessioni Slack.",
+    "connection.slack_channels_too_many": "Al massimo {max} canali per agente.",
+    "connection.slack_channels_not_ids": "Questi non sono ID di canali Slack: {ids}",
+    "connection.slack_channels_unavailable": "Slack non ha risposto: {detail}",
+    "review_item.not_found": "Elemento di revisione non trovato",
+    "agent_import.invalid_bundle": "Questo file non è un pacchetto di esportazione agente valido.",
+    "agent_import.name_taken": "Esiste già un agente chiamato “{name}”.",
+    "agent_import.no_connection": "Associa almeno una connessione per importare l’agente.",
+    "agent_import.failed": "Impossibile importare l’agente.",
+    "account_link_required": "Esiste già un account con questa email. Chiedi al tuo amministratore di collegarlo.",
+    "invite_link_required": "Questo metodo di accesso non può accettare il tuo invito. Usa il link di invito ricevuto via email o contatta il tuo amministratore.",
+    "integration.connected_elsewhere": "Questo account è già collegato a un'altra organizzazione in questa installazione. Scollegalo prima lì.",
+    "organization.multiple_not_enabled": "Questa installazione consente una sola organizzazione.",
+    "organization.create_instance_admin_required": "Solo un amministratore dell'istanza può creare un'organizzazione.",
+    "organization.create_license_required": "Per creare un'altra organizzazione serve una licenza Enterprise.",
+    "organization.name_required": "Inserisci un nome per l'organizzazione.",
+    "organization.name_too_long": "Il nome dell'organizzazione può contenere al massimo {max} caratteri.",
+    "organization.name_taken": "Esiste già un'organizzazione chiamata «{name}».",
+    "organization.signup_domains_instance_admin_required": "Solo un amministratore dell'istanza può assegnare domini di registrazione a un'organizzazione.",
+    "organization.signup_domain_claimed": "Il dominio {domain} è già assegnato a un'altra organizzazione.",
+    "organization.member_instance_admin": "Questo account appartiene a un amministratore dell'istanza. Solo un amministratore dell'istanza può aggiungerlo a un'organizzazione."
   },
   "email": {
     "dashboardShare": {
@@ -4761,6 +5097,7 @@
       "published": "Pubblicata il {date}",
       "dataAsOf": "Dati aggiornati {time}",
       "refreshFailing": "Aggiornamento non riuscito",
+      "refreshFailingAction": "Scopri perché l’aggiornamento non è riuscito",
       "lastEdit": "Ultima modifica: {time}",
       "scheduledRefresh": "Aggiornamento pianificato"
     },
@@ -4860,6 +5197,9 @@
       "failing": "{n} con aggiornamento non riuscito | {n} con aggiornamento non riuscito",
       "stale": "{n} non modificata da 90 giorni | {n} non modificate da 90 giorni",
       "show": "Mostrale"
+    },
+    "refreshes": {
+      "openEditor": "Apri nell’editor"
     }
   },
   "excel": {
@@ -5215,6 +5555,7 @@
       "toastCreated": "Caso di test creato",
       "toastDeleteFailed": "Impossibile eliminare il caso di test",
       "saveFailed": "Impossibile salvare il caso di test",
+      "runFailed": "Caso di test salvato, ma non è stato possibile avviare l'esecuzione",
       "emptyDescription": "I test valutano come i tuoi agenti rispondono a prompt e regole."
     },
     "filter": {
@@ -7043,6 +7384,9 @@
     "unsaved": "Modifiche non salvate",
     "tabGeneral": "Generale",
     "nameTitle": "Nome",
+    "descriptionTitle": "Descrizione",
+    "descriptionPlaceholder": "Cosa mostra questa dashboard e a chi è rivolta",
+    "descriptionHelp": "Facoltativo. Mostrato ai lettori al passaggio del mouse, accanto al nome.",
     "linkTitle": "Link",
     "refreshTitle": "Aggiorna i dati",
     "linkPreview": "Link:",
@@ -7254,7 +7598,12 @@
     "updateFailed": "Impossibile aggiornare i permessi",
     "addIncomplete": "Impossibile salvare alcune iscrizioni o permessi. Controlla l’elenco e riprova.",
     "added": "Membri aggiunti",
-    "addFailed": "Impossibile aggiungere i membri"
+    "addFailed": "Impossibile aggiungere i membri",
+    "inherited": "Accesso ereditato",
+    "inheritedHint": "Queste persone e gruppi raggiungono l'agente tramite una cartella o una connessione. Modifica l'accesso all'origine.",
+    "viaFolder": "Tramite la cartella {name}",
+    "viaConnection": "Tramite la connessione {name}",
+    "inheritedHidden": "Altri potrebbero avere accesso tramite una cartella o una connessione che non gestisci."
   },
   "productUpdates": {
     "checkbox": "Inviami gli aggiornamenti del prodotto",
@@ -7265,8 +7614,6 @@
   },
   "sharedFolders": {
     "viewFolder": "Apri cartella",
-    "activity": "Attività della cartella",
-    "viewTrace": "Visualizza traccia",
     "attach": "Collega esistente",
     "addCase": "Aggiungi caso",
     "sameAccess": "Access stays the same.",
@@ -7291,5 +7638,269 @@
     "inherit": "Eredita accesso dalla cartella superiore",
     "direct": "Accesso diretto per {name}",
     "stopConfirm": "Disattivare l’ereditarietà? I permessi ereditati da {names} non saranno più applicati."
+  },
+  "connectionQueries": {
+    "tabSettings": "Impostazioni",
+    "tabQueries": "Query",
+    "runningNow": "in esecuzione",
+    "queuedCount": "{n} in attesa del turno",
+    "limitFromConnection": "Limite impostato su questa connessione",
+    "limitFromOrg": "Limite predefinito dell'organizzazione",
+    "limitDefault": "Limite predefinito del sistema",
+    "live": "Live",
+    "liveHint": "Si aggiorna ogni 2 secondi",
+    "refresh": "Aggiorna",
+    "loadFailed": "Impossibile caricare le query",
+    "unavailableTitle": "Impossibile caricare le query di questa connessione",
+    "unavailableOutdated": "Questo server non ha ancora la vista Query. Probabilmente esegue una versione di Bag of Words più vecchia di questa pagina; aggiorna il server e riprova.",
+    "runningTitle": "In esecuzione",
+    "noneRunning": "Nessuna query in esecuzione su questa connessione.",
+    "waitingFor": "in attesa da {time}",
+    "runningFor": "in esecuzione da {time}",
+    "stopping": "Arresto…",
+    "killConfirm": "Fermare questa query?",
+    "kill": "Ferma",
+    "killFailed": "Impossibile fermare la query",
+    "notKillable": "Non si può fermare qui",
+    "notKillableHint": "Il client di questa connessione applica un proprio limite di tempo, quindi BOW non può interromperlo. La query terminerà da sola.",
+    "historyTitle": "Cronologia",
+    "filterAll": "Tutti gli stati",
+    "searchPlaceholder": "Cerca nel testo della query",
+    "noMatches": "Nessuna query corrisponde ai filtri.",
+    "noHistory": "Su questa connessione non è ancora stata eseguita nessuna query.",
+    "colStatus": "Stato",
+    "colQuery": "Query",
+    "colWho": "Chi",
+    "colDuration": "Durata",
+    "colWait": "Attesa",
+    "colRows": "Righe",
+    "colWhen": "Quando",
+    "loadMore": "Carica altro",
+    "retentionNote": "La cronologia è conservata per 90 giorni. Solo i gestori della connessione possono vedere e fermare le query qui.",
+    "ms": "{n} ms",
+    "seconds": "{n} s",
+    "minutes": "{m} min {s} s",
+    "system": "Sistema",
+    "agent": "Agente",
+    "attempt": "Tentativo",
+    "attemptValue": "tentativo di codice {code} · tentativo dello strumento {tool} · query n. {seq}",
+    "started": "Inizio",
+    "ended": "Fine",
+    "killedBy": "Fermata da",
+    "sourceCancel": "Annullamento alla sorgente",
+    "copied": "Copiato",
+    "copy": "Copia",
+    "truncated": "Il testo della query è stato troncato in archiviazione.",
+    "openReport": "Apri report",
+    "openReportNamed": "Apri report: {title}",
+    "status": {
+      "queued": "In attesa",
+      "running": "In esecuzione",
+      "success": "Riuscita",
+      "error": "Non riuscita",
+      "timeout": "Timeout",
+      "busy": "Occupata",
+      "cancelled": "Annullata",
+      "stale": "Abbandonata"
+    },
+    "source": {
+      "label": "Origine",
+      "chat": "Chat",
+      "eval": "Valutazione",
+      "query": "Query",
+      "entity": "Entità",
+      "dashboard": "Dashboard",
+      "viewer": "Aggiornamento lettore",
+      "scheduled": "Pianificata",
+      "system": "Sistema"
+    },
+    "reason": {
+      "killed": "Annullata da un gestore della connessione.",
+      "killed_waiting": "Annullata da un gestore della connessione mentre attendeva il turno.",
+      "run_stopped": "Fermata perché l'esecuzione che l'ha inviata è stata fermata.",
+      "stale": "Il processo che eseguiva questa query non risponde più; il suo posto è stato liberato.",
+      "busy": "Nessun posto si è liberato in tempo: la connessione era al limite di query simultanee."
+    }
+  },
+  "slackChannels": {
+    "button": "Canali",
+    "title": "Canali Slack di questo agente",
+    "subtitle": "Scegli quali canali Slack legge questo agente.",
+    "allChannels": "Tutti i miei canali",
+    "allChannelsHint": "Ogni canale di cui ciascuna persona è membro.",
+    "selectedChannels": "Solo i canali selezionati",
+    "connectRequired": "Accedi con Slack su questa connessione per scegliere i canali.",
+    "searchPlaceholder": "Cerca canali",
+    "notYourChannel": "non nel tuo Slack",
+    "noMatch": "Nessun canale corrispondente.",
+    "selectedCount": "{n} selezionati",
+    "includeDms": "Includi i messaggi diretti",
+    "includeDmsHint": "Legge anche i messaggi diretti e di gruppo di ciascuna persona.",
+    "membershipNote": "Ogni persona continua a vedere solo i canali di cui è membro.",
+    "saveFailed": "Impossibile salvare i canali",
+    "saved": "Canali salvati",
+    "summaryAll": "Legge tutti i canali e i messaggi diretti",
+    "summaryAllNoDms": "Legge tutti i canali, senza messaggi diretti",
+    "summarySome": "Legge {names}",
+    "summarySomeWithDms": "Legge {names} e i messaggi diretti",
+    "loadFailed": "Impossibile caricare i canali di questo agente. Chiudi e riprova.",
+    "privateChannel": "Canale privato",
+    "privateCount": "{n} canale privato | {n} canali privati"
+  },
+  "agentClone": {
+    "menu": "Clona agente",
+    "titleFor": "Clona {name}",
+    "name": "Nome",
+    "description": "Descrizione",
+    "defaultName": "Copia di {name}",
+    "alwaysIncluded": "Sempre incluso:",
+    "always": {
+      "settings": "Impostazioni",
+      "tables": "Tabelle",
+      "tools": "Strumenti",
+      "prompts": "Prompt",
+      "files": "File"
+    },
+    "parts": {
+      "instructions": "Istruzioni",
+      "access": "Accesso"
+    },
+    "choices": {
+      "copy": "Copia",
+      "link": "Condividi",
+      "none": "Niente",
+      "sameAccess": "Stesse persone",
+      "onlyMe": "Solo io"
+    },
+    "hints": {
+      "instructions": {
+        "copy": "Copie proprie, modificate separatamente",
+        "link": "Stesse istruzioni; le modifiche valgono per entrambi",
+        "none": "Solo istruzioni globali"
+      },
+      "access": {
+        "same": "Stesse persone e permessi",
+        "only_me": "Solo tu, finché non lo condividi"
+      }
+    },
+    "footnote": "Query salvate, valutazioni, liste, conversazioni e dashboard non vengono clonate. Il nuovo agente parte in addestramento (in sviluppo se lo è questo).",
+    "submit": "Clona",
+    "cloning": "Clonazione…",
+    "nameTaken": "Esiste già un agente con questo nome.",
+    "instructionsChanged": "Le istruzioni sono cambiate durante la clonazione. Riprova.",
+    "linkBlocked": "Queste istruzioni sono usate anche da agenti o cartelle che non gestisci, quindi non possono essere condivise. Copiale, oppure chiedi a chi le gestisce.",
+    "linkPending": "Queste istruzioni hanno modifiche in attesa di approvazione, quindi non possono ancora essere condivise. Approva o rifiuta prima quelle modifiche, oppure copia le istruzioni.",
+    "notInFolder": "Non gestisci la cartella di {name}, quindi il nuovo agente è stato creato al livello principale.",
+    "done": "{name} creato",
+    "failed": "Impossibile clonare l'agente"
+  },
+  "agentImport": {
+    "title": "Importa agente",
+    "subtitle": "Ricrea un agente da uno zip esportato: tabelle, istruzioni, valutazioni e query salvate.",
+    "stepUpload": "Carica",
+    "stepConnections": "Connessioni",
+    "stepReview": "Verifica",
+    "stepTables": "Tabelle",
+    "dropHere": "Trascina qui lo zip esportato dell’agente o fai clic per sceglierlo",
+    "dropHint": "Il .zip scaricato con Esporta agente",
+    "reading": "Lettura del pacchetto…",
+    "mapTitle": "Associa connessioni",
+    "mapHint": "Il pacchetto nomina connessioni dell’ambiente di origine. Scegli quale connessione usare qui per ciascuna.",
+    "tablesInBundle": "{n} tabelle nel pacchetto",
+    "toolsInBundle": "{n} strumenti",
+    "searchConnections": "Cerca connessioni…",
+    "skipConnection": "Salta questa connessione",
+    "willSkip": "Saltata — tabelle e strumenti non vengono importati",
+    "noAccess": "Non puoi creare agenti su questa connessione",
+    "indexingPending": "Questa connessione è ancora in indicizzazione — le tabelle verranno applicate al termine",
+    "allTablesFound": "Trovate tutte le {n} tabelle",
+    "someTablesFound": "Trovate {found} tabelle su {total}",
+    "showMissing": "quali mancano?",
+    "autoMatched": "associata per nome",
+    "createConnection": "Crea nuova connessione",
+    "continue": "Continua",
+    "back": "Indietro",
+    "mapAtLeastOne": "Associa almeno una connessione",
+    "nameLabel": "Nome dell’agente",
+    "nameTaken": "Esiste già un agente chiamato “{name}” — scegli un altro nome",
+    "nameRenamed": "Esiste già un agente chiamato “{name}”, quindi l’importazione riceve un nuovo nome",
+    "whatToImport": "Cosa importare",
+    "tablesLine": "{n} tabelle attive su {conns} connessione/i",
+    "includeInstructions": "{n} istruzioni ({folders} cartelle)",
+    "includeEvals": "{n} suite di valutazione ({cases} casi)",
+    "includeQueries": "{n} query salvate",
+    "includeStarters": "{n} spunti di conversazione",
+    "publishLabel": "Pubblica le istruzioni importate",
+    "publishHint": "Disattivato: istruzioni e query arrivano come bozze da rivedere. Attivato: ognuna mantiene lo stato esportato.",
+    "skippedConnections": "Saltate: {names}",
+    "membersLeftOut": "{n} membro/i del pacchetto non esistono qui e verranno esclusi",
+    "importButton": "Importa agente",
+    "doneTitle": "“{name}” è stato importato",
+    "doneLine": "{tables} tabelle attive · {instructions} istruzioni · {evals} suite di valutazione · {queries} query salvate",
+    "finish": "Fine",
+    "openAgent": "Apri agente",
+    "previewFailed": "Impossibile leggere il pacchetto",
+    "importFailed": "Importazione non riuscita",
+    "bundleWarnings": "{n} file del pacchetto sono stati saltati",
+    "chipConnections": "{n} connessioni",
+    "chipTables": "{n} tabelle",
+    "chipInstructions": "{n} istruzioni",
+    "chipEvals": "{n} valutazioni",
+    "chipQueries": "{n} query"
+  },
+  "markdownTable": {
+    "title": "Tabella",
+    "copyFailed": "Impossibile copiare la tabella"
+  },
+  "createOrganization": {
+    "title": "Crea organizzazione",
+    "description": "Un'organizzazione separata, con membri, dati e impostazioni propri.",
+    "nameLabel": "Nome",
+    "namePlaceholder": "es. Finanza",
+    "nameRequired": "Inserisci un nome.",
+    "adminEmailLabel": "Email del primo amministratore",
+    "optional": "Facoltativo",
+    "adminEmailPlaceholder": "nome{'@'}azienda.it",
+    "adminEmailHint": "Invieremo a questa persona un invito a unirsi come amministratore. Anche tu sarai amministratore.",
+    "adminEmailInvalid": "Inserisci un indirizzo email valido.",
+    "submit": "Crea organizzazione",
+    "created": "Organizzazione «{name}» creata",
+    "switching": "Passaggio in corso…",
+    "inviteSent": "È stato inviato un invito a {email}.",
+    "inviteNoSmtp": "L'email non è configurata, quindi non è stato inviato alcun invito a {email}. Copia il link di invito dalla pagina Membri.",
+    "inviteNotSent": "Non è stato possibile inviare l'invito a {email}. Invita di nuovo la persona dalla pagina Membri.",
+    "adminAdded": "{email} è stato aggiunto come amministratore.",
+    "failed": "Impossibile creare l'organizzazione."
+  },
+  "vizFilter": {
+    "filter": "Filtra",
+    "title": "Filtri",
+    "clear": "Cancella",
+    "noData": "Nessun dato da filtrare",
+    "noFilters": "Nessun filtro applicato",
+    "addFilter": "Aggiungi filtro",
+    "column": "Colonna",
+    "value": "Valore",
+    "apply": "Applica",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "uguale a",
+      "not_equals": "diverso da",
+      "contains": "contiene",
+      "not_contains": "non contiene",
+      "starts_with": "inizia con",
+      "ends_with": "finisce con",
+      "is_empty": "è vuoto",
+      "is_not_empty": "non è vuoto",
+      "before": "prima di",
+      "after": "dopo",
+      "is_true": "è vero",
+      "is_false": "è falso",
+      "between": "tra",
+      "in": "è uno di",
+      "not_in": "non è uno di"
+    },
+    "or": "O",
+    "and": "E"
   }
 }

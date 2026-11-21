@@ -59,6 +59,8 @@ export interface DashboardCardData {
   id: string
   slug?: string | null
   title?: string | null
+  // Short blurb shown beside the full name on hover (dashdesc01).
+  description?: string | null
   mode: string
   published: boolean
   is_owner?: boolean
@@ -698,6 +700,28 @@ export function refreshLine(card: DashboardCardData, tab: DashboardTab): 'failin
   if (card.last_run_status === 'failed') return 'failing'
   if (tab === 'shared' && card.access?.primary === 'org' && card.last_run_at) return 'dataAsOf'
   return null
+}
+
+/**
+ * Where "Refresh failing" leads: the reader's own conversation on the
+ * dashboard, its settings open on Refreshes (ArtifactFrame reads
+ * `?settings=refreshes`, `?dashboard=` picks the dashboard). Null: they have
+ * none -- the page shows the refreshes itself, so nothing is copied or run
+ * just to look.
+ */
+export function refreshesLink(card: Pick<DashboardCardData, 'id' | 'report_id'>): { path: string; query: Record<string, string> } | null {
+  if (!card.report_id) return null
+  return { path: `/reports/${card.report_id}`, query: { dashboard: card.id, settings: 'refreshes' } }
+}
+
+/**
+ * The refresh to open first when reached from "Refresh failing": the newest
+ * failed one with an error, the published version's before a draft's (the
+ * card's status is the published refresh's). Runs are newest first.
+ */
+export function failureToOpen<R extends { status?: string; kind?: string | null; error?: string | null }>(runs: R[]): R | null {
+  const failed = (r: R) => r.status === 'failed' && !!r.error
+  return runs.find(r => failed(r) && r.kind === 'published') || runs.find(failed) || null
 }
 
 /**

@@ -71,7 +71,7 @@
                   <option v-for="t in TYPES" :key="t" :value="t">{{ $t('lists.editor.types.' + t) }}</option>
                 </select>
                 <label class="w-16 flex justify-center">
-                  <input v-model="f.required" type="checkbox" data-testid="list-field-required" class="rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
+                  <input v-model="f.required" type="checkbox" data-testid="list-field-required" class="rounded border-gray-300 dark:border-gray-600 text-ink focus:ring-0" />
                 </label>
                 <label class="w-12 flex justify-center" :title="$t('lists.editor.keyHint')">
                   <input
@@ -80,7 +80,7 @@
                     data-testid="list-field-key"
                     :checked="form.key === f._k"
                     :disabled="!KEYABLE.includes(f.type)"
-                    class="border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0 disabled:opacity-30"
+                    class="border-gray-300 dark:border-gray-600 text-ink focus:ring-0 disabled:opacity-30"
                     @click="form.key = form.key === f._k ? null : f._k"
                   />
                 </label>
@@ -99,15 +99,15 @@
         </div>
 
         <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
-          <input v-model="form.requireEvidence" type="checkbox" data-testid="list-require-evidence" class="rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
+          <input v-model="form.requireEvidence" type="checkbox" data-testid="list-require-evidence" class="rounded border-gray-300 dark:border-gray-600 text-ink focus:ring-0" />
           {{ $t('lists.editor.requireEvidence') }}
         </label>
         <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 -mt-2">
-          <input v-model="form.allowViewerSubmissions" type="checkbox" data-testid="list-allow-viewer-submissions" class="rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
+          <input v-model="form.allowViewerSubmissions" type="checkbox" data-testid="list-allow-viewer-submissions" class="rounded border-gray-300 dark:border-gray-600 text-ink focus:ring-0" />
           {{ $t('lists.editor.allowViewerSubmissions') }}
         </label>
         <label class="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 -mt-2">
-          <input v-model="form.keepHumanEdits" type="checkbox" data-testid="list-keep-human-edits" class="rounded border-gray-300 dark:border-gray-600 text-gray-900 focus:ring-0" />
+          <input v-model="form.keepHumanEdits" type="checkbox" data-testid="list-keep-human-edits" class="rounded border-gray-300 dark:border-gray-600 text-ink focus:ring-0" />
           {{ $t('lists.editor.keepHumanEdits') }}
         </label>
 

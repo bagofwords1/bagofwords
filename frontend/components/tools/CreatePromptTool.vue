@@ -1,41 +1,25 @@
 <template>
-  <div class="mt-1">
+  <div class="min-w-0">
     <!-- Status header -->
-    <Transition name="fade" appear>
-      <div
-        class="flex items-center text-chat-2 text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300"
-        @click="toggleExpanded"
-      >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-bookmark-square" class="w-3 h-3 me-1.5 text-ink-muted" />
-          <span v-if="promptTitle" dir="auto" class="truncate max-w-[300px]">{{ t('tools.createPrompt.savingPrefix', { title: promptTitle }) }}</span>
-          <span v-else>{{ t('tools.createPrompt.saving') }}</span>
-        </span>
-        <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-bookmark-square" class="w-3 h-3 me-1.5 text-green-500" />
-          <span dir="auto" class="truncate max-w-[300px]">{{ promptTitle }}</span>
-          <span class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ scope }}</span>
-          <span v-if="isStarter" class="ms-1 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 rounded text-chat-3 shrink-0">{{ t('tools.createPrompt.starter') }}</span>
-          <span v-if="paramCount > 0" class="ms-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded text-chat-3 shrink-0">{{ t('tools.createPrompt.paramsBadge', { n: paramCount }) }}</span>
-          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted shrink-0 rtl-flip" />
-        </span>
-        <span v-else-if="isRejected" class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-orange-500" />
-          <span>{{ t('tools.createPrompt.notSaved') }}</span>
-          <span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span>
-          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
-        </span>
-        <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-          <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-          <span>{{ t('tools.createPrompt.failed') }}</span>
-          <Icon :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 ms-1 text-ink-muted rtl-flip" />
-        </span>
-      </div>
-    </Transition>
+    <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-document-text" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
+      <template #label>
+      <template v-if="status === 'running'">
+      <template v-if="promptTitle">{{ t('tools.createPrompt.savingPrefix', { title: promptTitle }) }}</template>
+      <template v-else>{{ t('tools.createPrompt.saving') }}</template></template>
+      <template v-else-if="isSuccess">{{ promptTitle }}</template>
+      <template v-else-if="isRejected">{{ t('tools.createPrompt.notSaved') }}</template>
+      <template v-else>{{ t('tools.createPrompt.failed') }}</template></template>
+    </ToolCallHeader>
+    <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
+      <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
+      <template v-if="status === 'running'"></template>
+      <template v-else-if="isSuccess"><span class="ms-1.5 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded text-chat-3 shrink-0">{{ scope }}</span><span v-if="isStarter" class="ms-1 px-1.5 py-0.5 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-400 rounded text-chat-3 shrink-0">{{ t('tools.createPrompt.starter') }}</span><span v-if="paramCount > 0" class="ms-1 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 rounded text-chat-3 shrink-0">{{ t('tools.createPrompt.paramsBadge', { n: paramCount }) }}</span></template>
+      <template v-else-if="isRejected"><span v-if="rejectedReason" class="ms-1.5 text-orange-600 text-chat-3">({{ rejectedReason }})</span></template>
+      <template v-else></template></div>
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded && (status !== 'running' || promptText)" class="mt-2 space-y-2">
+      <div v-if="toolHeaderExpanded && (status !== 'running' || promptText)" class="mt-2 space-y-2">
         <div class="hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-150 dark:border-gray-700 rounded-md p-3 transition-colors">
           <!-- Prompt text -->
           <div v-if="promptText" class="prompt-content text-chat-2 text-gray-800 dark:text-gray-200 leading-relaxed mb-2">
@@ -79,16 +63,22 @@
           </div>
 
           <!-- Error / rejection message -->
-          <div v-if="errorMessage" class="text-chat-2 text-orange-600 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
+          <div v-if="errorMessage" class="text-chat-2 text-orange-600 dark:text-orange-300 bg-orange-50/50 dark:bg-orange-950 rounded px-2 py-1 mt-2">
             {{ errorMessage }}
           </div>
         </div>
       </div>
     </Transition>
+  
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import ToolCallHeader from '~/components/tools/ToolCallHeader.vue'
+import { ref as activityRef } from 'vue'
+const toolHeaderExpanded = activityRef(false)
+
 import { computed, ref } from 'vue'
 import { useResponseI18n } from '~/composables/useResponseI18n'
 const { t } = useResponseI18n()
@@ -149,13 +139,6 @@ function openPrompts() {
 </script>
 
 <style scoped>
-.tool-shimmer {
-  animation: shimmer 1.6s linear infinite;
-  background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-  background-size: 300% 100%;
-  background-clip: text;
-}
-@keyframes shimmer { 0% { background-position: 0% 0; } 100% { background-position: 100% 0; } }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .slide-enter-active, .slide-leave-active { transition: all 0.15s ease; overflow: hidden; }

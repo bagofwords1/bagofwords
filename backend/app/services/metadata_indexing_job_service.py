@@ -16,6 +16,7 @@ from app.models.git_repository import GitRepository
 from app.models.data_source import DataSource
 from app.models.organization import Organization
 from app.schemas.metadata_resource_schema import MetadataResourceCreate
+from app.core.git_file_walker import repo_glob
 from app.core.dbt_parser import DBTResourceExtractor
 from app.core.lookml_parser import LookMLResourceExtractor
 from app.core.markdown_parser import MarkdownResourceExtractor
@@ -277,7 +278,7 @@ class MetadataIndexingJobService:
             
             # Debug: Log the directory structure
             logger.debug(f"LookML project structure:")
-            for path in Path(temp_dir).rglob('*.lkml'):
+            for path in repo_glob(temp_dir, '**/*.lkml'):
                 logger.debug(f"Found LookML file: {path.relative_to(temp_dir)}")
             
             # Extract all resources
@@ -356,7 +357,7 @@ class MetadataIndexingJobService:
             
             # Debug: Log the directory structure
             logger.debug(f"Markdown project structure:")
-            for path in Path(temp_dir).rglob('*.md'):
+            for path in repo_glob(temp_dir, '**/*.md'):
                 logger.debug(f"Found Markdown file: {path.relative_to(temp_dir)}")
             
             # Extract all resources

@@ -16,6 +16,10 @@ LINKS = (
 
 
 def upgrade():
+    # Idempotent: the dashboard test corpus replays it unstamped (see
+    # SCHEMA_ONLY_AFTER_DATA_MIGRATION), then a later upgrade head runs it again.
+    if "owner_folder_id" in {c["name"] for c in sa.inspect(op.get_bind()).get_columns("files")}:
+        return
     for table in ("files", "test_suites"):
         with op.batch_alter_table(table) as batch:
             batch.add_column(sa.Column("owner_folder_id", sa.String(36)))

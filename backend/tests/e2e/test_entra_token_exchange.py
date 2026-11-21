@@ -471,6 +471,7 @@ def test_first_exchange_uses_org_domain_policy_and_seat_limit(
 
 
 @pytest.mark.e2e
+@pytest.mark.per_request_loop
 def test_concurrent_first_exchange_creates_one_identity(test_client, create_user, login_user, whoami, entra, request):
     if request.config.getoption("--db") == "sqlite":
         pytest.skip("Cross-worker advisory lock contract requires PostgreSQL")

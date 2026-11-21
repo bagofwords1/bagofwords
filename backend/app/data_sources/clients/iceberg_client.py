@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,6 +39,82 @@ from app.data_sources.clients.progress import IndexingCancelled, discovery_items
 logger = logging.getLogger(__name__)
 
 MAX_RESULT_ROWS = 200_000
+
+
+# "Extra Catalog Properties" is a free-form field and stays one: any catalog
+# type, warehouse, credential or tuning key keeps working. Keys that make
+# PyIceberg import a dotted Python path accept PyIceberg's own classes (the
+# documented py-io-impl: pyiceberg.io.fsspec.FsspecFileIO and friends) and
+# refuse any other path. Values that name another server get the same outbound check as the
+# connection's own host fields, and a SQL catalog kept in a local SQLite file
+# gets the local path policy.
+EXTRA_PROPERTY_CODE_KEYS = frozenset({
+    "py-catalog-impl", "py-io-impl", "s3.retry-strategy-impl", "py-location-provider.impl", "auth.impl",
+})
+_ENDPOINT_KEY_SUFFIXES = ("uri", "endpoint", ".host", "-host", "-authority")
+_BUILT_IN_CLASS = re.compile(r"pyiceberg(\.[A-Za-z_][A-Za-z0-9_]*)+")
+
+
+def _loads_foreign_code(key: str, raw_value) -> bool:
+    """True when the property would import a class from outside PyIceberg."""
+    k = key.lower()
+    if k == "auth":
+        # The REST catalog's auth block: declarative, except its `impl`.
+        impl = raw_value.get("impl") if isinstance(raw_value, dict) else None
+        return bool(impl) and not _BUILT_IN_CLASS.fullmatch(str(impl).strip())
+    if k in EXTRA_PROPERTY_CODE_KEYS or k.endswith(("-impl", ".impl")):
+        return not _BUILT_IN_CLASS.fullmatch(str(raw_value).strip())
+    return False
+
+
+def _local_path_in(value: str) -> str | None:
+    """The file a property value names on this server, if it names one."""
+    v = value.strip()
+    if v.lower().startswith("sqlite"):
+        try:
+            from sqlalchemy.engine import make_url
+
+            database = make_url(v).database
+        except Exception:
+            database = v.split(":///", 1)[-1].split("?", 1)[0]
+        return None if not database or database == ":memory:" or database.startswith("file::memory:") else database
+    if v.lower().startswith("file:"):
+        from urllib.parse import unquote, urlparse
+
+        return unquote(urlparse(v).path) or None
+    if v.startswith("/"):
+        return v
+    return None
+
+
+def checked_extra_properties(extra: dict) -> dict[str, str]:
+    """The admin's extra catalog properties, or ValueError naming the first
+    key that is not accepted."""
+    from app.core.egress import Policy, check_host, hosts_in
+    from app.core.url_safety import UnsafeURLError
+    from app.data_sources.clients._duckdb_lockdown import check_local_path
+
+    out: dict[str, str] = {}
+    for raw_key, raw_value in extra.items():
+        key, value = str(raw_key).strip(), str(raw_value)
+        if _loads_foreign_code(key, raw_value):
+            logger.warning("Iceberg: refused extra catalog property %r", key)
+            raise ValueError(
+                f"Extra catalog property '{key}' is not supported with this value: only "
+                "implementations that ship with PyIceberg (pyiceberg.*) can be set on a connection."
+            )
+        try:
+            local = _local_path_in(value) if key.lower() in ("uri", "warehouse") else None
+            if local is not None:
+                check_local_path(local, contains=key.lower() == "warehouse")
+            elif key.lower().endswith(_ENDPOINT_KEY_SUFFIXES):
+                for host in hosts_in(value):
+                    check_host(host, Policy.ADMIN, require_resolution=False)
+        except (UnsafeURLError, ValueError) as e:
+            logger.warning("Iceberg: refused extra catalog property %r: %s", key, e)
+            raise ValueError(f"Extra catalog property '{key}' is not allowed: {e}") from e
+        out[key] = value
+    return out
 
 
 class IcebergScanTooLarge(ValueError):
@@ -155,7 +232,7 @@ class IcebergClient(DataSourceClient):
                 raise ValueError(f"Extra catalog properties must be a JSON object: {e}") from e
             if not isinstance(extra, dict):
                 raise ValueError("Extra catalog properties must be a JSON object.")
-            props.update({str(k): str(v) for k, v in extra.items()})
+            props.update(checked_extra_properties(extra))
         return props
 
     def _cat(self):
@@ -360,6 +437,10 @@ class IcebergClient(DataSourceClient):
                 con.register(view, arrow)
                 con.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"')
                 con.execute(f'CREATE OR REPLACE VIEW "{schema_name}"."{table_name}" AS SELECT * FROM {view}')
+            # The scans are in memory: the session needs no file or network.
+            from app.data_sources.clients._duckdb_lockdown import lock_connection
+
+            lock_connection(con)
             result = con.execute(sql)
             rows = result.fetchmany(MAX_RESULT_ROWS + 1)
             cols = [d[0] for d in result.description]

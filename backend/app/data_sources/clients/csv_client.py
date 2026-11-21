@@ -14,6 +14,7 @@ import pandas as pd
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.progress import IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
 from app.settings.logging_config import get_logger
 
@@ -69,7 +70,7 @@ class CSVClient(DataSourceClient):
         for pattern in self.patterns:
             matched = glob.glob(pattern, recursive=True)
             files.extend([f for f in matched if f.lower().endswith('.csv')])
-        return sorted(set(files))
+        return lockdown.filter_files(sorted(set(files)), "csv", lockdown.organization_of(self))
 
     def _safe_table_name(self, filepath: str, used: set[str]) -> str:
         """Generate a safe table name from filepath."""
@@ -130,10 +131,14 @@ class CSVClient(DataSourceClient):
             for filepath in files:
                 table_name = self._safe_table_name(filepath, used)
                 con.execute(
-                    f"CREATE VIEW {table_name} AS SELECT * FROM {self._read_expr(filepath)}"
+                    f'CREATE VIEW "{table_name}" AS SELECT * FROM {self._read_expr(filepath)}'
                 )
                 table_map[table_name] = filepath
 
+            # From here the session reads these files and nothing else.
+            lockdown.lock_connection(
+                con, paths=[p for f in files for p in (f, os.path.abspath(f), os.path.realpath(f))]
+            )
             self._table_map = table_map
             logger.info(
                 "csv.connect.done",
@@ -156,8 +161,10 @@ class CSVClient(DataSourceClient):
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("csv.query.start", extra={"csv_sql": sql})
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
+                lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(
                 "csv.query.done",

@@ -21,6 +21,7 @@ import pandas as pd
 
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients import _duckdb_lockdown as lockdown
 from app.data_sources.clients.progress import (
     CancelCheck,
     IndexingCancelled,
@@ -132,7 +133,7 @@ class QVDClient(DataSourceClient):
         for pattern in self.patterns:
             matched = glob.glob(pattern, recursive=True)
             files.extend([f for f in matched if f.lower().endswith('.qvd')])
-        return sorted(set(files))
+        return lockdown.filter_files(sorted(set(files)), "qvd", lockdown.organization_of(self))
 
     def _safe_table_name(self, filepath: str, used: set[str]) -> str:
         """Generate a safe table name from filepath."""
@@ -242,7 +243,7 @@ class QVDClient(DataSourceClient):
     #   "qvd2parquet: progress <done_rows> <total_rows>"
     _PROGRESS_RE = re.compile(r"progress\s+(\d+)\s+(\d+)")
 
-    def _run_convert_streaming(
+    def convert_to_parquet(
         self,
         filepath: str,
         tmp_path: Path,
@@ -383,7 +384,7 @@ class QVDClient(DataSourceClient):
             # Streaming QVD → Parquet via standalone Rust binary. Bounded RAM
             # (symbol tables + ~64K-row chunk buffer) vs the in-process qvdrs
             # wheel which materialized the full table (~13× file size, OOM on 4GB+).
-            stderr = self._run_convert_streaming(
+            stderr = self.convert_to_parquet(
                 filepath, tmp_path, progress_cb=progress_cb, cancel_check=cancel_check,
             )
 
@@ -595,6 +596,7 @@ class QVDClient(DataSourceClient):
             con = duckdb.connect(database=":memory:")
             used: set[str] = set()
             table_map: dict[str, str] = {}
+            parquets: List[str] = []
             skipped = 0
             for filepath in files:
                 file_hash, fresh_path = self._cache_key(filepath)
@@ -628,10 +630,13 @@ class QVDClient(DataSourceClient):
                 table_name = self._safe_table_name(filepath, used)
                 parquet_sql = str(parquet).replace("'", "''")
                 con.execute(
-                    f"CREATE VIEW {table_name} AS SELECT * FROM read_parquet('{parquet_sql}')"
+                    f"CREATE VIEW \"{table_name}\" AS SELECT * FROM read_parquet('{parquet_sql}')"
                 )
                 table_map[table_name] = filepath
+                parquets.append(str(parquet))
 
+            # From here the session reads this connection's caches only.
+            lockdown.lock_connection(con, paths=parquets)
             self._table_map = table_map
             logger.info(
                 "qvd.connect.done",
@@ -655,8 +660,10 @@ class QVDClient(DataSourceClient):
     def execute_query(self, sql: str) -> pd.DataFrame:
         t0 = time.perf_counter()
         logger.info("qvd.query.start", extra={"qvd_sql": sql})
+        lockdown.check_user_sql(sql, deferred=True)
         try:
             with self.connect() as con:
+                lockdown.check_session_sql(con, sql)
                 df = con.execute(sql).df()
             logger.info(
                 "qvd.query.done",

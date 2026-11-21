@@ -53,6 +53,8 @@ const scope = {
   filesData: ref([]),
   paramsPayload: () => ({ values: {} }),
   artifactRuntime: () => ({ nonce: 'n' }),
+  artifact: ref({ artifact_id: 'dash-1' }),
+  loadTableLayouts: () => ({}),
   postToArtifactIframe: (message) => posts.push(message),
   artifactIframeLoaded: ref(true),
   artifactPushPending: false,

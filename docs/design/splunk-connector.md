@@ -187,6 +187,7 @@ Reproducible local environment mirroring `tools/zabbix/`:
   Zabbix tooling.
 
 ### 6. Live UI pass
+> **DevBox** (`BOW_SANDBOX_DEVBOX=1`): skip `boot_stack.sh` and `seed_org.py`; the stack is already running with the admin, org, LLM and demo data source provisioned (`bow-stack status`; pick up a new client or dependency with `bow-stack restart backend`). See the root `AGENTS.md`, "DevBox".
 `tools/agent/boot_stack.sh` + `seed_org.py`, then in the app: create a Splunk
 connection → **Test connection** succeeds → the tables selector lists the
 `index::sourcetype` tables → run a prompt that queries events and an

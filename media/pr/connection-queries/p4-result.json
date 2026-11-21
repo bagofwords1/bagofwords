@@ -1,0 +1,77 @@
+{
+ "workersBefore": [
+  "19287",
+  "22401",
+  "23021"
+ ],
+ "killedWorkerPid": "23021",
+ "secondsUntilSlotFreed": 30.211,
+ "pgActiveAfterFree": 2,
+ "rowsAfter": [
+  {
+   "report": -1,
+   "status": "cancelled"
+  },
+  {
+   "report": -1,
+   "status": "success"
+  },
+  {
+   "report": -1,
+   "status": "success"
+  },
+  {
+   "report": -1,
+   "status": "cancelled"
+  },
+  {
+   "report": -1,
+   "status": "cancelled"
+  },
+  {
+   "report": -1,
+   "status": "stale"
+  },
+  {
+   "report": -1,
+   "status": "success"
+  },
+  {
+   "report": -1,
+   "status": "success"
+  },
+  {
+   "report": -1,
+   "status": "stale"
+  },
+  {
+   "report": -1,
+   "status": "success"
+  },
+  {
+   "report": -1,
+   "status": "success"
+  },
+  {
+   "report": 0,
+   "status": "running"
+  },
+  {
+   "report": 1,
+   "status": "queued"
+  },
+  {
+   "report": 2,
+   "status": "busy"
+  },
+  {
+   "report": 3,
+   "status": "running"
+  }
+ ],
+ "workersAfter": [
+  "19287",
+  "22401",
+  "23789"
+ ]
+}

@@ -291,6 +291,27 @@ async def unstar_dashboard(
     return await set_star(db, current_user, organization, dashboard_id, False)
 
 
+@router.delete("/artifacts/{dashboard_id}/dashboard")
+@requires_permission("delete_reports")
+async def delete_dashboard(
+    dashboard_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """The owner deletes the dashboard and every version of it (the `delete`
+    capability, the owner's alone); a published one is unpublished first
+    (dashboard_lifecycle.delete_dashboard). Not `DELETE /artifacts/{id}`:
+    that one deletes a version, and a parent backfilled by artver01 shares
+    its version's id."""
+    from app.services.dashboard_access import CAP_DELETE
+    from app.services.dashboard_lifecycle import delete_dashboard as delete
+
+    artifact = await dashboard_settings_service.dashboard_for(db, dashboard_id, current_user, organization, CAP_DELETE)
+    return await delete(db, artifact, current_user, organization, request=request)
+
+
 @router.get("/artifacts/{dashboard_id}/sharing", response_model=DashboardSharingSchema)
 @requires_permission("publish_reports")
 async def get_dashboard_sharing(

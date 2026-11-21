@@ -70,7 +70,7 @@
               <div class="flex items-center gap-2 mb-1" :class="{ 'opacity-50': !trig.is_active }">
                 <UIcon name="heroicons-bolt-solid" class="w-3.5 h-3.5 text-amber-500" />
                 <span class="text-sm font-medium text-gray-900 dark:text-white">{{ trig.name || trig.task_template || $t('triggers.noTask') }}</span>
-                <span v-if="trig.classify_enabled" class="text-2xs px-1.5 py-0.5 rounded border text-purple-700 border-purple-200 bg-purple-50">AI {{ $t('triggers.filter') }}</span>
+                <span v-if="trig.classify_enabled" class="text-2xs px-1.5 py-0.5 rounded border text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950">AI {{ $t('triggers.filter') }}</span>
               </div>
               <div class="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 mb-1.5">{{ trig.task_template || $t('triggers.noTask') }}</div>
               <div class="flex items-center gap-3 text-2xs text-ink-muted flex-wrap">
@@ -99,7 +99,7 @@
                   :aria-pressed="trig.is_active"
                   :data-testid="`trigger-toggle-${trig.name}`"
                 >
-                  <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="trig.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                  <span class="inline-block h-3 w-3 rounded-full bg-surface transition-transform" :class="trig.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
                 </button>
               </UTooltip>
               <!-- Run count only: the history itself lives in the trigger's
@@ -115,12 +115,12 @@
                     : $t('triggers.runs', { n: trig.run_count }) }}
               </span>
               <UTooltip :text="$t('triggers.copyUrl')">
-                <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-gray-600" :data-testid="`trigger-copy-${trig.name}`">
+                <button @click.stop="copy(trig.delivery_url, `url-${trig.id}`)" class="p-1 rounded text-ink-subtle hover:text-ink-2" :data-testid="`trigger-copy-${trig.name}`">
                   <UIcon :name="copied === `url-${trig.id}` ? 'heroicons-check' : 'heroicons-link'" class="w-3.5 h-3.5" :class="copied === `url-${trig.id}` ? 'text-green-500' : ''" />
                 </button>
               </UTooltip>
               <UTooltip :text="$t('triggers.delete')">
-                <button @click.stop="removeTrigger(trig)" class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40">
+                <button @click.stop="removeTrigger(trig)" class="p-1 rounded text-ink-subtle hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40">
                   <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
                 </button>
               </UTooltip>
@@ -308,7 +308,7 @@
                   :disabled="saving"
                   @click="toggleActiveInPlace"
                 >
-                  <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+                  <span class="inline-block h-3 w-3 rounded-full bg-surface transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
                 </button>
               </dd>
             </div>
@@ -362,7 +362,7 @@
             :aria-pressed="form.is_active"
             @click="form.is_active = !form.is_active"
           >
-            <span class="inline-block h-3 w-3 rounded-full bg-white transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
+            <span class="inline-block h-3 w-3 rounded-full bg-surface transition-transform" :class="form.is_active ? 'translate-x-3.5' : 'translate-x-0.5'" />
           </button>
         </div>
         </div>
@@ -371,7 +371,7 @@
         <aside v-if="viewMode" class="md:col-span-2 min-w-0 md:border-s md:ps-5 border-gray-100 dark:border-gray-800" data-testid="trigger-runs-column">
           <div class="flex items-baseline justify-between">
             <h4 class="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{{ $t('scheduledPrompt.previousRuns') }}</h4>
-            <span v-if="current?.run_count" class="text-2xs text-gray-300 dark:text-gray-600">{{ current.run_count }}</span>
+            <span v-if="current?.run_count" class="text-2xs text-ink-muted">{{ current.run_count }}</span>
           </div>
 
           <div v-if="runsLoading" class="mt-2 text-2xs text-ink-muted inline-flex items-center">

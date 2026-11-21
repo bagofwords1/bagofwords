@@ -39,30 +39,30 @@
             <!-- Existing -->
             <div class="rounded-xl border border-gray-200 dark:border-gray-700 p-4 flex flex-col min-h-0" data-testid="dashboard-start-existing">
                 <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                    <Icon name="heroicons:pencil-square" class="w-4 h-4 text-gray-500" />
+                    <Icon name="heroicons:pencil-square" class="w-4 h-4 text-ink-muted" />
                     {{ $t('dashboardStart.existingTitle') }}
                 </div>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-3">{{ $t('dashboardStart.existingDesc') }}</p>
                 <UInput v-model="search" size="sm" icon="i-heroicons-magnifying-glass" :placeholder="$t('dashboardStart.search')"
                     data-testid="dashboard-start-search" class="mb-2" />
                 <div class="max-h-56 overflow-y-auto -mx-1">
-                    <div v-if="loading" class="flex items-center justify-center py-6"><Spinner class="w-4 h-4 text-gray-400" /></div>
-                    <p v-else-if="!shown.length" class="text-xs text-gray-400 text-center py-6">{{ $t('dashboardStart.none') }}</p>
+                    <div v-if="loading" class="flex items-center justify-center py-6"><Spinner class="w-4 h-4 text-ink-muted" /></div>
+                    <p v-else-if="!shown.length" class="text-xs text-ink-muted text-center py-6">{{ $t('dashboardStart.none') }}</p>
                     <button v-for="d in shown" v-else :key="d.id" type="button" :disabled="!!opening"
                         class="w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded-lg text-start hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-60"
                         data-testid="dashboard-start-item" @click="open(d)">
                         <div class="w-12 h-8 shrink-0 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-hidden flex items-center justify-center">
                             <DashboardThumbnail v-if="d.thumbnail_url && !brokenThumbs[d.id]" :url="d.thumbnail_url" alt="" class="w-full h-full object-cover"
                                 @error="brokenThumbs[d.id] = true" />
-                            <Icon v-else name="heroicons:squares-2x2" class="w-3.5 h-3.5 text-gray-400" />
+                            <Icon v-else name="heroicons:squares-2x2" class="w-3.5 h-3.5 text-ink-muted" />
                         </div>
                         <div class="min-w-0 flex-1">
-                            <div class="text-sm text-gray-900 dark:text-gray-100 truncate">{{ d.title || $t('dashboardStart.untitled') }}</div>
+                            <TruncatedLabel :text="d.title || $t('dashboardStart.untitled')" :description="d.description" class="text-sm text-gray-900 dark:text-gray-100" />
                             <div class="text-[11px] text-gray-500 dark:text-gray-400 truncate">
                                 {{ roleOf(d) === 'owner' ? $t('dashboardStart.owner') : $t('dashboardCollab.list.canEdit') }}<template v-if="roleOf(d) !== 'owner' && d.owner?.name"> · {{ $t('dashboardStart.byOwner', { name: d.owner.name }) }}</template>
                             </div>
                         </div>
-                        <Spinner v-if="opening === d.id" class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                        <Spinner v-if="opening === d.id" class="w-3.5 h-3.5 text-ink-muted shrink-0" />
                         <Icon v-else name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-300 shrink-0 rtl-flip" />
                     </button>
                 </div>
@@ -73,6 +73,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import TruncatedLabel from '~/components/TruncatedLabel.vue'
 import DashboardThumbnail from '~/components/dashboards/DashboardThumbnail.vue'
 
 const props = defineProps<{ chartCount: number; reportId: string }>()

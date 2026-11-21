@@ -31,7 +31,6 @@ from app.core.permission_resolver import (
 )
 from app.dependencies import get_async_db, get_current_organization
 from app.models.organization import Organization
-from app.models.report_data_source_association import report_data_source_association
 from app.models.user import User
 from app.schemas.console_schema import MetricsQueryParams
 from app.settings.config import settings
@@ -122,16 +121,61 @@ class ConsoleScope:
             raise HTTPException(403, "Trace unavailable")
         if self.is_org_wide:
             return
-        rows = (await db.execute(
-            select(report_data_source_association.c.data_source_id)
-            .where(report_data_source_association.c.report_id == report_id)
-        )).scalars().all()
-        allowed = set(self.data_source_ids)
-        if not rows or not all(str(ds) in allowed for ds in rows):
+        from app.services.folder_monitoring import reports_in_scope
+        visible = await db.scalar(
+            select(Report.id).where(Report.id == report_id, Report.id.in_(reports_in_scope(self.data_source_ids)))
+        )
+        if visible is None:
             raise HTTPException(
                 status_code=403,
                 detail="You don't manage every agent behind this report",
             )
+
+    async def visible_run_ids(self, db: AsyncSession, report_id: str) -> Optional[set]:
+        """The runs of a report this caller may open, or None for all of them.
+
+        A scoped manager sees the report's runs up to (not including) the first
+        one that reached an agent they don't manage; see
+        folder_monitoring.visible_runs. Folder reports additionally need the
+        folder gate (``can_open``) on the report as a whole.
+        """
+        if self.is_org_wide:
+            from app.services.folder_monitoring import historic_folder_reports, can_open
+            from sqlalchemy.orm import lazyload
+            from app.models.report import Report
+            report = await db.scalar(select(Report).options(lazyload("*")).where(
+                Report.id == report_id, Report.id.in_(historic_folder_reports())))
+            if report and not (self.user and report.organization_id == self.organization.id and
+                               await can_open(db, report, self.user, self.organization, None)):
+                return set()
+            return None
+        from app.services.folder_monitoring import historic_folder_reports, can_open, visible_runs
+        from app.models.agent_execution import AgentExecution
+        from app.models.report import Report
+        from sqlalchemy.orm import lazyload
+        report = await db.scalar(select(Report).options(lazyload("*")).where(
+            Report.id == report_id, Report.id.in_(historic_folder_reports())))
+        if report and not (self.user and report.organization_id == self.organization.id and
+                           await can_open(db, report, self.user, self.organization, self.data_source_ids)):
+            return set()
+        return set(await db.scalars(select(AgentExecution.id).where(
+            AgentExecution.report_id == report_id,
+            AgentExecution.id.in_(visible_runs(self.data_source_ids)),
+        )))
+
+    async def assert_report_partly_visible(self, db: AsyncSession, report_id: str) -> Optional[set]:
+        """Gate the conversation replay: at least one run must be visible.
+        Returns the visible run ids (None = all) for the caller to filter by."""
+        runs = await self.visible_run_ids(db, report_id)
+        if runs is not None and not runs:
+            raise HTTPException(status_code=403, detail="Trace unavailable")
+        return runs
+
+    async def assert_run_visible(self, db: AsyncSession, execution_id: str, report_id: str) -> None:
+        """Gate a single run's drill-down (its trace, its context snapshots)."""
+        runs = await self.visible_run_ids(db, report_id)
+        if runs is not None and str(execution_id) not in {str(r) for r in runs}:
+            raise HTTPException(status_code=403, detail="Trace unavailable")
 
 
 async def console_identity(
