@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Boolean, ForeignKey, JSON, Text, UniqueConstraint
+from sqlalchemy.sql.expression import false as sa_false
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
@@ -24,7 +25,15 @@ class ConnectionTool(BaseSchema):
 
     # Admin controls
     is_enabled = Column(Boolean, nullable=False, default=True)
-    policy = Column(String, nullable=False, default="allow")  # allow | confirm | deny
+    policy = Column(String, nullable=False, default="allow")  # allow | ask | auto | deny
+    # Locked: agents and users may make this tool's policy stricter, never looser.
+    policy_locked = Column(Boolean, nullable=False, default=False, server_default=sa_false())
+
+    # What calling the tool does: read | modify | external | destructive.
+    # NULL = unknown (legacy rows); the UI and defaults treat it by hints.
+    effect = Column(String, nullable=True)
+    # Where the tool comes from: mcp | custom_api | remote | native.
+    source = Column(String, nullable=True)
 
     # Additional metadata (version, tags, examples, etc.)
     metadata_json = Column(JSON, nullable=True)

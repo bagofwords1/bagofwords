@@ -200,7 +200,11 @@ const SAMPLES: Record<string, string> = {
     phone: '+1 415 555 0132',
     ipv4: '192.168.4.27',
     iban: 'DE89 3704 0044 0532 0130 00',
-    aws_access_key: 'AKIAIOSFODNN7EXAMPLE',
+    // Illustrative placeholder only — deliberately not a valid AWS key id
+    // (hyphens break the AKIA[0-9A-Z]{16} shape) so secret scanners don't flag
+    // this UI sample as a hardcoded credential. It only has to read as an AWS
+    // access key for the masking preview.
+    aws_access_key: 'AKIA-EXAMPLE-KEY-ID',
     PERSON: 'Jane Miller',
     LOCATION: 'Lisbon',
     ORGANIZATION: 'Acme Corp',

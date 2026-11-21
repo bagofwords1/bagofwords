@@ -23,8 +23,9 @@
  * - The final message is the LAST block, when it carries user-facing prose and
  *   the run is known to be over (the planner marked it `analysis_complete`, or
  *   the run's status is `success`). A run that stopped, errored, or ended on a
- *   question (clarify) has no conclusion and never folds: its failure or its
- *   question must stay in view.
+ *   question (clarify) or a sign-in request (request_agent_signin) has no
+ *   conclusion and never folds: its failure, question or Connect card must
+ *   stay in view.
  * - Prose always breaks a step: a progress message is part of the chain and
  *   keeps its chronological place. Reasoning does not — it rides inside the
  *   step it preceded.
@@ -278,9 +279,11 @@ export interface RunActivity {
   stepOf: Record<string, RunStep>
   /** blockId of each step's first member -> step (header render anchor) */
   headerAt: Record<string, RunStep>
-  /** Blocks whose output stays reachable below the final message, in order. */
+  /** Blocks whose output stays reachable below the final message, in order,
+      followed by still-running work (`keepVisible`). */
   deliverableIds: string[]
-  /** Blocks shown in full — prose and tool card — while folded (approval cards). */
+  /** Blocks shown in full — prose and tool card — while folded (approval
+      cards), and, while live, running work with a Stop control. */
   openIds: string[]
   /** What the run is doing now, for the live row: the latest progress note or
       step title, one line. Empty when finished or unknown. */
@@ -428,6 +431,11 @@ function toMs(v: any): number | null {
   return Number.isFinite(t) ? t : null
 }
 
+// A run that ends on one of these is waiting for the user (an answer to a
+// question, a sign-in to an agent): it has no conclusion, and its card must
+// stay in view instead of folding into the steps.
+const WAITS_ON_USER = new Set<string>(['clarify', 'request_agent_signin'])
+
 /**
  * The block that ends the run's conclusion, or null while there is none. When
  * it also carries a tool call, the prose block right before it is part of the
@@ -436,7 +444,7 @@ function toMs(v: any): number | null {
 export function findFinalBlock(blocks: any[], runStatus?: string): any | null {
   const last = (blocks || [])[blocks.length - 1]
   if (!last || !blockHasMessage(last)) return null
-  if (last.status === 'error' || last.tool_execution?.tool_name === 'clarify') return null
+  if (last.status === 'error' || WAITS_ON_USER.has(last.tool_execution?.tool_name)) return null
   const te = last.tool_execution
   if (te && !['success', 'error', 'failed'].includes(String(te.status || ''))) return null
   const over = runStatus === 'success' || (!!last.plan_decision?.analysis_complete && runStatus !== 'error' && runStatus !== 'stopped')
@@ -463,6 +471,10 @@ export function computeRunActivity(
     isSuperseded?: (block: any) => boolean
     /** Blocks that must stay open while folded (a card waiting on the user). */
     keepOpen?: (block: any) => boolean
+    /** Blocks whose work outlives their tool call and that carry its Stop
+        control (a running eval, a sub-agent still investigating). They are
+        never hidden: open while live, kept under the answer once folded. */
+    keepVisible?: (block: any) => boolean
   },
 ): RunActivity | null {
   const list = blocks || []
@@ -521,6 +533,15 @@ export function computeRunActivity(
     latest.delete(key)
     latest.set(key, String(b.id))
   }
+  // Still-running work keeps its card (and Stop) in view: open in place while
+  // the run works, under the answer once it folds.
+  const deliverableIds = Array.from(latest.values())
+  const openIds = live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : []
+  for (const b of list) {
+    if (!opts?.keepVisible?.(b)) continue
+    const target = live ? openIds : deliverableIds
+    if (!target.includes(String(b.id))) target.push(String(b.id))
+  }
 
   const starts = list.map((b) => toMs(b?.started_at) ?? toMs(b?.tool_execution?.started_at)).filter((t): t is number => t !== null)
   const finalStart = final ? toMs(final.started_at) : null
@@ -544,8 +565,8 @@ export function computeRunActivity(
     toolGroups: computeRunToolGroups(list, opts?.breakBefore, !live),
     stepOf,
     headerAt,
-    deliverableIds: Array.from(latest.values()),
-    openIds: live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : [],
+    deliverableIds,
+    openIds,
     status: live ? liveStatus(before) : '',
     spanMs,
   }
@@ -574,6 +595,9 @@ export interface RunToolGroup {
   counts: Record<string, number>
   settled: boolean
   failed?: boolean
+  /** Members whose call failed, including ones the run recovered from; shown
+      as a count on the row so a collapsed group never looks clean. */
+  failedCount: number
   current: { name: string; title: string; status: string }
   icon: string
   running: boolean
@@ -605,13 +629,15 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
     if (!te) { group = undefined; continue }
     const category = toolCategory(String(te.tool_name || ''))
     if (!group) {
-      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
+      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, failedCount: 0, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
       groups.push(group)
     }
     group.blockIds.push(String(block.id))
     group.counts[category] = (group.counts[category] || 0) + 1
     if (!group.categories.includes(category)) group.categories.push(category)
     const running = RUNNING_STATUSES.has(String(te.status || ''))
+    const callFailed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+    if (callFailed) group.failedCount += 1
     // Prefer the latest running call; otherwise follow the latest completed call.
     if (running || !group.running) {
       group.icon = GROUP_ICONS[category]
@@ -621,7 +647,7 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
         status: String(te.status || ''),
       }
       // Match the warning to the displayed call; historical failures stay on their own rows.
-      group.failed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+      group.failed = callFailed
     }
     group.running ||= running
   }

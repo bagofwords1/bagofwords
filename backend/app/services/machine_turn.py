@@ -24,6 +24,51 @@ from app.models.completion import Completion
 logger = logging.getLogger(__name__)
 
 
+async def unattended_origin(session, completion_id: Optional[str]) -> Optional[str]:
+    """The ``started_via`` mark for a turn started from ``completion_id``
+    (the system or head row of the turn that waited, planned the check-in or
+    delegated), or None when a person watched that turn.
+
+    The origin's own mark carries over (``'api_key'`` stays), so a chain of
+    machine turns inherits it; a scheduled, webhook or eval origin, or one
+    with a trigger the permission rules do not count as watched, gives
+    ``'unattended'``; a turn a person sent from another channel (Slack,
+    Teams, email, an app surface) gives ``'channel'``, the same kind of run
+    as that turn. An origin that is named but whose row is gone gives
+    ``'unattended'`` (fail closed), and so does a system row whose head row
+    is gone: only the head says how the turn was started. A turn with no
+    origin at all (a dream check-in) gives None."""
+    from app.core.request_origin import CHANNEL_STARTED, UNATTENDED_STARTED
+    from app.services.tool_policy_service import ToolPolicyService
+
+    if not completion_id:
+        return None
+    row = await session.get(Completion, str(completion_id))
+    if row is None:
+        logger.warning("machine turn: origin completion %s is gone; the turn runs unattended", completion_id)
+        return UNATTENDED_STARTED
+    head = row
+    if row.role != "user" and row.parent_id:
+        head = await session.get(Completion, str(row.parent_id))
+        if head is None:
+            logger.warning("machine turn: the head %s of origin completion %s is gone; the turn runs unattended",
+                           row.parent_id, completion_id)
+            return UNATTENDED_STARTED
+    if head.started_via:
+        return head.started_via
+    if any(getattr(c, "scheduled_prompt_id", None) or getattr(c, "webhook_id", None) for c in (head, row)):
+        return UNATTENDED_STARTED
+    # The platform of a run, as the agent reads it: the head's column, else
+    # the prompt's own (an app surface).
+    prompt = head.prompt if isinstance(head.prompt, dict) else {}
+    if head.external_platform or prompt.get("platform"):
+        return CHANNEL_STARTED
+    trigger = head.trigger_source
+    if trigger and trigger not in ToolPolicyService.WATCHED_TRIGGERS | ToolPolicyService.GRANTED_TRIGGERS:
+        return UNATTENDED_STARTED
+    return None
+
+
 async def run_machine_turn(
     session,
     *,
@@ -121,6 +166,11 @@ async def run_machine_turn(
             pass
 
     try:
+        # The turn this one continues (parent_completion_id) decides whether a
+        # person is in the loop: a wake of a scheduled, webhook or API-key run
+        # stays unattended. Read inside the try: if it fails, the event above
+        # ends as an error instead of staying "in progress".
+        started_via = await unattended_origin(session, parent_completion_id)
         await service.create_completion(
             db=session,
             report_id=str(report.id),
@@ -131,6 +181,7 @@ async def run_machine_turn(
             organization=organization,
             background=False,
             trigger_source=trigger_source,
+            started_via=started_via,
         )
         event.status = "success"
         await session.commit()

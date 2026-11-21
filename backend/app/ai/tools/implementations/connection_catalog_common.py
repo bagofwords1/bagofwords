@@ -27,6 +27,7 @@ FILE_SOURCE_TYPES = {
     "outlook_mail", "gmail_mail", "exchange_onprem", "onenote", "teams_messages", "slack_messages",
     "github_repo", "gitlab_repo", "bitbucket_repo",
     "kms_lighthouse",
+    "confluence_dc",
 }
 TOKEN_SCOPED_TYPES = {"onedrive", "google_drive", "outlook_mail", "gmail_mail", "exchange_onprem", "teams_messages", "slack_messages"}
 

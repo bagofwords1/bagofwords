@@ -17,6 +17,7 @@ from typing import Any
 from app.ai.context.hidden_data import hide_data_for_replay
 from app.ai.context.parts import (
     Outcome,
+    Tier,
     ToolCallPart,
     ToolResultPart,
     estimate_tokens,
@@ -81,18 +82,58 @@ def _result_content(
     return content, str(digest) if digest else None
 
 
+# A prior run's result replayed in digest form keeps its handles so the data
+# stays re-fetchable (read_query / read_file / read_artifact) without resending
+# the payload. Bounded so a result with many ids can't grow the digest back.
+_REPLAY_DIGEST_SUMMARY_CHARS = 300
+_REPLAY_DIGEST_MAX_IDS = 8
+
+
+def _replay_digest(content: str, digest: str | None) -> str | None:
+    """``digest`` plus the result's top-level ``*_id`` / ``*_ids`` handles."""
+    try:
+        body = json.loads(content)
+    except (TypeError, ValueError):
+        body = None
+    handles: list[str] = []
+    if isinstance(body, dict):
+        for key, value in body.items():
+            if not (key.endswith("_id") or key.endswith("_ids")):
+                continue
+            values = value if isinstance(value, list) else [value]
+            ids = [str(v) for v in values if isinstance(v, (str, int)) and str(v)]
+            if ids:
+                handles.append(f"{key}={','.join(ids[:_REPLAY_DIGEST_MAX_IDS])}")
+    summary = (digest or "").strip()
+    if len(summary) > _REPLAY_DIGEST_SUMMARY_CHARS:
+        summary = summary[: _REPLAY_DIGEST_SUMMARY_CHARS - 1] + "…"
+    if not summary and not handles:
+        return None
+    if handles:
+        summary = f"{summary} [{'; '.join(handles)}]".strip()
+    return summary
+
+
 def build_durable_transcript(
     *,
     completions: list[Any],
     blocks_by_completion: dict[str, list[Any]],
     tool_exec_by_id: dict[str, Any],
     allow_llm_see_data: bool = True,
+    digest_prior_results: bool = False,
 ) -> tuple[Transcript, set[str]]:
     """Build ordered, paired tool turns for the detailed message window.
 
     Parallel calls sharing one plan decision become one assistant turn and one
     user result turn. Legacy rows receive stable ids derived from their primary
     key, so report reloads are deterministic even before the new columns exist.
+
+    ``digest_prior_results`` replays every successful result at
+    ``Tier.DIGEST`` (summary + ids) instead of in full. Scheduled runs set it:
+    each run re-fetches live data, so resending every earlier run's payload
+    (an API response can be half the window) only grows the prompt run over
+    run. The transcript holds prior completions only — the running
+    completion is excluded — so this never touches the current run's results.
     """
     transcript = Transcript()
     represented: set[str] = set()
@@ -185,16 +226,21 @@ def build_durable_transcript(
                 content, digest = _result_content(
                     tool_execution, outcome, allow_llm_see_data
                 )
-                results.append(
-                    ToolResultPart(
-                        call_id=str(call_id),
-                        tool_name=str(tool_name),
-                        outcome=outcome,
-                        content=content,
-                        digest=digest,
-                        tokens=estimate_tokens(content),
-                    )
+                part = ToolResultPart(
+                    call_id=str(call_id),
+                    tool_name=str(tool_name),
+                    outcome=outcome,
+                    content=content,
+                    digest=digest,
+                    tokens=estimate_tokens(content),
                 )
+                # Failures stay in full: they are small and say what went
+                # wrong, which the next run needs to avoid repeating it.
+                if digest_prior_results and outcome is Outcome.SUCCESS:
+                    part.digest = _replay_digest(content, digest)
+                    part.tier = Tier.DIGEST
+                    part.tokens = estimate_tokens(part.model_text())
+                results.append(part)
             if calls:
                 # Assistant narration remains in MessagesSection beside the
                 # user dialogue. Only native call/result parts move here, so

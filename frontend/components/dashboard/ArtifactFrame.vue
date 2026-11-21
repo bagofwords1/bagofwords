@@ -531,6 +531,14 @@
         @load="onIframeLoad"
       />
 
+      <NewerVersionOverlay
+        v-if="newerOffer && !verificationPreview"
+        :version="newerOffer.number"
+        :current="selectedArtifactItem?.version"
+        @refresh="acceptNewerOffer"
+        @dismiss="dismissNewerOffer"
+      />
+
       <!-- Polish Mode Button (dashboards only — docs have no JSX to polish, and
            slides render as page images through SlideViewer, so there is no
            iframe for the element picker to talk to) -->
@@ -659,6 +667,9 @@ import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import DashboardSettingsModal from './DashboardSettingsModal.vue';
 import ArtifactActivityLog from './ArtifactActivityLog.vue';
 import DashboardStart from './DashboardStart.vue';
+import NewerVersionOverlay from './NewerVersionOverlay.vue';
+import { useVisiblePoll } from '~/composables/useVisiblePoll';
+import { newerPaneVersion, type NewerOffer } from '~/utils/newerDashboardVersion';
 import ShareModal from '../ShareModal.vue';
 import PublishButton from './PublishButton.vue';
 import PresenceAvatars from './collab/PresenceAvatars.vue';
@@ -1804,6 +1815,51 @@ function keepWorkingHere() {
 }
 watch(() => selectedArtifactItem.value?.artifact_id, (id, previous) => {
   if (id && id !== previous && !props.verificationPreview) checkLiveAhead();
+});
+
+// A version saved where this pane hears no stream -- another tab that is not
+// watching the run, another conversation on the same dashboard, the
+// dashboard's own chat, a dropped connection -- never reached the picker:
+// reopening the dashboard link was the only way to see it. While the pane is
+// on screen it re-reads the list every few seconds; the picker grows, and a
+// newer version of the dashboard on screen veils it with a Refresh (never
+// swapped under the reader: they may be reading, or picked this one).
+const newerOffer = ref<NewerOffer | null>(null);
+const newerDismissed = ref<Set<string>>(new Set());
+async function checkForNewerVersions() {
+  const knownHere = new Set(artifactsList.value.map(a => a.id));
+  const knownElsewhere = new Set(allVersions.value.map((v: any) => String(v.id)));
+  await fetchArtifactsList(true);
+  if (selectedArtifactItem.value?.artifact_id) await loadAllVersions();
+  const item = selectedArtifactItem.value;
+  if (!item || viewing.value) return;
+  const offer = newerPaneVersion({
+    selected: item,
+    newestHere: dashboardGroups.value.find(g => g.key === dashboardKeyOf(item))?.versions[0],
+    knownHere,
+    elsewhere: allVersions.value,
+    knownElsewhere,
+    reportId: String(props.reportId),
+  });
+  if (offer && !newerDismissed.value.has(offer.id)) newerOffer.value = offer;
+}
+useVisiblePoll(checkForNewerVersions, 15000, () => !props.verificationPreview && artifactsList.value.length > 0);
+async function acceptNewerOffer() {
+  const offer = newerOffer.value;
+  newerOffer.value = null;
+  if (!offer) return;
+  if (offer.elsewhere) await openVersionById(offer.id);
+  else await switchToArtifact(offer.id);
+}
+function dismissNewerOffer() {
+  if (newerOffer.value) newerDismissed.value.add(newerOffer.value.id);
+  newerOffer.value = null;
+}
+// Picking any version (or the agent's own run moving the pane) answers it.
+watch([selectedArtifactId, viewing], () => {
+  const offer = newerOffer.value;
+  const item = selectedArtifactItem.value;
+  if (offer && (viewing.value || !item || item.version >= offer.number || item.id === offer.id)) newerOffer.value = null;
 });
 
 // "Use this version" appears when the selection is not the newest version of

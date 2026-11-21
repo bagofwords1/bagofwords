@@ -13,6 +13,9 @@ class ConnectionToolSchema(BaseModel):
     description: Optional[str] = None
     is_enabled: bool
     policy: str
+    policy_locked: bool = False
+    effect: Optional[str] = None
+    source: Optional[str] = None
     connection_id: str
     input_schema: Optional[dict] = None
     output_schema: Optional[dict] = None
@@ -25,6 +28,7 @@ class ConnectionToolUpdate(BaseModel):
     """Schema for updating a single tool."""
     is_enabled: Optional[bool] = None
     policy: Optional[str] = None
+    policy_locked: Optional[bool] = None
 
 
 class BatchToolUpdate(BaseModel):

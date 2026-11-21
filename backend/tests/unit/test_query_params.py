@@ -591,7 +591,7 @@ _EXPECTED_LITERAL_RULES = {
     "GraphOneNoteClient": "standard", "GraphTeamsClient": "standard", "HiveClient": "backslash",
     "HpeOneViewClient": "standard", "IbmiClient": "standard", "IcebergClient": "standard",
     "InforEpmClient": "standard", "InforOlapClient": "standard", "IntuneClient": "standard",
-    "JaegerClient": "standard", "KmsLighthouseClient": "standard", "KubernetesClient": "standard",
+    "JaegerClient": "standard", "KmsLighthouseClient": "standard", "ConfluenceDcClient": "standard", "JiraDcClient": "standard", "KubernetesClient": "standard",
     "MSSQLClient": "standard", "MariadbClient": "doubled", "MecmClient": "standard",
     "MondayClient": "standard", "MongodbClient": "standard", "MysqlClient": "doubled",
     "Neo4jClient": "standard", "NetAppOntapClient": "standard", "NetsuiteClient": "standard",

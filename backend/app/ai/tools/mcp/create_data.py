@@ -176,12 +176,12 @@ class CreateDataMCPTool(MCPTool):
                 pass
             await self._finish_tracking(
                 db, tracking, success=False,
-                summary="No data sources could be connected."
+                summary=rich_ctx.no_sources_message()
             )
             return MCPCreateDataOutput(
                 report_id=str(report.id),
                 success=False,
-                error_message="No data sources could be connected.",
+                error_message=rich_ctx.no_sources_message(),
             ).model_dump()
         
         # Build codegen context using the rich context

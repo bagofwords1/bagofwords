@@ -42,6 +42,8 @@ FILE_SOURCE_TYPES = {
     "network_dir", "s3", "gcs", "azure_blob", "onenote", "teams_messages", "slack_messages",
     # KMS Lighthouse: live only (no catalog), read with the caller's identity.
     "kms_lighthouse",
+    # Confluence Data Center: live only (no catalog), read with the caller's identity.
+    "confluence_dc",
     # Code connections: a cached clone served by a NetworkDirClient subclass.
     "github_repo", "gitlab_repo", "bitbucket_repo",
     # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record
@@ -50,6 +52,8 @@ FILE_SOURCE_TYPES = {
     # that strip file rows from Tables views (schema_context_builder,
     # data_source_service) — it has no file catalog rows to strip.
     "servicenow",
+    # Jira Data Center: tables plus issues as documents (live; same rule as servicenow).
+    "jira_dc",
 }
 
 
@@ -135,6 +139,21 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
         return (
             f"Documentum denied access to that object for the current identity on '{name}' — the "
             "repository ACL does not grant Browse/Read. Do not retry; tell the user which document was denied."
+        )
+    from app.data_sources.clients._atlassian_dc_http import AtlassianHTTPError
+    if isinstance(exc, AtlassianHTTPError) and exc.kind in ("auth", "captcha"):
+        name = connection_name or "this source"
+        return (
+            f"The server did not accept the credentials for '{name}' ({exc}). Do NOT retry: repeated "
+            "password attempts can lock the account behind a CAPTCHA. For a user-required connection the "
+            f"user must connect '{name}' with their own personal access token; otherwise an admin must "
+            "update the connection's credentials. Continue with the remaining sources."
+        )
+    if isinstance(exc, AtlassianHTTPError) and exc.kind == "throttled":
+        name = connection_name or "this source"
+        return (
+            f"'{name}' is rate-limiting requests right now. Do NOT retry this call in a loop; tell the "
+            "user the source is temporarily throttled and continue with the remaining sources."
         )
     if isinstance(exc, SharePointHTTPError) and exc.status == 401:
         return (

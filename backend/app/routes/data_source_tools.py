@@ -27,6 +27,9 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.services.tool_policy_service import (
     ToolPolicyService,
+    agent_admin_setting,
+    clamp_to_effect,
+    policy_not_allowed_for,
     VALID_TOOL_POLICIES,
     normalize_tool_policy,
     resolve_effective_policy,
@@ -58,6 +61,11 @@ class AgentToolSchema(BaseModel):
     # The connection-level defaults (so the UI can show "(default)" badges)
     default_is_enabled: bool
     default_policy: str
+    # The connection admin locked the policy: this agent and its users can
+    # make it stricter, never looser.
+    policy_locked: bool = False
+    # read | modify | external | destructive (null = unknown)
+    effect: Optional[str] = None
     # The requesting user's own preference (null = inherit admin policy) and
     # the policy that would actually apply to THEIR runs.
     user_policy: Optional[str] = None
@@ -92,8 +100,11 @@ def _tool_row(
         has_overlay=has_overlay,
         default_is_enabled=tool.is_enabled,
         default_policy=normalize_tool_policy(tool.policy),
+        policy_locked=bool(getattr(tool, "policy_locked", False)),
+        effect=getattr(tool, "effect", None),
         user_policy=user_policy,
-        effective_policy=display_policy(conn, tool.name, policy, user_policy),
+        effective_policy=clamp_to_effect(tool, display_policy(conn, tool.name, policy, user_policy,
+                                        locked=bool(getattr(tool, "policy_locked", False)))),
     )
 
 
@@ -125,6 +136,16 @@ class MyToolPolicyBatchUpdate(BaseModel):
     tool_ids: List[str]
     # None / "" clears the preference (revert to the admin policy).
     policy: Optional[str] = None
+
+
+def _check_effect_policies(tools, policy) -> None:
+    """400 when ``policy`` is not allowed for a tool's effect (see policy_not_allowed_for)."""
+    if not policy:
+        return
+    for t in tools:
+        reason = policy_not_allowed_for(t, policy)
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
 
 
 async def _load_agent(db: AsyncSession, data_source_id: str, organization: Organization) -> DataSource:
@@ -175,14 +196,10 @@ async def list_agent_tools(
     out: List[AgentToolSchema] = []
     for t in tools:
         ov = overlay.get(str(t.id))
-        if ov is not None:
-            eff_enabled = ov.is_enabled
-            eff_policy = ov.policy
-            has_overlay = True
-        else:
-            eff_enabled = t.is_enabled
-            eff_policy = t.policy
-            has_overlay = False
+        # The connection is the ceiling (off there = off here; a locked
+        # policy can only be tightened) — the same rule runs use.
+        eff_enabled, eff_policy = agent_admin_setting(t, ov)
+        has_overlay = ov is not None
         conn = conn_by_id.get(str(t.connection_id))
         user_policy = user_prefs.get(str(t.id))
         out.append(
@@ -251,8 +268,7 @@ async def _agent_tools_response(
     out: List[AgentToolSchema] = []
     for tool in tools:
         overlay = overlays.get(str(tool.id))
-        admin_enabled = overlay.is_enabled if overlay else tool.is_enabled
-        admin_policy = overlay.policy if overlay else tool.policy
+        admin_enabled, admin_policy = agent_admin_setting(tool, overlay)
         user_policy = user_prefs.get(str(tool.id))
         conn = conn_by_id.get(str(tool.connection_id))
         out.append(
@@ -295,6 +311,7 @@ async def update_agent_tools_batch(
 
     ds = await _load_agent(db, data_source_id, organization)
     tools = await _load_agent_tools(db, ds, data.tool_ids)
+    _check_effect_policies(tools, policy)
 
     ov_q = await db.execute(
         select(DataSourceConnectionTool).where(
@@ -412,6 +429,7 @@ async def set_my_tool_policies_batch(
 
     ds = await _load_agent(db, data_source_id, organization)
     tools = await _load_agent_tools(db, ds, data.tool_ids)
+    _check_effect_policies(tools, normalized)
 
     policy_svc = ToolPolicyService()
     changed = 0
@@ -478,6 +496,7 @@ async def update_agent_tool(
                 status_code=400,
                 detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
             )
+        _check_effect_policies([tool], normalized)
         data.policy = normalized
 
     # Upsert overlay
@@ -632,6 +651,7 @@ async def set_my_tool_policy(
             status_code=400,
             detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
         )
+    _check_effect_policies([tool], normalized)
 
     await ToolPolicyService().set_user_preference(db, str(current_user.id), str(tool.id), normalized)
     await db.commit()
