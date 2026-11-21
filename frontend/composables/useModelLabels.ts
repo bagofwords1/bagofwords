@@ -15,11 +15,17 @@ export function useModelLabels() {
     labels.value = { ...labels.value, [orgId]: next }
   }
 
-  function modelLabel(id: string): string {
+  function hasModelLabel(id: string): boolean {
     const orgId = organization.value?.id
-    // Never flash a database UUID while the catalog is loading.
-    return (orgId && labels.value[orgId]?.[id]) || 'BoW'
+    return !!(orgId && labels.value[orgId]?.[id])
   }
 
-  return { rememberModels, modelLabel }
+  function modelLabel(id: string): string {
+    const orgId = organization.value?.id
+    // Never show a database UUID. Callers that can wait for the catalog should
+    // check hasModelLabel() and render a placeholder instead of this fallback.
+    return (orgId && labels.value[orgId]?.[id]) || 'BOW'
+  }
+
+  return { rememberModels, modelLabel, hasModelLabel }
 }

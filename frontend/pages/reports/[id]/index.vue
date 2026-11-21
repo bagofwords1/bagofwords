@@ -337,7 +337,9 @@
                                     </div>
                                     <div class="assistant-content min-w-0 flex-1 text-start" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
                                         <div class="mb-2 flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
-                                            <bdi dir="ltr">{{ m.model ? responseModelName(m.model) : 'BoW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
+                                            <!-- Placeholder while the model name is unknown; "BOW" only as a last resort (finished rows with no model). -->
+                                            <span v-if="responseModelPending(m)" class="inline-block h-3 w-20 rounded bg-gray-200 dark:bg-gray-700 motion-safe:animate-pulse" aria-hidden="true" data-testid="response-model-pending" />
+                                            <bdi v-else dir="ltr">{{ m.model ? responseModelName(m.model) : 'BOW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
                                         </div>
 									<!-- System message -->
 									<div>
@@ -620,10 +622,8 @@
 
 									</div>
 
-                                    <!-- Run-activity dot: always at the tail, for the whole live run. -->
-                                    <div v-if="showWaitingIndicator(m)" class="flex h-6 items-center text-ink" role="status" :aria-label="$t('prompt.working')" data-testid="run-working-dot">
-                                        <span class="h-3 w-3 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
-                                    </div>
+                                    <!-- Run-activity dot: always at the tail, for the whole live run (rules in composables/runWorkingDot.ts), with the elapsed time beside it. -->
+                                    <RunLiveIndicator v-if="showWaitingIndicator(m)" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" data-testid="run-working-dot" />
 
 									<!-- Show status messages for stopped/error completions -->
 									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
@@ -1244,6 +1244,7 @@
 <script setup lang="ts">
 import GenericTool from '~/components/tools/GenericTool.vue'
 import RunToolGroupRow from '~/components/RunToolGroupRow.vue'
+import RunLiveIndicator from '~/components/RunLiveIndicator.vue'
 import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
@@ -1517,12 +1518,25 @@ const { isExcel, excelSelection } = useExcel()
 
 // Home and the picker seed these labels before navigation. Refresh the
 // catalog on direct report loads without delaying the first prompt.
-const { rememberModels, modelLabel: responseModelName } = useModelLabels()
+const { rememberModels, modelLabel: responseModelName, hasModelLabel } = useModelLabels()
+const modelCatalogReady = ref(false)
 onMounted(async () => {
-    // kind=all so a decision model (Auto router upfront pick) has a label too.
-    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
-    if (Array.isArray(data.value)) rememberModels(data.value)
+    try {
+        // kind=all so a decision model (Auto router upfront pick) has a label too.
+        const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
+        if (Array.isArray(data.value)) rememberModels(data.value)
+    } finally {
+        modelCatalogReady.value = true
+    }
 })
+// The assistant header's model name isn't known yet: a live run before the
+// backend stamps its model (Auto/router picks it server-side), or a model id
+// whose display name is still loading. Show a placeholder rather than a
+// "BOW" label that flips to the real name a moment later.
+function responseModelPending(m: ChatMessage): boolean {
+    if (!m.model) return m.status === 'in_progress'
+    return !hasModelLabel(m.model) && !modelCatalogReady.value
+}
 
 // Permissions
 // Agent trace ("debugger") on an assistant message. `view_console` never
@@ -2735,6 +2749,31 @@ function formatRunDuration(ms: number): string {
 	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
 }
 
+// Live elapsed time beside the working dot, ticking once a second while any
+// run is in progress (one shared clock; stopped when nothing is live). Counts
+// from the turn's created_at — the same origin completion.finished measures
+// clientRunMs from — so the final "Worked for" continues the number shown.
+const liveNowMs = ref(Date.now())
+let liveClock: ReturnType<typeof setInterval> | null = null
+watch(hasInProgressCompletion, (on) => {
+	if (typeof window === 'undefined') return
+	if (on && !liveClock) {
+		liveNowMs.value = Date.now()
+		liveClock = setInterval(() => { liveNowMs.value = Date.now() }, 1000)
+	} else if (!on && liveClock) {
+		clearInterval(liveClock)
+		liveClock = null
+	}
+}, { immediate: true })
+onBeforeUnmount(() => { if (liveClock) clearInterval(liveClock) })
+function liveElapsed(m: ChatMessage): string {
+	if (m.status !== 'in_progress') return ''
+	const started = parseServerTimestamp(m.created_at)
+	if (started === null) return ''
+	const ms = liveNowMs.value - started
+	return ms >= 1000 ? formatRunDuration(ms) : ''
+}
+
 // Hide sub-2s runs — same threshold GenericTool uses for tool durations, so
 // trivial turns don't carry a noisy "1s".
 const MIN_RUN_DURATION_MS = 2000
@@ -3734,7 +3773,6 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 function showWaitingIndicator(message: ChatMessage): boolean {
     return isRunWorking(message, visibleBlocks(message), isAwaitingUser)
 }
-
 function getThoughtProcessLabel(block: CompletionBlock): string {
 	// Handle stopped blocks
 	if (block.status === 'stopped') {
@@ -4050,7 +4088,7 @@ function updateContentBelow() {
 // Otherwise the floor stays put until the reader scrolls, and then only ever
 // shrinks, to the least that keeps the current position valid (plus slack),
 // so it never parks the reader in blank space and never jumps the view.
-function updatePinSpacer(trim = false) {
+function updatePinSpacer(trim = false, anchor = true) {
   const container = scrollContainer.value
   const content = transcriptContent.value
   if (!container || !content) return
@@ -4067,7 +4105,7 @@ function updatePinSpacer(trim = false) {
     // Anchor to the turn, not to a scroll offset: content above it (a chart
     // re-rendering, the previous answer reloading) can change height after
     // the pin, which would slide the prompt out of view into the blank floor.
-    if (pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
+    if (anchor && pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
       container.scrollTop = target
       lastScrollTop = container.scrollTop
     }
@@ -4133,12 +4171,13 @@ function pinTurnToTop(messageId: string) {
     const topGap = footerTop === null ? PIN_TOP_GAP_PX : Math.max(PIN_TOP_GAP_PX, top - footerTop + 12)
     pinOffsetPx = topGap
     pinScrolled = true
-    updatePinSpacer()
+    // Size the floor only: anchoring here would snap the view to the turn in
+    // one frame, and the eased scroll below would have nothing left to do.
+    updatePinSpacer(false, false)
+    // Start the ease now, before the pin watch's first frame, so the watch
+    // sees a scroll in flight and holds off anchoring until it lands.
+    animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
     startPinWatch()
-    nextTick(() => {
-      if (pinnedId.value !== scrollKey) return
-      animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
-    })
   }))
 }
 
@@ -4344,6 +4383,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Add or update a completion block
 			if (payload.block) {
 				const block = payload.block
+				syncRoutedModel(sysMessage, block.tool_execution)
 				if (!sysMessage.completion_blocks) {
 					sysMessage.completion_blocks = []
 				}
@@ -4950,6 +4990,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					if (payload.result_json) {
 						blockWithTool.tool_execution.result_json = payload.result_json
+						syncRoutedModel(sysMessage, { tool_name: payload.tool_name, result_json: payload.result_json })
 					}
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
@@ -6280,6 +6321,15 @@ function onStepCreated(step: any) {
 	// Handle step creation - could refresh the current view or update state
 	console.log('Step created:', step)
 	// Optionally refresh the completion or update the UI
+}
+
+// A route_model step (router escalation or decision, or LLM fallback) switches
+// the model that serves the rest of the run. The backend stamps it onto the
+// completion, so a reload shows it; mirror that live so the header names the
+// model that actually answered rather than the one the run started on.
+function syncRoutedModel(sysMessage: ChatMessage, te: any) {
+	const rj = te?.result_json
+	if (te?.tool_name === 'route_model' && rj?.routed && rj.model) sysMessage.model = String(rj.model)
 }
 
 function createSystemPlaceholder(id: string, model?: string, effort?: string | null): ChatMessage {

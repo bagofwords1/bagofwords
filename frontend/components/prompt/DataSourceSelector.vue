@@ -52,7 +52,7 @@
                 </button>
             </UTooltip>
             <template #panel>
-                <div class="text-xs w-max min-w-[260px] max-w-[420px] rounded-xl" data-testid="agent-scope-panel">
+                <div ref="panelRef" class="agent-scope-panel text-xs w-max min-w-[260px] max-w-[420px] rounded-xl" data-testid="agent-scope-panel" @keydown="onPanelKeydown">
                     <!-- Search — same affordance as the model picker. Mounts with
                          the panel, so focus on mount == focus on open; the query
                          is reset when the panel closes so it never carries over. -->
@@ -77,6 +77,8 @@
                     <button type="button"
                         class="w-full px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between"
                         @click="toggleAutoMode"
+                        data-kbd-option
+                        data-kbd-pinned
                         data-testid="agent-scope-auto"
                         :data-selected="isAutoMode ? 'true' : 'false'"
                     >
@@ -135,6 +137,7 @@
                                     v-for="ds in filteredConnectable"
                                     :key="ds.id"
                                     class="px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer flex items-center justify-between gap-2"
+                                    data-kbd-option
                                     @click="openCredentialsModal(ds)"
                                 >
                                     <div class="flex items-center min-w-0 opacity-50">
@@ -182,6 +185,7 @@
 
 <script lang="ts" setup>
 import AgentScopeRow from './AgentScopeRow.vue'
+import { useListKeyboardNav } from '~/composables/useListKeyboardNav'
 import { loadAgentFolderOptions } from '~/composables/useAgentFolderOptions'
 import Spinner from '@/components/Spinner.vue'
 import AgentFlyout from '~/components/AgentFlyout.vue'
@@ -504,6 +508,13 @@ function focusSearch(vnode: any) {
     nextTick(() => vnode?.el?.focus?.())
 }
 
+// Arrows move through every visible row (Auto, folders, agents, connectable
+// agents); Enter clicks the highlighted one. Typing highlights the top match
+// so search + Enter picks it; clearing the query clears the highlight.
+const panelRef = ref<HTMLElement | null>(null)
+const { activateFirstMatch, setActive, onKeydown: onPanelKeydown } = useListKeyboardNav(panelRef)
+watch(agentQuery, (q) => nextTick(() => (q.trim() ? activateFirstMatch() : setActive(-1))))
+
 // Auto isn't a selection — it's the absence of one. An external picker has to
 // know, or it would light up every agent the moment an Auto report opens.
 watch(isAutoMode, (val) => {
@@ -753,3 +764,13 @@ const dataTooltip = computed<string>(() => {
 })
 
 </script>
+
+<style scoped>
+/* Keyboard highlight (useListKeyboardNav) — same tint as hover. */
+.agent-scope-panel :deep([data-kbd-active]) {
+    background-color: rgb(243 244 246);
+}
+.dark .agent-scope-panel :deep([data-kbd-active]) {
+    background-color: rgb(31 41 55);
+}
+</style>

@@ -1607,6 +1607,7 @@
       "worked": "Worked",
       "working": "Working",
       "workingFor": "Working for {duration}",
+      "failedCount": "{count} failed",
       "viewSteps": "View steps",
       "hideSteps": "Hide steps",
       "checks": "{count} checks",
