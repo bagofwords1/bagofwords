@@ -781,6 +781,8 @@ async def _resolve_permissions_inner(
         if isinstance(perms, list):
             resource_permissions[key].update(perms)
 
+    apply_group_manager_grants(resource_permissions, await managed_group_ids(db, org_id, user_id))
+
     # Connection `manage_data_sources` grant ⇒ `manage` on every agent fully
     # backed by those connections. Expanded here (rather than at check time) so
     # the per-agent `manage` superset (instructions/entities/evals) and list
@@ -814,6 +816,70 @@ async def _resolve_permissions_inner(
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+GROUP_MANAGER_PERMISSION = "manage_members"
+
+
+async def managed_group_ids_by_org(db: AsyncSession, user_id: str, org_ids) -> dict:
+    """org id → ids of the groups ``user_id`` currently manages there, in one query.
+
+    The single source of truth for the group-manager role. A grant row alone is
+    not enough: the holder must be the *user* named on it, still be a live
+    member of the group and of the organization, and the group must be a live,
+    hand-managed group (an imported group's membership belongs to the identity
+    provider, so it has no managers). Grants on groups held by a group or a
+    role never count.
+    """
+    from app.models.membership import Membership
+
+    org_ids = [str(o) for o in org_ids]
+    out: dict[str, set] = {o: set() for o in org_ids}
+    if not org_ids:
+        return out
+    rows = (await db.execute(
+        select(ResourceGrant.organization_id, ResourceGrant.resource_id, ResourceGrant.permissions)
+        .join(Group, and_(
+            Group.id == ResourceGrant.resource_id,
+            Group.organization_id == ResourceGrant.organization_id,
+        ))
+        .join(GroupMembership, and_(
+            GroupMembership.group_id == Group.id,
+            GroupMembership.user_id == str(user_id),
+            GroupMembership.deleted_at.is_(None),
+        ))
+        .join(Membership, and_(
+            Membership.user_id == str(user_id),
+            Membership.organization_id == ResourceGrant.organization_id,
+            Membership.deleted_at.is_(None),
+        ))
+        .where(
+            ResourceGrant.organization_id.in_(org_ids),
+            ResourceGrant.resource_type == "group",
+            ResourceGrant.principal_type == "user",
+            ResourceGrant.principal_id == str(user_id),
+            ResourceGrant.deleted_at.is_(None),
+            Group.deleted_at.is_(None),
+            Group.external_provider.is_(None),
+        )
+    )).all()
+    for org_id, gid, perms in rows:
+        if isinstance(perms, list) and GROUP_MANAGER_PERMISSION in perms:
+            out[str(org_id)].add(str(gid))
+    return out
+
+
+async def managed_group_ids(db: AsyncSession, org_id: str, user_id: str) -> set:
+    """Ids of the groups ``user_id`` currently manages in ``org_id``."""
+    return (await managed_group_ids_by_org(db, user_id, [org_id]))[str(org_id)]
+
+
+def apply_group_manager_grants(resource_permissions: dict, managed: set) -> None:
+    """Replace whatever group grants were loaded with the authoritative set."""
+    for key in [k for k in resource_permissions if k[0] == "group"]:
+        del resource_permissions[key]
+    for gid in managed:
+        resource_permissions[("group", gid)] = {GROUP_MANAGER_PERMISSION}
 
 
 def _group_default_model_ids(pairs) -> set:
@@ -1008,6 +1074,8 @@ async def resolve_permissions_bulk(
         owned_by_org: dict[str, list] = {}
         for o_id, ds_id in owned_rows:
             owned_by_org.setdefault(o_id, []).append(str(ds_id))
+        # Group managers: one query across every org, not one per org.
+        managed_by_org = await managed_group_ids_by_org(db, str(user_id), org_ids)
         for org_id in org_ids:
             res_perms = res_perms_by_org[org_id]
             managed_conn_ids = [rid for (rtype, rid), perms in res_perms.items()
@@ -1018,6 +1086,7 @@ async def resolve_permissions_bulk(
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             for model_id in _group_default_model_ids(group_defaults_by_org.get(org_id, [])):
                 res_perms.setdefault(("llm_model", model_id), set()).add("use")
+            apply_group_manager_grants(res_perms, managed_by_org.get(org_id, set()))
             from app.services.folder_service import expand_folder_permissions
             await expand_folder_permissions(db, org_id, res_perms)
             result[org_id] = ResolvedPermissions(

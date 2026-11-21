@@ -1,4 +1,4 @@
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAny } from '~/composables/usePermissions'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 import { useAppSettings } from '~/composables/useAppSettings'
 
@@ -22,6 +22,9 @@ export interface AdminNavChild {
   description: string
   width: AdminPageWidth
   permission?: string
+  // With `resourceType`, holding `permission` on any one resource of that type
+  // is enough (e.g. a group manager sees the Groups page for their groups).
+  resourceType?: string
   feature?: string
 }
 
@@ -50,7 +53,8 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     children: [
       { key: 'members', label: 'settings.membersTabs.members', icon: 'i-heroicons-users', description: 'settings.adminPages.members', width: 'wide' },
       { key: 'roles', label: 'settings.membersTabs.roles', icon: 'i-heroicons-identification', description: 'settings.adminPages.roles', width: 'wide', permission: 'manage_roles', feature: 'custom_roles' },
-      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_groups', feature: 'custom_roles' },
+      // `manage_members` org-wide, or as the manager of at least one group.
+      { key: 'groups', label: 'settings.membersTabs.groups', icon: 'i-heroicons-rectangle-group', description: 'settings.adminPages.groups', width: 'wide', permission: 'manage_members', resourceType: 'group', feature: 'custom_roles' },
       // Service accounts are a core (non-EE) capability — no feature flag.
       { key: 'service_accounts', label: 'settings.membersTabs.serviceAccounts', icon: 'i-heroicons-command-line', description: 'serviceAccounts.subtitle', width: 'wide', permission: 'manage_service_accounts' },
       { key: 'quotas', label: 'settings.membersTabs.quotas', icon: 'i-heroicons-scale', description: 'settings.adminPages.quotas', width: 'wide', permission: 'manage_settings', feature: 'usage_limits' },
@@ -87,9 +91,9 @@ export function useAdminNav() {
   const { data: currentUser } = useAuth()
   const { settings: appSettings } = useAppSettings()
 
-  const allowed = (permission?: string, feature?: string) => {
+  const allowed = (permission?: string, feature?: string, resourceType?: string) => {
     if (feature && !hasFeature(feature)) return false
-    if (permission && !useCan(permission)) return false
+    if (permission && !(resourceType ? useCanAny(permission, resourceType) : useCan(permission))) return false
     return true
   }
 
@@ -100,7 +104,7 @@ export function useAdminNav() {
       .filter(item => !item.enabledBySetting || appSettings.value?.[item.enabledBySetting]?.enabled === true)
       .map(item => ({
         ...item,
-        children: item.children?.filter(child => allowed(child.permission, child.feature)),
+        children: item.children?.filter(child => allowed(child.permission, child.feature, child.resourceType)),
       }))
   )
 
@@ -108,7 +112,26 @@ export function useAdminNav() {
   // actually open, so the click never bounces off permissions.global.ts.
   const firstAccessibleItem = computed(() => visibleItems.value[0] || null)
 
-  return { visibleItems, firstAccessibleItem }
+  // Where the Admin entry opens: the first page this person's admin powers
+  // unlock, rather than Members for everyone. Members is visible to every
+  // member (view_members), so it only makes sense as the landing page for
+  // whoever manages people org-wide. Anyone else opens their own page: LLM for
+  // an LLM manager, Audit logs for an auditor, AI settings for a settings
+  // manager, Groups for a group manager, Service accounts, and so on.
+  const adminLanding = computed<string | null>(() => {
+    const items = visibleItems.value
+    if (!items.length) return null
+    if (useCan('manage_members')) return '/settings/members'
+    const page = items.find(item => item.name !== 'members' && !item.children?.length)
+    if (page) return `/settings/${page.name}`
+    // Members sub-pages behind a real admin permission (the Members list
+    // itself carries none).
+    const sub = items.find(item => item.name === 'members')?.children?.find(child => child.permission)
+    if (sub) return `/settings/members?tab=${sub.key}`
+    return `/settings/${items[0].name}`
+  })
+
+  return { visibleItems, firstAccessibleItem, adminLanding }
 }
 
 // Paths under /settings that are NOT part of the admin console. The channel
