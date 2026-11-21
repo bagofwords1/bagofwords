@@ -12,7 +12,10 @@ with only the LLM stubbed.
 
 ## Result in one paragraph
 
-**Partially reproduced.** In host-report mode, the conversation part of the
+**Reproduced (Loop A2).** When each run *adds* its charts to the report's
+dashboard with `edit_artifact` (old ones are kept automatically), per-run cost
+keeps rising with no ceiling: compaction can't shrink `<current_artifact>`. When
+each run *rebuilds* the dashboard (Loop A), growth levels off. In host-report mode, the conversation part of the
 prompt grows about 1.2K tokens per run. The row-window governor plus
 compaction folds it every ~12 runs, so it **saws between ~16K and ~29K tokens
 and levels off**. Cost per run settles at roughly **+25–40% over run 1** and
@@ -94,6 +97,42 @@ system prompt by ~10% and understates JSON-heavy conversation by ~25%. Tool
 schemas: 54.0K estimated vs 55.0K actual. The shape holds; the absolute numbers
 are ±25%.
 
+## Loop A2 — the dashboard accumulates (reproduces "more expensive every run")
+
+Loop A rebuilds the artifact each run with only today's 2 visualizations: the
+clean path. A real agent is as likely to **edit** it, and `edit_artifact` keeps
+the existing visualizations automatically ("NEW visualization ids to add …
+existing ones are kept automatically", `backend/app/ai/tools/schemas/edit_artifact.py:31`).
+The scheduled-run instruction "If artifact existed, edit or recreate it" doesn't
+say to remove the previous run's charts. `<current_artifact>` then lists every
+visualization with no cap (`backend/app/ai/agents/planner/prompt_builder.py:610-624`)
+and inlines the code up to 30K chars (`prompt_builder.py:628-638`).
+
+```bash
+STUB_ARTIFACT_MODE=edit STUB_SOURCE_ID=$DS STUB_LOG=/tmp/sched_edit.jsonl \
+  uv run python ../tools/agent/scheduled_growth_stub_llm.py &
+uv run python ../tools/agent/scheduled_growth_drive.py --runs 80 --mode host --source-id $DS --log /tmp/sched_edit.jsonl --out edit.json
+```
+
+Observed (80 runs, all finished, 3 planner calls each). By run 3,
+`<current_artifact>` already lists 6 visualizations.
+
+| | Rebuild (Loop A) | Edit/append (Loop A2) |
+|---|---|---|
+| Trough after each fold, runs 21→69 | 15.7K → 16.3K (levels off) | 16.2K → 17.9K → 19.4K → 20.9K → 22.3K (**keeps rising**) |
+| Peak, runs 20→80 | 27.5K → 29.5K | 25.7K → 28.2K → 29.9K → 31.4K → 32.9K → 34.3K |
+| Mean est. tokens per run, last 10 | 310,521 | 326,704, still rising |
+
+Compaction folds the conversation but not the artifact, so the floor rises
+~1.5K every 12 runs. The stub's panels are tiny (~130 tokens/run). Real chart
+sections are 1–2K chars each, so a real dashboard would grow about 5–10× faster
+until the 30K-char code cap. After the cap, the code is omitted and each edit
+needs extra `read_artifact` calls, while the visualization list keeps growing.
+
+**Revised root cause:** in host-report mode, conversation history is bounded,
+but **the artifact the run keeps adding to is not**, and it is re-sent on every
+planner call.
+
 ## Loop B — live confirmation (not run)
 
 The stub fixes the run at 3 planner calls and uses the deterministic fallback
@@ -122,6 +161,12 @@ of calls per run and `prompt_tokens` per call).
 
 ## What this means for the proposed fix ("remember last N runs" toggle)
 
+- **First, stop the dashboard accumulating** (Loop A2, the only unbounded growth
+  found). Make the scheduled-run instruction explicit: replace the previous
+  run's visualizations (`remove_visualization_ids`) rather than append. Also cap
+  `<current_artifact><visualizations>` in the prompt (show the newest N plus a
+  count, like the 30K code cap). An "N runs" window doesn't fix this, because
+  the artifact isn't history.
 - On this workload it would cut history from ~16–29K to ~4–6K tokens per call:
   **~10–25% of per-run cost** in host mode (11–24K saved out of a
   ~87–101K planner call). Worth doing, but it's not the main lever.
