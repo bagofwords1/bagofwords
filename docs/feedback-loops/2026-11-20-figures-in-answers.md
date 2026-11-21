@@ -88,3 +88,43 @@ Hebrew mirroring following the UI instead of the answer.
   code. Restarted each time; not investigated further here.
 - `locales/*.json` already differ on `onboarding.llm.vertex*` on the base
   branch; the new `figure.*` keys are identical across en/es/he.
+
+
+## Round 2 — paper style, highlight, actions, channels (2026-11-21)
+Design chosen from three mockups (Medium / paper / paper + serif): **paper**.
+
+- **Look** (`ChatFigure.vue`): no frame; caption below ("Figure 1. Revenue by
+  billing country, top 8 of 24."); controls are text on hover (always on
+  touch): Table/Chart · Open in panel · •••. One muted accent for one series,
+  a small editorial palette (indigo, amber, teal, rose, slate) for several,
+  lifted for dark mode. Tables are booktabs (three hairlines), first 6 rows,
+  a fade at the far edge when wider than the column.
+- **Motion** (first appearance only, none with reduced motion): fade + 4px
+  rise; bars grow one after another; a line draws left to right, then its
+  last value appears; table rows follow each other; the caption arrives last;
+  the loading outline crossfades into the chart. The renderer re-creates the
+  block while text streams after it — verified frame by frame that this does
+  not flicker or replay the entrance.
+- **highlight** — `{{show:<id> highlight="USA"}}`: the named categories in
+  full colour, the rest tinted; checked against the result (unknown values
+  ignored, at most 3, escaped). In the prompt's main example.
+- **••• menu** reuses the result card's flows: Add to dashboard
+  (`POST /api/artifacts/report/:id/add-visualization`), Save as query
+  (`EntityCreateModal`), Download CSV (client), Excel
+  (`/api/steps/:id/export?format=xlsx`), image (SVG → 2x PNG), Copy data
+  (TSV), View code (`useCanViewCode`). Shared links: downloads only.
+- **Channels** (Teams/WhatsApp/Slack/Google Chat): a figure becomes a
+  footnote of the paragraph it followed (`footnote_citations`), so the reader
+  still learns which result backs the text; plain-text surfaces strip it.
+
+Live (Haiku 5.5, `tools/agent/figures_ui_flow.mjs`): every menu action
+verified — CSV 371 B, Excel 5.9 KB, PNG 54 KB, 25 lines copied, save dialog
+opened, "Added to dashboard", panel opened; the Hebrew answer used
+`highlight="USA,Canada,France"`. Results: `media/pr/claude-figures-in-answers/live-results.json`.
+
+**Model adoption is not guaranteed.** Across the day, Haiku 5.5 sometimes
+answered with neither markers nor citations even though the rules were in the
+prompt (verified on the live path: citations enabled on every planner call).
+One streak of 7 runs had none; the following runs drew figures in 3 of 4.
+`highlight` was used once in 4 runs after it moved into the main example.
+Worth an eval before relying on it.

@@ -197,6 +197,14 @@ const show = (id) => `{{show:${id}}}`
   const inline = citeText(`See ${show(uuid(1))} for the split. ${cite(uuid(2))}`, sources, [], { figures: true }).markdown
   assert.match(inline, /^See for the split\.\u00A0\[2\]\(#cite-[^)]*\)\n\n<bow-figure source="[^"]+" number="1"><\/bow-figure>$/)
 }
+// highlight="…" travels to the figure as text (escaped, capped); other attributes are dropped.
+{
+  const { markdown } = citeText(`A.\n\n{{show:${uuid(1).slice(0, 8)} highlight="USA, Canada" color="red"}}`, sources, [], { figures: true })
+  assert.match(markdown, new RegExp(`<bow-figure source="${s1.key}" number="1" highlight="USA, Canada"></bow-figure>`))
+  assert.doesNotMatch(markdown, /color/)
+  const evil = citeText(`{{show:${uuid(1)} highlight="<img src=x>"}}`, sources, [], { figures: true }).markdown
+  assert.match(evil, /highlight="&lt;img src=x&gt;"/)
+}
 // Never a figure: a single value, a made-up id, or a surface without figures.
 {
   const one = citeText(`Total. ${show(uuid(2))}`, sources, [], { figures: true })

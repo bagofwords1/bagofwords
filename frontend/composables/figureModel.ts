@@ -11,7 +11,7 @@
  *
  * Pure (no Vue): unit-tested in tests/unit/figureModel.mjs.
  */
-import type { InjectionKey, Ref } from 'vue'
+import type { InjectionKey } from 'vue'
 import type { CitationSource } from './useCitations'
 
 export type FigureKind = 'bars' | 'columns' | 'line' | 'table' | 'number' | 'other'
@@ -45,8 +45,10 @@ export interface FigureContext {
   open?: (source: CitationSource) => void
   /** Full rows can be fetched (a signed-in report; not a shared link). */
   canHydrate: boolean
-  /** Figure number lit by hovering one of its chips, or null. */
-  linked?: Ref<number | null>
+  /** The report the figures belong to (add to dashboard, save as query). */
+  reportId?: string
+  /** Actions that change things (add to dashboard, save as query) are offered. */
+  canEdit?: boolean
 }
 
 export const FIGURE_CONTEXT: InjectionKey<FigureContext> = Symbol('bowFigureContext')

@@ -1,6 +1,7 @@
 [
- {"prompt": "revenue", "model": "claude-haiku-5-5", "ms": 15970, "figures": [{"number": 1, "kind": "bars", "title": "Revenue by billing country", "rows": "12 of 24"}, {"number": 2, "kind": "bars", "title": "Top 10 customers by total spend", "rows": "10 rows"}], "rawMarkers": false, "consoleErrors": 0, "panelOpened": true, "afterReload": ["1:bars", "2:bars"]},
- {"prompt": "trend", "model": "claude-haiku-5-5", "ms": 12000, "figures": [{"number": 1, "kind": "line", "title": "Monthly revenue trend by year", "rows": "60 rows"}], "rawMarkers": false, "consoleErrors": 0},
- {"prompt": "single (total revenue)", "model": "claude-haiku-5-5", "ms": 10187, "figures": [], "rawMarkers": false, "consoleErrors": 0, "note": "single value: cited in the sentence, never a figure"},
- {"prompt": "hebrew", "model": "claude-haiku-5-5", "ms": 13242, "figures": [{"number": 1, "kind": "bars", "title": "הכנסות לפי מדינה", "rows": "12 מתוך 24"}], "rawMarkers": false, "consoleErrors": 0}
+ {"prompt": "revenue by country + top 10 customers", "model": "claude-haiku-5-5", "figures": [{"kind": "bars", "caption": "Figure 1. Revenue by billing country, top 8 of 24."}, {"kind": "table", "caption": "Figure 2. Top 10 customers by total spend, first 6 of 10 rows."}], "chips": 2, "rawMarkers": false, "consoleErrors": 0,
+  "actions": {"menu": ["Add to dashboard", "Save as query", "Download CSV", "Download Excel", "Download image", "Copy data", "View code"], "csvBytes": 371, "xlsxBytes": 5886, "pngBytes": 54433, "copiedLines": 25, "saveDialogOpened": true, "afterAdd": "Added to dashboard", "panelOpened": true}},
+ {"prompt": "monthly revenue trend", "model": "claude-haiku-5-5", "figures": [{"kind": "line"}], "rawMarkers": false, "consoleErrors": 0},
+ {"prompt": "total revenue (single value)", "model": "claude-haiku-5-5", "figures": [], "chips": 1, "note": "single value is cited, never a figure"},
+ {"prompt": "hebrew: revenue by country", "model": "claude-haiku-5-5", "figures": [{"kind": "bars", "highlight": "USA,Canada,France", "caption": "איור 1. הכנסות לפי מדינה, 8 המובילים מתוך 24."}], "rawMarkers": false, "consoleErrors": 0}
 ]

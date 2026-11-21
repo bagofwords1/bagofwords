@@ -68,9 +68,8 @@ async function audit(page) {
     const figs = [...(last?.querySelectorAll('[data-testid="chat-figure"]') || [])].map((f) => ({
       kind: f.getAttribute('data-kind'),
       state: f.getAttribute('data-state'),
-      title: f.querySelector('.fig-title')?.textContent?.trim(),
-      number: f.querySelector('.fig-num')?.textContent?.trim(),
-      rows: f.querySelector('[data-testid="chat-figure-rows"]')?.textContent?.trim(),
+      caption: f.querySelector('figcaption .pf-cap-text')?.textContent?.replace(/\s+/g, ' ').trim(),
+      highlight: f.getAttribute('data-highlight') || '',
       drawn: !!f.querySelector('svg path, table tbody tr'),
     }));
     const text = last?.innerText || '';
@@ -106,8 +105,9 @@ for (const [i, p] of PROMPTS.entries()) {
     if (liveShot) return;
     if (await page.locator('[data-testid="chat-figure"]').count()) {
       liveShot = true;
-      await page.locator('[data-testid="chat-figure"]').first().scrollIntoViewIfNeeded();
-      await page.screenshot({ path: `${OUT}/${p.name}-live.png` });
+      // The renderer may re-create the block while text streams after it.
+      await page.locator('[data-testid="chat-figure"]').first().scrollIntoViewIfNeeded({ timeout: 3000 }).catch(() => {});
+      await page.screenshot({ path: `${OUT}/${p.name}-live.png` }).catch(() => {});
     }
   });
   const a = await audit(page);
@@ -129,48 +129,69 @@ for (const [i, p] of PROMPTS.entries()) {
   writeFileSync(`${OUT}/${p.name}-report-url.txt`, page.url());
 
   if (p.name === 'revenue' && await figs.count()) {
-    const chart = page.locator('[data-testid="chat-figure"]:not([data-kind="table"])').first();
-    if (await chart.count()) {
-      // Hover a bar: tooltip.
-      await chart.scrollIntoViewIfNeeded();
-      const body = chart.locator('.fig-body');
-      const bb = await body.boundingBox();
-      if (bb) { await page.mouse.move(bb.x + bb.width * 0.3, bb.y + 14); await page.waitForTimeout(600); }
-      await chart.screenshot({ path: `${OUT}/${p.name}-chart-tooltip.png` });
-      // Chart -> table.
-      await chart.locator('[data-testid="chat-figure-as-table"]').click();
-      await page.waitForTimeout(500);
-      await chart.screenshot({ path: `${OUT}/${p.name}-chart-as-table.png` });
-      await chart.locator('.fig-seg button').first().click();
+    const fig = figs.first();
+    await fig.scrollIntoViewIfNeeded();
+    // Hover: the text controls appear; a bar shows its tooltip.
+    await fig.hover();
+    const body = fig.locator('.pf-body');
+    const bb = await body.boundingBox();
+    if (bb) { await page.mouse.move(bb.x + bb.width * 0.3, bb.y + 12); await page.waitForTimeout(600); }
+    await fig.screenshot({ path: `${OUT}/${p.name}-hover.png` });
+    // Chart -> table -> chart.
+    await fig.locator('[data-testid="chat-figure-as-table"]').click();
+    await page.waitForTimeout(500);
+    await fig.screenshot({ path: `${OUT}/${p.name}-as-table.png` });
+    await fig.locator('[data-testid="chat-figure-as-table"]').click();
+    await page.waitForTimeout(400);
+    // The ••• menu.
+    const actions = {};
+    const menu = async () => { await fig.hover(); await fig.locator('[data-testid="chat-figure-menu"]').click(); await page.waitForTimeout(300); };
+    await menu();
+    await page.screenshot({ path: `${OUT}/${p.name}-menu.png` });
+    actions.items = (await page.locator('[role="menuitem"]').allInnerTexts()).map((x) => x.trim());
+    await page.keyboard.press('Escape');
+    for (const [label, ext] of [['Download CSV', 'csv'], ['Download Excel', 'xlsx'], ['Download image', 'png']]) {
+      await menu();
+      const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 20000 }).catch(() => null), page.getByRole('menuitem', { name: label }).click()]);
+      if (dl) {
+        const path = `${OUT}/${p.name}-download.${ext}`;
+        await dl.saveAs(path);
+        actions[ext] = (await import('node:fs')).statSync(path).size;
+      } else actions[ext] = 0;
+      await page.waitForTimeout(400);
     }
-    const table = page.locator('[data-testid="chat-figure"][data-kind="table"]').first();
-    if (await table.count()) {
-      await table.scrollIntoViewIfNeeded();
-      const search = table.locator('[data-testid="chat-figure-search"]');
-      if (await search.count()) {
-        await search.fill('usa');
-        await page.waitForTimeout(400);
-        await table.screenshot({ path: `${OUT}/${p.name}-table-search.png` });
-        await search.fill('');
-      }
-      await table.locator('th button').last().click();
-      await page.waitForTimeout(300);
-      await table.screenshot({ path: `${OUT}/${p.name}-table-sorted.png` });
-    }
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
+    await menu();
+    await page.getByRole('menuitem', { name: 'Copy data' }).click();
+    await page.waitForTimeout(500);
+    actions.copiedLines = (await page.evaluate(() => navigator.clipboard.readText()).catch(() => '')).split('\n').length;
+    await menu();
+    await page.getByRole('menuitem', { name: 'Save as query' }).click();
+    await page.waitForTimeout(1200);
+    actions.saveDialog = await page.locator('[role="dialog"]').count() > 0;
+    await page.screenshot({ path: `${OUT}/${p.name}-save-dialog.png` });
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(600);
+    await menu();
+    await page.getByRole('menuitem', { name: 'Add to dashboard' }).click();
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: `${OUT}/${p.name}-added-to-dashboard.png` });
+    await page.mouse.move(5, 5); await page.waitForTimeout(300);
+    await menu();
+    actions.afterAdd = (await page.locator('[role="menuitem"]').allInnerTexts()).map((x) => x.trim()).filter((x) => /dashboard/i.test(x));
+    await page.keyboard.press('Escape');
     // Open in panel.
-    const open = page.locator('[data-testid="chat-figure-open"]').first();
-    if (await open.count()) {
-      await open.click();
-      await page.waitForTimeout(2500);
-      row.panelOpened = await page.locator('[data-testid="data-panel"]').count() > 0;
-      await page.screenshot({ path: `${OUT}/${p.name}-panel.png` });
-      log('panel opened:', row.panelOpened);
-    }
-    // Reload: figures come back, no second entrance, same numbers.
+    await fig.hover();
+    await fig.locator('[data-testid="chat-figure-open"]').click();
+    await page.waitForTimeout(2500);
+    actions.panelOpened = await page.locator('[data-testid="data-panel"]').count() > 0;
+    row.actions = actions;
+    log('actions:', JSON.stringify(actions));
+    // Reload: same figures, same numbers, no second entrance.
     await page.reload();
     await page.locator('[data-completion-footer]').first().waitFor({ timeout: 120000 });
     await page.waitForTimeout(3000);
-    row.afterReload = (await audit(page)).figures.map((f) => `${f.number}:${f.kind}`);
+    row.afterReload = (await audit(page)).figures.map((f) => `${f.kind}|${f.caption?.slice(0, 12)}`);
     log('after reload:', JSON.stringify(row.afterReload));
   }
   await context.close();

@@ -424,14 +424,15 @@ class PromptBuilderV3:
             citation_id_exception = " other than inside a `{{cite:…}}` marker"
             if PromptBuilderV3._figures_enabled(planner_input):
                 citation_rule_text += (
-                    "- Show the result itself where it carries the answer: put `{{show:<id>}}` (same id as a "
-                    "citation) on a line of its own, right after the paragraph that discusses that chart or "
-                    "table (a line with only `{{show:3f9a1c2e}}`) — the chart the user asked for, or the table whose rows are the answer. The "
-                    "reader sees the result there, numbered like its citations. Never put it inside a sentence, backticks or "
-                    "parentheses, and don't refer to it (\"the chart above\"). At most 3 per answer, each "
-                    "result once, never for a single number (state the value in the sentence and cite it), "
-                    "never for inspect_data. Results you don't show stay one click away through their "
-                    "citations.\n"
+                    "- Show the result itself where it carries the answer: the chart the user asked for, or the "
+                    "table whose rows are the answer, goes in your final text as a line of its own holding only "
+                    "`{{show:<id>}}` (same id as a citation), right after the paragraph that discusses it. When "
+                    "that paragraph singles out categories of the result, name them so they stand out and the rest "
+                    "recede — e.g. a line with only `{{show:3f9a1c2e highlight=\"USA\"}}` (exact values from the "
+                    "result, comma-separated, at most 3); otherwise `{{show:3f9a1c2e}}`. The reader sees the result "
+                    "there, numbered like its citations. Never put it inside a sentence, backticks or parentheses, "
+                    "and don't refer to it (\"the chart above\"). At most 3 per answer, each result once, never for "
+                    "a single number (state the value in the sentence and cite it), never for inspect_data.\n"
                 )
                 citation_id_exception = " other than inside a `{{cite:…}}` or `{{show:…}}` marker"
         platform_directives = PromptBuilderV3._platform_system_directives(planner_input)

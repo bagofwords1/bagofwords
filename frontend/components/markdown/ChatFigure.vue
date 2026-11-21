@@ -1,137 +1,156 @@
 <template>
-  <!-- A marker that names no result renders nothing (useCitations already
-       drops those; this is the last guard). -->
   <figure
     v-if="source && model.kind !== 'number'"
     ref="root"
-    class="bow-figure"
+    class="pf"
     :class="{ 'is-entering': entering }"
     :data-state="state"
     :data-kind="model.kind"
+    :data-highlight="[...highlight].join(',') || undefined"
     data-testid="chat-figure"
   >
-    <header class="fig-head">
-      <span class="fig-num nums" aria-hidden="true">{{ number }}</span>
-      <div class="min-w-0 flex-1">
-        <div class="fig-title" :title="title"><bdi>{{ title }}</bdi></div>
-        <div class="fig-meta">
-          <template v-if="legend.length > 1">
-            <span v-for="s in legend" :key="s.name" class="fig-legend-item">
-              <span class="fig-swatch" :style="{ background: s.color }" aria-hidden="true" /><bdi>{{ s.name }}</bdi>
-            </span>
-            <span class="fig-dot" aria-hidden="true">·</span>
-          </template>
-          <span class="nums" data-testid="chat-figure-rows" :dir="locale === 'he' ? 'rtl' : 'ltr'">{{ rowsLabel }}</span>
+    <!-- Chart. The body takes its final height at once: a faint outline while
+         the full rows load, crossfading into the chart. -->
+    <div v-if="isChart && view === 'chart'" class="pf-body" dir="ltr" :style="{ height: chartHeight + 'px' }">
+      <Transition name="pf-ghost">
+        <div v-if="state === 'loading'" class="pf-ghost" :class="model.kind === 'bars' ? 'is-bars' : 'is-area'" aria-hidden="true">
+          <span v-for="i in ghostCount" :key="i" :style="ghostStyle(i)" />
         </div>
-      </div>
-      <div class="fig-actions">
-        <div v-if="isChart" class="fig-seg" role="group" :aria-label="t('figure.view')">
-          <button type="button" :aria-pressed="view === 'chart'" :title="t('figure.chart')" :aria-label="t('figure.chart')" @click="view = 'chart'">
-            <Icon :name="model.kind === 'line' ? 'heroicons:presentation-chart-line' : 'heroicons:chart-bar'" class="h-3.5 w-3.5" />
-          </button>
-          <button type="button" :aria-pressed="view === 'table'" :title="t('figure.table')" :aria-label="t('figure.table')" data-testid="chat-figure-as-table" @click="view = 'table'">
-            <Icon name="heroicons:table-cells" class="h-3.5 w-3.5" />
-          </button>
-        </div>
-        <button v-if="ctx?.open" type="button" class="fig-icon-btn" :title="t('figure.open')" :aria-label="t('figure.open')" data-testid="chat-figure-open" @click="ctx.open(source)">
-          <Icon name="heroicons:arrow-up-right" class="h-3.5 w-3.5 rtl-flip" />
-        </button>
-      </div>
-    </header>
-
-    <!-- Chart. The body takes its final height at once — skeleton while the
-         full rows load, then the chart — so the answer never jumps. -->
-    <div v-if="isChart && view === 'chart'" class="fig-body" dir="ltr" :style="{ height: chartHeight + 'px' }">
-      <div v-if="state === 'loading'" class="fig-skeleton" :class="model.kind === 'bars' ? 'is-bars' : 'is-area'" aria-hidden="true">
-        <span v-for="i in skeletonBars" :key="i" class="bow-shimmer" :style="skeletonStyle(i)" />
-      </div>
-      <ClientOnly v-else-if="model.kind !== 'other'">
-        <VChart class="h-full w-full" :option="chartOption" autoresize :init-options="{ renderer: 'svg' }" />
+      </Transition>
+      <ClientOnly v-if="state === 'ready' && model.kind !== 'other'">
+        <VChart ref="chartRef" class="h-full w-full" :option="chartOption" autoresize :init-options="{ renderer: 'svg' }" />
       </ClientOnly>
-      <Suspense v-else>
+      <Suspense v-else-if="state === 'ready'">
         <RenderVisual :widget="widgetShim" :data="dataForRenderer" :data_model="dataModel" :view="rawView" />
-        <template #fallback><div class="bow-shimmer h-full w-full rounded-md" /></template>
+        <template #fallback><div class="h-full w-full" /></template>
       </Suspense>
       <span v-if="state === 'loading'" class="sr-only" role="status">{{ t('figure.loading') }}</span>
     </div>
 
-    <!-- Table: the rows as they are, searchable and sortable. -->
-    <div v-else class="fig-table-wrap">
-      <div v-if="state === 'loading'" class="fig-table-skeleton" aria-hidden="true">
-        <span v-for="i in Math.min(model.rows.length || 4, PREVIEW_ROWS)" :key="i" class="bow-shimmer" />
-      </div>
+    <!-- Table: three hairlines, nothing else. -->
+    <div v-else class="pf-table-wrap">
+      <div v-if="state === 'loading'" class="pf-ghost-table" aria-hidden="true"><span v-for="i in 5" :key="i" /></div>
       <template v-else>
-        <div v-if="tableRows.length > PREVIEW_ROWS" class="fig-search">
-          <Icon name="heroicons:magnifying-glass" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-          <input v-model="query" type="search" :placeholder="t('figure.search', { count: tableRows.length })" :aria-label="t('figure.searchLabel')" data-testid="chat-figure-search" />
-        </div>
-        <div class="fig-table-scroll">
-          <table class="fig-table">
+        <input v-if="showAll && tableRows.length > PREVIEW_ROWS" v-model="query" type="search" class="pf-search" :placeholder="t('figure.search', { count: tableRows.length })" :aria-label="t('figure.searchLabel')" data-testid="chat-figure-search" />
+        <div ref="scroller" class="pf-table-scroll" :class="{ 'is-scrollable': scrollable, 'at-end': atEnd }" @scroll="onScroll">
+          <table class="pf-table">
             <thead>
               <tr>
                 <th v-for="col in model.columns" :key="col.field" :class="{ 'is-num': col.numeric }" :aria-sort="sortKey === col.field ? (sortDir === 1 ? 'ascending' : 'descending') : 'none'">
-                  <button type="button" @click="toggleSort(col.field)">
-                    <bdi>{{ col.label }}</bdi>
-                    <Icon v-if="sortKey === col.field" :name="sortDir === 1 ? 'heroicons:arrow-up-20-solid' : 'heroicons:arrow-down-20-solid'" class="h-3 w-3" />
-                  </button>
+                  <button type="button" @click="toggleSort(col.field)"><bdi>{{ col.label }}</bdi><span v-if="sortKey === col.field" aria-hidden="true">{{ sortDir === 1 ? ' ↑' : ' ↓' }}</span></button>
                 </th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, i) in visibleRows" :key="i">
-                <td v-for="col in model.columns" :key="col.field" :class="{ 'is-num nums': col.numeric }">
-                  <bdi>{{ cell(row[col.field], col) }}</bdi>
-                </td>
+              <tr v-for="(row, i) in visibleRows" :key="i" :class="{ 'is-hl': isHighlightedRow(row) }" :style="entering ? { animationDelay: `${120 + i * 22}ms` } : undefined">
+                <td v-for="col in model.columns" :key="col.field" :class="{ 'is-num nums': col.numeric }"><bdi>{{ cell(row[col.field], col) }}</bdi></td>
               </tr>
-              <tr v-if="!visibleRows.length"><td :colspan="model.columns.length" class="fig-empty">{{ t('figure.noMatch') }}</td></tr>
+              <tr v-if="!visibleRows.length"><td :colspan="model.columns.length" class="pf-empty">{{ t('figure.noMatch') }}</td></tr>
             </tbody>
           </table>
         </div>
-        <button v-if="filteredRows.length > PREVIEW_ROWS && !query" type="button" class="fig-more" data-testid="chat-figure-more" @click="showAll = !showAll">
+        <button v-if="filteredRows.length > PREVIEW_ROWS && !query" type="button" class="pf-link pf-more" data-testid="chat-figure-more" @click="showAll = !showAll">
           {{ showAll ? t('figure.showLess') : t('figure.showAll', { count: filteredRows.length }) }}
         </button>
       </template>
     </div>
+
+    <figcaption class="pf-cap">
+      <span class="pf-cap-text">
+        <span class="pf-label nums">{{ t('figure.caption', { n: number }) }}</span>
+        <bdi class="pf-title">{{ title }}</bdi><span v-if="captionDetail" class="pf-detail">, <bdi>{{ captionDetail }}</bdi></span>.
+        <span v-if="legend.length > 1" class="pf-legend">
+          <span v-for="s in legend" :key="s.name" class="pf-key" :class="{ 'is-dim': anyHl && !highlight.has(s.name) }"><i :style="{ background: s.color }" aria-hidden="true" /><bdi>{{ s.name }}</bdi></span>
+        </span>
+      </span>
+      <span class="pf-actions">
+        <button v-if="isChart" type="button" class="pf-link" data-testid="chat-figure-as-table" @click="view = view === 'chart' ? 'table' : 'chart'">{{ view === 'chart' ? t('figure.table') : t('figure.chart') }}</button>
+        <template v-if="ctx?.open">
+          <span v-if="isChart" class="pf-sep" aria-hidden="true">·</span>
+          <button type="button" class="pf-link" data-testid="chat-figure-open" @click="ctx.open(source)">{{ t('figure.open') }} <span class="inline-block rtl-flip" aria-hidden="true">↗</span></button>
+        </template>
+        <span class="pf-sep" aria-hidden="true">·</span>
+        <UDropdown :items="menuItems" :popper="{ placement: 'bottom-end' }" :ui="{ width: 'w-52' }">
+          <button type="button" class="pf-link pf-more-btn" :aria-label="t('figure.more')" :title="t('figure.more')" data-testid="chat-figure-menu">•••</button>
+        </UDropdown>
+      </span>
+    </figcaption>
+
+    <!-- Save as query: the same dialog the result card uses. -->
+    <EntityCreateModal
+      v-if="canSave && saveOpen"
+      :visible="saveOpen"
+      :initial-title="title"
+      :initial-code="te?.created_step?.code || ''"
+      :initial-view="rawView?.view || rawView || null"
+      :initial-data="fullData"
+      :data-model="dataModel"
+      :step-id="stepId || null"
+      :initial-data-source-ids="reportDataSourceIds"
+      :parameters="[]"
+      @close="saveOpen = false"
+      @saved="onSaved"
+    />
+    <UModal v-model="codeOpen" :ui="{ width: 'sm:max-w-3xl' }">
+      <div class="p-4">
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-sm font-medium text-ink">{{ title }}</span>
+          <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" :aria-label="t('common.close')" @click="codeOpen = false" />
+        </div>
+        <pre class="max-h-[60vh] overflow-auto rounded-md bg-surface-subtle p-3 text-xs text-ink-2" dir="ltr">{{ code }}</pre>
+      </div>
+    </UModal>
   </figure>
 </template>
 
 <script setup lang="ts">
 /**
- * A result placed in an answer: `{{show:<visualization id>}}`, rewritten by
- * useCitations into `<bow-figure source="<block id>" number="n">`, a
- * markstream custom node. The page provides FIGURE_CONTEXT to resolve the
+ * A result placed in an answer: `{{show:<visualization id> highlight="…"}}`,
+ * rewritten by useCitations into `<bow-figure source="<block id>" number="n">`,
+ * a markstream custom node. The page provides FIGURE_CONTEXT to resolve the
  * source (composables/figureModel.ts).
  *
- * What it draws comes from create_data's own inference — chart type, columns,
- * breakdown, units (figureModel). Bars, columns and lines are drawn here in a
- * quiet monochrome style; any other chart type uses the existing renderer in
- * the same frame. A single value is never a figure.
+ * Set like a figure in a paper: no frame, the caption below ("Figure 1. …"),
+ * text controls on hover. What it draws comes from create_data's own
+ * inference (figureModel); bars, columns and lines are drawn here in one muted
+ * accent (a small editorial palette for several series), any other type by
+ * the existing renderer in the same frame. `highlight` puts the categories the
+ * sentence is about in full colour and tints the rest. A single value is never
+ * a figure.
  *
- * Motion: the frame fades and rises once, the first time a result is shown in
- * this page; a re-render (streaming text after it) reuses the drawn figure.
+ * Motion, the first time a result appears in the page only (never on a
+ * re-render, reload or scroll back; none with reduced motion): the figure
+ * fades and rises, bars grow one after another, a line draws left to right
+ * and then shows its last value, table rows follow each other, the caption
+ * arrives last. A loading outline crossfades into the chart.
  */
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import { use } from 'echarts/core'
-import { TooltipComponent, GridComponent } from 'echarts/components'
+import { TooltipComponent, GridComponent, MarkPointComponent } from 'echarts/components'
 import { BarChart, LineChart } from 'echarts/charts'
 import { SVGRenderer } from 'echarts/renderers'
 import RenderVisual from '~/components/RenderVisual.vue'
-import { FIGURE_CONTEXT, figureModel, formatFigureValue, type FigureColumn } from '~/composables/figureModel'
+import EntityCreateModal from '~/components/entity/EntityCreateModal.vue'
+import { FIGURE_CONTEXT, dataOf, figureModel, formatFigureValue, type FigureColumn } from '~/composables/figureModel'
 
-use([TooltipComponent, GridComponent, BarChart, LineChart, SVGRenderer])
+use([TooltipComponent, GridComponent, MarkPointComponent, BarChart, LineChart, SVGRenderer])
 
 defineOptions({ inheritAttrs: false })
 const props = defineProps<{ node: any }>()
 const { t, locale } = useI18n()
 const colorMode = useColorMode()
+const toast = useToast()
+const canViewCode = useCanViewCode()
 const ctx = inject(FIGURE_CONTEXT, null)
+const reportSnapshot = inject<any>('reportSnapshot', null)
+const artifactVizIds = inject<any>('artifactVizIds', null)
 
-const PREVIEW_ROWS = 8
-const MAX_BARS = 12
+const PREVIEW_ROWS = 6
+const MAX_BARS = 8
 
 const attr = (k: string) => String((props.node?.attrs || []).find((a: [string, string]) => a[0] === k)?.[1] ?? '')
 const source = computed(() => ctx?.resolve(attr('source')) || null)
-const number = computed(() => Number(attr('number')) || null)
+const number = computed(() => Number(attr('number')) || 1)
 const te = computed<any>(() => source.value?.toolExecution || null)
 const title = computed(() => source.value?.output.title || t('figure.untitled'))
 
@@ -142,7 +161,7 @@ const model = computed(() => figureModel(te.value, loaded.value || undefined))
 const stepId = computed(() => String(te.value?.created_step_id || te.value?.created_step?.id || ''))
 const needsRows = computed(() => !loaded.value && !failed.value && model.value.partial && !!ctx?.canHydrate && !!stepId.value)
 const state = computed(() => (needsRows.value ? 'loading' : 'ready'))
-async function hydrate() {
+async function loadRows(): Promise<void> {
   if (!needsRows.value) return
   try {
     let pending = STEP_CACHE.get(stepId.value)
@@ -161,55 +180,33 @@ async function hydrate() {
     failed.value = true
   }
 }
-watch(needsRows, (v) => { if (v) void hydrate() }, { immediate: true })
+watch(needsRows, (v) => { if (v) void loadRows() }, { immediate: true })
+const fullData = computed(() => loaded.value || dataOf(te.value))
 
 // ── Entrance: once per result per page. ─────────────────────────────────────
+const reducedMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+const firstShow = !SHOWN.has(attr('source')) && !reducedMotion
 const entering = ref(false)
-const firstShow = !SHOWN.has(attr('source'))
 onMounted(() => {
-  if (!firstShow) return
   SHOWN.add(attr('source'))
+  if (!firstShow) return
   entering.value = true
-  setTimeout(() => { entering.value = false }, 400)
+  setTimeout(() => { entering.value = false }, 1600)
 })
 
-// ── View ────────────────────────────────────────────────────────────────────
+// ── View & caption ──────────────────────────────────────────────────────────
 const isChart = computed(() => ['bars', 'columns', 'line', 'other'].includes(model.value.kind))
 const view = ref<'chart' | 'table'>('chart')
-const rowsLabel = computed(() => {
+const query = ref('')
+const showAll = ref(false)
+const captionDetail = computed(() => {
   const m = model.value
-  if (isChart.value && view.value === 'chart' && m.kind === 'bars' && m.categories.length > MAX_BARS) {
-    return t('figure.shownOf', { shown: MAX_BARS, total: m.categories.length })
-  }
-  return t('figure.rows', { count: (m.totalRows || m.rows.length).toLocaleString() })
+  if (view.value === 'chart' && m.kind === 'bars' && m.categories.length > MAX_BARS) return t('figure.topOf', { shown: MAX_BARS, total: m.categories.length })
+  if ((view.value === 'table' || m.kind === 'table') && m.rows.length > PREVIEW_ROWS && !showAll.value) return t('figure.firstOf', { shown: PREVIEW_ROWS, total: m.totalRows || m.rows.length })
+  return ''
 })
 
-// ── Palette: monochrome first, from the theme tokens. ───────────────────────
-const palette = ref({ ink: '#0a0a0a', muted: '#71717a', grid: '#f4f4f5', bg: '#ffffff', tip: '#0a0a0a', tipInk: '#fafafa', series: ['#0a0a0a', '#2563eb', '#a1a1aa', '#10b981', '#f59e0b', '#8b5cf6'] })
-function readPalette() {
-  if (typeof window === 'undefined') return
-  const cs = getComputedStyle(document.documentElement)
-  const rgb = (n: string, f: string) => { const v = cs.getPropertyValue(n).trim(); return v ? `rgb(${v.split(/\s+/).join(',')})` : f }
-  const dark = colorMode.value === 'dark'
-  const ink = rgb('--bow-ink-rgb', dark ? '#fafafa' : '#0a0a0a')
-  palette.value = {
-    ink,
-    muted: rgb('--bow-ink-muted-rgb', '#71717a'),
-    grid: rgb('--bow-line-subtle-rgb', '#f4f4f5'),
-    bg: rgb('--bow-bg-rgb', '#ffffff'),
-    tip: rgb('--bow-bg-inverted-rgb', '#0a0a0a'),
-    tipInk: rgb('--bow-ink-inverted-rgb', '#fafafa'),
-    series: [ink, dark ? '#60a5fa' : '#2563eb', dark ? '#71717a' : '#a1a1aa', '#10b981', '#f59e0b', '#8b5cf6'],
-  }
-}
-onMounted(readPalette)
-watch(() => colorMode.value, () => requestAnimationFrame(readPalette))
-const legend = computed(() => model.value.series.map((s, i) => ({ name: s.name, color: palette.value.series[i % palette.value.series.length] })))
-
-const reducedMotion = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-const fmt = (v: any, short = false) => formatFigureValue(v, model.value.format, model.value.currency, locale.value, short)
-// Mirror with the answer, not the UI: an English answer in a Hebrew UI keeps
-// its bars left to right. The figure's own direction is the answer's.
+// ── Direction follows the answer, not the UI ────────────────────────────────
 const root = ref<HTMLElement | null>(null)
 const answerDir = ref<'ltr' | 'rtl'>('ltr')
 function readDir() { if (root.value) answerDir.value = getComputedStyle(root.value).direction === 'rtl' ? 'rtl' : 'ltr' }
@@ -217,101 +214,153 @@ function readDir() { if (root.value) answerDir.value = getComputedStyle(root.val
 onMounted(() => { readDir(); requestAnimationFrame(readDir); setTimeout(readDir, 300); setTimeout(readDir, 1200) })
 const isRtl = computed(() => answerDir.value === 'rtl')
 
+// ── Palette: one muted accent; a small editorial set for several series ────
+const dark = computed(() => colorMode.value === 'dark')
+const SERIES_LIGHT = ['#5F6AD9', '#D99A3B', '#3F8F86', '#C9677A', '#868EA3']
+const SERIES_DARK = ['#8B96F5', '#E8B25E', '#5BB3A8', '#E38A9C', '#A3AABD']
+const seriesColors = computed(() => (dark.value ? SERIES_DARK : SERIES_LIGHT))
+const accent = computed(() => seriesColors.value[0])
+const ink = ref({ text: '#374151', muted: '#667085', grid: 'rgba(17,24,39,0.09)', bg: '#ffffff', tip: '#111827', tipInk: '#f9fafb' })
+function readInk() {
+  const cs = getComputedStyle(document.documentElement)
+  const rgb = (n: string, f: string) => { const v = cs.getPropertyValue(n).trim(); return v ? `rgb(${v.split(/\s+/).join(',')})` : f }
+  ink.value = {
+    text: rgb('--bow-ink-2-rgb', '#374151'),
+    muted: rgb('--bow-ink-muted-rgb', '#667085'),
+    grid: dark.value ? 'rgba(255,255,255,0.10)' : 'rgba(17,24,39,0.09)',
+    bg: rgb('--bow-bg-rgb', '#ffffff'),
+    tip: rgb('--bow-bg-inverted-rgb', '#111827'),
+    tipInk: rgb('--bow-ink-inverted-rgb', '#f9fafb'),
+  }
+}
+onMounted(readInk)
+watch(dark, () => requestAnimationFrame(readInk))
+const legend = computed(() => model.value.series.map((s, i) => ({ name: s.name, color: seriesColors.value[i % seriesColors.value.length] })))
+function alpha(hex: string, a: number) {
+  const n = parseInt(hex.slice(1), 16)
+  return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`
+}
+
+// ── Highlight: only values that exist in the result count ───────────────────
+const highlight = computed(() => {
+  const wanted = attr('highlight').split(',').map((s) => s.trim()).filter(Boolean).slice(0, 3)
+  const m = model.value
+  const present = new Set([...m.categories, ...m.series.map((s) => s.name), ...m.rows.flatMap((r) => Object.values(r).map(String))])
+  return new Set(wanted.filter((w) => present.has(w)))
+})
+const anyHl = computed(() => highlight.value.size > 0)
+const isHighlightedRow = (row: Record<string, any>) => anyHl.value && Object.values(row).some((v) => highlight.value.has(String(v)))
+
+// ── Chart ───────────────────────────────────────────────────────────────────
+const fmt = (v: any, short = false) => formatFigureValue(v, model.value.format, model.value.currency, locale.value, short)
 const barCount = computed(() => Math.min(model.value.categories.length, MAX_BARS))
-const chartHeight = computed(() => (model.value.kind === 'bars' ? Math.max(96, barCount.value * 30) : 240))
-const skeletonBars = computed(() => (model.value.kind === 'bars' ? Math.max(3, barCount.value) : 12))
-function skeletonStyle(i: number) {
-  if (model.value.kind === 'bars') return { width: `${Math.max(18, 92 - i * (70 / Math.max(3, barCount.value)))}%` }
-  return { height: `${30 + ((i * 37) % 55)}%` }
+const chartHeight = computed(() => (model.value.kind === 'bars' ? Math.max(84, barCount.value * 28) : 220))
+const ghostCount = computed(() => (model.value.kind === 'bars' ? Math.max(3, barCount.value) : 16))
+function ghostStyle(i: number) {
+  if (model.value.kind === 'bars') return { width: `${Math.max(14, 86 - i * (64 / Math.max(3, barCount.value)))}%` }
+  return { height: `${34 + ((i * 29) % 46)}%` }
 }
 
 const chartOption = computed(() => {
-  const p = palette.value
   const m = model.value
+  const p = ink.value
   const font = 'Inter, ui-sans-serif, system-ui, sans-serif'
-  const animate = !reducedMotion && firstShow
   const tooltip = {
     trigger: 'axis', confine: true,
-    axisPointer: { type: m.kind === 'line' ? 'line' : 'shadow', lineStyle: { color: p.muted, width: 1, type: [3, 3] }, shadowStyle: { color: 'rgba(120,120,130,0.08)' } },
+    axisPointer: { type: m.kind === 'line' ? 'line' : 'shadow', lineStyle: { color: p.muted, width: 1, type: [2, 3] }, shadowStyle: { color: alpha(accent.value, 0.06) } },
     backgroundColor: p.tip, borderWidth: 0, padding: [6, 10],
     textStyle: { color: p.tipInk, fontSize: 12, fontFamily: font },
-    extraCssText: 'border-radius:6px;box-shadow:0 4px 14px rgba(0,0,0,.16);',
-    formatter: (items: any[]) => {
-      const head = `<div style="opacity:.65;margin-bottom:2px">${escapeHtml(items[0]?.name ?? '')}</div>`
-      return head + items.map((it) => `<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:2px;background:${it.color}"></span>${items.length > 1 ? `<span style="opacity:.75">${escapeHtml(it.seriesName)}</span>` : ''}<b style="margin-inline-start:auto;font-weight:600">${fmt(it.value)}</b></div>`).join('')
-    },
+    extraCssText: 'border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.14);',
+    formatter: (items: any[]) => `<div style="opacity:.65;margin-bottom:2px">${esc(items[0]?.name ?? '')}</div>` + items.map((it) => `<div style="display:flex;gap:8px;align-items:center"><span style="width:8px;height:8px;border-radius:50%;background:${it.color}"></span>${items.length > 1 ? `<span style="opacity:.75">${esc(it.seriesName)}</span>` : ''}<b style="margin-inline-start:auto;font-weight:600">${fmt(it.value)}</b></div>`).join(''),
   }
-  const base = { animation: animate, animationDuration: 450, animationEasing: 'cubicOut', animationDurationUpdate: 240, tooltip, textStyle: { fontFamily: font } }
+  const motion = firstShow
+    ? { animation: true, animationDuration: 460, animationEasing: 'cubicOut', animationDelay: (idx: number) => idx * 32, animationDurationUpdate: 240 }
+    : { animation: false }
+  const base = { ...motion, tooltip, textStyle: { fontFamily: font } }
 
   if (m.kind === 'bars') {
     const cats = m.categories.slice(0, MAX_BARS)
     const values = m.series[0]?.values.slice(0, MAX_BARS) || []
     return {
       ...base,
-      grid: { left: isRtl.value ? 56 : 8, right: isRtl.value ? 8 : 56, top: 0, bottom: 0, containLabel: true },
+      grid: { left: isRtl.value ? 52 : 8, right: isRtl.value ? 8 : 52, top: 0, bottom: 0, containLabel: true },
       xAxis: { type: 'value', show: false, axisLabel: { show: false }, splitLine: { show: false }, inverse: isRtl.value },
       yAxis: {
         type: 'category', inverse: true, position: isRtl.value ? 'right' : 'left', data: cats,
         axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: p.muted, fontSize: 12, margin: 12, width: 132, overflow: 'truncate', align: isRtl.value ? 'left' : 'right' },
+        axisLabel: {
+          color: p.text, fontSize: 12, margin: 14, width: 128, overflow: 'truncate', align: isRtl.value ? 'left' : 'right',
+          formatter: (v: string) => (highlight.value.has(v) ? `{hl|${v}}` : v),
+          rich: { hl: { color: p.text, fontWeight: 600, fontSize: 12, fontFamily: font } },
+        },
       },
       series: [{
-        type: 'bar', data: values, barWidth: 14, barMinHeight: 2,
-        itemStyle: { color: p.ink, borderRadius: isRtl.value ? [3, 0, 0, 3] : [0, 3, 3, 0] },
-        label: { show: true, position: isRtl.value ? 'left' : 'right', distance: 8, color: p.ink, fontSize: 12, fontWeight: 500, formatter: (x: any) => fmt(x.value, true) },
-        emphasis: { itemStyle: { opacity: 0.85 } },
+        type: 'bar', barWidth: 10, barMinHeight: 2,
+        data: cats.map((c, i) => ({
+          value: values[i],
+          itemStyle: { color: !anyHl.value || highlight.value.has(c) ? accent.value : alpha(accent.value, 0.3), borderRadius: isRtl.value ? [2, 0, 0, 2] : [0, 2, 2, 0] },
+          label: { color: highlight.value.has(c) ? p.text : p.muted, fontWeight: highlight.value.has(c) ? 600 : 400 },
+        })),
+        label: { show: true, position: isRtl.value ? 'left' : 'right', distance: 8, fontSize: 12, formatter: (x: any) => fmt(x.value, true) },
+        emphasis: { disabled: true },
       }],
     }
   }
 
-  const many = m.categories.length > 8
   const xAxis = {
     type: 'category', data: m.categories, inverse: isRtl.value, boundaryGap: m.kind === 'columns',
-    axisLine: { lineStyle: { color: p.grid } }, axisTick: { show: false },
+    axisLine: { show: true, lineStyle: { color: p.grid } }, axisTick: { show: false },
     axisLabel: { color: p.muted, fontSize: 11, margin: 10, hideOverlap: true },
   }
   const yAxis = {
-    type: 'value', position: isRtl.value ? 'right' : 'left', splitNumber: 4,
+    type: 'value', position: isRtl.value ? 'right' : 'left', splitNumber: 3,
     axisLabel: { color: p.muted, fontSize: 11, formatter: (v: number) => fmt(v, true) },
-    splitLine: { lineStyle: { color: p.grid } },
+    splitLine: { lineStyle: { color: p.grid, type: [2, 4] } },
   }
-  const grid = { left: 8, right: 12, top: 8, bottom: 0, containLabel: true }
+  const grid = { left: 8, right: m.kind === 'line' ? 56 : 12, top: 12, bottom: 0, containLabel: true }
+  const tone = (name: string, color: string) => (!anyHl.value || highlight.value.has(name) ? color : alpha(color, 0.28))
   if (m.kind === 'columns') {
     return {
       ...base, grid, xAxis, yAxis,
       series: m.series.map((s, i) => ({
-        type: 'bar', name: s.name, data: s.values, stack: m.stacked ? 'total' : undefined,
-        barMaxWidth: m.series.length > 1 ? 14 : 28, barGap: '20%',
-        itemStyle: { color: legend.value[i]?.color, borderRadius: m.stacked && i < m.series.length - 1 ? 0 : [3, 3, 0, 0] },
-        emphasis: { itemStyle: { opacity: 0.85 } },
+        type: 'bar', name: s.name, stack: m.stacked ? 'total' : undefined,
+        barMaxWidth: m.series.length > 1 ? 12 : 18, barGap: '30%',
+        data: s.values.map((v, ci) => ({
+          value: v,
+          itemStyle: { color: m.series.length > 1 ? tone(s.name, legend.value[i].color) : tone(m.categories[ci], accent.value), borderRadius: [2, 2, 0, 0] },
+        })),
+        emphasis: { disabled: true },
       })),
     }
   }
   const single = m.series.length === 1
+  const lineMs = 700
   return {
-    ...base, grid, xAxis, yAxis,
+    ...base,
+    ...(firstShow ? { animationDuration: lineMs, animationDelay: 80 } : {}),
+    grid, xAxis, yAxis,
     series: m.series.map((s, i) => {
-      const color = legend.value[i]?.color
+      const color = tone(s.name, legend.value[i]?.color || accent.value)
+      const last = s.values.length - 1
       return {
-        type: 'line', name: s.name, data: s.values, smooth: 0.2, showSymbol: !many, symbol: 'circle', symbolSize: 5, connectNulls: true,
-        lineStyle: { color, width: 1.75 }, itemStyle: { color },
-        stack: m.stacked ? 'total' : undefined,
-        areaStyle: single || m.area ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: alpha(color, 0.14) }, { offset: 1, color: alpha(color, 0) }] } } : undefined,
-        emphasis: { focus: 'series' },
+        type: 'line', name: s.name, data: s.values, smooth: 0.25, showSymbol: false, connectNulls: true,
+        lineStyle: { color, width: anyHl.value && highlight.value.has(s.name) ? 2.25 : 1.75 }, itemStyle: { color },
+        areaStyle: single ? { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: alpha(legend.value[0]?.color || accent.value, 0.12) }, { offset: 1, color: alpha(legend.value[0]?.color || accent.value, 0) }] } } : undefined,
+        // The latest value, labelled where its line ends — after the line arrives.
+        markPoint: last >= 0 && s.values[last] != null ? {
+          symbol: 'circle', symbolSize: 6, itemStyle: { color, borderColor: p.bg, borderWidth: 2 },
+          label: { show: true, position: 'right', distance: 6, color, fontSize: 11, fontWeight: 600, formatter: () => fmt(s.values[last], true) },
+          data: [{ coord: [last, s.values[last]] }],
+          animation: firstShow, animationDelay: firstShow ? lineMs + 60 : 0, animationDuration: 260,
+        } : undefined,
+        emphasis: { disabled: true },
       }
     }),
   }
 })
-function alpha(color: string, a: number) {
-  const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(color)
-  if (m) return `rgba(${m[1]},${m[2]},${m[3]},${a})`
-  const h = /^#([0-9a-f]{6})$/i.exec(color)
-  if (h) { const n = parseInt(h[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})` }
-  return color
-}
-function escapeHtml(s: string) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!)) }
+function esc(s: string) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!)) }
 
-// ── Fallback renderer (types not drawn here) ────────────────────────────────
+// ── Fallback renderer ───────────────────────────────────────────────────────
 const rawView = computed<any>(() => {
   const v = te.value?.created_visualizations?.[0]?.view || te.value?.result_json?.view || te.value?.created_step?.view
   if (!v) return null
@@ -323,8 +372,6 @@ const dataForRenderer = computed<any>(() => ({ rows: model.value.rows, columns: 
 const widgetShim = computed<any>(() => ({ id: `figure-${attr('source')}`, title: title.value }))
 
 // ── Table ───────────────────────────────────────────────────────────────────
-const query = ref('')
-const showAll = ref(false)
 const sortKey = ref<string | null>(null)
 const sortDir = ref<1 | -1>(-1)
 const tableRows = computed(() => model.value.rows)
@@ -338,12 +385,7 @@ const filteredRows = computed(() => {
   if (q) rows = rows.filter((r) => Object.values(r).some((v) => String(v ?? '').toLowerCase().includes(q)))
   if (sortKey.value) {
     const k = sortKey.value
-    rows = [...rows].sort((a, b) => {
-      const x = a[k]; const y = b[k]
-      if (x == null) return 1
-      if (y == null) return -1
-      return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * sortDir.value
-    })
+    rows = [...rows].sort((a, b) => { const x = a[k]; const y = b[k]; if (x == null) return 1; if (y == null) return -1; return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * sortDir.value })
   }
   return rows
 })
@@ -359,6 +401,129 @@ function cell(v: any, col: FigureColumn) {
   if (!col.numeric) return String(v)
   return col.field === firstMeasure.value ? fmt(v) : formatFigureValue(v, 'number', 'USD', locale.value)
 }
+
+// Wide tables: fade the far edge until scrolled to it.
+const scroller = ref<HTMLElement | null>(null)
+const scrollable = ref(false)
+const atEnd = ref(false)
+function measureScroll() {
+  const el = scroller.value
+  if (!el) return
+  scrollable.value = el.scrollWidth > el.clientWidth + 2
+  atEnd.value = Math.abs(el.scrollLeft) + el.clientWidth >= el.scrollWidth - 2
+}
+function onScroll() { measureScroll() }
+// The table appears after loading, and the column can change width: observe it.
+let resizeObs: ResizeObserver | null = null
+watch(scroller, (el, prev) => {
+  if (prev) resizeObs?.unobserve(prev)
+  if (!el) return
+  resizeObs ??= new ResizeObserver(() => measureScroll())
+  resizeObs.observe(el)
+  requestAnimationFrame(measureScroll)
+})
+onBeforeUnmount(() => resizeObs?.disconnect())
+watch([view, showAll, () => model.value.rows.length], () => requestAnimationFrame(measureScroll))
+
+// ── Actions (the "•••" menu): the result card's own endpoints and dialogs ───
+const vizId = computed(() => String(source.value?.ids?.[0] || ''))
+const reportId = computed(() => String(ctx?.reportId || ''))
+const canEdit = computed(() => !!ctx?.canEdit && !!reportId.value)
+const onDashboard = ref(false)
+const inDashboard = computed(() => onDashboard.value || (unref(artifactVizIds) || []).map(String).includes(vizId.value))
+const adding = ref(false)
+const saveOpen = ref(false)
+const savedLocal = ref(false)
+const saved = computed(() => savedLocal.value || !!te.value?.created_step?.created_entity_id)
+const canSave = computed(() => canEdit.value && !!stepId.value)
+const code = computed(() => (canViewCode.value ? String(te.value?.created_step?.code || te.value?.result_json?.code || '') : ''))
+const codeOpen = ref(false)
+const reportDataSourceIds = computed(() => (unref(reportSnapshot)?.data_sources || []).map((d: any) => String(d.id)))
+const chartRef = ref<any>(null)
+const fileName = computed(() => (title.value || 'result').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'result')
+
+async function rowsForExport(): Promise<{ rows: any[]; columns: FigureColumn[] }> {
+  if (model.value.partial && ctx?.canHydrate) await loadRows()
+  return { rows: model.value.rows, columns: model.value.columns }
+}
+function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = name; a.style.display = 'none'
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+const csvCell = (v: any) => { const s = v == null ? '' : String(v); return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s }
+async function downloadCsv() {
+  const { rows, columns } = await rowsForExport()
+  const lines = [columns.map((c) => csvCell(c.label)).join(','), ...rows.map((r) => columns.map((c) => csvCell(r[c.field])).join(','))]
+  // BOM: Excel reads non-ASCII (e.g. Hebrew) headers as UTF-8.
+  saveBlob(new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }), `${fileName.value}.csv`)
+}
+async function downloadExcel() {
+  if (!stepId.value || !ctx?.canHydrate) return downloadCsv()
+  const { data, error }: any = await useMyFetch(`/api/steps/${stepId.value}/export`, { query: { format: 'xlsx' }, responseType: 'blob' })
+  if (error?.value || !data?.value) { toast.add({ title: t('figure.exportFailed'), color: 'red' }); return }
+  saveBlob(data.value as Blob, `${fileName.value}.xlsx`)
+}
+async function downloadImage() {
+  const chart = chartRef.value
+  if (!chart?.getDataURL) return
+  // The chart is SVG: draw it onto a canvas at 2x for a crisp PNG.
+  const svgUrl = chart.getDataURL({ type: 'svg' })
+  const img = new Image()
+  await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = reject; img.src = svgUrl })
+  const scale = 2
+  const canvas = document.createElement('canvas')
+  canvas.width = img.width * scale; canvas.height = img.height * scale
+  const g = canvas.getContext('2d')!
+  g.fillStyle = ink.value.bg; g.fillRect(0, 0, canvas.width, canvas.height)
+  g.drawImage(img, 0, 0, canvas.width, canvas.height)
+  canvas.toBlob((b) => b && saveBlob(b, `${fileName.value}.png`), 'image/png')
+}
+async function copyData() {
+  const { rows, columns } = await rowsForExport()
+  const tsv = [columns.map((c) => c.label).join('\t'), ...rows.map((r) => columns.map((c) => String(r[c.field] ?? '')).join('\t'))].join('\n')
+  try { await navigator.clipboard.writeText(tsv); toast.add({ title: t('figure.copied') }) } catch { toast.add({ title: t('figure.copyFailed'), color: 'red' }) }
+}
+async function addToDashboard() {
+  if (!canEdit.value || !vizId.value || adding.value || inDashboard.value) return
+  adding.value = true
+  try {
+    const { data, error }: any = await useMyFetch(`/api/artifacts/report/${reportId.value}/add-visualization`, { method: 'POST', body: { visualization_id: vizId.value } })
+    if (error?.value) { toast.add({ title: error.value?.data?.detail || t('figure.addFailed'), color: 'red' }); return }
+    onDashboard.value = true
+    const id = data?.value?.id
+    if (id) {
+      window.dispatchEvent(new CustomEvent('artifact:created', { detail: { report_id: reportId.value, artifact_id: id } }))
+      window.dispatchEvent(new CustomEvent('artifact:open', { detail: { artifact_id: id } }))
+    }
+  } finally { adding.value = false }
+}
+function onSaved() { saveOpen.value = false; savedLocal.value = true }
+
+const menuItems = computed(() => {
+  const groups: any[][] = []
+  const write: any[] = []
+  if (canEdit.value && vizId.value) {
+    write.push(inDashboard.value
+      ? { label: t('figure.addedToDashboard'), icon: 'i-heroicons-check-circle', disabled: true }
+      : { label: t('figure.addToDashboard'), icon: 'i-heroicons-squares-plus', disabled: adding.value, click: addToDashboard })
+  }
+  if (canSave.value) {
+    write.push(saved.value
+      ? { label: t('figure.savedQuery'), icon: 'i-heroicons-check-badge', disabled: true }
+      : { label: t('figure.saveQuery'), icon: 'i-heroicons-bookmark', click: () => { saveOpen.value = true } })
+  }
+  if (write.length) groups.push(write)
+  const files: any[] = [{ label: t('figure.downloadCsv'), icon: 'i-heroicons-document-text', click: downloadCsv }]
+  if (stepId.value && ctx?.canHydrate) files.push({ label: t('figure.downloadExcel'), icon: 'i-heroicons-table-cells', click: downloadExcel })
+  if (isChart.value && view.value === 'chart' && model.value.kind !== 'other') files.push({ label: t('figure.downloadImage'), icon: 'i-heroicons-photo', click: downloadImage })
+  files.push({ label: t('figure.copyData'), icon: 'i-heroicons-clipboard-document', click: copyData })
+  groups.push(files)
+  if (code.value) groups.push([{ label: t('figure.viewCode'), icon: 'i-heroicons-code-bracket', click: () => { codeOpen.value = true } }])
+  return groups
+})
 </script>
 
 <script lang="ts">
@@ -369,137 +534,77 @@ const STEP_CACHE = new Map<string, Promise<any>>()
 </script>
 
 <style scoped>
-.bow-figure {
-  margin: 1.25rem 0 1.5rem;
-  border-radius: var(--bow-radius-lg);
-  border: 1px solid rgb(var(--bow-line-rgb));
-  background: rgb(var(--bow-bg-rgb));
-  overflow: hidden;
-  font-size: var(--bow-chat-font-size-3);
-}
-.bow-figure.is-entering { animation: fig-in 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
-@keyframes fig-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .bow-figure.is-entering { animation: none; } }
+.pf { position: relative; margin: 2.25em 0; }
 
-.fig-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.625rem;
-  padding: 0.75rem 0.875rem 0.625rem 1rem;
-}
-.fig-num {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  margin-top: 0.0625rem;
-  padding: 0 0.3rem;
-  border-radius: var(--bow-radius-sm);
-  border: 1px solid rgb(var(--bow-line-rgb));
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: rgb(var(--bow-ink-muted-rgb));
-}
-.fig-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--bow-chat-font-size-2);
-  font-weight: 600;
-  line-height: 1.45;
-  letter-spacing: -0.01em;
-  color: rgb(var(--bow-ink-rgb));
-}
-.fig-meta {
+/* Entrance (first appearance only): the figure, then its caption. */
+.pf.is-entering { animation: pf-in 300ms cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.pf.is-entering .pf-cap { animation: pf-fade 320ms ease-out 420ms both; }
+.pf.is-entering .pf-table tbody tr { animation: pf-fade 260ms ease-out both; }
+@keyframes pf-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes pf-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pf.is-entering, .pf.is-entering * { animation: none !important; } }
+
+.pf-body { position: relative; }
+
+/* Loading: a still, faint outline of the chart to come; it crossfades out. */
+.pf-ghost { position: absolute; inset: 0; display: flex; gap: 7px; opacity: 0.07; }
+.pf-ghost span { background: rgb(var(--bow-ink-rgb)); border-radius: 2px; }
+.pf-ghost.is-bars { flex-direction: column; justify-content: space-around; padding-inline-start: 24%; }
+.pf-ghost.is-bars span { height: 10px; }
+.pf-ghost.is-area { align-items: flex-end; border-bottom: 1px solid rgb(var(--bow-ink-rgb)); }
+.pf-ghost.is-area span { flex: 1; }
+.pf-ghost-leave-active { transition: opacity 260ms ease; }
+.pf-ghost-leave-to { opacity: 0; }
+.pf-ghost-table { display: flex; flex-direction: column; gap: 12px; padding: 0.75rem 0; opacity: 0.07; }
+.pf-ghost-table span { height: 10px; border-radius: 2px; background: rgb(var(--bow-ink-rgb)); }
+
+/* Caption: below the figure, like a paper. */
+.pf-cap {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.25rem 0.625rem;
-  margin-top: 0.0625rem;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  margin-top: 0.875rem;
+  font-size: var(--bow-chat-font-size-3);
+  line-height: 1.5;
   color: rgb(var(--bow-ink-muted-rgb));
 }
-.fig-legend-item { display: inline-flex; align-items: center; gap: 0.375rem; }
-.fig-swatch { width: 0.5rem; height: 0.5rem; border-radius: 2px; }
-.fig-dot { opacity: 0.6; }
-.fig-actions { display: flex; align-items: center; gap: 0.25rem; }
-.fig-seg {
-  display: inline-flex;
-  padding: 2px;
-  border-radius: var(--bow-radius-md);
-  border: 1px solid rgb(var(--bow-line-rgb));
-}
-.fig-seg button, .fig-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 1.5rem;
-  width: 1.625rem;
-  border-radius: var(--bow-radius-sm);
-  color: rgb(var(--bow-ink-muted-rgb));
-  transition: color 120ms ease, background-color 120ms ease;
-}
-.fig-seg button:hover, .fig-icon-btn:hover { color: rgb(var(--bow-ink-rgb)); }
-.fig-seg button[aria-pressed='true'] { background: rgb(var(--bow-bg-muted-rgb)); color: rgb(var(--bow-ink-rgb)); }
-.fig-icon-btn { height: 1.75rem; width: 1.75rem; border-radius: var(--bow-radius-md); border: 1px solid rgb(var(--bow-line-rgb)); }
+.pf-cap-text { flex: 1 1 22rem; min-width: 0; }
+.pf-actions { margin-inline-start: auto; }
+.pf-label { font-weight: 600; color: rgb(var(--bow-ink-2-rgb)); margin-inline-end: 0.3em; }
+.pf-title { color: rgb(var(--bow-ink-2-rgb)); }
+.pf-legend { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.875rem; margin-inline-start: 0.875rem; }
+.pf-key { display: inline-flex; align-items: center; gap: 0.375rem; white-space: nowrap; }
+.pf-key i { width: 0.5rem; height: 0.5rem; border-radius: 50%; display: inline-block; }
+.pf-key.is-dim { opacity: 0.55; }
 
-.fig-body { position: relative; margin: 0.25rem 1rem 1rem; }
-.fig-skeleton { position: absolute; inset: 0; display: flex; gap: 6px; }
-.fig-skeleton.is-bars { flex-direction: column; justify-content: space-around; padding-inline-start: 22%; }
-.fig-skeleton.is-bars span { height: 14px; border-radius: 3px; }
-.fig-skeleton.is-area { align-items: flex-end; }
-.fig-skeleton.is-area span { flex: 1; border-radius: 3px 3px 0 0; }
+/* Controls: text, on hover or focus (always on touch). */
+.pf-actions { display: inline-flex; align-items: baseline; gap: 0.5rem; white-space: nowrap; opacity: 0; transition: opacity 180ms ease; }
+.pf:hover .pf-actions, .pf:focus-within .pf-actions { opacity: 1; }
+@media (hover: none) { .pf-actions { opacity: 1; } }
+.pf-link { color: rgb(var(--bow-ink-muted-rgb)); font-size: var(--bow-chat-font-size-3); text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; transition: color 120ms ease, text-decoration-color 120ms ease; }
+.pf-link:hover { color: rgb(var(--bow-ink-rgb)); text-decoration-color: currentColor; }
+.pf-more-btn { letter-spacing: 0.08em; text-decoration: none; }
+.pf-sep { opacity: 0.5; }
 
-/* Table */
-.fig-table-wrap { border-top: 1px solid rgb(var(--bow-line-rgb)); }
-.fig-search {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  height: 2.25rem;
-  padding: 0 1rem;
-  border-bottom: 1px solid rgb(var(--bow-line-subtle-rgb));
-  color: rgb(var(--bow-ink-subtle-rgb));
-}
-.fig-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: inherit; color: rgb(var(--bow-ink-rgb)); }
-.fig-search input::placeholder { color: rgb(var(--bow-ink-subtle-rgb)); }
-.fig-table-scroll { overflow-x: auto; }
-.fig-table { width: 100%; border-collapse: collapse; }
-.fig-table th {
-  padding: 0.5rem 1rem;
-  text-align: start;
-  font-weight: 500;
-  white-space: nowrap;
-  color: rgb(var(--bow-ink-muted-rgb));
-  background: rgb(var(--bow-bg-subtle-rgb));
-  border-bottom: 1px solid rgb(var(--bow-line-rgb));
-}
-.fig-table th button { display: inline-flex; align-items: center; gap: 0.25rem; }
-.fig-table th button:hover { color: rgb(var(--bow-ink-rgb)); }
-.fig-table th.is-num, .fig-table td.is-num { text-align: end; }
-.fig-table th.is-num button { flex-direction: row-reverse; }
-.fig-table td {
-  padding: 0.5rem 1rem;
-  white-space: nowrap;
-  color: rgb(var(--bow-ink-2-rgb));
-  border-bottom: 1px solid rgb(var(--bow-line-subtle-rgb));
-}
-.fig-table tbody tr:last-child td { border-bottom: 0; }
-.fig-table tbody tr:hover td { background: rgb(var(--bow-bg-subtle-rgb)); }
-.fig-empty { text-align: center; color: rgb(var(--bow-ink-muted-rgb)); padding: 1.25rem 0; }
-.fig-more {
-  display: block;
-  width: 100%;
-  padding: 0.5rem 1rem;
-  text-align: center;
-  font-weight: 500;
-  color: rgb(var(--bow-ink-muted-rgb));
-  border-top: 1px solid rgb(var(--bow-line-rgb));
-  transition: color 120ms ease, background-color 120ms ease;
-}
-.fig-more:hover { color: rgb(var(--bow-ink-rgb)); background: rgb(var(--bow-bg-subtle-rgb)); }
-.fig-table-skeleton { display: flex; flex-direction: column; gap: 10px; padding: 0.875rem 1rem; }
-.fig-table-skeleton span { height: 12px; border-radius: 3px; }
+/* Table: booktabs. */
+.pf-table-scroll { overflow-x: auto; }
+/* A table wider than the column scrolls; the far edge fades to say so. */
+.pf-table-scroll.is-scrollable { mask-image: linear-gradient(to var(--pf-end, right), #000 calc(100% - 2.5rem), transparent); }
+.pf-table-scroll.is-scrollable.at-end { mask-image: none; }
+[dir='rtl'] .pf-table-scroll { --pf-end: left; }
+.pf-table { width: 100%; border-collapse: collapse; font-size: var(--bow-chat-font-size-3); border-top: 1.5px solid rgb(var(--bow-ink-2-rgb) / 0.55); border-bottom: 1.5px solid rgb(var(--bow-ink-2-rgb) / 0.55); }
+.pf-table th { padding: 0.55rem 0.75rem 0.45rem; text-align: start; font-weight: 600; color: rgb(var(--bow-ink-2-rgb)); border-bottom: 1px solid rgb(var(--bow-ink-2-rgb) / 0.25); white-space: nowrap; }
+.pf-table th:first-child, .pf-table td:first-child { padding-inline-start: 0; }
+.pf-table th:last-child, .pf-table td:last-child { padding-inline-end: 0; }
+.pf-table th button:hover { color: rgb(var(--bow-ink-rgb)); }
+.pf-table th.is-num, .pf-table td.is-num { text-align: end; }
+.pf-table td { padding: 0.4rem 0.75rem; color: rgb(var(--bow-ink-2-rgb)); white-space: nowrap; }
+.pf-table tbody tr:first-child td { padding-top: 0.6rem; }
+.pf-table tbody tr:last-child td { padding-bottom: 0.6rem; }
+.pf-table tr.is-hl td { color: rgb(var(--bow-ink-rgb)); font-weight: 600; }
+.pf-empty { text-align: center; color: rgb(var(--bow-ink-muted-rgb)); padding: 1rem 0; }
+.pf-more { display: inline-block; margin-top: 0.5rem; }
+.pf-search { display: block; width: 100%; margin-bottom: 0.5rem; padding: 0.3rem 0; border: 0; border-bottom: 1px solid rgb(var(--bow-line-rgb)); background: transparent; outline: none; font-size: var(--bow-chat-font-size-3); color: rgb(var(--bow-ink-rgb)); }
+.pf-search:focus { border-bottom-color: rgb(var(--bow-ink-muted-rgb)); }
 </style>

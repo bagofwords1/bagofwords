@@ -8836,21 +8836,32 @@
     "and": "AND"
   },
   "figure": {
-    "view": "View",
     "chart": "Chart",
     "table": "Table",
     "open": "Open in panel",
+    "more": "More actions",
     "search": "Search {count} rows",
     "searchLabel": "Search rows",
     "noMatch": "No matching rows",
     "showAll": "Show all {count} rows",
     "showLess": "Show fewer",
-    "rows": "{count} rows",
-    "shownOf": "{shown} of {total}",
     "loading": "Loading the result",
     "untitled": "Result",
     "caption": "Figure {n}.",
     "topOf": "top {shown} of {total}",
-    "firstOf": "first {shown} of {total} rows"
+    "firstOf": "first {shown} of {total} rows",
+    "addToDashboard": "Add to dashboard",
+    "addedToDashboard": "Added to dashboard",
+    "addFailed": "Couldn't add to the dashboard",
+    "saveQuery": "Save as query",
+    "savedQuery": "Saved as query",
+    "downloadCsv": "Download CSV",
+    "downloadExcel": "Download Excel",
+    "downloadImage": "Download image",
+    "exportFailed": "Couldn't export the result",
+    "copyData": "Copy data",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy",
+    "viewCode": "View code"
   }
 }

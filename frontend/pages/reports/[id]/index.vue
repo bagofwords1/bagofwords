@@ -1886,6 +1886,8 @@ provide(FIGURE_CONTEXT, {
 	resolve: (key: string) => citationSources.value.find(s => s.key === key) || null,
 	open: (source: CitationSource) => openSourceInPane(source),
 	canHydrate: true,
+	reportId: report_id,
+	canEdit: true,
 })
 const citationChips = useCitationChips<ChatMessage>({
 	resolve: (m, key) => {

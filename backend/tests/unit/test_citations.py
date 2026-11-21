@@ -252,6 +252,9 @@ def test_the_web_report_is_told_the_figure_grammar_and_its_limits():
     # removes on every surface that has no figure to draw).
     assert "{{show:3f9a1c2e}}" in rule
     assert "{{show:3f9a1c2e}}" not in (strip_citations(rule) or "")
+    # The highlight example is a marker the parsers accept too.
+    assert 'highlight="USA"' in rule
+    assert 'highlight="USA"' not in (strip_citations(rule) or "")
 
 
 @pytest.mark.parametrize("overrides", [
@@ -268,3 +271,39 @@ def test_surfaces_without_figures_are_not_asked_for_one(overrides):
 @pytest.mark.parametrize("marker", ["{{show:3f9a1c2e}}", "`{{show:3f9a1c2e}}`", "(`{{show:3f9a1c2e}}`)", "({{show:3f9a1c2e}})"])
 def test_a_figure_named_mid_sentence_leaves_a_clean_sentence(marker):
     assert strip_citations(f"The chart is above {marker}.\n\nNext.") == "The chart is above.\n\nNext."
+
+
+# --- figures on surfaces without figures: a footnote, not a loss --------------
+
+def test_in_a_channel_a_figure_becomes_a_citation_of_the_paragraph_before_it():
+    """The figure can't be drawn in Teams/WhatsApp/Slack, but the reader must
+    still learn which result backs the text: the paragraph it followed cites it."""
+    sources = _sources(2)
+    a, b = list(sources)
+    text = f"Revenue is concentrated in the USA.\n\n{{{{show:{a[:8]} highlight=\"USA\"}}}}\n\nCanada follows. {{{{cite:{b[:8]}}}}}"
+    out = footnote_citations(text, sources)
+    assert "{{" not in out and "highlight" not in out
+    assert out.startswith("Revenue is concentrated in the USA. [1]\n\nCanada follows. [2]")
+    assert out.rstrip().endswith(f"[1] {sources[a]}\n[2] {sources[b]}")
+
+
+def test_in_a_channel_a_figure_named_mid_sentence_cites_that_sentence_once():
+    sources = _sources(1)
+    a = next(iter(sources))
+    out = footnote_citations(f"The chart (`{{{{show:{a[:8]}}}}}`) shows it. {{{{cite:{a[:8]}}}}}", sources)
+    assert out.startswith("The chart shows it. [1]")
+    assert out.count("[1]") == 2  # once in the text, once as the footnote line
+
+
+def test_a_figure_of_something_not_in_the_report_leaves_no_trace():
+    sources = _sources(1)
+    out = footnote_citations("Text.\n\n{{show:deadbeef}}\n\nMore.", sources)
+    assert out == "Text.\n\nMore."
+
+
+def test_figure_ids_count_as_cited_so_the_channel_lookup_runs():
+    assert cited_ids("Only a figure.\n\n{{show:3f9a1c2e highlight=\"USA\"}}") == ["3f9a1c2e"]
+
+
+def test_strip_removes_a_figure_with_attributes():
+    assert strip_citations('A.\n\n{{show:3f9a1c2e highlight="USA, Canada"}}\n\nB.') == "A.\n\nB."

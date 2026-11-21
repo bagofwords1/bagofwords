@@ -38,7 +38,10 @@ const MARKER_RE = /[ \t]*\{\{\s*cite\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}/g
 const STANDALONE_CITATIONS_RE = /(\S)[ \t]*(?:\r?\n[ \t]*)+(\{\{[ \t]*cite[ \t]*:[ \t]*[0-9A-Za-z-]{1,64}[ \t]*\}\}(?:[ \t]*\{\{[ \t]*cite[ \t]*:[ \t]*[0-9A-Za-z-]{1,64}[ \t]*\}\})*)[ \t]*(?=\r?\n|$)/g
 const CODE_FENCE_RE = /(```[\s\S]*?```)/
 // Also absorbs the wrapping a model sometimes adds: `{{show:…}}`, ({{show:…}}).
-const FIGURE_RE = /[ \t]*(?:\(\s*)?`?\{\{\s*show\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}`?(?:\s*\))?[ \t]*/g
+// Optional `highlight="USA, Canada"`: the categories the sentence is about.
+const FIGURE_RE = /[ \t]*(?:\(\s*)?`?\{\{\s*show\s*:\s*([0-9A-Za-z-]{1,64})((?:\s+[a-z]+\s*=\s*"[^"{}]*")*)\s*\}\}`?(?:\s*\))?[ \t]*/g
+const HIGHLIGHT_ATTR_RE = /\bhighlight\s*=\s*"([^"{}]*)"/
+const MAX_HIGHLIGHT_CHARS = 120
 const FIGURE_SLOT_RE = /\u0000F([^\u0000]*)\u0000/g
 const EMPTY_LINES_RE = /\n{3,}/g
 /** Custom tags the answer renderer must pass to markstream (`customHtmlTags`). */
@@ -161,15 +164,18 @@ export function citeText(
   if (!text || !text.includes('{')) return { markdown: text || '', cited }
   const markdown = eachProse(text, (prose, last) => {
     // One pass in reading order, so chips and figures share one numbering.
-    let out = prose.replace(STANDALONE_CITATIONS_RE, '$1 $2').replace(ANY_MARKER_RE, (_m, citeRaw: string | undefined, showRaw: string | undefined) => {
+    let out = prose.replace(STANDALONE_CITATIONS_RE, '$1 $2').replace(ANY_MARKER_RE, (_m, citeRaw: string | undefined, showRaw: string | undefined, showAttrs: string | undefined) => {
       if (showRaw !== undefined) {
         const source = matchSource(showRaw, sources)
         if (!opts?.figures || !source || source.output.kind === 'number' || source.output.kind === 'none') return ''
         if (!numbering.includes(source)) numbering.push(source)
         if (!cited.includes(source)) cited.push(source)
         const key = source.key.replace(/[^0-9A-Za-z_-]/g, '')
+        // Only the categories, as text: ChatFigure checks them against the data.
+        const hl = (HIGHLIGHT_ATTR_RE.exec(showAttrs || '')?.[1] || '').slice(0, MAX_HIGHLIGHT_CHARS)
+          .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').trim()
         // A slot for now: the figure goes after the paragraph it was named in.
-        return `\u0000F<bow-figure source="${key}" number="${numbering.indexOf(source) + 1}"></bow-figure>\u0000`
+        return `\u0000F<bow-figure source="${key}" number="${numbering.indexOf(source) + 1}"${hl ? ` highlight="${hl}"` : ''}></bow-figure>\u0000`
       }
       const source = matchSource(citeRaw || '', sources)
       if (!source) return ''
