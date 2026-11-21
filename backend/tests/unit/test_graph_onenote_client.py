@@ -489,6 +489,7 @@ def test_oauth_scopes_request_notes_permissions():
     class _Conn:
         id = "c1"
         type = "onenote"
+        config = None
 
         def decrypt_credentials(self):
             return {
