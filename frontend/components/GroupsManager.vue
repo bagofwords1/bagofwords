@@ -630,31 +630,36 @@ async function loadUsagePolicies() {
 }
 
 async function updateGroupRoles(group: GroupData, selectedRoleIds: string[]) {
+    // Each change is its own request and the server may refuse any of them
+    // (e.g. a role carrying permissions the caller doesn't hold). Apply what
+    // it accepts, report the first refusal, and always re-read the real state.
+    const currentAssignments = groupRoleAssignments.value[group.id] || []
+    const currentRoleIds = currentAssignments.map(a => a.role_id)
+    const added = selectedRoleIds.filter(id => !currentRoleIds.includes(id))
+    const removed = currentAssignments.filter(a => !selectedRoleIds.includes(a.role_id))
+    let failure: unknown = null
     try {
-        const currentAssignments = groupRoleAssignments.value[group.id] || []
-        const currentRoleIds = currentAssignments.map(a => a.role_id)
-
-        const added = selectedRoleIds.filter(id => !currentRoleIds.includes(id))
-        const removed = currentAssignments.filter(a => !selectedRoleIds.includes(a.role_id))
-
         for (const roleId of added) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/role-assignments`, {
                 method: 'POST',
                 body: { role_id: roleId, principal_type: 'group', principal_id: group.id },
             })
+            if (error.value && !failure) failure = error.value
         }
-
         for (const assignment of removed) {
-            await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
+            const { error } = await useMyFetch(`/organizations/${organizationId}/role-assignments/${assignment.id}`, {
                 method: 'DELETE',
             })
+            if (error.value && !failure) failure = error.value
         }
-
-        await loadGroupRoleAssignments()
+    } catch (e) {
+        failure = failure || e
+    }
+    await loadGroupRoleAssignments()
+    if (failure) {
+        toast.add({ title: getErrorMessage(failure, t('groupsManager.failedToUpdateRoles')), color: 'red' })
+    } else {
         toast.add({ title: t('groupsManager.toastRolesUpdated'), color: 'green' })
-    } catch (e: any) {
-        const detail = e?.data?.detail || e?.message || t('groupsManager.failedToUpdateRoles')
-        toast.add({ title: detail, color: 'red' })
     }
 }
 

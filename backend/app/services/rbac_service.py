@@ -663,6 +663,9 @@ class RBACService:
             if existing.scalar_one_or_none():
                 raise HTTPException(status_code=409, detail="User is already a member of this group")
             db.add(GroupMembership(group_id=group_id, user_id=user_id))
+            # Joining always starts as a member: drop any manager grant left from
+            # an earlier membership, whatever path left it behind.
+            await self._drop_manager_grant(db, org_id, group_id, user_id)
         else:
             # Pending invite — must be an unregistered membership in this org.
             await self._get_pending_membership(db, org_id, membership_id)
@@ -700,6 +703,8 @@ class RBACService:
                 )
         else:
             await self._get_editable_group(db, org_id, group_id)
+        # Locked so a concurrent promotion of this member serializes with the
+        # removal (see promote_group_manager).
         result = await db.execute(
             select(GroupMembership).where(
                 GroupMembership.group_id == group_id,
@@ -707,7 +712,7 @@ class RBACService:
                     GroupMembership.user_id == principal_id,
                     GroupMembership.membership_id == principal_id,
                 ),
-            )
+            ).with_for_update()
         )
         gm = result.scalar_one_or_none()
         if not gm:
@@ -785,13 +790,31 @@ class RBACService:
 
     async def promote_group_manager(
         self, db: AsyncSession, org_id: str, group_id: str, user_id: str, actor_id: Optional[str] = None,
+        as_manager: bool = False,
     ) -> bool:
         """Make a registered member of a hand-managed group its manager.
 
         Returns False when they already were (the call is idempotent).
+
+        A manager can admit people to the group, so promoting one is held to the
+        same rule as adding a member: the actor must already hold everything the
+        group carries (folder grants at `manage` for org-wide delegates, at the
+        group's own level for a manager of the group).
+
+        The member row is locked (FOR UPDATE) for the rest of the transaction,
+        and ``remove_group_member`` locks the same row, so a promotion and a
+        removal of the same person serialize: the grant is either written before
+        the removal (which then deletes it) or the promotion finds no member.
         """
         group = await self._get_manageable_group(db, org_id, group_id)
         await self._assert_not_self(db, org_id, actor_id, user_id, action="group.manager_promote")
+        if actor_id is not None:
+            await self._assert_can_grant(
+                db, org_id, actor_id,
+                permissions=await self._group_role_permissions(db, org_id, group_id),
+                resource_grants=await self._group_resource_grants(db, org_id, group_id),
+                action="group.manager_promote", folder_requires_manage=not as_manager,
+            )
         is_member = (await db.execute(
             select(GroupMembership.id)
             .join(Membership, and_(
@@ -804,6 +827,7 @@ class RBACService:
                 GroupMembership.user_id == user_id,
                 GroupMembership.deleted_at.is_(None),
             )
+            .with_for_update(of=GroupMembership)
         )).first()
         if is_member is None:
             raise AppError(

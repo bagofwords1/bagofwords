@@ -311,7 +311,7 @@ async def promote_group_manager(
         db, organization_id, current_user.id, group_id, action="group.manager_promote",
     )
     changed = await rbac_service.promote_group_manager(
-        db, organization_id, group_id, user_id, actor_id=current_user.id,
+        db, organization_id, group_id, user_id, actor_id=current_user.id, as_manager=as_manager,
     )
     if changed:
         try:

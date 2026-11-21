@@ -213,6 +213,51 @@ Evidence is in `media/pr/ai-kind-mayer-wcdtw8/`:
 
 Before the change, a manager sees no Groups tab at all.
 
+## Review follow-ups (round 1)
+
+Each point was confirmed against the code, fixed, and given a test that
+fails on the previous commit:
+
+1. **Promotion skipped the escalation guard.**
+   - **Problem:** an org-wide `manage_members` delegate could promote a member
+     of a group whose access they don't hold, and that manager could then admit
+     others.
+   - **Fix:** `promote_group_manager` now runs the same `_assert_can_grant` as
+     `add_group_member`. Folder grants are checked at `manage` for org
+     delegates and at the group's level for a manager of the group.
+   - **Test:** `test_promotion_is_held_to_the_same_rule_as_adding_a_member`
+     covers a group with folder access and a group carrying a role. The
+     positive control is `test_org_delegate_can_promote_in_a_group_they_could_add_to`.
+2. **Promotion could race a removal of the same member.**
+   - **Fix:** promotion locks the member row `FOR UPDATE` and removal locks the
+     same row, so they serialize. As a second line of defence, joining a group
+     always deletes any leftover manager grant for that person.
+   - **Test:** `test_promotion_and_removal_of_the_same_member_serialize`
+     (PostgreSQL only) drives the real service methods on two connections and
+     holds the promotion before its commit. It asserts that the removal waits
+     on a lock (`pg_stat_activity`) and that no grant outlives the membership.
+     Without the locks it fails with "removal finished while the promotion held
+     the member row".
+   - **Test:** `test_rejoining_never_restores_a_leftover_manager_grant`.
+3. **The Groups roles picker always reported success.**
+   - **Fix:** `updateGroupRoles` checks each request, reloads the real
+     assignments, and shows the server's error.
+   - **Verified** in the browser as a `manage_members` delegate picking Admin:
+     the toast reads "You cannot grant permissions you do not hold" and the
+     roles are unchanged (`media/pr/ai-kind-mayer-wcdtw8/after-delegate-role-refused.png`).
+4. **The bulk resolver queried managers once per org.**
+   - **Fix:** `managed_group_ids_by_org` fetches every org in one query, and
+     the single-org resolver uses the same function.
+   - **Test:** `test_session_reports_managed_groups_per_organization`.
+
+**Results:**
+- New test file: 23/23 on PostgreSQL 16 (`--db=external`); 22 pass + 1
+  PostgreSQL-only skip on SQLite.
+- Neighbouring suites (`test_member_management_escalation`,
+  `test_invite_roles_and_groups`, `test_scim_groups`, `test_rbac_registry`,
+  `test_rbac.py`, `test_agent_folders`, `test_membership`): 137 passed.
+- Live attack table: 37/37.
+
 ## What this proves / regression notes
 
 - **What a manager can reach.** They can only change who is in the groups

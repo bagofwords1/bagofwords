@@ -335,3 +335,158 @@ def test_promotion_demotion_and_denials_are_audited(org):
     assert actions.count("group.manager_promoted") == 2
     assert "group.manager_demoted" in actions
     assert any(a.startswith("group.") and a.endswith(".denied") for a in actions)
+
+
+# ── review follow-ups ────────────────────────────────────────────────────
+
+@pytest.fixture
+def delegate(org, create_role, assign_role, invite_user_to_org):
+    """An org-wide people manager (`manage_members`) who holds nothing else."""
+    o = org
+    role = create_role(name=_uniq("people"), permissions=["view_members", "manage_members"],
+                       user_token=o["admin"]["token"], org_id=o["org_id"])
+    assert role.status_code == 200, role.text
+    person = invite_user_to_org(org_id=o["org_id"], admin_token=o["admin"]["token"])
+    resp = assign_role(role_id=role.json()["id"], principal_type="user", principal_id=person["user_id"],
+                       user_token=o["admin"]["token"], org_id=o["org_id"])
+    assert resp.status_code == 200, resp.text
+    return person
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("carried", ["folder_access", "role"])
+def test_promotion_is_held_to_the_same_rule_as_adding_a_member(org, delegate, create_role, assign_role, carried):
+    """Whoever can't add someone to a group directly can't make a manager who could."""
+    o = org
+    o["delegate"] = delegate
+    if carried == "folder_access":
+        group, member = "sales", "lead"          # sales can query a folder the delegate can't manage
+    else:
+        group, member = "finance", "other"       # finance carries a role the delegate doesn't hold
+        role = create_role(name=_uniq("settings"), permissions=["manage_settings"],
+                           user_token=o["admin"]["token"], org_id=o["org_id"])
+        assert assign_role(role_id=role.json()["id"], principal_type="group", principal_id=o["groups"]["finance"],
+                           user_token=o["admin"]["token"], org_id=o["org_id"]).status_code == 200
+
+    assert _add(o, o["delegate"], group, "outsider").status_code == 403
+    assert _promote(o, o["delegate"], group, member).status_code == 403
+    assert _managers(o, group) == set()
+    # The org admin is not bounded, and the person they promote can manage.
+    assert _promote(o, o["admin"], group, member).status_code == 204
+    assert _add(o, o[member], group, "outsider").status_code == 201
+
+
+@pytest.mark.e2e
+def test_org_delegate_can_promote_in_a_group_they_could_add_to(org, delegate):
+    o = org
+    o["delegate"] = delegate
+    # finance carries no access, so adding to it grants nothing the delegate lacks.
+    assert _add(o, o["delegate"], "finance", "outsider").status_code == 201
+    assert _promote(o, o["delegate"], "finance", "other").status_code == 204
+    assert _managers(o, "finance") == {o["other"]["user_id"]}
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_rejoining_never_restores_a_leftover_manager_grant(org):
+    o = org
+    # A grant row that outlived its membership (what a promotion racing a
+    # removal used to leave behind). The API can't produce one, so write it.
+    from app.dependencies import async_session_maker
+    from app.models.resource_grant import ResourceGrant
+    async with async_session_maker() as db:
+        db.add(ResourceGrant(organization_id=o["org_id"], resource_type="group", resource_id=o["groups"]["sales"],
+                             principal_type="user", principal_id=o["outsider"]["user_id"],
+                             permissions=["manage_members"]))
+        await db.commit()
+    assert _managers(o, "sales") == set(), "a non-member holding a grant is not a manager"
+    assert _add(o, o["admin"], "sales", "outsider").status_code == 201
+    assert _managers(o, "sales") == set()
+    assert _add(o, o["outsider"], "sales", "other").status_code == 403
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_promotion_and_removal_of_the_same_member_serialize(org):
+    """Promotion holds the member row until it commits; a removal of that member
+    waits for it and then deletes the new grant too, so none survives.
+
+    Drives the real service methods on two connections and pauses the promotion
+    just before its commit. PostgreSQL only: SQLite has no row locks.
+    """
+    import asyncio
+    from sqlalchemy import select, text
+    from app.dependencies import async_session_maker
+    from app.models.resource_grant import ResourceGrant
+    from app.services.rbac_service import rbac_service
+
+    o = org
+    async with async_session_maker() as probe:
+        if probe.bind.dialect.name != "postgresql":
+            pytest.skip("row locking is a PostgreSQL behaviour")
+
+    org_id, gid, uid = o["org_id"], o["groups"]["sales"], o["peer"]["user_id"]
+    gate, paused = asyncio.Event(), asyncio.Event()
+
+    async def promote():
+        async with async_session_maker() as db:
+            real_commit = db.commit
+
+            async def held_commit():
+                paused.set()
+                await gate.wait()
+                await real_commit()
+            db.commit = held_commit
+            await rbac_service.promote_group_manager(db, org_id, gid, uid, actor_id=None)
+
+    async def remove():
+        async with async_session_maker() as db:
+            await rbac_service.remove_group_member(db, org_id, gid, uid)
+
+    promoting = asyncio.create_task(promote())
+    await asyncio.wait_for(paused.wait(), timeout=30)
+    removing = asyncio.create_task(remove())
+
+    # The removal must be blocked on the promotion's row lock, not finished.
+    async with async_session_maker() as probe:
+        async def removal_waits_on_a_lock():
+            while True:
+                waiting = (await probe.execute(text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() AND wait_event_type = 'Lock'"
+                ))).scalar()
+                if waiting:
+                    return
+                assert not removing.done(), "removal finished while the promotion held the member row"
+                await asyncio.sleep(0.05)
+        await asyncio.wait_for(removal_waits_on_a_lock(), timeout=30)
+
+    gate.set()
+    await asyncio.wait_for(asyncio.gather(promoting, removing), timeout=30)
+
+    async with async_session_maker() as db:
+        left = (await db.execute(select(ResourceGrant.id).where(
+            ResourceGrant.resource_type == "group", ResourceGrant.resource_id == gid,
+            ResourceGrant.principal_id == uid,
+        ))).all()
+    assert left == [], "a manager grant outlived the membership it was granted on"
+    assert uid not in _members(o, "sales")
+
+
+@pytest.mark.e2e
+def test_session_reports_managed_groups_per_organization(org, whoami, test_client, create_group, add_user_to_group):
+    """whoami resolves every org at once; each org lists only the groups managed there."""
+    o = org
+    _make_manager(o)
+    other_org = test_client.post("/api/organizations", json={"name": _uniq("second")},
+                                 headers={"Authorization": f"Bearer {o['lead']['token']}"})
+    assert other_org.status_code == 200, other_org.text
+    other_id = other_org.json()["id"]
+    g = create_group(name=_uniq("own"), user_token=o["lead"]["token"], org_id=other_id).json()["id"]
+    assert add_user_to_group(group_id=g, user_id=o["lead"]["user_id"], user_token=o["lead"]["token"],
+                             org_id=other_id).status_code == 201
+
+    orgs = {x["id"]: x for x in whoami(o["lead"]["token"])["organizations"]}
+    groups_in = lambda oid: {k for k in (orgs[oid].get("resource_permissions") or {}) if k.startswith("group:")}
+    assert groups_in(o["org_id"]) == {f"group:{o['groups']['sales']}"}
+    assert groups_in(other_id) == set(), "admin of the second org, but manager of none of its groups"
