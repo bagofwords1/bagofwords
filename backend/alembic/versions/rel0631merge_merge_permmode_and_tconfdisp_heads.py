@@ -1,14 +1,15 @@
-"""merge permmode and tconfdisp migration heads
+"""merge permmode, tconfdisp and connsince migration heads
 
-Release 0.0.631 bundles #1786 (permmode01 -> permmode02) and #1847
-(connact01 -> tconfdisp01). Both branch from rel0629 and add independent
-columns (tool_confirmations.scope / reports.permission_mode /
-data_sources.max_permission_mode / completions.started_via vs
-connection_tools lock/effect/source and tool_confirmations.display), so
-this revision only joins the two heads.
+Release 0.0.631 bundles #1786 (permmode01 -> permmode02), #1847
+(connact01 -> tconfdisp01) and #1853 (connsince01). All three branch from
+rel0629 and add independent columns (tool_confirmations.scope /
+reports.permission_mode / data_sources.max_permission_mode /
+completions.started_via; connection_tools lock/effect/source and
+tool_confirmations.display; connections.unreachable_since), so this
+revision only joins the three heads.
 
 Revision ID: rel0631merge
-Revises: permmode02, tconfdisp01
+Revises: permmode02, tconfdisp01, connsince01
 Create Date: 2026-11-21 18:00:00.000000
 
 """
@@ -17,7 +18,7 @@ from typing import Sequence, Union
 
 # revision identifiers, used by Alembic.
 revision: str = 'rel0631merge'
-down_revision: Union[str, None] = ('permmode02', 'tconfdisp01')
+down_revision: Union[str, None] = ('permmode02', 'tconfdisp01', 'connsince01')
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
