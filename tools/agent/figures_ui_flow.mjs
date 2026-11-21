@@ -82,6 +82,8 @@ async function audit(page) {
   });
 }
 
+// CUSTOM_PROMPT=<text> runs only that question (named 'custom').
+if (process.env.CUSTOM_PROMPT) PROMPTS.splice(0, PROMPTS.length, { name: 'custom', text: process.env.CUSTOM_PROMPT });
 const results = [];
 const only = process.env.ONLY ? Number(process.env.ONLY) : null;
 for (const [i, p] of PROMPTS.entries()) {
@@ -175,7 +177,7 @@ for (const [i, p] of PROMPTS.entries()) {
 }
 
 // Same report in dark, Hebrew and on a phone.
-const first = results.find((r) => r.prompt === 'revenue');
+const first = !process.env.CUSTOM_PROMPT && results.find((r) => r.prompt === 'revenue');
 if (first) {
   const url = (await import('node:fs')).readFileSync(`${OUT}/revenue-report-url.txt`, 'utf8');
   for (const [name, opts, init] of [

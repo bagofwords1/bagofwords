@@ -8819,6 +8819,9 @@
     "rows": "{count} filas",
     "shownOf": "{shown} de {total}",
     "loading": "Cargando el resultado",
-    "untitled": "Resultado"
+    "untitled": "Resultado",
+    "caption": "Figura {n}.",
+    "topOf": "los {shown} primeros de {total}",
+    "firstOf": "primeras {shown} de {total} filas"
   }
 }

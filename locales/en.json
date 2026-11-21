@@ -8848,6 +8848,9 @@
     "rows": "{count} rows",
     "shownOf": "{shown} of {total}",
     "loading": "Loading the result",
-    "untitled": "Result"
+    "untitled": "Result",
+    "caption": "Figure {n}.",
+    "topOf": "top {shown} of {total}",
+    "firstOf": "first {shown} of {total} rows"
   }
 }

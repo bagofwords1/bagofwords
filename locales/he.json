@@ -8839,6 +8839,9 @@
     "rows": "{count} שורות",
     "shownOf": "{shown} מתוך {total}",
     "loading": "טוען את התוצאה",
-    "untitled": "תוצאה"
+    "untitled": "תוצאה",
+    "caption": "איור {n}.",
+    "topOf": "{shown} המובילים מתוך {total}",
+    "firstOf": "{shown} השורות הראשונות מתוך {total}"
   }
 }
