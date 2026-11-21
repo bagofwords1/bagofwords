@@ -84,8 +84,12 @@ NON_DESTINATION_CONFIG_KEYS = frozenset({
     # Jira / Confluence Data Center: project keys (validated, quoted into JQL)
     # and switches for what is listed; base_url and allow_http stay destinations.
     "include_blogposts", "include_issue_documents", "projects",
-    # Server-managed sign-in scopes of enabled write actions: never taken
-    # from a request, and a form save does not send them.
+    # Teams: channel names agents may post to, on the saved tenant with the
+    # saved identity (a value holding "://" still counts as a destination).
+    "allowed_post_channels",
+    # Server-managed sign-in scopes of enabled write actions: update_connection
+    # never takes them from a request and re-adds the saved value, and a form
+    # save does not send them.
     "action_scopes",
 }) | RUNTIME_CONFIG_KEYS
 

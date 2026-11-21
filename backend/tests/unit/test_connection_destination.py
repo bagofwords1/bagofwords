@@ -192,6 +192,7 @@ def test_credential_fields_that_choose_the_identity_or_tenant_count(key):
     ("jira_dc", {"base_url": "https://jira.example.com"}, {"include_issue_documents": False}),
     ("confluence_dc", {"base_url": "https://wiki.example.com"}, {"spaces": "ENG", "max_results": 50}),
     ("confluence_dc", {"base_url": "https://wiki.example.com"}, {"include_blogposts": False}),
+    ("teams_messages", {}, {"allowed_post_channels": "Alerts"}),
 ])
 def test_catalog_filters_and_tags_are_not_a_destination_change(conn_type, saved, changed):
     assert _same(conn_type, saved, {**saved, **changed})
@@ -202,15 +203,19 @@ def test_the_kms_api_prefix_stays_a_destination():
     assert not _same("kms_lighthouse", saved, {**saved, "api_prefix": ".other.example.com/x"})
 
 
-@pytest.mark.parametrize("conn_type,saved", [
-    ("jira_dc", {"base_url": "https://jira.example.com"}),
-    ("confluence_dc", {"base_url": "https://wiki.example.com"}),
-])
+@pytest.mark.parametrize("conn_type,host", [("jira_dc", "jira.example.com"), ("confluence_dc", "wiki.example.com")])
 @pytest.mark.parametrize("changed", [
-    {"base_url": "https://other.example.com"}, {"base_url": "https://jira.example.com/other"}, {"allow_http": True},
+    "https://other.example.com", "https://{host}/other", {"allow_http": True},
 ])
-def test_atlassian_data_center_url_and_transport_stay_destinations(conn_type, saved, changed):
+def test_atlassian_data_center_url_and_transport_stay_destinations(conn_type, host, changed):
+    # A path on the saved host is still a change: the API is reached under base_url.
+    saved = {"base_url": f"https://{host}"}
+    changed = changed if isinstance(changed, dict) else {"base_url": changed.format(host=host)}
     assert not _same(conn_type, saved, {**saved, **changed})
+
+
+def test_a_url_in_the_teams_post_channel_list_is_still_a_destination():
+    assert not _same("teams_messages", {}, {"allowed_post_channels": "https://other.example.com/hook"})
 
 
 @pytest.mark.parametrize("conn_type", ["outlook_mail", "teams_messages"])

@@ -1069,3 +1069,15 @@ def test_a_form_save_without_the_server_managed_action_scopes_stays_open(test_cl
     with _skip_network():
         r = _put(test_client, world, {"config": form}, conn_id=conn["id"])
     assert r.status_code == 200, r.text
+    assert _saved(test_client, world, conn["id"])["config"]["action_scopes"] == ["Mail.Send"]
+
+
+@pytest.mark.e2e
+def test_a_non_admin_can_change_the_teams_post_channel_list(test_client, world, every_connector_allowed):
+    # The channel list picks where agents may post on the saved tenant, with the saved identity.
+    conn = _stored(test_client, world, "teams_messages", "service_principal")
+    form = {**_saved(test_client, world, conn["id"])["config"], "allowed_post_channels": "Alerts, Ops"}
+    with _skip_network():
+        r = _put(test_client, world, {"config": form}, conn_id=conn["id"])
+    assert r.status_code == 200, r.text
+    assert _saved(test_client, world, conn["id"])["config"]["allowed_post_channels"] == "Alerts, Ops"
