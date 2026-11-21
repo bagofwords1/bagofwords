@@ -41,6 +41,11 @@ app = FastAPI()
 SOURCE_ID = os.environ.get("STUB_SOURCE_ID", "")
 SOURCE_NAME = os.environ.get("STUB_SOURCE_NAME", "sqlite_source_1")
 LOG = os.environ.get("STUB_LOG", "/tmp/sched_growth_stub.jsonl")
+# "rebuild": create_artifact(replaces_artifact_id) with only today's 2 viz (clean).
+# "edit":    edit_artifact appending today's 2 viz; old ones stay on the artifact
+#            (edit_artifact keeps existing visualization_ids automatically).
+ARTIFACT_MODE = os.environ.get("STUB_ARTIFACT_MODE", "rebuild")
+PANELS_MARKER = "{/*PANELS*/}"
 
 UUID_RE = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
@@ -121,12 +126,23 @@ def _artifact_code(v1: str, v2: str, run_tag: str) -> str:
         f"      <h1>Daily revenue</h1><p>Refreshed {run_tag}</p>\n"
         f'      <Panel id="{v1}" />\n'
         f'      <Panel id="{v2}" />\n'
+        f"      {PANELS_MARKER}\n"
         "    </div>\n"
         "  );\n"
         "}\n"
         "ReactDOM.createRoot(document.getElementById('root')).render(<App />);\n"
         "</script>"
     )
+
+
+def _new_viz(results: list[str]) -> list[str]:
+    viz = []
+    for r in results:
+        for m in re.finditer(r'"created_visualization_ids"\s*:\s*\[([^\]]*)\]', r):
+            for vid in re.findall(UUID_RE, m.group(1)):
+                if vid not in viz:
+                    viz.append(vid)
+    return viz
 
 
 def _planner(body: dict):
@@ -142,13 +158,18 @@ def _planner(body: dict):
             for title in ("Orders by region", "Revenue by region")
         ], "Refreshing today's two queries."
     calls_made = _turn_calls(body)
-    if "create_artifact" not in calls_made:
-        viz = []
-        for r in results:
-            for m in re.finditer(r'"created_visualization_ids"\s*:\s*\[([^\]]*)\]', r):
-                for vid in re.findall(UUID_RE, m.group(1)):
-                    if vid not in viz:
-                        viz.append(vid)
+    current = re.search(r"<artifact_id>(" + UUID_RE + ")</artifact_id>", _all_text(body))
+    if ARTIFACT_MODE == "edit" and current and not {"create_artifact", "edit_artifact"} & set(calls_made):
+        viz = _new_viz(results)
+        if len(viz) >= 2:
+            return 2, [{"name": "edit_artifact", "arguments": {
+                "artifact_id": current.group(1),
+                "visualization_ids": viz[:2],
+                "edits": [{"find": PANELS_MARKER, "replace":
+                           f'<Panel id="{viz[0]}" />\n      <Panel id="{viz[1]}" />\n      {PANELS_MARKER}'}],
+            }}], "Adding today's panels to the dashboard."
+    if not {"create_artifact", "edit_artifact"} & set(calls_made):
+        viz = _new_viz(results)
         if len(viz) >= 2:
             prev = re.findall(r'"?artifact_id"?\s*[:=]\s*"?(' + UUID_RE + ")", _all_text(body))
             args = {
