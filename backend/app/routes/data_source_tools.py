@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.auth import current_user
-from app.core.permissions_decorator import requires_resource_permission
+from app.core.permissions_decorator import requires_permission, requires_resource_permission
 from app.ee.audit.service import audit_service
 from app.errors import AppError, ErrorCode
 from app.dependencies import get_async_db, get_current_organization
@@ -738,3 +738,54 @@ async def replace_my_shell_rules(data_source_id: str, tool_id: str, request: Req
         resource_type="data_source", resource_id=str(data_source_id),
         details={"tool_id": str(tool.id), "rule_count": len(validated)}, request=request)
     return validated
+
+
+class SessionToolSummaryRequest(BaseModel):
+    # The report the prompt box belongs to; none on the home page.
+    report_id: Optional[str] = None
+    # The prompt box's pinned agents; none or empty = Auto.
+    data_source_ids: Optional[List[str]] = None
+
+
+class SessionToolSummary(BaseModel):
+    # True when the run would be offered a connection tool that can change
+    # something (not read-only); null when that could not be worked out.
+    has_non_read_tools: Optional[bool] = None
+
+
+@router.post("/tools/session_summary", response_model=SessionToolSummary)
+@requires_permission("view_reports")
+async def session_tool_summary(
+    body: SessionToolSummaryRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Whether this chat session has tools the permission mode can matter for.
+
+    The prompt box shows its Ask / Auto / Allow all chip only when it does.
+    Uses the run's own agent set and tool catalog (see
+    ``app/services/session_tool_summary.py``), as the requesting user.
+    """
+    from app.models.report import Report
+    from app.routes.report import _require_report_viewer
+    from app.services.organization_settings_service import OrganizationSettingsService
+    from app.services.session_tool_summary import has_non_read_tools
+
+    report = None
+    if body.report_id:
+        await _require_report_viewer(db, body.report_id, current_user, organization, "session_tool_summary")
+        report = (await db.execute(
+            select(Report)
+            .options(selectinload(Report.data_sources).selectinload(DataSource.connections))
+            .where(Report.id == str(body.report_id), Report.organization_id == str(organization.id))
+        )).scalar_one_or_none()
+    try:
+        settings = await OrganizationSettingsService().get_settings(db, organization, current_user)
+    except Exception:
+        settings = None
+    value = await has_non_read_tools(
+        db, organization, current_user, report=report,
+        data_source_ids=body.data_source_ids, organization_settings=settings,
+    )
+    return SessionToolSummary(has_non_read_tools=value)
