@@ -615,9 +615,11 @@
 
                     <!-- Permission mode for tool calls (Ask / Auto / Allow all).
                          Hidden where the box edits something else (a scheduled
-                         task), whose runs nobody watches anyway. -->
+                         task), whose runs nobody watches anyway, and when the
+                         session has no tool that can change anything: with
+                         only read-only tools there is nothing for it to decide. -->
                     <PermissionModePicker
-                        v-if="props.persistSelection"
+                        v-if="props.persistSelection && showPermissionChip"
                         :key="'perm-' + (props.popoverOffset || 0)"
                         :model-value="permissionMode"
                         :org-default="orgPermissionDefault"
@@ -1287,6 +1289,44 @@ const permissionSettingsFailed = ref(false)
 // run applies the strictest cap of its agents, so the chip and the banner
 // show the capped mode. An Auto report has no agents attached here: no cap
 // is shown for it.
+// Whether this session offers a connection tool that is not read-only
+// (POST /tools/session_summary: the run's own agents and tool catalog). The
+// chip shows only then. Until the first answer it stays hidden, so sessions
+// without tools never flash it; if the check fails it shows (the safe side).
+// A later re-check keeps the previous answer on screen while it runs.
+type ToolPresence = 'loading' | 'yes' | 'no' | 'unknown'
+const sessionToolPresence = ref<ToolPresence>('loading')
+const showPermissionChip = computed(() => sessionToolPresence.value === 'yes' || sessionToolPresence.value === 'unknown')
+let toolPresenceSeq = 0
+let toolPresenceTimer: ReturnType<typeof setTimeout> | null = null
+async function refreshSessionToolPresence() {
+    if (!props.persistSelection) return
+    const seq = ++toolPresenceSeq
+    try {
+        const { data, error } = await useMyFetch('/tools/session_summary', {
+            method: 'POST',
+            body: {
+                report_id: props.report_id || null,
+                data_source_ids: (selectedDataSources.value || []).map((ds: any) => String(ds.id)),
+            },
+        })
+        if (seq !== toolPresenceSeq) return
+        const v = (data.value as any)?.has_non_read_tools
+        sessionToolPresence.value = error.value || typeof v !== 'boolean' ? 'unknown' : (v ? 'yes' : 'no')
+    } catch {
+        if (seq === toolPresenceSeq) sessionToolPresence.value = 'unknown'
+    }
+}
+watch(
+    () => [props.report_id, (selectedDataSources.value || []).map((ds: any) => String(ds.id)).sort().join(','), folderScope.value.join(',')].join('|'),
+    () => {
+        if (toolPresenceTimer) clearTimeout(toolPresenceTimer)
+        toolPresenceTimer = setTimeout(refreshSessionToolPresence, 250)
+    },
+    { immediate: true },
+)
+onBeforeUnmount(() => { if (toolPresenceTimer) clearTimeout(toolPresenceTimer) })
+
 const agentPermissionCap = computed<'ask' | 'auto' | null>(() => {
     const caps = (selectedDataSources.value || []).map((ds: any) => ds?.max_permission_mode)
     return caps.includes('ask') ? 'ask' : caps.includes('auto') ? 'auto' : null
