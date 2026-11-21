@@ -61,7 +61,7 @@ Mutation check (each mutation reverted afterwards):
 ```bash
 tools/agent/boot_stack.sh --dev && (cd backend && uv run python ../tools/agent/seed_org.py)
 export BOW_ENCRYPTION_KEY=<a stable key>          # so backend restarts keep stored credentials readable
-ANTHROPIC_API_KEY=... HAIKU_MODEL_ID=claude-haiku-5-5 uv run python ../tools/agent/setup_haiku_llm.py
+ANTHROPIC_API_KEY=... HAIKU_MODEL_ID=<Haiku 5.5 id from the model catalog> uv run python ../tools/agent/setup_haiku_llm.py
 python3 tools/jira/mock_jira_server.py --port 8098                  # http://127.0.0.1:8098/jira
 ```
 
