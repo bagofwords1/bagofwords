@@ -353,6 +353,14 @@ class OrganizationSettingsService:
                         stored_value = stored.get('value') if isinstance(stored, dict) else None
                         normalized = await validate_routing_decision_update(db, organization, stored_value, incoming)
                         value_update = {'value': normalized}
+                    # Tool permission mode: normalized and merged over the stored
+                    # value; a judge decision model must be an enabled decision model.
+                    if key == 'tool_permission_mode':
+                        from app.services.tool_permission_mode import validate_settings_update
+                        incoming = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        stored = current_config.get(key)
+                        stored_value = stored.get('value') if isinstance(stored, dict) else None
+                        value_update = {'value': await validate_settings_update(db, organization, stored_value, incoming)}
                     # Enterprise check for LLM fallback. Same shape as the Auto
                     # router: enabling needs the license, disabling is always
                     # allowed so a lapsed license can't strand it on.

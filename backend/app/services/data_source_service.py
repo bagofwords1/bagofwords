@@ -1470,6 +1470,7 @@ class DataSourceService:
             user_status=connections_list[0].user_status if connections_list else None,
             primary_instruction_id=data_source.primary_instruction_id,
             primary_instruction=primary_instruction_data,
+            max_permission_mode=data_source.max_permission_mode,
         )
 
         return schema
@@ -3781,6 +3782,12 @@ class DataSourceService:
         # override (the generic loop below skips None values).
         if 'icon' in update_data:
             data_source_db.icon = update_data.pop('icon')
+
+        # Permission-mode cap: "none" clears it.
+        if 'max_permission_mode' in update_data:
+            _cap = update_data.pop('max_permission_mode')
+            if _cap is not None:
+                data_source_db.max_permission_mode = None if _cap == "none" else _cap
 
         # Update remaining domain-specific fields on DataSource
         for field, value in update_data.items():

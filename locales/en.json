@@ -1035,6 +1035,34 @@
         "nothing": "Nothing to clear yet",
         "failed": "Couldn't clear the context"
       }
+    },
+    "permissionMode": {
+      "title": "Tool permissions",
+      "tooltip": "Tool permissions: {mode}",
+      "default": "default",
+      "allowAllBanner": "Allow all is on: the agent runs connection tools without asking. Blocked and denied tools still never run.",
+      "switchToAsk": "Switch to Ask",
+      "saveFailed": "Couldn't change the permission mode",
+      "modes": {
+        "ask": {
+          "label": "Ask",
+          "hint": "Each tool follows its own setting; asks before changes."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Read-only calls run; a model decides the rest and asks when unsure."
+        },
+        "allow_all": {
+          "label": "Allow all",
+          "hint": "Tools set to ask run without asking, in this report only."
+        }
+      },
+      "unknown": {
+        "label": "Mode unknown",
+        "hint": "Couldn't load the permission settings, so the mode the next run uses is unknown."
+      },
+      "loadFailed": "Couldn't load the permission settings",
+      "retry": "Retry"
     }
   },
   "exports": {
@@ -1983,6 +2011,33 @@
         "openLink": "Open link",
         "cancel": "Cancel",
         "contextShared": "The app shared what you selected with the assistant."
+      },
+      "allowForReport": "Allow for this report",
+      "allowForReportHint": "Don't ask again for this tool in this report",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Run without asking (Allow all)",
+          "refused": "Not run"
+        },
+        "readOnly": {
+          "allowed": "Run without asking: read-only",
+          "refused": "Not run"
+        },
+        "blocklist": {
+          "allowed": "Allowed",
+          "refused": "Refused by the safety blocklist"
+        },
+        "rememberedReport": {
+          "allowed": "Allowed for this report",
+          "refused": "Denied for this report"
+        },
+        "unattended": {
+          "allowed": "Allowed by the setting for unattended runs",
+          "refused": "Not run: needs approval and nobody is watching"
+        },
+        "unknownTool": {
+          "refused": "Not run: this tool is not in the connection's tool list"
+        }
       }
     },
     "remoteOp": {
@@ -2560,11 +2615,12 @@
       "glob": "Wildcard pattern",
       "hint": "Rules match full commands in this working directory. Prefix allows exclude shell operators and expansion.",
       "always": "Always allow matching",
-      "session": "Allow for this session",
+      "session": "Allow for this report (8 hours)",
       "mine": "My shell rules",
       "override": "These rules apply only to you. Connection-wide Always allow or Always deny takes precedence.",
       "save": "Save rules",
-      "failed": "Could not load or save rules. Check the JSON and try again."
+      "failed": "Could not load or save rules. Check the JSON and try again.",
+      "sessionHint": "Runs matching commands in this report without asking for the next 8 hours."
     },
     "readReport": {
       "window": "messages {start}–{end} / {total}",
@@ -4224,6 +4280,34 @@
           "name": "World view",
           "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
         }
+      },
+      "permissionMode": {
+        "title": "Tool permission mode",
+        "description": "How the agent decides whether to run connection tools and remote shell commands. Users pick a mode per report in the prompt box; disabled and denied tools, and the built-in safety blocklist, apply in every mode.",
+        "defaultMode": "Default mode for new reports",
+        "unattended": "Runs nobody is watching",
+        "unattendedOptions": {
+          "refuse": "Refuse",
+          "settings": "Use the per-tool settings",
+          "allow": "Allow"
+        },
+        "unattendedHints": {
+          "refuse": "Scheduled, webhook, API and other unattended runs skip any tool that would ask.",
+          "settings": "Tools on Auto use the model review; tools on Ask are skipped.",
+          "allow": "Tools that would ask run in scheduled, webhook and API runs. Chats on other channels still skip them."
+        },
+        "allowAll": "Allow \"Allow all\"",
+        "allowAllDescription": "Let users turn off approval prompts for a report, or make it the default for new reports. It applies only to the report owner's own runs while they watch.",
+        "judgeModel": "Model for Auto decisions",
+        "judgeModelHint": "Automatic uses the router's decision model when routing uses one, else the small default model.",
+        "judgeModelOptions": {
+          "automatic": "Automatic",
+          "small": "Small default model",
+          "unavailable": "Unavailable model",
+          "notLoaded": "Saved model (list not loaded)"
+        },
+        "judgeModelLoadFailed": "Couldn't load the decision models.",
+        "judgeModelRetry": "Retry"
       }
     },
     "llms": {
@@ -5439,6 +5523,9 @@
     "shell_confirmation.invalid_scope": "Invalid permission scope.",
     "shell_confirmation.report_required": "Session permissions require a report.",
     "shell_confirmation.rule_mismatch": "Invalid command rule, or the pattern does not match this command.",
+    "tool_permission_mode.allow_all_off": "Allow all is turned off for this organization.",
+    "tool_permission_mode.allow_all_default_needs_switch": "Allow all can be the default only while it is turned on.",
+    "tool_permission_mode.judge_model_unavailable": "Choose an enabled decision model for the Auto judge.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Catalog refresh failed because discovery was incomplete. The previous catalog and table selections were retained.",
@@ -8562,7 +8649,14 @@
     "inheritedHint": "These people and groups reach this agent through a folder or connection. Change their access at the source.",
     "viaFolder": "Via folder {name}",
     "viaConnection": "Via connection {name}",
-    "inheritedHidden": "Others may have access through a folder or connection you don't manage."
+    "inheritedHidden": "Others may have access through a folder or connection you don't manage.",
+    "permissionCap": {
+      "title": "Permission mode cap",
+      "hint": "Limits the permission mode of reports that use this agent. Ask: every tool follows its own setting. Auto: a model may decide.",
+      "none": "No cap",
+      "ask": "Ask",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Send me product updates",

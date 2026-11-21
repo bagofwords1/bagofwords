@@ -942,7 +942,35 @@
         "dismiss": "Chiudi"
       }
     },
-    "recent": "Recenti"
+    "recent": "Recenti",
+    "permissionMode": {
+      "title": "Permessi degli strumenti",
+      "tooltip": "Permessi degli strumenti: {mode}",
+      "default": "predefinito",
+      "allowAllBanner": "Consenti tutto è attivo: l'agente esegue gli strumenti di connessione senza chiedere. Gli strumenti bloccati o negati non vengono mai eseguiti.",
+      "switchToAsk": "Passa a Chiedi",
+      "saveFailed": "Impossibile cambiare la modalità dei permessi",
+      "modes": {
+        "ask": {
+          "label": "Chiedi",
+          "hint": "Ogni strumento segue la propria impostazione; chiede prima delle modifiche."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Le chiamate di sola lettura vengono eseguite; un modello decide il resto e chiede se è incerto."
+        },
+        "allow_all": {
+          "label": "Consenti tutto",
+          "hint": "Gli strumenti che chiederebbero vengono eseguiti senza chiedere, solo in questo report."
+        }
+      },
+      "unknown": {
+        "label": "Modalità sconosciuta",
+        "hint": "Impossibile caricare le impostazioni dei permessi, quindi la modalità della prossima esecuzione è sconosciuta."
+      },
+      "loadFailed": "Impossibile caricare le impostazioni dei permessi",
+      "retry": "Riprova"
+    }
   },
   "reports": {
     "title": "Report",
@@ -1732,7 +1760,34 @@
       "allowedByYou": "Consentito da te",
       "deniedByYou": "Negato da te",
       "records": "{n} record",
-      "recordsPartial": "{shown} di {total} record"
+      "recordsPartial": "{shown} di {total} record",
+      "allowForReport": "Consenti per questo report",
+      "allowForReportHint": "Non chiedere più per questo strumento in questo report",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Eseguito senza chiedere (Consenti tutto)",
+          "refused": "Non eseguito"
+        },
+        "readOnly": {
+          "allowed": "Eseguito senza chiedere: sola lettura",
+          "refused": "Non eseguito"
+        },
+        "blocklist": {
+          "allowed": "Consentito",
+          "refused": "Rifiutato dalla blocklist di sicurezza"
+        },
+        "rememberedReport": {
+          "allowed": "Consentito per questo report",
+          "refused": "Negato per questo report"
+        },
+        "unattended": {
+          "allowed": "Consentito dall'impostazione per le esecuzioni non presidiate",
+          "refused": "Non eseguito: serve un'approvazione e nessuno sta guardando"
+        },
+        "unknownTool": {
+          "refused": "Non eseguito: questo strumento non è nell'elenco degli strumenti della connessione"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Ha riflettuto sulla risposta"
@@ -2225,11 +2280,12 @@
       "glob": "Schema con caratteri jolly",
       "hint": "Le regole corrispondono a comandi completi in questa directory. I prefissi consentiti escludono operatori ed espansioni della shell.",
       "always": "Consenti sempre le corrispondenze",
-      "session": "Consenti per questa sessione",
+      "session": "Consenti per questo report (8 ore)",
       "mine": "Le mie regole shell",
       "override": "Queste regole valgono solo per te. Consenti sempre o Nega sempre della connessione ha priorità.",
       "save": "Salva regole",
-      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova."
+      "failed": "Impossibile caricare o salvare le regole. Controlla il JSON e riprova.",
+      "sessionHint": "Esegue i comandi corrispondenti in questo report senza chiedere per le prossime 8 ore."
     },
     "shell": {
       "command": "Comando shell",
@@ -3660,6 +3716,34 @@
           "name": "Vista Mondo",
           "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
         }
+      },
+      "permissionMode": {
+        "title": "Modalità dei permessi degli strumenti",
+        "description": "Come l'agente decide se eseguire strumenti di connessione e comandi shell remoti. Gli utenti scelgono una modalità per report nella casella dei messaggi; strumenti disattivati o negati e la blocklist di sicurezza valgono in ogni modalità.",
+        "defaultMode": "Modalità predefinita per i nuovi report",
+        "unattended": "Esecuzioni senza nessuno che guarda",
+        "unattendedOptions": {
+          "refuse": "Rifiuta",
+          "settings": "Usa le impostazioni di ogni strumento",
+          "allow": "Consenti"
+        },
+        "unattendedHints": {
+          "refuse": "Le esecuzioni pianificate, webhook, API e altre esecuzioni non supervisionate saltano qualsiasi strumento che chiederebbe.",
+          "settings": "Gli strumenti in Auto usano la revisione del modello; quelli in Chiedi vengono saltati.",
+          "allow": "Gli strumenti che chiederebbero vengono eseguiti nelle esecuzioni pianificate, webhook e API. Le chat su altri canali li saltano ancora."
+        },
+        "allowAll": "Permetti \"Consenti tutto\"",
+        "allowAllDescription": "Consente agli utenti di disattivare le richieste di approvazione per un report, o di renderla la modalità predefinita per i nuovi report. Si applica solo alle esecuzioni del proprietario del report mentre le segue.",
+        "judgeModel": "Modello per le decisioni automatiche",
+        "judgeModelHint": "Automatico usa il modello decisionale del router quando il routing ne usa uno, altrimenti il modello piccolo predefinito.",
+        "judgeModelOptions": {
+          "automatic": "Automatico",
+          "small": "Modello piccolo predefinito",
+          "unavailable": "Modello non disponibile",
+          "notLoaded": "Modello salvato (elenco non caricato)"
+        },
+        "judgeModelLoadFailed": "Impossibile caricare i modelli decisionali.",
+        "judgeModelRetry": "Riprova"
       }
     },
     "llms": {
@@ -4724,6 +4808,9 @@
     "shell_confirmation.invalid_scope": "Ambito di autorizzazione non valido.",
     "shell_confirmation.report_required": "Le autorizzazioni di sessione richiedono un report.",
     "shell_confirmation.rule_mismatch": "Regola di comando non valida, oppure il pattern non corrisponde a questo comando.",
+    "tool_permission_mode.allow_all_off": "\"Consenti tutto\" è disattivato per questa organizzazione.",
+    "tool_permission_mode.allow_all_default_needs_switch": "\"Consenti tutto\" può essere il predefinito solo mentre è attivo.",
+    "tool_permission_mode.judge_model_unavailable": "Scegli un modello decisionale attivo per il giudice della modalità Auto.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "L’aggiornamento del catalogo non è riuscito perché il rilevamento era incompleto. Il catalogo precedente e le selezioni delle tabelle sono stati conservati.",
@@ -7603,7 +7690,14 @@
     "inheritedHint": "Queste persone e gruppi raggiungono l'agente tramite una cartella o una connessione. Modifica l'accesso all'origine.",
     "viaFolder": "Tramite la cartella {name}",
     "viaConnection": "Tramite la connessione {name}",
-    "inheritedHidden": "Altri potrebbero avere accesso tramite una cartella o una connessione che non gestisci."
+    "inheritedHidden": "Altri potrebbero avere accesso tramite una cartella o una connessione che non gestisci.",
+    "permissionCap": {
+      "title": "Limite della modalità di autorizzazione",
+      "hint": "Limita la modalità di autorizzazione dei report che usano questo agente. Chiedi: ogni strumento segue la propria impostazione. Auto: un modello può decidere.",
+      "none": "Nessun limite",
+      "ask": "Chiedi",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Inviami gli aggiornamenti del prodotto",

@@ -219,6 +219,11 @@ class ErrorCode(str, Enum):
     SHELL_CONFIRMATION_REPORT_REQUIRED = "shell_confirmation.report_required"
     SHELL_CONFIRMATION_RULE_MISMATCH = "shell_confirmation.rule_mismatch"
 
+    # Tool permission mode (Ask / Auto / Allow all)
+    TOOL_PERMISSION_MODE_ALLOW_ALL_OFF = "tool_permission_mode.allow_all_off"
+    TOOL_PERMISSION_MODE_ALLOW_ALL_DEFAULT_NEEDS_SWITCH = "tool_permission_mode.allow_all_default_needs_switch"
+    TOOL_PERMISSION_MODE_JUDGE_MODEL_UNAVAILABLE = "tool_permission_mode.judge_model_unavailable"
+
     SSH_KEY_DISCOVERY_FAILED = "ssh.key_discovery_failed"
 
     # Sites allowed to frame BOW (Settings → General)

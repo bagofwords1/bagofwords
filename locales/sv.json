@@ -942,7 +942,35 @@
         "dismiss": "Stäng"
       }
     },
-    "recent": "Senaste"
+    "recent": "Senaste",
+    "permissionMode": {
+      "title": "Verktygsbehörigheter",
+      "tooltip": "Verktygsbehörigheter: {mode}",
+      "default": "standard",
+      "allowAllBanner": "Tillåt allt är på: agenten kör anslutningsverktyg utan att fråga. Spärrade och nekade verktyg körs aldrig.",
+      "switchToAsk": "Byt till Fråga",
+      "saveFailed": "Det gick inte att ändra behörighetsläget",
+      "modes": {
+        "ask": {
+          "label": "Fråga",
+          "hint": "Varje verktyg följer sin egen inställning; frågar före ändringar."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Skrivskyddade anrop körs; en modell avgör resten och frågar vid osäkerhet."
+        },
+        "allow_all": {
+          "label": "Tillåt allt",
+          "hint": "Verktyg som skulle fråga körs utan att fråga, bara i den här rapporten."
+        }
+      },
+      "unknown": {
+        "label": "Okänt läge",
+        "hint": "Det gick inte att läsa in behörighetsinställningarna, så läget för nästa körning är okänt."
+      },
+      "loadFailed": "Det gick inte att läsa in behörighetsinställningarna",
+      "retry": "Försök igen"
+    }
   },
   "reports": {
     "title": "Rapporter",
@@ -1732,7 +1760,34 @@
       "allowedByYou": "Tillåtet av dig",
       "deniedByYou": "Nekat av dig",
       "records": "{n} poster",
-      "recordsPartial": "{shown} av {total} poster"
+      "recordsPartial": "{shown} av {total} poster",
+      "allowForReport": "Tillåt i den här rapporten",
+      "allowForReportHint": "Fråga inte igen om det här verktyget i den här rapporten",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Kördes utan att fråga (Tillåt allt)",
+          "refused": "Kördes inte"
+        },
+        "readOnly": {
+          "allowed": "Kördes utan att fråga: skrivskyddat",
+          "refused": "Kördes inte"
+        },
+        "blocklist": {
+          "allowed": "Tillåtet",
+          "refused": "Stoppat av säkerhetsspärrlistan"
+        },
+        "rememberedReport": {
+          "allowed": "Tillåtet i den här rapporten",
+          "refused": "Nekat i den här rapporten"
+        },
+        "unattended": {
+          "allowed": "Tillåtet av inställningen för obevakade körningar",
+          "refused": "Kördes inte: kräver godkännande och ingen tittar"
+        },
+        "unknownTool": {
+          "refused": "Kördes inte: verktyget finns inte i anslutningens verktygslista"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"
@@ -2225,11 +2280,12 @@
       "glob": "Jokerteckenmönster",
       "hint": "Regler matchar hela kommandon i denna arbetskatalog. Prefixgodkännanden utesluter skaloperatorer och expansioner.",
       "always": "Tillåt alltid matchningar",
-      "session": "Tillåt för denna session",
+      "session": "Tillåt för den här rapporten (8 timmar)",
       "mine": "Mina skalregler",
       "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
       "save": "Spara regler",
-      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
+      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen.",
+      "sessionHint": "Kör matchande kommandon i den här rapporten utan att fråga under de kommande 8 timmarna."
     },
     "shell": {
       "command": "Skalkommando",
@@ -3660,6 +3716,34 @@
           "name": "Världsvy",
           "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
         }
+      },
+      "permissionMode": {
+        "title": "Behörighetsläge för verktyg",
+        "description": "Hur agenten avgör om den ska köra anslutningsverktyg och fjärrskalskommandon. Användare väljer läge per rapport i inmatningsrutan; inaktiverade och nekade verktyg samt säkerhetsspärrlistan gäller i alla lägen.",
+        "defaultMode": "Standardläge för nya rapporter",
+        "unattended": "Körningar som ingen tittar på",
+        "unattendedOptions": {
+          "refuse": "Neka",
+          "settings": "Använd varje verktygs inställning",
+          "allow": "Tillåt"
+        },
+        "unattendedHints": {
+          "refuse": "Schemalagda körningar, webhook-, API- och andra obevakade körningar hoppar över alla verktyg som skulle fråga.",
+          "settings": "Verktyg på Auto granskas av modellen; verktyg på Fråga hoppas över.",
+          "allow": "Verktyg som skulle fråga körs i schemalagda körningar, webhook- och API-körningar. Chattar i andra kanaler hoppar fortfarande över dem."
+        },
+        "allowAll": "Tillåt ”Tillåt allt”",
+        "allowAllDescription": "Låter användare stänga av godkännandefrågor för en rapport, eller göra det till standard för nya rapporter. Gäller bara rapportägarens egna körningar medan hen tittar.",
+        "judgeModel": "Modell för automatiska beslut",
+        "judgeModelHint": "Automatiskt använder routerns beslutsmodell när routningen använder en, annars den lilla standardmodellen.",
+        "judgeModelOptions": {
+          "automatic": "Automatiskt",
+          "small": "Liten standardmodell",
+          "unavailable": "Modellen är inte tillgänglig",
+          "notLoaded": "Sparad modell (listan lästes inte in)"
+        },
+        "judgeModelLoadFailed": "Det gick inte att läsa in beslutsmodellerna.",
+        "judgeModelRetry": "Försök igen"
       }
     },
     "llms": {
@@ -4724,6 +4808,9 @@
     "shell_confirmation.invalid_scope": "Ogiltig behörighetsomfattning.",
     "shell_confirmation.report_required": "Sessionsbehörigheter kräver en rapport.",
     "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
+    "tool_permission_mode.allow_all_off": "”Tillåt allt” är avstängt för den här organisationen.",
+    "tool_permission_mode.allow_all_default_needs_switch": "”Tillåt allt” kan bara vara standard medan det är påslaget.",
+    "tool_permission_mode.judge_model_unavailable": "Välj en aktiverad beslutsmodell för Auto-granskaren.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
@@ -7603,7 +7690,14 @@
     "inheritedHint": "De här personerna och grupperna når agenten via en mapp eller anslutning. Ändra deras åtkomst vid källan.",
     "viaFolder": "Via mappen {name}",
     "viaConnection": "Via anslutningen {name}",
-    "inheritedHidden": "Andra kan ha åtkomst via en mapp eller anslutning som du inte hanterar."
+    "inheritedHidden": "Andra kan ha åtkomst via en mapp eller anslutning som du inte hanterar.",
+    "permissionCap": {
+      "title": "Tak för behörighetsläge",
+      "hint": "Begränsar behörighetsläget för rapporter som använder den här agenten. Fråga: varje verktyg följer sin egen inställning. Auto: en modell kan bestämma.",
+      "none": "Inget tak",
+      "ask": "Fråga",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Skicka produktnyheter till mig",

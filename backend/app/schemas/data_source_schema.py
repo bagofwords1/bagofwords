@@ -280,6 +280,9 @@ class DataSourceReportSchema(AgentIconTokenMixin):
     # (Development / Training) the same way the data source selector does.
     publish_status: str = "published"
     reliability_status: str = "training"
+    # The agent's cap on the run permission mode (ask | auto, None = no cap),
+    # so the prompt box shows the mode the run will really use.
+    max_permission_mode: Optional[str] = None
 
     # Connection info (multi-connection support) — slim, config-free view.
     connections: List[ConnectionReportEmbedded] = []
@@ -300,6 +303,8 @@ class DataSourceBase(BaseModel):
 
 class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     """Full DataSource (Domain) schema with nested connection info."""
+    # Cap on the run permission mode (ask | auto); null = no cap.
+    max_permission_mode: Optional[str] = None
     folder_id: str | None = None
     folder_path: str | None = None
     inherited_folder_name: str | None = None
@@ -527,6 +532,9 @@ class DataSourceUpdate(DataSourceBase):
     reliability_status: Optional[str] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
     primary_instruction_id: Optional[Union[str, None]] = None  # None = clear, str = set
+    # Cap on the run permission mode for runs that use this agent: "ask" or
+    # "auto"; "none" removes the cap. Omit to leave unchanged.
+    max_permission_mode: Optional[Literal["ask", "auto", "none"]] = None
 
     @field_validator('publish_status')
     @classmethod

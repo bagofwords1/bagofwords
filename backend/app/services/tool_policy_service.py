@@ -200,22 +200,75 @@ class ToolPolicyService:
             is_enabled=is_enabled,
         )
 
+    # Machine turns posted in the report: their approval card shows there and
+    # the report's owner answers it, as for a turn they typed (as on main).
+    WATCHED_TRIGGERS = frozenset({"wait", "checkin", "sub_agent_message", "sub_agent_wave"})
+    # A sub-agent's own turn: its card is hidden, so it cannot ask, but it
+    # works for the report's owner, so the report's grants apply ("for this
+    # report" answers, report shell rules, Allow all).
+    GRANTED_TRIGGERS = frozenset({"sub_agent"})
+
+    @staticmethod
+    def _run_kind(runtime_ctx: dict) -> str:
+        """``watched`` (a person can answer a card), ``granted`` (a hidden
+        sub-agent turn of a watched report), ``machine`` (nobody is in the
+        loop: scheduled, webhook, eval, API key, an unknown trigger),
+        ``channel`` (a person on Slack/Teams/email, who can't answer a card)
+        or ``nobody`` (no user)."""
+        if runtime_ctx.get("is_eval_run"):
+            return "machine"
+        from app.core.request_origin import CHANNEL_STARTED
+
+        head = runtime_ctx.get("head_completion")
+        # started_via: 'api_key' (an API-key prompt), or 'unattended' / 'api_key'
+        # on a machine turn started by an unattended run (wait wake, check-in,
+        # sub-agent, wave or message reply), so chains of turns inherit it;
+        # 'channel' on a machine turn started by a platform run.
+        started_via = getattr(head, "started_via", None) if head is not None else None
+        if head is not None and (
+            getattr(head, "scheduled_prompt_id", None)
+            or getattr(head, "webhook_id", None)
+            or (started_via and started_via != CHANNEL_STARTED)
+        ):
+            return "machine"
+        if runtime_ctx.get("platform") or started_via == CHANNEL_STARTED:
+            return "channel"
+        trigger = getattr(head, "trigger_source", None) if head is not None else None
+        if trigger and trigger not in ToolPolicyService.WATCHED_TRIGGERS:
+            # eval_run, and any trigger this code does not know, fail closed.
+            return "granted" if trigger in ToolPolicyService.GRANTED_TRIGGERS else "machine"
+        if (runtime_ctx.get("user") or runtime_ctx.get("current_user")) is None:
+            return "nobody"
+        return "watched"
+
+    @staticmethod
+    def is_machine_run(runtime_ctx: dict) -> bool:
+        """A run no person is in the loop for: scheduled, webhook, eval, a
+        hidden sub-agent turn, or started with an API key (an integration;
+        nobody is there to answer an approval). Narrower than "not
+        interactive": a Slack or artifact-chat run has a person on the other
+        end even though they can't answer an approval card."""
+        return ToolPolicyService._run_kind(runtime_ctx) in ("machine", "granted")
+
     @staticmethod
     def is_interactive_run(runtime_ctx: dict) -> bool:
         """True when a human can answer an 'ask' prompt for this run.
 
-        Interactive = a web-UI run kicked off by a real user: not an eval, not
-        a Slack/Teams/email platform run, not a scheduled prompt. Anything
-        headless must fail closed (ask behaves like deny).
+        Interactive = a web-UI run kicked off by a real user, or a machine
+        turn posted in their report (wait wake, check-in, sub-agent message or
+        wave reply), whose card they see. Not an eval, a Slack/Teams/email
+        platform run, a scheduled prompt, a webhook, a hidden sub-agent turn,
+        or a run started with an API key (read from the head row, so a queued
+        API prompt dispatched later stays unattended). Anything headless must
+        fail closed: a prompt there follows the org's unattended setting
+        (refuse by default).
         """
-        if runtime_ctx.get("is_eval_run"):
-            return False
-        if runtime_ctx.get("platform"):
-            return False
-        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
-        if user is None:
-            return False
-        head = runtime_ctx.get("head_completion")
-        if head is not None and getattr(head, "scheduled_prompt_id", None):
-            return False
-        return True
+        return ToolPolicyService._run_kind(runtime_ctx) == "watched"
+
+    @staticmethod
+    def report_grants_apply(runtime_ctx: dict) -> bool:
+        """Whether the report's grants apply to this run: "for this report"
+        answers, report shell rules and Allow all. True for a watched run and
+        for a hidden sub-agent turn, which works for the report's owner but
+        cannot show a card."""
+        return ToolPolicyService._run_kind(runtime_ctx) in ("watched", "granted")

@@ -937,6 +937,7 @@
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
 					:initialEffort="report?.reasoning_effort || ''"
+					:initialPermissionMode="report?.permission_mode || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt, awaitingInput: inProgressAwaitingInput } : undefined"
 					:isStopping="false"
@@ -2159,12 +2160,10 @@ provide('reportSnapshot', report)
 // MCP Apps (components/tools/McpAppFrame.vue): an app's ui/message posts into
 // this conversation as the user, the same way a follow-up chip does.
 provide('mcpAppHost', {
-	sendMessage(text: string): boolean {
-		if (isStreaming.value || isCompletionInProgress.value) return false
-		const trimmed = (text || '').trim()
-		if (!trimmed) return false
-		onSubmitCompletion({ text: trimmed, mentions: [], mode: currentPromptMode.value })
-		return true
+	// False when the message was not sent: a run is busy, or a permission-mode
+	// switch could not be saved (the run would read another mode).
+	sendMessage(text: string): Promise<boolean> {
+		return sendFromOutsideTheBox((text || '').trim())
 	},
 })
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
@@ -4590,7 +4589,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'auto_policy_decided') {
 							;(lastBlock.tool_execution as any).auto_policy = {
 								approved: !!payload.payload.approved,
-								reason: payload.payload.reason || ''
+								reason: payload.payload.reason || '',
+								// Who decided (mode, read-only rule, judge…), for the card's label.
+								decided_by: payload.payload.decided_by || null
 							}
 						}
 
@@ -6162,17 +6163,32 @@ async function rerunPrompt(m: ChatMessage) {
 	else onSubmitCompletion(payload)
 }
 
+// A starter or follow-up question is sent here, not through the box: wait for
+// a permission-mode switch still being saved (the run reads the stored mode),
+// and send nothing if that save failed (the box's toast says so).
+async function permissionModeSettled(): Promise<boolean> {
+	const settled = promptBoxRef.value?.permissionModeSettled
+	return settled ? await settled() : true
+}
+
+// One such send at a time: nothing is sent while a run is starting or
+// running, also not by a second click (or an app's second message) that
+// waited for the same save as the first.
+async function sendFromOutsideTheBox(text: string): Promise<boolean> {
+	if (!text || isStreaming.value || isCompletionInProgress.value) return false
+	if (!await permissionModeSettled()) return false
+	// A run may have started while this waited.
+	if (isStreaming.value || isCompletionInProgress.value) return false
+	onSubmitCompletion({ text, mentions: [], mode: currentPromptMode.value })
+	return true
+}
+
 function handleExampleClick(starter: string) {
-	if (starter) {
-		onSubmitCompletion({ text: starter, mentions: [], mode: currentPromptMode.value });
-	}
+	return sendFromOutsideTheBox(starter)
 }
 
 function handleFollowUpClick(question: string) {
-	if (isStreaming.value || isCompletionInProgress.value) return
-	if (question) {
-		onSubmitCompletion({ text: question, mentions: [], mode: currentPromptMode.value });
-	}
+	return sendFromOutsideTheBox(question)
 }
 
 // Handlers for feedback-triggered instruction suggestions
