@@ -1880,7 +1880,9 @@ class AgentV2:
         first (``skip_ids``): that one they can fix.
         """
         try:
-            from app.ai.tools.implementations.agent_focus_common import agent_is_unreachable
+            from app.ai.tools.implementations.agent_focus_common import (
+                agent_is_unreachable, agent_unreachable_since, format_since,
+            )
             agents = [
                 ds for ds in (getattr(self, "_signin_candidates", None) or [])
                 if str(ds.id) not in skip_ids and agent_is_unreachable(ds)
@@ -1895,9 +1897,11 @@ class AgentV2:
             from app.ai.context.agent_roster import load_agent_one_liners, render_unreachable_agents_xml
             user = getattr(self.head_completion, "user", None) if self.head_completion else None
             one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
-            xml = render_unreachable_agents_xml(
-                [(str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), "")) for ds in agents]
-            )
+            xml = render_unreachable_agents_xml([
+                (str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), ""),
+                 format_since(agent_unreachable_since(ds)))
+                for ds in agents
+            ])
             return ids, xml
         except Exception:
             logger.exception("[agent] unreachable-agent block render failed")

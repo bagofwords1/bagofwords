@@ -100,6 +100,21 @@ def agent_is_unreachable(ds: Any) -> bool:
     )
 
 
+def agent_unreachable_since(ds: Any):
+    """When an unreachable agent's last connection went down (UTC), or None
+    when that is not known for every connection. The agent was still usable
+    through whichever connection went down last, so that one dates it."""
+    stamps = [getattr(c, "unreachable_since", None) for c in (getattr(ds, "connections", None) or [])]
+    if not stamps or any(s is None for s in stamps):
+        return None
+    return max(stamps)
+
+
+def format_since(stamp) -> Optional[str]:
+    """A stable, minute-precision UTC stamp for prompts and tool results."""
+    return stamp.strftime("%Y-%m-%dT%H:%MZ") if stamp else None
+
+
 async def folder_branch_agents(db, organization: Any, user: Any, report: Any) -> Tuple[List[Any], bool]:
     """``(agents, queryable)`` for a folder-scoped report: every agent the user
     can access in the report's folders (plus its pins), BEFORE the sign-in

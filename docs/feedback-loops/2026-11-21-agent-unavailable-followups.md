@@ -127,6 +127,29 @@ Evidence: `media/pr/agent-unavailable/` (`*-before.png`, `*-after.png`,
   agent that needs sign-in; `create_data` / `inspect_data` say why no source
   could be connected.
 
+## Addendum — when the outage started
+
+The connection-alert work tells admins that a shared connection went down but
+stores no time for it (`last_connection_checked_at` moves on every probe, and
+`last_down_alert_at` is the email's time). `connections.unreachable_since` now
+records it: set by the probe that deactivates the connection, unchanged by the
+failed probes that follow, cleared on the first success.
+
+It reaches the model as `since="2026-11-21T18:02Z"` on the agent in
+`<agents_unreachable>`, on the connection in `<unavailable_connections>` (the
+partial-outage case), and as `since` in MCP `get_context`'s
+`unavailable_agents`. Only the start is given, at minute precision: it is the
+same on every turn of an outage, so the cached prompt prefix stays valid. The
+time of the last probe is left out for that reason. A connection that was
+already down when the column was added has no start time, and none is claimed.
+
+```bash
+uv run pytest tests/e2e/test_connection_transient_failures.py tests/e2e/test_agent_unavailable.py -m e2e --db=sqlite -q -k outage
+```
+
+Not re-run through the UI; the `<unavailable_connections>` attribute has no
+test of its own.
+
 ## What this proves / notes
 
 - The planner is told about every agent a run could not load for a reason the

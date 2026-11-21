@@ -237,6 +237,12 @@ def _cap_keeping_cached(tables, top_k: int):
 
 logger = logging.getLogger(__name__)
 
+def _since_stamp(connection) -> Optional[str]:
+    """When an unreachable connection went down, as a stable UTC minute."""
+    from app.ai.tools.implementations.agent_focus_common import format_since
+    return format_since(getattr(connection, "unreachable_since", None))
+
+
 class SchemaContextBuilder:
     """
     Builds database schema context for agent execution as a structured object.
@@ -659,7 +665,10 @@ class SchemaContextBuilder:
                     # rather than silently emptied.
                     if active_only and not conn_is_active:
                         if conn_id:
-                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
+                            unhealthy_conns.setdefault(conn_id, {
+                                "name": conn_name, "type": conn_type,
+                                "since": _since_stamp(getattr(ct, 'connection', None)),
+                            })
                         continue
 
                     normalized.append({
@@ -721,7 +730,10 @@ class SchemaContextBuilder:
                     # silently emptied when a sibling connection is still live.
                     if active_only and not conn_is_active:
                         if conn_id:
-                            unhealthy_conns.setdefault(conn_id, {"name": conn_name, "type": conn_type})
+                            unhealthy_conns.setdefault(conn_id, {
+                                "name": conn_name, "type": conn_type,
+                                "since": _since_stamp(getattr(ct, 'connection', None)),
+                            })
                         continue
 
                     normalized.append({

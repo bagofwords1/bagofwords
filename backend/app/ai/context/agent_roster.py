@@ -332,14 +332,20 @@ def render_signin_required_xml(agents: List[Tuple], cap: int = SIGNIN_REQUIRED_C
     return "\n".join(lines)
 
 
-def render_unreachable_agents_xml(agents: List[Tuple[str, str, str]], cap: int = SIGNIN_REQUIRED_CAP) -> str:
+def render_unreachable_agents_xml(agents: List[Tuple], cap: int = SIGNIN_REQUIRED_CAP) -> str:
     """``<agents_unreachable>`` — agents whose connection is down right now.
 
-    ``agents`` is ``[(id, name, one_liner), ...]``. Every connection of these
-    agents is flagged unreachable, so the run has no client for them and their
-    schema is withheld. Unlike a missing sign-in the user cannot fix this, so
-    there is no tool to call: the planner says so instead of answering from
-    another agent or claiming the data does not exist.
+    ``agents`` is ``[(id, name, one_liner), ...]`` or, when it is known,
+    ``(id, name, one_liner, since)`` with ``since`` the UTC minute the
+    connection went down. Every connection of these agents is flagged
+    unreachable, so the run has no client for them and their schema is
+    withheld. Unlike a missing sign-in the user cannot fix this, so there is
+    no tool to call: the planner says so instead of answering from another
+    agent or claiming the data does not exist.
+
+    Only the start of the outage is given, never the time of the last probe:
+    it is the same on every turn of the outage, so it does not invalidate the
+    cached prompt the way a value that moves every few minutes would.
     """
     if not agents:
         return ""
@@ -350,11 +356,16 @@ def render_unreachable_agents_xml(agents: List[Tuple[str, str, str]], cap: int =
         "their data is NOT available in this run. If answering needs one of them, do not "
         "answer from another agent and do not guess: tell the user that the agent is "
         "temporarily unreachable and that an admin needs to check its connection, then "
-        "stop. Never mention these agents unless the request needs one."
+        "stop. `since` is when the connection went down (UTC): pass it on when present, "
+        "so the user can tell a blip from a long outage. Never mention these agents "
+        "unless the request needs one."
     )
-    for aid, name, one_liner in shown:
+    for item in shown:
+        aid, name, one_liner = item[0], item[1], item[2]
+        since = item[3] if len(item) > 3 else None
         body = _xml_escape(one_liner) if one_liner else ""
-        lines.append(f'  <agent id="{_xml_escape(aid)}" name={quoteattr(name or "")}>{body}</agent>')
+        since_attr = f' since="{_xml_escape(since)}"' if since else ""
+        lines.append(f'  <agent id="{_xml_escape(aid)}" name={quoteattr(name or "")}{since_attr}>{body}</agent>')
     if len(agents) > len(shown):
         lines.append(f"  <more count=\"{len(agents) - len(shown)}\"/>")
     lines.append("</agents_unreachable>")
