@@ -1,8 +1,10 @@
 <template>
   <div data-testid="system-logs-page">
-    <!-- Delete-all sits in the page header (settings shell). -->
+    <!-- Delete-all sits in the page header (settings shell); nothing to
+         delete while the feature is turned off. -->
     <Teleport to="#settings-page-actions" defer>
       <UButton
+        v-if="!disabled"
         color="red"
         variant="soft"
         size="xs"
@@ -16,12 +18,17 @@
       </UButton>
     </Teleport>
 
-    <div v-if="loadError" class="rounded-lg border border-line p-4 text-xs text-red-600 dark:text-red-400" data-testid="system-logs-load-error">
+    <!-- Opened by URL while the deployment has the feature turned off. -->
+    <div v-if="disabled" class="rounded-lg border border-line bg-surface p-4 text-xs text-ink-2" data-testid="system-logs-disabled">
+      {{ loadError }}
+    </div>
+
+    <div v-else-if="loadError" class="rounded-lg border border-line p-4 text-xs text-red-600 dark:text-red-400" data-testid="system-logs-load-error">
       {{ loadError }}
     </div>
 
     <template v-else>
-      <!-- Where the logs are kept. Recording is always on. -->
+      <!-- Where the logs are kept. While the feature is on, recording is always on. -->
       <div v-if="status" class="rounded-lg border border-line bg-surface p-4 mb-4 flex flex-col gap-1.5">
         <p class="text-xs text-ink-2" data-testid="system-logs-retention">
           {{ $t('settings.systemLogs.retention', { days: status.retention_days, used: formatBytes(status.size_bytes), max: formatBytes(status.max_size_bytes) }) }}
@@ -178,7 +185,7 @@ type LogStatus = {
 
 const { t, locale } = useI18n({ useScope: 'global' })
 const toast = useToast()
-const { getErrorMessage } = useErrorMessage()
+const { getErrorMessage, getErrorCode } = useErrorMessage()
 
 const status = ref<LogStatus | null>(null)
 const entries = ref<LogEntry[]>([])
@@ -186,6 +193,8 @@ const hasMore = ref(false)
 const loading = ref(false)
 const deleting = ref(false)
 const loadError = ref<string | null>(null)
+// The server answered system_logs.disabled: not an error, a configuration.
+const disabled = ref(false)
 const rangeError = ref<string | null>(null)
 const showDeleteModal = ref(false)
 const logBox = ref<HTMLElement | null>(null)
@@ -253,6 +262,7 @@ async function loadStatus() {
     status.value = res.data.value as LogStatus
     loadError.value = null
   } else {
+    disabled.value = getErrorCode(res.error.value) === 'system_logs.disabled'
     loadError.value = getErrorMessage(res.error.value, t('settings.systemLogs.loadFailed'))
   }
 }

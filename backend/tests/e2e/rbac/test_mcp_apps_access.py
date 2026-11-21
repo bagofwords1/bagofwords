@@ -221,6 +221,28 @@ def test_write_capable_app_call_needs_confirmation(test_client, world, tmp_path,
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("hints", [
+    {"annotations": {"readOnlyHint": True, "destructiveHint": True}},  # destructive wins
+    {"readOnlyHint": True, "destructiveHint": True},  # hints stored at the top level
+])
+def test_an_app_call_to_a_tool_marked_destructive_needs_confirmation(test_client, world, hints):
+    from app.dependencies import async_session_maker
+    from app.models.connection_tool import ConnectionTool
+
+    async def mark():
+        async with async_session_maker() as db:
+            t = await db.get(ConnectionTool, world["tools"]["refresh_sales"]["id"])
+            meta = {k: v for k, v in (t.metadata_json or {}).items() if k not in ("annotations", "readOnlyHint")}
+            t.metadata_json = {**meta, **hints}
+            await db.commit()
+
+    asyncio.run(mark())
+    r = _rpc(test_client, world, "owner", "tools/call", {"name": "refresh_sales", "arguments": {"quarter": "Q1"}})
+    assert r.json()["error"]["message"] == "confirmation_required"
+    assert r.json()["error"]["data"]["read_only"] is False
+
+
+@pytest.mark.e2e
 def test_policy_deny_blocks_app_calls(test_client, world):
     tool_id = world["tools"]["refresh_sales"]["id"]
     from app.dependencies import async_session_maker

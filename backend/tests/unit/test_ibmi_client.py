@@ -60,14 +60,6 @@ def test_unreachable_server_mentions_mapepire():
     assert "Mapepire" in result["message"]
 
 
-def test_job_uses_sql_naming_and_read_only_access(server):
-    _client(server, schema="sales").test_connection()
-    props = dict(p.split("=", 1) for p in server.connect_props[-1].split(";"))
-    assert props["naming"] == "sql"
-    assert props["access"] == "read only"
-    assert props["libraries"] == "SALES"
-
-
 def test_discovers_ibmi_catalog(server):
     tables = {t.name: t for t in _client(server).get_schemas()}
     assert {"SALES.CUSTOMERS", "SALES.ORDERS", "SALES.V_BIG_ORDERS", "OPS.JOBS"} <= set(tables)

@@ -21,9 +21,9 @@ PENDING_CONFIRMATION_META: Dict[str, dict] = {}
 def register_confirmation(confirmation_id: str, meta: dict | None = None) -> asyncio.Future:
     """Create (but don't await) a pending confirmation future.
 
-    Use with ``resolve_confirmation`` and ``discard_confirmation``. Unlike
-    ``wait_for_confirmation`` this never auto-approves — the caller owns the
-    wait loop and the timeout semantics.
+    Use with ``resolve_confirmation`` and ``discard_confirmation``. The caller
+    owns the wait loop; an unanswered confirmation must be treated as refused
+    (there is deliberately no auto-approve-on-timeout helper).
     """
     loop = asyncio.get_running_loop()
     future: asyncio.Future = loop.create_future()
@@ -40,23 +40,6 @@ def get_confirmation_meta(confirmation_id: str) -> dict | None:
 def discard_confirmation(confirmation_id: str) -> None:
     PENDING_CONFIRMATIONS.pop(confirmation_id, None)
     PENDING_CONFIRMATION_META.pop(confirmation_id, None)
-
-
-async def wait_for_confirmation(confirmation_id: str, timeout: float = 5.0) -> dict:
-    """Wait for a user confirmation response, auto-approving on timeout."""
-    loop = asyncio.get_running_loop()
-    future: asyncio.Future = loop.create_future()
-    PENDING_CONFIRMATIONS[confirmation_id] = future
-    logger.info(f"Confirmation {confirmation_id}: waiting (timeout={timeout}s, pending={len(PENDING_CONFIRMATIONS)})")
-    try:
-        result = await asyncio.wait_for(future, timeout=timeout)
-        logger.info(f"Confirmation {confirmation_id}: resolved by user — {result}")
-        return result
-    except asyncio.TimeoutError:
-        logger.info(f"Confirmation {confirmation_id}: timed out, auto-approving")
-        return {"approved": True}
-    finally:
-        PENDING_CONFIRMATIONS.pop(confirmation_id, None)
 
 
 def resolve_confirmation(confirmation_id: str, response: dict) -> bool:

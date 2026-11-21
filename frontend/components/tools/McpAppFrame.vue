@@ -114,7 +114,7 @@ import {
 interface McpAppHost {
   // Post a message into this conversation as the user. Returns false when the
   // chat cannot take one now (a run is in progress).
-  sendMessage: (text: string) => boolean
+  sendMessage: (text: string) => boolean | Promise<boolean>
 }
 
 const props = defineProps<{
@@ -291,7 +291,7 @@ async function handleRequest(msg: JsonRpcMessage) {
       if (!canInteract || !host) return fail(id, -32000, 'This conversation does not accept messages from apps here.')
       const text = messageText(params)
       if (!text) return fail(id, -32602, 'Only text messages are supported.')
-      if (!host.sendMessage(text)) return fail(id, -32000, 'The assistant is busy; try again when it has finished.')
+      if (!await host.sendMessage(text)) return fail(id, -32000, 'The assistant is busy; try again when it has finished.')
       return respond(id, {})
     }
     case 'ui/update-model-context': {

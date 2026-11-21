@@ -16,13 +16,15 @@ from app.models.role_assignment import RoleAssignment
 from app.models.resource_grant import ResourceGrant
 from app.models.user import User
 from app.models.membership import Membership
-from app.core.permission_resolver import assert_full_admin_exists, resolve_permissions, FULL_ADMIN
+from app.core.permission_resolver import (
+    assert_full_admin_exists, resolve_permissions, invalidate_rbac_memo, FULL_ADMIN, GROUP_MANAGER_PERMISSION,
+)
 from app.errors import AppError, ErrorCode
 from app.schemas.rbac_schema import (
     RoleCreate, RoleUpdate, RoleSchema, RoleResourceGrantInput, RoleResourceGrantOutput,
     GroupCreate, GroupUpdate, GroupSchema, GroupMemberSchema,
     RoleAssignmentCreate, RoleAssignmentSchema,
-    ResourceGrantCreate, ResourceGrantUpdate, ResourceGrantSchema,
+    ResourceGrantCreate, ResourceGrantUpdate, ResourceGrantSchema, GROUP_RESOURCE_TYPE,
 )
 
 logger = logging.getLogger(__name__)
@@ -93,13 +95,19 @@ async def assert_principal_in_org(db: AsyncSession, org_id: str, principal_type:
         raise HTTPException(status_code=404, detail=f"{str(principal_type).capitalize()} not found")
 
 
+def _refuse_group_grant(grant) -> None:
+    """Group-manager grants change only through promote/demote."""
+    if grant.resource_type == GROUP_RESOURCE_TYPE:
+        raise HTTPException(status_code=422, detail="Group managers are set on the group itself")
+
+
 class RBACService:
 
     # ── Escalation guard ─────────────────────────────────────────────────
 
     async def _assert_can_grant(
         self, db: AsyncSession, org_id: str, actor_id: Optional[str], *,
-        permissions=(), resource_grants=(), action: str,
+        permissions=(), resource_grants=(), action: str, folder_requires_manage: bool = True,
     ) -> None:
         """Deny granting anything the acting user does not already hold.
 
@@ -107,6 +115,12 @@ class RBACService:
         a non-full-admin may only grant org permissions and resource grants
         that are a subset of their own effective permissions. ``actor_id=None``
         means an internal/system caller and skips the check.
+
+        ``folder_requires_manage`` (default) demands `manage` on any folder the
+        grant touches, the rule for org-wide delegates who share folders. A
+        group manager passes ``False``: they add people to a group whose
+        folder access they already hold, so each permission is checked at the
+        level the group carries it ("Can query" stays "Can query").
         """
         from app.models.folder import Folder
 
@@ -128,7 +142,8 @@ class RBACService:
             return
         missing = sorted({p for p in permissions if not resolved.has_org_permission(p)})
         for g in resource_grants:
-            if g.resource_type == "folder" and not resolved.has_resource_permission("folder", g.resource_id, "manage"):
+            if (folder_requires_manage and g.resource_type == "folder"
+                    and not resolved.has_resource_permission("folder", g.resource_id, "manage")):
                 missing.append("folder.manage")
             for p in g.permissions or []:
                 if not resolved.has_resource_permission(g.resource_type, g.resource_id, p):
@@ -520,9 +535,12 @@ class RBACService:
             elif membership_id:
                 pending_by_group[group_id].append(membership_id)
 
+        managers_by_group = await self._managers_by_group(db, org_id, groups, users_by_group)
+
         schemas = []
         for g in groups:
             schema = GroupSchema.model_validate(g)
+            schema.manager_user_ids = sorted(managers_by_group.get(g.id, ()))
             schema.member_user_ids = users_by_group[g.id]
             schema.member_membership_ids = pending_by_group[g.id]
             schema.member_count = len(schema.member_user_ids) + len(schema.member_membership_ids)
@@ -561,6 +579,11 @@ class RBACService:
         from sqlalchemy import delete
         from app.models.artifact_release import ArtifactShare
         await db.execute(delete(ArtifactShare).where(ArtifactShare.group_id == group.id))
+        await db.execute(delete(ResourceGrant).where(
+            ResourceGrant.organization_id == org_id,
+            ResourceGrant.resource_type == GROUP_RESOURCE_TYPE,
+            ResourceGrant.resource_id == group.id,
+        ))
         members = (await db.execute(
             select(GroupMembership.user_id).where(GroupMembership.group_id == group.id,
                                                   GroupMembership.user_id.is_not(None))
@@ -570,7 +593,7 @@ class RBACService:
         return [str(m) for m in members]
 
     async def list_group_members(self, db: AsyncSession, org_id: str, group_id: str) -> List[GroupMemberSchema]:
-        await self._get_group(db, org_id, group_id)
+        group = await self._get_group(db, org_id, group_id)
         result = await db.execute(
             select(GroupMembership)
             .options(
@@ -583,6 +606,9 @@ class RBACService:
             )
         )
         memberships = result.scalars().all()
+        managers = (await self._managers_by_group(
+            db, org_id, [group], {group_id: [m.user_id for m in memberships if m.user_id]}
+        )).get(group_id, set())
         out: List[GroupMemberSchema] = []
         for m in memberships:
             if m.user_id:
@@ -591,6 +617,7 @@ class RBACService:
                     user_name=m.user.name if m.user else None,
                     user_email=m.user.email if m.user else None,
                     pending=False,
+                    is_manager=m.user_id in managers,
                 ))
             elif m.membership_id:
                 out.append(GroupMemberSchema(
@@ -603,12 +630,15 @@ class RBACService:
     async def add_group_member(
         self, db: AsyncSession, org_id: str, group_id: str,
         user_id: Optional[str] = None, membership_id: Optional[str] = None,
-        actor_id: Optional[str] = None,
+        actor_id: Optional[str] = None, as_manager: bool = False,
     ) -> List[str]:
         """Returns the registered user whose groups changed (none for a
         pending invite), for viewer_result_freshness.purge_members_results
         once the change is audited."""
-        await self._get_editable_group(db, org_id, group_id)
+        if as_manager:
+            await self._get_manageable_group(db, org_id, group_id)
+        else:
+            await self._get_editable_group(db, org_id, group_id)
 
         # Joining a group confers its roles and grants — same rule as assigning them.
         await self._assert_not_self(db, org_id, actor_id, user_id, action="group.member_add")
@@ -617,7 +647,7 @@ class RBACService:
                 db, org_id, actor_id,
                 permissions=await self._group_role_permissions(db, org_id, group_id),
                 resource_grants=await self._group_resource_grants(db, org_id, group_id),
-                action="group.member_add",
+                action="group.member_add", folder_requires_manage=not as_manager,
             )
 
         if bool(user_id) == bool(membership_id):
@@ -643,6 +673,9 @@ class RBACService:
             if existing.scalar_one_or_none():
                 raise HTTPException(status_code=409, detail="User is already a member of this group")
             db.add(GroupMembership(group_id=group_id, user_id=user_id))
+            # Joining always starts as a member: drop any manager grant left from
+            # an earlier membership, whatever path left it behind.
+            await self._drop_manager_grant(db, org_id, group_id, user_id)
         else:
             # Pending invite — must be an unregistered membership in this org.
             await self._get_pending_membership(db, org_id, membership_id)
@@ -659,11 +692,32 @@ class RBACService:
         await db.commit()
         return [str(user_id)] if user_id else []
 
-    async def remove_group_member(self, db: AsyncSession, org_id: str, group_id: str, principal_id: str) -> List[str]:
+    async def remove_group_member(
+        self, db: AsyncSession, org_id: str, group_id: str, principal_id: str,
+        actor_id: Optional[str] = None, as_manager: bool = False,
+    ) -> List[str]:
         """Remove a group member by either user id or pending membership id.
         Returns the registered user whose groups changed, as
-        add_group_member."""
-        await self._get_editable_group(db, org_id, group_id)
+        add_group_member.
+
+        A group manager may remove members and leave the group themselves, but
+        not remove another manager — only an org admin can, so managers can't
+        push each other out.
+        """
+        if as_manager:
+            group = await self._get_manageable_group(db, org_id, group_id)
+            if principal_id != actor_id and principal_id in (await self._managers_by_group(
+                db, org_id, [group], {group_id: [principal_id]}
+            )).get(group_id, set()):
+                await self._deny(db, org_id, actor_id, "group.member_remove", {"reason": "target_is_manager"})
+                raise AppError.forbidden(
+                    ErrorCode.GROUP_MANAGER_PROTECTED,
+                    "Only an organization admin can remove a group manager.",
+                )
+        else:
+            await self._get_editable_group(db, org_id, group_id)
+        # Locked so a concurrent promotion of this member serializes with the
+        # removal (see promote_group_manager).
         result = await db.execute(
             select(GroupMembership).where(
                 GroupMembership.group_id == group_id,
@@ -671,15 +725,157 @@ class RBACService:
                     GroupMembership.user_id == principal_id,
                     GroupMembership.membership_id == principal_id,
                 ),
-            )
+            ).with_for_update()
         )
         gm = result.scalar_one_or_none()
         if not gm:
             raise HTTPException(status_code=404, detail="Group membership not found")
-        user_id = gm.user_id
+        removed_user_id = gm.user_id
         await db.delete(gm)
+        if removed_user_id:
+            # Managing ends with membership; re-joining later starts as a member.
+            await self._drop_manager_grant(db, org_id, group_id, removed_user_id)
         await db.commit()
-        return [str(user_id)] if user_id else []
+        return [str(removed_user_id)] if removed_user_id else []
+
+    # ── Group managers ───────────────────────────────────────────────────
+
+    async def group_admin_mode(
+        self, db: AsyncSession, org_id: str, actor_id: str, group_id: str, *, action: str,
+        allow_manager: bool = True,
+    ) -> bool:
+        """Authorize a membership action on one group; return True when the
+        actor acts as that group's manager rather than as an org-wide admin.
+
+        Org-wide ``manage_members`` covers every group. Otherwise the actor must
+        manage *this* group (``managed_group_ids`` is the source of truth, via
+        the resolver). Anything else is a 403, audited.
+        """
+        resolved = await resolve_permissions(db, actor_id, org_id)
+        if resolved.has_org_permission("manage_members"):
+            return False
+        if allow_manager and GROUP_MANAGER_PERMISSION in resolved.resource_permissions.get(
+            (GROUP_RESOURCE_TYPE, str(group_id)), ()
+        ):
+            return True
+        await self._deny(db, org_id, actor_id, action, {"reason": "not_group_manager", "group_id": str(group_id)})
+        raise HTTPException(status_code=403, detail="You don't manage this group")
+
+    async def _get_manageable_group(self, db: AsyncSession, org_id: str, group_id: str) -> Group:
+        """A group whose membership a group manager may change: hand-managed only."""
+        group = await self._get_group(db, org_id, group_id)
+        if group.external_provider:
+            raise AppError.conflict(
+                ErrorCode.GROUP_MANAGED_EXTERNALLY,
+                "This group is synced from your identity provider; change its members there.",
+            )
+        return group
+
+    async def _managers_by_group(self, db: AsyncSession, org_id: str, groups, users_by_group: dict) -> dict:
+        """group id → user ids that currently manage it (live members of a
+        hand-managed group holding a user-level manager grant)."""
+        eligible = {g.id for g in groups if not g.external_provider}
+        if not eligible:
+            return {}
+        rows = (await db.execute(
+            select(ResourceGrant.resource_id, ResourceGrant.principal_id, ResourceGrant.permissions).where(
+                ResourceGrant.organization_id == org_id,
+                ResourceGrant.resource_type == GROUP_RESOURCE_TYPE,
+                ResourceGrant.resource_id.in_(eligible),
+                ResourceGrant.principal_type == "user",
+                ResourceGrant.deleted_at.is_(None),
+            )
+        )).all()
+        out: dict[str, set] = {}
+        for gid, uid, perms in rows:
+            if isinstance(perms, list) and GROUP_MANAGER_PERMISSION in perms and uid in set(users_by_group.get(gid, ())):
+                out.setdefault(gid, set()).add(uid)
+        return out
+
+    async def _drop_manager_grant(self, db: AsyncSession, org_id: str, group_id: str, user_id: str) -> None:
+        await db.execute(delete(ResourceGrant).where(
+            ResourceGrant.organization_id == org_id,
+            ResourceGrant.resource_type == GROUP_RESOURCE_TYPE,
+            ResourceGrant.resource_id == group_id,
+            ResourceGrant.principal_type == "user",
+            ResourceGrant.principal_id == user_id,
+        ))
+        invalidate_rbac_memo(db, user_id, org_id)
+
+    async def promote_group_manager(
+        self, db: AsyncSession, org_id: str, group_id: str, user_id: str, actor_id: Optional[str] = None,
+        as_manager: bool = False,
+    ) -> bool:
+        """Make a registered member of a hand-managed group its manager.
+
+        Returns False when they already were (the call is idempotent).
+
+        A manager can admit people to the group, so promoting one is held to the
+        same rule as adding a member: the actor must already hold everything the
+        group carries (folder grants at `manage` for org-wide delegates, at the
+        group's own level for a manager of the group).
+
+        The member row is locked (FOR UPDATE) for the rest of the transaction,
+        and ``remove_group_member`` locks the same row, so a promotion and a
+        removal of the same person serialize: the grant is either written before
+        the removal (which then deletes it) or the promotion finds no member.
+        """
+        group = await self._get_manageable_group(db, org_id, group_id)
+        await self._assert_not_self(db, org_id, actor_id, user_id, action="group.manager_promote")
+        if actor_id is not None:
+            await self._assert_can_grant(
+                db, org_id, actor_id,
+                permissions=await self._group_role_permissions(db, org_id, group_id),
+                resource_grants=await self._group_resource_grants(db, org_id, group_id),
+                action="group.manager_promote", folder_requires_manage=not as_manager,
+            )
+        is_member = (await db.execute(
+            select(GroupMembership.id)
+            .join(Membership, and_(
+                Membership.user_id == GroupMembership.user_id,
+                Membership.organization_id == org_id,
+                Membership.deleted_at.is_(None),
+            ))
+            .where(
+                GroupMembership.group_id == group.id,
+                GroupMembership.user_id == user_id,
+                GroupMembership.deleted_at.is_(None),
+            )
+            .with_for_update(of=GroupMembership)
+        )).first()
+        if is_member is None:
+            raise AppError(
+                ErrorCode.GROUP_MANAGER_NOT_MEMBER,
+                "Only registered members of the group can be made managers.",
+                status_code=422,
+            )
+        existing = (await db.execute(select(ResourceGrant).where(
+            ResourceGrant.organization_id == org_id,
+            ResourceGrant.resource_type == GROUP_RESOURCE_TYPE,
+            ResourceGrant.resource_id == group.id,
+            ResourceGrant.principal_type == "user",
+            ResourceGrant.principal_id == user_id,
+            ResourceGrant.deleted_at.is_(None),
+        ))).scalar_one_or_none()
+        if existing is not None and GROUP_MANAGER_PERMISSION in (existing.permissions or []):
+            return False
+        if existing is not None:
+            existing.permissions = [GROUP_MANAGER_PERMISSION]
+            flag_modified(existing, "permissions")
+        else:
+            db.add(ResourceGrant(
+                organization_id=org_id, resource_type=GROUP_RESOURCE_TYPE, resource_id=group.id,
+                principal_type="user", principal_id=user_id, permissions=[GROUP_MANAGER_PERMISSION],
+            ))
+        invalidate_rbac_memo(db, user_id, org_id)
+        await db.commit()
+        return True
+
+    async def demote_group_manager(self, db: AsyncSession, org_id: str, group_id: str, user_id: str) -> None:
+        """Remove the manager role; the person stays a member of the group."""
+        await self._get_group(db, org_id, group_id)
+        await self._drop_manager_grant(db, org_id, group_id, user_id)
+        await db.commit()
 
     async def _get_pending_membership(self, db: AsyncSession, org_id: str, membership_id: str) -> Membership:
         """Return a pending (unregistered) membership in this org, or 404/400."""
@@ -870,6 +1066,10 @@ class RBACService:
         )
         if resource_type:
             stmt = stmt.where(ResourceGrant.resource_type == resource_type)
+        else:
+            # Group-manager grants surface on the group (manager_user_ids), not
+            # here: callers of this listing render resource access.
+            stmt = stmt.where(ResourceGrant.resource_type != GROUP_RESOURCE_TYPE)
         if resource_id:
             stmt = stmt.where(ResourceGrant.resource_id == resource_id)
         if principal_type:
@@ -927,6 +1127,7 @@ class RBACService:
         grant = result.scalar_one_or_none()
         if not grant:
             raise HTTPException(status_code=404, detail="Resource grant not found")
+        _refuse_group_grant(grant)
 
         grant.permissions = data.permissions
         await db.commit()
@@ -944,6 +1145,7 @@ class RBACService:
         grant = result.scalar_one_or_none()
         if not grant:
             raise HTTPException(status_code=404, detail="Resource grant not found")
+        _refuse_group_grant(grant)
 
         await db.delete(grant)
         await db.commit()

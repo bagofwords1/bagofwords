@@ -221,9 +221,13 @@ async def delete_group(
     await viewer_result_freshness.purge_members_results(db, organization_id=str(organization_id), user_ids=members)
 
 
+# Group membership routes are open to org-wide `manage_members` holders and to
+# the managers of that one group. The door is `view_members` (every member, and
+# it binds the caller to the org); `group_admin_mode` then decides per group.
+
 @router.get("/organizations/{organization_id}/groups/{group_id}/members", response_model=List[GroupMemberSchema])
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_members")
+@requires_permission("view_members")
 async def list_group_members(
     organization_id: str,
     group_id: str,
@@ -231,12 +235,13 @@ async def list_group_members(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    await rbac_service.group_admin_mode(db, organization_id, current_user.id, group_id, action="group.member_list")
     return await rbac_service.list_group_members(db, organization_id, group_id)
 
 
 @router.post("/organizations/{organization_id}/groups/{group_id}/members", status_code=201)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_members")
+@requires_permission("view_members")
 async def add_group_member(
     organization_id: str,
     group_id: str,
@@ -246,16 +251,20 @@ async def add_group_member(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
+    as_manager = await rbac_service.group_admin_mode(
+        db, organization_id, current_user.id, group_id, action="group.member_add",
+    )
     changed = await rbac_service.add_group_member(
         db, organization_id, group_id,
         user_id=data.user_id, membership_id=data.membership_id,
-        actor_id=current_user.id,
+        actor_id=current_user.id, as_manager=as_manager,
     )
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="group.member_added",
             user_id=current_user.id, resource_type="group", resource_id=group_id,
-            details={"user_id": data.user_id, "membership_id": data.membership_id},
+            details={"user_id": data.user_id, "membership_id": data.membership_id,
+                     "as_group_manager": as_manager},
             request=request,
         )
     except Exception:
@@ -265,7 +274,7 @@ async def add_group_member(
 
 @router.delete("/organizations/{organization_id}/groups/{group_id}/members/{principal_id}", status_code=204)
 @require_enterprise(feature="custom_roles")
-@requires_permission("manage_members")
+@requires_permission("view_members")
 async def remove_group_member(
     organization_id: str,
     group_id: str,
@@ -275,16 +284,78 @@ async def remove_group_member(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
 ):
-    changed = await rbac_service.remove_group_member(db, organization_id, group_id, principal_id)
+    as_manager = await rbac_service.group_admin_mode(
+        db, organization_id, current_user.id, group_id, action="group.member_remove",
+    )
+    changed = await rbac_service.remove_group_member(
+        db, organization_id, group_id, principal_id, actor_id=current_user.id, as_manager=as_manager,
+    )
     try:
         await audit_service.log(
             db=db, organization_id=organization_id, action="group.member_removed",
             user_id=current_user.id, resource_type="group", resource_id=group_id,
-            details={"principal_id": principal_id}, request=request,
+            details={"principal_id": principal_id, "as_group_manager": as_manager}, request=request,
         )
     except Exception:
         pass
     await viewer_result_freshness.purge_members_results(db, organization_id=str(organization_id), user_ids=changed)
+
+
+@router.put("/organizations/{organization_id}/groups/{group_id}/managers/{user_id}", status_code=204)
+@require_enterprise(feature="custom_roles")
+@requires_permission("view_members")
+async def promote_group_manager(
+    organization_id: str,
+    group_id: str,
+    user_id: str,
+    request: Request,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Make a member of the group its manager: org admins and the group's managers."""
+    as_manager = await rbac_service.group_admin_mode(
+        db, organization_id, current_user.id, group_id, action="group.manager_promote",
+    )
+    changed = await rbac_service.promote_group_manager(
+        db, organization_id, group_id, user_id, actor_id=current_user.id, as_manager=as_manager,
+    )
+    if changed:
+        try:
+            await audit_service.log(
+                db=db, organization_id=organization_id, action="group.manager_promoted",
+                user_id=current_user.id, resource_type="group", resource_id=group_id,
+                details={"user_id": user_id, "as_group_manager": as_manager}, request=request,
+            )
+        except Exception:
+            pass
+
+
+@router.delete("/organizations/{organization_id}/groups/{group_id}/managers/{user_id}", status_code=204)
+@require_enterprise(feature="custom_roles")
+@requires_permission("view_members")
+async def demote_group_manager(
+    organization_id: str,
+    group_id: str,
+    user_id: str,
+    request: Request,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Org admins only: managers can't demote each other."""
+    await rbac_service.group_admin_mode(
+        db, organization_id, current_user.id, group_id, action="group.manager_demote", allow_manager=False,
+    )
+    await rbac_service.demote_group_manager(db, organization_id, group_id, user_id)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization_id, action="group.manager_demoted",
+            user_id=current_user.id, resource_type="group", resource_id=group_id,
+            details={"user_id": user_id}, request=request,
+        )
+    except Exception:
+        pass
 
 
 # ── Role Assignments ─────────────────────────────────────────────────────

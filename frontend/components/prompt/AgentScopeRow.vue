@@ -3,6 +3,7 @@
       @click="$emit('select')"
       @mouseenter="$emit('hover', $event)"
       @mouseleave="$emit('leave')"
+      data-kbd-option
       data-testid="agent-scope-option"
       :data-agent-name="ds.name"
       :aria-pressed="selected"

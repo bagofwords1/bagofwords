@@ -278,6 +278,7 @@
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
 												<CollapsiblePrompt v-if="m.prompt?.content" class="pt-1">
 													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
+													<ClarifyAnswerCard v-else-if="parseClarifyPrompt(m.prompt.content)" :answers="parseClarifyPrompt(m.prompt.content)!" />
 													<InstructionText
 														v-else
 														:text="m.prompt.content"
@@ -336,7 +337,9 @@
                                     </div>
                                     <div class="assistant-content min-w-0 flex-1 text-start" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
                                         <div class="mb-2 flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
-                                            <bdi dir="ltr">{{ m.model ? responseModelName(m.model) : 'BoW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
+                                            <!-- Placeholder while the model name is unknown; "BOW" only as a last resort (finished rows with no model). -->
+                                            <span v-if="responseModelPending(m)" class="inline-block h-3 w-20 rounded bg-gray-200 dark:bg-gray-700 motion-safe:animate-pulse" aria-hidden="true" data-testid="response-model-pending" />
+                                            <bdi v-else dir="ltr">{{ m.model ? responseModelName(m.model) : 'BOW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
                                         </div>
 									<!-- System message -->
 									<div>
@@ -344,20 +347,10 @@
                                                 :expanded="isRunExpanded(m)" :duration="runFoldDuration(m)"
                                                 :translate="responseT" :has-steps="!!runFold(m)?.steps.length"
                                                 @toggle="toggleRun(m)" />
-                                            <!-- Initial thinking ends when visible text or a tool call arrives. -->
-											<RunActivityToggle
-												v-if="m.status === 'in_progress' && !runFold(m)?.steps.length && !visibleBlocks(m).some(blockHasMessage)"
-												:expanded="isRunExpanded(m)"
-												:duration="runFoldDuration(m)"
-												:translate="responseT"
-												:live="m.status === 'in_progress'"
-												:has-steps="!!runFold(m)?.steps.length"
-												@toggle="toggleRun(m)"
-											/>
 											<!-- Sub-agent waves launched by this turn: one group line per wave -->
 											<SubAgentWaveStrip
 												v-for="w in wavesForMessage(m)"
-												v-show="!runFold(m) || isRunExpanded(m)"
+												v-show="!runFold(m) || isRunExpanded(m) || isWaveLive(w)"
 											:key="'wave-' + w.id"
 											:wave="w"
 											:wave-number="waveNumber(w)"
@@ -431,7 +424,7 @@
 											</div>
 <!-- Keep prose visible when only this verification step is collapsed. -->
                                             <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
-                                                <MarkdownRender :content="answerMarkdown(m, block)" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                                <MarkdownRender :content="answerMarkdown(m, block)" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" :custom-html-tags="FIGURE_TAGS" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
@@ -473,6 +466,7 @@
 									:final="isBlockFinalized(block)"
 									:typewriter="!isBlockFinalized(block)"
 									:render-code-blocks-as-pre="true"
+									:custom-html-tags="FIGURE_TAGS"
 									class="markdown-content"
 								/>
 											</div>
@@ -628,9 +622,8 @@
 
 									</div>
 
-                                    <div v-if="showWaitingIndicator(m) && runFold(m)?.steps.length" class="flex h-6 items-center text-ink" role="status" :aria-label="$t('prompt.working')">
-                                        <span class="h-2.5 w-2.5 rounded-full bg-current animate-pulse motion-reduce:animate-none" aria-hidden="true"></span>
-                                    </div>
+                                    <!-- Run-activity dot: always at the tail, for the whole live run (rules in composables/runWorkingDot.ts), with the elapsed time beside it. -->
+                                    <RunLiveIndicator v-if="showWaitingIndicator(m)" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" data-testid="run-working-dot" />
 
 									<!-- Show status messages for stopped/error completions -->
 									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
@@ -937,6 +930,7 @@
 					:initialMode="report?.mode || 'chat'"
 					:initialModel="report?.model_id || ''"
 					:initialEffort="report?.reasoning_effort || ''"
+					:initialPermissionMode="report?.permission_mode || ''"
 					:textareaContent="prefillText"
 					:latestInProgressCompletion="(isCompletionInProgress || hasInProgressCompletion) ? { hasFirstToken: inProgressHasFirstToken, startedAt: inProgressStartedAt, awaitingInput: inProgressAwaitingInput } : undefined"
 					:isStopping="false"
@@ -1250,14 +1244,17 @@
 <script setup lang="ts">
 import GenericTool from '~/components/tools/GenericTool.vue'
 import RunToolGroupRow from '~/components/RunToolGroupRow.vue'
+import RunLiveIndicator from '~/components/RunLiveIndicator.vue'
 import { useModelLabels } from '~/composables/useModelLabels'
 import ResponseLanguageScope from "~/components/report/ResponseLanguageScope.vue"
 import { ref, shallowRef, nextTick, onMounted, onUnmounted, onBeforeUnmount, provide, watch, computed, type ComponentPublicInstance } from 'vue'
 import { computeBlockGroups } from '~/composables/useBlockGrouping'
 import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/useSteerPlacement'
-import { blockHasMessage, describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
+import { describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
-import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
+import { isRunWorking } from '~/composables/runWorkingDot'
+import { citeText, collectSources, stripCitations, FIGURE_TAGS, type CitationSource } from '~/composables/useCitations'
+import { FIGURE_CONTEXT } from '~/composables/figureModel'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
@@ -1330,6 +1327,7 @@ import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
 import DeleteListRowsTool from '~/components/tools/DeleteListRowsTool.vue'
 import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
+import RequestAgentSigninTool from '~/components/tools/RequestAgentSigninTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
@@ -1368,6 +1366,8 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import ClarifyAnswerCard from '~/components/report/ClarifyAnswerCard.vue'
+import { parseClarifyPrompt } from '~/utils/clarifyPrompt'
 import { isToolRunning } from '~/utils/toolOutcome'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
@@ -1518,12 +1518,25 @@ const { isExcel, excelSelection } = useExcel()
 
 // Home and the picker seed these labels before navigation. Refresh the
 // catalog on direct report loads without delaying the first prompt.
-const { rememberModels, modelLabel: responseModelName } = useModelLabels()
+const { rememberModels, modelLabel: responseModelName, hasModelLabel } = useModelLabels()
+const modelCatalogReady = ref(false)
 onMounted(async () => {
-    // kind=all so a decision model (Auto router upfront pick) has a label too.
-    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
-    if (Array.isArray(data.value)) rememberModels(data.value)
+    try {
+        // kind=all so a decision model (Auto router upfront pick) has a label too.
+        const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
+        if (Array.isArray(data.value)) rememberModels(data.value)
+    } finally {
+        modelCatalogReady.value = true
+    }
 })
+// The assistant header's model name isn't known yet: a live run before the
+// backend stamps its model (Auto/router picks it server-side), or a model id
+// whose display name is still loading. Show a placeholder rather than a
+// "BOW" label that flips to the real name a moment later.
+function responseModelPending(m: ChatMessage): boolean {
+    if (!m.model) return m.status === 'in_progress'
+    return !hasModelLabel(m.model) && !modelCatalogReady.value
+}
 
 // Permissions
 // Agent trace ("debugger") on an assistant message. `view_console` never
@@ -1639,6 +1652,27 @@ function isAwaitingUser(b: any): boolean {
 		['awaiting_confirmation', 'awaiting_approval'].includes(te.progress_stage) &&
 		!isConfirmationAnswered(cid)
 }
+// Work that outlives its tool call and carries its own Stop: an eval run still
+// going (attached to this turn or detached in the background) and a sub-agent
+// still investigating. The run fold never hides these cards.
+const LIVE_SUB_AGENT_STATUSES = new Set(['running', 'pending', 'waiting'])
+const TERMINAL_EVAL_STATUSES = new Set(['success', 'error', 'stopped'])
+function hasRunningStopControl(b: any): boolean {
+	const te = b?.tool_execution
+	if (!te) return false
+	if (te.tool_name === 'delegate') {
+		const id = te.result_json?.sub_agent_id
+		return !!id && LIVE_SUB_AGENT_STATUSES.has(String(subAgentById.value[id]?.status || ''))
+	}
+	if (te.tool_name === 'run_eval') {
+		if (te.status === 'running') return true
+		const rj = te.result_json || {}
+		return !!(rj.detached && rj.run_id) && !TERMINAL_EVAL_STATUSES.has(String(rj.status || 'in_progress'))
+	}
+	return false
+}
+const LIVE_WAVE_STATUSES = new Set(['collecting', 'running', 'firing'])
+const isWaveLive = (w: any): boolean => LIVE_WAVE_STATUSES.has(String(w?.status || ''))
 const inProgressAwaitingInput = computed(() =>
 	messages.value.some(m =>
 		m.role === 'system' && m.status === 'in_progress' &&
@@ -1747,7 +1781,8 @@ const runActivities = computed(() => {
 			breakBefore: (b: any) => steerBreaks.has(String(b.id)),
 			isSuperseded: (b: any) => superseded.includes(String(b.id)),
 			keepOpen: isAwaitingUser,
-			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}|${blocks.filter(isAwaitingUser).map((b: any) => b.id).join(',')}`,
+			keepVisible: hasRunningStopControl,
+			extraKey: `${[...steerBreaks].join(',')}|${superseded.join(',')}|${blocks.filter(isAwaitingUser).map((b: any) => b.id).join(',')}|${blocks.filter(hasRunningStopControl).map((b: any) => b.id).join(',')}`,
 		})
 		if (activity) out.set(String(m.id), activity)
 	}
@@ -1836,7 +1871,7 @@ const messageCitations = computed(() => {
 		for (const b of blocks) {
 			const raw = blockText(b)
 			if (!raw.includes('{')) continue
-			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && streamingRun }).markdown)
+			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && streamingRun, figures: true }).markdown)
 		}
 		const value = text.size ? { text, cited } : null
 		_citationCache.set(String(m.id), { key, value })
@@ -1878,6 +1913,15 @@ function openActiveCitation() {
 	citationChips.hide()
 	if (source) openCitationSource(source)
 }
+// Figures (`{{show:…}}`, ChatFigure.vue) resolve their source here and open
+// it in the side panel like a citation does.
+provide(FIGURE_CONTEXT, {
+	resolve: (key: string) => citationSources.value.find(s => s.key === key) || null,
+	open: (source: CitationSource) => openSourceInPane(source),
+	canHydrate: true,
+	reportId: report_id,
+	canEdit: true,
+})
 const citationChips = useCitationChips<ChatMessage>({
 	resolve: (m, key) => {
 		const source = citationSources.value.find(s => s.key === key)
@@ -2159,12 +2203,10 @@ provide('reportSnapshot', report)
 // MCP Apps (components/tools/McpAppFrame.vue): an app's ui/message posts into
 // this conversation as the user, the same way a follow-up chip does.
 provide('mcpAppHost', {
-	sendMessage(text: string): boolean {
-		if (isStreaming.value || isCompletionInProgress.value) return false
-		const trimmed = (text || '').trim()
-		if (!trimmed) return false
-		onSubmitCompletion({ text: trimmed, mentions: [], mode: currentPromptMode.value })
-		return true
+	// False when the message was not sent: a run is busy, or a permission-mode
+	// switch could not be saved (the run would read another mode).
+	sendMessage(text: string): Promise<boolean> {
+		return sendFromOutsideTheBox((text || '').trim())
 	},
 })
 // Active-artifact visualization ids, shared with ToolWidgetPreview so
@@ -2184,7 +2226,7 @@ const subAgentById = computed<Record<string, any>>(() => {
 	for (const w of subAgentWaves.value) for (const r of (w.sub_agents || [])) out[r.sub_agent_id] = { ...r, wave_status: w.status }
 	return out
 })
-const hasLiveSubAgents = computed(() => subAgentWaves.value.some((w: any) => ['collecting', 'running', 'firing'].includes(w.status)))
+const hasLiveSubAgents = computed(() => subAgentWaves.value.some(isWaveLive))
 let subAgentPollTimer: ReturnType<typeof setInterval> | null = null
 async function loadSubAgents() {
 	if (!report_id) return
@@ -2705,6 +2747,31 @@ function formatRunDuration(ms: number): string {
 	const s = Math.max(0, Math.round(ms / 1000))
 	if (s < 60) return `${s}s`
 	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// Live elapsed time beside the working dot, ticking once a second while any
+// run is in progress (one shared clock; stopped when nothing is live). Counts
+// from the turn's created_at — the same origin completion.finished measures
+// clientRunMs from — so the final "Worked for" continues the number shown.
+const liveNowMs = ref(Date.now())
+let liveClock: ReturnType<typeof setInterval> | null = null
+watch(hasInProgressCompletion, (on) => {
+	if (typeof window === 'undefined') return
+	if (on && !liveClock) {
+		liveNowMs.value = Date.now()
+		liveClock = setInterval(() => { liveNowMs.value = Date.now() }, 1000)
+	} else if (!on && liveClock) {
+		clearInterval(liveClock)
+		liveClock = null
+	}
+}, { immediate: true })
+onBeforeUnmount(() => { if (liveClock) clearInterval(liveClock) })
+function liveElapsed(m: ChatMessage): string {
+	if (m.status !== 'in_progress') return ''
+	const started = parseServerTimestamp(m.created_at)
+	if (started === null) return ''
+	const ms = liveNowMs.value - started
+	return ms >= 1000 ? formatRunDuration(ms) : ''
 }
 
 // Hide sub-2s runs — same threshold GenericTool uses for tool durations, so
@@ -3635,6 +3702,8 @@ function getToolComponent(toolName: string) {
 			return DeleteListRowsTool
 		case 'search_agents':
 			return SearchAgentsTool
+		case 'request_agent_signin':
+			return RequestAgentSigninTool
 		case 'set_report_agents':
 			return SetReportAgentsTool
 		case 'search_evals':
@@ -3699,20 +3768,11 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 	       (toolExecution.created_widget || toolExecution.created_step)
 }
 
-// Run-level activity stays visible even while reasoning is collapsed or a
-// tool is waiting without emitting text. Terminal states remove it immediately.
+// The run-activity dot: one circle at the message's tail for every live
+// frame (rules in composables/runWorkingDot.ts).
 function showWaitingIndicator(message: ChatMessage): boolean {
-    if (message.role !== 'system' || message.status !== 'in_progress' || message.sigkill) return false
-    const blocks = visibleBlocks(message)
-    if (blockHasMessage(blocks[blocks.length - 1])) return false
-    // A visible running tool supplies its own progress indicator.
-    return !visibleBlocks(message).some(block =>
-        block.tool_execution?.status === 'running'
-        && !isBlockFolded(message, block)
-        && !isEditRunFolded(message, block)
-    )
+    return isRunWorking(message, visibleBlocks(message), isAwaitingUser)
 }
-
 function getThoughtProcessLabel(block: CompletionBlock): string {
 	// Handle stopped blocks
 	if (block.status === 'stopped') {
@@ -4028,7 +4088,7 @@ function updateContentBelow() {
 // Otherwise the floor stays put until the reader scrolls, and then only ever
 // shrinks, to the least that keeps the current position valid (plus slack),
 // so it never parks the reader in blank space and never jumps the view.
-function updatePinSpacer(trim = false) {
+function updatePinSpacer(trim = false, anchor = true) {
   const container = scrollContainer.value
   const content = transcriptContent.value
   if (!container || !content) return
@@ -4045,7 +4105,7 @@ function updatePinSpacer(trim = false) {
     // Anchor to the turn, not to a scroll offset: content above it (a chart
     // re-rendering, the previous answer reloading) can change height after
     // the pin, which would slide the prompt out of view into the blank floor.
-    if (pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
+    if (anchor && pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
       container.scrollTop = target
       lastScrollTop = container.scrollTop
     }
@@ -4111,12 +4171,13 @@ function pinTurnToTop(messageId: string) {
     const topGap = footerTop === null ? PIN_TOP_GAP_PX : Math.max(PIN_TOP_GAP_PX, top - footerTop + 12)
     pinOffsetPx = topGap
     pinScrolled = true
-    updatePinSpacer()
+    // Size the floor only: anchoring here would snap the view to the turn in
+    // one frame, and the eased scroll below would have nothing left to do.
+    updatePinSpacer(false, false)
+    // Start the ease now, before the pin watch's first frame, so the watch
+    // sees a scroll in flight and holds off anchoring until it lands.
+    animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
     startPinWatch()
-    nextTick(() => {
-      if (pinnedId.value !== scrollKey) return
-      animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
-    })
   }))
 }
 
@@ -4322,6 +4383,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Add or update a completion block
 			if (payload.block) {
 				const block = payload.block
+				syncRoutedModel(sysMessage, block.tool_execution)
 				if (!sysMessage.completion_blocks) {
 					sysMessage.completion_blocks = []
 				}
@@ -4590,7 +4652,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (payload.tool_name === 'execute_mcp' && payload.payload.stage === 'auto_policy_decided') {
 							;(lastBlock.tool_execution as any).auto_policy = {
 								approved: !!payload.payload.approved,
-								reason: payload.payload.reason || ''
+								reason: payload.payload.reason || '',
+								// Who decided (mode, read-only rule, judge…), for the card's label.
+								decided_by: payload.payload.decided_by || null
 							}
 						}
 
@@ -4926,6 +4990,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					if (payload.result_json) {
 						blockWithTool.tool_execution.result_json = payload.result_json
+						syncRoutedModel(sysMessage, { tool_name: payload.tool_name, result_json: payload.result_json })
 					}
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
@@ -5705,7 +5770,25 @@ onMounted(() => {
     // Scoped to this report; reuses the debounced, mid-stream-safe reload.
     window.addEventListener('report:mutated', onReportMutated as EventListener)
     window.addEventListener('report:updated', onReportUpdatedEvent as EventListener)
+    window.addEventListener('prompt:rerun-for-completion', onRerunForCompletion as EventListener)
 })
+onBeforeUnmount(() => window.removeEventListener('prompt:rerun-for-completion', onRerunForCompletion as EventListener))
+
+// A sign-in card (request_agent_signin) asks to re-send the question its
+// completion answered, once the user has connected the agent it needed.
+function onRerunForCompletion(ev: CustomEvent) {
+	const completionId = ev.detail?.completionId
+	const list = messages.value
+	const idx = completionId
+		? list.findIndex(m => m.id === completionId || (m as any).system_completion_id === completionId)
+		: list.length - 1
+	for (let i = (idx < 0 ? list.length - 1 : idx); i >= 0; i--) {
+		if (list[i].role === 'user' && canRerunPrompt(list[i])) {
+			rerunPrompt(list[i])
+			return
+		}
+	}
+}
 
 // Mirror a report's agent scope into the user's default (memberships
 // default_data_source_ids), the same store the home-page prompt box persists
@@ -6162,17 +6245,32 @@ async function rerunPrompt(m: ChatMessage) {
 	else onSubmitCompletion(payload)
 }
 
+// A starter or follow-up question is sent here, not through the box: wait for
+// a permission-mode switch still being saved (the run reads the stored mode),
+// and send nothing if that save failed (the box's toast says so).
+async function permissionModeSettled(): Promise<boolean> {
+	const settled = promptBoxRef.value?.permissionModeSettled
+	return settled ? await settled() : true
+}
+
+// One such send at a time: nothing is sent while a run is starting or
+// running, also not by a second click (or an app's second message) that
+// waited for the same save as the first.
+async function sendFromOutsideTheBox(text: string): Promise<boolean> {
+	if (!text || isStreaming.value || isCompletionInProgress.value) return false
+	if (!await permissionModeSettled()) return false
+	// A run may have started while this waited.
+	if (isStreaming.value || isCompletionInProgress.value) return false
+	onSubmitCompletion({ text, mentions: [], mode: currentPromptMode.value })
+	return true
+}
+
 function handleExampleClick(starter: string) {
-	if (starter) {
-		onSubmitCompletion({ text: starter, mentions: [], mode: currentPromptMode.value });
-	}
+	return sendFromOutsideTheBox(starter)
 }
 
 function handleFollowUpClick(question: string) {
-	if (isStreaming.value || isCompletionInProgress.value) return
-	if (question) {
-		onSubmitCompletion({ text: question, mentions: [], mode: currentPromptMode.value });
-	}
+	return sendFromOutsideTheBox(question)
 }
 
 // Handlers for feedback-triggered instruction suggestions
@@ -6223,6 +6321,15 @@ function onStepCreated(step: any) {
 	// Handle step creation - could refresh the current view or update state
 	console.log('Step created:', step)
 	// Optionally refresh the completion or update the UI
+}
+
+// A route_model step (router escalation or decision, or LLM fallback) switches
+// the model that serves the rest of the run. The backend stamps it onto the
+// completion, so a reload shows it; mirror that live so the header names the
+// model that actually answered rather than the one the run started on.
+function syncRoutedModel(sysMessage: ChatMessage, te: any) {
+	const rj = te?.result_json
+	if (te?.tool_name === 'route_model' && rj?.routed && rj.model) sysMessage.model = String(rj.model)
 }
 
 function createSystemPlaceholder(id: string, model?: string, effort?: string | null): ChatMessage {

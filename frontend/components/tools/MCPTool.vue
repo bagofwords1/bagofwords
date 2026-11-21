@@ -29,6 +29,17 @@
       class="mt-1.5 ms-1 border-s-2 border-amber-300/70 dark:border-amber-600/50 ps-2.5 py-0.5 space-y-1.5"
       data-testid="mcp-approval-card"
     >
+      <div v-if="actionPreview" class="text-chat-2 text-ink" data-testid="mcp-approval-preview">
+        <span
+          v-if="actionEffect"
+          class="me-1.5 text-2xs px-1 py-0.5 rounded"
+          :class="actionEffect === 'external' || actionEffect === 'destructive' ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'"
+        >{{ t(`connectionTools.effect.${actionEffect}.title`) }}</span>
+        <bdi>{{ actionPreview }}</bdi>
+      </div>
+      <div v-if="viaAgentName" class="text-chat-2 text-ink-muted" data-testid="mcp-approval-via-agent">
+        {{ t('tools.mcp.viaAgent', { name: viaAgentName }) }}
+      </div>
       <button
         v-if="argsOneLine && !isShell"
         type="button"
@@ -57,12 +68,18 @@
           :disabled="responding" @click="respond(true, false)"
         >{{ t('tools.mcp.allowOnce') }}</button>
         <button
-          v-if="!mandatoryApproval"
+          v-if="!mandatoryApproval && actionEffect !== 'destructive' && !display.locked"
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(true, true)"
         >{{ t(shellPermissions ? 'tools.remoteShell.always' : 'tools.mcp.alwaysAllow') }}</button>
+        <button
+          v-if="!shellPermissions && !mandatoryApproval"
+          data-testid="mcp-allow-for-report"
+          class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+          :disabled="responding" :title="t('tools.mcp.allowForReportHint')" @click="respond(true, true, 'report')"
+        >{{ t('tools.mcp.allowForReport') }}</button>
         <UButton v-if="shellPermissions && !mandatoryApproval && confirmation?.arguments?._execution_target?.session_permissions"
-          variant="ghost" size="xs" :disabled="responding" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
+          variant="ghost" size="xs" :disabled="responding" :title="t('tools.remoteShell.sessionHint')" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
         <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
         <button
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
@@ -105,7 +122,7 @@
       data-testid="mcp-auto-policy"
     >
       <Icon :name="autoPolicy.approved ? 'heroicons-shield-check' : 'heroicons-shield-exclamation'" class="w-3 h-3 shrink-0" />
-      <span class="truncate">{{ autoPolicy.approved ? t('tools.mcp.autoApproved') : t('tools.mcp.autoDenied') }}<template v-if="autoPolicy.reason"> — {{ autoPolicy.reason }}</template></span>
+      <span class="truncate">{{ autoPolicyLabel }}</span>
     </div>
 
     <!-- Expandable content -->
@@ -248,6 +265,17 @@ const approvalOutcomeLabel = computed(() => {
   return o.approved ? t('tools.mcp.allowedByYou') : t('tools.mcp.deniedByYou')
 })
 
+// Card-only context (the agent the call goes through, a preview and the
+// effect) arrives in `confirmation.display`, apart from the arguments: the
+// card always shows every argument the tool will receive.
+const display = computed(() => (confirmation.value?.display || {}) as Record<string, any>)
+const actionPreview = computed(() => String(display.value.preview || ''))
+const actionEffect = computed(() => {
+  const e = display.value.effect
+  return ['read', 'modify', 'external', 'destructive'].includes(e) ? e : ''
+})
+const viaAgentName = computed(() => display.value.via_agent?.name || '')
+
 const confirmationArgs = computed(() => {
   const a = confirmation.value?.arguments
   if (!a || !Object.keys(a).length) return ''
@@ -270,14 +298,16 @@ const respondError = ref('')
 
 const { markConfirmationAnswered } = useToolConfirmations()
 
-async function respond(approved: boolean, remember: boolean, scope = 'user') {
+// scope: how far the answer reaches — 'always' (saved for this tool), 'report'
+// (this report only), or the shell card's 'session' (= this report).
+async function respond(approved: boolean, remember: boolean, scope = 'always') {
   if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
   responding.value = true
   respondError.value = ''
   try {
     const res = await useMyFetch(
       `/completions/${props.systemCompletionId}/mcp_tool_confirmations/${confirmation.value.confirmation_id}`,
-      { method: 'POST', body: { approved, remember, ...(shellPermissions.value ? { permission_scope: remember ? scope : 'once', command_pattern: commandPattern.value, command_match: commandMatch.value } : {}) } }
+      { method: 'POST', body: { approved, remember, permission_scope: remember ? scope : 'once', ...(shellPermissions.value ? { command_pattern: commandPattern.value, command_match: commandMatch.value } : {}) } }
     )
     if (res?.error?.value) {
       const err = res.error.value as any
@@ -309,7 +339,38 @@ const autoPolicy = computed(() => {
   if (rj.blocked_by_policy === 'auto') {
     return { approved: false, reason: rj.policy_reason || '' }
   }
+  if (rj.blocked_by_policy === 'blocklist') {
+    return { approved: false, reason: rj.policy_reason || '', decided_by: 'rule:blocklist' }
+  }
+  if (rj.blocked_by_policy === 'unattended') {
+    return { approved: false, reason: '', decided_by: 'unattended_setting' }
+  }
+  if (rj.blocked_by_policy === 'unknown_tool') {
+    return { approved: false, reason: '', decided_by: 'rule:unknown_tool' }
+  }
   return null
+})
+
+// Decisions made by a rule or the permission mode get their own wording; a
+// judge's verdict keeps its reason.
+const DECIDED_BY_KEYS: Record<string, string> = {
+  'mode:allow_all': 'allowAll',
+  'rule:read_only': 'readOnly',
+  'rule:blocklist': 'blocklist',
+  'remembered:report': 'rememberedReport',
+  'unattended_setting': 'unattended',
+  'rule:unknown_tool': 'unknownTool',
+}
+const autoPolicyLabel = computed(() => {
+  const p = autoPolicy.value as any
+  if (!p) return ''
+  const key = p.decided_by && DECIDED_BY_KEYS[p.decided_by]
+  if (key) {
+    const base = t(`tools.mcp.decidedBy.${key}.${p.approved ? 'allowed' : 'refused'}`)
+    return key === 'blocklist' && p.reason ? `${base} — ${p.reason}` : base
+  }
+  const base = p.approved ? t('tools.mcp.autoApproved') : t('tools.mcp.autoDenied')
+  return p.reason ? `${base} — ${p.reason}` : base
 })
 // The raw name: execute_mcp after the server's rewrite, but a native
 // mcp__<connection>__<tool> or call_tool while it streams. All three render

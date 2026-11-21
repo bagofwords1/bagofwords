@@ -2,20 +2,7 @@
   <div class="min-w-0">
     <!-- Status header -->
     <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
-      <template #label>
-      <template v-if="status === 'running'">{{ t('tools.inspectData.inspecting') }}<template v-if="groupedTables.length">
-      <template v-for="(group, gidx) in groupedTables">
-      <template v-if="gidx > 0">|</template>
-      <template v-for="(nm, nidx) in group.visible">{{ nm }}<template v-if="nidx < group.visible.length - 1">,&nbsp;</template></template>
-      <template v-if="group.more">&nbsp;+{{ group.more }}</template></template></template>
-      <template v-else>{{ t('tools.inspectData.dataRunning') }}</template>
-      <template v-if="slotWait">· {{ slotWaitLabel }}</template></template>
-      <template v-else>{{ t('tools.inspectData.inspected') }}<template v-if="groupedTables.length">
-      <template v-for="(group, gidx) in groupedTables">
-      <template v-if="gidx > 0">|</template>
-      <template v-for="(nm, nidx) in group.visible">{{ nm }}<template v-if="nidx < group.visible.length - 1">,&nbsp;</template></template>
-      <template v-if="group.more">&nbsp;+{{ group.more }}</template></template></template>
-      <template v-else>{{ t('tools.inspectData.data') }}</template></template></template>
+      <template #label>{{ headerLabel }}</template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
@@ -218,6 +205,19 @@ const iconAgents = computed<DataSource[]>(
 const groupedTables = computed<ToolTableGroup[]>(() =>
   groupToolTables(props.toolExecution?.arguments_json, iconAgents.value)
 )
+
+// Built as one string: a multi-line template here let Vue's whitespace
+// condensing eat the spaces ("Inspectingevents", "orders|events").
+const headerLabel = computed<string>(() => {
+  const running = status.value === 'running'
+  const tables = groupedTables.value
+    .map(g => g.visible.join(', ') + (g.more ? ` +${g.more}` : ''))
+    .join(' | ')
+  const verb = t(running ? 'tools.inspectData.inspecting' : 'tools.inspectData.inspected')
+  const object = tables || t(running ? 'tools.inspectData.dataRunning' : 'tools.inspectData.data')
+  const wait = running && slotWait.value ? ` · ${slotWaitLabel.value}` : ''
+  return `${verb} ${object}${wait}`
+})
 
 function toggleExpanded() {
   if (status.value !== 'running') {

@@ -1,7 +1,7 @@
 """Viewer results: stamp what each run read
 
 Revision ID: vrstamp01
-Revises: rel0629
+Revises: rel0631merge
 Create Date: 2026-11-10
 
 `step_user_results.source_stamp` (String 64) and `source_refs` (Text). A
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "vrstamp01"
-down_revision: str | None = "rel0629"
+down_revision: str | None = "rel0631merge"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -942,7 +942,35 @@
         "dismiss": "Fermer"
       }
     },
-    "recent": "Récents"
+    "recent": "Récents",
+    "permissionMode": {
+      "title": "Autorisations des outils",
+      "tooltip": "Autorisations des outils : {mode}",
+      "default": "par défaut",
+      "allowAllBanner": "Tout autoriser est actif : l'agent exécute les outils de connexion sans demander. Les outils bloqués ou refusés ne s'exécutent jamais.",
+      "switchToAsk": "Passer à Demander",
+      "saveFailed": "Impossible de changer le mode d'autorisation",
+      "modes": {
+        "ask": {
+          "label": "Demander",
+          "hint": "Chaque outil suit son propre réglage ; demande avant toute modification."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Les appels en lecture seule s'exécutent ; un modèle décide du reste et demande en cas de doute."
+        },
+        "allow_all": {
+          "label": "Tout autoriser",
+          "hint": "Les outils qui demanderaient s'exécutent sans demander, dans ce rapport uniquement."
+        }
+      },
+      "unknown": {
+        "label": "Mode inconnu",
+        "hint": "Impossible de charger les paramètres d'autorisation : le mode de la prochaine exécution est inconnu."
+      },
+      "loadFailed": "Impossible de charger les paramètres d'autorisation",
+      "retry": "Réessayer"
+    }
   },
   "reports": {
     "title": "Rapports",
@@ -1732,7 +1760,35 @@
       "allowedByYou": "Autorisé par vous",
       "deniedByYou": "Refusé par vous",
       "records": "{n} enregistrements",
-      "recordsPartial": "{shown} sur {total} enregistrements"
+      "recordsPartial": "{shown} sur {total} enregistrements",
+      "viaAgent": "Via {name}",
+      "allowForReport": "Autoriser pour ce rapport",
+      "allowForReportHint": "Ne plus demander pour cet outil dans ce rapport",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Exécuté sans demander (Tout autoriser)",
+          "refused": "Non exécuté"
+        },
+        "readOnly": {
+          "allowed": "Exécuté sans demander : lecture seule",
+          "refused": "Non exécuté"
+        },
+        "blocklist": {
+          "allowed": "Autorisé",
+          "refused": "Refusé par la liste de blocage de sécurité"
+        },
+        "rememberedReport": {
+          "allowed": "Autorisé pour ce rapport",
+          "refused": "Refusé pour ce rapport"
+        },
+        "unattended": {
+          "allowed": "Autorisé par le réglage des exécutions sans surveillance",
+          "refused": "Non exécuté : nécessite une approbation et personne ne regarde"
+        },
+        "unknownTool": {
+          "refused": "Non exécuté : cet outil n'est pas dans la liste des outils de la connexion"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Pensée sur la réponse"
@@ -2225,11 +2281,12 @@
       "glob": "Motif générique",
       "hint": "Les règles ciblent des commandes complètes dans ce répertoire. Les préfixes autorisés excluent les opérateurs et expansions du shell.",
       "always": "Toujours autoriser les correspondances",
-      "session": "Autoriser pour cette session",
+      "session": "Autoriser pour ce rapport (8 heures)",
       "mine": "Mes règles shell",
       "override": "Ces règles ne concernent que vous. Toujours autoriser ou Toujours refuser au niveau de la connexion est prioritaire.",
       "save": "Enregistrer les règles",
-      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez."
+      "failed": "Impossible de charger ou enregistrer les règles. Vérifiez le JSON et réessayez.",
+      "sessionHint": "Exécute les commandes correspondantes dans ce rapport sans demander pendant les 8 prochaines heures."
     },
     "shell": {
       "command": "Commande shell",
@@ -2246,6 +2303,13 @@
       "unknownState": "Le processus distant peut encore être en cours. Vérifiez son état avant de réessayer.",
       "exitCode": "Code de sortie : {code}",
       "cancelledBeforeExecution": "Annulé avant l’exécution."
+    },
+    "requestAgentSignin": {
+      "checking": "Vérification des agents…",
+      "connect": "Se connecter",
+      "connected": "Connecté",
+      "askAgain": "Redemander",
+      "readyHint": "Connecté. Relancez votre question pour l’utiliser."
     }
   },
   "entityCreate": {
@@ -2484,7 +2548,18 @@
     "failedToSave": "Échec de l'enregistrement du groupe",
     "failedToAddMember": "Échec de l'ajout du membre",
     "failedToRemoveMember": "Échec du retrait du membre",
-    "failedToUpdateRoles": "Échec de la mise à jour des rôles du groupe"
+    "failedToUpdateRoles": "Échec de la mise à jour des rôles du groupe",
+    "youManage": "Vous gérez",
+    "managerBadge": "Gestionnaire",
+    "makeManager": "Nommer gestionnaire",
+    "removeManager": "Retirer gestionnaire",
+    "removeMember": "Retirer du groupe",
+    "managerHint": "Vous gérez ce groupe : ajoutez ou retirez des membres, et nommez des membres gestionnaires.",
+    "managedExternallyHint": "Synchronisé depuis votre fournisseur d'identité. Modifiez ses membres là-bas.",
+    "noManagedGroupsHint": "Vous ne gérez aucun groupe.",
+    "toastManagerAdded": "Le membre est maintenant gestionnaire du groupe",
+    "toastManagerRemoved": "Rôle de gestionnaire retiré",
+    "failedToUpdateManager": "Échec de la mise à jour du gestionnaire du groupe"
   },
   "signupPolicy": {
     "title": "Inscription par domaine",
@@ -3660,6 +3735,34 @@
           "name": "Vue Monde",
           "description": "Affiche sur la page Agents un interrupteur qui ouvre Monde : une carte des agents, des connaissances, des sources et du travail qui relient votre organisation. Chaque utilisateur ne voit que ce à quoi il a accès."
         }
+      },
+      "permissionMode": {
+        "title": "Mode d'autorisation des outils",
+        "description": "Comment l'agent décide d'exécuter les outils de connexion et les commandes shell distantes. Les utilisateurs choisissent un mode par rapport dans la zone de saisie ; les outils désactivés ou refusés et la liste de blocage de sécurité s'appliquent dans tous les modes.",
+        "defaultMode": "Mode par défaut des nouveaux rapports",
+        "unattended": "Exécutions sans surveillance",
+        "unattendedOptions": {
+          "refuse": "Refuser",
+          "settings": "Utiliser les réglages de chaque outil",
+          "allow": "Autoriser"
+        },
+        "unattendedHints": {
+          "refuse": "Les exécutions planifiées, webhook, API et autres exécutions sans surveillance ignorent tout outil qui demanderait une approbation.",
+          "settings": "Les outils en Auto passent par l'examen du modèle ; ceux en Demander sont ignorés.",
+          "allow": "Les outils qui demanderaient une approbation s'exécutent dans les exécutions planifiées, webhook et API. Les discussions sur d'autres canaux les ignorent toujours."
+        },
+        "allowAll": "Permettre « Tout autoriser »",
+        "allowAllDescription": "Permet aux utilisateurs de désactiver les demandes d'approbation pour un rapport, ou d'en faire le mode par défaut des nouveaux rapports. S'applique uniquement aux exécutions du propriétaire du rapport pendant qu'il les suit.",
+        "judgeModel": "Modèle pour les décisions automatiques",
+        "judgeModelHint": "Automatique utilise le modèle de décision du routeur quand le routage en utilise un, sinon le petit modèle par défaut.",
+        "judgeModelOptions": {
+          "automatic": "Automatique",
+          "small": "Petit modèle par défaut",
+          "unavailable": "Modèle indisponible",
+          "notLoaded": "Modèle enregistré (liste non chargée)"
+        },
+        "judgeModelLoadFailed": "Impossible de charger les modèles de décision.",
+        "judgeModelRetry": "Réessayer"
       }
     },
     "llms": {
@@ -4724,6 +4827,9 @@
     "shell_confirmation.invalid_scope": "Portée d'autorisation non valide.",
     "shell_confirmation.report_required": "Les autorisations de session nécessitent un rapport.",
     "shell_confirmation.rule_mismatch": "Règle de commande non valide, ou le motif ne correspond pas à cette commande.",
+    "tool_permission_mode.allow_all_off": "« Tout autoriser » est désactivé pour cette organisation.",
+    "tool_permission_mode.allow_all_default_needs_switch": "« Tout autoriser » ne peut être le mode par défaut que lorsqu'il est activé.",
+    "tool_permission_mode.judge_model_unavailable": "Choisissez un modèle de décision activé pour le juge du mode Auto.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "L’actualisation du catalogue a échoué car la découverte était incomplète. Le catalogue précédent et les sélections de tables ont été conservés.",
@@ -4765,6 +4871,7 @@
     "system_logs.instance_admin_required": "Seul un administrateur de l’instance peut utiliser les journaux système.",
     "system_logs.invalid_range": "L'heure de début doit être antérieure à l'heure de fin.",
     "system_logs.delete_failed": "Impossible de supprimer les fichiers journaux de {directory}. Vérifiez que le répertoire existe et qu'il est accessible en écriture.",
+    "system_logs.disabled": "Les journaux système sont désactivés sur ce serveur. Pour les activer, définissez BOW_SYSTEM_LOGS_ENABLED=true (ou system_logs.enabled dans bow-config.yaml) et redémarrez le serveur.",
     "verification.invalid": "Jeton de vérification invalide ou expiré",
     "body.invalid_json": "Corps JSON invalide",
     "organization.not_found": "Organisation introuvable",
@@ -4782,6 +4889,9 @@
     "role.not_found": "Rôle introuvable",
     "group.not_found": "Groupe introuvable",
     "group.managed_by_scim": "Ce groupe est géré par votre fournisseur d'identité (SCIM). Modifiez-le là-bas.",
+    "group.managed_externally": "Ce groupe est synchronisé depuis votre fournisseur d'identité ; modifiez ses membres là-bas.",
+    "group.manager_not_member": "Seuls les membres inscrits du groupe peuvent en devenir gestionnaires.",
+    "group.manager_protected": "Seul un administrateur de l'organisation peut retirer ou rétrograder un gestionnaire de groupe.",
     "instruction.not_found": "Instruction introuvable",
     "instruction.version_not_found": "Version de l'instruction introuvable",
     "instruction.label_not_found": "Étiquette d'instruction introuvable",
@@ -4855,6 +4965,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse n'a pas accepté cet identifiant, il n'a donc pas été enregistré. Vérifiez le nom d'utilisateur et le mot de passe, ou le jeton d'API, puis réessayez.",
     "connection.kms_login_paused": "KMS Lighthouse a récemment refusé cet identifiant : les nouvelles tentatives sont suspendues pendant quelques minutes et il n'a pas été enregistré. Vérifiez l'identifiant ou réessayez plus tard.",
     "connection.kms_session_refused": "KMS Lighthouse a accepté cet identifiant mais a refusé sa session : il ne peut donc pas être utilisé et n'a pas été enregistré. Demandez à l'administrateur KMS si ce compte peut utiliser l'API KMS.",
+    "connection.confluence_login_rejected": "Confluence n'a pas accepté ce jeton d'accès personnel ou cet identifiant ; il n'a donc pas été enregistré. Vérifiez-le ou créez un nouveau jeton dans Confluence, sous Profil > Jetons d'accès personnels.",
+    "connection.confluence_login_captcha": "Confluence exige un CAPTCHA pour ce compte après des échecs de connexion ; il n'a donc pas été enregistré. Connectez-vous une fois à Confluence dans un navigateur pour le lever, ou utilisez un jeton d'accès personnel.",
+    "connection.jira_login_rejected": "Jira n'a pas accepté ce jeton d'accès personnel ou cet identifiant ; il n'a donc pas été enregistré. Vérifiez-le ou créez un nouveau jeton dans Jira, sous Profil > Jetons d'accès personnels.",
+    "connection.jira_login_captcha": "Jira exige un CAPTCHA pour ce compte après des échecs de connexion ; il n'a donc pas été enregistré. Connectez-vous une fois à Jira dans un navigateur pour le lever, ou utilisez un jeton d'accès personnel.",
     "access_request.disabled": "Les demandes d'accès sont désactivées pour cette organisation.",
     "access_request.not_allowed": "Ce tableau de bord n'a pas besoin d'une demande d'accès.",
     "access_request.already_has_access": "Vous avez déjà accès à ce tableau de bord.",
@@ -7532,6 +7646,9 @@
     "close": "Fermer",
     "button": "Aperçu"
   },
+  "confluenceFileScope": {
+    "allSpaces": "Tous les espaces visibles par cette identité"
+  },
   "kmsFileScope": {
     "headerSubtitle": "Le dossier racine définit où commence la navigation. Les autorisations KMS déterminent ce que l'agent peut rechercher et lire.",
     "browsingOnly": "Navigation uniquement",
@@ -7603,7 +7720,14 @@
     "inheritedHint": "Ces personnes et groupes accèdent à cet agent via un dossier ou une connexion. Modifiez leur accès à la source.",
     "viaFolder": "Via le dossier {name}",
     "viaConnection": "Via la connexion {name}",
-    "inheritedHidden": "D'autres personnes peuvent avoir accès via un dossier ou une connexion que vous ne gérez pas."
+    "inheritedHidden": "D'autres personnes peuvent avoir accès via un dossier ou une connexion que vous ne gérez pas.",
+    "permissionCap": {
+      "title": "Plafond du mode d'autorisation",
+      "hint": "Limite le mode d'autorisation des rapports qui utilisent cet agent. Demander : chaque outil suit son propre réglage. Auto : un modèle peut décider.",
+      "none": "Aucun plafond",
+      "ask": "Demander",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "M'envoyer les nouveautés du produit",
@@ -7902,5 +8026,43 @@
     },
     "or": "OU",
     "and": "ET"
+  },
+  "connectionTools": {
+    "tab": "Outils",
+    "intro": "Choisissez ce que les agents peuvent faire dans ce système. Les agents et les utilisateurs peuvent rendre un outil plus strict, jamais moins strict qu'un réglage verrouillé ici.",
+    "empty": "Cette connexion n'a pas encore d'outils.",
+    "loadFailed": "Impossible de charger les outils.",
+    "saveFailed": "Impossible d'enregistrer la modification.",
+    "on": "Activé",
+    "off": "Désactivé",
+    "enabled": "{name} est disponible pour les agents",
+    "enableGroup": "Activer tous les outils {group}",
+    "policyFor": "Règle pour {name}",
+    "lock": "Verrouiller la règle de {name}",
+    "unlock": "Déverrouiller la règle de {name}",
+    "lockHint": "Verrouillée : les agents et utilisateurs peuvent la rendre plus stricte, jamais moins.",
+    "needsScope": "Nécessite {scope}",
+    "missingScopes": "Votre connexion n'inclut pas {scopes}. Un administrateur l'accorde dans l'inscription d'application Entra, puis reconnectez-vous.",
+    "grantAccess": "Se reconnecter",
+    "builtinReadHint": "Toujours disponibles : la lecture ne modifie jamais rien.",
+    "effect": {
+      "read": {
+        "title": "Lecture",
+        "hint": "Consulte ; ne modifie rien."
+      },
+      "modify": {
+        "title": "Modifier",
+        "hint": "Modifie les données de l'utilisateur ; réversible."
+      },
+      "external": {
+        "title": "Externe",
+        "hint": "D'autres le voient et c'est irréversible. La revue automatique n'est pas proposée."
+      },
+      "destructive": {
+        "title": "Destructif",
+        "hint": "Supprime ou bloque. Demande toujours avant."
+      }
+    },
+    "builtinBadge": "Intégré"
   }
 }

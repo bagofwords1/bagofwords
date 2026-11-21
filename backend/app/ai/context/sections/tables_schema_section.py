@@ -902,6 +902,9 @@ class TablesSchemaContext(ContextSection):
                 attrs = {"name": (c.get("name") or "unknown")}
                 if c.get("type"):
                     attrs["type"] = c["type"]
+                if c.get("since"):
+                    # When it went down (UTC); fixed for the whole outage.
+                    attrs["since"] = c["since"]
                 items.append(xml_tag(
                     "connection",
                     "temporarily unreachable — its tables are withheld until it "

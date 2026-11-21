@@ -1639,3 +1639,35 @@ class OnedriveClient(GraphDriveClient):
         kwargs["mode"] = "onedrive"
         kwargs.setdefault("recursive", True)
         super().__init__(**kwargs)
+
+
+def graph_write(client: "GraphDriveClient", method: str, path: str,
+                body: Optional[Any] = None) -> dict:
+    """One Graph write (POST / PATCH), sent exactly once.
+
+    No retry of any kind — not on a transport error, not on a 5xx, not on a
+    throttle: Graph has no idempotency keys, so a resend after the request left
+    could send the email or post the message twice. A failure is reported to
+    the agent, which may decide to try again knowingly. Returns the JSON body
+    (``{}`` for 202/204 replies such as send / sendMail).
+    """
+    from app.data_sources.clients.connector_actions import ActionError
+
+    resp = client._request(method, path, json_body=body, max_attempts=1)
+    if resp.status_code >= 400:
+        detail = ""
+        try:
+            err = resp.json().get("error") or {}
+            detail = f"{err.get('code') or ''}: {err.get('message') or ''}".strip(": ")
+        except Exception:
+            detail = (resp.text or "")[:300]
+        if resp.status_code == 403:
+            raise ActionError(f"Microsoft refused the request (403 {detail}). The signed-in account or "
+                              "the app registration lacks the permission for this action.")
+        raise ActionError(f"Microsoft Graph returned {resp.status_code} {detail}".strip())
+    if resp.status_code in (202, 204) or not resp.content:
+        return {}
+    try:
+        return resp.json()
+    except Exception:
+        return {}
