@@ -14,6 +14,9 @@ the CURRENT turn only (role="tool" messages after the last user message):
              (replaces_artifact_id = the previous artifact found in the prompt)
     round 3: a plain-text analysis answer (~1.2K chars)
 
+With STUB_API_TOOL set, a run is instead: round 1 calls that custom API tool,
+round 3 answers.
+
 Codegen calls (prompt mentions generate_df) return a fixed query on orders_1.
 Everything else gets a short generic text.
 
@@ -45,6 +48,10 @@ LOG = os.environ.get("STUB_LOG", "/tmp/sched_growth_stub.jsonl")
 # "edit":    edit_artifact appending today's 2 viz; old ones stay on the artifact
 #            (edit_artifact keeps existing visualization_ids automatically).
 ARTIFACT_MODE = os.environ.get("STUB_ARTIFACT_MODE", "rebuild")
+# STUB_API_TOOL set ("mcp__<slug>__get_orders"): each run instead calls that
+# custom API tool (a large response, see scheduled_growth_fake_api.py) and then
+# answers — the customer's "custom API request" scheduled task.
+API_TOOL = os.environ.get("STUB_API_TOOL", "")
 PANELS_MARKER = "{/*PANELS*/}"
 
 UUID_RE = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -147,6 +154,10 @@ def _new_viz(results: list[str]) -> list[str]:
 
 def _planner(body: dict):
     results = _turn_tool_results(body)
+    if API_TOOL:
+        if API_TOOL not in _turn_calls(body):
+            return 1, [{"name": API_TOOL, "arguments": {}}], "Pulling today's orders."
+        return 3, None, ANALYSIS
     if not results:
         return 1, [
             {"name": "create_data", "arguments": {
