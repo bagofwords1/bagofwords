@@ -221,6 +221,9 @@ storage:
 # volume is `ReadWriteMany`. With `s3`/`azure` the uploads volume is a per-pod
 # cache, so each pod keeps only its own logs. Never uploaded to the bucket.
 systemLogs:
+  # -- Turn on Admin → System logs. Off by default: nothing is captured or
+  # written and the page is not offered.
+  enabled: false
   # -- Directory for the log files.
   directory: /app/backend/uploads/system-logs
 

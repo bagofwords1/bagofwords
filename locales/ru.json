@@ -4765,6 +4765,7 @@
     "system_logs.instance_admin_required": "Системные журналы доступны только администратору экземпляра.",
     "system_logs.invalid_range": "Время начала должно быть раньше времени окончания.",
     "system_logs.delete_failed": "Не удалось удалить файлы журналов в {directory}. Проверьте, что каталог существует и доступен для записи.",
+    "system_logs.disabled": "Системные журналы отключены на этом сервере. Чтобы включить их, задайте BOW_SYSTEM_LOGS_ENABLED=true (или system_logs.enabled в bow-config.yaml) и перезапустите сервер.",
     "verification.invalid": "Недействительный или просроченный токен подтверждения",
     "body.invalid_json": "Недействительное тело JSON",
     "organization.not_found": "Организация не найдена",

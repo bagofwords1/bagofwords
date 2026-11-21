@@ -561,3 +561,17 @@ def test_status_includes_problems_reported_by_other_workers(cfg):
     os.utime(health / "other-pod__4242.json", (stale, stale))
     assert svc.writer_status(cfg) == {"write_error": False, "dropped_lines": 0}
 
+
+
+@pytest.mark.parametrize("value, enabled", [
+    (None, False), ("", False), ("false", False), ("0", False), ("no", False),
+    ("true", True), ("TRUE", True), ("1", True), ("yes", True), (" on ", True),
+])
+def test_system_logs_are_off_unless_the_environment_turns_them_on(monkeypatch, value, enabled):
+    from app.settings.bow_config import SystemLogsConfig
+
+    if value is None:
+        monkeypatch.delenv("BOW_SYSTEM_LOGS_ENABLED", raising=False)
+    else:
+        monkeypatch.setenv("BOW_SYSTEM_LOGS_ENABLED", value)
+    assert SystemLogsConfig().enabled is enabled
