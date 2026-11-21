@@ -415,6 +415,31 @@ if os.environ.get("SERVE_FRONTEND", "").lower() in ("1", "true", "yes"):
     app.include_router(embed.frame_router)
 mount_spa(app)
 
+
+def _build_route_tables(application: FastAPI) -> None:
+    """Build every router's routes now, once, instead of on a user request.
+
+    FastAPI builds an included router's routes (dependency graph, request
+    and response models) the first time a request is matched against them,
+    and a request is matched against every router included before the one
+    it lands in: the first request to a late router (/api/connections) paid
+    about a second for hundreds of routes. Matching each top-level route
+    against a request with a method no route accepts walks and builds every
+    router (no route matches it fully, so no walk stops early). Run it after
+    the last route is registered; a route added later is built on first use,
+    as before.
+    """
+    scope = {"type": "http", "path": "/", "root_path": "", "method": "", "headers": []}
+    for route in application.router.routes:
+        route.matches(dict(scope))
+
+
+# `python main.py` imports this module as __main__ only to launch uvicorn,
+# which imports `main` again in the process that serves; building here would
+# only cost the launcher time and memory.
+if __name__ != "__main__":
+    _build_route_tables(app)
+
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
     if app.openapi_schema:
