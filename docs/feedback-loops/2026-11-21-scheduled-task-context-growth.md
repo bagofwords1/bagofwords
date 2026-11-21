@@ -133,6 +133,42 @@ needs extra `read_artifact` calls, while the visualization list keeps growing.
 but **the artifact the run keeps adding to is not**, and it is re-sent on every
 planner call.
 
+## Loop C — custom API task, before/after the replay-digest fix
+
+The reporter's task pulls a **custom API request** (routed through
+`execute_mcp`) and rebuilds the dashboard. Its dashboard holds 2 charts, so
+Loop A2 doesn't apply: `edit_artifact` gates on every payload viz being
+rendered (`backend/app/ai/tools/implementations/edit_artifact.py:390` →
+`viz_reference_errors`), so a dashboard can't silently keep stale charts.
+
+```bash
+FAKE_API_ROWS=1500 python3 ../tools/agent/scheduled_growth_fake_api.py &   # ~175K-char JSON
+uv run python ../tools/agent/scheduled_growth_api_setup.py                 # prints data_source_id + tool
+STUB_API_TOOL=<tool> STUB_SOURCE_ID=<data_source_id> STUB_LOG=/tmp/sched_api.jsonl \
+  uv run python ../tools/agent/scheduled_growth_stub_llm.py &
+uv run python ../tools/agent/scheduled_growth_drive.py --runs 17 --mode host --source-id <data_source_id> --log /tmp/sched_api.jsonl
+```
+
+Correction to an earlier hypothesis: earlier runs' API responses are **not**
+replayed in full. Inside its own run, the response is inline at ~100K chars
+(~25K tokens). On later runs it comes back as the stored projection, ~3.5K chars
+(capped by `GENERIC_TOOL_CONTEXT_BUDGET_BYTES` = 16KB, `backend/app/ai/persisted_summary.py:31`).
+
+The fix (`build_durable_transcript(digest_prior_results=True)` for scheduled
+runs) replays those as summary + ids. The stub is deterministic, so run 1 is
+identical in both sets.
+
+| Run 17 | Before (original code) | After (fix) |
+|---|---|---|
+| History replayed at run start | 16,328 tokens (already folded once at run 15, from 17.2K) | **7,728** (no fold needed yet) |
+| Growth per run | +1,159 | **+351** (3.3× flatter) |
+| Est. input tokens, whole run | 199,450 | **188,327 (−5.6%)** |
+
+The absolute saving is modest because most of each run is fixed: ~73K
+tokens of system prompt + tool schemas on each of 2 planner calls, plus the
+run's own ~25K-token API response. **Trimming the scheduled-run tool catalog
+remains the bigger lever** (see below).
+
 ## Loop B — live confirmation (not run)
 
 The stub fixes the run at 3 planner calls and uses the deterministic fallback
