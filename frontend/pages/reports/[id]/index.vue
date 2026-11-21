@@ -421,7 +421,7 @@
 											</div>
 <!-- Keep prose visible when only this verification step is collapsed. -->
                                             <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper text-ink dark:text-gray-100" :dir="responseDir" :data-response-dir="responseDir">
-                                                <MarkdownRender :content="answerMarkdown(m, block)" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                                <MarkdownRender :content="answerMarkdown(m, block)" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" :custom-html-tags="FIGURE_TAGS" class="markdown-content" />
                                             </div>
                                             <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)" class="response-block-body">
 											<!-- 1. Thinking box (reasoning only) -->
@@ -463,6 +463,7 @@
 									:final="isBlockFinalized(block)"
 									:typewriter="!isBlockFinalized(block)"
 									:render-code-blocks-as-pre="true"
+									:custom-html-tags="FIGURE_TAGS"
 									class="markdown-content"
 								/>
 											</div>
@@ -1249,7 +1250,8 @@ import { placeSteers, isSteerApplied, groupSteersByParent } from '~/composables/
 import { describeDataOutput, isDataResultCall, type RunActivity } from '~/composables/useRunActivity'
 import { createRunActivityMemo, useRunFold } from '~/composables/useRunFold'
 import { isRunWorking } from '~/composables/runWorkingDot'
-import { citeText, collectSources, stripCitations, type CitationSource } from '~/composables/useCitations'
+import { citeText, collectSources, stripCitations, FIGURE_TAGS, type CitationSource } from '~/composables/useCitations'
+import { FIGURE_CONTEXT } from '~/composables/figureModel'
 import { useCitationChips } from '~/composables/useCitationChips'
 import type { SourceItem } from '~/components/RunSourcesRow.vue'
 import { CHAT_VIZ_TEXT_PX } from '~/utils/chatVizText'
@@ -1850,7 +1852,7 @@ const messageCitations = computed(() => {
 		for (const b of blocks) {
 			const raw = blockText(b)
 			if (!raw.includes('{')) continue
-			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && streamingRun }).markdown)
+			text.set(String(b.id), citeText(raw, sources, cited, { streaming: !isBlockFinalized(b) && streamingRun, figures: true }).markdown)
 		}
 		const value = text.size ? { text, cited } : null
 		_citationCache.set(String(m.id), { key, value })
@@ -1892,6 +1894,15 @@ function openActiveCitation() {
 	citationChips.hide()
 	if (source) openCitationSource(source)
 }
+// Figures (`{{show:…}}`, ChatFigure.vue) resolve their source here and open
+// it in the side panel like a citation does.
+provide(FIGURE_CONTEXT, {
+	resolve: (key: string) => citationSources.value.find(s => s.key === key) || null,
+	open: (source: CitationSource) => openSourceInPane(source),
+	canHydrate: true,
+	reportId: report_id,
+	canEdit: true,
+})
 const citationChips = useCitationChips<ChatMessage>({
 	resolve: (m, key) => {
 		const source = citationSources.value.find(s => s.key === key)
