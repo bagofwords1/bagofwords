@@ -188,6 +188,10 @@ def test_credential_fields_that_choose_the_identity_or_tenant_count(key):
     ("db2", {"host": "h"}, {"platform": "zos"}),
     ("iceberg", {"uri": "https://catalog.example.com"}, {"max_scan_rows": 1000}),
     ("azure_blob", {"account_name": "acct"}, {"container": "reports"}),
+    ("jira_dc", {"base_url": "https://jira.example.com"}, {"projects": "OPS, HR", "tables": "issues", "max_rows": 50}),
+    ("jira_dc", {"base_url": "https://jira.example.com"}, {"include_issue_documents": False}),
+    ("confluence_dc", {"base_url": "https://wiki.example.com"}, {"spaces": "ENG", "max_results": 50}),
+    ("confluence_dc", {"base_url": "https://wiki.example.com"}, {"include_blogposts": False}),
 ])
 def test_catalog_filters_and_tags_are_not_a_destination_change(conn_type, saved, changed):
     assert _same(conn_type, saved, {**saved, **changed})
@@ -196,6 +200,23 @@ def test_catalog_filters_and_tags_are_not_a_destination_change(conn_type, saved,
 def test_the_kms_api_prefix_stays_a_destination():
     saved = {"base_url": "https://kms.example.com"}
     assert not _same("kms_lighthouse", saved, {**saved, "api_prefix": ".other.example.com/x"})
+
+
+@pytest.mark.parametrize("conn_type,saved", [
+    ("jira_dc", {"base_url": "https://jira.example.com"}),
+    ("confluence_dc", {"base_url": "https://wiki.example.com"}),
+])
+@pytest.mark.parametrize("changed", [
+    {"base_url": "https://other.example.com"}, {"base_url": "https://jira.example.com/other"}, {"allow_http": True},
+])
+def test_atlassian_data_center_url_and_transport_stay_destinations(conn_type, saved, changed):
+    assert not _same(conn_type, saved, {**saved, **changed})
+
+
+@pytest.mark.parametrize("conn_type", ["outlook_mail", "teams_messages"])
+def test_the_server_managed_action_scopes_are_not_a_destination(conn_type):
+    # Written by the server when a write action is turned on; a form save never carries it.
+    assert _same(conn_type, {"action_scopes": ["Mail.Send"]}, {})
 
 
 def test_port_default_comes_from_the_client():

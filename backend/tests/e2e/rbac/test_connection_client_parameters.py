@@ -1047,3 +1047,25 @@ def test_tool_test_preview_removes_encoded_echoes(test_client, world, monkeypatc
     })
     assert r.status_code == 200 and r.json()["success"] is True, r.text
     assert encoded not in r.text
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("conn_type", ["outlook_mail", "teams_messages"])
+def test_a_form_save_without_the_server_managed_action_scopes_stays_open(test_client, world, every_connector_allowed, conn_type):
+    conn = _stored(test_client, world, conn_type, "service_principal")
+
+    # The server writes action_scopes when a write action is turned on; the form never sends it.
+    async def _write():
+        async with async_session_maker() as db:
+            row = await db.get(Connection, conn["id"])
+            config = json.loads(row.config) if isinstance(row.config, str) else dict(row.config or {})
+            config["action_scopes"] = ["Mail.Send"]
+            await db.execute(update(Connection).where(Connection.id == conn["id"]).values(
+                config=json.dumps(config) if isinstance(row.config, str) else config))
+            await db.commit()
+    asyncio.run(_write())
+
+    form = {k: v for k, v in _saved(test_client, world, conn["id"])["config"].items() if k != "action_scopes"}
+    with _skip_network():
+        r = _put(test_client, world, {"config": form}, conn_id=conn["id"])
+    assert r.status_code == 200, r.text

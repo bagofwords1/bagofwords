@@ -81,6 +81,12 @@ NON_DESTINATION_CONFIG_KEYS = frozenset({
     # saved account, like a bucket).
     "container", "containers", "databases", "engine", "keyspaces", "max_scan_rows",
     "platform", "sample_size", "spaces", "table_exclude_pattern",
+    # Jira / Confluence Data Center: project keys (validated, quoted into JQL)
+    # and switches for what is listed; base_url and allow_http stay destinations.
+    "include_blogposts", "include_issue_documents", "projects",
+    # Server-managed sign-in scopes of enabled write actions: never taken
+    # from a request, and a form save does not send them.
+    "action_scopes",
 }) | RUNTIME_CONFIG_KEYS
 
 # Credential fields that decide where a secret goes rather than what it is.
