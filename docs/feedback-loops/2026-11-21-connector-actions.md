@@ -124,6 +124,35 @@ RTL, both approval cards and results, `outlook-flow.gif`).
   (`ConnectionDetailModal.vue`). Changing the modal width while open blanked it;
   the width is now fixed per connection type.
 
+## Loop C — two agents on one MCP connection, before vs after (live, Haiku 5.5)
+
+A real streamable-HTTP MCP server (`tools/agent/mock_jira_mcp.py`, tools
+`search_issues` / `create_issue` / `add_comment`, every call logged) behind one
+"Jira" connection; `tools/agent/two_agents_one_mcp.py` seeds two agents on it:
+
+| | create_issue | add_comment | search_issues |
+|---|---|---|---|
+| Ops agent | allow | allow | allow (default) |
+| Finance agent | **deny** | **off** | allow (default) |
+
+Prompt in every run: *"Create a Jira issue in the OPS project titled 'Rotate
+reporting replica disk', then add a comment to OPS-42 saying a fix ticket was
+opened."* "Before" is main (`711f317e`) run from a git worktree on :8001 against
+a copy of the same database; "after" is this branch on :8000. Calls are what
+the MCP server logged.
+
+| Run | Calls that reached Jira | Agent's answer |
+|---|---|---|
+| **Before**, Ops + Finance | `search_issues` only | "The Jira connection only exposes search_issues, so I can't create the issue … or add a comment" |
+| Before, Ops only (control) | `create_issue`, `add_comment` | both done |
+| **After**, Ops + Finance | `create_issue`, `add_comment` — both recorded **via Ops agent**, no prompt | both done |
+| After, Finance only | `search_issues` only | can't create or comment (Finance's own rule) |
+
+The control shows that adding Finance to the report is what took Ops' tools
+away before; after the change each call follows the agent that allows it, and
+Finance alone still gets only what Finance allows. Screenshots:
+`two-agents-ops-finance.png`, `two-agents-finance-only.png`.
+
 ## Review fixes (PR #1847)
 
 | Finding | Fix | Test |
