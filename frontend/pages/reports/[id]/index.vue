@@ -278,6 +278,7 @@
 											<div class="user-bubble inline-block rounded-xl px-3 py-2 bg-surface-muted text-ink text-start" :class="m.message_type === 'steering' ? 'border border-amber-200 dark:border-amber-900/60' : ''" :dir="promptDir(m.prompt?.content)">
 												<CollapsiblePrompt v-if="m.prompt?.content" class="pt-1">
 													<PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
+													<ClarifyAnswerCard v-else-if="parseClarifyPrompt(m.prompt.content)" :answers="parseClarifyPrompt(m.prompt.content)!" />
 													<InstructionText
 														v-else
 														:text="m.prompt.content"
@@ -1363,6 +1364,8 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import CollapsiblePrompt from '~/components/report/CollapsiblePrompt.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import ClarifyAnswerCard from '~/components/report/ClarifyAnswerCard.vue'
+import { parseClarifyPrompt } from '~/utils/clarifyPrompt'
 import { isToolRunning } from '~/utils/toolOutcome'
 import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'

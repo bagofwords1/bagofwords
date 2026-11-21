@@ -100,6 +100,7 @@
                                         <div class="inline-block rounded-xl px-3 py-2 bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white text-start" :dir="promptDir(m.prompt?.content)">
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <PolishRequestCard v-if="parsePolishPrompt(m.prompt.content)" :request="parsePolishPrompt(m.prompt.content)!" />
+                                                <ClarifyAnswerCard v-else-if="parseClarifyPrompt(m.prompt.content)" :answers="parseClarifyPrompt(m.prompt.content)!" />
                                                 <InstructionText
                                                     v-else
                                                     :text="m.prompt.content"
@@ -461,6 +462,8 @@ import { dominantTextDir, localeTextDir, type TextDir } from '~/utils/textDirect
 import ResponseLanguageScope from '~/components/report/ResponseLanguageScope.vue'
 import PolishRequestCard from '~/components/report/PolishRequestCard.vue'
 import { parsePolishPrompt } from '~/utils/polishPrompt'
+import ClarifyAnswerCard from '~/components/report/ClarifyAnswerCard.vue'
+import { parseClarifyPrompt } from '~/utils/clarifyPrompt'
 import { promptMentionsToRefs } from '~/utils/mentions'
 
 // A shared conversation never names the org's agents, but the tool cards do
