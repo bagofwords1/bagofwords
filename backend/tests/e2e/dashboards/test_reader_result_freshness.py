@@ -370,3 +370,104 @@ def test_an_export_does_not_count_a_run_a_row_policy_edit_cleared(
 
     assert test_client.post(f"/api/d/{aid}/run", headers=member).status_code == 200
     assert test_client.get(export, headers=member).status_code == 200
+
+
+# ── readers' results the upgrade copied (dashfc08, decision 9) ───────────
+#
+# The upgrade copies a published conversation's steps into its release, and
+# each reader's result along with them. Copying a step is not a change to
+# what it holds: a copied result is judged against the time its step last
+# changed, as it was on the conversation before the upgrade -- served if it
+# was current then, refused if the step had changed since its run -- and a
+# copy that changes after the upgrade outdates it.
+
+def _copy_of(test_client, corpus, corpus_rows, conversation, qkey) -> dict:
+    """The release copy of a corpus conversation's query: its dashboard,
+    query and step ids, and when the step was copied."""
+    link = test_client.get(f"/api/r/{corpus.reports[conversation]}/dashboard")
+    assert link.status_code == 200, link.text
+    did = link.json()["dashboard_id"]
+    (copy,) = _rows(corpus_rows, "SELECT q.id, s.id AS step, s.created_at FROM queries q "
+                                 "JOIN steps s ON s.id = q.default_step_id "
+                                 "JOIN artifacts a ON a.published_release_id = q.artifact_release_id "
+                                 "JOIN queries src ON src.title = q.title AND src.id = :src "
+                                 "WHERE a.id = :d", d=did, src=corpus.ids[f"{conversation}/{qkey}"])
+    return {"did": did, **copy}
+
+
+def _own_rows(test_client, corpus, copy, reader):
+    """The rows of the reader's own result /d serves on the copy, or None."""
+    read = test_client.get(f"/api/d/{copy['did']}/queries/{copy['id']}/step", headers=as_(corpus, reader))
+    assert read.status_code == 200, read.text
+    body = read.json()
+    if not body.get("viewer_result"):
+        return None
+    return [r.get("חודש") for r in (body.get("data") or {}).get("rows") or []]
+
+
+def _when(value):
+    """A timestamp column as a datetime (SQLite hands back the stored text)."""
+    from datetime import datetime
+
+    return datetime.fromisoformat(value) if isinstance(value, str) else value
+
+
+def _changed_at(corpus_rows, step_id, when):
+    """The step's content changed at `when` (a refresh or an edit)."""
+    corpus_rows.update("steps", step_id, updated_at=when)
+
+
+@pytest.mark.e2e
+def test_the_upgrade_serves_each_reader_the_result_that_was_current_before_it(corpus, corpus_rows, test_client):
+    """Before the upgrade the conversation's step changed after one reader's
+    runs and before another's: after it, the copy serves the later run and
+    refuses the earlier ones, as the conversation did."""
+    from tests.fixtures.dashboard_corpus.alembic_at import upgrade_test_db_to_head
+
+    source = corpus.ids["run_viewer_results/q_sales/step"]
+    ran = {r["user_id"]: _when(r["last_run_at"]) for r in _rows(
+        corpus_rows, "SELECT user_id, MAX(last_run_at) AS last_run_at FROM step_user_results "
+                     "WHERE step_id = :s GROUP BY user_id", s=source)}
+    earlier, later = ran[corpus.cast.id("has_results")], ran[corpus.cast.id("direct_share")]
+    assert earlier < later
+    _changed_at(corpus_rows, source, earlier + (later - earlier) / 2)
+
+    upgrade_test_db_to_head()
+
+    copy = _copy_of(test_client, corpus, corpus_rows, "run_viewer_results", "q_sales")
+    assert _own_rows(test_client, corpus, copy, "direct_share") == ["של direct_share 1"]
+    assert _own_rows(test_client, corpus, copy, "has_results") is None
+
+
+@pytest.mark.e2e
+def test_the_upgrade_does_not_serve_a_copied_result_once_its_copy_changed(migrated_corpus, corpus_rows,
+                                                                           test_client):
+    """A copy that changed after the upgrade copied it -- before the
+    revisions after the copy ran, or after them -- outdates the readers'
+    copied results; an unchanged copy keeps serving them."""
+    from datetime import datetime, timedelta
+
+    from alembic import command
+
+    from tests.fixtures.dashboard_corpus.alembic_at import alembic_pointed_at, upgrade_test_db_to_head
+    from tests.fixtures.dashboard_corpus.rows import sync_test_url
+
+    c = migrated_corpus
+    sales = _copy_of(test_client, c, corpus_rows, "run_viewer_results", "q_sales")
+    sealed = _copy_of(test_client, c, corpus_rows, "encrypted", "q_sealed")
+
+    # Changed between the copy (dashfc08) and the revisions after vrstamp01:
+    # a database that ran a release with dashfc08 and refreshed the copy.
+    with alembic_pointed_at(sync_test_url()) as cfg:
+        command.downgrade(cfg, "vrstamp01")
+    _changed_at(corpus_rows, sealed["step"], _when(sealed["created_at"]) + timedelta(minutes=1))
+    upgrade_test_db_to_head()
+
+    assert _own_rows(test_client, c, sales, "has_results") == ["של has_results 1"]
+    assert _own_rows(test_client, c, sales, "direct_share") == ["של direct_share 1"]
+    assert _own_rows(test_client, c, sealed, "has_results") is None
+
+    # Changed after the upgrade.
+    _changed_at(corpus_rows, sales["step"], datetime.utcnow())
+    assert _own_rows(test_client, c, sales, "has_results") is None
+    assert _own_rows(test_client, c, sales, "direct_share") is None
