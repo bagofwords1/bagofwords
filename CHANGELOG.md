@@ -4,7 +4,8 @@
 - Added inline figures in answers: charts and tables placed in the text, with highlighted categories and a ••• menu to add to a dashboard, save as a query, download or copy (#1844)
 - Added read-only Confluence and Jira Data Center (on-prem) connectors (#1842)
 - Added Outlook and Teams write actions (flag, move, draft and send email; post to channels and chats), off by default and managed in a new Tools tab on the connection (#1847)
-- Added a Connect button in chat when a question needs an agent the user hasn't signed in to yet (#1846)
+- Added a Connect button in chat when a question needs an agent or connector the user hasn't signed in to yet (#1846, #1852)
+- Added a note in the answer when an agent can't be reached, instead of "no agent has that data" (#1852)
 - Added a "Refresh to vN" prompt on an open dashboard when a newer version is saved elsewhere (#1841)
 - Added an Ask / Auto / Allow all permission mode for connection tools on each report, and "Allow for this report" on the approval card (#1786) — defaults and the Allow all switch under Settings → AI
 - Added a built-in safety blocklist that refuses catastrophic connection-tool calls such as disk wipes, `rm -rf /`, `DROP DATABASE` and `DELETE` without `WHERE`, whatever the mode or tool setting (#1786)
@@ -14,6 +15,8 @@
 - Fixed running eval and sub-agent cards, and their Stop button, folding out of view (#1840)
 - Fixed the run-activity dot disappearing, resizing and jumping during a live run (#1839)
 - Fixed answered clarify questions showing as raw "Q: … A: …" text instead of a question and answer (#1850)
+- Fixed scheduled tasks growing their prompt, and cost, with every run by replaying earlier runs' full tool results (#1851)
+- Fixed a folder conversation failing outright when all its agents need the user's sign-in; it now asks for it (#1852)
 
 ## Version 0.0.630 (November 20, 2026)
 - Added resizable, movable data-grid columns that keep their layout, and a single value-list filter per column (#1828)
