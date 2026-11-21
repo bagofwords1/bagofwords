@@ -631,8 +631,8 @@
 
 									</div>
 
-                                    <!-- Live line under the steps: the timer runs for the whole run; the dot only while nothing else shows progress. -->
-                                    <RunLiveIndicator v-if="m.status === 'in_progress' && !m.sigkill && runFold(m)?.steps.length" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" :dot="showWaitingIndicator(m)" />
+                                    <!-- Live line under the steps: dot + elapsed time for the whole run, so it never blinks out between steps or while text streams. -->
+                                    <RunLiveIndicator v-if="m.status === 'in_progress' && !m.sigkill && runFold(m)?.steps.length" class="flex" :label="$t('prompt.working')" :elapsed="liveElapsed(m)" />
 
 									<!-- Show status messages for stopped/error completions -->
 									<div data-completion-footer class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
@@ -3740,20 +3740,6 @@ function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boole
 	       (toolExecution.created_widget || toolExecution.created_step)
 }
 
-// Run-level activity stays visible even while reasoning is collapsed or a
-// tool is waiting without emitting text. Terminal states remove it immediately.
-function showWaitingIndicator(message: ChatMessage): boolean {
-    if (message.role !== 'system' || message.status !== 'in_progress' || message.sigkill) return false
-    const blocks = visibleBlocks(message)
-    if (blockHasMessage(blocks[blocks.length - 1])) return false
-    // A visible running tool supplies its own progress indicator.
-    return !visibleBlocks(message).some(block =>
-        block.tool_execution?.status === 'running'
-        && !isBlockFolded(message, block)
-        && !isEditRunFolded(message, block)
-    )
-}
-
 function getThoughtProcessLabel(block: CompletionBlock): string {
 	// Handle stopped blocks
 	if (block.status === 'stopped') {
@@ -4069,7 +4055,7 @@ function updateContentBelow() {
 // Otherwise the floor stays put until the reader scrolls, and then only ever
 // shrinks, to the least that keeps the current position valid (plus slack),
 // so it never parks the reader in blank space and never jumps the view.
-function updatePinSpacer(trim = false) {
+function updatePinSpacer(trim = false, anchor = true) {
   const container = scrollContainer.value
   const content = transcriptContent.value
   if (!container || !content) return
@@ -4086,7 +4072,7 @@ function updatePinSpacer(trim = false) {
     // Anchor to the turn, not to a scroll offset: content above it (a chart
     // re-rendering, the previous answer reloading) can change height after
     // the pin, which would slide the prompt out of view into the blank floor.
-    if (pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
+    if (anchor && pinScrollRAF === null && Math.abs(container.scrollTop - target) > 2) {
       container.scrollTop = target
       lastScrollTop = container.scrollTop
     }
@@ -4152,12 +4138,13 @@ function pinTurnToTop(messageId: string) {
     const topGap = footerTop === null ? PIN_TOP_GAP_PX : Math.max(PIN_TOP_GAP_PX, top - footerTop + 12)
     pinOffsetPx = topGap
     pinScrolled = true
-    updatePinSpacer()
+    // Size the floor only: anchoring here would snap the view to the turn in
+    // one frame, and the eased scroll below would have nothing left to do.
+    updatePinSpacer(false, false)
+    // Start the ease now, before the pin watch's first frame, so the watch
+    // sees a scroll in flight and holds off anchoring until it lands.
+    animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
     startPinWatch()
-    nextTick(() => {
-      if (pinnedId.value !== scrollKey) return
-      animateScrollTo(container, offsetInContainer(el, container) - pinOffsetPx)
-    })
   }))
 }
 
