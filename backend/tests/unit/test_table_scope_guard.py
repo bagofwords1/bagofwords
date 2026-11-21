@@ -142,6 +142,59 @@ def test_dialect_features_over_active_tables_still_run(sql, dialect):
     check_table_scope(sql, dialect, SCOPE)
 
 
+APPLY_SCOPE = TableScope.from_names(active=["events"], inactive=["secret"])
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric", "oracle"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events CROSS APPLY secret",
+    "SELECT * FROM events OUTER APPLY secret",
+    "SELECT * FROM events CROSS APPLY dbo.fn_rows(1)",
+    "SELECT * FROM events e CROSS APPLY fn_rows(e.id)",
+])
+def test_apply_over_a_name_or_a_call_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric", "oracle"])
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events e CROSS APPLY (SELECT id FROM events f WHERE f.id = e.id) x",
+    "SELECT * FROM events e OUTER APPLY (SELECT id FROM events f WHERE f.id = e.id) x",
+])
+def test_apply_over_a_subquery_of_enabled_tables_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric", "oracle"])
+def test_apply_over_a_subquery_of_a_disabled_table_is_refused(dialect):
+    with pytest.raises(TableScopeViolation, match="SECRET is not enabled"):
+        check_table_scope("SELECT * FROM events e CROSS APPLY (SELECT id FROM secret s WHERE s.id = e.id) x",
+                          dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    ("postgres", "SELECT * FROM events e, LATERAL secret"),
+    ("postgres", "SELECT * FROM events e, LATERAL other.fn_rows(e.id) r"),
+    ("postgres", "SELECT * FROM events e CROSS JOIN LATERAL fn_rows(e.id) r"),
+    ("snowflake", "SELECT * FROM events e, LATERAL secret"),
+])
+def test_lateral_over_a_name_or_an_unknown_call_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect, sql", [
+    ("postgres", "SELECT * FROM events e CROSS JOIN LATERAL jsonb_array_elements(e.items) i"),
+    ("postgres", "SELECT * FROM events e, LATERAL generate_series(1, e.n) g"),
+    ("postgres", "SELECT * FROM events e, LATERAL (SELECT 1 AS one) g"),
+    ("databricks", "SELECT id, tag FROM events LATERAL VIEW explode(tags) t AS tag"),
+    ("snowflake", "SELECT f.value FROM events e, LATERAL FLATTEN(input => e.items) f"),
+])
+def test_lateral_over_a_subquery_or_a_row_producing_function_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
 @pytest.mark.parametrize("dialect", ["snowflake", "postgres", "mysql"])
 @pytest.mark.parametrize("sql", [
     "SHOW TABLES",

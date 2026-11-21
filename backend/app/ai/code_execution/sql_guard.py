@@ -519,8 +519,8 @@ _NONPARSING_WRITE_WORDS = {"db2": _DB2_WRITE_KEYWORDS}
 # not known whether the engine reads a form (a server option, a string
 # prefix), the text is read both ways and must pass both.
 # A backslash escape in a string: Vertica's E'...'; SQL Anywhere's strings
-# (\\, \n, \x41).
-_NONPARSING_BACKSLASH = frozenset({"vertica", "sybase"})
+# (\\, \n, \x41); Pinot's E'...', perhaps.
+_NONPARSING_BACKSLASH = frozenset({"vertica", "sybase", "pinot"})
 # `[...]` as a quoted name: SQL Anywhere.
 _NONPARSING_BRACKETS = frozenset({"sybase"})
 # `//` as a line comment (refused outside strings): Pinot's Calcite parser,
