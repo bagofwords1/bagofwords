@@ -5194,6 +5194,14 @@
       "tableExcludeTitle": "Patrón de exclusión de tablas",
       "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Bases de datos",
+      "databasesDescription": "Nombres de bases de datos, patrones glob y exclusiones con !, separados por comas, p. ej. tenant_*, !tenant_test. La coincidencia distingue mayúsculas y minúsculas. Todas las bases de datos que coincidan se unifican en un único conjunto de tablas con una columna tenant_db.",
+      "discoveryDatabaseTitle": "Base de datos de descubrimiento",
+      "discoveryDatabaseDescription": "Base de datos que se usa para listar las bases de datos del servidor. Predeterminada: postgres.",
+      "tableExcludeTitle": "Patrón de exclusión de tablas",
+      "tableExcludeDescription": "Expresión regular opcional; las tablas cuyo nombre coincida no se indexan, p. ej. ^day_\\d{'{'}2{'}'}. Al cambiarla, en la siguiente indexación se eliminan las tablas recién excluidas y su selección en el agente."
+    },
     "qlikCloud": {
       "appFilterDescription": "Nombres o IDs de aplicaciones separados por comas dentro de los espacios seleccionados (opcional). Vacío incluye todas las aplicaciones coincidentes. Usa IDs para nombres que contengan comas."
     },

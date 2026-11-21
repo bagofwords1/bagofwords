@@ -129,7 +129,10 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "json_each_text", "jsonb_each", "jsonb_each_text", "json_to_recordset",
     "jsonb_to_recordset", "json_populate_recordset", "jsonb_populate_recordset",
     "json_table", "openjson", "string_split", "generate_array",
-    "generate_date_array", "generate_timestamp_array",
+    "generate_date_array", "generate_timestamp_array", "json_tuple", "stack",
+    "regexp_matches", "json_to_record", "jsonb_to_record", "json_populate_record",
+    "jsonb_populate_record", "jsonb_path_query", "json_object_keys",
+    "jsonb_object_keys", "generate_subscripts",
 })
 
 # Functions that read a table named in a string, run SQL held in a string, or
@@ -139,7 +142,7 @@ _DENIED_FUNCTION = re.compile(
     r"query_to_xml.*|table_to_xml.*|schema_to_xml.*|database_to_xml.*|cursor_to_xml.*|"
     r"dblink.*|pg_read_.*|pg_ls_.*|lo_.*|"
     r"system\$.*|external_query|"
-    r"read_(csv|json|parquet|text|blob|ndjson|xlsx).*|sqlite_scan|postgres_scan|mysql_scan|"
+    r"read_(csv|json|parquet|text|blob|ndjson|xlsx|duckdb).*|sqlite_scan|postgres_.*|mysql_scan|"
     r"openrowset|openquery|opendatasource|"
     r"url|file|s3|gcs|hdfs|remote|remotesecure|mysql|postgresql|jdbc|odbc)$",
     re.IGNORECASE,
@@ -155,6 +158,54 @@ def _func_name(node) -> str:
         return str(node.sql_name() or "")
     except Exception:
         return ""
+
+
+def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> None:
+    from sqlglot import exp
+
+    for fn in stmt.find_all(exp.Func):
+        name = _func_name(fn)
+        if name and denied.match(name):
+            raise TableScopeViolation(
+                f"The function {name.upper()}() is not allowed in agent queries, because "
+                "the table it reads cannot be checked. Query the enabled tables directly."
+            )
+
+
+def _function_reads_no_table(target) -> bool:
+    from sqlglot import exp
+
+    while isinstance(target, exp.Dot):
+        target = target.expression
+    if isinstance(target, exp.Anonymous):
+        return _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS
+    return isinstance(target, exp.Func)  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
+
+
+def _source_is_checkable(target) -> bool:
+    from sqlglot import exp
+
+    if isinstance(target, (exp.Identifier, exp.Subquery, exp.Query)):
+        return True
+    if type(target).__name__ == "SemanticView":
+        return True  # its view name is a separate Table node, checked by name
+    if isinstance(target, exp.TableFromRows):
+        return _function_reads_no_table(target.this)
+    return _function_reads_no_table(target)
+
+
+def _refuse_unchecked_sources(stmt, dialect: str) -> None:
+    """Every FROM, JOIN, LATERAL and APPLY source must be a named table, a subquery, or a
+    function known to read no table; anything else (a schema-qualified table macro, an
+    unknown table function, an unfamiliar node) is refused."""
+    from sqlglot import exp
+
+    for node in stmt.find_all(exp.Table, exp.Lateral):
+        if not _source_is_checkable(node.this):
+            raise TableScopeViolation(
+                f"'{node.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
+                "the table it reads cannot be checked."
+            )
 
 
 def _resolves_to_cte(table) -> bool:
@@ -226,13 +277,8 @@ def check_table_scope(
                 "read its enabled tables, which are already described in its schema."
             )
 
-        for fn in stmt.find_all(exp.Func):
-            name = _func_name(fn)
-            if name and _DENIED_FUNCTION.match(name):
-                raise TableScopeViolation(
-                    f"The function {name.upper()}() is not allowed in agent queries, because "
-                    "the table it reads cannot be checked. Query the enabled tables directly."
-                )
+        _refuse_denied_functions(stmt)
+        _refuse_unchecked_sources(stmt, dialect)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
@@ -244,8 +290,7 @@ def check_table_scope(
                 )
 
         for t in stmt.find_all(exp.Table):
-            target = t.this
-            if isinstance(target, exp.Identifier):
+            if isinstance(t.this, exp.Identifier):
                 ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
                 if len(ref) == 1 and _resolves_to_cte(t):
                     continue
@@ -269,18 +314,6 @@ def check_table_scope(
                     shown = _display(ref)
                     if shown not in denied:
                         denied.append(shown)
-                continue
-            if type(target).__name__ == "SemanticView":
-                continue  # its view name is a separate Table node, checked above
-            name = _func_name(target).lower() if isinstance(target, exp.Func) else ""
-            if isinstance(target, exp.Func) and not isinstance(target, exp.Anonymous):
-                continue  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
-            if name in _SAFE_TABLE_FUNCTIONS:
-                continue
-            raise TableScopeViolation(
-                f"'{t.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
-                "the table it reads cannot be checked."
-            )
 
     if denied:
         raise TableScopeViolation(
@@ -292,26 +325,30 @@ def check_table_scope(
         )
 
 
-def table_refs(sql: str, dialect: str) -> list[Name]:
-    """Every table `sql` reads, as lowercased name parts, CTE names left out.
-
-    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
-    """
+def _parse_for_refs(sql: str, dialect: str) -> list:
     from app.ai.code_execution.sql_parser import parse_guard_sql
     from sqlglot import exp
     from sqlglot.errors import SqlglotError
 
     try:
-        statements = [s for s in parse_guard_sql(sql, dialect)
-                      if s is not None and not isinstance(s, exp.Semicolon)]
+        return [s for s in parse_guard_sql(sql, dialect)
+                if s is not None and not isinstance(s, exp.Semicolon)]
     except SqlglotError as e:
         raise TableScopeViolation(
             "Could not verify which tables this query reads, so it was not run. "
             "Rewrite it as a plain SELECT over <database>.<table> names."
         ) from e
 
+
+def table_refs(sql: str, dialect: str) -> list[Name]:
+    """Every table `sql` reads, as lowercased name parts, CTE names left out.
+
+    Unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`.
+    """
+    from sqlglot import exp
+
     refs: list[Name] = []
-    for stmt in statements:
+    for stmt in _parse_for_refs(sql, dialect):
         if isinstance(stmt, (exp.Command, exp.Describe, exp.Use)) or type(stmt).__name__ == "Show":
             raise TableScopeViolation(
                 "SHOW, DESCRIBE and similar statements are not allowed here. "
@@ -331,6 +368,17 @@ def table_refs(sql: str, dialect: str) -> list[Name]:
 def one_part_table_refs(sql: str, dialect: str) -> list[str]:
     """Tables read without a database part; unreadable SQL and SHOW/DESCRIBE/USE raise, never `[]`."""
     return [ref[0] for ref in table_refs(sql, dialect) if len(ref) == 1]
+
+
+def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | None = None) -> None:
+    """Raise TableScopeViolation when `sql` reads through a denied function (or one matching
+    `extra_denied`, anywhere in the query) or a query source whose target cannot be named;
+    unreadable SQL raises too. Applies with no scope attached."""
+    for stmt in _parse_for_refs(sql, dialect):
+        _refuse_denied_functions(stmt)
+        if extra_denied is not None:
+            _refuse_denied_functions(stmt, extra_denied)
+        _refuse_unchecked_sources(stmt, dialect)
 
 
 def enforce_table_scope(client, query) -> None:

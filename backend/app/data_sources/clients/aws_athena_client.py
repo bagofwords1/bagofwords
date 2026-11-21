@@ -13,10 +13,9 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 import threading
 from datetime import datetime, timedelta, timezone
 import os
-import fnmatch
 from botocore.config import Config as BotoConfig
 from app.utils.safe_regex import compile_bounded, pattern_cost_problem
-from app.schemas.data_sources.configs import parse_athena_database_spec as parse_database_spec
+from app.data_sources.clients.database_spec import parse_database_spec, is_glob, is_excluded, spec_matches
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -91,7 +90,6 @@ def log_before_retry(retry_state) -> None:
     """Logs a message before each retry attempt."""
     logger.info("Retrying %s (attempt %d)", retry_state.fn.__name__, retry_state.attempt_number)
 
-_GLOB_CHARS = "*?["
 # Skipped dotted table names are listed one by one up to this many per crawl;
 # the rest are rolled into a single "+N more" entry, so a database full of
 # dotted names cannot bloat the indexing job's stats.
@@ -100,10 +98,6 @@ MAX_SKIPPED_TABLE_ENTRIES = 50
 
 class ExcludePatternTimeout(RuntimeError):
     pass
-
-
-def _is_glob(entry: str) -> bool:
-    return any(c in entry for c in _GLOB_CHARS)
 
 
 def _error_code(exc: Exception) -> Optional[str]:
@@ -367,31 +361,22 @@ class AwsAthenaClient(DataSourceClient):
             )
 
     def _spec_matches(self, database: str) -> bool:
-        name = database.lower()
-        included = any(
-            fnmatch.fnmatchcase(name, i.lower()) if _is_glob(i) else name == i.lower()
-            for i in self._includes
-        )
-        return included and not any(fnmatch.fnmatchcase(name, e.lower()) for e in self._excludes)
+        return spec_matches(database, self._includes, self._excludes, case_sensitive=False)
 
     def _resolve_databases(self) -> List[str]:
         """A failed listing page raises: a partial list would make unread databases look gone."""
         available: List[str] = []
-        if any(_is_glob(i) for i in self._includes):
+        if any(is_glob(i) for i in self._includes):
             paginator = self.glue_client.get_paginator('get_databases')
             for page in paginator.paginate():
                 available.extend(str(d['Name']).lower() for d in page['DatabaseList'])
         resolved: List[str] = []
         for entry in self._includes:
-            if _is_glob(entry):
-                pattern = entry.lower()
-                resolved.extend(n for n in available if fnmatch.fnmatchcase(n, pattern))
+            if is_glob(entry):
+                resolved.extend(n for n in available if spec_matches(n, [entry], [], case_sensitive=False))
             else:
                 resolved.append(entry.lower())
-        resolved = [
-            n for n in resolved
-            if not any(fnmatch.fnmatchcase(n, e.lower()) for e in self._excludes)
-        ]
+        resolved = [n for n in resolved if not is_excluded(n, self._excludes, case_sensitive=False)]
         databases: List[str] = []
         for name in dict.fromkeys(resolved):
             if "." in name:

@@ -857,8 +857,8 @@ const isDax = computed(() => (activeConnectionType.value || '').toLowerCase() ==
 // says; the query is sent to the connector as written.
 const SQL_TYPES = [
   'aws_athena', 'aws_redshift', 'bigquery', 'clickhouse', 'databricks_sql', 'druid', 'duckdb', 'mariadb',
-  'ms_fabric', 'mssql', 'mysql', 'oracledb', 'postgresql', 'snowflake', 'spark_connect', 'sqlite',
-  'starburst', 'sybase', 'teradata', 'trino',
+  'ms_fabric', 'mssql', 'mysql', 'oracledb', 'postgresql', 'postgresql_multi', 'snowflake', 'spark_connect',
+  'sqlite', 'starburst', 'sybase', 'teradata', 'trino',
 ]
 const queryLanguage = computed(() => {
   const type = (activeConnectionType.value || '').toLowerCase()

@@ -4546,6 +4546,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "قواعد البيانات",
+      "databasesDescription": "أسماء قواعد بيانات وأنماط glob واستثناءات تبدأ بـ !، مفصولة بفواصل، مثل tenant_*, !tenant_test. المطابقة حساسة لحالة الأحرف. تُدمج كل قواعد البيانات المطابقة في مجموعة واحدة من الجداول مع عمود tenant_db.",
+      "discoveryDatabaseTitle": "قاعدة بيانات الاكتشاف",
+      "discoveryDatabaseDescription": "قاعدة البيانات المستخدمة لسرد قواعد بيانات الخادم. الافتراضي: postgres.",
+      "tableExcludeTitle": "نمط استبعاد الجداول",
+      "tableExcludeDescription": "تعبير نمطي اختياري؛ لا تُفهرس الجداول التي يطابق اسمها، مثل ^day_\\d{'{'}2{'}'}. تغييره يزيل في الفهرسة التالية الجداول المستبعدة حديثًا واختيار الوكيل لها."
+    },
     "qlikCloud": {
       "appFilterDescription": "أسماء التطبيقات أو معرّفاتها مفصولة بفواصل ضمن المساحات المحددة (اختياري). الحقل الفارغ يشمل جميع التطبيقات المطابقة. استخدم المعرّفات للأسماء التي تحتوي على فواصل."
     },

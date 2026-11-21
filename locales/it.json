@@ -4546,6 +4546,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Database",
+      "databasesDescription": "Nomi di database, pattern glob ed esclusioni con !, separati da virgole, ad es. tenant_*, !tenant_test. La corrispondenza distingue maiuscole e minuscole. Tutti i database corrispondenti vengono uniti in un unico insieme di tabelle con una colonna tenant_db.",
+      "discoveryDatabaseTitle": "Database di rilevamento",
+      "discoveryDatabaseDescription": "Database usato per elencare i database del server. Predefinito: postgres.",
+      "tableExcludeTitle": "Pattern di esclusione tabelle",
+      "tableExcludeDescription": "Espressione regolare facoltativa; le tabelle il cui nome corrisponde non vengono indicizzate, ad es. ^day_\\d{'{'}2{'}'}. Modificarla rimuove alla successiva indicizzazione le tabelle appena escluse e la loro selezione nell'agente."
+    },
     "qlikCloud": {
       "appFilterDescription": "Nomi o ID delle app separati da virgole negli spazi selezionati (facoltativo). Se vuoto, include tutte le app corrispondenti. Usa gli ID per nomi contenenti virgole."
     },

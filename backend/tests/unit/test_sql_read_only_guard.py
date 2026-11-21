@@ -276,3 +276,18 @@ def test_custom_table_definition_reads_still_preview(orders_db):
     cols, rows = extractor.preview(client, "SELECT id, amount FROM orders ORDER BY id", 3)
     assert [c["name"] for c in cols] == ["id", "amount"]
     assert len(rows) == 3
+
+
+DUCKDB_ESCAPES = [
+    "ATTACH 'x' AS y",
+    "INSTALL postgres",
+    "LOAD postgres",
+    "COPY t TO 'f.csv'",
+    "SET enable_external_access=true",
+]
+
+
+@pytest.mark.parametrize("sql", DUCKDB_ESCAPES)
+def test_duckdb_escape_statements_are_refused(sql):
+    with pytest.raises(ReadOnlyViolation):
+        check_sql(sql, "duckdb")
