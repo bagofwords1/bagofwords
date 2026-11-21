@@ -6,11 +6,14 @@
 - Added Outlook and Teams write actions (flag, move, draft and send email; post to channels and chats), off by default and managed in a new Tools tab on the connection (#1847)
 - Added a Connect button in chat when a question needs an agent the user hasn't signed in to yet (#1846)
 - Added a "Refresh to vN" prompt on an open dashboard when a newer version is saved elsewhere (#1841)
+- Added an Ask / Auto / Allow all permission mode for connection tools on each report, and "Allow for this report" on the approval card (#1786) — defaults and the Allow all switch under Settings → AI
+- Added a built-in safety blocklist that refuses catastrophic connection-tool calls such as disk wipes, `rm -rf /`, `DROP DATABASE` and `DELETE` without `WHERE`, whatever the mode or tool setting (#1786)
 - Changed a connection tool call to follow the rule of the agent it goes through (#1847)
 - Changed System logs to be off by default (#1843) — turn on with `system_logs.enabled` / `BOW_SYSTEM_LOGS_ENABLED=true`
 - Fixed a large log backlog wiping older System logs (#1843)
 - Fixed running eval and sub-agent cards, and their Stop button, folding out of view (#1840)
 - Fixed the run-activity dot disappearing, resizing and jumping during a live run (#1839)
+- Fixed answered clarify questions showing as raw "Q: … A: …" text instead of a question and answer (#1850)
 
 ## Version 0.0.630 (November 20, 2026)
 - Added resizable, movable data-grid columns that keep their layout, and a single value-list filter per column (#1828)
