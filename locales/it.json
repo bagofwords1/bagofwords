@@ -2246,6 +2246,13 @@
       "unknownState": "Il processo remoto potrebbe essere ancora in esecuzione. Verifica il suo stato prima di riprovare.",
       "exitCode": "Codice di uscita: {code}",
       "cancelledBeforeExecution": "Annullato prima dell’esecuzione."
+    },
+    "requestAgentSignin": {
+      "checking": "Verifica degli agenti…",
+      "connect": "Connetti",
+      "connected": "Connesso",
+      "askAgain": "Chiedi di nuovo",
+      "readyHint": "Connesso. Ripeti la domanda per usarlo."
     }
   },
   "entityCreate": {

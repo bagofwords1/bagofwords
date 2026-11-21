@@ -2246,6 +2246,13 @@
       "unknownState": "Der entfernte Prozess läuft möglicherweise noch. Prüfen Sie seinen Status vor einem erneuten Versuch.",
       "exitCode": "Exit-Code: {code}",
       "cancelledBeforeExecution": "Vor der Ausführung abgebrochen."
+    },
+    "requestAgentSignin": {
+      "checking": "Agenten werden geprüft…",
+      "connect": "Verbinden",
+      "connected": "Verbunden",
+      "askAgain": "Erneut fragen",
+      "readyHint": "Verbunden. Stellen Sie Ihre Frage erneut, um ihn zu nutzen."
     }
   },
   "entityCreate": {

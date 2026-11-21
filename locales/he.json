@@ -2561,6 +2561,13 @@
       "unknownState": "ייתכן שהתהליך המרוחק עדיין פועל. יש לבדוק את מצבו לפני ניסיון חוזר.",
       "exitCode": "קוד יציאה: {code}",
       "cancelledBeforeExecution": "בוטל לפני הביצוע."
+    },
+    "requestAgentSignin": {
+      "checking": "בודק סוכנים…",
+      "connect": "התחברות",
+      "connected": "מחובר",
+      "askAgain": "לשאול שוב",
+      "readyHint": "החיבור הושלם. הריצו שוב את השאלה כדי להשתמש בו."
     }
   },
   "entityCreate": {

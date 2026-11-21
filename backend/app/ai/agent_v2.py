@@ -637,6 +637,10 @@ class AgentV2:
     # is built in __init__; the default keeps any earlier reader safe.
     _disabled_tools: frozenset = frozenset()
     _report_opt_outs: dict = {}
+    # Agents needing the user's sign-in (see _signin_required_agents).
+    # Assigned in __init__; the defaults keep any earlier reader safe.
+    _signin_candidates: tuple = ()
+    _signin_required: Optional[list] = None
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, platform=None, platform_context=None,
@@ -822,6 +826,11 @@ class AgentV2:
                               else (getattr(report, 'data_sources', []) or []))
                 if DataSourceService.is_execution_live(ds)
             ]
+            # The working set before the client filter below: an agent the user
+            # must sign in to has no client and is dropped there, but the
+            # planner is still told it exists (see _signin_required_agents).
+            self._signin_candidates = list(self.data_sources)
+            self._signin_required: Optional[list] = None
             self.clients = clients
             # Drop data sources that produced no client. The caller builds
             # `clients` via DataSourceService.construct_clients, which now 403s
@@ -902,6 +911,8 @@ class AgentV2:
             ])
         else:
             self.data_sources = []
+            self._signin_candidates = []
+            self._signin_required = None
             self.clients = {}
             self.image_files = []
             self.analysis_files = []
@@ -1801,22 +1812,95 @@ class AgentV2:
                 logger.warning("[agent] connector check failed for %r", getattr(ds, "id", None), exc_info=True)
         return out
 
+    async def _signin_required_agents(self) -> list:
+        """Agents in this run's working set the user must sign in to first.
+
+        ``user_required`` auth with no personal credentials and no service
+        account fallback: construct_clients 403s for them, so they carry no
+        client and never reach the schema. Connectors are left out — they have
+        their own <connectors> block and are not "agents". Resolved once per
+        run: signing in happens between turns, and the next turn is a new run.
+        """
+        if self._signin_required is not None:
+            return self._signin_required
+        self._signin_required = []
+        candidates = list(getattr(self, "_signin_candidates", None) or [])
+        if not candidates:
+            return self._signin_required
+        try:
+            from app.services.data_source_kind import is_connector
+            candidates = [
+                ds for ds in candidates
+                if not is_connector(ds) and any(
+                    (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+                    for c in (getattr(ds, "connections", None) or [])
+                )
+            ]
+            if not candidates:
+                return self._signin_required
+            from app.ai.tools.implementations.agent_focus_common import signin_required_ids
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            if user is None:
+                return self._signin_required
+            ids = await signin_required_ids(self.db, candidates, user)
+            self._signin_required = [ds for ds in candidates if str(ds.id) in ids]
+        except Exception:
+            logger.exception("[agent] sign-in-required resolution failed")
+            self._signin_required = []
+        return self._signin_required
+
+    async def _signin_required_block(self) -> tuple:
+        """``(ids, xml)`` for the planner's <agents_needing_signin> block."""
+        agents = await self._signin_required_agents()
+        if not agents:
+            return set(), ""
+        try:
+            from app.ai.context.agent_roster import load_agent_one_liners, render_signin_required_xml
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            one_liners = await load_agent_one_liners(self.db, agents, self.organization, user)
+            xml = render_signin_required_xml(
+                [(str(ds.id), getattr(ds, "name", "") or "", one_liners.get(str(ds.id), "")) for ds in agents]
+            )
+            return {str(ds.id) for ds in agents}, xml
+        except Exception:
+            logger.exception("[agent] sign-in-required block render failed")
+            return {str(ds.id) for ds in agents}, ""
+
     async def _render_schemas_with_roster(self, schemas_ctx):
+        """Agents (roster/focus policy) + the run's connectors, followed by
+        the agents this user must sign in to before they can be used."""
+        signin_ids, signin_xml = await self._signin_required_block()
+        if signin_ids and schemas_ctx and getattr(schemas_ctx, "data_sources", None):
+            # Never advertise a schema the run cannot query (no client): this
+            # matters when EVERY agent failed, where AgentV2.__init__ skips its
+            # client filter and the agent would otherwise stay in context.
+            import copy as _copy
+            schemas_ctx = _copy.copy(schemas_ctx)
+            schemas_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in signin_ids]
+        excerpt, roster = await self._render_schemas_with_agents_and_connectors(schemas_ctx, signin_ids)
+        if signin_xml:
+            roster = f"{roster}\n{signin_xml}" if roster else signin_xml
+        return excerpt, roster
+
+    async def _render_schemas_with_agents_and_connectors(self, schemas_ctx, signin_ids: set):
         """Agents (roster/focus policy) + the run's connectors.
 
         Connectors are split out first: the roster, focus and Auto "pick" logic
         only ever see agents, and every connected connector renders, always, as
         a separate ``<connectors>`` block appended after the agents' schemas.
         """
-        connector_ids = self._connector_ids()
+        # Agents needing sign-in stay out of the roster too: it merges in the
+        # report's own attachments, which can still hold one.
+        signin_ids = set(signin_ids or ())
+        connector_ids = self._connector_ids() - signin_ids
         if not schemas_ctx or not getattr(schemas_ctx, "data_sources", None) or not connector_ids:
-            return await self._render_agent_schemas_with_roster(schemas_ctx, set())
+            return await self._render_agent_schemas_with_roster(schemas_ctx, signin_ids)
         import copy as _copy
         agent_ctx = _copy.copy(schemas_ctx)
         agent_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) not in connector_ids]
         conn_ctx = _copy.copy(schemas_ctx)
         conn_ctx.data_sources = [s for s in schemas_ctx.data_sources if str(s.info.id) in connector_ids]
-        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids)
+        excerpt, roster = await self._render_agent_schemas_with_roster(agent_ctx, connector_ids | signin_ids)
         try:
             connectors_xml = conn_ctx.render_connectors(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
         except Exception:

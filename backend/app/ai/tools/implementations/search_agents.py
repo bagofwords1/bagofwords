@@ -383,7 +383,7 @@ class SearchAgentsTool(Tool):
                 + (f", folder: {it.folder_path}" if it.folder_path else "")
                 + (", focused" if it.focused else "")
                 + ("" if it.attached else ", not attached to this report yet")
-                + (", SIGN-IN REQUIRED — the user must Connect this agent from the agent selector before it can be used; do not set_report_agents it, tell the user instead" if it.needs_signin else "")
+                + (", SIGN-IN REQUIRED — the user has not connected this agent; do not set_report_agents it — if the request needs it, call request_agent_signin with its id" if it.needs_signin else "")
                 + (f") — {it.description}" if it.description else ")")
                 for it in items
             )

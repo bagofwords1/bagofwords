@@ -1330,6 +1330,7 @@ import CreateDemoDatasetTool from '~/components/tools/CreateDemoDatasetTool.vue'
 import ListSchemaTool from '~/components/tools/ListSchemaTool.vue'
 import DeleteListRowsTool from '~/components/tools/DeleteListRowsTool.vue'
 import SearchAgentsTool from '~/components/tools/SearchAgentsTool.vue'
+import RequestAgentSigninTool from '~/components/tools/RequestAgentSigninTool.vue'
 import SetReportAgentsTool from '~/components/tools/SetReportAgentsTool.vue'
 import SearchEvalsTool from '~/components/tools/SearchEvalsTool.vue'
 import CreateEvalTool from '~/components/tools/CreateEvalTool.vue'
@@ -3635,6 +3636,8 @@ function getToolComponent(toolName: string) {
 			return DeleteListRowsTool
 		case 'search_agents':
 			return SearchAgentsTool
+		case 'request_agent_signin':
+			return RequestAgentSigninTool
 		case 'set_report_agents':
 			return SetReportAgentsTool
 		case 'search_evals':
@@ -5705,7 +5708,25 @@ onMounted(() => {
     // Scoped to this report; reuses the debounced, mid-stream-safe reload.
     window.addEventListener('report:mutated', onReportMutated as EventListener)
     window.addEventListener('report:updated', onReportUpdatedEvent as EventListener)
+    window.addEventListener('prompt:rerun-for-completion', onRerunForCompletion as EventListener)
 })
+onBeforeUnmount(() => window.removeEventListener('prompt:rerun-for-completion', onRerunForCompletion as EventListener))
+
+// A sign-in card (request_agent_signin) asks to re-send the question its
+// completion answered, once the user has connected the agent it needed.
+function onRerunForCompletion(ev: CustomEvent) {
+	const completionId = ev.detail?.completionId
+	const list = messages.value
+	const idx = completionId
+		? list.findIndex(m => m.id === completionId || (m as any).system_completion_id === completionId)
+		: list.length - 1
+	for (let i = (idx < 0 ? list.length - 1 : idx); i >= 0; i--) {
+		if (list[i].role === 'user' && canRerunPrompt(list[i])) {
+			rerunPrompt(list[i])
+			return
+		}
+	}
+}
 
 // Mirror a report's agent scope into the user's default (memberships
 // default_data_source_ids), the same store the home-page prompt box persists
