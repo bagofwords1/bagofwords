@@ -44,6 +44,7 @@ class ToolConfirmationService:
         connection_tool_id: Optional[str] = None,
         tool_name: Optional[str] = None,
         arguments: Optional[dict] = None,
+        display: Optional[dict] = None,
         timeout_seconds: float = 240.0,
     ) -> ToolConfirmation:
         """Insert the pending row. Commits — the responder needs to see it."""
@@ -61,6 +62,7 @@ class ToolConfirmationService:
             connection_tool_id=str(connection_tool_id) if connection_tool_id else None,
             tool_name=tool_name,
             arguments=arguments or {},
+            display=display or None,
             remember=False,
             expires_at=datetime.utcnow() + timedelta(seconds=timeout_seconds),
         )
@@ -290,4 +292,5 @@ def confirmation_payload(row: ToolConfirmation, connection_name: Optional[str] =
         "connection_tool_id": row.connection_tool_id,
         "connection_name": connection_name,
         "tool_execution_id": row.tool_execution_id,
+        "display": getattr(row, "display", None) or {},
     }

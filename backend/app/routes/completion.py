@@ -523,6 +523,14 @@ async def respond_to_mcp_tool_confirmation(
         approved, remember = row.approved, bool(row.remember)
 
     if remember and meta.get("connection_tool_id") and not shell_handled:
+        # Never store a preference the tool's effect forbids (e.g. "always
+        # allow" a destructive action): the decision still applies once.
+        from app.models.connection_tool import ConnectionTool as _CT
+        from app.services.tool_policy_service import policy_not_allowed_for
+        _tool = await db.get(_CT, str(meta["connection_tool_id"]))
+        if _tool is not None and policy_not_allowed_for(_tool, TOOL_POLICY_ALLOW if approved else TOOL_POLICY_DENY):
+            remember = False
+    if remember and meta.get("connection_tool_id") and not shell_handled:
         # Brief retry: on SQLite a concurrent agent write can hold the single
         # writer lock for a moment ("database is locked").
         last_err = None

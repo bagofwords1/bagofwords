@@ -150,13 +150,23 @@ async def effective_shell_policy(db, connection, tool, resolution, user, argumen
     if not config_dict(connection.config).get("enable_shell", True):
         return "deny"
     rules = await user_shell_rules(db, user.id, tool.id, report_id) if user else []
-    return resolve_shell_policy(
+    decided = resolve_shell_policy(
         connection.config,
         arguments.get("command", ""),
         personal=resolution.user_policy,
         user_rules=rules,
         cwd=arguments.get("working_directory"),
     )
+    return _lock_floor(decided, resolution.admin_policy, bool(getattr(tool, "policy_locked", False)))
+
+
+def _lock_floor(decided, admin, locked):
+    """A locked admin policy is a floor: shell configuration and personal
+    rules may make the command-specific decision stricter, never looser."""
+    if not locked:
+        return decided
+    from app.services.tool_policy_service import strictness
+    return admin if strictness(admin) > strictness(decided) else decided
 
 
 def display_policy(connection, tool_name, admin, personal, locked=False):
@@ -167,7 +177,7 @@ def display_policy(connection, tool_name, admin, personal, locked=False):
     if kind == "remote_ssh" and tool_name == "execute_shell":
         if admin == "deny" or not config_dict(config).get("enable_shell", True):
             return "deny"
-        return resolve_shell_policy(config, "", personal=personal)
+        return _lock_floor(resolve_shell_policy(config, "", personal=personal), admin, locked)
     return resolve_effective_policy(admin, personal, locked=locked)
 
 

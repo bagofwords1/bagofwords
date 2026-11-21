@@ -54,6 +54,10 @@ class ToolConfirmation(BaseSchema):
     connection_tool_id = Column(String(36), nullable=True, index=True)
     tool_name = Column(String, nullable=True)
     arguments = Column(JSON, nullable=True)
+    # Card-only context, kept apart from the call's arguments so the card can
+    # show every argument the tool receives: the agent the call goes through,
+    # a one-line preview and the action's effect.
+    display = Column(JSON, nullable=True)
 
     # The decision.
     remember = Column(Boolean, nullable=False, default=False)

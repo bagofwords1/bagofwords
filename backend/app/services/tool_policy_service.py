@@ -68,6 +68,23 @@ def resolve_effective_policy(admin_policy: Optional[str], user_policy: Optional[
 _STRICTNESS = {TOOL_POLICY_DENY: 3, TOOL_POLICY_ASK: 2, TOOL_POLICY_AUTO: 1, TOOL_POLICY_ALLOW: 0}
 
 
+def clamp_to_effect(tool, policy: Optional[str]) -> str:
+    """The policy a call actually gets once the tool's effect is applied.
+
+    External actions are never left to a model judge (auto → ask) and
+    destructive ones never run silently (allow / auto → ask). Applied wherever
+    a policy is resolved, so a preference stored before or around these rules
+    (an old row, an "Always allow" click) cannot bypass them.
+    """
+    from app.data_sources.clients.connector_actions import allowed_policies
+
+    p = normalize_tool_policy(policy)
+    effect = getattr(tool, "effect", None)
+    if not effect or p in allowed_policies(effect):
+        return p
+    return TOOL_POLICY_ASK if TOOL_POLICY_ASK in allowed_policies(effect) else TOOL_POLICY_DENY
+
+
 def strictness(policy: Optional[str]) -> int:
     return _STRICTNESS.get(normalize_tool_policy(policy), 0)
 
@@ -125,13 +142,14 @@ def pick_via_agent(tool, agent_ids: Iterable[str], overlays_by_agent: Dict[str, 
         enabled, admin = agent_admin_setting(tool, overlays_by_agent.get(agent_id) if agent_id else None)
         if not enabled:
             continue
-        effective = effective_fn(admin, user_policy)
+        effective = clamp_to_effect(tool, effective_fn(admin, user_policy))
         if best is None or strictness(effective) < strictness(best.effective):
             best = AgentPick(agent_id, True, admin, effective)
     if best is not None:
         return best
     enabled, admin = agent_admin_setting(tool, overlays_by_agent.get(ids[0]) if ids else None)
-    return AgentPick(ids[0] if ids else None, False, admin, effective_fn(admin, user_policy))
+    return AgentPick(ids[0] if ids else None, False, admin,
+                     clamp_to_effect(tool, effective_fn(admin, user_policy)))
 
 
 @dataclass

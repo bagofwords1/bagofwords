@@ -7954,6 +7954,7 @@
         "title": "Destrutivas",
         "hint": "Exclui ou bloqueia coisas. Sempre pergunta antes."
       }
-    }
+    },
+    "builtinBadge": "Integrada"
   }
 }

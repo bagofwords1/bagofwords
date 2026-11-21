@@ -234,6 +234,8 @@ class FakeM365:
             m = self._add_message(body.get("subject") or "", ME["mail"], "fld-drafts",
                                   (body.get("body") or {}).get("content", ""), draft=True,
                                   to=body.get("toRecipients") or [])
+            if body.get("ccRecipients"):
+                m["ccRecipients"] = body["ccRecipients"]
             self.writes.append({"op": "create_draft", "id": m["id"], "subject": m["subject"], "to": m["toRecipients"]})
             return self._json(201, m)
         if path == "/me/sendMail" and method == "POST":
@@ -288,6 +290,9 @@ class FakeM365:
                 d = self._add_message(prefix + msg["subject"], ME["mail"], "fld-drafts",
                                       ((body.get("message") or {}).get("body") or {}).get("content", ""),
                                       draft=True, to=to)
+                cc = (body.get("message") or {}).get("ccRecipients")
+                if cc:
+                    d["ccRecipients"] = cc
                 self.writes.append({"op": verb, "id": mid, "draft_id": d["id"]})
                 return self._json(201, d)
         # ---- teams

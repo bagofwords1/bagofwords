@@ -1256,9 +1256,14 @@ class SchemaContextBuilder:
             ToolPolicyService, resolve_effective_policy, normalize_tool_policy,
         )
 
+        from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES
+        from app.services.tool_policy_service import agent_admin_setting, clamp_to_effect, is_policy_locked
+
         mcp_conn_ids = []
         for conn in (getattr(ds, 'connections', None) or []):
-            if getattr(conn, 'type', None) in ('mcp', 'custom_api', 'remote_ssh', 'remote_smb'):
+            # Tool providers and built-in connectors with write actions — the
+            # same set the run's tool catalog draws from.
+            if getattr(conn, 'type', None) in CALLABLE_TOOL_CONNECTION_TYPES:
                 mcp_conn_ids.append(str(conn.id))
         if not mcp_conn_ids:
             return []
@@ -1291,12 +1296,15 @@ class SchemaContextBuilder:
                 if not model_visible(getattr(t, "metadata_json", None)):
                     continue
                 overlay = overlays.get(str(t.id))
-                is_enabled = overlay.is_enabled if overlay else t.is_enabled
+                # This agent's own rule under the connection's ceiling (off
+                # there = off here; a locked policy only tightens), then the
+                # effect's limits — the same resolution the run uses.
+                is_enabled, admin_policy = agent_admin_setting(t, overlay)
                 if not is_enabled:
                     continue
-                admin_policy = overlay.policy if overlay else t.policy
                 from app.services.remote_shell_policy import display_policy
-                effective = display_policy(t.connection, t.name, admin_policy, user_prefs.get(str(t.id)))
+                effective = clamp_to_effect(t, display_policy(
+                    t.connection, t.name, admin_policy, user_prefs.get(str(t.id)), locked=is_policy_locked(t)))
                 if effective == "deny":
                     continue
                 # Carry the argument schema through, minus admin-locked

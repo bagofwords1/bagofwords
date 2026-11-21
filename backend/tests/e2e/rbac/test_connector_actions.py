@@ -211,3 +211,18 @@ def test_the_permissions_endpoint_names_missing_scopes(test_client, org):
     body = r.json()
     assert body["known"] is True
     assert body["missing"]["send_email"] == ["Mail.Send"] and body["missing"]["flag_email"] == []
+
+
+def test_an_action_past_the_native_budget_is_still_listed_for_search(test_client, org, planner, monkeypatch):
+    """<mcp_tools> lists built-in actions like any connection tool, so one
+    behind search_tools (past tools_max) is still discoverable."""
+    monkeypatch.setenv("BOW_TOOLS_MAX", "0")
+    c = _connector(test_client, org["h"], "outlook_mail")
+    assert _set_tool(test_client, org["h"], c, "flag_email", is_enabled=True, policy="allow").status_code == 200
+    with _graph(["Mail.Read", "Mail.ReadWrite"]):
+        _run(test_client, org["h"], [c["ds_id"]], planner, [])
+    assert planner.mcp_tools(0) == []
+    context = planner.texts[0].replace('\\"', '"')
+    assert '<tool name="flag_email" deferred="true"' in context, context
+    # Switched-off actions are not advertised.
+    assert '<tool name="send_email"' not in context

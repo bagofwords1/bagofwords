@@ -8890,6 +8890,7 @@
         "title": "Destructivas",
         "hint": "Elimina o bloquea cosas. Siempre pregunta antes."
       }
-    }
+    },
+    "builtinBadge": "Integrada"
   }
 }

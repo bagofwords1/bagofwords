@@ -2289,7 +2289,9 @@ const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: 
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
-  return (a?.connections || []).filter((c: any) => ['mcp', 'custom_api', 'remote_ssh', 'remote_smb'].includes(c.type))
+  // Tool providers plus built-in connectors with write actions (Outlook, Teams):
+  // the agent owner sets this agent's rule for each action here.
+  return (a?.connections || []).filter((c: any) => ['mcp', 'custom_api', 'remote_ssh', 'remote_smb', 'outlook_mail', 'teams_messages'].includes(c.type))
 })
 const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'lists' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
