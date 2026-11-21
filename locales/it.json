@@ -4765,6 +4765,7 @@
     "system_logs.instance_admin_required": "Solo un amministratore dell’istanza può usare i log di sistema.",
     "system_logs.invalid_range": "L'ora di inizio deve precedere l'ora di fine.",
     "system_logs.delete_failed": "Impossibile eliminare i file di log in {directory}. Verifica che la cartella esista e sia scrivibile.",
+    "system_logs.disabled": "I log di sistema sono disattivati su questo server. Per attivarli, imposta BOW_SYSTEM_LOGS_ENABLED=true (o system_logs.enabled in bow-config.yaml) e riavvia il server.",
     "verification.invalid": "Token di verifica non valido o scaduto",
     "body.invalid_json": "Corpo JSON non valido",
     "organization.not_found": "Organizzazione non trovata",

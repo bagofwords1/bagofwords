@@ -5418,6 +5418,7 @@
     "system_logs.instance_admin_required": "רק מנהל המופע יכול להשתמש ביומני המערכת.",
     "system_logs.invalid_range": "זמן ההתחלה חייב להיות לפני זמן הסיום.",
     "system_logs.delete_failed": "לא ניתן היה למחוק את קובצי היומן בתיקייה {directory}. בדקו שהתיקייה קיימת ושיש הרשאת כתיבה אליה.",
+    "system_logs.disabled": "יומני המערכת כבויים בשרת זה. כדי להפעיל אותם, הגדירו BOW_SYSTEM_LOGS_ENABLED=true (או system_logs.enabled בקובץ bow-config.yaml) והפעילו מחדש את השרת.",
     "verification.invalid": "אסימון האימות אינו תקף או שפג תוקפו",
     "body.invalid_json": "גוף JSON לא תקין",
     "organization.not_found": "הארגון לא נמצא",

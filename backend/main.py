@@ -137,9 +137,11 @@ from app.ee.license import get_license_info, has_feature
 
 # Initialize logging
 loggers = setup_logging()
-# Settings → System logs: buffers log records once the app has started.
-from app.services.app_log_service import install_log_handler  # noqa: E402
-install_log_handler()
+# Settings → System logs (only when turned on): buffers log records once the
+# app has started.
+if settings.bow_config.system_logs.enabled:
+    from app.services.app_log_service import install_log_handler  # noqa: E402
+    install_log_handler()
 logger = get_logger(__name__)
 # Initialize OpenTelemetry if enabled (before app creation)
 setup_telemetry(settings.bow_config.otel)
@@ -1062,19 +1064,22 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to start license refresher: {e}")
 
-    # Settings → System logs. Every worker writes its own log files, so like
-    # the license refresher this runs in every worker. Stream capture is
-    # installed here rather than at import so test runs, which never start the
-    # app, keep their own stdout/stderr untouched.
-    try:
-        from app.services import app_log_service
+    # Settings → System logs, only when the deployment turns it on
+    # (system_logs.enabled / BOW_SYSTEM_LOGS_ENABLED); otherwise nothing is
+    # captured and no files are written. Every worker writes its own log
+    # files, so like the license refresher this runs in every worker. Stream
+    # capture is installed here rather than at import so test runs, which
+    # never start the app, keep their own stdout/stderr untouched.
+    if settings.bow_config.system_logs.enabled:
+        try:
+            from app.services import app_log_service
 
-        # uvicorn may have configured its loggers after import; attach again.
-        app_log_service.install_log_handler()
-        app_log_service.install_stream_capture()
-        app_log_service.start()
-    except Exception as e:
-        logger.error(f"Failed to start system logs writer: {e}")
+            # uvicorn may have configured its loggers after import; attach again.
+            app_log_service.install_log_handler()
+            app_log_service.install_stream_capture()
+            app_log_service.start()
+        except Exception as e:
+            logger.error(f"Failed to start system logs writer: {e}")
 
     # Validate license at startup
     license_info = get_license_info()

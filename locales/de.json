@@ -4765,6 +4765,7 @@
     "system_logs.instance_admin_required": "Nur ein Instanzadministrator kann die Systemprotokolle verwenden.",
     "system_logs.invalid_range": "Die Startzeit muss vor der Endzeit liegen.",
     "system_logs.delete_failed": "Die Protokolldateien in {directory} konnten nicht gelöscht werden. Prüfen Sie, ob das Verzeichnis existiert und beschreibbar ist.",
+    "system_logs.disabled": "Systemprotokolle sind auf diesem Server ausgeschaltet. Um sie einzuschalten, setzen Sie BOW_SYSTEM_LOGS_ENABLED=true (oder system_logs.enabled in bow-config.yaml) und starten Sie den Server neu.",
     "verification.invalid": "Ungültiges oder abgelaufenes Bestätigungs-Token",
     "body.invalid_json": "Ungültiger JSON-Body",
     "organization.not_found": "Organisation nicht gefunden",

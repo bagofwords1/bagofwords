@@ -1,6 +1,8 @@
 """Settings → System logs: read and clear the server's own log files.
 
-Only instance superusers may access these deployment-wide logs.
+Only instance superusers may access these deployment-wide logs, and only
+when the deployment turns the feature on (``system_logs.enabled`` /
+``BOW_SYSTEM_LOGS_ENABLED``).
 
 The files are on disk (``app_log_service``), so every read runs in a thread
 to keep the event loop free.
@@ -26,6 +28,7 @@ from app.schemas.app_log_schema import (
     AppLogStatus,
 )
 from app.services import app_log_service as svc
+from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +41,19 @@ async def require_log_admin(user: User = Depends(current_user)) -> None:
         )
 
 
-router = APIRouter(tags=["system-logs"], dependencies=[Depends(require_log_admin)])
+async def require_enabled() -> None:
+    # After the admin check, so the answer to anyone else stays a plain 403.
+    if not settings.bow_config.system_logs.enabled:
+        raise AppError.not_found(
+            ErrorCode.SYSTEM_LOGS_DISABLED,
+            "System logs are turned off on this server (BOW_SYSTEM_LOGS_ENABLED)",
+        )
+
+
+router = APIRouter(
+    tags=["system-logs"],
+    dependencies=[Depends(require_log_admin), Depends(require_enabled)],
+)
 
 
 def _naive_utc(value: Optional[datetime]) -> Optional[datetime]:

@@ -5480,6 +5480,7 @@
     "system_logs.instance_admin_required": "Only an instance administrator can use system logs.",
     "system_logs.invalid_range": "The start time must be before the end time.",
     "system_logs.delete_failed": "The log files in {directory} could not be deleted. Check that the directory exists and is writable.",
+    "system_logs.disabled": "System logs are turned off on this server. To turn them on, set BOW_SYSTEM_LOGS_ENABLED=true (or system_logs.enabled in bow-config.yaml) and restart the server.",
     "verification.invalid": "Invalid or expired verification token",
     "body.invalid_json": "Invalid JSON body",
     "organization.not_found": "Organization not found",

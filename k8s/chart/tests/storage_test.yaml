@@ -179,6 +179,22 @@ tests:
               claimName: legacy-uploads
         template: deployment.yaml
 
+  - it: system logs are off by default
+    asserts:
+      - equal:
+          path: data.BOW_SYSTEM_LOGS_ENABLED
+          value: "false"
+        template: config.yaml
+
+  - it: system logs can be turned on
+    set:
+      systemLogs.enabled: true
+    asserts:
+      - equal:
+          path: data.BOW_SYSTEM_LOGS_ENABLED
+          value: "true"
+        template: config.yaml
+
   - it: keeps system logs on the uploads volume by default
     asserts:
       - equal:
