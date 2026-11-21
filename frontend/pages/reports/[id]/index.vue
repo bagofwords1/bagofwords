@@ -336,7 +336,9 @@
                                     </div>
                                     <div class="assistant-content min-w-0 flex-1 text-start" @mouseover="citationChips.onOver($event, m)" @mouseout="citationChips.onOut($event)" @focusin="citationChips.onFocusIn($event, m)" @focusout="citationChips.onFocusOut($event)" @click="citationChips.onClick($event, m)" @keydown="citationChips.onKeydown($event)">
                                         <div class="mb-2 flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-ink-muted" :class="{ 'completion-enter': m._animateEntry }">
-                                            <bdi dir="ltr">{{ m.model ? responseModelName(m.model) : 'BoW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
+                                            <!-- Placeholder while the model name is unknown; "BOW" only as a last resort (finished rows with no model). -->
+                                            <span v-if="responseModelPending(m)" class="inline-block h-3 w-20 rounded bg-gray-200 dark:bg-gray-700 motion-safe:animate-pulse" aria-hidden="true" data-testid="response-model-pending" />
+                                            <bdi v-else dir="ltr">{{ m.model ? responseModelName(m.model) : 'BOW' }}<span v-if="m.prompt?.reasoning_effort && m.prompt.reasoning_effort !== 'off'" class="ms-1 px-1 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-300 text-2xs leading-4 inline-block align-middle">{{ effortLabel(m.prompt.reasoning_effort) }}</span></bdi>
                                         </div>
 									<!-- System message -->
 									<div>
@@ -1518,12 +1520,25 @@ const { isExcel, excelSelection } = useExcel()
 
 // Home and the picker seed these labels before navigation. Refresh the
 // catalog on direct report loads without delaying the first prompt.
-const { rememberModels, modelLabel: responseModelName } = useModelLabels()
+const { rememberModels, modelLabel: responseModelName, hasModelLabel } = useModelLabels()
+const modelCatalogReady = ref(false)
 onMounted(async () => {
-    // kind=all so a decision model (Auto router upfront pick) has a label too.
-    const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
-    if (Array.isArray(data.value)) rememberModels(data.value)
+    try {
+        // kind=all so a decision model (Auto router upfront pick) has a label too.
+        const { data } = await useMyFetch('/llm/models', { query: { is_enabled: true, kind: 'all' } })
+        if (Array.isArray(data.value)) rememberModels(data.value)
+    } finally {
+        modelCatalogReady.value = true
+    }
 })
+// The assistant header's model name isn't known yet: a live run before the
+// backend stamps its model (Auto/router picks it server-side), or a model id
+// whose display name is still loading. Show a placeholder rather than a
+// "BOW" label that flips to the real name a moment later.
+function responseModelPending(m: ChatMessage): boolean {
+    if (!m.model) return m.status === 'in_progress'
+    return !hasModelLabel(m.model) && !modelCatalogReady.value
+}
 
 // Permissions
 // Agent trace ("debugger") on an assistant message. `view_console` never
@@ -4322,6 +4337,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Add or update a completion block
 			if (payload.block) {
 				const block = payload.block
+				syncRoutedModel(sysMessage, block.tool_execution)
 				if (!sysMessage.completion_blocks) {
 					sysMessage.completion_blocks = []
 				}
@@ -4926,6 +4942,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					if (payload.result_json) {
 						blockWithTool.tool_execution.result_json = payload.result_json
+						syncRoutedModel(sysMessage, { tool_name: payload.tool_name, result_json: payload.result_json })
 					}
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
@@ -6223,6 +6240,15 @@ function onStepCreated(step: any) {
 	// Handle step creation - could refresh the current view or update state
 	console.log('Step created:', step)
 	// Optionally refresh the completion or update the UI
+}
+
+// A route_model step (router escalation or decision, or LLM fallback) switches
+// the model that serves the rest of the run. The backend stamps it onto the
+// completion, so a reload shows it; mirror that live so the header names the
+// model that actually answered rather than the one the run started on.
+function syncRoutedModel(sysMessage: ChatMessage, te: any) {
+	const rj = te?.result_json
+	if (te?.tool_name === 'route_model' && rj?.routed && rj.model) sysMessage.model = String(rj.model)
 }
 
 function createSystemPlaceholder(id: string, model?: string, effort?: string | null): ChatMessage {
