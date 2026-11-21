@@ -172,7 +172,12 @@ async def test_openai_requires_a_tool_call_when_asked():
     ("claude-haiku-5-5", "any"),
     ("claude-sonnet-5-5", "auto"),   # rejects a forced tool_choice with HTTP 400
     ("claude-fable-5-1", "auto"),
+    ("claude-fable-5-2", "auto"),
+    ("claude-mythos-5-1", "auto"),
+    ("claude-mythos-5-2", "auto"),
     ("claude-opus-5-5", "auto"),
+    ("claude-fable-5", "any"),       # the 5.0 models still accept forcing
+    ("claude-mythos-5", "any"),
 ])
 async def test_models_that_reject_a_forced_tool_choice_get_auto(model_id, expected):
     client = Anthropic(api_key="test-key-not-used")

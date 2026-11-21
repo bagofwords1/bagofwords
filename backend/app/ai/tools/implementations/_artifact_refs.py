@@ -882,7 +882,8 @@ def chart_prop_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     return errors
 
 
-_CHART_TAG_RE = re.compile(r"<(TrendChart|RankChart|EChart)\b")
+# Every chart for the focal-point check; chart_prop_errors checks only _CHART_TAG_RE.
+_ANY_CHART_TAG_RE = re.compile(r"<(TrendChart|RankChart|EChart)\b")
 # What counts as "the answer first": a KPI card, a big number, or a line of text.
 _FOCAL_RE = re.compile(r"<KPICard\b|<p[\s>]|\btext-(?:2|3|4|5|6)xl\b")
 # Turns (head completion ids) that already got the layout note: it is given once.
@@ -891,7 +892,7 @@ _LAYOUT_NOTED_MAX = 2000
 
 
 def _has_focal_point(src: str) -> bool:
-    charts = [m.start() for m in _CHART_TAG_RE.finditer(src)]
+    charts = [m.start() for m in _ANY_CHART_TAG_RE.finditer(src)]
     if len(charts) < 2:
         return True
     # A KPI card anywhere counts (sub-components may be defined above App);

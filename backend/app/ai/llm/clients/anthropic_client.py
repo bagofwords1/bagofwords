@@ -96,7 +96,8 @@ def _prefix_cache_control() -> dict[str, Any]:
 # Models that answer a forced tool_choice ("any"/"tool") with HTTP 400; see
 # the catalog notes in app/models/llm_model.py. Matched as substrings, like
 # _NO_SAMPLING_PARAM_TAGS, so dated or routed ids match too.
-_REJECTS_FORCED_TOOL_CHOICE_TAGS = ("sonnet-5-5", "fable-5-1", "opus-5-5")
+# Version-qualified: Claude Fable 5 and Claude Mythos 5 still accept forcing.
+_REJECTS_FORCED_TOOL_CHOICE_TAGS = ("sonnet-5-5", "fable-5-1", "fable-5-2", "mythos-5-1", "mythos-5-2", "opus-5-5")
 
 
 def _rejects_forced_tool_choice(model_id) -> bool:

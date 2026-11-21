@@ -91,6 +91,19 @@ def test_a_wrong_field_is_still_flagged_next_to_unrelated_parameters():
     assert len(chart_prop_errors(code, DATA)) == 1
 
 
+def test_an_echart_next_to_a_checked_chart_is_not_checked():
+    # EChart has no field props of its own; it must neither crash the check
+    # nor be reported, whether its viz is inline or bound to a variable.
+    inline = f'<EChart viz={{vizById("{VID}")}} />'
+    bound = "<EChart viz={sales} />"
+    for echart in (inline, bound):
+        code = page(f'<RankChart viz={{sales}} label="rep" value="revenue" />{echart}')
+        assert chart_prop_errors(code, DATA) == []
+    code = page(f'<RankChart viz={{sales}} label="region" value="revenue" />{inline}')
+    errs = chart_prop_errors(code, DATA)
+    assert len(errs) == 1 and "<RankChart>" in errs[0]
+
+
 def test_the_edit_gate_runs_every_page_check_the_create_gate_runs():
     """A page edited mechanically must pass the same deterministic checks as a new one."""
     import re
