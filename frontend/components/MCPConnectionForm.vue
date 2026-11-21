@@ -227,7 +227,7 @@
                       <option v-for="s in SOURCE_KINDS" :key="s.value" :value="s.value">{{ s.label }}</option>
                     </select>
                     <input v-if="needsKey(f.kind)" v-model="f.key" :list="f.kind === 'membership.attr' ? 'mcp-attr-suggestions' : undefined" :placeholder="keyPlaceholder(f.kind)" data-test="meta-key" class="w-24 border border-gray-300 dark:border-gray-600 rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500" />
-                    <button type="button" data-test="meta-mode" @click="f.mode = f.mode === 'ai' ? 'locked' : 'ai'" :title="f.mode === 'ai' ? $t('data.mcpModeAiTip') : $t('data.mcpModeLockedTip')" :class="['text-2xs font-semibold rounded-md px-2 py-1.5 border whitespace-nowrap', f.mode === 'ai' ? 'text-blue-600 border-blue-200 bg-blue-50 dark:bg-blue-950' : 'text-gray-600 border-gray-300 bg-gray-100 dark:bg-gray-800 dark:text-gray-300']">
+                    <button type="button" data-test="meta-mode" @click="f.mode = f.mode === 'ai' ? 'locked' : 'ai'" :title="f.mode === 'ai' ? $t('data.mcpModeAiTip') : $t('data.mcpModeLockedTip')" :class="['text-2xs font-semibold rounded-md px-2 py-1.5 border whitespace-nowrap', f.mode === 'ai' ? 'text-blue-600 dark:text-blue-300 border-blue-200 bg-blue-50 dark:bg-blue-950' : 'text-gray-600 border-line-strong bg-gray-100 dark:bg-gray-800 dark:text-gray-300']">
                       {{ f.mode === 'ai' ? '✨ ' + $t('data.mcpModeAi') : '🔒 ' + $t('data.mcpModeLocked') }}
                     </button>
                     <button type="button" @click="metaFields.splice(i, 1)" class="text-ink-muted hover:text-red-500 px-1"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
@@ -278,11 +278,11 @@
           noun="connection"
         />
 
-        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700' : 'bg-red-50 dark:bg-red-950 text-red-700']">
+        <div v-if="testResult" :class="['text-xs px-3 py-2 rounded', testResult.success ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300']">
           {{ testResult.message }}
         </div>
 
-        <div v-if="submitError" class="text-xs px-3 py-2 rounded bg-red-50 dark:bg-red-950 text-red-700">
+        <div v-if="submitError" class="text-xs px-3 py-2 rounded bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300">
           {{ submitError }}
         </div>
       </template>

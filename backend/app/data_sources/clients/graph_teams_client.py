@@ -36,7 +36,13 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.data_sources.clients.base import Capability
-from app.data_sources.clients.graph_drive_client import GRAPH_BASE, GraphDriveClient
+from app.data_sources.clients.connector_actions import (
+    EFFECT_EXTERNAL,
+    ActionError,
+    ConnectorAction,
+    ConnectorActionsMixin,
+)
+from app.data_sources.clients.graph_drive_client import GRAPH_BASE, GraphDriveClient, graph_write
 from app.data_sources.clients.mail_common import (
     clamp_mail_results,
     decode_cursor,
@@ -135,7 +141,62 @@ def parse_teams_id(value: str) -> Dict[str, Optional[str]]:
     )
 
 
-class GraphTeamsClient(GraphDriveClient):
+def _short(text, n=80) -> str:
+    t = " ".join(str(text or "").split())
+    return t if len(t) <= n else t[: n - 1] + "…"
+
+
+def _teams_body(text: str) -> dict:
+    content = str(text or "")
+    is_html = "<" in content and ">" in content
+    return {"contentType": "html" if is_html else "text", "content": content}
+
+
+# Write actions (BOW-210). Graph: channel-post-messages, chatmessage-post-replies,
+# chat-post-messages. Sending is delegated-only: application permissions for
+# these endpoints exist for migration imports, not for ordinary posts.
+TEAMS_ACTIONS = (
+    ConnectorAction(
+        name="post_message",
+        description=("Post a message to a Teams channel as the signed-in user, or reply in a channel "
+                     "thread (reply_to_message_id). channel is a name such as 'SOC › Alerts' or 'Alerts', "
+                     "or a channel:<team>/<channel> id from list_conversations. Everyone in the channel "
+                     "sees it; it cannot be unsent by the agent."),
+        effect=EFFECT_EXTERNAL,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "channel": {"type": "string", "description": "Channel name or channel:<team>/<channel> id."},
+                "text": {"type": "string", "description": "Message text (plain text or simple HTML)."},
+                "reply_to_message_id": {"type": "string", "description": "Reply in this thread (a channel message id)."},
+            },
+            "required": ["channel", "text"],
+        },
+        required_scopes=(("ChannelMessage.Send", "Group.ReadWrite.All"),),
+        handler="action_post_message",
+        preview=lambda a: f"Post to {a.get('channel')}: {_short(a.get('text'), 70)}",
+    ),
+    ConnectorAction(
+        name="send_chat_message",
+        description=("Send a message in an existing Teams chat (1:1 or group) as the signed-in user. "
+                     "chat is the chat's name (e.g. a person's name) or a chat:<id> from list_conversations."),
+        effect=EFFECT_EXTERNAL,
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat": {"type": "string", "description": "Chat name or chat:<id>."},
+                "text": {"type": "string"},
+            },
+            "required": ["chat", "text"],
+        },
+        required_scopes=(("ChatMessage.Send", "Chat.ReadWrite"),),
+        handler="action_send_chat_message",
+        preview=lambda a: f"Message {a.get('chat')}: {_short(a.get('text'), 70)}",
+    ),
+)
+
+
+class GraphTeamsClient(ConnectorActionsMixin, GraphDriveClient):
     """Teams channels and chats, searched and read live as the signed-in user."""
 
     capabilities = {
@@ -143,10 +204,14 @@ class GraphTeamsClient(GraphDriveClient):
         Capability.READ_CHAT_THREAD,
         Capability.SEARCH_CHAT_MESSAGES,
     }
+    actions = TEAMS_ACTIONS
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, allowed_post_channels: Optional[str] = None, **kwargs):
         kwargs.setdefault("mode", "teams_messages")
         super().__init__(*args, **kwargs)
+        # Channels post_message may target (names or ids); empty = any.
+        raw = allowed_post_channels or ""
+        self.allowed_post_channels = [c.strip() for c in raw.replace("\n", ",").split(",") if c.strip()]
         self._conversations: Optional[List[dict]] = None
         self._conv_lock = threading.Lock()
         self._me: Optional[dict] = None
@@ -858,3 +923,50 @@ class GraphTeamsClient(GraphDriveClient):
                 )}
             return {"success": False, "message": f"Signed in as {who}, but Teams is unreadable: {detail}"}
         return {"success": True, "message": f"Connected as {who} · {len(teams)} team(s)"}
+
+    # ---------------------------------------------------------- actions
+    # Write actions (see TEAMS_ACTIONS above). The tool policy has already
+    # allowed the call when one of these runs; each sends exactly one post.
+
+    def _post_allowed(self, row: dict) -> bool:
+        if not self.allowed_post_channels:
+            return True
+        names = {row["id"].lower(), (row.get("name") or "").lower(), (row.get("channel") or "").lower()}
+        return any(c.lower().lstrip("#") in names for c in self.allowed_post_channels)
+
+    def action_post_message(self, channel: str, text: str, reply_to_message_id: Optional[str] = None) -> dict:
+        if not str(text or "").strip():
+            raise ActionError("text is required.")
+        try:
+            row = self.resolve_conversation(channel)
+        except ValueError as e:
+            raise ActionError(str(e))
+        if not row["id"].startswith("channel:"):
+            raise ActionError(f"{row['name']} is a chat, not a channel — use send_chat_message.")
+        if not self._post_allowed(row):
+            allowed = ", ".join(self.allowed_post_channels)
+            raise ActionError(f"Posting to {row['name']} is not allowed on this connection. "
+                              f"Allowed channels: {allowed}.")
+        parts = parse_teams_id(row["id"])
+        team = urllib.parse.quote(parts["team_id"], safe="")
+        chan = urllib.parse.quote(parts["channel_id"], safe="")
+        path = f"/teams/{team}/channels/{chan}/messages"
+        if reply_to_message_id:
+            mid = str(reply_to_message_id).rsplit("/", 1)[-1]
+            path += f"/{urllib.parse.quote(mid, safe='')}/replies"
+        m = graph_write(self, "POST", path, {"body": _teams_body(text)})
+        return {"posted": True, "channel": row["name"], "message_id": m.get("id"),
+                "web_url": m.get("webUrl"), "in_reply_to": reply_to_message_id}
+
+    def action_send_chat_message(self, chat: str, text: str) -> dict:
+        if not str(text or "").strip():
+            raise ActionError("text is required.")
+        try:
+            row = self.resolve_conversation(chat)
+        except ValueError as e:
+            raise ActionError(str(e))
+        if not row["id"].startswith("chat:"):
+            raise ActionError(f"{row['name']} is a channel — use post_message.")
+        chat_id = urllib.parse.quote(parse_teams_id(row["id"])["chat_id"], safe="")
+        m = graph_write(self, "POST", f"/chats/{chat_id}/messages", {"body": _teams_body(text)})
+        return {"sent": True, "chat": row["name"], "message_id": m.get("id"), "web_url": m.get("webUrl")}

@@ -10,7 +10,7 @@
                     <UIcon
                         :name="report.is_starred ? 'heroicons-star-solid' : 'heroicons-star'"
                         class="block w-5 h-5 transition-colors"
-                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-ink-muted hover:text-gray-500'"
+                        :class="report.is_starred ? 'text-yellow-400 hover:text-yellow-500' : 'text-ink-muted hover:text-ink-2'"
                     />
                 </button>
             </UTooltip>
@@ -55,7 +55,7 @@
                 class="flex items-center gap-1.5 py-1.5 text-xs font-medium rounded-md transition-colors"
                 :class="mobileView === tab.value
                     ? 'px-3 text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
-                    : 'px-2.5 text-ink-muted hover:text-gray-600'"
+                    : 'px-2.5 text-ink-muted hover:text-ink-2'"
                 :aria-label="tab.label"
                 :title="tab.label"
             >
@@ -65,7 +65,7 @@
             <button
                 v-if="mobileView !== 'chat'"
                 @click="$emit('update:mobileView', 'chat')"
-                class="ms-auto p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-gray-600 transition-colors"
+                class="ms-auto p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-ink-muted hover:text-ink-2 transition-colors"
             >
                 <Icon name="heroicons:x-mark" class="w-4 h-4" />
             </button>

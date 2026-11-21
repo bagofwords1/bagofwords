@@ -755,9 +755,12 @@ class CompletionService:
         return_on_answer: bool = False,
         run_data_source_ids: list = None,
         run_folder_ids: list = None,
+        started_via: str = None,
     ):
         """``run_data_source_ids``: the agents this run uses instead of the
-        report's (a scheduled task with its own agents). None = the report's."""
+        report's (a scheduled task with its own agents). None = the report's.
+        ``started_via``: the head's unattended-origin mark for a machine turn
+        (see app.services.machine_turn.unattended_origin)."""
         with tracer.start_as_current_span("completion.create") as span:
             span.set_attribute("report.id", str(report_id))
             span.set_attribute("completion.background", background)
@@ -771,6 +774,7 @@ class CompletionService:
                     trigger_source=trigger_source,
                     return_on_answer=return_on_answer,
                     run_data_source_ids=run_data_source_ids, run_folder_ids=run_folder_ids,
+                    started_via=started_via,
                 )
             except Exception as e:
                 span.set_status(StatusCode.ERROR, str(e))
@@ -799,6 +803,7 @@ class CompletionService:
         return_on_answer: bool = False,
         run_data_source_ids: list = None,
         run_folder_ids: list = None,
+        started_via: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -887,6 +892,7 @@ class CompletionService:
                 scheduled_prompt_id=scheduled_prompt_id,
                 webhook_id=webhook_id,
                 trigger_source=trigger_source,
+                started_via=started_via,
             )
 
             try:

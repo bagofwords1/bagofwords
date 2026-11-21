@@ -942,7 +942,35 @@
         "dismiss": "Stäng"
       }
     },
-    "recent": "Senaste"
+    "recent": "Senaste",
+    "permissionMode": {
+      "title": "Verktygsbehörigheter",
+      "tooltip": "Verktygsbehörigheter: {mode}",
+      "default": "standard",
+      "allowAllBanner": "Tillåt allt är på: agenten kör anslutningsverktyg utan att fråga. Spärrade och nekade verktyg körs aldrig.",
+      "switchToAsk": "Byt till Fråga",
+      "saveFailed": "Det gick inte att ändra behörighetsläget",
+      "modes": {
+        "ask": {
+          "label": "Fråga",
+          "hint": "Varje verktyg följer sin egen inställning; frågar före ändringar."
+        },
+        "auto": {
+          "label": "Auto",
+          "hint": "Skrivskyddade anrop körs; en modell avgör resten och frågar vid osäkerhet."
+        },
+        "allow_all": {
+          "label": "Tillåt allt",
+          "hint": "Verktyg som skulle fråga körs utan att fråga, bara i den här rapporten."
+        }
+      },
+      "unknown": {
+        "label": "Okänt läge",
+        "hint": "Det gick inte att läsa in behörighetsinställningarna, så läget för nästa körning är okänt."
+      },
+      "loadFailed": "Det gick inte att läsa in behörighetsinställningarna",
+      "retry": "Försök igen"
+    }
   },
   "reports": {
     "title": "Rapporter",
@@ -1732,7 +1760,35 @@
       "allowedByYou": "Tillåtet av dig",
       "deniedByYou": "Nekat av dig",
       "records": "{n} poster",
-      "recordsPartial": "{shown} av {total} poster"
+      "recordsPartial": "{shown} av {total} poster",
+      "viaAgent": "Via {name}",
+      "allowForReport": "Tillåt i den här rapporten",
+      "allowForReportHint": "Fråga inte igen om det här verktyget i den här rapporten",
+      "decidedBy": {
+        "allowAll": {
+          "allowed": "Kördes utan att fråga (Tillåt allt)",
+          "refused": "Kördes inte"
+        },
+        "readOnly": {
+          "allowed": "Kördes utan att fråga: skrivskyddat",
+          "refused": "Kördes inte"
+        },
+        "blocklist": {
+          "allowed": "Tillåtet",
+          "refused": "Stoppat av säkerhetsspärrlistan"
+        },
+        "rememberedReport": {
+          "allowed": "Tillåtet i den här rapporten",
+          "refused": "Nekat i den här rapporten"
+        },
+        "unattended": {
+          "allowed": "Tillåtet av inställningen för obevakade körningar",
+          "refused": "Kördes inte: kräver godkännande och ingen tittar"
+        },
+        "unknownTool": {
+          "refused": "Kördes inte: verktyget finns inte i anslutningens verktygslista"
+        }
+      }
     },
     "answerQuestion": {
       "thought": "Tänkte på svaret"
@@ -2225,11 +2281,12 @@
       "glob": "Jokerteckenmönster",
       "hint": "Regler matchar hela kommandon i denna arbetskatalog. Prefixgodkännanden utesluter skaloperatorer och expansioner.",
       "always": "Tillåt alltid matchningar",
-      "session": "Tillåt för denna session",
+      "session": "Tillåt för den här rapporten (8 timmar)",
       "mine": "Mina skalregler",
       "override": "Dessa regler gäller bara dig. Anslutningens Tillåt alltid eller Neka alltid har företräde.",
       "save": "Spara regler",
-      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen."
+      "failed": "Kunde inte läsa eller spara regler. Kontrollera JSON och försök igen.",
+      "sessionHint": "Kör matchande kommandon i den här rapporten utan att fråga under de kommande 8 timmarna."
     },
     "shell": {
       "command": "Skalkommando",
@@ -2246,6 +2303,13 @@
       "unknownState": "Fjärrprocessen kan fortfarande köras. Kontrollera dess status innan du försöker igen.",
       "exitCode": "Avslutningskod: {code}",
       "cancelledBeforeExecution": "Avbrutet före körning."
+    },
+    "requestAgentSignin": {
+      "checking": "Kontrollerar agenter…",
+      "connect": "Anslut",
+      "connected": "Ansluten",
+      "askAgain": "Fråga igen",
+      "readyHint": "Ansluten. Kör frågan igen för att använda den."
     }
   },
   "entityCreate": {
@@ -2484,7 +2548,18 @@
     "failedToSave": "Det gick inte att spara gruppen",
     "failedToAddMember": "Det gick inte att lägga till medlemmen",
     "failedToRemoveMember": "Det gick inte att ta bort medlemmen",
-    "failedToUpdateRoles": "Det gick inte att uppdatera grupprollerna"
+    "failedToUpdateRoles": "Det gick inte att uppdatera grupprollerna",
+    "youManage": "Du hanterar",
+    "managerBadge": "Ansvarig",
+    "makeManager": "Gör till ansvarig",
+    "removeManager": "Ta bort ansvarig",
+    "removeMember": "Ta bort från gruppen",
+    "managerHint": "Du hanterar den här gruppen: lägg till eller ta bort medlemmar och gör medlemmar ansvariga.",
+    "managedExternallyHint": "Synkroniseras från din identitetsleverantör. Ändra medlemmarna där.",
+    "noManagedGroupsHint": "Du hanterar inga grupper.",
+    "toastManagerAdded": "Medlemmen är nu gruppansvarig",
+    "toastManagerRemoved": "Ansvarig-rollen borttagen",
+    "failedToUpdateManager": "Det gick inte att uppdatera gruppansvarig"
   },
   "signupPolicy": {
     "title": "Domänbaserad registrering",
@@ -3660,6 +3735,34 @@
           "name": "Världsvy",
           "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
         }
+      },
+      "permissionMode": {
+        "title": "Behörighetsläge för verktyg",
+        "description": "Hur agenten avgör om den ska köra anslutningsverktyg och fjärrskalskommandon. Användare väljer läge per rapport i inmatningsrutan; inaktiverade och nekade verktyg samt säkerhetsspärrlistan gäller i alla lägen.",
+        "defaultMode": "Standardläge för nya rapporter",
+        "unattended": "Körningar som ingen tittar på",
+        "unattendedOptions": {
+          "refuse": "Neka",
+          "settings": "Använd varje verktygs inställning",
+          "allow": "Tillåt"
+        },
+        "unattendedHints": {
+          "refuse": "Schemalagda körningar, webhook-, API- och andra obevakade körningar hoppar över alla verktyg som skulle fråga.",
+          "settings": "Verktyg på Auto granskas av modellen; verktyg på Fråga hoppas över.",
+          "allow": "Verktyg som skulle fråga körs i schemalagda körningar, webhook- och API-körningar. Chattar i andra kanaler hoppar fortfarande över dem."
+        },
+        "allowAll": "Tillåt ”Tillåt allt”",
+        "allowAllDescription": "Låter användare stänga av godkännandefrågor för en rapport, eller göra det till standard för nya rapporter. Gäller bara rapportägarens egna körningar medan hen tittar.",
+        "judgeModel": "Modell för automatiska beslut",
+        "judgeModelHint": "Automatiskt använder routerns beslutsmodell när routningen använder en, annars den lilla standardmodellen.",
+        "judgeModelOptions": {
+          "automatic": "Automatiskt",
+          "small": "Liten standardmodell",
+          "unavailable": "Modellen är inte tillgänglig",
+          "notLoaded": "Sparad modell (listan lästes inte in)"
+        },
+        "judgeModelLoadFailed": "Det gick inte att läsa in beslutsmodellerna.",
+        "judgeModelRetry": "Försök igen"
       }
     },
     "llms": {
@@ -4677,7 +4780,21 @@
     "firstPage": "Första sidan",
     "previousPage": "Föregående sida",
     "nextPage": "Nästa sida",
-    "lastPage": "Sista sidan"
+    "lastPage": "Sista sidan",
+    "inRangeStart": "Från",
+    "inRangeEnd": "Till",
+    "resetFilter": "Rensa",
+    "noRowsToShow": "Inga rader att visa",
+    "filteredRows": "{shown} av {total} rader",
+    "clearFilters": "Rensa filter",
+    "expand": "Förstora tabellen",
+    "collapse": "Stäng helskärm",
+    "search": "Sök…",
+    "selectAll": "Markera alla",
+    "blankValue": "(Tom)",
+    "noMatches": "Inga matchande värden",
+    "moreValues": "Visar de första {n} – skriv för att begränsa",
+    "alsoFilteredAbove": "Kolumnen filtreras också under Filter ovan"
   },
   "sharedReport": {
     "backToApp": "Tillbaka till appen",
@@ -4710,6 +4827,9 @@
     "shell_confirmation.invalid_scope": "Ogiltig behörighetsomfattning.",
     "shell_confirmation.report_required": "Sessionsbehörigheter kräver en rapport.",
     "shell_confirmation.rule_mismatch": "Ogiltig kommandoregel, eller mönstret matchar inte det här kommandot.",
+    "tool_permission_mode.allow_all_off": "”Tillåt allt” är avstängt för den här organisationen.",
+    "tool_permission_mode.allow_all_default_needs_switch": "”Tillåt allt” kan bara vara standard medan det är påslaget.",
+    "tool_permission_mode.judge_model_unavailable": "Välj en aktiverad beslutsmodell för Auto-granskaren.",
     "connection.config_invalid": "Invalid connection configuration: {detail}",
     "connection.athena_mode_switch": "An Athena connection cannot switch between one database and several. Create a new connection instead.",
     "catalog_discovery_incomplete": "Kataloguppdateringen misslyckades eftersom identifieringen var ofullständig. Den tidigare katalogen och tabellvalen behölls.",
@@ -4751,6 +4871,7 @@
     "system_logs.instance_admin_required": "Endast en instansadministratör kan använda systemloggar.",
     "system_logs.invalid_range": "Starttiden måste vara före sluttiden.",
     "system_logs.delete_failed": "Det gick inte att radera loggfilerna i {directory}. Kontrollera att katalogen finns och är skrivbar.",
+    "system_logs.disabled": "Systemloggar är avstängda på den här servern. Slå på dem genom att ange BOW_SYSTEM_LOGS_ENABLED=true (eller system_logs.enabled i bow-config.yaml) och starta om servern.",
     "verification.invalid": "Ogiltig eller utgången verifieringstoken",
     "body.invalid_json": "Ogiltig JSON-kropp",
     "organization.not_found": "Organisationen hittades inte",
@@ -4770,6 +4891,9 @@
     "role.not_found": "Rollen hittades inte",
     "group.not_found": "Gruppen hittades inte",
     "group.managed_by_scim": "Den här gruppen hanteras av din identitetsleverantör (SCIM). Ändra den där.",
+    "group.managed_externally": "Den här gruppen synkroniseras från din identitetsleverantör; ändra medlemmarna där.",
+    "group.manager_not_member": "Endast registrerade medlemmar i gruppen kan bli ansvariga.",
+    "group.manager_protected": "Endast en organisationsadministratör kan ta bort eller degradera en gruppansvarig.",
     "instruction.not_found": "Instruktionen hittades inte",
     "instruction.version_not_found": "Instruktionsversionen hittades inte",
     "instruction.label_not_found": "Instruktionsetiketten hittades inte",
@@ -4843,6 +4967,10 @@
     "connection.kms_login_rejected": "KMS Lighthouse godkände inte den här inloggningen, så den sparades inte. Kontrollera användarnamnet och lösenordet, eller API-token, och försök igen.",
     "connection.kms_login_paused": "KMS Lighthouse nekade nyligen den här inloggningen, så nya försök med den är pausade i några minuter och den sparades inte. Kontrollera inloggningen eller försök igen senare.",
     "connection.kms_session_refused": "KMS Lighthouse godkände inloggningen men nekade dess session, så den kan inte användas och sparades inte. Fråga KMS-administratören om det här kontot får använda KMS-API:t.",
+    "connection.confluence_login_rejected": "Confluence godkände inte den här personliga åtkomsttoken eller inloggningen, så den sparades inte. Kontrollera den, eller skapa en ny token i Confluence under Profil > Personliga åtkomsttoken.",
+    "connection.confluence_login_captcha": "Confluence kräver en CAPTCHA för det här kontot efter misslyckade inloggningar, så den sparades inte. Logga in i Confluence en gång i en webbläsare för att häva det, eller använd en personlig åtkomsttoken.",
+    "connection.jira_login_rejected": "Jira godkände inte den här personliga åtkomsttoken eller inloggningen, så den sparades inte. Kontrollera den, eller skapa en ny token i Jira under Profil > Personliga åtkomsttoken.",
+    "connection.jira_login_captcha": "Jira kräver en CAPTCHA för det här kontot efter misslyckade inloggningar, så den sparades inte. Logga in i Jira en gång i en webbläsare för att häva det, eller använd en personlig åtkomsttoken.",
     "access_request.disabled": "Åtkomstbegäranden är avstängda för den här organisationen.",
     "access_request.not_allowed": "Den här instrumentpanelen behöver ingen åtkomstbegäran.",
     "access_request.already_has_access": "Du har redan åtkomst till den här instrumentpanelen.",
@@ -5085,6 +5213,7 @@
       "published": "Publicerad {date}",
       "dataAsOf": "Data uppdaterad {time}",
       "refreshFailing": "Uppdateringen misslyckas",
+      "refreshFailingAction": "Se varför uppdateringen misslyckades",
       "lastEdit": "Senast redigerad: {time}",
       "scheduledRefresh": "Schemalagd uppdatering"
     },
@@ -5184,6 +5313,9 @@
       "failing": "{n} misslyckas med uppdatering | {n} misslyckas med uppdatering",
       "stale": "{n} inte redigerad på 90 dagar | {n} inte redigerade på 90 dagar",
       "show": "Visa dem"
+    },
+    "refreshes": {
+      "openEditor": "Öppna i redigeraren"
     }
   },
   "excel": {
@@ -7516,6 +7648,9 @@
     "close": "Stäng",
     "button": "Förhandsgranska"
   },
+  "confluenceFileScope": {
+    "allSpaces": "Alla utrymmen som den här identiteten kan se"
+  },
   "kmsFileScope": {
     "headerSubtitle": "Rotmappen anger var bläddringen börjar. KMS-behörigheterna avgör vad agenten kan söka i och läsa.",
     "browsingOnly": "Endast bläddring",
@@ -7587,7 +7722,14 @@
     "inheritedHint": "De här personerna och grupperna når agenten via en mapp eller anslutning. Ändra deras åtkomst vid källan.",
     "viaFolder": "Via mappen {name}",
     "viaConnection": "Via anslutningen {name}",
-    "inheritedHidden": "Andra kan ha åtkomst via en mapp eller anslutning som du inte hanterar."
+    "inheritedHidden": "Andra kan ha åtkomst via en mapp eller anslutning som du inte hanterar.",
+    "permissionCap": {
+      "title": "Tak för behörighetsläge",
+      "hint": "Begränsar behörighetsläget för rapporter som använder den här agenten. Fråga: varje verktyg följer sin egen inställning. Auto: en modell kan bestämma.",
+      "none": "Inget tak",
+      "ask": "Fråga",
+      "auto": "Auto"
+    }
   },
   "productUpdates": {
     "checkbox": "Skicka produktnyheter till mig",
@@ -7855,5 +7997,74 @@
     "inviteNotSent": "Inbjudan till {email} kunde inte skickas. Bjud in personen igen från sidan Medlemmar.",
     "adminAdded": "{email} har lagts till som administratör.",
     "failed": "Det gick inte att skapa organisationen."
+  },
+  "vizFilter": {
+    "filter": "Filtrera",
+    "title": "Filter",
+    "clear": "Rensa",
+    "noData": "Inga data att filtrera",
+    "noFilters": "Inga filter tillämpade",
+    "addFilter": "Lägg till filter",
+    "column": "Kolumn",
+    "value": "Värde",
+    "apply": "Tillämpa",
+    "valuesMore": "{first} +{n}",
+    "op": {
+      "equals": "lika med",
+      "not_equals": "inte lika med",
+      "contains": "innehåller",
+      "not_contains": "innehåller inte",
+      "starts_with": "börjar med",
+      "ends_with": "slutar med",
+      "is_empty": "är tom",
+      "is_not_empty": "är inte tom",
+      "before": "före",
+      "after": "efter",
+      "is_true": "är sant",
+      "is_false": "är falskt",
+      "between": "mellan",
+      "in": "är en av",
+      "not_in": "är ingen av"
+    },
+    "or": "ELLER",
+    "and": "OCH"
+  },
+  "connectionTools": {
+    "tab": "Verktyg",
+    "intro": "Välj vad agenter får göra i det här systemet. Agenter och användare kan göra ett verktyg striktare, aldrig mildare än en låst inställning här.",
+    "empty": "Den här anslutningen har inga verktyg ännu.",
+    "loadFailed": "Det gick inte att läsa in verktygen.",
+    "saveFailed": "Det gick inte att spara ändringen.",
+    "on": "På",
+    "off": "Av",
+    "enabled": "{name} är tillgängligt för agenter",
+    "enableGroup": "Slå på alla verktyg i {group}",
+    "policyFor": "Policy för {name}",
+    "lock": "Lås policyn för {name}",
+    "unlock": "Lås upp policyn för {name}",
+    "lockHint": "Låst: agenter och användare kan göra den striktare, aldrig mildare.",
+    "needsScope": "Kräver {scope}",
+    "missingScopes": "Din inloggning saknar {scopes}. En administratör beviljar det i Entra-appregistreringen; logga sedan in igen.",
+    "grantAccess": "Logga in igen",
+    "builtinReadHint": "Alltid tillgängliga: läsning ändrar aldrig något.",
+    "effect": {
+      "read": {
+        "title": "Läsa",
+        "hint": "Slår upp; ändrar inget."
+      },
+      "modify": {
+        "title": "Ändra",
+        "hint": "Ändrar användarens egna data; kan ångras."
+      },
+      "external": {
+        "title": "Externa",
+        "hint": "Andra ser det och det kan inte ångras. Automatisk granskning erbjuds inte."
+      },
+      "destructive": {
+        "title": "Destruktiva",
+        "hint": "Raderar eller låser. Frågar alltid först."
+      }
+    },
+    "builtinBadge": "Inbyggd"
   }
 }

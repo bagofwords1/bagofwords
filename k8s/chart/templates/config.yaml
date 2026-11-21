@@ -46,7 +46,8 @@ data:
   BOW_SUPERUSER_EMAILS: {{ join "," .Values.config.superuserEmails | quote }}
   {{- end }}
 
-  # Settings → System logs: log files on the uploads volume (see values.yaml).
+  # Settings → System logs: off unless turned on; log files on the uploads volume (see values.yaml).
+  BOW_SYSTEM_LOGS_ENABLED: {{ .Values.systemLogs.enabled | default false | quote }}
   BOW_SYSTEM_LOGS_DIR: {{ .Values.systemLogs.directory | default "/app/backend/uploads/system-logs" | quote }}
 
   # File storage (secrets such as S3 keys / Azure client secret come from config.secretRef)

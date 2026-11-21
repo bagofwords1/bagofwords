@@ -17,7 +17,7 @@
       <div v-if="toolHeaderExpanded && status === 'success' && found" class="mt-2 ms-4 space-y-2 text-chat-2 text-gray-600 dark:text-gray-400">
         <!-- Meta -->
         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-chat-3 text-gray-500 dark:text-gray-400">
-          <span v-if="reportStatus" class="px-1 py-0.5 rounded" :class="reportStatus === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">{{ reportStatus }}</span>
+          <span v-if="reportStatus" class="px-1 py-0.5 rounded" :class="reportStatus === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">{{ reportStatus }}</span>
           <span v-if="dataSources.length">Data: {{ dataSources.join(', ') }}</span>
           <span v-if="artifacts.length">{{ artifacts.length }} artifact{{ artifacts.length === 1 ? '' : 's' }}</span>
           <span v-if="conversation.length">{{ conversation.length }} message{{ conversation.length === 1 ? '' : 's' }}</span>

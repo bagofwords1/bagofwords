@@ -2,7 +2,8 @@
 
 The planner marks a finding with the result it came from by appending
 ``{{cite:<id>}}`` right after the sentence, where ``<id>`` is a visualization
-id from an earlier ``create_data`` result (the first 8 characters are enough).
+id from an earlier ``create_data`` result, or a saved query materialized by
+``describe_entity`` (the first 8 characters are enough).
 
 The marker is stored in the answer as written. What a reader sees depends on
 where the answer is shown:
@@ -17,6 +18,12 @@ where the answer is shown:
 
 A marker that names nothing in the report is dropped, never shown: a made-up
 citation must not read as a source.
+
+``{{show:<visualization id>}}`` is the sibling marker for a figure: on a line
+of its own, it places the result itself (its chart or table) in the answer on
+the web report (``frontend/components/markdown/ChatFigure.vue``). Every other
+surface has no figure to draw, so it is removed there, together with the line
+it stood on; the sentence around it already carries the finding.
 """
 from __future__ import annotations
 
@@ -32,6 +39,28 @@ MIN_ID_CHARS = 8
 # not leave "revenue grew ." behind.
 CITATION_RE = re.compile(r"[ \t]*\{\{\s*cite\s*:\s*([0-9A-Za-z-]{1,64})\s*\}\}")
 _CODE_FENCE_RE = re.compile(r"(```.*?```)", re.DOTALL)
+# A figure marker and the blank line it leaves when removed.
+# Also absorbs the wrapping a model sometimes adds: `{{show:…}}`, ({{show:…}}).
+# Optional attributes (``highlight="USA"``) are part of the marker.
+FIGURE_RE = re.compile(
+    r"[ \t]*(?:\(\s*)?`?\{\{\s*show\s*:\s*([0-9A-Za-z-]{1,64})(?:\s+[a-z]+\s*=\s*\"[^\"{}]*\")*\s*\}\}`?(?:\s*\))?[ \t]*"
+)
+# Citations and figures in one pass, so they share one numbering in reading order.
+_ANY_MARKER_RE = re.compile(f"{CITATION_RE.pattern}|{FIGURE_RE.pattern}")
+_EMPTY_LINES_RE = re.compile(r"\n{3,}")
+
+
+def _strip_figures(prose: str) -> str:
+    """Remove figure markers, tidying only where each one stood: a marker named
+    mid-sentence must not leave "the chart is above ." behind, and a marker on
+    a line of its own must not leave an empty paragraph."""
+    if "show" not in prose:
+        return prose
+    out = FIGURE_RE.sub("\x00", prose)
+    out = re.sub(r"[ \t]*\x00[ \t]*(?=[.,;:!?])", "", out)
+    out = re.sub(r"(?m)^[ \t]*\x00[ \t]*$", "", out)
+    out = out.replace("\x00", " ")
+    return _EMPTY_LINES_RE.sub("\n\n", out)
 
 
 def _key(raw: str) -> str:
@@ -50,16 +79,16 @@ def cited_ids(text: Optional[str]) -> List[str]:
     for part_index, part in enumerate(_CODE_FENCE_RE.split(text or "")):
         if part_index % 2:
             continue
-        for match in CITATION_RE.finditer(part):
-            seen.setdefault(match.group(1), None)
+        for match in _ANY_MARKER_RE.finditer(part):
+            seen.setdefault(match.group(1) or match.group(2), None)
     return list(seen)
 
 
 def strip_citations(text: Optional[str]) -> Optional[str]:
-    """``text`` with every citation marker removed."""
+    """``text`` with every citation and figure marker removed."""
     if not text or "{{" not in text:
         return text
-    return _outside_code(text, lambda prose: CITATION_RE.sub("", prose))
+    return _outside_code(text, lambda prose: _strip_figures(CITATION_RE.sub("", prose)))
 
 
 def match_citation(raw: str, candidates: Iterable[str]) -> Optional[str]:
@@ -93,19 +122,47 @@ def footnote_citations(
     number in order of first mention; its markers become ``[n]`` and one
     ``[n] Title`` line per source is appended. Markers that match no source
     are removed. Without any valid citation the text is returned bare.
+
+    A figure (``{{show:…}}``) has nothing to draw here, so it becomes a
+    citation of the paragraph it belongs to — the one it was named in, or the
+    paragraph before it when it stood on its own line — and its source joins
+    the footnotes like any other.
     """
     if not text or "{{" not in text:
         return text
     numbers: Dict[str, int] = {}
 
-    def replace(match: "re.Match[str]") -> str:
-        source_id = match_citation(match.group(1), sources.keys())
-        if not source_id:
-            return ""
-        number = numbers.setdefault(source_id, len(numbers) + 1)
-        return f" [{number}]"
+    def number_for(raw: str) -> Optional[int]:
+        source_id = match_citation(raw, sources.keys())
+        return numbers.setdefault(source_id, len(numbers) + 1) if source_id else None
 
-    body = _outside_code(text, lambda prose: CITATION_RE.sub(replace, prose))
+    def replace(match: "re.Match[str]") -> str:
+        if match.group(1) is not None:
+            n = number_for(match.group(1))
+            return f" [{n}]" if n else ""
+        n = number_for(match.group(2))
+        return f"\x00{n}\x00" if n else "\x00\x00"
+
+    def convert(prose: str) -> str:
+        marked = _ANY_MARKER_RE.sub(replace, prose)
+        if "\x00" not in marked:
+            return marked
+        out: list = []
+        for para in re.split(r"\n{2,}", marked):
+            refs = [r for r in re.findall(r"\x00(\d*)\x00", para) if r]
+            body = re.sub(r"[ \t]*\x00\d*\x00[ \t]*(?=[.,;:!?])", "", para)
+            body = re.sub(r"[ \t]*\x00\d*\x00[ \t]*", " ", body).strip()
+            if body:
+                out.append(body + "".join(f" [{r}]" for r in refs if f"[{r}]" not in body))
+            elif out:
+                # A figure on its own line cites the paragraph before it.
+                out[-1] += "".join(f" [{r}]" for r in refs if f"[{r}]" not in out[-1])
+        # Keep the whitespace that joins this prose to a code fence around it.
+        lead = marked[: len(marked) - len(marked.lstrip())]
+        trail = marked[len(marked.rstrip()):]
+        return lead + "\n\n".join(out) + trail
+
+    body = _outside_code(text, convert)
     if not numbers:
         return body
     lines = [

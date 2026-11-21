@@ -6,7 +6,7 @@
             <!-- Indexing banner: shown while any linked connection is discovering schema -->
             <div
                 v-if="indexingConnections.length > 0"
-                class="mb-4 flex items-start gap-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 text-blue-800 rounded-lg px-4 py-3"
+                class="mb-4 flex items-start gap-3 bg-blue-50 dark:bg-blue-950 border border-blue-200 text-blue-800 dark:text-blue-300 rounded-lg px-4 py-3"
             >
                 <UIcon name="heroicons-arrow-path" class="w-5 h-5 mt-0.5 animate-spin flex-none" />
                 <div class="flex-1 text-sm">
@@ -88,12 +88,12 @@
                     </template>
 
                     <!-- Empty state -->
-                    <div v-else class="border border-dashed border-gray-200 rounded-xl px-6 py-10 text-center bg-gray-50/40">
-                        <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center mb-3">
+                    <div v-else class="border border-dashed border-line rounded-xl px-6 py-10 text-center bg-gray-50/40">
+                        <div class="mx-auto w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-950 flex items-center justify-center mb-3">
                             <UIcon name="heroicons-document-text" class="w-5 h-5 text-blue-500" />
                         </div>
-                        <div class="text-sm font-medium text-gray-800">No primary instruction</div>
-                        <div class="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                        <div class="text-sm font-medium text-ink-2">No primary instruction</div>
+                        <div class="text-xs text-ink-muted mt-1 max-w-md mx-auto">
                             Give this agent a guiding instruction it applies to every report — context about the data, conventions to follow, or rules to enforce.
                         </div>
                         <div v-if="useCan('update_data_source')" class="mt-4 flex items-center justify-center gap-3">
@@ -128,7 +128,7 @@
                     </div>
                     <div class="mt-3 flex flex-wrap gap-2">
                         <div v-for="starter in displayDataSource?.conversation_starters" :key="starter"
-                        class="bg-gray-100 rounded-lg px-3 py-2 text-xs"
+                        class="bg-surface-muted rounded-lg px-3 py-2 text-xs"
                         >
                             <span>{{ starter.split('\n')[0] }}</span>
                         </div>
@@ -142,33 +142,33 @@
 
         <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-2xl' }">
             <div class="p-5">
-                <div class="text-sm font-medium text-gray-900">{{ $t('dataSource.editStartersTitle') }}</div>
-                <div class="text-xs text-gray-600 mt-1">{{ $t('dataSource.editStartersHint') }}</div>
+                <div class="text-sm font-medium text-ink">{{ $t('dataSource.editStartersTitle') }}</div>
+                <div class="text-xs text-ink-muted mt-1">{{ $t('dataSource.editStartersHint') }}</div>
 
                 <div class="mt-4 space-y-2 max-h-[60vh] overflow-auto pe-1">
-                    <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-gray-100 p-2">
+                    <div v-for="(item, idx) in editStarters" :key="idx" class="rounded-md border border-line-subtle p-2">
                         <div class="flex items-center justify-between mb-1">
                             <span class="text-2xs uppercase tracking-wide text-ink-muted">{{ $t('dataSource.starterN', { n: idx + 1 }) }}</span>
-                            <button @click="removeStarter(idx)" class="text-2xs text-gray-500 hover:text-red-600">{{ $t('dataSource.remove') }}</button>
+                            <button @click="removeStarter(idx)" class="text-2xs text-ink-muted hover:text-red-600">{{ $t('dataSource.remove') }}</button>
                         </div>
                         <div class="space-y-1">
                             <div>
-                                <label class="block text-2xs text-gray-500 mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
-                                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-gray-200 rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
+                                <label class="block text-2xs text-ink-muted mb-0.5">{{ $t('dataSource.starterTitle') }}</label>
+                                <input v-model="item.title" type="text" class="w-full h-8 text-sm border border-line rounded-md px-2 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterTitlePlaceholder')" />
                             </div>
                             <div>
-                                <label class="block text-2xs text-gray-500 mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
-                                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
+                                <label class="block text-2xs text-ink-muted mb-0.5">{{ $t('dataSource.starterPrompt') }}</label>
+                                <textarea v-model="item.prompt" rows="2" class="w-full text-sm border border-line rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-200" :placeholder="$t('dataSource.starterPromptPlaceholder')"></textarea>
                             </div>
                         </div>
                     </div>
                     <div>
-                        <button @click="addStarter" class="text-xs border border-gray-300 text-gray-700 rounded-lg px-2 py-1 hover:bg-gray-50">{{ $t('dataSource.addStarter') }}</button>
+                        <button @click="addStarter" class="text-xs border border-line-strong text-ink-2 rounded-lg px-2 py-1 hover:bg-surface-subtle">{{ $t('dataSource.addStarter') }}</button>
                     </div>
                 </div>
 
                 <div class="flex justify-end gap-2 mt-4">
-                    <button @click="onCancelEdit" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">{{ $t('dataSource.cancel') }}</button>
+                    <button @click="onCancelEdit" class="px-3 py-1.5 text-xs border border-line-strong text-ink-2 rounded-lg">{{ $t('dataSource.cancel') }}</button>
                     <button @click="onSaveStarters" :disabled="savingStarters" class="px-3 py-1.5 text-xs border border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50">{{ savingStarters ? $t('dataSource.saving') : $t('dataSource.save') }}</button>
                 </div>
             </div>

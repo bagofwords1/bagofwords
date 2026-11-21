@@ -17,6 +17,7 @@ The gateway is transport-agnostic: callers (internal planner, MCP server tools)
 own feature-gating, tracking, and result materialization.
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -37,6 +38,9 @@ from app.services.tool_policy_service import (
     TOOL_POLICY_ASK,
     TOOL_POLICY_AUTO,
     TOOL_POLICY_DENY,
+    agent_admin_setting,
+    clamp_to_effect,
+    is_policy_locked,
     normalize_tool_policy,
     resolve_effective_policy,
 )
@@ -45,7 +49,7 @@ from app.services.remote_shell_policy import display_policy
 
 logger = logging.getLogger(__name__)
 
-TOOL_CONNECTION_TYPES = ("mcp", "custom_api", "remote_ssh", "remote_smb")
+from app.data_sources.clients.connector_actions import CALLABLE_TOOL_CONNECTION_TYPES as TOOL_CONNECTION_TYPES
 
 
 @dataclass
@@ -217,8 +221,7 @@ class ConnectionToolGateway:
             for conn in conns:
                 for ct in tools_by_conn.get(str(conn.id), []):
                     overlay = overlays.get((ds_id, str(ct.id)))
-                    is_enabled = overlay.is_enabled if overlay else ct.is_enabled
-                    policy = normalize_tool_policy(overlay.policy if overlay else ct.policy)
+                    is_enabled, policy = agent_admin_setting(ct, overlay)
                     if not is_enabled and not include_disabled:
                         continue
                     user_policy = user_prefs.get(str(ct.id))
@@ -236,7 +239,7 @@ class ConnectionToolGateway:
                             policy=policy,
                             connection_tool_id=str(ct.id),
                             user_policy=user_policy,
-                            effective_policy=display_policy(conn, ct.name, policy, user_policy),
+                            effective_policy=clamp_to_effect(ct, display_policy(conn, ct.name, policy, user_policy, locked=is_policy_locked(ct))),
                         )
                     )
         return result
@@ -309,6 +312,20 @@ class ConnectionToolGateway:
             from app.services.remote_server_access import remote_run_access
             if not await remote_run_access(db, conn, current_user, [data_source_id]):
                 return GatewayResult(success=False, content_type="text", error="Remote connection access denied", blocked_by_policy="deny")
+        # Built-in blocklist first: no policy, not even 'allow', runs these.
+        # CPU-bound (sqlglot): run it off the event loop.
+        from app.services.tool_blocklist import block_reason
+        blocked = await asyncio.to_thread(
+            block_reason, tool_name=tool_name, arguments=arguments or {}, remote_shell=remote_shell,
+            input_schema=tool.input_schema)
+        if blocked:
+            return GatewayResult(
+                success=False,
+                content_type="text",
+                error=f"Tool '{tool_name}' was refused by the built-in safety blocklist ({blocked}).",
+                input_schema=tool.input_schema,
+                blocked_by_policy="blocklist",
+            )
         effective = tool.effective_policy or tool.policy
         if remote_shell:
             from app.services.remote_shell_policy import effective_shell_policy

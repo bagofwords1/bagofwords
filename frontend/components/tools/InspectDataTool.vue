@@ -2,20 +2,7 @@
   <div class="min-w-0">
     <!-- Status header -->
     <ToolCallHeader :tool-execution="toolExecution" icon="heroicons-table-cells" :expanded="toolHeaderExpanded" @toggle="toolHeaderExpanded = !toolHeaderExpanded">
-      <template #label>
-      <template v-if="status === 'running'">{{ t('tools.inspectData.inspecting') }}<template v-if="groupedTables.length">
-      <template v-for="(group, gidx) in groupedTables">
-      <template v-if="gidx > 0">|</template>
-      <template v-for="(nm, nidx) in group.visible">{{ nm }}<template v-if="nidx < group.visible.length - 1">,&nbsp;</template></template>
-      <template v-if="group.more">&nbsp;+{{ group.more }}</template></template></template>
-      <template v-else>{{ t('tools.inspectData.dataRunning') }}</template>
-      <template v-if="slotWait">· {{ slotWaitLabel }}</template></template>
-      <template v-else>{{ t('tools.inspectData.inspected') }}<template v-if="groupedTables.length">
-      <template v-for="(group, gidx) in groupedTables">
-      <template v-if="gidx > 0">|</template>
-      <template v-for="(nm, nidx) in group.visible">{{ nm }}<template v-if="nidx < group.visible.length - 1">,&nbsp;</template></template>
-      <template v-if="group.more">&nbsp;+{{ group.more }}</template></template></template>
-      <template v-else>{{ t('tools.inspectData.data') }}</template></template></template>
+      <template #label>{{ headerLabel }}</template>
     </ToolCallHeader>
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
@@ -39,7 +26,7 @@
           <span v-else-if="executionDone" class="text-gray-500 dark:text-gray-400">{{ t('tools.inspectData.executed') }}</span>
         </div>
         <!-- Execution error from stdout -->
-        <div v-if="latestStdoutError" class="text-chat-2 text-amber-600 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-12 overflow-y-auto">
+        <div v-if="latestStdoutError" class="text-chat-2 text-amber-600 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950 rounded px-2 py-1 max-h-12 overflow-y-auto">
           <pre class="whitespace-pre-wrap break-words m-0">{{ latestStdoutError }}</pre>
         </div>
       </div>
@@ -83,7 +70,7 @@
         </div>
 
         <!-- Error message -->
-        <div v-if="errorMessage" class="text-chat-2 text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
+        <div v-if="errorMessage" class="text-chat-2 text-red-500 dark:text-red-300 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
         </div>
       </div>
@@ -218,6 +205,19 @@ const iconAgents = computed<DataSource[]>(
 const groupedTables = computed<ToolTableGroup[]>(() =>
   groupToolTables(props.toolExecution?.arguments_json, iconAgents.value)
 )
+
+// Built as one string: a multi-line template here let Vue's whitespace
+// condensing eat the spaces ("Inspectingevents", "orders|events").
+const headerLabel = computed<string>(() => {
+  const running = status.value === 'running'
+  const tables = groupedTables.value
+    .map(g => g.visible.join(', ') + (g.more ? ` +${g.more}` : ''))
+    .join(' | ')
+  const verb = t(running ? 'tools.inspectData.inspecting' : 'tools.inspectData.inspected')
+  const object = tables || t(running ? 'tools.inspectData.dataRunning' : 'tools.inspectData.data')
+  const wait = running && slotWait.value ? ` · ${slotWaitLabel.value}` : ''
+  return `${verb} ${object}${wait}`
+})
 
 function toggleExpanded() {
   if (status.value !== 'running') {

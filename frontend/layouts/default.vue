@@ -339,7 +339,9 @@
 
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
       <div v-if="!isCollapsed" class="min-h-0 flex flex-col mt-4" :style="reportsSectionStyle">
-        <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
+        <!-- pe-1.5 (not 2.5): centers the w-5 group/sort button on the row
+             star / ellipsis column below (~16px from the inline-end edge). -->
+        <div class="ps-2.5 pe-1.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
           <div class="flex items-center gap-1 min-w-0">
             <button
               type="button"
@@ -554,7 +556,7 @@
                !isCollapsed && !myQuota ? 'items-center' : ''
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-surface-muted" />
                 <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full">
                   {{ userInitial }}
                 </div>
@@ -575,7 +577,7 @@
                 ></span>
               </span>
               <template v-else-if="!isCollapsed">
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-surface-muted shrink-0" />
                 <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-2xs font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>
@@ -654,9 +656,12 @@
   <!-- Sidebar report actions: share / rename / delete (singletons bound to menuReport) -->
   <!-- Teleported to body so it escapes the sidebar's transform/overflow clipping. -->
   <Teleport to="body">
-    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70]" @click="reportMenuOpen = false" @contextmenu.prevent="reportMenuOpen = false">
+    <!-- Non-blocking layer (pointer-events-none): an outside press closes the
+         menu via useDismissOnOutsidePress AND still reaches its target. -->
+    <div v-if="reportMenuOpen" class="fixed inset-0 z-[70] pointer-events-none">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
+        ref="reportMenuPanel"
+        class="absolute pointer-events-auto w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: reportMenuPos.y + 'px', left: reportMenuPos.x + 'px' }"
         @click.stop
       >
@@ -690,9 +695,10 @@
 
   <!-- Sidebar project actions: rename / delete (teleported like the report menu) -->
   <Teleport to="body">
-    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70]" @click="projectMenuOpen = false" @contextmenu.prevent="projectMenuOpen = false">
+    <div v-if="projectMenuOpen" class="fixed inset-0 z-[70] pointer-events-none">
       <div
-        class="absolute w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
+        ref="projectMenuPanel"
+        class="absolute pointer-events-auto w-52 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg text-sm"
         :style="{ top: projectMenuPos.y + 'px', left: projectMenuPos.x + 'px' }"
         @click.stop
       >
@@ -860,7 +866,7 @@
   import UserProfileModal from '~/components/UserProfileModal.vue'
   import NotificationModal from '~/components/NotificationModal.vue'
   import ChangelogModal from '~/components/ChangelogModal.vue'
-  import { useCan, useCanAccessMonitoring } from '~/composables/usePermissions'
+  import { useCan, useCanAny, useCanAccessMonitoring } from '~/composables/usePermissions'
   import { useAdminNav, isAdminRoute, useAdminReturnPath } from '~/composables/useAdminNav'
   import AdminSidebarNav from '~/components/AdminSidebarNav.vue'
 
@@ -933,7 +939,7 @@
   // same one the admin sidebar renders — so the Admin link can (a) hide itself
   // when no page is reachable and (b) deep-link to the first reachable page,
   // and clicking it never lands on a page the user gets redirected out of.
-  const { firstAccessibleItem: firstAccessibleSettingsTab } = useAdminNav()
+  const { firstAccessibleItem: firstAccessibleSettingsTab, adminLanding } = useAdminNav()
 
   // Admin-level permissions that justify surfacing the Admin entry at all.
   // `view_members` is deliberately absent: it is baseline for every org member
@@ -950,7 +956,13 @@
     'manage_identity_providers',
   ]
   const canAccessAdminArea = computed(() =>
-    adminAreaPermissions.some(permission => useCan(permission))
+    adminAreaPermissions.some(permission => useCan(permission)) || isGroupManagerOnly.value
+  )
+  // A group manager holds `manage_members` on their group(s) only, not
+  // org-wide, so none of the permissions above match. The entry still shows
+  // for them; `adminLanding` opens it on Groups.
+  const isGroupManagerOnly = computed(() =>
+    !adminAreaPermissions.some(permission => useCan(permission)) && useCanAny('manage_members', 'group')
   )
 
   const mainNavItems: NavItem[] = [
@@ -977,7 +989,7 @@
     // Inside the console the sidebar already is the admin nav, with its own
     // "Back to app" — a second Admin entry would only point at itself.
     if (tab && canAccessAdminArea.value && !isAdminMode.value) {
-      items.push({ href: `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
+      items.push({ href: adminLanding.value || `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
     }
     return items
   })
@@ -1334,13 +1346,19 @@
       projectDialogBusy.value = false
     }
   }
+  const projectMenuPanel = ref<HTMLElement | null>(null)
+  const projectMenuAnchor = ref<HTMLElement | null>(null)
   const openProjectMenu = (e: MouseEvent, project: any) => {
+    // Same ⋯ again toggles closed (the outside-press handler ignores the anchor).
+    if (projectMenuOpen.value && menuProject.value?.id === project.id) { projectMenuOpen.value = false; return }
+    projectMenuAnchor.value = e.currentTarget as HTMLElement | null
     menuProject.value = project
     const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
     const y = Math.min(e.clientY, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 140)
     projectMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
     projectMenuOpen.value = true
   }
+  useDismissOnOutsidePress(projectMenuOpen, projectMenuPanel, projectMenuAnchor, () => { projectMenuOpen.value = false })
   const currentProjectActionsAvailable = (project: any) => !!(project?.can_manage || project?.is_owner)
   const currentProjectActions = computed(() => {
     const project = menuProject.value
@@ -1541,7 +1559,12 @@
   watch([reportMenuOpen, projectMenuOpen, draggingReport, () => route.fullPath], hideTitleTip)
   onBeforeUnmount(hideTitleTip)
 
+  const reportMenuPanel = ref<HTMLElement | null>(null)
+  const reportMenuAnchor = ref<HTMLElement | null>(null)
   const openReportMenu = (e: MouseEvent, report: any) => {
+    // Same ⋯ again toggles closed (the outside-press handler ignores the anchor).
+    if (reportMenuOpen.value && menuReport.value?.id === report.id) { reportMenuOpen.value = false; return }
+    reportMenuAnchor.value = e.currentTarget as HTMLElement | null
     menuReport.value = report
     // Clamp so the 208px-wide menu never runs off the right/bottom edge.
     const x = Math.min(e.clientX, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 216)
@@ -1549,6 +1572,7 @@
     reportMenuPos.value = { x: Math.max(8, x), y: Math.max(8, y) }
     reportMenuOpen.value = true
   }
+  useDismissOnOutsidePress(reportMenuOpen, reportMenuPanel, reportMenuAnchor, () => { reportMenuOpen.value = false })
 
   // Flat action list for the teleported menu, derived from the active report.
   const currentReportActions = computed(() => {

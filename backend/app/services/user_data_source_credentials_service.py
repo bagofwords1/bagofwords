@@ -27,7 +27,7 @@ import json
 def _declared_fields(schema_cls, validated, ds_type: str) -> dict:
     """A personal login's stored fields: only those its variant declares, even
     for schemas that allow extras, since a client acts on any field it receives."""
-    dumped = validated.model_dump(exclude_unset=ds_type.lower() not in ("mssql", "neo4j", "kms_lighthouse"))
+    dumped = validated.model_dump(exclude_unset=ds_type.lower() not in ("mssql", "neo4j", "kms_lighthouse", "confluence_dc", "jira_dc"))
     return {k: v for k, v in dumped.items() if k in schema_cls.model_fields}
 
 

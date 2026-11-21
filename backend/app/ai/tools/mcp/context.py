@@ -101,6 +101,10 @@ async def build_rich_context(
     data_sources, skipped_unconnected = await ds_service.filter_user_usable_data_sources(db, data_sources, user)
     if skipped_unconnected:
         logger.info(f"build_rich_context: excluding data source(s) the user is not connected to: {skipped_unconnected}")
+    # Every connection flagged unreachable: no client is built, so the source
+    # would otherwise just be missing from the run.
+    from app.ai.tools.implementations.agent_focus_common import agent_is_unreachable
+    unreachable_sources = [ds.name for ds in data_sources if agent_is_unreachable(ds)]
 
     # Get organization settings
     org_settings = await organization.get_settings(db)
@@ -268,6 +272,8 @@ async def build_rich_context(
         files_text=files_text,
         connected_sources=connected_sources,
         failed_sources=failed_sources,
+        signin_required_sources=list(skipped_unconnected or []),
+        unreachable_sources=unreachable_sources,
     )
 
 

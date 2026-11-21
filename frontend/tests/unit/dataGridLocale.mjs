@@ -16,7 +16,7 @@ assert.match(component, /localeText: pagerText\(\)/, 'the grid options carry the
 // ag-grid reads localeText only when the grid is created: a language switch
 // must rebuild the options and remount the grid.
 assert.match(component, /:key="gridKey"/, 'the grid is keyed so it can remount');
-assert.match(component, /watch\(locale, \(\) => \{\s*gridOptions\.value = buildOptions\(\);\s*gridKey\.value\+\+;/, 'a language switch rebuilds and remounts the grid');
+assert.match(component, /watch\(locale, \(\) => \{[^}]*?gridOptions\.value = buildOptions\(\);\s*gridKey\.value\+\+;/, 'a language switch keeps the column layout and filters, rebuilds and remounts the grid');
 
 const catalogs = fs.readdirSync(new URL('../locales/', root)).filter(f => f.endsWith('.json')).map(f => f.slice(0, -5));
 assert.ok(catalogs.length >= 10, `found ${catalogs.length} locale catalogs`);

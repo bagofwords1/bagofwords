@@ -299,6 +299,16 @@ get "connect once":
   `ConnectionTool` overlay (`ToolsSelector.vue`). Members inherit it.
 - **Resolution at run time:** Agent overlay (in-agent) → user pref (standalone) → connection
   default. `policy=confirm` triggers an at-prompt confirmation before the tool runs; `deny` blocks.
+  (`confirm` is the legacy name for `ask`.)
+- **Built-in blocklist and per-report permission mode (run time, on top of the above):** the
+  built-in blocklist (`backend/app/services/tool_blocklist.py`) is checked first for connection
+  tools and remote shell, and refuses a catastrophic call whatever the policy says. The report's
+  permission mode (`ask`, `auto` or `allow_all`; `backend/app/services/tool_permission_mode.py`)
+  is applied after the blocklist and the `deny` check: it only loosens a tool whose policy is
+  `ask` or `auto`, never `deny`. `allow_all` needs the org switch and a run the report's owner is
+  watching. An agent can cap the mode with `DataSource.max_permission_mode`. Runs where nobody can
+  answer an approval (scheduled, webhook, API-key, and Slack or email runs) follow the org's
+  `unattended` setting, which refuses by default.
 
 Credential *identity* is shared per provider (connect-once); tool *policy* is **not** — it follows
 the context above.

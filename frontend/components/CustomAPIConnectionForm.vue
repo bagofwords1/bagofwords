@@ -243,7 +243,7 @@
                             <input type="checkbox" v-model="p.required" /> {{ $t('data.reqShort') }}
                           </label>
                           <button type="button" @click="p.pinned = !p.pinned" :title="$t('data.pinnedHint')" :data-testid="`pin-param-${epIdx}-${pIdx}`"
-                            :class="['p-0.5 rounded', p.pinned ? 'text-blue-600 bg-blue-50 dark:bg-blue-950' : 'text-ink-muted hover:text-gray-600']">
+                            :class="['p-0.5 rounded', p.pinned ? 'text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-950' : 'text-ink-muted hover:text-ink-2']">
                             <UIcon name="heroicons-lock-closed" class="w-3.5 h-3.5" />
                           </button>
                           <button type="button" @click="ep.parameters.splice(pIdx, 1)" class="text-ink-muted hover:text-red-500 p-0.5" :title="$t('data.kvRemove')">
@@ -327,7 +327,7 @@
           </div>
         </div>
 
-        <div v-if="submitError" class="mt-3 text-xs px-3 py-2 rounded bg-red-50 dark:bg-red-950 text-red-700">
+        <div v-if="submitError" class="mt-3 text-xs px-3 py-2 rounded bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300">
           {{ submitError }}
         </div>
       </template>
