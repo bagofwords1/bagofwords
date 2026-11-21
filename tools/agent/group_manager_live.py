@@ -21,6 +21,9 @@ enterprise license (custom_roles + audit_logs). Pair it with the frontend
     sam@ ................... member of Sales (the one Lena removes in the UI flow)
     fin@ ................... member of Finance
     olga@ .................. org member in no group
+    llm@, audit@, settings@, sa@
+                             hold one admin permission each (manage_llm,
+                             view_audit_logs, manage_settings, manage_service_accounts)
     groups ................. Sales, Finance (hand-managed), Entra Analysts (imported, oidc)
     agent .................. "Sales pipeline" (private, chinook) in folder "Sales";
                              the Sales group can query the folder
@@ -44,7 +47,11 @@ BASE = f"http://127.0.0.1:{PORT}"
 PASSWORD = "Password123!"
 ORG_NAME = "Acme Analytics"
 CHINOOK = ROOT / "backend" / "tests" / "config" / "chinook.sqlite"
-PEOPLE = {"lena": "Lena Lead", "pete": "Pete Peer", "sam": "Sam Sales", "fin": "Fin Finance", "olga": "Olga Outside"}
+PEOPLE = {"lena": "Lena Lead", "pete": "Pete Peer", "sam": "Sam Sales", "fin": "Fin Finance", "olga": "Olga Outside",
+          "llm": "Lio LLM", "audit": "Ari Audit", "settings": "Sia Settings", "sa": "Sol Service"}
+# Single-permission admins, for checking where the Admin entry opens.
+ADMIN_ROLES = {"llm": ["manage_llm"], "audit": ["view_audit_logs"], "settings": ["manage_settings"],
+               "sa": ["manage_service_accounts"]}
 
 
 def serve():
@@ -186,6 +193,13 @@ def seed():
 
     _ok(c.put(f"/api/organizations/{org_id}/groups/{groups['Sales']['id']}/managers/{people['lena']['user_id']}",
               headers=h))
+    roles = {r["name"]: r for r in _ok(c.get(f"/api/organizations/{org_id}/roles", headers=h))}
+    for who, perms in ADMIN_ROLES.items():
+        name = f"only {perms[0]}"
+        role = roles.get(name) or _ok(c.post(f"/api/organizations/{org_id}/roles", headers=h,
+                                             json={"name": name, "permissions": ["view_members", *perms]}))
+        c.post(f"/api/organizations/{org_id}/role-assignments", headers=h,
+               json={"role_id": role["id"], "principal_type": "user", "principal_id": people[who]["user_id"]})
     print(json.dumps({"org_id": org_id, "groups": sorted(groups), "sales_manager": "lena@example.com"}, indent=2))
 
 

@@ -939,7 +939,7 @@
   // same one the admin sidebar renders — so the Admin link can (a) hide itself
   // when no page is reachable and (b) deep-link to the first reachable page,
   // and clicking it never lands on a page the user gets redirected out of.
-  const { firstAccessibleItem: firstAccessibleSettingsTab } = useAdminNav()
+  const { firstAccessibleItem: firstAccessibleSettingsTab, adminLanding } = useAdminNav()
 
   // Admin-level permissions that justify surfacing the Admin entry at all.
   // `view_members` is deliberately absent: it is baseline for every org member
@@ -959,8 +959,8 @@
     adminAreaPermissions.some(permission => useCan(permission)) || isGroupManagerOnly.value
   )
   // A group manager holds `manage_members` on their group(s) only, not
-  // org-wide, so none of the permissions above match. Their one admin page is
-  // Groups (filtered to the groups they manage), so the entry opens there.
+  // org-wide, so none of the permissions above match. The entry still shows
+  // for them; `adminLanding` opens it on Groups.
   const isGroupManagerOnly = computed(() =>
     !adminAreaPermissions.some(permission => useCan(permission)) && useCanAny('manage_members', 'group')
   )
@@ -989,8 +989,7 @@
     // Inside the console the sidebar already is the admin nav, with its own
     // "Back to app" — a second Admin entry would only point at itself.
     if (tab && canAccessAdminArea.value && !isAdminMode.value) {
-      const href = isGroupManagerOnly.value ? '/settings/members?tab=groups' : `/settings/${tab.name}`
-      items.push({ href, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
+      items.push({ href: adminLanding.value || `/settings/${tab.name}`, activePath: '/settings', icon: 'heroicons-cog-6-tooth', label: 'nav.admin' })
     }
     return items
   })

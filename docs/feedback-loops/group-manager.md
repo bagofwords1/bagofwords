@@ -284,6 +284,43 @@ after:   PASS  manager: admin entry=true landing=/settings/members?tab=groups
 (9/9 steps). Evidence: `before-manager-home.png`, `after-manager-home.png`,
 `after-manager-admin-click.png`.
 
+## Follow-up: the Admin entry opens each person's own page
+
+**Problem.** The Admin entry always opened Members, a page every member can
+view. Someone whose only admin permission is `manage_llm`, `view_audit_logs`,
+`manage_settings` or `manage_service_accounts` therefore landed on a read-only
+member list and had to find their own page.
+
+**Fix.** `useAdminNav().adminLanding` (`frontend/composables/useAdminNav.ts`)
+picks the landing page:
+
+- org-wide `manage_members` → Members
+- otherwise, the first top-level admin page the person can open (LLM, AI
+  settings, Audit logs, Identity provider, …)
+- otherwise, the first Members sub-page behind a real permission (Groups,
+  Service accounts)
+
+`layouts/default.vue` uses it for the entry, replacing the group-manager
+special case.
+
+**Checked** with `tools/agent/group_manager_ui.cjs landing`, which signs in as
+each seeded role (`group_manager_live.py seed` adds one single-permission user
+per role):
+
+```
+                         before                     after
+org admin                /settings/members          /settings/members
+group manager            /settings/members?tab=groups  (same)
+LLM manager              /settings/members  FAIL    /settings/models
+auditor                  /settings/members  FAIL    /settings/audit
+settings manager         /settings/members  FAIL    /settings/ai_settings
+service-account manager  /settings/members  FAIL    /settings/members?tab=service_accounts
+plain member             no Admin entry             no Admin entry
+```
+
+Evidence: `before-landing-llm-manager.png`, `after-landing-llm-manager.png`,
+`after-landing-auditor.png`.
+
 ## What this proves / regression notes
 
 - **What a manager can reach.** They can only change who is in the groups

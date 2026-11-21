@@ -106,7 +106,26 @@ export function useAdminNav() {
   // actually open, so the click never bounces off permissions.global.ts.
   const firstAccessibleItem = computed(() => visibleItems.value[0] || null)
 
-  return { visibleItems, firstAccessibleItem }
+  // Where the Admin entry opens: the first page this person's admin powers
+  // unlock, rather than Members for everyone. Members is visible to every
+  // member (view_members), so it only makes sense as the landing page for
+  // whoever manages people org-wide. Anyone else opens their own page: LLM for
+  // an LLM manager, Audit logs for an auditor, AI settings for a settings
+  // manager, Groups for a group manager, Service accounts, and so on.
+  const adminLanding = computed<string | null>(() => {
+    const items = visibleItems.value
+    if (!items.length) return null
+    if (useCan('manage_members')) return '/settings/members'
+    const page = items.find(item => item.name !== 'members' && !item.children?.length)
+    if (page) return `/settings/${page.name}`
+    // Members sub-pages behind a real admin permission (the Members list
+    // itself carries none).
+    const sub = items.find(item => item.name === 'members')?.children?.find(child => child.permission)
+    if (sub) return `/settings/members?tab=${sub.key}`
+    return `/settings/${items[0].name}`
+  })
+
+  return { visibleItems, firstAccessibleItem, adminLanding }
 }
 
 // Paths under /settings that are NOT part of the admin console. The channel

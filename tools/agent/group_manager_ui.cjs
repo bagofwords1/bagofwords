@@ -2,6 +2,10 @@
 //
 //   node tools/agent/group_manager_ui.cjs shots <outDir> <prefix> [--locale he]
 //   node tools/agent/group_manager_ui.cjs flow  <outDir>
+//   node tools/agent/group_manager_ui.cjs landing <outDir>
+//
+// landing: for each seeded role, open home and check the Admin entry is shown
+//          (or not) and opens that person's own admin page.
 //
 // shots: the Groups tab and the Sales members dialog, as the org admin and as
 //        lena@ (Sales manager). Missing UI (e.g. no Groups tab) is captured as is.
@@ -108,4 +112,40 @@ async function flow() {
   if (failures.length) process.exit(1);
 }
 
-(mode === 'flow' ? flow() : shots()).catch((e) => { console.error(e); process.exit(1); });
+async function landing() {
+  const cases = [
+    // who, email, expected landing (null = no Admin entry)
+    ['org admin', 'admin@example.com', /\/settings\/members$/],
+    ['group manager', 'lena@example.com', /\/settings\/members\?tab=groups$/],
+    ['LLM manager', 'llm@example.com', /\/settings\/models$/],
+    ['auditor', 'audit@example.com', /\/settings\/audit$/],
+    ['settings manager', 'settings@example.com', /\/settings\/ai_settings$/],
+    ['service-account manager', 'sa@example.com', /\/settings\/members\?tab=service_accounts$/],
+    ['plain member', 'pete@example.com', null],
+  ];
+  const browser = await chromium.launch();
+  let failures = 0;
+  for (const [who, email, expected] of cases) {
+    const { context, page } = await login(browser, email, { deviceScaleFactor: 1 });
+    await page.goto(`${ORIGIN}/`, { waitUntil: 'networkidle' }).catch(() => {});
+    await page.waitForTimeout(2000);
+    const entry = page.locator('a[href^="/settings/"]').filter({ hasText: /admin/i });
+    const has = (await entry.count()) > 0;
+    let landed = '-';
+    if (has) {
+      await entry.first().click();
+      await page.waitForTimeout(2000);
+      landed = page.url().replace(ORIGIN, '');
+    }
+    const ok = expected ? has && expected.test(landed) : !has;
+    failures += !ok;
+    console.log(`${ok ? 'PASS' : 'FAIL'}  ${who.padEnd(24)} admin entry=${has}  opens ${landed}`);
+    if (has) await page.screenshot({ path: path.join(outDir, `landing-${who.replace(/\W+/g, '-')}.png`) });
+    await context.close();
+  }
+  await browser.close();
+  if (failures) process.exit(1);
+}
+
+const run = { flow, landing, shots }[mode] || shots;
+run().catch((e) => { console.error(e); process.exit(1); });
