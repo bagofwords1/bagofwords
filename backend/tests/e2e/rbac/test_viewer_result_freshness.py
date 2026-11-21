@@ -827,6 +827,46 @@ def test_deleting_a_group_purges_for_each_of_its_members_after_the_delete(
     assert all(gid not in groups for groups in last["groups"].values())
 
 
+@pytest.mark.e2e
+def test_a_group_manager_adding_or_removing_a_member_purges_their_results_after_the_change(
+    enterprise_license, test_client, bootstrap_admin, invite_user_to_org, create_group, add_user_to_group,
+    member_purges,
+):
+    """A group's manager changes its members through the same routes as an
+    org admin, so the change purges the same way."""
+    admin = bootstrap_admin()
+    org_id = admin["org_id"]
+    lead = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    viewer = invite_user_to_org(org_id=org_id, admin_token=admin["token"])
+    gid = create_group(name=f"Team {uuid.uuid4().hex[:6]}", user_token=admin["token"], org_id=org_id).json()["id"]
+    assert add_user_to_group(group_id=gid, user_id=lead["user_id"], user_token=admin["token"],
+                             org_id=org_id).status_code == 201
+    promoted = test_client.put(f"/api/organizations/{org_id}/groups/{gid}/managers/{lead['user_id']}",
+                               headers=_headers(admin["token"], org_id))
+    assert promoted.status_code == 204, promoted.text
+    as_lead = _headers(lead["token"], org_id)
+
+    from tests.fixtures.member_results import member_results_now, purged, seed_member_results_now
+
+    step = seed_member_results_now(org_id, viewer["user_id"])
+    added = test_client.post(f"/api/organizations/{org_id}/groups/{gid}/members",
+                             json={"user_id": viewer["user_id"]}, headers=as_lead)
+    assert added.status_code == 201, added.text
+    assert member_results_now(step) == purged()
+    assert member_purges[-1]["user_ids"] == [viewer["user_id"]]
+    assert gid in member_purges[-1]["groups"][viewer["user_id"]]
+    assert member_purges[-1]["audits"][(gid, "group.member_added")] == 2
+
+    step = seed_member_results_now(org_id, viewer["user_id"])
+    removed = test_client.delete(f"/api/organizations/{org_id}/groups/{gid}/members/{viewer['user_id']}",
+                                 headers=as_lead)
+    assert removed.status_code == 204, removed.text
+    assert member_results_now(step) == purged()
+    assert member_purges[-1]["user_ids"] == [viewer["user_id"]]
+    assert gid not in member_purges[-1]["groups"][viewer["user_id"]]
+    assert member_purges[-1]["audits"][(gid, "group.member_removed")] == 1
+
+
 # ── a purge runs after the change it follows is audited ────────────────
 
 @pytest.fixture
