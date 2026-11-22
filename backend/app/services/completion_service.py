@@ -1102,6 +1102,9 @@ class CompletionService:
                                 external_channel_id, str(_system_completion_id),
                                 failed=not run_outcome.get("finished"),
                             ))
+                        if external_platform == "whatsapp" and external_channel_id:
+                            from app.services.platform_adapters import whatsapp_typing
+                            whatsapp_typing.end_run(external_channel_id, str(_system_completion_id))
                         await self._stop_completion_lease(_system_completion_id, heartbeat)
                         await self.start_next_queued_if_idle(str(_report_id), str(_system_completion_id))
 

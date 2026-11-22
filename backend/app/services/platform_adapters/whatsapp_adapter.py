@@ -142,22 +142,32 @@ class WhatsAppAdapter(PlatformAdapter):
             "Content-Type": "application/json",
         }
 
-    async def _post_message(self, payload: Dict[str, Any]) -> bool:
+    async def _post_message_status(self, payload: Dict[str, Any]) -> Optional[int]:
+        """POST to /messages; the HTTP status, or None when it never got one."""
         phone_number_id = self._phone_number_id()
         if not phone_number_id or not self._access_token():
             print("WhatsApp: missing phone_number_id or access_token")
-            return False
+            return None
         url = f"{_graph_base_url()}/{phone_number_id}/messages"
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(url, headers=self._auth_headers(), json=payload)
-                if resp.status_code == 200:
-                    return True
-                print(f"WhatsApp API error: {resp.status_code} - {resp.text}")
-                return False
         except Exception as e:
             print(f"Error posting WhatsApp message: {e}")
-            return False
+            return None
+        if resp.status_code == 200:
+            # A message (not a reaction or read receipt) dismisses the
+            # "typing…" indicator on WhatsApp; let it come back shortly if
+            # a run is still going.
+            if payload.get("to") and payload.get("type") not in (None, "reaction"):
+                from . import whatsapp_typing
+                whatsapp_typing.note_outbound(phone_number_id, payload["to"])
+        else:
+            print(f"WhatsApp API error: {resp.status_code} - {resp.text}")
+        return resp.status_code
+
+    async def _post_message(self, payload: Dict[str, Any]) -> bool:
+        return await self._post_message_status(payload) == 200
 
     # ---------- PlatformAdapter interface ----------
 
@@ -332,6 +342,36 @@ class WhatsAppAdapter(PlatformAdapter):
             "reaction": {"message_id": timestamp, "emoji": ""},
         }
         return await self._post_message(payload)
+
+    def phone_number_id(self) -> Optional[str]:
+        """The business number this adapter sends from."""
+        return self._phone_number_id()
+
+    async def send_typing_indicator(self, message_id: str) -> str:
+        """Show "typing…" to the user who sent ``message_id``.
+
+        WhatsApp couples the indicator to a read receipt, so this also marks
+        that message (and earlier ones in the chat) as read — blue ticks.
+        Meta dismisses it when we send a message or after 25 seconds.
+
+        Returns ``whatsapp_typing.SENT``, ``REFUSED`` (a 4xx other than 429:
+        WhatsApp won't take it — stop asking) or ``TRANSIENT`` (no answer,
+        429 or 5xx: worth trying again).
+        """
+        from . import whatsapp_typing
+        if not message_id:
+            return whatsapp_typing.REFUSED
+        status = await self._post_message_status({
+            "messaging_product": "whatsapp",
+            "status": "read",
+            "message_id": message_id,
+            "typing_indicator": {"type": "text"},
+        })
+        if status == 200:
+            return whatsapp_typing.SENT
+        if status is not None and 400 <= status < 500 and status != 429:
+            return whatsapp_typing.REFUSED
+        return whatsapp_typing.TRANSIENT
 
     async def send_dm(self, user_id: str, text: str) -> bool:
         return await self.send_response({"to": user_id, "text": text})
