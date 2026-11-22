@@ -319,6 +319,24 @@ _PARALLEL_SAFE_TOOLS = frozenset({"inspect_data", "create_data"})
 # every write_csv in a session renders the same stale widget preview.
 _INVOCATION_RESET_TOOLS = frozenset({"create_widget", "create_data", "describe_entity", "write_csv"})
 
+
+def resolve_created_step_id(tool_name: str, observation, current_step_id) -> Optional[str]:
+    """The Step a finished tool created, for its tool_executions row.
+
+    A tool that reports its step (``step_id`` in the observation) wins. The
+    invocation's current step is only a fallback for the tools that create
+    their step through progress events — the invocation-reset data tools.
+    Every other tool (create_artifact, edit_artifact, generate_image, ...)
+    created no step: stamping the invocation's last chart on it made chat
+    channels send that chart again as the tool's output, in place of a
+    dashboard link or a generated picture.
+    """
+    if isinstance(observation, dict) and observation.get("step_id"):
+        return observation["step_id"]
+    if tool_name in _INVOCATION_RESET_TOOLS and current_step_id:
+        return current_step_id
+    return None
+
 # How long a tool-supplied image (a rendered page, a screenshot, a picture
 # read with read_file) stays attached as a vision block on the legacy
 # (non-transcript) channel.
@@ -8194,14 +8212,11 @@ class AgentV2:
                                 async with self._tool_db_lock:
                                     # Extract created objects from observation, with fallback to orchestrator state
                                     created_widget_id = None
-                                    created_step_id = None
                                     if observation and "widget_id" in observation:
                                         created_widget_id = observation["widget_id"]
-                                    if observation and "step_id" in observation:
-                                        created_step_id = observation["step_id"]
-                                    # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
-                                    if not created_step_id and _inv.current_step_id:
-                                        created_step_id = _inv.current_step_id
+                                    created_step_id = resolve_created_step_id(
+                                        tool_name, observation, _inv.current_step_id,
+                                    )
 
                                     # No per-tool warm refresh here: its view only fed the token
                                     # meter and the post-tool snapshot, and a batch of N tools
@@ -10670,8 +10685,12 @@ class AgentV2:
                         # Update current step's data model with new column
                         column = payload.get("column", {})
                         if cur_step and column:
-                            current_data_model = getattr(cur_step, "data_model", {}) or {}
-                            current_data_model.setdefault("columns", [])
+                            # A NEW dict, as in series_configured below (only
+                            # create_widget emits column_added): Step.data_model
+                            # is a plain JSON column, so an in-place edit
+                            # assigned back is not seen as a change.
+                            current_data_model = dict(getattr(cur_step, "data_model", None) or {})
+                            current_data_model["columns"] = list(current_data_model.get("columns") or [])
                             # Add column if not already present
                             if not any(col.get("generated_column_name") == column.get("generated_column_name")
                                      for col in current_data_model["columns"]):
@@ -10704,7 +10723,15 @@ class AgentV2:
                         # Update current step's data model with series
                         series = payload.get("series", [])
                         if cur_step and series:
-                            current_data_model = getattr(cur_step, "data_model", {}) or {}
+                            # Build a NEW dict: Step.data_model is a plain JSON
+                            # column, so mutating the loaded dict in place and
+                            # assigning it back is not seen as a change. The
+                            # write was skipped, and in a single-writer run the
+                            # tool's final data_model was then compared against
+                            # the mutated dict and skipped too — the stored
+                            # chart had no series, and chat channels sent no
+                            # chart image.
+                            current_data_model = dict(getattr(cur_step, "data_model", None) or {})
                             current_data_model["series"] = series
                             await self.project_manager.update_step_with_data_model(
                                 fresh_db, cur_step, current_data_model, refresh=False

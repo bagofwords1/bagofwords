@@ -118,10 +118,11 @@ from app.services.report_payload_projection import (
 
 
 # Tools whose card is the primary renderer of the Step they created (code +
-# result table). Reader tools (read_query, create_artifact, ...) also stamp
-# created_step_id via the orchestrator's current-step fallback, but their
-# cards never render the Step inline — they carry their own bounded preview
-# and hydrate on expansion.
+# result table). Reader tools (read_query, run_query, ...) report the step
+# they read as created_step_id, but their cards never render the Step inline —
+# they carry their own bounded preview and hydrate on expansion. Tools that
+# create no step (create_artifact, generate_image, ...) get none (see
+# agent_v2.resolve_created_step_id).
 STEP_CREATOR_TOOL_NAMES = frozenset(
     {
         "create_data",
