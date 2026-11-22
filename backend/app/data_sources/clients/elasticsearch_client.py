@@ -55,6 +55,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 from app.core.egress import pinned_request
 
+from app.data_sources.clients.search_frames import SEARCH_KEYS, SEARCH_GUIDE, reject_unknown, search_body, search_frame
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.elasticsearch_guardrails import (
     AggLimits,
@@ -116,17 +117,8 @@ class ElasticsearchClient(DataSourceClient):
     sql_literal_style = "standard"
     sql_in_json_envelope = True
 
-    # Keys the query envelope may pass through to POST /{index}/_search.
-    SEARCH_KEYS = {"query", "aggs", "aggregations", "size", "sort", "_source",
-                   "from", "search_after", "timeout", "runtime_mappings"}
-
     # The engine's default max_result_window: size + from must stay under it.
     MAX_RESULT_WINDOW = 10_000
-
-    # Bucket-level keys that are not sub-aggregations.
-    _BUCKET_META_KEYS = {"key", "key_as_string", "doc_count", "from", "to",
-                         "from_as_string", "to_as_string",
-                         "doc_count_error_upper_bound"}
 
     # (connect, read) timeouts for metadata calls. Searches use the resolved
     # per-connection query timeout instead (see `apply_query_timeout`).
@@ -250,6 +242,20 @@ class ElasticsearchClient(DataSourceClient):
 
     def _target_rules_active(self) -> bool:
         return self.block_all_indices_search or bool(self.allowed_index_patterns)
+
+    def _check_dsl_lookups(self, node: Any) -> None:
+        """Apply the connection's target rules to named document lookups."""
+        if isinstance(node, list):
+            for item in node:
+                self._check_dsl_lookups(item)
+        elif isinstance(node, dict):
+            if "id" in node and ("path" in node or "field" in node) and isinstance(node.get("index"), str):
+                self._check_target(node["index"])
+            shape = node.get("indexed_shape")
+            if isinstance(shape, dict) and "id" in shape:
+                self._check_target(shape.get("index", "shapes"))
+            for child in node.values():
+                self._check_dsl_lookups(child)
 
     def _check_esql_sources(self, esql: str) -> None:
         """Check every index an ES|QL query reads, not just its FROM: LOOKUP
@@ -1161,12 +1167,16 @@ class ElasticsearchClient(DataSourceClient):
             raise ValueError("Query must be a JSON object")
 
         if envelope.get("dashboard"):
+            reject_unknown(envelope, {"dashboard", "panel", "earliest", "latest", "size", "limit"}, "dashboard envelope keys")
             return self._execute_dashboard(envelope)
         if envelope.get("saved_search"):
+            reject_unknown(envelope, {"saved_search", "earliest", "latest", "size", "limit"}, "saved_search envelope keys")
             return self._execute_saved_search(envelope)
         if "esql" in envelope:
+            reject_unknown(envelope, {"esql"}, "esql envelope keys")
             return self._execute_esql(envelope["esql"])
         if "sql" in envelope:
+            reject_unknown(envelope, {"sql"}, "sql envelope keys")
             return self._execute_sql(envelope["sql"])
 
         index = envelope.get("index")
@@ -1178,7 +1188,10 @@ class ElasticsearchClient(DataSourceClient):
 
         self._check_target(index)
 
-        body = {k: v for k, v in envelope.items() if k in self.SEARCH_KEYS}
+        body = search_body(envelope, SEARCH_KEYS | {"runtime_mappings"})
+        if self._target_rules_active():
+            for key in ("query", "post_filter", "aggs", "aggregations"):
+                self._check_dsl_lookups(body.get(key))
         has_aggs = "aggs" in body or "aggregations" in body
         if "size" not in body:
             body["size"] = 0 if has_aggs else min(100, self.max_result_size)
@@ -1215,17 +1228,7 @@ class ElasticsearchClient(DataSourceClient):
                 "or simplify the aggregation."
             )
 
-        if has_aggs:
-            rows = self._flatten_aggregations(result.get("aggregations") or {})
-            return pd.DataFrame(rows)
-
-        hits = (result.get("hits") or {}).get("hits") or []
-        if not hits:
-            return pd.DataFrame()
-        df = pd.json_normalize([h.get("_source") or {} for h in hits], sep=".")
-        df.insert(0, "_id", [h.get("_id") for h in hits])
-        df.insert(1, "_index", [h.get("_index") for h in hits])
-        return df
+        return search_frame(result, body, include_index=True)
 
     def _run_query_string(self, index: Optional[str], query: str,
                           spec: Dict[str, Any]) -> pd.DataFrame:
@@ -1349,66 +1352,6 @@ class ElasticsearchClient(DataSourceClient):
                                timeout=self._query_http_timeouts())
         cols = [c.get("name") for c in (result.get("columns") or [])]
         return pd.DataFrame(result.get("values") or [], columns=cols or None)
-
-    # ---------- aggregation flattening ---------- #
-
-    @classmethod
-    def _metric_columns(cls, name: str, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Columns for a metric-agg result (`value`, stats dicts, percentiles)."""
-        if "value" in body and not isinstance(body["value"], (dict, list)):
-            return {name: body.get("value_as_string", body["value"])}
-        if "values" in body and isinstance(body["values"], dict):
-            return {f"{name}.{k}": v for k, v in body["values"].items()}
-        scalars = {k: v for k, v in body.items()
-                   if not isinstance(v, (dict, list)) and not k.endswith("_as_string")}
-        if scalars:
-            return {f"{name}.{k}": v for k, v in scalars.items()}
-        return {name: json.dumps(body)}
-
-    @classmethod
-    def _flatten_aggregations(cls, aggs: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Flatten an aggregations result tree into rows.
-
-        Each bucket level contributes a key column named after the agg;
-        metric leaves and `doc_count` become value columns. Sibling bucket
-        aggs each produce their own row group (concatenated).
-        """
-        bucket_rows: List[Dict[str, Any]] = []
-        metrics: Dict[str, Any] = {}
-        for name, body in aggs.items():
-            if not isinstance(body, dict):
-                metrics[name] = body
-                continue
-            if "buckets" in body:
-                buckets = body["buckets"]
-                if isinstance(buckets, dict):
-                    buckets = [{**b, "key": k} for k, b in buckets.items()]
-                for bucket in buckets or []:
-                    key = bucket.get("key_as_string", bucket.get("key"))
-                    sub = {k: v for k, v in bucket.items()
-                           if k not in cls._BUCKET_META_KEYS and isinstance(v, dict)}
-                    base = {name: key, "doc_count": bucket.get("doc_count")}
-                    if sub:
-                        for sub_row in cls._flatten_aggregations(sub):
-                            row = dict(base)
-                            if "doc_count" in sub_row:
-                                row.pop("doc_count", None)
-                            row.update(sub_row)
-                            bucket_rows.append(row)
-                    else:
-                        for k, v in bucket.items():
-                            if k in cls._BUCKET_META_KEYS or not isinstance(v, dict):
-                                continue
-                            base.update(cls._metric_columns(k, v))
-                        bucket_rows.append(base)
-                continue
-            metrics.update(cls._metric_columns(name, body))
-
-        if bucket_rows and metrics:
-            return [{**metrics, **row} for row in bucket_rows]
-        if bucket_rows:
-            return bucket_rows
-        return [metrics] if metrics else []
 
     # ---------- connection / description ---------- #
 
@@ -1574,7 +1517,7 @@ class ElasticsearchClient(DataSourceClient):
                 '{"saved_search": "<space>/<title>", "earliest": "now-4h"} -> run a saved '
                 "search. Never paste `dashboard::...` into the `index` field."
             )
-        return f"""
+        return f"""{SEARCH_GUIDE}
 Elasticsearch cluster at {self.base_url}
 {scope}
 {self.guardrail_summary()}This is a LOG / OBSERVABILITY search source. Tables are indices, patterns

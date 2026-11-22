@@ -391,7 +391,10 @@ def extract_dsl_columns(envelope: Dict[str, Any], catalog: List[CatalogTable]) -
     tables = _index_tables(envelope.get("index") if isinstance(envelope.get("index"), str) else "", catalog)
     if not tables:
         return result
-    for path in dsl_field_references(envelope):
+    body = envelope.get("body", envelope)
+    if not isinstance(body, dict):
+        return {}
+    for path in dsl_field_references(body):
         for t in tables:
             col = map_dsl_field(t, path)
             if col:
