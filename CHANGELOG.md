@@ -7,6 +7,8 @@
 - Fixed chart images missing from chat channel replies on SQLite installs (#1881)
 - Fixed Slack, Teams, Google Chat and WhatsApp re-sending the previous chart after a dashboard or generated image (#1881)
 - Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; unsupported search options now return an error (#1882)
+- Added `result_format=raw` for Elasticsearch and OpenSearch searches, returning the engine response in a single cell (#1882)
+- Fixed row-by-row reads of large Elasticsearch and OpenSearch results taking tens of seconds, and empty aggregation groups dropping their expected columns (#1882)
 
 ## Version 0.0.633 (November 22, 2026)
 - Added in-report search to ⌘K: find any message in the open report, including unloaded pages, and jump to it (#1863)
