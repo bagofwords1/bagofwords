@@ -6,13 +6,15 @@ SSE), timestamps the events that matter, then checks what was persisted.
 
 What it asserts (exit 1 on any violation):
 
-* every create_data result that ended with ``viz_pending: true`` gets exactly
-  one ``visualization.refined`` event, before ``completion.finished``;
+* every create_data result that ended with ``viz_pending: true`` gets one
+  ``visualization.refined`` event when the inference lands and at most one
+  more after the write commits, all before ``completion.finished``;
 * no other tool starts between a pending create_data and its refinement
   (the agent settles before a tool batch that may read visualizations);
 * after the run the database holds the refined spec: the tool execution's
-  ``result_json`` has no ``viz_pending`` and the same data_model/view as the
-  event, the step's data_model and the visualization's view match it.
+  ``result_json`` (and the ``context_summary_json`` report loads serve) has no
+  ``viz_pending`` and the same data_model/view as the last event, and the
+  step's data_model and the visualization's view match it.
 
 What it measures (printed as one JSON line):
 
@@ -120,21 +122,22 @@ def main() -> int:
             "planner_resumed_ms": round(nxt["t"] - f["t"]) if nxt else None,
         }
         if pending:
-            if len(refs) != 1:
-                errors.append(f"{te_id}: {len(refs)} visualization.refined events (want 1)")
+            # One event when the inference lands, and one more after the write
+            # commits (it must win over any provisional block snapshot).
+            if not 1 <= len(refs) <= 2:
+                errors.append(f"{te_id}: {len(refs)} visualization.refined events (want 1 or 2)")
             else:
-                ref = refs[0]
-                row["refine_after_tool_ms"] = round(ref["t"] - f["t"])
-                row["refined"] = ref["data"].get("refined")
-                if completion_finished and ref["t"] > completion_finished["t"]:
+                first, last = refs[0], refs[-1]
+                row["refine_after_tool_ms"] = round(first["t"] - f["t"])
+                row["refined"] = last["data"].get("refined")
+                if completion_finished and last["t"] > completion_finished["t"]:
                     errors.append(f"{te_id}: refined after completion.finished")
-                # No other tool may start between this result and its refinement.
+                # No chart-reading tool may start before the refinement landed.
                 for e in events:
-                    if (e["event"] == "tool.started" and f["t"] < e["t"] < ref["t"]
-                            and e["data"].get("tool_name") != "create_data"
-                            and e["data"].get("tool_name") != "inspect_data"):
+                    if (e["event"] == "tool.started" and f["t"] < e["t"] < first["t"]
+                            and e["data"].get("tool_name") not in ("create_data", "inspect_data")):
                         errors.append(f"{te_id}: {e['data'].get('tool_name')} started before the refinement landed")
-                row["_ref"] = ref["data"]
+                row["_ref"] = last["data"]
         elif refs:
             errors.append(f"{te_id}: refined event for a result that was not pending")
         row["step_id"] = d.get("created_step_id")

@@ -24,7 +24,9 @@ Two halves, on purpose:
 
 Race rules this module guarantees (tests/unit/test_viz_refinement.py):
 
-* every tracked refinement is announced exactly once and applied exactly once;
+* every tracked refinement is announced exactly once and applied exactly once
+  (a failed write is retried with backoff, up to MAX_APPLY_ATTEMPTS, and only
+  a committed write counts as applied);
 * a refinement still running when a settle with ``wait=True`` times out is
   cancelled and applied as "no refinement" (the pending flag is cleared, the
   deterministic spec stands) — nothing can rewrite a visualization after a
@@ -64,6 +66,15 @@ VIZ_SETTLE_TIMEOUT_S = _env_float("BOW_VIZ_SETTLE_TIMEOUT_S", 20.0)
 # set, so a breakdown the deterministic pass guessed doesn't survive an
 # inference that dropped it.
 REFINED_DATA_MODEL_KEYS = ("type", "series", "group_by", "sort", "limit", "filters", "display")
+# Keys the tool's own result writes into the step (agent_v2._handle_tool_output):
+# if the stored step no longer holds the provisional value for one of them,
+# someone changed the chart after the tool ended.
+PROVISIONAL_STEP_KEYS = ("series", "group_by", "sort", "limit", "filters")
+# A write that fails (transient lock, a tool row not inserted yet) is retried
+# with a short backoff, at most this many attempts in all; only a committed
+# write counts as applied.
+MAX_APPLY_ATTEMPTS = 3
+APPLY_RETRY_BASE_DELAY_S = 0.25
 
 
 @dataclass
@@ -77,11 +88,18 @@ class VizRefinement:
     # The background write that INSERTs the tool execution row (Postgres
     # mode). The apply UPDATEs that row, so it must land first.
     persist_task: asyncio.Task | None = None
+    # What the tool returned before the refinement: the apply overwrites a
+    # stored chart only while it still matches these, so an edit the user
+    # saved while the refinement was pending is never replaced.
+    provisional_view: dict[str, Any] | None = None
+    provisional_data_model: dict[str, Any] | None = None
     # Filled by the watcher: {"data_model", "view", ...} or None.
     result: dict[str, Any] | None = None
     watch: asyncio.Task | None = None
     announced: bool = False
     applied: bool = False
+    # Write attempts so far (retried within a settle up to MAX_APPLY_ATTEMPTS).
+    apply_attempts: int = 0
 
     @property
     def refined(self) -> bool:
@@ -103,6 +121,30 @@ def merge_refined_data_model(existing: dict[str, Any] | None, refined: dict[str,
         else:
             merged[key] = value
     return merged
+
+
+def stored_chart_still_provisional(
+    *,
+    stored_view: Any,
+    provisional_view: Any,
+    stored_data_model: Any,
+    provisional_data_model: Any,
+) -> bool:
+    """Whether the stored chart is still what the tool returned.
+
+    False once anything else wrote it after the tool ended (the user saved a
+    new axis or chart type): the refinement must then leave it alone. Views
+    are compared as stored (normalized by the caller); the step is compared
+    on the keys the tool itself wrote into it.
+    """
+    if provisional_view is not None and stored_view is not None and stored_view != provisional_view:
+        return False
+    if isinstance(provisional_data_model, dict) and isinstance(stored_data_model, dict):
+        for key in PROVISIONAL_STEP_KEYS:
+            want = provisional_data_model.get(key)
+            if want is not None and stored_data_model.get(key) != want:
+                return False
+    return True
 
 
 def apply_refinement_to_result_json(result_json: Any, refinement: dict[str, Any] | None) -> Any:
@@ -212,14 +254,49 @@ class VizRefinementTracker:
                 elif not record.announced:
                     # Watch ended without announcing (cancelled from outside).
                     await self._announce_once(record)
+                # Applied only once the write commits. A failed write (a lock,
+                # a tool row not inserted yet) is retried here with a short
+                # backoff; after MAX_APPLY_ATTEMPTS nothing was committed and
+                # the stored chart stays the provisional one, consistently.
+                if await self._apply_with_retry(record):
+                    applied += 1
+                elif record.refined:
+                    # The browser was told the refined chart; tell it the
+                    # provisional one the database kept, so a reload agrees.
+                    await self._revert_announcement(record)
                 record.applied = True
-                applied += 1
-                try:
-                    await self._apply(record)
-                except Exception:
-                    logger.error("viz_refine apply failed (step=%s)", record.step_id, exc_info=True)
             self._records = [r for r in self._records if not r.applied]
             return applied
+
+    async def _revert_announcement(self, record: VizRefinement) -> None:
+        if not isinstance(record.provisional_data_model, dict):
+            return
+        record.result = {"data_model": record.provisional_data_model, "view": record.provisional_view}
+        try:
+            await self._announce(record)
+        except Exception:
+            logger.warning("viz_refine revert announce failed (step=%s)", record.step_id, exc_info=True)
+
+    async def _apply_with_retry(self, record: VizRefinement) -> bool:
+        delay = APPLY_RETRY_BASE_DELAY_S
+        while True:
+            record.apply_attempts += 1
+            try:
+                await self._apply(record)
+                return True
+            except Exception:
+                if record.apply_attempts >= MAX_APPLY_ATTEMPTS:
+                    logger.error(
+                        "viz_refine apply failed %d times (step=%s); keeping the provisional chart",
+                        record.apply_attempts, record.step_id, exc_info=True,
+                    )
+                    return False
+                logger.warning(
+                    "viz_refine apply failed (attempt %d, step=%s); retrying in %.2fs",
+                    record.apply_attempts, record.step_id, delay, exc_info=True,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
 
     async def cancel_all(self) -> None:
         """Stop every refinement without applying it (run teardown)."""

@@ -120,3 +120,28 @@ result pending: outline for 12 s, then drawn.
 - The dev backend runs uvicorn with `--reload`; editing backend files (or
   `git stash`) during a live loop froze the reload at "Waiting for background
   tasks to complete" twice. Restart instead of relying on reload.
+
+## Round 2 — review of `39a257c` (2026-11-22)
+
+Seven findings, each verified against the code before changing it, each now
+pinned by a test that fails on `39a257c`:
+
+| # | Finding | Fix | Test |
+|---|---|---|---|
+| 1 | The settle ran once before a tool batch, before `create_data` had handed over its task: in `[create_data, read_query]` the reader saw the provisional chart. | The barrier runs per action inside `_dispatch_action_batch` (`_viz_barrier`), for every tool outside `create_data` / `inspect_data`. | `test_viz_refinement_dispatch.py` drives the real dispatcher: 3 of 4 fail with the barrier removed. |
+| 2 | A chart the user saved while the refinement was pending was overwritten. | The write applies only while the stored view and the step's tool-written keys still equal the provisional ones (`stored_chart_still_provisional`); otherwise the refinement is dropped and the projection takes the user's view. | `test_viz_refinement_apply.py::test_a_chart_the_user_changed_while_pending_is_kept` |
+| 3 | Chat channels send the chart image when the tool block succeeds, before a refinement lands. | Deferral only for web report runs (`_defer_viz_inference_for_run`: no external platform, the same test the planner uses for figures). Channel runs keep the inline pass. | `test_only_web_report_runs_defer_the_inference` |
+| 4 | PostgreSQL: a tool row not inserted within 10 s left a refined step next to a provisional tool result. | All reads and checks happen first; a missing row raises before anything is modified, and the write is retried. The wait is now 30 s, and the persist task bounds itself. | `test_a_missing_tool_row_changes_nothing` |
+| 5 | A late provisional `block.upsert` (PostgreSQL background persist) replaced the refined tool execution on the client. | The server re-announces `visualization.refined` after the commit, which lands after the persist's snapshot. The client also remembers refinements by tool execution and re-applies them on every `block.upsert`. | Live: 2 events per result, last one after the snapshot. Probe accepts 1–2 and checks the last one against the DB. |
+| 6 | `applied` was set before the write. | Applied means committed: a failed write is retried with backoff (`MAX_APPLY_ATTEMPTS = 3`). If it never commits, the browser is re-told the provisional chart the database kept. | `test_a_write_that_never_commits_…`, `test_a_transient_write_failure_is_retried_until_it_commits` |
+| 7 | The settle loaded `Step.data` (full encrypted result) to update metadata. | `load_only(Step.id, Step.data_model, Step.status)` (`status` is read by the Step `after_update` hook). | `test_the_step_query_does_not_read_the_result_rows` (captured SQL) |
+
+Also found while fixing: in single-writer mode a rollback inside the apply
+would hit the loop's shared session. The apply now raises before modifying
+anything, so a "not ready yet" never rolls back.
+
+Re-run after the fixes (Haiku 5.5): 6 probe runs (bar, two charts, chart →
+`create_artifact` with the barrier settling before it, metric cards, line, stop)
+with 0 violations, DB refined everywhere including `context_summary_json`.
+Figures UI flow passing; live: refined event at 5.9 s, post-commit re-announce
+at 6.9 s, figure loading → ready at 6.7 → 7.3 s.

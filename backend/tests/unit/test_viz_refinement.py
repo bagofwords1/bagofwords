@@ -18,6 +18,8 @@ import asyncio
 import pytest
 
 from app.ai.viz_refinement import (
+    MAX_APPLY_ATTEMPTS,
+    stored_chart_still_provisional,
     VizRefinement,
     VizRefinementTracker,
     apply_refinement_to_result_json,
@@ -175,21 +177,86 @@ async def test_refinements_tracked_during_a_settle_are_not_lost():
     assert sorted(s for s, _ in rec.applied) == ["first", "late"]
 
 
+@pytest.fixture
+def fast_retry(monkeypatch):
+    import app.ai.viz_refinement as vr
+    monkeypatch.setattr(vr, "APPLY_RETRY_BASE_DELAY_S", 0.001)
+
+
 @pytest.mark.asyncio
-async def test_apply_failure_does_not_block_other_refinements():
+async def test_a_write_that_never_commits_is_not_counted_and_reverts_the_live_chart(fast_retry):
+    """Applied means committed: a write that keeps failing is retried a bounded
+    number of times, never counted, and the browser — already told the
+    refinement — is told the provisional chart the database kept."""
     rec = Recorder()
+    calls = {"bad": 0}
 
     async def flaky_apply(r):
         if r.step_id == "bad":
+            calls["bad"] += 1
             raise RuntimeError("db locked")
         await rec.apply(r)
 
     tracker = VizRefinementTracker(announce=rec.announce, apply=flaky_apply)
-    _track(tracker, _after(0.0, REFINED), "bad")
+    bad = _track(tracker, _after(0.0, REFINED), "bad")
+    bad.provisional_data_model = {"type": "bar_chart", "series": [{"key": "country", "value": "n"}]}
+    bad.provisional_view = {"version": "v2", "view": {"type": "bar_chart"}}
     _track(tracker, _after(0.0, REFINED), "good")
-    assert await tracker.settle(wait=True, timeout_s=1.0) == 2
+    assert await tracker.settle(wait=True, timeout_s=1.0) == 1   # only the committed one
     assert rec.applied == [("good", True)]
-    assert not tracker.pending  # a failed write is not retried forever
+    assert calls["bad"] == MAX_APPLY_ATTEMPTS                    # bounded retry
+    assert not tracker.pending                                   # not retried forever
+    # Announced refined first, then reverted to the provisional spec.
+    bad_announcements = [refined for step, refined in rec.announced if step == "bad"]
+    assert bad_announcements == [True, True]
+    assert bad.result["data_model"] == bad.provisional_data_model
+
+
+@pytest.mark.asyncio
+async def test_a_transient_write_failure_is_retried_until_it_commits(fast_retry):
+    rec = Recorder()
+    attempts = {"n": 0}
+
+    async def apply_once_locked(r):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise RuntimeError("database is locked")
+        await rec.apply(r)
+
+    tracker = VizRefinementTracker(announce=rec.announce, apply=apply_once_locked)
+    _track(tracker, _after(0.0, REFINED), "s1")
+    assert await tracker.settle(wait=True, timeout_s=1.0) == 1
+    assert attempts["n"] == 2
+    assert rec.applied == [("s1", True)]
+    assert rec.announced == [("s1", True)]   # no revert: it committed
+
+
+def test_stored_chart_still_provisional_detects_a_user_edit():
+    prov_view = {"version": "v2", "view": {"type": "bar_chart", "x": "country", "y": ["revenue"]}}
+    prov_dm = {"type": "bar_chart", "series": [{"key": "country", "value": "revenue"}], "group_by": None}
+    step_dm = {"type": "bar_chart", "columns": [{"field": "country"}], "series": [{"key": "country", "value": "revenue"}]}
+    assert stored_chart_still_provisional(
+        stored_view=prov_view, provisional_view=prov_view,
+        stored_data_model=step_dm, provisional_data_model=prov_dm,
+    )
+    # The user saved another axis on the visualization...
+    edited_view = {"version": "v2", "view": {"type": "bar_chart", "x": "country", "y": ["invoices"]}}
+    assert not stored_chart_still_provisional(
+        stored_view=edited_view, provisional_view=prov_view,
+        stored_data_model=step_dm, provisional_data_model=prov_dm,
+    )
+    # ...or another measure on the step.
+    assert not stored_chart_still_provisional(
+        stored_view=prov_view, provisional_view=prov_view,
+        stored_data_model={**step_dm, "series": [{"key": "country", "value": "invoices"}]},
+        provisional_data_model=prov_dm,
+    )
+    # Columns streamed into the step during the run are not an edit.
+    assert stored_chart_still_provisional(
+        stored_view=prov_view, provisional_view=prov_view,
+        stored_data_model={**step_dm, "columns": [{"field": "country"}, {"field": "revenue"}]},
+        provisional_data_model=prov_dm,
+    )
 
 
 @pytest.mark.asyncio

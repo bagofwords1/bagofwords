@@ -37,6 +37,7 @@ from app.ai.agent_v2 import (
     _PARALLEL_SAFE_TOOLS,
 )
 from app.ai.runner.tool_runner import ToolRunner
+from app.ai.viz_refinement import VizRefinementTracker
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.agents.planner.prompt_builder import PromptBuilder, _RECENT_OBS_FULL
@@ -63,7 +64,14 @@ def make_agent(**env_current) -> AgentV2:
     agent.current_step_id = env_current.get("step_id")
     agent.current_visualization = env_current.get("visualization")
     agent._tool_db_lock = asyncio.Lock()
+    # The dispatcher's per-action barrier settles create_data's background
+    # visualization refinements (none are tracked in these tests).
+    agent._viz_refinements = VizRefinementTracker(announce=_noop_async, apply=_noop_async)
     return agent
+
+
+async def _noop_async(*_args, **_kwargs):
+    return None
 
 
 def actions_for_sources(tool, sources):
