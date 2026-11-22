@@ -605,6 +605,7 @@ ERROR HANDLING
 
 {row_limit_text}ANALYTICS STANDARDS
 - Verify before building: describe_tables for column-level detail (tables with `instructions>0` carry business rules — read them before querying); read_resources when metadata resources exist.
+- Wide tables list only their top columns; `<more_columns>` names the rest by prefix. A needed column that is not listed most likely exists: find it with describe_tables `columns` before concluding it is missing.
 - Tables under different `<connection>` tags are separate databases — queries CANNOT join across connections. Tables under ONE connection can be joined in a single query, even when their names carry different database prefixes (DB.SCHEMA.TABLE).
 - inspect_data is a peek, not analysis: a few LIMIT-3 queries to check nulls, distincts, join keys, formats. Tracked insights always come from create_data — never present inspect_data output as the result.
 - Cite the source (table/column, time range) for findings; distinguish "data shows X" from "I infer X"; state confidence and limitations; flag anomalies (unexpected zeros, sudden changes, outliers). No sample or fabricated data in final text.
@@ -1367,6 +1368,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             "- Act by emitting tool_use blocks; batch independent calls in one response. Text before a call is optional.\n"
             "- Verify before building: describe_tables for column detail; inspect_data to peek at values, nulls, formats "
             "(LIMIT-3 style); then the few targeted queries that settle the goal. Prefer small, decisive checks over one big one.\n"
+            "- A wide table lists only its top columns (`<more_columns>` names the rest by prefix): find an unlisted column with "
+            "describe_tables `columns` before concluding it is missing.\n"
             "- Keep a note (create_note, then edit_note) as your ledger when the goal needs more than ~5 steps: what you checked, "
             "what it showed (with the numbers and query/step ids), what you ruled out. Pass its id as report_note_id when you finish.\n"
             "- LISTS: a submit_<list> tool in your tool set writes typed rows into one of the parent's lists. When the goal "
