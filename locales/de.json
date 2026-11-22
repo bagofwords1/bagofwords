@@ -6494,7 +6494,18 @@
     "placeholderInReport": "Diesen Bericht, Berichte, Agenten, Anweisungen durchsuchen…",
     "inThisReport": "In diesem Bericht",
     "reportScopeHint": "Tippe report:, um nur in diesem Bericht zu suchen",
-    "reportPrefix": "bericht:"
+    "reportPrefix": "bericht:",
+    "tabs": {
+      "all": "Alle",
+      "reports": "Berichte",
+      "agents": "Agenten",
+      "instructions": "Anweisungen",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Kategorien",
+    "tabsHint": "Kategorien",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Unbenanntes Dashboard"
   },
   "promptParams": {
     "title": "Parameter ausfüllen — {title}",

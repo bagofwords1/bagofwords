@@ -7271,7 +7271,18 @@
     "placeholderInReport": "חיפוש בדוח הזה, בדוחות, בסוכנים ובהנחיות…",
     "inThisReport": "בדוח הזה",
     "reportScopeHint": "הקלידו report: כדי לחפש רק בדוח הזה",
-    "reportPrefix": "דוח:"
+    "reportPrefix": "דוח:",
+    "tabs": {
+      "all": "הכל",
+      "reports": "דוחות",
+      "agents": "סוכנים",
+      "instructions": "הנחיות",
+      "dashboards": "דשבורדים"
+    },
+    "tabsLabel": "קטגוריות",
+    "tabsHint": "קטגוריות",
+    "dashboards": "דשבורדים",
+    "untitledDashboard": "דשבורד ללא שם"
   },
   "promptParams": {
     "title": "מלא את הפרמטרים — {title}",

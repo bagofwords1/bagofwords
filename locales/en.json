@@ -534,7 +534,18 @@
     "placeholderInReport": "Search this report, reports, agents, instructions…",
     "inThisReport": "In this report",
     "reportScopeHint": "Type report: to search only this report",
-    "reportPrefix": "report:"
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "All",
+      "reports": "Reports",
+      "agents": "Agents",
+      "instructions": "Instructions",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Categories",
+    "tabsHint": "categories",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Untitled dashboard"
   },
   "smoke": {
     "hello": "Hello",

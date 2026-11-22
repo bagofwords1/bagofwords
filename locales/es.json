@@ -7251,7 +7251,18 @@
     "placeholderInReport": "Buscar en este informe, informes, agentes, instrucciones…",
     "inThisReport": "En este informe",
     "reportScopeHint": "Escribe report: para buscar solo en este informe",
-    "reportPrefix": "informe:"
+    "reportPrefix": "informe:",
+    "tabs": {
+      "all": "Todo",
+      "reports": "Informes",
+      "agents": "Agentes",
+      "instructions": "Instrucciones",
+      "dashboards": "Paneles"
+    },
+    "tabsLabel": "Categorías",
+    "tabsHint": "categorías",
+    "dashboards": "Paneles",
+    "untitledDashboard": "Panel sin título"
   },
   "promptParams": {
     "title": "Rellena los parámetros — {title}",

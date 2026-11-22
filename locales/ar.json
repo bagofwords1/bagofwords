@@ -6494,7 +6494,18 @@
     "placeholderInReport": "ابحث في هذا التقرير والتقارير والوكلاء والتعليمات…",
     "inThisReport": "في هذا التقرير",
     "reportScopeHint": "اكتب report: للبحث في هذا التقرير فقط",
-    "reportPrefix": "تقرير:"
+    "reportPrefix": "تقرير:",
+    "tabs": {
+      "all": "الكل",
+      "reports": "التقارير",
+      "agents": "الوكلاء",
+      "instructions": "التعليمات",
+      "dashboards": "لوحات المعلومات"
+    },
+    "tabsLabel": "الفئات",
+    "tabsHint": "الفئات",
+    "dashboards": "لوحات المعلومات",
+    "untitledDashboard": "لوحة بلا عنوان"
   },
   "promptParams": {
     "title": "املأ المعلمات — {title}",

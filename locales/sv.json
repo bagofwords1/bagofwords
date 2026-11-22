@@ -6494,7 +6494,18 @@
     "placeholderInReport": "Sök i den här rapporten, rapporter, agenter, instruktioner…",
     "inThisReport": "I den här rapporten",
     "reportScopeHint": "Skriv report: för att bara söka i den här rapporten",
-    "reportPrefix": "rapport:"
+    "reportPrefix": "rapport:",
+    "tabs": {
+      "all": "Alla",
+      "reports": "Rapporter",
+      "agents": "Agenter",
+      "instructions": "Instruktioner",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Kategorier",
+    "tabsHint": "kategorier",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Namnlös dashboard"
   },
   "promptParams": {
     "title": "Fyll i parametrar — {title}",

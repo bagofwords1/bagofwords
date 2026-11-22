@@ -6494,7 +6494,18 @@
     "placeholderInReport": "Buscar neste relatório, relatórios, agentes, instruções…",
     "inThisReport": "Neste relatório",
     "reportScopeHint": "Digite report: para buscar só neste relatório",
-    "reportPrefix": "relatório:"
+    "reportPrefix": "relatório:",
+    "tabs": {
+      "all": "Tudo",
+      "reports": "Relatórios",
+      "agents": "Agentes",
+      "instructions": "Instruções",
+      "dashboards": "Painéis"
+    },
+    "tabsLabel": "Categorias",
+    "tabsHint": "categorias",
+    "dashboards": "Painéis",
+    "untitledDashboard": "Painel sem título"
   },
   "promptParams": {
     "title": "Preencha os parâmetros — {title}",
