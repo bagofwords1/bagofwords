@@ -35,7 +35,11 @@ from app.data_sources.fast.sources import source_for
 from app.services.custom_query_service import CustomQueryService
 
 ROOT = "https://erp.example.com/odata/Priority/tabula.ini/demo"
-_ISO = re.compile(r"(?<!')\b(\d{4}-\d{2}-\d{2}T[\d:]+Z)")
+_ISO = re.compile(r"(?<!')\b(\d{4}-\d{2}-\d{2}T[\d:.]+Z)")
+
+
+def _when(text):
+    return datetime.fromisoformat(text[:-1] + "+00:00")
 
 
 class _Resp:
@@ -126,17 +130,18 @@ class FakePriority:
 
     @staticmethod
     def _matches(row, opts):
-        if opts.get("$since") and not (row.get("UDATE") or "") >= opts["$since"]:
+        if opts.get("$since") and not (row.get("UDATE") and _when(row["UDATE"]) >= _when(opts["$since"])):
             return False
         expr = opts.get("$filter")
         if not expr:
             return True
-        py = _ISO.sub(r"'\1'", expr)
+        py = _ISO.sub(r"D('\1')", expr)
         for odata, op in ((" eq null", " == None"), (" eq ", " == "), (" ge ", " >= "),
                           (" gt ", " > "), (" lt ", " < "), (" le ", " <= ")):
             py = py.replace(odata, op)
-        values = {k: _Null() if v is None else v for k, v in row.items()}
-        return bool(eval(py, {"__builtins__": {}}, values))  # noqa: S307 - test fake
+        values = {k: _Null() if v is None else _when(v) if isinstance(v, str) and _ISO.fullmatch(v) else v
+                  for k, v in row.items()}
+        return bool(eval(py, {"__builtins__": {}, "D": _when}, values))  # noqa: S307 - test fake
 
 
 def _invoices(n, null_dates=()):
@@ -227,13 +232,27 @@ def test_saving_accepts_a_pageable_definition_and_leaves_other_connectors_alone(
     CustomQueryService.ensure_definition_allowed(SimpleNamespace(type="postgresql"), REFUSED[0])
 
 
-def test_a_sub_form_named_as_a_table_is_refused_and_names_its_parent(serve):
-    client, server = serve(_invoices(5))
-    client.attach_table_metadata([{"name": "INVOICEITEMS", "metadata_json": {"priority_erp": {
+CATALOG = [
+    {"name": "INVOICES", "metadata_json": {"priority_erp": {"catalog_version": 2, "form": "INVOICES"}}},
+    {"name": "INVOICEITEMS", "metadata_json": {"priority_erp": {
         "catalog_version": 2, "subform_of": "INVOICES", "navigation": "INVOICEITEMS_SUBFORM",
         "path": [{"form": "INVOICES", "keys": ["IVNUM"]},
                  {"form": "INVOICEITEMS", "keys": ["KLINE"], "navigation": "INVOICEITEMS_SUBFORM"}],
-    }}}])
+    }}},
+]
+
+
+def test_saving_refuses_a_sub_form_the_catalog_knows_and_names_its_parent():
+    connection = SimpleNamespace(type="priority_erp")
+    with pytest.raises(HTTPException) as refused:
+        CustomQueryService.ensure_definition_allowed(connection, "INVOICEITEMS?$select=PARTNAME", CATALOG)
+    assert refused.value.status_code == 400 and "INVOICES" in refused.value.detail
+    CustomQueryService.ensure_definition_allowed(connection, "INVOICES?$select=IVNUM", CATALOG)
+
+
+def test_a_sub_form_named_as_a_table_is_refused_and_names_its_parent(serve):
+    client, server = serve(_invoices(5))
+    client.attach_table_metadata(CATALOG)
     with pytest.raises(ValueError, match="INVOICES"):
         _collect(client, "INVOICEITEMS?$select=PARTNAME")
     assert not server.requests
@@ -386,6 +405,10 @@ def test_the_forms_key_orders_the_pages_when_the_catalog_knows_it(serve, monkeyp
         _collect(client, query)
         return {opts.get("$orderby") for path, opts in server.requests if "$top" in opts}
 
+    server.requests.clear()
+    source_for(client).preview("INVOICES?$orderby=CUSTNAME desc&$top=1", 5)
+    assert server.requests[-1][1]["$orderby"] == "CUSTNAME desc,IVNUM", "the preview shows the row extraction stores"
+
     assert orders("INVOICES") == {"IVNUM"}
     assert orders("INVOICES?$orderby=CUSTNAME desc") == {"CUSTNAME desc,IVNUM"}
     assert orders("INVOICES?$select=CUSTNAME,TOTAL") == {None}
@@ -456,6 +479,31 @@ def test_the_request_limit_is_the_organizations(serve, monkeypatch):
     assert len(_collect(client, "INVOICES")[1]) == 400
 
 
+@pytest.mark.parametrize("query, fits", [
+    ("INVOICES?$orderby=IVNUM&$top=150", True),     # the cap ends the read
+    ("INVOICES?$orderby=IVNUM&$top=151", False),    # the form runs out first
+    ("INVOICES?$orderby=IVNUM", False),
+])
+def test_a_read_its_own_top_ends_needs_no_closing_request(serve, monkeypatch, query, fits):
+    """16 requests are one count and 15 pages of 10. 150 rows fit exactly
+    when the definition's $top is what ends the read; when the form runs out
+    instead, the empty page that proves it is one request too many. The
+    estimate must say what the extraction then does."""
+    _page(monkeypatch, 10)
+    client, _server = serve(_invoices(150))
+    client.extraction_limits = fast_limits.FastLimits(max_requests=16)
+    est = extractor.estimate(client, query)
+    assert est.rows == 150
+    if fits:
+        extractor.check_budget(est)
+        assert len(_collect(client, query)[1]) == 150
+    else:
+        with pytest.raises(extractor.ExtractionRefused):
+            extractor.check_budget(est)
+        with pytest.raises(RuntimeError, match="16 requests"):
+            _collect(client, query)
+
+
 def test_retries_count_against_the_request_limit(serve, monkeypatch, waits):
     _page(monkeypatch, 10)
     client, server = serve(_invoices(60), throttle={2, 3, 5, 6, 8, 9})
@@ -521,13 +569,73 @@ def test_rows_with_no_cursor_value_ride_along_with_an_open_window(serve):
     assert {"IN000004", "IN000018"} <= got
 
 
-def test_a_window_bound_never_rounds_rows_out(serve):
-    """Priority is asked in whole seconds; a fractional bound must widen."""
-    client, _server = serve(_invoices(3))
-    lo = datetime(2026, 1, 2, 8, 30, 0, 600_000, tzinfo=UTC)
-    hi = datetime(2026, 1, 3, 8, 30, 0, 100, tzinfo=UTC)
-    rendered = incremental.render(client, "INVOICES", "UDATE", None, _window(lo, hi))
-    assert _ids(_collect(client, rendered)[1]) == ["IN000002", "IN000003"]
+def _refresh(client, query, base, config, window, tmp_rows=None):
+    """One incremental refresh of `base`, as the service runs it."""
+    from app.data_sources.fast import loader
+
+    at_source = incremental.filters_at_source(client, query)
+    rendered = incremental.render(client, query, config.cursor_column, None, window)
+    limits = loader.Limits(max_rows=10**6, max_bytes=10**9, deadline=time.monotonic() + 600)
+    return loader.apply_increment(
+        source_for(client), rendered, base.artifact_path, base.artifact_key, "t", "conn-1",
+        loader.new_run_id(), config, window, limits, batch_rows=1000,
+        wrapped=at_source, filter_locally=not at_source)
+
+
+def _stored(result, column):
+    import duckdb
+
+    con = duckdb.connect(":memory:")
+    con.execute(f"ATTACH '{result.artifact_path}' AS a (ENCRYPTION_KEY '{result.artifact_key}', READ_ONLY)")
+    values = [r[0] for r in con.execute(f'SELECT "{column}" FROM a.main.t ORDER BY 1').fetchall()]
+    con.close()
+    return values
+
+
+def test_refreshing_a_window_twice_neither_repeats_nor_loses_rows(serve, monkeypatch, tmp_path):
+    """The bound sent to Priority is the bound the stored tail is replaced
+    from, also when it falls between two rows of the same second."""
+    monkeypatch.setattr(artifacts, "_ARTIFACT_ROOT", tmp_path)
+    data = [{"IVNUM": f"IN{i:03d}", "UDATE": f"2026-03-01T12:00:00.{i:03d}000Z"} for i in range(0, 1000, 125)]
+    client, _server = serve(data)
+    config = incremental.RefreshConfig(mode=incremental.MODE_APPEND, cursor_column="UDATE")
+    table = extractor.extract_to_artifact(client, "INVOICES", "t", "conn-1", config=config)
+    window = _window(datetime(2026, 3, 1, 12, 0, 0, 750_000, tzinfo=UTC), nulls=True)
+    for _ in range(2):
+        table = _refresh(client, "INVOICES", table, config, window)
+        assert _stored(table, "IVNUM") == [r["IVNUM"] for r in data]
+
+
+@pytest.mark.parametrize("bounds", ["$skip=10", "$top=25", "$skip=5&$top=30"])
+def test_a_definitions_own_bounds_apply_to_the_table_not_to_the_refresh_window(serve, monkeypatch, tmp_path, bounds):
+    """$top / $skip come after $filter, so a window in the filter would skip
+    or cap rows of the window. Such a table is read whole instead."""
+    monkeypatch.setattr(artifacts, "_ARTIFACT_ROOT", tmp_path)
+    _page(monkeypatch, 16)
+    data = [{"ID": i, "NAME": f"row {i}"} for i in range(1, 61)]
+    client, _server = serve(data)
+    query = f"INVOICES?$orderby=ID&{bounds}"
+    assert not incremental.filters_at_source(client, query)
+    config = incremental.RefreshConfig(mode=incremental.MODE_APPEND, cursor_column="ID")
+    table = extractor.extract_to_artifact(client, query, "t", "conn-1", config=config)
+    defined = _stored(table, "ID")
+    assert defined and len(defined) < 60
+
+    table = _refresh(client, query, table, config, _window(defined[len(defined) // 2], nulls=True))
+    assert _stored(table, "ID") == defined
+
+
+@pytest.mark.parametrize("bounds", ["$top=100", "$skip=10"])
+def test_placeholders_are_refused_in_a_definition_with_its_own_bounds(serve, bounds):
+    query = f"INVOICES?$since={{{{since}}}}&{bounds}"
+    with pytest.raises(HTTPException) as refused:
+        CustomQueryService.ensure_definition_allowed(SimpleNamespace(type="priority_erp"), query)
+    assert refused.value.status_code == 400
+    client, server = serve(_invoices(3))
+    with pytest.raises(incremental.IncrementalConfigError):
+        incremental.render(client, query, "UDATE", incremental.KIND_TIMESTAMP,
+                           _window(datetime(2026, 1, 1, tzinfo=UTC)))
+    assert not server.requests
 
 
 def test_since_is_used_by_placing_the_placeholder(serve):

@@ -70,10 +70,17 @@ the rate limit is not interruptible; it is at most a minute.
 **Refresh windows.** Written into the definition's `$filter` on the cursor
 column (`UDATE ge 2026-01-01T00:00:00Z`), or placed by the admin with
 `{{since}}` / `{{until}}`, which is how Priority's own `$since` is used:
-`ORDERS?$since={{since}}`. Documented: `$since` works only on forms with
-business process management, and UTC with a `Z` suffix is the recommended
-form; calculated columns cannot be filtered on. Assumed: 1988-01-01 as the
-"everything" lower bound (Priority's date epoch).
+`ORDERS?$since={{since}}`. A bound is written exactly, fractional seconds
+included, because the loader replaces stored rows from that same bound.
+A definition with its own `$top` / `$skip` is not filtered at the source:
+those apply after `$filter`, so they would bound each window instead of the
+table. It is read whole and the window taken from the result
+(`filters_query_at_source`), and placeholders are refused in it. Documented:
+`$since` works only on forms with business process management, and UTC with
+a `Z` suffix is the recommended form; calculated columns cannot be filtered
+on. Assumed: 1988-01-01 as the "everything" lower bound (Priority's date
+epoch), and that a literal with fractional seconds is accepted (Priority's
+own values are whole minutes, so one arises only from an admin-typed start).
 
 **Sub-forms are not supported in this version.** `$expand`, a sub-form table
 named directly (the connector answers it through its parent's `$expand`) and
@@ -98,7 +105,7 @@ import re
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from urllib.parse import quote
 
@@ -314,9 +321,11 @@ class PriorityErpSource:
             total_bytes=rows * ASSUMED_ROW_WIDTH_BYTES,
             note="exact row count from the form's $count; row width estimated",
         )
-        # One request is spent on the count and one on the closing empty page.
-        capacity = PAGE_ROWS * max(1, max_requests - 2)
-        if rows > capacity:
+        # One request for the count, one per page, and one for the empty page
+        # that ends the read, unless the definition's own $top ends it first.
+        closing = 0 if definition.top is not None and rows >= definition.top else 1
+        if 1 + math.ceil(rows / PAGE_ROWS) + closing > max_requests:
+            capacity = PAGE_ROWS * max(0, max_requests - 1 - closing)
             est.source_max_rows = capacity
             est.source_max_rows_note = (
                 f"This query returns {rows:,} rows. Priority is read {PAGE_ROWS:,} rows per "
@@ -332,7 +341,7 @@ class PriorityErpSource:
         want = int(limit) if definition.top is None else min(int(limit), definition.top)
         with self.client.connect() as session:
             requests = _Requests(self.client, session, fast_limits.of(self.client).max_requests)
-            records = self._records(requests, definition.page_path(want, definition.skip))[:want] if want else []
+            records = self._records(requests, definition.page_path(want, definition.skip, self._stable_order(definition)))[:want] if want else []
             columns = _columns_of(records) or self._shape(requests, definition)
         rows = _typed(columns, records)
         return [{"name": name, "dtype": None} for name in columns], rows
@@ -401,15 +410,7 @@ class PriorityErpSource:
 
     def _definition(self, sql: str) -> Definition:
         definition = parse_definition(sql)
-        subforms = getattr(self.client, "_subforms", None) or {}
-        if definition.form.upper() in subforms:
-            meta = subforms[definition.form.upper()]
-            parent = meta.get("subform_of") or ", ".join(meta.get("parents") or []) or "its parent form"
-            raise ValueError(
-                f"{definition.form} is a sub-form of {parent}. Sub-forms are not supported in a "
-                f"Priority custom table in this version: Priority returns their rows only nested "
-                f"inside the parent, which cannot be counted or read in pages. Cache {parent} instead."
-            )
+        refuse_subform(definition, getattr(self.client, "_subforms", None) or {})
         return definition
 
     def _records(self, requests: _Requests, path: str, progress: str = "") -> list[dict]:
@@ -515,18 +516,17 @@ def _parse_datetime(text):
 
 # -- refresh windows --------------------------------------------------------
 
-def odata_literal(value, upper: bool = False) -> str:
-    """A cursor value as an OData literal. Date-times are written in UTC with
-    a `Z` suffix, to the second: a lower bound rounds down and an upper bound
-    up, so rounding can only re-read rows, never skip them."""
+def odata_literal(value) -> str:
+    """A cursor value as an OData literal, exactly: date-times in UTC with a
+    `Z` suffix, with their fractional seconds when they have any. The bound
+    sent to Priority must be the bound the loader replaces from, or rows
+    between the two are read again and stored twice."""
     if isinstance(value, bool) or value is None:
         raise ValueError("unsupported cursor value")
     if isinstance(value, datetime):
         aware = value if value.tzinfo else value.replace(tzinfo=UTC)
         aware = aware.astimezone(UTC)
-        if aware.microsecond:
-            aware = aware.replace(microsecond=0) + (timedelta(seconds=1) if upper else timedelta(0))
-        return aware.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return aware.strftime("%Y-%m-%dT%H:%M:%S.%fZ" if aware.microsecond else "%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, date):
         return f"{value.isoformat()}T00:00:00Z"
     if isinstance(value, Decimal):
@@ -541,6 +541,56 @@ def odata_literal(value, upper: bool = False) -> str:
     return f"'{text}'"
 
 
+def is_bounded(query) -> bool:
+    """Whether a definition carries its own `$top` / `$skip`.
+
+    Those apply after `$filter`, so a refresh window written into the filter
+    would change which rows the bounds keep ("skip the first ten" of the
+    window instead of the form). Such a table is refreshed by reading its
+    definition whole and taking the window from the result.
+    """
+    try:
+        definition = parse_definition(query)
+    except ValueError:
+        return False
+    return definition.top is not None or bool(definition.skip)
+
+
+def check_definition(text, tables=None) -> None:
+    """Raise ValueError for a definition a custom table cannot be built from.
+
+    `tables` is the connection's indexed catalog (`{"name", "metadata_json"}`
+    rows) when the caller has it: a sub-form named as a table is only
+    recognisable from there.
+    """
+    definition = parse_definition(text)
+    if (_SINCE.search(str(text)) or _UNTIL.search(str(text))) and (definition.top is not None or definition.skip):
+        raise ValueError(
+            "{{since}} / {{until}} cannot be combined with $top or $skip: the bounds would "
+            "apply to each refresh window instead of the whole table. Remove $top / $skip, "
+            "or remove the placeholders and choose a cursor column (the table is then "
+            "read whole on each refresh)."
+        )
+    subforms = {}
+    for table in tables or []:
+        meta = ((table or {}).get("metadata_json") or {}).get("priority_erp") or {}
+        if (table or {}).get("name") and (meta.get("path") or meta.get("parents")):
+            subforms[str(table["name"]).upper()] = meta
+    refuse_subform(definition, subforms)
+
+
+def refuse_subform(definition: Definition, subforms: dict) -> None:
+    meta = (subforms or {}).get(definition.form.upper())
+    if meta is None:
+        return
+    parent = meta.get("subform_of") or ", ".join(meta.get("parents") or []) or "its parent form"
+    raise ValueError(
+        f"{definition.form} is a sub-form of {parent}. Sub-forms are not supported in a "
+        f"Priority custom table in this version: Priority returns their rows only nested "
+        f"inside the parent, which cannot be counted or read in pages. Cache {parent} instead."
+    )
+
+
 def render_window(query: str, column: str, kind, window) -> str:
     """`query` restricted to rows whose `column` is in the window.
 
@@ -550,13 +600,17 @@ def render_window(query: str, column: str, kind, window) -> str:
     """
     from app.data_sources.fast.incremental import IncrementalConfigError
 
-    def lit(value, upper=False):
+    def lit(value):
         try:
-            return odata_literal(value, upper)
+            return odata_literal(value)
         except ValueError as e:
             raise IncrementalConfigError(str(e)) from None
 
     if _SINCE.search(query) or _UNTIL.search(query):
+        try:
+            check_definition(query)
+        except ValueError as e:
+            raise IncrementalConfigError(str(e)) from None
         like = window.lo if window.lo is not None else window.hi
         number = kind == "number" or (isinstance(like, (int, float, Decimal)) and not isinstance(like, bool))
         if kind == "text" and window.lo is None:
@@ -568,10 +622,13 @@ def render_window(query: str, column: str, kind, window) -> str:
             if kind == "text":
                 raise IncrementalConfigError("{{until}} is not available for a text cursor; use {{since}} only.")
             hi = window.hi if window.hi is not None else (2 ** 63 - 1 if number else _CEILING)
-            out = _UNTIL.sub(lambda _m: lit(hi, True), out)
+            out = _UNTIL.sub(lambda _m: lit(hi), out)
         return out
 
     if window.lo is None and window.hi is None:
+        return query
+    if is_bounded(query):
+        # Read whole; the window is taken from the result (see `is_bounded`).
         return query
     if not _NAME.match(column or ""):
         raise IncrementalConfigError(
@@ -586,7 +643,7 @@ def render_window(query: str, column: str, kind, window) -> str:
     if window.lo is not None:
         parts.append(f"{column} ge {lit(window.lo)}")
     if window.hi is not None:
-        parts.append(f"{column} lt {lit(window.hi, True)}")
+        parts.append(f"{column} lt {lit(window.hi)}")
     predicate = " and ".join(parts)
     if window.include_nulls:
         predicate = f"({predicate}) or {column} eq null"
