@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
-from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy, with_column_sums
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -487,7 +487,7 @@ class RunQueryTool(Tool):
             "analysis_complete": False,
             "final_answer": None,
             "applied_params": applied or None,
-            "data_preview": data_preview,
+            "data_preview": with_column_sums(data_preview, run_data, step_id=result.get("step_id")),
             "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
         }
         if declared:

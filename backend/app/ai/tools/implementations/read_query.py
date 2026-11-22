@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import lazyload, selectinload
 
-from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy, with_column_sums
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -524,7 +524,9 @@ class ReadQueryTool(Tool):
                     if r.page["returned"] else f" No rows at offset {r.page['offset']} (total {r.page['total_rows']})."
                 )
             else:
-                observation["data_preview"] = r.data_preview
+                observation["data_preview"] = with_column_sums(
+                    r.data_preview, r.data if isinstance(r.data, dict) else None, step_id=r.step_id
+                )
             # The generated code, exactly as read_artifact puts it in ITS
             # observation. `code` used to live only on the tool OUTPUT — which
             # goes to the UI block and the DB, never into the prompt — so the
@@ -560,7 +562,7 @@ class ReadQueryTool(Tool):
                     "query_id": r.query_id,
                     "visualization_id": r.visualization_id,
                     "data_model": r.data_model,
-                    "data_preview": r.data_preview if r.page is None else None,
+                    "data_preview": with_column_sums(r.data_preview, r.data if isinstance(r.data, dict) else None, step_id=r.step_id) if r.page is None else None,
                 }
                 if r.page is not None:
                     entry["page"] = r.page

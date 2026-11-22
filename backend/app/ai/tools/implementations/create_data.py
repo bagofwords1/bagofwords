@@ -37,9 +37,9 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.agents.coder.coder import Coder
-from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.code_execution.code_execution import StreamingCodeExecutor, collect_query_notices
 from app.ai.tools.data_notices import attach_data_notices
-from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy, with_column_sums
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.dependencies import async_session_maker
@@ -1445,6 +1445,32 @@ Do not use generic placeholders like "value" unless that is the actual column na
             return resolved, warnings
 
     @staticmethod
+    def build_success_observation(
+        *,
+        summary: str,
+        data_preview: Dict[str, Any],
+        data: Dict[str, Any],
+        allow_llm_see_data: bool,
+        source_flagged: bool,
+        step_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Build the planner result for a successful data query.
+
+        The observation's preview carries the plain ``column_sums`` block; the
+        ``data_preview`` argument (the tool output's preview) is not changed. A
+        result the data source flagged as possibly incomplete gets no block:
+        "sum of all N rows" would contradict the flag.
+        """
+        info = data.get("info", {})
+        return {
+            "summary": summary,
+            "data_preview": data_preview if source_flagged else with_column_sums(data_preview, data, step_id=step_id),
+            "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
+            "analysis_complete": False,
+            "final_answer": None,
+        }
+
+    @staticmethod
     def build_execution_failure_observation(code_errors, query_timings) -> dict:
         """Build the planner result for a failed data query."""
         error_observation = {
@@ -2440,13 +2466,14 @@ Do not use generic placeholders like "value" unless that is the actual column na
             pass
         result_summary = "; ".join(summary_parts) + "."
 
-        observation = {
-            "summary": result_summary,
-            "data_preview": data_preview,
-            "stats": clamp_stats(info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(info)),
-            "analysis_complete": False,
-            "final_answer": None,
-        }
+        observation = CreateDataTool.build_success_observation(
+            summary=result_summary,
+            data_preview=data_preview,
+            data=formatted,
+            allow_llm_see_data=allow_llm_see_data,
+            source_flagged=bool(collect_query_notices(query_timings)),
+            step_id=current_step_id,
+        )
         observation["data_model"] = final_dm
         # The SQL actually sent to the source. The FAILURE path already gives
         # the planner `error.failed_sql`, so a query that throws is debuggable
