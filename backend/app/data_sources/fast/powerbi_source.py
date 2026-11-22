@@ -52,6 +52,8 @@ import re
 from datetime import datetime, timedelta
 from typing import Iterator, List, Optional, Tuple
 
+from app.data_sources.fast import limits as fast_limits
+
 logger = logging.getLogger(__name__)
 
 # Measured ceilings of one executeQueries response. Both truncate silently.
@@ -66,18 +68,57 @@ SAMPLE_ROWS = 200
 
 # A windowed extraction that needs more requests than this has stopped
 # converging. Bounded so a refresh fails with a reason rather than spending the
-# tenant's rate budget (~120 requests/min) on nothing.
-MAX_WINDOW_REQUESTS = 512
+# tenant's rate budget (~120 requests/min) on nothing. The default; an
+# organization moves it in its settings (fast/limits.py), together with the
+# row limit: at 100,000 rows a request, more rows need more requests.
+MAX_WINDOW_REQUESTS = fast_limits.DEFAULTS.max_requests
 
 _ISO_DT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$")
 _INTERNAL_COL_RE = re.compile(r"RowNumber-[0-9A-Fa-f-]{36}")
 
 
 class PowerBISource:
-    """Extraction over Power BI's executeQueries endpoint."""
+    """Extraction over Power BI's executeQueries endpoint.
+
+    The strategy (count, sample, value windows, verify against the count) is
+    DAX's, not this endpoint's, so another engine that answers DAX reuses it by
+    overriding the hooks below: how a statement is sent, which model it
+    targets, and what one response can carry (fast/analysis_services_source.py).
+    """
+
+    PRODUCT = "Power BI"
+    # A response at least this large may have been cut short; None for an
+    # endpoint with no cap on the response body.
+    MAX_BYTES = None
 
     def __init__(self, client):
         self.client = client
+
+    # -- what one response can carry (the hooks) ----------------------------
+
+    def _ceiling(self, columns: int) -> int:
+        """Rows one response can carry for a result `columns` wide."""
+        return response_ceiling(columns)
+
+    def _page(self, expr: str, ceiling: int) -> str:
+        """`expr` as it is sent when rows are wanted. Power BI caps the
+        response itself, so the expression goes as written."""
+        return expr
+
+    def _cut(self, rows: list, ceiling: int) -> bool:
+        """Whether a response may be missing rows. Power BI stops at the
+        ceiling without saying so, so a response that reaches it is unproven."""
+        return len(rows) >= ceiling
+
+    def _too_big(self, nbytes: int) -> bool:
+        limit = self.MAX_BYTES if self.MAX_BYTES is not None else MAX_RESPONSE_BYTES
+        return bool(limit) and nbytes >= limit
+
+    def _verify(self, got: int, expected: int) -> None:
+        _verify(got, expected)
+
+    def _count_note(self) -> str:
+        return "exact row count from COUNTROWS(); row width estimated"
 
     # -- the protocol -----------------------------------------------------
 
@@ -95,13 +136,13 @@ class PowerBISource:
             target = self._target(sql)
             rows = self._count(target, q)
         except Exception as e:
-            return Estimate(supported=False, note=f"Power BI COUNTROWS() failed: {e}")
+            return Estimate(supported=False, note=f"{self.PRODUCT} COUNTROWS() failed: {e}")
 
         est = Estimate(
             rows=rows,
             width_bytes=ASSUMED_ROW_WIDTH_BYTES,
             total_bytes=rows * ASSUMED_ROW_WIDTH_BYTES,
-            note="exact row count from COUNTROWS(); row width estimated",
+            note=self._count_note(),
         )
         if rows == 0:
             return est
@@ -110,20 +151,36 @@ class PowerBISource:
         except Exception as e:
             est.note += f"; sample failed: {e}"
             return est
-        ceiling = response_ceiling(len(sample.columns))
-        if rows > ceiling and sample.cursor is None:
+        ceiling = self._ceiling(len(sample.columns))
+        max_requests = fast_limits.of(self.client).max_requests
+        if rows > ceiling * max_requests:
+            # More rows than the request limit can carry even with every
+            # response full. Said at save time, not after an hour of requests.
+            est.source_max_rows = ceiling * max_requests
+            est.source_max_rows_note = (
+                f"This query returns {rows:,} rows. {self.PRODUCT} serves at most "
+                f"{ceiling:,} rows per request for a result this wide, and one "
+                f"refresh may make {max_requests:,} requests, so at most "
+                f"{ceiling * max_requests:,} rows can be extracted. Aggregate or "
+                f"filter the query, or have an admin raise the request limit in "
+                f"the organization's settings."
+            )
+        elif rows > ceiling and sample.cursor is None:
             # One response cannot carry the result and there is nothing to
             # window on. Refusing at save time beats discovering it on the
             # first refresh.
             est.source_max_rows = ceiling
-            est.source_max_rows_note = (
-                f"Power BI returns at most {ceiling:,} rows per query for a result "
-                f"this wide (100,000 rows or 1,000,000 values, whichever comes "
-                f"first) and cannot page through more, unless the result carries "
-                f"a numeric or date column to fetch it in windows. Add one to the "
-                f"result, aggregate or filter the query."
-            )
+            est.source_max_rows_note = self._unwindowable_note(ceiling)
         return est
+
+    def _unwindowable_note(self, ceiling: int) -> str:
+        return (
+            f"Power BI returns at most {ceiling:,} rows per query for a result "
+            f"this wide (100,000 rows or 1,000,000 values, whichever comes "
+            f"first) and cannot page through more, unless the result carries "
+            f"a numeric or date column to fetch it in windows. Add one to the "
+            f"result, aggregate or filter the query."
+        )
 
     def preview(self, sql: str, limit: int) -> Tuple[List[dict], List[list]]:
         """First `limit` rows — one bounded request, never the full result."""
@@ -162,20 +219,25 @@ class PowerBISource:
             )
 
         sample = self._sample(target, q)
-        ceiling = response_ceiling(len(sample.columns))
+        ceiling = self._ceiling(len(sample.columns))
         schema = [None]
 
         if total < ceiling:
-            rows, nbytes = self._run(target, q.statement(q.body))
-            if nbytes >= MAX_RESPONSE_BYTES and len(rows) < total:
+            rows, nbytes = self._run(target, q.statement(self._page(q.body, ceiling)))
+            if self._too_big(nbytes) and len(rows) < total:
                 raise RuntimeError(
-                    f"The result is too large for one Power BI response "
+                    f"The result is too large for one {self.PRODUCT} response "
                     f"({nbytes / (1024 * 1024):.0f} MB) and only {len(rows):,} of "
                     f"{total:,} rows arrived. Narrow the query or select fewer columns."
                 )
-            _verify(len(rows), total)
-            yield from _tables(rows, batch_rows, schema)
-            return
+            if not self._cut(rows, ceiling):
+                self._verify(len(rows), total)
+                yield from _tables(rows, batch_rows, schema, self.PRODUCT)
+                return
+            # The model grew past one response between the count and the
+            # fetch. What arrived is at the ceiling and cannot be trusted to
+            # be whole, so it is dropped and the result fetched in windows.
+            total = self._count(target, q)
 
         yield from self._windowed(target, q, sample, total, ceiling, batch_rows, schema)
 
@@ -185,7 +247,7 @@ class PowerBISource:
         cursor = sample.cursor
         if cursor is None:
             raise RuntimeError(
-                f"This query returns {total:,} rows and Power BI serves at most "
+                f"This query returns {total:,} rows and {self.PRODUCT} serves at most "
                 f"{ceiling:,} per request for a result this wide, with no way to "
                 f"page through the rest. Extracting it in windows needs a numeric "
                 f"or date column in the result; add one, or aggregate or filter "
@@ -204,36 +266,42 @@ class PowerBISource:
             # their own rather than lose them or refuse the extraction.
             if blanks >= ceiling:
                 raise RuntimeError(
-                    f"{blanks:,} rows have no {cursor} value, more than one Power "
-                    f"BI response can carry. Filter them out or window on another "
-                    f"column."
+                    f"{blanks:,} rows have no {cursor} value, more than one "
+                    f"{self.PRODUCT} response can carry. Filter them out or window "
+                    f"on another column."
                 )
             requests_made += 1
             rows, _n = self._run(
-                target, q.statement(f"FILTER({q.body}, ISBLANK({cursor}))")
+                target,
+                q.statement(self._page(f"FILTER({q.body}, ISBLANK({cursor}))", ceiling)),
             )
             emitted += len(rows)
-            yield from _tables(rows, batch_rows, schema)
+            yield from _tables(rows, batch_rows, schema, self.PRODUCT)
 
-        windows = list(reversed(_initial_windows(lo, hi, total, kind, ceiling)))
+        max_requests = fast_limits.of(self.client).max_requests
+        windows = list(reversed(_initial_windows(lo, hi, total, kind, ceiling, max_requests)))
         while windows:
             w_lo, w_hi, closed = windows.pop()
             requests_made += 1
-            if requests_made > MAX_WINDOW_REQUESTS:
+            if requests_made > max_requests:
                 raise RuntimeError(
-                    f"Extraction did not converge after {MAX_WINDOW_REQUESTS} "
-                    f"requests. This usually means the query returns different "
-                    f"rows each time it runs, or that too many rows share one "
+                    f"Extraction stopped after {max_requests:,} requests, the "
+                    f"limit for one refresh. Either the result needs more "
+                    f"requests than that ({total:,} rows at up to {ceiling:,} "
+                    f"per request; an admin can raise the request limit in the "
+                    f"organization's settings), or the query returns different "
+                    f"rows each time it runs, or too many rows share one "
                     f"{cursor} value."
                 )
             rows, nbytes = self._run(
                 target,
-                q.statement(
+                q.statement(self._page(
                     f"FILTER({q.body}, {cursor} >= {_literal(kind, w_lo)} && "
-                    f"{cursor} {'<=' if closed else '<'} {_literal(kind, w_hi)})"
-                ),
+                    f"{cursor} {'<=' if closed else '<'} {_literal(kind, w_hi)})",
+                    ceiling,
+                )),
             )
-            if len(rows) >= ceiling or nbytes >= MAX_RESPONSE_BYTES:
+            if self._cut(rows, ceiling) or self._too_big(nbytes):
                 # At the ceiling: there may be more in this window and the
                 # response cannot say. Split rather than trust it.
                 mid = _midpoint(kind, w_lo, w_hi)
@@ -247,9 +315,9 @@ class PowerBISource:
                 windows.append((w_lo, mid, False))
                 continue
             emitted += len(rows)
-            yield from _tables(rows, batch_rows, schema)
+            yield from _tables(rows, batch_rows, schema, self.PRODUCT)
 
-        _verify(emitted, total)
+        self._verify(emitted, total)
 
     # -- talking to the API -----------------------------------------------
 
@@ -587,7 +655,8 @@ def _literal(kind: str, v) -> str:
     return repr(float(v))
 
 
-def _initial_windows(lo, hi, total: int, kind: str, ceiling: int):
+def _initial_windows(lo, hi, total: int, kind: str, ceiling: int,
+                     max_requests: int = MAX_WINDOW_REQUESTS):
     """The windows to start from, sized by the count instead of guessed.
 
     Aiming at half the ceiling per window, because data is rarely uniform
@@ -595,7 +664,7 @@ def _initial_windows(lo, hi, total: int, kind: str, ceiling: int):
     stretch. Whatever still overflows is split by the loop.
     """
     target = max(1, ceiling // 2)
-    count = max(1, min(math.ceil(total / target), MAX_WINDOW_REQUESTS // 2))
+    count = max(1, min(math.ceil(total / target), max_requests // 2))
     if count == 1:
         return [(lo, hi, True)]
     if kind == KIND_DATETIME:
@@ -721,7 +790,7 @@ def _typed_column(values):
     return out
 
 
-def _tables(rows: List[dict], batch_rows: int, schema):
+def _tables(rows: List[dict], batch_rows: int, schema, product: str = "Power BI"):
     """Rows as pyarrow.Tables of at most `batch_rows`, pinned to one schema.
 
     `schema` is a single-element list holding the first batch's schema, which
@@ -735,12 +804,12 @@ def _tables(rows: List[dict], batch_rows: int, schema):
     clean = _clean_names(names)
     size = max(1, int(batch_rows or MAX_RESPONSE_ROWS))
     for start in range(0, len(rows), size):
-        table = _arrow(names, clean, rows[start:start + size], schema[0])
+        table = _arrow(names, clean, rows[start:start + size], schema[0], product)
         schema[0] = table.schema
         yield table
 
 
-def _arrow(names, clean, rows, schema):
+def _arrow(names, clean, rows, schema, product: str = "Power BI"):
     from app.data_sources.fast.sources import arrow_table
 
     data = {}
@@ -750,7 +819,7 @@ def _arrow(names, clean, rows, schema):
         table = arrow_table(data)
     except Exception as e:
         raise RuntimeError(
-            f"Power BI returned a column whose values do not share one type and "
+            f"{product} returned a column whose values do not share one type and "
             f"could not be stored: {e}"
         )
     if schema is None:
@@ -761,7 +830,7 @@ def _arrow(names, clean, rows, schema):
         return table.cast(schema)
     except Exception as e:
         raise RuntimeError(
-            f"Power BI returned a different column type partway through the "
+            f"{product} returned a different column type partway through the "
             f"extraction and the batch could not be reconciled: {e}"
         )
 

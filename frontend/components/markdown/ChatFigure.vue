@@ -160,7 +160,26 @@ const failed = ref(false)
 const model = computed(() => figureModel(te.value, loaded.value || undefined))
 const stepId = computed(() => String(te.value?.created_step_id || te.value?.created_step?.id || ''))
 const needsRows = computed(() => !loaded.value && !failed.value && model.value.partial && !!ctx?.canHydrate && !!stepId.value)
-const state = computed(() => (needsRows.value ? 'loading' : 'ready'))
+// create_data ends with a deterministic chart and refines it in the
+// background (`viz_pending`, cleared by the `visualization.refined` event).
+// Draw once, the refined chart: hold the outline while it is pending, but
+// never longer than VIZ_WAIT_MS (a run that died leaves the flag set).
+const vizPendingFlag = computed(() => te.value?.result_json?.viz_pending === true)
+const vizWaitOver = ref(false)
+let vizTimer: ReturnType<typeof setTimeout> | null = null
+watch(vizPendingFlag, (pending) => {
+  if (vizTimer) { clearTimeout(vizTimer); vizTimer = null }
+  if (!pending) return
+  const key = attr('source')
+  const since = VIZ_WAIT_SINCE.get(key) ?? Date.now()
+  VIZ_WAIT_SINCE.set(key, since)
+  const left = VIZ_WAIT_MS - (Date.now() - since)
+  if (left <= 0) { vizWaitOver.value = true; return }
+  vizTimer = setTimeout(() => { vizWaitOver.value = true }, left)
+}, { immediate: true })
+onBeforeUnmount(() => { if (vizTimer) clearTimeout(vizTimer) })
+const vizPending = computed(() => vizPendingFlag.value && !vizWaitOver.value)
+const state = computed(() => (needsRows.value || vizPending.value ? 'loading' : 'ready'))
 async function loadRows(): Promise<void> {
   if (!needsRows.value) return
   try {
@@ -530,6 +549,10 @@ const menuItems = computed(() => {
 // Per page: results already drawn (no second entrance) and step loads in
 // flight (no second request when the transcript re-renders).
 const SHOWN = new Set<string>()
+// When each figure started waiting for its refined chart: the renderer
+// re-creates the block while text streams, and the wait must not restart.
+const VIZ_WAIT_SINCE = new Map<string, number>()
+const VIZ_WAIT_MS = 12000
 const STEP_CACHE = new Map<string, Promise<any>>()
 </script>
 

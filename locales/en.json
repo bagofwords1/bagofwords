@@ -2195,6 +2195,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Edit query code",
+      "saveAsCachedTable": "Save as cached table",
+      "saveAsCachedTableTooltip": "Cache this query on the connection so agents answer from a local copy",
+      "saveAsCachedTableFailed": "Could not open this result for caching",
       "editCode": "Edit code",
       "edit": "Edit",
       "rows": "{count} rows",
@@ -4148,6 +4151,22 @@
           "name": "Custom tables (beta)",
           "description": "Let connection admins define a query (SQL, or DAX on Power BI) that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
         },
+        "custom_table_max_rows": {
+          "name": "Custom table row limit",
+          "description": "Most rows one custom table may hold. A query estimated or found to return more is refused and the previous data keeps being served. 1,000 to 100,000,000."
+        },
+        "custom_table_max_gb": {
+          "name": "Custom table size limit (GB)",
+          "description": "Largest estimated result, and largest cached file, for one custom table. 1 to 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Custom table source scan limit (GB)",
+          "description": "Most data the source may read for one refresh, where the source reports it before running (BigQuery, Snowflake). 1 to 10,240."
+        },
+        "custom_table_max_requests": {
+          "name": "Custom table request limit",
+          "description": "Most requests one refresh may make to a source that is read page by page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Raise it together with the row limit: Power BI returns at most 100,000 rows per request and allows about 120 requests a minute. 16 to 10,000."
+        },
         "enable_agent_notes": {
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
@@ -4624,7 +4643,7 @@
       "failedConnect": "Failed to connect",
       "authBasic": "Email + API token",
       "basicUsernameLabel": "Email / username",
-      "basicUsernamePlaceholder": "you@company.com",
+      "basicUsernamePlaceholder": "you{'@'}company.com",
       "basicPasswordLabel": "API token",
       "basicPasswordPlaceholder": "Paste your API token",
       "basicHint": "Sent as HTTP Basic auth. For Bitbucket, use your Atlassian account email and an Atlassian API token; an org admin must enable API-token access for the Rovo MCP server."
@@ -5351,7 +5370,7 @@
       "urlTitle": "Exchange server URL",
       "urlDescription": "Address of your Exchange server, e.g. https://mail.example.com. The Exchange Web Services path (/EWS/Exchange.asmx) is added when you leave it out.",
       "sharedTitle": "Shared mailboxes",
-      "sharedDescription": "Optional. Addresses of shared or team mailboxes to include, separated by commas, e.g. support@example.com, sales@example.com. Exchange decides who may open each one: people only see the mailboxes their account already has access to.",
+      "sharedDescription": "Optional. Addresses of shared or team mailboxes to include, separated by commas, e.g. support{'@'}example.com, sales{'@'}example.com. Exchange decides who may open each one: people only see the mailboxes their account already has access to.",
       "ownTitle": "Include the account's own mailbox",
       "ownDescription": "Turn off when signing in with a service account whose own mailbox is not relevant. The first shared mailbox then becomes the default."
     },

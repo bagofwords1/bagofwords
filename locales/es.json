@@ -2097,6 +2097,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Editar código de consulta",
+      "saveAsCachedTable": "Guardar como tabla en caché",
+      "saveAsCachedTableTooltip": "Guarda esta consulta en caché en la conexión para que los agentes respondan desde una copia local",
+      "saveAsCachedTableFailed": "No se pudo abrir este resultado para guardarlo en caché",
       "editCode": "Editar código",
       "edit": "Editar",
       "rows": "{count} filas",
@@ -4062,6 +4065,22 @@
           "name": "Tablas personalizadas (beta)",
           "description": "Permite a los administradores de conexiones definir SQL que BOW materializa en una copia local cifrada según una programación, de modo que los agentes respondan desde el resultado almacenado en lugar de consultar la fuente en cada turno. Beta: desactivado por defecto."
         },
+        "custom_table_max_rows": {
+          "name": "Límite de filas de tabla personalizada",
+          "description": "Máximo de filas que puede contener una tabla personalizada. Una consulta que se estime o resulte devolver más se rechaza y se siguen sirviendo los datos anteriores. De 1.000 a 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Límite de tamaño de tabla personalizada (GB)",
+          "description": "Mayor resultado estimado, y mayor archivo en caché, para una tabla personalizada. De 1 a 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Límite de lectura en origen de tabla personalizada (GB)",
+          "description": "Máximo de datos que el origen puede leer en una actualización, cuando el origen lo informa antes de ejecutar (BigQuery, Snowflake). De 1 a 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Límite de solicitudes de tabla personalizada",
+          "description": "Máximo de solicitudes que una actualización puede hacer a un origen que se lee página a página (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Auméntelo junto con el límite de filas: Power BI devuelve como máximo 100.000 filas por solicitud y permite unas 120 solicitudes por minuto. De 16 a 10.000."
+        },
         "enable_agent_notes": {
           "name": "Notas del agente",
           "description": "Permite al agente mantener notas de trabajo por informe (un cuaderno) que escribe y lee mientras responde: planes, hallazgos y tareas pendientes. Las notas se muestran en el informe pero no son conocimiento compartido. Cuando está desactivado, las herramientas de notas se ocultan y las notas no se inyectan en el contexto."
@@ -4538,7 +4557,7 @@
       "orCreateNew": "— o crear nueva —",
       "authBasic": "Correo + token de API",
       "basicUsernameLabel": "Correo / usuario",
-      "basicUsernamePlaceholder": "tu@empresa.com",
+      "basicUsernamePlaceholder": "tu{'@'}empresa.com",
       "basicPasswordLabel": "Token de API",
       "basicPasswordPlaceholder": "Pega tu token de API",
       "basicHint": "Se envía como autenticación HTTP Basic. Para Bitbucket, usa el correo de tu cuenta de Atlassian y un token de API de Atlassian; un administrador de la organización debe habilitar el acceso por token de API en el servidor MCP de Rovo."
@@ -5289,7 +5308,7 @@
       "urlTitle": "URL del servidor Exchange",
       "urlDescription": "Dirección de tu servidor Exchange, p. ej. https://mail.example.com. La ruta de Exchange Web Services (/EWS/Exchange.asmx) se añade si la omites.",
       "sharedTitle": "Buzones compartidos",
-      "sharedDescription": "Opcional. Direcciones de buzones compartidos o de equipo que se incluirán, separadas por comas, p. ej. support@example.com, sales@example.com. Exchange decide quién puede abrir cada uno: cada persona solo ve los buzones a los que su cuenta ya tiene acceso.",
+      "sharedDescription": "Opcional. Direcciones de buzones compartidos o de equipo que se incluirán, separadas por comas, p. ej. support{'@'}example.com, sales{'@'}example.com. Exchange decide quién puede abrir cada uno: cada persona solo ve los buzones a los que su cuenta ya tiene acceso.",
       "ownTitle": "Incluir el buzón propio de la cuenta",
       "ownDescription": "Desactívalo al iniciar sesión con una cuenta de servicio cuyo buzón propio no es relevante. El primer buzón compartido pasa a ser el predeterminado."
     },

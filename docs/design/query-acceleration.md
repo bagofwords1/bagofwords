@@ -137,6 +137,25 @@ of result size.
 refresh. On breach: abort, keep the previous artifact, record
 `last_refresh_error`. Plus a per-connection storage budget checked before write.
 
+**The budgets are per organization.** Four settings on the AI settings page,
+shown under "Custom tables" and gated by `manage_settings` like every other
+setting there (`backend/app/data_sources/fast/limits.py`):
+
+| Setting | Default | Range | Guards |
+|---|---|---|---|
+| `custom_table_max_rows` | 5,000,000 | 1,000 to 100,000,000 | rows in one table (estimate, mid-load, increment) |
+| `custom_table_max_gb` | 2 | 1 to 64 | estimated result bytes and the artifact on disk |
+| `custom_table_max_scan_gb` | 100 | 1 to 10,240 | bytes the source reads per refresh (BigQuery, Snowflake); also BigQuery's `maximum_bytes_billed` |
+| `custom_table_max_requests` | 512 | 16 to 10,000 | requests per extraction on paged sources (Power BI, Analysis Services, BusinessObjects, PostHog) |
+
+A write outside the range is refused (400) and a stored value is clamped on
+read, so a setting moves a limit and never removes it. The limits are attached
+to the client in `CustomQueryService._prepare_client`, the one place a client
+is prepared for extraction, and read from the connection's own organization:
+preview, create, manual, scheduled, resumed and incremental refreshes all pass
+through it, so none can fall back to the defaults by omission. The wall-clock
+limit (30 minutes per window) is not a setting.
+
 **The Test button is bounded too.** The modal's preview wraps the admin's SQL in
 a subquery with a `LIMIT`; it never runs raw unbounded SQL from a UI action.
 
@@ -392,6 +411,66 @@ added, and the reasons are worth carrying forward.
   WARNING `extraction.column_became_approximate` (`column`, `from_type`).
   Repeated column names (`a.id, b.id`) are stored as `id`, `id_1`, as DuckDB
   itself names a case-only repeat, and `columns` reports those stored names.
+
+### Analysis Services and SAP BusinessObjects sources
+
+Both are tested against fake endpoints only. **Neither has been run against a
+live server**; each module's docstring separates what was read off the client
+code from what is assumed.
+
+| | Analysis Services (`fast/analysis_services_source.py`) | SAP BusinessObjects (`fast/businessobjects_source.py`) |
+|---|---|---|
+| Definition | a DAX query (`EVALUATE …`) on a Tabular model; MDX keeps the one-request path it had | JSON: `{"universe": "Sales", "objects": ["Country", "Sales revenue"]}` |
+| Estimate | exact, `COUNTROWS` (one request) | exact, the result's `$count` (creates and runs the query, then deletes it) |
+| What one response is | the whole result, no cap, parsed in memory | a page chosen by `$top` |
+| Paging | value windows over a numeric/date column, each request wrapped in `TOPN(page + 1, …)` so the server bounds it; page = 100,000 rows or 1,000,000 values (ours) | `$skip`/`$top` over one created query, 10,000 rows a request (ours); a short page continues from what arrived |
+| Truncation | total checked against the count; a response of `page + 1` rows is split, not stored | paging ends only at the count; an empty page before it fails the refresh |
+| Cancel | stop sending windows (no XMLA session to cancel) | stop paging; the temporary query is deleted |
+| Incremental | window written into the DAX (`FILTER`, or `{{since}}`/`{{until}}`); MDX filtered locally | query runs whole, window taken from the result |
+| Request limit | `custom_table_max_requests` | `custom_table_max_requests` |
+
+The Analysis Services source subclasses the Power BI one: the count / sample /
+window / verify strategy belongs to DAX, and only the transport, the target
+(a catalog instead of a semantic model) and what a response can carry differ.
+
+### Saving a cited result as a custom table
+
+A result the agent produced can be the starting point of a custom table. The
+result card's action bar offers **Save as cached table** to the connection's
+admins when the result is one query that the connection itself answered (not
+several queries, not a failed one, not one already read from a custom table,
+and not a parameterized one, whose card can be re-run with other values).
+It opens the same dialog as the tables page, with that query, a name derived
+from the result's title and the connection filled in; nothing is created until
+the admin previews and saves.
+
+- The card decides from the per-query timing record, which names the
+  connection, agent and client that answered (`connection_id`,
+  `data_source_id`, `client_key`).
+- Whether the connection can host a custom table is asked of the connection:
+  `GET /connections/{id}/custom-queries/capability` (`manage_connection`),
+  which answers `supported: false` instead of refusing. The card does not go
+  through the agent, because a connection admin need not manage the agent.
+- The query text comes from
+  `GET /connections/{id}/custom-queries/from-result/{tool_execution_id}`,
+  which requires `manage_connection`, permission to view code, and the right
+  to read that conversation: the rule on `GET /reports/{id}/completions`
+  (its owner, an organization admin, or a collaborator on its project).
+  Sharing an agent with the report's owner is not enough. It also refuses a
+  result whose query has been edited since, because the card then shows a
+  later run. The rule itself is `single_query_of` in
+  `custom_query_service.py`, mirrored for visibility in
+  `frontend/utils/cacheCandidate.ts`.
+- A one-shot first load writes the rows read so far, and the source's count
+  once known, to its run row. The dialog polls
+  `GET /connections/{id}/custom-queries/progress?name=…`, which looks up that
+  one table, so its cost does not grow with the number of custom tables on
+  the connection. Progress is per batch, so a result that arrives in one
+  response goes from zero to done.
+- A create whose first load fails leaves the table with its error (as before);
+  the dialog now says so and closes.
+
+Run report: `docs/feedback-loops/save-as-cached-table.md`.
 
 ## Phases
 

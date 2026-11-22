@@ -1086,7 +1086,11 @@ async def export_published_dashboard(
         return Response(content=html, media_type="text/html; charset=utf-8", headers={
             "Content-Disposition": f'attachment; filename="{ascii_fallback_filename(filename)}"; '
                                    f"filename*=UTF-8''{quote(filename)}",
-            "Cache-Control": "no-store"})
+            "Cache-Control": "no-store",
+            # Pin the declared text/html type so a browser cannot sniff this
+            # user-influenced export into another type (matches other content
+            # routes); the attachment disposition already blocks inline render.
+            "X-Content-Type-Options": "nosniff"})
 
     try:
         pdf_path = await _release_pdf(db, artifact, release, user)

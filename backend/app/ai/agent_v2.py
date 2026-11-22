@@ -547,6 +547,17 @@ from app.schemas.completion_v2_schema import ArtifactChangeSchema
 from app.schemas.report_api_settings import report_disabled_tools
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
+from app.ai.viz_refinement import (
+    VizRefinement,
+    VizRefinementTracker,
+    apply_refinement_to_result_json,
+    merge_refined_data_model,
+    stored_chart_still_provisional,
+)
+
+# How long a settle waits for the background tool_executions INSERT
+# (Postgres) before treating the write as not ready yet and retrying.
+VIZ_PERSIST_WAIT_S = 30.0
 from app.streaming.completion_event_bus import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
@@ -623,6 +634,21 @@ _CONTEXT_FREE_TOOLS = frozenset({
     "execute_mcp", "read_mcp_resource", "list_mcp_resources", "search_tools", "call_tool",
     "read_file", "grep_files", "list_files", "search_files", "web_fetch",
 })
+
+
+def _viz_inference_deferred() -> bool:
+    """Whether create_data runs its visualization inference in the background.
+
+    On by default; ``BOW_VIZ_INFERENCE_INLINE=1`` restores the old inline pass
+    (the tool awaits it before ending)."""
+    return os.environ.get("BOW_VIZ_INFERENCE_INLINE", "").lower() not in ("1", "true", "yes")
+
+
+# Tools that never read a visualization or a step's data_model, so a batch made
+# only of them runs without waiting for create_data's background inference.
+# Anything else (artifacts, docs, dashboards, query reads...) waits for it, so
+# it reads the refined chart, never one about to change under it.
+_TOOLS_INDEPENDENT_OF_VIZ_REFINEMENT = frozenset({"create_data", "inspect_data"})
 
 
 def _tool_ignores_turn_context(tool_name) -> bool:
@@ -1032,6 +1058,14 @@ class AgentV2:
         # by design — so tool bodies overlap only on their LLM/codegen and
         # code-execution awaits, never on DB work.
         self._tool_db_lock = asyncio.Lock()
+
+        # create_data's visualization inference runs in the background
+        # (runtime_ctx["defer_viz_inference"]); this tracks each pass until
+        # its result is announced and written. See app/ai/viz_refinement.py.
+        self._viz_refinements = VizRefinementTracker(
+            announce=self._announce_viz_refinement,
+            apply=self._apply_viz_refinement,
+        )
 
         # create_dashboard streaming state (in-memory, no layout persistence)
         self._dashboard_blocks: list[dict] = []
@@ -4980,6 +5014,204 @@ class AgentV2:
         self._pending_writes.append(task)
         return task
 
+    # ---- create_data background visualization inference ------------------
+
+    def _track_viz_refinement(
+        self,
+        task,
+        *,
+        tool_execution_id: Optional[str],
+        step_id: Optional[str],
+        visualization_id: Optional[str],
+        persist_task: Optional[asyncio.Task],
+        provisional_view: Optional[dict] = None,
+        provisional_data_model: Optional[dict] = None,
+    ) -> None:
+        """Take over a create_data inference task handed back by the tool."""
+        self._viz_refinements.track(VizRefinement(
+            task=task,
+            tool_execution_id=tool_execution_id,
+            step_id=step_id,
+            visualization_id=visualization_id,
+            persist_task=persist_task,
+            provisional_view=provisional_view if isinstance(provisional_view, dict) else None,
+            provisional_data_model=provisional_data_model if isinstance(provisional_data_model, dict) else None,
+        ))
+
+    async def _announce_viz_refinement(self, rec: VizRefinement) -> None:
+        """SSE ``visualization.refined`` — runs from the watcher task as soon
+        as the inference lands, and again after the write commits. In-memory
+        only (seq counter + queue put), so it never touches a DB session."""
+        if not (self.system_completion and self.current_execution):
+            return
+        refined = rec.refined
+        seq = await self.project_manager.next_seq(None, self.current_execution)
+        await self._emit_sse_event(SSEEvent(
+            event="visualization.refined",
+            completion_id=str(self.system_completion_id),
+            agent_execution_id=str(self.current_execution.id),
+            seq=seq,
+            data={
+                "tool_execution_id": rec.tool_execution_id,
+                "step_id": rec.step_id,
+                "visualization_id": rec.visualization_id,
+                "refined": refined,
+                "data_model": (rec.result or {}).get("data_model") if refined else None,
+                "view": (rec.result or {}).get("view") if refined else None,
+            },
+        ))
+
+    async def _apply_viz_refinement(self, rec: VizRefinement) -> None:
+        """Write a landed refinement in one commit: step data_model,
+        visualization view, and the tool execution's result_json and
+        context_summary_json (what report loads serve), pending flag cleared.
+
+        Called only from a settle on the loop's own coroutine — in
+        single-writer mode the write session IS the loop's session, which no
+        background task may use. Raises (nothing modified) when the write
+        can't be made yet; the tracker retries it.
+
+        - Postgres: the tool_executions INSERT runs in the background; its
+          own retry loop bounds it. The UPDATE needs that row, so a missing
+          row raises before anything changes — never a refined step and
+          visualization next to a provisional tool result.
+        - A chart the user changed after the tool ended (saved axis or chart
+          type) is not overwritten: the refinement is dropped for it, and the
+          report projection takes the user's stored view.
+        """
+        from sqlalchemy.orm import load_only
+        from sqlalchemy.orm.attributes import flag_modified
+        from app.models.visualization import Visualization as _Viz
+        from app.schemas.view_schema import ViewSchema as _ViewSchema
+
+        if rec.persist_task is not None and not rec.persist_task.done():
+            await asyncio.wait([rec.persist_task], timeout=VIZ_PERSIST_WAIT_S)
+            if not rec.persist_task.done():
+                raise RuntimeError("tool execution row not persisted yet")
+        refinement = rec.result if rec.refined else None
+        user_edited = False
+        stored_view = None
+        stored_dm = None
+        async with self._single_writer_guard():
+            async with self._writes_session() as db:
+                # Reads and checks first: nothing is modified before a raise.
+                step_obj = None
+                if refinement and rec.step_id:
+                    # Only the chart metadata (+ status, read by the Step
+                    # after_update hook): Step.data is the full, encrypted
+                    # result and nothing here needs it.
+                    step_obj = (await db.execute(
+                        select(Step).options(lazyload("*"), load_only(Step.id, Step.data_model, Step.status))
+                        .where(Step.id == rec.step_id)
+                    )).scalar_one_or_none()
+                viz_obj = None
+                if refinement and rec.visualization_id:
+                    viz_obj = (await db.execute(
+                        select(_Viz).options(lazyload("*")).where(_Viz.id == rec.visualization_id)
+                    )).scalar_one_or_none()
+                te_obj = None
+                if rec.tool_execution_id:
+                    te_obj = (await db.execute(
+                        select(ToolExecution).options(lazyload("*")).where(ToolExecution.id == rec.tool_execution_id)
+                    )).scalar_one_or_none()
+                    if te_obj is None:
+                        raise RuntimeError("tool execution row not found")
+                if refinement:
+                    stored_view = viz_obj.view if viz_obj is not None else None
+                    stored_dm = step_obj.data_model if step_obj is not None else None
+                    provisional_view = None
+                    if rec.provisional_view:
+                        try:
+                            provisional_view = _ViewSchema(**rec.provisional_view).model_dump(exclude_none=True)
+                        except Exception:
+                            provisional_view = None
+                    user_edited = not stored_chart_still_provisional(
+                        stored_view=stored_view,
+                        provisional_view=provisional_view,
+                        stored_data_model=stored_dm,
+                        provisional_data_model=rec.provisional_data_model,
+                    )
+                try:
+                    if refinement and not user_edited:
+                        if step_obj is not None:
+                            step_obj.data_model = merge_refined_data_model(
+                                step_obj.data_model or {}, refinement["data_model"],
+                            )
+                            db.add(step_obj)
+                        if viz_obj is not None and isinstance(refinement.get("view"), dict):
+                            viz_obj.view = _ViewSchema(**refinement["view"]).model_dump(exclude_none=True)
+                            db.add(viz_obj)
+                    if te_obj is not None and isinstance(te_obj.result_json, dict):
+                        if user_edited:
+                            # Keep the user's chart in what reloads serve.
+                            projection = {"data_model": stored_dm, "view": stored_view} if stored_view else None
+                        else:
+                            projection = refinement
+                        te_obj.result_json = apply_refinement_to_result_json(te_obj.result_json, projection)
+                        flag_modified(te_obj, "result_json")
+                        summary = te_obj.context_summary_json
+                        if projection and isinstance(summary, dict):
+                            te_obj.context_summary_json = apply_refinement_to_result_json(summary, projection)
+                            flag_modified(te_obj, "context_summary_json")
+                        db.add(te_obj)
+                    await db.commit()
+                except Exception:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    raise
+        logger.info(
+            "create_data.viz_refine applied refined=%s user_edited=%s step=%s viz=%s",
+            bool(refinement), user_edited, rec.step_id, rec.visualization_id,
+        )
+        if refinement:
+            if user_edited:
+                # The browser was told the refinement; give it the user's chart.
+                rec.result = {"data_model": stored_dm, "view": stored_view} if stored_view else None
+            # Re-announce after the commit: it lands after any provisional
+            # block snapshot the background persist emitted, so the live page
+            # ends on what the database holds.
+            await self._announce_viz_refinement(rec)
+
+    def _defer_viz_inference_for_run(self) -> bool:
+        """Whether this run's create_data refines its chart in the background.
+
+        Web report runs only: a chat channel (Slack, Teams, WhatsApp...) sends
+        the chart image as soon as the tool block succeeds — before a
+        refinement could land — so channel runs keep the inline pass. Same
+        test the planner uses for figures (no external platform)."""
+        return _viz_inference_deferred() and not self.platform
+
+    async def _viz_barrier(self, tool_name: Optional[str]) -> None:
+        """Before an action runs: a tool that may read a chart waits for the
+        background refinements already tracked (and their writes), so it
+        never reads a provisional chart. create_data / inspect_data don't
+        read charts and pass straight through."""
+        if tool_name in _TOOLS_INDEPENDENT_OF_VIZ_REFINEMENT:
+            return
+        await self._settle_viz_refinements(wait=True, reason="pre_tool")
+
+    async def _settle_viz_refinements(self, *, wait: bool, reason: str, timeout_s: Optional[float] = None) -> None:
+        """Write the background inferences that landed; with ``wait``, wait
+        for (or cancel) the rest first. See app/ai/viz_refinement.py."""
+        if not self._viz_refinements.pending:
+            return
+        _t0 = _time.monotonic()
+        try:
+            if timeout_s is None:
+                applied = await self._viz_refinements.settle(wait=wait)
+            else:
+                applied = await self._viz_refinements.settle(wait=wait, timeout_s=timeout_s)
+        except Exception:
+            logger.error("[agent] viz refinement settle failed (%s)", reason, exc_info=True)
+            return
+        if applied:
+            logger.info(
+                "create_data.viz_refine settle reason=%s wait=%s applied=%d waited_ms=%.0f",
+                reason, wait, applied, (_time.monotonic() - _t0) * 1000.0,
+            )
+
     def _single_writer_guard(self):
         """Serialize a writer against the shared session only when it writes
         through it.
@@ -5552,6 +5784,9 @@ class AgentV2:
             for _ti, _act in enumerate(actions_list):
                 if self.sigkill_event.is_set():
                     break
+                # Per action, not per batch: in [create_data, read_query] the
+                # refinement only exists once create_data has run.
+                await self._viz_barrier(_act.name)
                 _outcome = await run_one(
                     _ti, _act,
                     block_ids[_ti] if _ti < len(block_ids) else None,
@@ -5582,6 +5817,7 @@ class AgentV2:
                         "action": _act, "skipped": True, "inv": None,
                         "observation": {"summary": "Stopped before execution", "stopped": True},
                     }
+                await self._viz_barrier(_act.name)
                 return await run_one(
                     _ti, _act, _bid, self._new_invocation_state(_act.name),
                 )
@@ -7302,6 +7538,10 @@ class AgentV2:
                                 # Final answer path (no tool to execute)
                                 invalid_retry_count = 0
 
+                                # The answer has streamed; its charts must be final before
+                                # the run reports done (usually already landed meanwhile).
+                                await self._settle_viz_refinements(wait=True, reason="final_answer")
+
                                 # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
                                 # This unblocks thumbs up/debug icons and stop→submit button.
                                 # We previously drained bg writes BEFORE emitting finished,
@@ -7790,6 +8030,10 @@ class AgentV2:
                                         # Same gate as the submit_<list> tools (conversation switch,
                                         # sub-agent profile): create_data offers `lists` to code only then.
                                         "list_writes_allowed": bool(getattr(self, "_list_tool_routing", None)),
+                                        # create_data ends with the deterministic chart and
+                                        # hands its visualization inference back as a task
+                                        # (runtime_ctx["viz_refinement"]), tracked below.
+                                        "defer_viz_inference": self._defer_viz_inference_for_run(),
                                         "run_agents": list(self.data_sources or []),
                         "deferred_mcp_tools": getattr(self, "_deferred_mcp_tools", None) or [],
                                         "response_locale": getattr(self, "response_locale", None),
@@ -7911,6 +8155,11 @@ class AgentV2:
                                 # Capture training_build_id if set by create_instruction tool
                                 if runtime_ctx.get("training_build_id") and not self.training_build_id:
                                     self.training_build_id = runtime_ctx["training_build_id"]
+
+                                # create_data's deferred visualization inference (if any).
+                                # Tracked once the step/visualization/tool execution it
+                                # refines are known (after tool.finished below).
+                                _viz_refine_task = runtime_ctx.pop("viz_refinement", None)
 
                                 # create_list / edit_list changed this report's lists: swap the
                                 # submit_<slug> tools so the model can fill the new schema in
@@ -8077,6 +8326,7 @@ class AgentV2:
 
                                     # Bind per-action block_id eagerly so the bg closure sees this iteration's value
                                     _bg_block_id_local = _block_id_for_action
+                                    _persist_tool_task = None
                                     async def _bg_persist_tool(_block_id=_bg_block_id_local):
                                         from app.models.agent_execution import AgentExecution as _AE
                                         from app.models.completion import Completion as _Comp
@@ -8163,7 +8413,7 @@ class AgentV2:
                                                 exc_info=True,
                                             )
                                     else:
-                                        self._schedule_bg_write("persist_tool", _bg_persist_tool())
+                                        _persist_tool_task = self._schedule_bg_write("persist_tool", _bg_persist_tool())
                                     # Rebuild transcript — coalesced with any pending
                                     # rebuild from the post-plan_decision path above.
                                     # Single-writer mode runs sync on self._writes.
@@ -8204,6 +8454,21 @@ class AgentV2:
                                             "created_visualization_ids": created_visualization_ids,
                                         }
                                     ))
+
+                                    if _viz_refine_task is not None:
+                                        self._track_viz_refinement(
+                                            _viz_refine_task,
+                                            tool_execution_id=str(tool_execution.id) if tool_execution is not None else None,
+                                            step_id=created_step_id if _success_flag else None,
+                                            visualization_id=(
+                                                str(created_visualization_ids[0])
+                                                if _success_flag and created_visualization_ids else None
+                                            ),
+                                            persist_task=_persist_tool_task,
+                                            provisional_view=(tool_output or {}).get("view") if isinstance(tool_output, dict) else None,
+                                            provisional_data_model=(tool_output or {}).get("data_model") if isinstance(tool_output, dict) else None,
+                                        )
+                                        _viz_refine_task = None
 
                                     # Emit instructions.context if the tool loaded related instructions
                                     try:
@@ -8451,6 +8716,7 @@ class AgentV2:
                                             except Exception:
                                                 pass
 
+                                    await self._settle_viz_refinements(wait=True, reason="tool_final_answer")
                                     # Emit completion.finished immediately so UI updates.
                                     # Drain pending bg writes in the BACKGROUND — the
                                     # user-visible content has already streamed; the
@@ -8895,6 +9161,15 @@ class AgentV2:
             except Exception:
                 pass
             
+            # Background visualization inferences still in flight (a run that
+            # ended through the step limit, a stop, a terminal tool...).
+            # A stop doesn't wait: what is still running is cancelled and its
+            # pending flag cleared, so no figure keeps waiting for it.
+            await self._settle_viz_refinements(
+                wait=True, reason="run_end",
+                timeout_s=0.0 if self.sigkill_event.is_set() else None,
+            )
+
             # Update system completion status and emit event if not already done.
             # Success case is typically handled earlier in the analysis_complete block for faster UI response.
             # Drain runs in the background (post-finished) — see comment in
@@ -9008,6 +9283,10 @@ class AgentV2:
                     self.system_completion, 
                     'error'
                 )
+            try:
+                await self._viz_refinements.cancel_all()
+            except Exception:
+                pass
             # Emit a final completion.finished event with error details for UI consumption.
             # Best-effort drain of bg writes — bounded so we don't hang the error path.
             try:
@@ -9058,6 +9337,12 @@ class AgentV2:
             # lifecycle is owned by the caller (FastAPI dependency); we
             # only ever aliased to it, never opened/owned a separate
             # session. So nothing to close here.
+            # Safety net: no background inference outlives the run (each
+            # end path above has already settled; this only catches leaks).
+            try:
+                await self._viz_refinements.cancel_all()
+            except Exception:
+                pass
             self._writes = None
             # Cleanup
             try:

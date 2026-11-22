@@ -1884,6 +1884,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Modifier le code de la requête",
+      "saveAsCachedTable": "Enregistrer comme table en cache",
+      "saveAsCachedTableTooltip": "Mettre cette requête en cache sur la connexion pour que les agents répondent depuis une copie locale",
+      "saveAsCachedTableFailed": "Impossible d’ouvrir ce résultat pour la mise en cache",
       "editCode": "Modifier le code",
       "edit": "Modifier",
       "rows": "{count} lignes",
@@ -3650,6 +3653,22 @@
         "enable_custom_queries": {
           "name": "Tables personnalisées (bêta)",
           "description": "Permet aux administrateurs de connexion de définir du SQL que BOW matérialise dans une copie locale chiffrée selon une planification, afin que les agents répondent à partir du résultat mis en cache plutôt que d'interroger la source à chaque tour. Bêta : désactivé par défaut."
+        },
+        "custom_table_max_rows": {
+          "name": "Limite de lignes d'une table personnalisée",
+          "description": "Nombre maximal de lignes qu'une table personnalisée peut contenir. Une requête estimée ou constatée comme en renvoyant davantage est refusée et les données précédentes restent servies. De 1 000 à 100 000 000."
+        },
+        "custom_table_max_gb": {
+          "name": "Limite de taille d'une table personnalisée (Go)",
+          "description": "Plus grand résultat estimé, et plus grand fichier en cache, pour une table personnalisée. De 1 à 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Limite de lecture à la source d'une table personnalisée (Go)",
+          "description": "Volume maximal que la source peut lire pour une actualisation, lorsque la source l'indique avant l'exécution (BigQuery, Snowflake). De 1 à 10 240."
+        },
+        "custom_table_max_requests": {
+          "name": "Limite de requêtes d'une table personnalisée",
+          "description": "Nombre maximal de requêtes qu'une actualisation peut envoyer à une source lue page par page (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Augmentez-la avec la limite de lignes : Power BI renvoie au plus 100 000 lignes par requête et autorise environ 120 requêtes par minute. De 16 à 10 000."
         },
         "enable_agent_notes": {
           "name": "Notes de l'agent",

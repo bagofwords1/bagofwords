@@ -1884,6 +1884,9 @@
     },
     "widgetPreview": {
       "editQueryCode": "Modifica codice della query",
+      "saveAsCachedTable": "Salva come tabella in cache",
+      "saveAsCachedTableTooltip": "Memorizza questa query nella cache della connessione, così gli agenti rispondono da una copia locale",
+      "saveAsCachedTableFailed": "Impossibile aprire questo risultato per la cache",
       "editCode": "Modifica codice",
       "edit": "Modifica",
       "rows": "{count} righe",
@@ -3650,6 +3653,22 @@
         "enable_custom_queries": {
           "name": "Tabelle personalizzate (beta)",
           "description": "Consente agli amministratori delle connessioni di definire SQL che BOW materializza in una copia locale cifrata secondo una pianificazione, così gli agenti rispondono dal risultato memorizzato anziché interrogare la sorgente a ogni turno. Beta: disattivato per impostazione predefinita."
+        },
+        "custom_table_max_rows": {
+          "name": "Limite di righe della tabella personalizzata",
+          "description": "Numero massimo di righe che una tabella personalizzata può contenere. Una query che si stima o risulta restituirne di più viene rifiutata e i dati precedenti continuano a essere serviti. Da 1.000 a 100.000.000."
+        },
+        "custom_table_max_gb": {
+          "name": "Limite di dimensione della tabella personalizzata (GB)",
+          "description": "Risultato stimato più grande, e file in cache più grande, per una tabella personalizzata. Da 1 a 64."
+        },
+        "custom_table_max_scan_gb": {
+          "name": "Limite di lettura all'origine della tabella personalizzata (GB)",
+          "description": "Quantità massima di dati che l'origine può leggere per un aggiornamento, quando l'origine la comunica prima dell'esecuzione (BigQuery, Snowflake). Da 1 a 10.240."
+        },
+        "custom_table_max_requests": {
+          "name": "Limite di richieste della tabella personalizzata",
+          "description": "Numero massimo di richieste che un aggiornamento può inviare a un'origine letta pagina per pagina (Power BI, Analysis Services, SAP BusinessObjects, PostHog). Aumentalo insieme al limite di righe: Power BI restituisce al massimo 100.000 righe per richiesta e consente circa 120 richieste al minuto. Da 16 a 10.000."
         },
         "enable_agent_notes": {
           "name": "Note dell'agente",
