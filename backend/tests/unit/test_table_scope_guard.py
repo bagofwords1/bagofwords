@@ -270,6 +270,14 @@ def test_a_row_limit_that_is_a_name_is_refused(dialect, sql):
         check_table_scope(sql, dialect, APPLY_SCOPE)
 
 
+# The keyword as the alias of a joined table, with the join's USING or ON
+# after it, and then one more source.
+_AFTER_A_JOINED_ALIAS = tuple(
+    "FROM events a JOIN events {k} " + condition + source
+    for condition in ("USING (id)", "ON a.id = 1")
+    for source in (", ledger", " JOIN ledger ON 1 = 1", " ledger"))
+
+
 @pytest.mark.parametrize("dialect", sorted({d for d in CLIENT_DIALECTS.values() if d} | {"fabric", "presto"}))
 def test_no_keyword_in_alias_position_leaves_a_source_unchecked(dialect):
     # After a table in FROM, with any keyword of the dialect where an alias
@@ -284,13 +292,145 @@ def test_no_keyword_in_alias_position_leaves_a_source_unchecked(dialect):
     for keyword in keywords:
         for form in ("FROM events {k}, ledger", "FROM events {k} JOIN ledger ON 1 = 1",
                      "FROM events {k} CROSS JOIN ledger", "FROM (SELECT * FROM events {k}, ledger) t",
-                     "FROM events AS {k}, ledger"):
+                     "FROM events AS {k}, ledger", *_AFTER_A_JOINED_ALIAS):
             try:
                 check_table_scope("SELECT * " + form.format(k=keyword), dialect, APPLY_SCOPE)
             except TableScopeViolation:
                 continue
             ran.append((keyword, form))
     assert ran == ([("array", "FROM events {k} JOIN ledger ON 1 = 1")] if dialect == "clickhouse" else [])
+
+
+ALL_DIALECTS = sorted({d for d in CLIENT_DIALECTS.values() if d} | {"fabric", "presto"})
+
+
+_FOR_XML = "SELECT * FROM events FOR XML AUTO, ledger"
+
+
+# T-SQL, in which FOR is a reserved word, reads every name after FOR XML as
+# one of its options, never as a source.
+@pytest.mark.parametrize("dialect, sql", [(d, s) for d in ALL_DIALECTS for s in (
+    "SELECT * FROM events FOR SYSTEM_TIME AS OF '2020-01-01', ledger",
+    _FOR_XML,
+    "SELECT * FROM events NEXT VALUE FOR seq, ledger",
+    "SELECT * FROM events e FOR SYSTEM_TIME AS OF '2020-01-01' JOIN ledger ON 1 = 1",
+    "SELECT * FROM sales..ledger",
+    "SELECT * FROM events e, sales..ledger",
+) if not (s == _FOR_XML and d in ("tsql", "fabric"))])
+def test_a_source_after_a_for_clause_or_an_empty_name_part_is_checked(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["tsql", "fabric"])
+@pytest.mark.parametrize("sql", ["SELECT * FROM events FOR XML AUTO, ELEMENTS", _FOR_XML])
+def test_the_options_of_for_xml_still_run_on_tsql(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# A WINDOW clause names each window as `name AS (specification)`. Anything
+# else there is refused: an engine in which WINDOW is no keyword reads it as
+# the alias of the table before it, and a name after it as one more source.
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events a JOIN events window USING (id), ledger",
+    "SELECT * FROM events a JOIN events window USING (id), secret",
+    "SELECT * FROM events a JOIN events window USING (id), sys.objects",
+    "SELECT * FROM (SELECT * FROM events a JOIN events window USING (id), ledger) t",
+    "SELECT * FROM events window x (id), ledger",
+    "SELECT * FROM events WINDOW w AS (PARTITION BY id), ledger",
+    "SELECT * FROM events WINDOW w AS ()",
+    "SELECT * FROM events WINDOW w AS (PARTITION BY id), v AS ()",
+    "SELECT * FROM events WINDOW w AS (PARTITION BY id), v AS (w)",
+])
+def test_a_window_clause_entry_without_a_specification_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# A window named by a keyword: what may follow a table's alias starts with
+# one (USING, ON, WITH).
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM events a JOIN events window USING (ORDER BY id)",
+    "SELECT * FROM events window WITH (ORDER BY id)",
+    "SELECT SUM(id) OVER w FROM events WINDOW w AS (ORDER BY id), using AS (PARTITION BY kind)",
+])
+def test_a_window_named_by_a_keyword_is_refused(dialect, sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "trino", "redshift"])
+def test_a_window_with_a_quoted_name_still_runs(dialect):
+    check_table_scope('SELECT SUM(id) OVER "using" FROM events WINDOW "using" AS (ORDER BY id)', dialect, APPLY_SCOPE)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql", "bigquery", "spark", "databricks", "clickhouse", "trino",
+                                     "sqlite", "duckdb", "redshift"])
+@pytest.mark.parametrize("sql", [
+    "SELECT SUM(id) OVER w FROM events WINDOW w AS (PARTITION BY kind ORDER BY id)",
+    "SELECT SUM(id) OVER w, MAX(id) OVER v FROM events WINDOW w AS (PARTITION BY kind), v AS (ORDER BY id)",
+    "SELECT SUM(id) OVER w FROM events WINDOW w AS (ORDER BY id ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)",
+    "SELECT SUM(id) OVER w FROM events WINDOW v AS (PARTITION BY kind), w AS (v ORDER BY id)",
+])
+def test_a_window_clause_with_a_specification_still_runs(dialect, sql):
+    check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+# Spark, Databricks and Hive generators (json_tuple, stack, ...) make rows
+# from their arguments under LATERAL VIEW and LATERAL there, by their bare
+# name. In any other position, or on another dialect, the name is a function
+# the checks do not know.
+GENERATORS = ["inline_outer", "json_tuple", "parse_url_tuple", "stack", "variant_explode", "variant_explode_outer"]
+GENERATOR_DIALECTS = ("databricks", "hive", "spark")
+_UNDER_LATERAL = (
+    "SELECT * FROM events e LATERAL VIEW {f}(e.id) t AS a",
+    "SELECT * FROM events e LATERAL VIEW OUTER {f}(e.id) t AS a",
+    "SELECT * FROM events e, LATERAL {f}(e.id) t",
+    "SELECT * FROM events e CROSS JOIN LATERAL {f}(e.id) t",
+)
+_NOT_UNDER_LATERAL = (
+    "SELECT * FROM {f}(1) t",
+    "SELECT * FROM events e, {f}(e.id) t",
+    "SELECT * FROM events e JOIN {f}(e.id) t ON 1 = 1",
+    "SELECT * FROM events e CROSS JOIN {f}(e.id) t",
+    "SELECT * FROM x.{f}(1) t",
+    "SELECT * FROM events e, x.{f}(e.id) t",
+    "SELECT * FROM events e LATERAL VIEW x.{f}(e.id) t AS a",
+    "SELECT * FROM events e, LATERAL x.{f}(e.id) t",
+    "SELECT * FROM events e CROSS JOIN LATERAL x.{f}(e.id) t",
+    "SELECT * FROM TABLE({f}(1)) t",
+    "SELECT * FROM events e, TABLE({f}(e.id)) t",
+    "SELECT * FROM events e, LATERAL TABLE({f}(e.id)) t",
+    "SELECT * FROM events e CROSS APPLY {f}(e.id) t",
+    "SELECT * FROM events e OUTER APPLY {f}(e.id) t",
+)
+
+
+def _generator_forms_that_run(dialect, name, forms):
+    ran = []
+    for form in forms:
+        try:
+            check_table_scope(form.format(f=name), dialect, APPLY_SCOPE)
+        except TableScopeViolation:
+            continue
+        ran.append(form)
+    return ran
+
+
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("name", GENERATORS)
+def test_a_generator_outside_lateral_is_refused_on_every_dialect(dialect, name):
+    assert len(ALL_DIALECTS) == 20
+    assert _generator_forms_that_run(dialect, name, _NOT_UNDER_LATERAL) == []
+
+
+@pytest.mark.parametrize("dialect", ALL_DIALECTS)
+@pytest.mark.parametrize("name", GENERATORS)
+def test_a_generator_under_lateral_runs_only_on_spark_databricks_and_hive(dialect, name):
+    expected = list(_UNDER_LATERAL) if dialect in GENERATOR_DIALECTS else []
+    assert _generator_forms_that_run(dialect, name, _UNDER_LATERAL) == expected
 
 
 @pytest.mark.parametrize("dialect", ["tsql", "fabric"])

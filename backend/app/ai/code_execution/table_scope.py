@@ -54,6 +54,8 @@ the database login behind the connection.
 
 from __future__ import annotations
 
+import functools
+import itertools
 import logging
 import re
 import string
@@ -199,10 +201,16 @@ _SAFE_TABLE_FUNCTIONS = frozenset({
     "jsonb_to_recordset", "json_populate_recordset", "jsonb_populate_recordset",
     "json_table", "openjson", "string_split", "generate_array",
     "generate_date_array", "generate_timestamp_array",
-    # Spark, Databricks and Hive generators (LATERAL VIEW, LATERAL)
-    "inline_outer", "json_tuple", "parse_url_tuple", "stack", "variant_explode",
-    "variant_explode_outer",
 })
+
+# Generators of Spark, Databricks and Hive: under LATERAL VIEW or LATERAL
+# there, called by their bare name, they make rows from their arguments.
+# Anywhere else, and on any other dialect, the name is a function like any
+# other.
+_LATERAL_GENERATORS = frozenset({
+    "inline_outer", "json_tuple", "parse_url_tuple", "stack", "variant_explode", "variant_explode_outer",
+})
+_LATERAL_GENERATOR_DIALECTS = frozenset({"spark", "databricks", "hive"})
 
 # Functions that read a table named in a string, run SQL held in a string, or
 # reach outside the connection. Refused wherever they appear.
@@ -926,14 +934,19 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
 
         # APPLY and LATERAL: over a subquery its tables are table references,
         # checked above; over a name or a call they are not. A call passes
-        # as it would in FROM (a typed built-in or a row-producing function),
-        # and so does T-SQL's nodes() method of an xml column.
+        # as it would in FROM (a typed built-in or a row-producing function);
+        # so do a Spark, Databricks or Hive generator under LATERAL VIEW or
+        # LATERAL there, and T-SQL's nodes() method of an xml column.
         for lateral in stmt.find_all(exp.Lateral):
             target = lateral.this
             if isinstance(target, (exp.Subquery, exp.Query)):
                 continue
             if isinstance(target, exp.Func) and (not isinstance(target, exp.Anonymous)
                                                  or _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS):
+                continue
+            if (dialect in _LATERAL_GENERATOR_DIALECTS and isinstance(target, exp.Anonymous)
+                    and lateral.args.get("cross_apply") is None
+                    and _func_name(target).lower() in _LATERAL_GENERATORS):
                 continue
             if dialect in _XML_NODES_DIALECTS and _is_xml_nodes_call(lateral):
                 continue
@@ -943,6 +956,7 @@ def _check_statements(statements: list, dialect: str, scope: TableScope,
             )
 
         _check_row_limits(stmt)
+        _check_named_windows(stmt, dialect)
 
     _refuse_denied(denied)
 
@@ -1000,6 +1014,43 @@ def _check_row_limits(statement) -> None:
                     f"{_UNVERIFIED} A row limit (LIMIT, OFFSET, FETCH, TOP) must be a plain number here: "
                     f"'{count.sql(dialect='')[:60]}' is not. Write the number of rows."
                 )
+
+
+def _check_named_windows(statement, dialect: str | None) -> None:
+    """Refuse a WINDOW clause entry that is anything but a window's name with
+    its specification in parentheses, as in `w AS (PARTITION BY a ORDER BY
+    b)`: one with no parentheses, with nothing in them or with only another
+    window's name there, and one named by a keyword of the dialect. An
+    engine in which WINDOW is no keyword reads the word as the alias of the
+    table before it, the entry as what may follow an alias (USING and a
+    column list, say), and a name after it as one more source, which no
+    table reference here stands for."""
+    from sqlglot import exp
+
+    for node in statement.walk():
+        entries = node.args.get("windows")
+        if not entries:
+            continue
+        for entry in entries if isinstance(entries, list) else [entries]:
+            name = entry.this if isinstance(entry, exp.Window) else None
+            plain = (isinstance(name, exp.Identifier)
+                     and (name.quoted or str(name.name).upper() not in _dialect_keywords(dialect))
+                     and (entry.args.get("partition_by") or entry.args.get("order") or entry.args.get("spec")))
+            if not plain:
+                raise TableScopeViolation(
+                    f"{_UNVERIFIED} A WINDOW clause must give each window a name and a specification, as in "
+                    f"WINDOW w AS (PARTITION BY a ORDER BY b): '{entry.sql(dialect='')[:60]}' is not that. "
+                    "Write the specification inside OVER (...) instead."
+                )
+
+
+@functools.cache
+def _dialect_keywords(dialect: str | None) -> frozenset[str]:
+    """The keywords of sqlglot's tokenizer for `dialect` ("" and None are
+    its generic dialect), in upper case."""
+    from sqlglot import Dialect
+
+    return frozenset(k.upper() for k in Dialect.get_or_raise(dialect or None).tokenizer_class.KEYWORDS)
 
 
 def table_refs(sql: str, dialect: str) -> list[Name]:
@@ -1070,14 +1121,20 @@ _WORD_CHARS = frozenset(string.ascii_letters + string.digits + "_")
 
 # Words refused anywhere outside strings and quoted names. TABLE: Db2's
 # TABLE(...) and FINAL / NEW / OLD TABLE (no read names it otherwise).
+# WINDOW: an engine in which the word is no keyword reads it as the alias of
+# the table before it, and what follows as more of the FROM clause.
 # PLACEHOLDER: the parameters of a HANA calculation view.
 _NONPARSING_DENIED_WORDS = {
-    "db2": frozenset({"table"}),
-    "vertica": frozenset({"table"}),
-    "sybase": frozenset({"table"}),
-    "hana": frozenset({"table", "placeholder"}),
-    "pinot": frozenset({"table"}),
+    "db2": frozenset({"table", "window"}),
+    "vertica": frozenset({"table", "window"}),
+    "sybase": frozenset({"table", "window"}),
+    "hana": frozenset({"table", "window", "placeholder"}),
+    "pinot": frozenset({"table", "window"}),
 }
+# Engines that leave trailing blanks out when they compare a quoted name:
+# Db2 and IBM i.
+_NONPARSING_TRAILING_BLANKS_IGNORED = frozenset({"db2"})
+_QUOTED_NAME = re.compile(r'"([^"]*)"')
 # The functions a query may call (a name before `(`) while a table is
 # disabled: plain SQL functions that read only their arguments. Any other
 # call is refused, naming it; so is a quoted name before `(` and a call
@@ -1180,10 +1237,12 @@ _WORDS_BEFORE_AN_EXPRESSION = frozenset({
     "case", "in", "like", "between", "as", "is", "from", "join", "using", "values", "limit", "offset", "top",
     "first", "stream", "return", "set",
 })
-# Words after which a FROM clause has ended, at the depth it stands.
+# Words after which a FROM clause has ended, at the depth it stands. FOR is
+# not one: a clause it opens (FOR SYSTEM_TIME AS OF ...) may belong to a
+# table, with more sources after a comma.
 _FROM_CLAUSE_ENDS = frozenset({
     "where", "group", "having", "order", "limit", "fetch", "offset", "union", "except", "intersect", "minus",
-    "window", "qualify", "for", "select", "values",
+    "window", "qualify", "select", "values",
 })
 # An engine's one-row table, a source under this exact name only.
 _NONPARSING_ONE_ROW_TABLES = {"hana": ("dummy",), "db2": ("sysibm", "sysdummy1")}
@@ -1212,6 +1271,26 @@ def _names_collide_by_case(scope: TableScope) -> bool:
 
 def _nonparsing_refusal(reason: str) -> TableScopeViolation:
     return TableScopeViolation(f"{_UNVERIFIED} {reason}")
+
+
+def _names_as_compared(text: str, engine: str) -> str:
+    """Normalized text (`nonparsing_normalized`, where every `"` opens or
+    closes a quoted name) with each quoted name as `engine` compares it: on
+    Db2 and IBM i without its trailing blanks. Refused: a quoted name that
+    starts with a blank or holds only blanks, and on the other engines one
+    that ends with a blank, which may or may not be the name without it."""
+    def compared(match):
+        name = match.group(1)
+        trimmed = name.rstrip(" ")
+        if not trimmed or trimmed[0] == " ":
+            raise _nonparsing_refusal("It has a quoted name that starts with a blank, which the table checks for "
+                                      "this source do not read. Write the name without the blank.")
+        if trimmed != name and engine not in _NONPARSING_TRAILING_BLANKS_IGNORED:
+            raise _nonparsing_refusal("It has a quoted name that ends with a blank, which the table checks for "
+                                      "this source do not read. Write the name without the blank.")
+        return f'"{trimmed}"'
+
+    return _QUOTED_NAME.sub(compared, text)
 
 
 def _canonical_call(name: str, engine: str) -> str:
@@ -1291,7 +1370,9 @@ def _nonparsing_tokens(text: str) -> list[tuple[str, str]]:
     Refused: a character outside `_NONPARSING_TOKEN` (so `@`, `#`, `$`, a
     backtick, a backslash, `[`, `?`, `{`, a lone `:` or `!`, and anything
     outside ASCII), a number with a name glued to it, a quoted name glued to
-    a quote, `//` and `*/`, and a `;` before the last token."""
+    a quote, `//` and `*/`, two dots in a row (a name with an empty part,
+    which an engine may read in another database), and a `;` before the
+    last token."""
     tokens: list[tuple[str, str]] = []
     i, n = 0, len(text)
     while i < n:
@@ -1314,6 +1395,9 @@ def _nonparsing_tokens(text: str) -> list[tuple[str, str]]:
         i = end
     if any(value == ";" for _kind, value in tokens[:-1]):
         raise _nonparsing_refusal("Only a single statement is allowed.")
+    if any(a[1] == "." and b[1] == "." for a, b in itertools.pairwise(tokens)):
+        raise _nonparsing_refusal("It has two dots in a row (a name with an empty part), which the table checks "
+                                  "for this source do not read. Write the name as SCHEMA.TABLE.")
     return tokens
 
 
@@ -1485,9 +1569,10 @@ def _nonparsing_schema(client, engine: str) -> str | None:
 
 
 def _schema_and_table(scope: TableScope) -> TableScope:
-    """`scope` with each stored name read as `schema.table`: split at its
-    first dot only, since the table part may hold dots. A reference then
-    matches a table by its whole table part, never by a part of it."""
+    """`scope` with each stored name of more than two parts read as
+    `schema.table`: split at its first dot only, since the table part may
+    hold dots. A reference then matches a table by its whole table part,
+    never by a part of it."""
     def two_parts(names):
         return frozenset(name if len(name) <= 2 else (name[0], ".".join(name[1:])) for name in names)
 
@@ -1538,17 +1623,19 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
 
       1. Every reading the engine may take of `sql` gives one normalized
          text (`nonparsing_normalized`), which holds only plain tokens
-         (`_nonparsing_tokens`).
+         (`_nonparsing_tokens`). Its quoted names are read as the engine
+         compares them (`_names_as_compared`); `sql` is sent as written.
       2. That text (for Db2, `_db2_parse_text` of it), parsed with the
          engine's pinned dialect (`_NONPARSING_PARSE_DIALECTS`), passes the
          checks every parsed dialect gets (`_check_statements`); names are
          compared lowered.
-      3. With `schema` (a catalog that stores bare names), a qualified table
-         name must be `schema.table`; on Vertica with a schema other than
-         `public`, a table name must be qualified. Without it (a catalog
-         that stores `schema.table`, `_schema_and_table`), a name may not
-         have more parts than the catalog's names, and matches a table by
-         its whole table part.
+      3. A stored name is read as `schema.table` at its first dot
+         (`_schema_and_table`), and a name matches a table by its whole
+         table part. With `schema` (a catalog that stores bare names), a
+         qualified table name must be `schema.table`; on Vertica with a
+         schema other than `public`, a table name must be qualified.
+         Without it (a catalog that stores `schema.table`), a name may not
+         have more parts than the catalog's names.
       4. The engine's one-row table (`_NONPARSING_ONE_ROW_TABLES`) is a
          source under its exact name, unless the selection disables it.
       5. The token check `_nonparsing_cross_check` agrees."""
@@ -1560,6 +1647,7 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
         text = nonparsing_normalized(sql, engine)
     except ReadOnlyViolation as e:
         raise _nonparsing_refusal(str(e)) from e
+    text = _names_as_compared(text, engine)
     tokens = _nonparsing_tokens(text)
     dialect = _NONPARSING_PARSE_DIALECTS[engine]
     if dialect:
@@ -1568,9 +1656,7 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
         except ReadOnlyViolation as e:
             raise _nonparsing_refusal(str(e)) from e
     # Compared lowered: Vertica reads quoted names case-insensitively too.
-    stored = TableScope(active=scope.active, inactive=scope.inactive, default_database=scope.default_database)
-    if schema is None:
-        stored = _schema_and_table(stored)
+    stored = _schema_and_table(scope)
     scopes = (scope, scope.exact, stored)
     try:
         statements = _parsed(_db2_parse_text(text) if engine == "db2" else text, dialect)
@@ -1580,6 +1666,8 @@ def check_nonparsing_table_scope(sql: str, engine: str, scope: TableScope, schem
     refs = list(dict.fromkeys(
         tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
         for stmt in statements for t in stmt.find_all(exp.Table) if isinstance(t.this, exp.Identifier)))
+    if () in refs:
+        raise _nonparsing_refusal("'' is not allowed where a FROM clause names a table.")
     width = max((len(ref) for ref in stored.active | stored.inactive), default=0)
     one_row = _NONPARSING_ONE_ROW_TABLES.get(engine)
     if one_row is not None and one_row not in stored.inactive:

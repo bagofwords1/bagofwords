@@ -492,11 +492,15 @@ def test_a_row_limit_that_is_a_number_runs(engine, sql):
 # stand, a name that follows as a source is never left unchecked. A query
 # may run only with the bare name right after the keyword, where it is no
 # source to any engine: the alias itself, a condition, a sampling method or
-# a window's name to one that reads the keyword, and a second alias (an
-# error) to one that reads the keyword as the alias.
-_NOT_A_SOURCE_AFTER = frozenset({"as", "where", "having", "qualify", "tablesample", "window"})
+# one that reads the keyword, and a second alias (an error) to one that reads
+# the keyword as the alias. The same with the keyword as the alias of a
+# joined table, before the join's USING or ON.
+_NOT_A_SOURCE_AFTER = frozenset({"as", "where", "having", "qualify", "tablesample"})
 _AFTER_A_KEYWORD = ("{k}, ledger", "{k} JOIN ledger ON 1 = 1", "{k} NATURAL JOIN ledger", "{k} CROSS APPLY ledger",
-                    "{k} (a), ledger", "AS {k}, ledger", "AS {k}(a), ledger", "{k} ledger")
+                    "{k} (a), ledger", "AS {k}, ledger", "AS {k}(a), ledger", "{k} ledger",
+                    *("a JOIN events {k} " + condition + source
+                      for condition in ("USING (id)", "ON a.id = 1")
+                      for source in (", ledger", " JOIN ledger ON 1 = 1", " ledger")))
 
 
 def _parser_keywords():
@@ -523,6 +527,200 @@ def test_no_keyword_in_alias_position_leaves_a_source_unchecked(engine):
                 continue
             ran.append((keyword, form))
     assert [(k, f) for k, f in ran if f != "{k} ledger" or k not in _NOT_A_SOURCE_AFTER] == []
+
+
+# WINDOW: an engine in which the word is no keyword reads it as the alias of
+# the table before it, and a name after its USING or ON as one more source.
+# While a table is disabled the word is refused outside strings and quoted
+# names.
+def _after_window(engine):
+    return [
+        "SELECT * FROM events a JOIN events window USING (id), ledger",
+        f"SELECT * FROM events a JOIN events window USING (id), {CATALOG_TABLES[engine]}",
+        "SELECT * FROM events a JOIN events window USING (id), \"SECRET \"",
+        "SELECT * FROM (SELECT * FROM events a JOIN events window USING (id), ledger) t",
+        "SELECT * FROM events a JOIN events AS window USING (id), ledger",
+        "SELECT * FROM events window x (id), ledger",
+        "SELECT * FROM events a JOIN events WINDOW USING (id) JOIN ledger ON 1 = 1",
+        "SELECT * FROM events WINDOW w AS (PARTITION BY id), ledger",
+        "SELECT SUM(id) OVER w AS n FROM events WINDOW w AS (ORDER BY id)",
+        "SELECT e.window AS n FROM events e",
+    ]
+
+
+@pytest.mark.parametrize("engine, sql", [(e, s) for e in ENGINES for s in _after_window(e)])
+def test_the_word_window_is_refused_before_dispatch(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine", list(ENGINES))
+def test_a_refusal_of_window_names_the_word(engine):
+    client, _ = _client(engine)
+    with pytest.raises(TableAccessError, match="WINDOW is not allowed"):
+        _run(client, "SELECT SUM(id) OVER w AS n FROM events WINDOW w AS (ORDER BY id)")
+
+
+@pytest.mark.parametrize("engine", list(ENGINES))
+def test_window_in_a_string_or_a_quoted_name_still_runs(engine):
+    client, sent = _client(engine)
+    sql = "SELECT COUNT(*) AS n, MAX(id) AS \"window\" FROM events WHERE note = 'window'"
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+# A source after a FOR clause, and a name with an empty part (`a..b`, which
+# an engine may read in another database).
+def _after_for_or_with_an_empty_part(engine):
+    schema = ENGINES[engine]["schema"]
+    return [
+        "SELECT * FROM events FOR SYSTEM_TIME AS OF '2020-01-01', ledger",
+        "SELECT * FROM events FOR XML AUTO, ledger",
+        "SELECT * FROM events NEXT VALUE FOR seq, ledger",
+        "SELECT * FROM events e FOR SYSTEM_TIME AS OF '2020-01-01' JOIN ledger ON 1 = 1",
+        "SELECT * FROM events for, ledger",
+        f"SELECT COUNT(*) AS n FROM {schema}..events",
+        "SELECT COUNT(*) AS n FROM otherdb..events",
+        "SELECT COUNT(*) AS n FROM ..events",
+        f"SELECT COUNT(*) AS n FROM events e JOIN {schema}..events f ON e.id = f.id",
+        "SELECT e..id AS n FROM events e",
+    ]
+
+
+@pytest.mark.parametrize("engine, sql", [(e, s) for e in ENGINES for s in _after_for_or_with_an_empty_part(e)])
+def test_a_source_after_a_for_clause_or_a_name_with_an_empty_part_is_refused(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine", list(ENGINES))
+def test_a_refusal_of_an_empty_name_part_names_its_reason(engine):
+    client, _ = _client(engine)
+    with pytest.raises(TableAccessError, match="two dots in a row"):
+        _run(client, f"SELECT COUNT(*) AS n FROM {ENGINES[engine]['schema']}..events")
+
+
+# Blanks in a quoted name. Db2 and IBM i leave trailing blanks out when they
+# compare a quoted name, so there the name is compared without them. Any
+# other blank at an end of a quoted name is refused.
+@pytest.mark.parametrize("engine", list(ENGINES))
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM \"SECRET \"",
+    "SELECT * FROM \"secret   \"",
+    "SELECT \"SECRET \" AS n FROM events",
+    "SELECT id AS \"Secret \" FROM events",
+    "SELECT COUNT(*) AS n FROM events e JOIN \"SECRET \" s ON e.id = s.id",
+    "SELECT COUNT(*) AS n FROM events e, \"SECRET \" s",
+    "WITH \"SECRET \" AS (SELECT id FROM events) SELECT COUNT(*) AS n FROM \"SECRET \"",
+    "SELECT COUNT(*) AS n FROM events WHERE id IN (SELECT id FROM \"SECRET \")",
+    "SELECT * FROM \" SECRET\"",
+    "SELECT \" secret\" AS n FROM events",
+    "SELECT COUNT(*) AS n FROM \" events\"",
+    "SELECT COUNT(*) AS n FROM \" events \"",
+    "SELECT COUNT(*) AS n FROM \"ledger \"",
+])
+def test_a_quoted_name_with_blanks_at_an_end_gives_a_disabled_table_no_pass(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine", ["db2", "ibmi"])
+@pytest.mark.parametrize("sql", [
+    "SELECT \"SECRET \" AS n FROM events",
+    "SELECT * FROM \"SECRET \"",
+])
+def test_a_disabled_name_with_trailing_blanks_is_named_without_them(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError, match=r"SECRET is (the name of a table that is )?not enabled"):
+        _run(client, sql)
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine", ["db2", "ibmi"])
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM \"EVENTS \"",
+    "SELECT COUNT(*) AS n FROM app.\"EVENTS  \" e",
+    "SELECT COUNT(*) AS \"n \" FROM events",
+])
+def test_an_enabled_name_with_trailing_blanks_runs_as_written(engine, sql):
+    client, sent = _client(engine)
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
+
+
+@pytest.mark.parametrize("engine", ["vertica", "sybase", "hana", "pinot"])
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM \"events \"",
+    "SELECT COUNT(*) AS \"n \" FROM events",
+])
+def test_a_quoted_name_with_trailing_blanks_is_refused_where_they_may_count(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError, match="blank"):
+        _run(client, sql)
+    assert sent == []
+
+
+# A string where a FROM clause names a table is refused as any other source
+# that is not a table.
+@pytest.mark.parametrize("engine", list(ENGINES))
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM 'x'",
+    "SELECT * FROM events e, 'x'",
+    "SELECT * FROM events e JOIN 'secret' s ON 1 = 1",
+    "SELECT * FROM ''",
+])
+def test_a_string_where_a_table_is_named_is_refused(engine, sql):
+    client, sent = _client(engine)
+    with pytest.raises(TableAccessError, match="Could not verify which tables this query reads"):
+        _run(client, sql)
+    assert sent == []
+
+
+# A catalog that stores bare names (Vertica, Pinot): a stored name holding
+# dots is read as `schema.table` at its first dot too, so no later part of
+# it is a table's name on its own.
+def _bare_catalog_client(engine):
+    client, sent = _client(engine)
+    schema = ENGINES[engine]["schema"]
+    setattr(client, TABLE_SCOPE_ATTR, TableScope.from_names(
+        active=["events", f"{schema}.sap.T1"], inactive=["secret", f"{schema}.hr.PAY"]))
+    return client, sent
+
+
+@pytest.mark.parametrize("engine", ["vertica", "pinot"])
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM t1",
+    "SELECT COUNT(*) AS n FROM sap.t1",
+    "SELECT COUNT(*) AS n FROM {schema}.t1",
+    "SELECT COUNT(*) AS n FROM {schema}.sap.t1",
+    "SELECT COUNT(*) AS n FROM otherdb.{schema}.events",
+    "SELECT COUNT(*) AS n FROM pay",
+    "SELECT COUNT(*) AS n FROM {schema}.pay",
+    "SELECT COUNT(*) AS n FROM events e JOIN t1 t ON e.id = t.id",
+])
+def test_a_later_part_of_a_stored_name_is_no_table_where_the_catalog_stores_bare_names(engine, sql):
+    client, sent = _bare_catalog_client(engine)
+    with pytest.raises(TableAccessError):
+        _run(client, sql.format(schema=ENGINES[engine]["schema"]))
+    assert sent == []
+
+
+@pytest.mark.parametrize("engine", ["vertica", "pinot"])
+@pytest.mark.parametrize("sql", ["SELECT COUNT(*) AS n FROM events", "SELECT COUNT(*) AS n FROM {schema}.events"])
+def test_a_bare_stored_name_still_runs_next_to_a_stored_name_holding_dots(engine, sql):
+    client, sent = _bare_catalog_client(engine)
+    sql = sql.format(schema=ENGINES[engine]["schema"])
+    df, _, _ = _run(client, sql)
+    assert df["n"].iloc[0] == 3
+    assert sent == [sql]
 
 
 # A catalog that stores `schema.table`: a table's name may hold dots. The
