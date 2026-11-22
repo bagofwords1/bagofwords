@@ -54,6 +54,35 @@ def test_what_the_classifier_cannot_read_is_unknown_not_additive(expression):
     assert _sql(expression).additive == UNKNOWN
 
 
+@pytest.mark.parametrize("expression", [
+    "SUM(cents / 100.0)", "SUM(cents) / 100.0", "SUM(cents / 100.0) + SUM(tips / 100.0)", "cents / 100.0",
+    "SUM(CASE WHEN paid THEN cents ELSE 0 END)", "SUM(cents / NULLIF(rate, 0))",
+])
+def test_what_happens_per_source_row_inside_a_sum_does_not_stop_the_sum_adding_up(expression):
+    """A division inside SUM, or by a constant, is a unit conversion, not a ratio of aggregates."""
+    assert _sql(expression).additive is True
+
+
+@pytest.mark.parametrize("expression", [
+    "SUM(cents) + 1", "1 + SUM(cents)", "SUM(cents) - 5", "COUNT(*) + 1", "SUM(a) + SUM(b) + 10",
+    "CAST(SUM(cents) + 1 AS BIGINT)",
+])
+def test_a_constant_added_to_an_aggregate_is_not_additive(expression):
+    """It is added once per group; summing twelve monthly rows would add it twelve times."""
+    verdict = _sql(expression)
+    assert verdict.additive is False and verdict.reason == additivity.OFFSET
+
+
+@pytest.mark.parametrize("expression", ["cents + 1", "price * quantity + 1", "amount - 5"])
+def test_a_constant_added_to_a_row_level_value_is_still_additive(expression):
+    assert _sql(expression).additive is True
+
+
+def test_summing_distinct_values_is_not_additive():
+    verdict = _sql("SUM(DISTINCT cents)")
+    assert verdict.additive is False and verdict.reason == DISTINCT
+
+
 def test_an_unparsed_expression_is_unknown():
     assert additivity.of_sql(None).additive == UNKNOWN
 
@@ -130,6 +159,11 @@ def test_dax_that_does_not_add_up_is_not_additive_and_says_why(expression, reaso
 ])
 def test_dax_the_classifier_cannot_read_is_unknown(expression):
     assert _dax(expression).additive == UNKNOWN
+
+
+@pytest.mark.parametrize("expression", ["[Total Sales] + 1", "SUM(Sales[Amount]) + 1", "COUNTROWS(Sales) - 1"])
+def test_a_dax_constant_offset_is_never_called_additive(expression):
+    assert _dax(expression).additive is not True
 
 
 def test_a_measure_reference_is_unknown_without_the_model():

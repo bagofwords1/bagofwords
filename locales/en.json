@@ -9092,6 +9092,7 @@
       "time_intelligence": "time intelligence",
       "share_of_total": "share of a total",
       "statistic": "statistic",
+      "offset": "constant added after aggregation",
       "unreadable": "definition not readable",
       "complex": "too complex to classify",
       "not_numeric": "not a number",

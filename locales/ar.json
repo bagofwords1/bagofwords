@@ -8126,6 +8126,7 @@
       "time_intelligence": "حسابات زمنية",
       "share_of_total": "حصة من إجمالي",
       "statistic": "إحصائية",
+      "offset": "ثابت أُضيف بعد التجميع",
       "unreadable": "التعريف غير مقروء",
       "complex": "معقد جدًا للتصنيف",
       "not_numeric": "ليس رقمًا",
