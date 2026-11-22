@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM-användning för denna konversation",
     "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
+    "tokensInOut": "in {input} / ut {output}",
+    "tokensIn": "In",
+    "tokensOut": "Ut",
+    "tokensCached": "Cachat",
+    "stepTokens": "Token",
+    "stepTokensTooltip": "Planerarens anrop för det här steget. Indata inkluderar cachade token. LLM-anrop inuti verktyget räknas inte.",
+    "modelUnknown": "Okänd modell",
+    "modelUnknownTooltip": "Ingen LLM-användning per anrop registrerades för den här körningen",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modeller i den här omgången",
+    "modelCalls": "{count} anrop | {count} anrop",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Automatisk routning körde de här anropen på {model} i stället för {baseline}",
+    "autoRoutedRunTooltip": "Automatisk routning var på för den här körningen",
+    "primaryModel": "Primär",
     "turnUsageTooltip": "LLM-användning för denna tur",
     "setup": "Förberedelse",
     "setupTooltip": "Tid från start till första steget (kontextbygge m.m.)",
@@ -1409,7 +1424,30 @@
       "copied": "Spårnings-JSON kopierad till urklipp",
       "failed": "Det gick inte att exportera spårningen"
     },
-    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar"
+    "hiddenTurns": "{count} senare tur dold: den eller en tidigare tur använde en agent du inte hanterar | {count} senare turer dolda: de eller en tidigare tur använde en agent du inte hanterar",
+    "contextColumns": {
+      "ofTotal": "{shown} av {total} kolumner",
+      "allColumns": "{total} kolumner",
+      "why": "Varför dessa kolumner",
+      "reason": {
+        "usage_ranked": "Rankade efter kolumnanvändning",
+        "structural_only": "Ingen användning än: nycklar, tidsstämplar och ID:n först",
+        "all_columns": "Alla kolumner ryms inom gränsen"
+      },
+      "signal": {
+        "mentioned": "{n} nämnda i uppgiften",
+        "usage": "{n} efter användning",
+        "instructions": "{n} refererade i instruktioner",
+        "structural": "{n} nycklar, tidsstämplar eller ID:n",
+        "sample": "{n} som urval ur kolumngrupperna",
+        "schema_order": "{n} i katalogordning"
+      },
+      "shown": "Kolumner i kontexten",
+      "folded": "Grupperade (sökbara med describe_tables)",
+      "otherColumns": "{count} andra kolumner",
+      "usedTimes": "använd {count}×",
+      "score": "poäng {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2351,19 @@
       "connected": "Ansluten",
       "askAgain": "Fråga igen",
       "readyHint": "Ansluten. Kör frågan igen för att använda den."
+    },
+    "describeTables": {
+      "searching": "Söker {query}…",
+      "searched": "Sökte {names}",
+      "searchedMore": "Sökte {names} +{count}",
+      "columnsMatching": "kolumner som matchar {terms}",
+      "column": "Kolumn",
+      "type": "Typ",
+      "used": "Användningar",
+      "showingOf": "De {shown} främsta av {total} kolumner, mest använda först",
+      "matchingOf": "{matched} av {total} kolumner matchar {terms}",
+      "noMatch": "Ingen kolumn matchar {terms}",
+      "more": "+{count} till"
     }
   },
   "entityCreate": {
@@ -3753,6 +3804,10 @@
         "show_world": {
           "name": "Världsvy",
           "description": "Visar en brytare på sidan Agenter som öppnar Värld: en karta över agenterna, kunskapen, källorna och arbetet som binder samman din organisation. Varje användare ser bara det hen har åtkomst till."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K kolumner per tabell",
+          "description": "Hur många kolumner i en bred tabell agenten ser i sin helhet i kontexten, rankade efter kolumnanvändning, referenser i instruktioner och nycklar/tidsstämplar. Resten sammanfattas per prefix och går att söka med describe_tables. 0 = ingen gräns."
         }
       },
       "permissionMode": {
@@ -5860,6 +5915,8 @@
       "colTools": "Verktyg",
       "colDuration": "Varaktighet",
       "colCost": "Kostnad",
+      "colModel": "Modell",
+      "pivotModel": "Visa körningar som använde den här modellen",
       "colFeedback": "Feedback",
       "expandRow": "Visa verktygsanrop",
       "pivotReport": "Visa den här konversationen",
@@ -6474,7 +6531,22 @@
     "reports": "Senaste rapporterna",
     "suggestInstruction": "Föreslå instruktion",
     "suggestInstructionWithQuery": "Föreslå instruktionen ”{query}”",
-    "suggestionHint": "skickad för granskning"
+    "suggestionHint": "skickad för granskning",
+    "placeholderInReport": "Sök i den här rapporten, rapporter, agenter, instruktioner…",
+    "inThisReport": "I den här rapporten",
+    "reportScopeHint": "Skriv report: för att bara söka i den här rapporten",
+    "reportPrefix": "rapport:",
+    "tabs": {
+      "all": "Alla",
+      "reports": "Rapporter",
+      "agents": "Agenter",
+      "instructions": "Instruktioner",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Kategorier",
+    "tabsHint": "kategorier",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Namnlös dashboard"
   },
   "promptParams": {
     "title": "Fyll i parametrar — {title}",
@@ -7074,7 +7146,10 @@
     "exitFullscreen": "Avsluta helskärm",
     "searchColumns": "Sök kolumner…",
     "noColumns": "Inga matchande kolumner",
-    "centrality": "Centralitet"
+    "centrality": "Centralitet",
+    "usedHeader": "Användningar",
+    "usedTooltip": "Körda frågor som använde kolumnen (misslyckade försök väger mindre i rankningen)",
+    "sortedByUsage": "Mest använda först"
   },
   "fork": {
     "preparing": "Förbereder din kopia…",
@@ -8083,5 +8158,56 @@
       }
     },
     "builtinBadge": "Inbyggd"
+  },
+  "cachedColumns": {
+    "title": "Kolumner",
+    "hint": "Beskrivningar och flaggan för omaggregering kommer från källkatalogen. Det du ändrar här behålls vid varje uppdatering.",
+    "column": "Kolumn",
+    "type": "Typ",
+    "description": "Beskrivning",
+    "details": "Detaljer",
+    "aggregation": "Omaggregering",
+    "descriptionPlaceholder": "Ingen beskrivning i källan. Beskriv kolumnen för agenten.",
+    "additive": "Additiv",
+    "notAdditive": "Inte additiv",
+    "unknown": "Okänd",
+    "additiveHint": "Värdena kan summeras över rader.",
+    "notAdditiveHint": "Att summera över rader ger ett felaktigt tal. Agenten får veta att den inte ska göra det.",
+    "unknownHint": "Kunde inte avgöras utifrån frågan. Välj ett alternativ så att agenten vet.",
+    "undecided": "Omaggregering kunde inte avgöras för: {columns}. Ange den så att agenten vet om de får summeras.",
+    "copiedFrom": "Kopierad från {source}",
+    "measureFrom": "Mått {source}",
+    "computedAs": "Beräknad: {expression}",
+    "edited": "Redigerad",
+    "editedHint": "Angiven av en administratör. En uppdatering ändrar den inte.",
+    "reset": "Återställ till källan",
+    "drift": "Definitionen har ändrats",
+    "driftHint": "Källdefinitionen för kolumnen har ändrats sedan tabellen senast beskrev den.",
+    "driftPrevious": "Tidigare: {expression}",
+    "markReviewed": "Markera som granskad",
+    "rlsTitle": "Källan använder säkerhet på radnivå",
+    "rlsBody": "{tables} skyddas av säkerhet på radnivå i källan. Den här kopian innehåller alla rader som anslutningen kan läsa, och källans roller följer inte med. Bestäm vem som ser vilka rader på fliken Säkerhet på radnivå.",
+    "rlsOpen": "Öppna Säkerhet på radnivå",
+    "rlsSaveFirst": "Tillgängligt när tabellen har sparats.",
+    "generatedDescription": "Genererad utifrån kolumnerna och hålls aktuell vid varje uppdatering. Redigera den för att skriva en egen.",
+    "reasons": {
+      "sum": "summa",
+      "count": "antal",
+      "numeric_column": "numeriskt värde",
+      "distinct_count": "antal unika",
+      "average": "medelvärde",
+      "ratio": "kvot",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "tidsintelligens",
+      "share_of_total": "andel av en total",
+      "statistic": "statistik",
+      "offset": "konstant adderad efter aggregering",
+      "unreadable": "definitionen kan inte läsas",
+      "complex": "för komplex för att klassificera",
+      "not_numeric": "inte ett tal",
+      "grouping_key": "grupperingsnyckel",
+      "key": "identifierare",
+      "set_by_admin": "angiven av en administratör"
+    }
   }
 }

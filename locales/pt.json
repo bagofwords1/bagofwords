@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM nesta conversa",
     "turnTokensTooltip": "Tokens LLM do planejador neste turno",
+    "tokensInOut": "entrada {input} / saída {output}",
+    "tokensIn": "Entrada",
+    "tokensOut": "Saída",
+    "tokensCached": "Em cache",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "Chamada do planejador nesta etapa. A entrada inclui tokens em cache. Chamadas de LLM feitas dentro da ferramenta não são contadas.",
+    "modelUnknown": "Modelo desconhecido",
+    "modelUnknownTooltip": "Nenhum uso de LLM por chamada foi registrado nesta execução",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelos neste turno",
+    "modelCalls": "{count} chamada | {count} chamadas",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "O roteamento automático executou estas chamadas com {model} em vez de {baseline}",
+    "autoRoutedRunTooltip": "O roteamento automático estava ativo nesta execução",
+    "primaryModel": "Principal",
     "turnUsageTooltip": "Uso de LLM neste turno",
     "setup": "Preparação",
     "setupTooltip": "Tempo do início até o primeiro passo (construção de contexto, etc.)",
@@ -1409,7 +1424,30 @@
       "copied": "JSON do rastreamento copiado para a área de transferência",
       "failed": "Não foi possível exportar o rastreamento"
     },
-    "hiddenTurns": "{count} turno posterior oculto: ele ou um anterior usou um agente que você não gerencia | {count} turnos posteriores ocultos: eles ou um anterior usaram um agente que você não gerencia"
+    "hiddenTurns": "{count} turno posterior oculto: ele ou um anterior usou um agente que você não gerencia | {count} turnos posteriores ocultos: eles ou um anterior usaram um agente que você não gerencia",
+    "contextColumns": {
+      "ofTotal": "{shown} de {total} colunas",
+      "allColumns": "{total} colunas",
+      "why": "Por que estas colunas",
+      "reason": {
+        "usage_ranked": "Ordenadas por uso das colunas",
+        "structural_only": "Ainda sem uso: chaves, carimbos de data/hora e IDs primeiro",
+        "all_columns": "Todas as colunas cabem no limite"
+      },
+      "signal": {
+        "mentioned": "{n} citadas na tarefa",
+        "usage": "{n} por uso",
+        "instructions": "{n} referenciadas por instruções",
+        "structural": "{n} chaves, carimbos de data/hora ou IDs",
+        "sample": "{n} amostradas entre grupos de colunas",
+        "schema_order": "{n} na ordem do catálogo"
+      },
+      "shown": "Colunas no contexto",
+      "folded": "Agrupadas (pesquisáveis com describe_tables)",
+      "otherColumns": "{count} outras colunas",
+      "usedTimes": "usada {count}×",
+      "score": "pontuação {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2351,19 @@
       "connected": "Conectado",
       "askAgain": "Perguntar novamente",
       "readyHint": "Conectado. Execute sua pergunta novamente para usá-lo."
+    },
+    "describeTables": {
+      "searching": "Pesquisando {query}…",
+      "searched": "Pesquisado {names}",
+      "searchedMore": "Pesquisado {names} +{count}",
+      "columnsMatching": "colunas que correspondem a {terms}",
+      "column": "Coluna",
+      "type": "Tipo",
+      "used": "Usos",
+      "showingOf": "As {shown} principais de {total} colunas, mais usadas primeiro",
+      "matchingOf": "{matched} de {total} colunas correspondem a {terms}",
+      "noMatch": "Nenhuma coluna corresponde a {terms}",
+      "more": "+{count} a mais"
     }
   },
   "entityCreate": {
@@ -3753,6 +3804,10 @@
         "show_world": {
           "name": "Vista Mundo",
           "description": "Mostra na página Agentes um botão que abre o Mundo: um mapa dos agentes, do conhecimento, das fontes e do trabalho que ligam a sua organização. Cada utilizador vê apenas aquilo a que tem acesso."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colunas por tabela",
+          "description": "Quantas colunas de uma tabela larga o agente vê por completo no contexto, ordenadas por uso das colunas, referências em instruções e chaves/carimbos de data/hora. O resto é resumido por prefixo e continua pesquisável com describe_tables. 0 = sem limite."
         }
       },
       "permissionMode": {
@@ -5860,6 +5915,8 @@
       "colTools": "Ferramentas",
       "colDuration": "Duração",
       "colCost": "Custo",
+      "colModel": "Modelo",
+      "pivotModel": "Mostrar execuções que usaram este modelo",
       "colFeedback": "Feedback",
       "expandRow": "Mostrar chamadas de ferramentas",
       "pivotReport": "Mostrar esta conversa",
@@ -6474,7 +6531,22 @@
     "reports": "Relatórios recentes",
     "suggestInstruction": "Sugerir instrução",
     "suggestInstructionWithQuery": "Sugerir a instrução “{query}”",
-    "suggestionHint": "enviada para revisão"
+    "suggestionHint": "enviada para revisão",
+    "placeholderInReport": "Buscar neste relatório, relatórios, agentes, instruções…",
+    "inThisReport": "Neste relatório",
+    "reportScopeHint": "Digite report: para buscar só neste relatório",
+    "reportPrefix": "relatório:",
+    "tabs": {
+      "all": "Tudo",
+      "reports": "Relatórios",
+      "agents": "Agentes",
+      "instructions": "Instruções",
+      "dashboards": "Painéis"
+    },
+    "tabsLabel": "Categorias",
+    "tabsHint": "categorias",
+    "dashboards": "Painéis",
+    "untitledDashboard": "Painel sem título"
   },
   "promptParams": {
     "title": "Preencha os parâmetros — {title}",
@@ -7074,7 +7146,10 @@
     "exitFullscreen": "Sair do ecrã inteiro",
     "searchColumns": "Pesquisar colunas…",
     "noColumns": "Nenhuma coluna correspondente",
-    "centrality": "Centralidade"
+    "centrality": "Centralidade",
+    "usedHeader": "Usos",
+    "usedTooltip": "Consultas executadas que usaram esta coluna (tentativas com falha pesam menos no ranking)",
+    "sortedByUsage": "Mais usadas primeiro"
   },
   "fork": {
     "preparing": "Preparando sua cópia…",
@@ -8083,5 +8158,56 @@
       }
     },
     "builtinBadge": "Integrada"
+  },
+  "cachedColumns": {
+    "title": "Colunas",
+    "hint": "As descrições e o indicador de reagregação vêm do catálogo de origem. O que alterar aqui é mantido em cada atualização.",
+    "column": "Coluna",
+    "type": "Tipo",
+    "description": "Descrição",
+    "details": "Detalhes",
+    "aggregation": "Reagregação",
+    "descriptionPlaceholder": "Sem descrição na origem. Descreva esta coluna para o agente.",
+    "additive": "Aditiva",
+    "notAdditive": "Não aditiva",
+    "unknown": "Desconhecida",
+    "additiveHint": "Os valores podem ser somados entre linhas.",
+    "notAdditiveHint": "Somar entre linhas dá um número errado. O agente é instruído a não o fazer.",
+    "unknownHint": "Não foi possível determinar a partir da consulta. Escolha uma opção para que o agente saiba.",
+    "undecided": "Não foi possível determinar a reagregação de: {columns}. Defina-a para que o agente saiba se podem ser somadas.",
+    "copiedFrom": "Copiada de {source}",
+    "measureFrom": "Medida {source}",
+    "computedAs": "Calculada: {expression}",
+    "edited": "Editada",
+    "editedHint": "Definida por um administrador. Uma atualização não a altera.",
+    "reset": "Repor o valor da origem",
+    "drift": "Definição alterada",
+    "driftHint": "A definição de origem desta coluna mudou desde a última vez que a tabela a descreveu.",
+    "driftPrevious": "Anteriormente: {expression}",
+    "markReviewed": "Marcar como revista",
+    "rlsTitle": "A origem usa segurança ao nível da linha",
+    "rlsBody": "{tables} está protegida por segurança ao nível da linha na origem. Esta cópia contém todas as linhas que a ligação consegue ler, e as funções da origem não são transportadas. Decida quem vê que linhas no separador Segurança ao nível da linha.",
+    "rlsOpen": "Abrir Segurança ao nível da linha",
+    "rlsSaveFirst": "Disponível depois de a tabela ser guardada.",
+    "generatedDescription": "Gerada a partir das colunas e mantida atualizada em cada atualização. Edite-a para escrever a sua.",
+    "reasons": {
+      "sum": "soma",
+      "count": "contagem",
+      "numeric_column": "valor numérico",
+      "distinct_count": "contagem de distintos",
+      "average": "média",
+      "ratio": "rácio",
+      "min_max": "mínimo / máximo",
+      "time_intelligence": "inteligência de tempo",
+      "share_of_total": "parte de um total",
+      "statistic": "estatística",
+      "offset": "constante somada após a agregação",
+      "unreadable": "definição ilegível",
+      "complex": "demasiado complexa para classificar",
+      "not_numeric": "não é um número",
+      "grouping_key": "chave de agrupamento",
+      "key": "identificador",
+      "set_by_admin": "definida por um administrador"
+    }
   }
 }

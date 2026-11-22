@@ -83,6 +83,8 @@ _SSE_HEARTBEAT_SECONDS = float(os.getenv("BOW_SSE_HEARTBEAT_SECONDS", "15"))
 # and treat several missed heartbeats as an abandoned lease. The generous lease
 # tolerates long LLM/tool awaits; the process-local registry protects runs owned
 # by this worker even if the database heartbeat temporarily fails.
+# Most completions one `until` page may return (GET /completions?until=).
+_UNTIL_MAX_COMPLETIONS = 500
 _COMPLETION_HEARTBEAT_SECONDS = float(os.getenv("BOW_COMPLETION_HEARTBEAT_SECONDS", "30"))
 _COMPLETION_STALE_AFTER_SECONDS = float(os.getenv("BOW_COMPLETION_STALE_AFTER_SECONDS", "300"))
 _ACTIVE_COMPLETION_RUNS: set[str] = set()
@@ -1251,6 +1253,7 @@ class CompletionService:
         current_user: User,
         limit: int = 10,
         before: str | None = None,
+        until: str | None = None,
     ) -> CompletionsV2Response:
         """Assemble v2 completions response efficiently with batched queries.
 
@@ -1258,6 +1261,8 @@ class CompletionService:
         then sorted ascending for UI render. If `before` is provided (the response's
         opaque `next_before` cursor: "<ISO8601>~<completion id>", or a bare ISO8601
         timestamp from older clients), fetches items strictly before that position.
+        If `until` (a completion id) is provided, the page is widened so it runs
+        down to and includes that completion.
         """
         from app.ai.llm.pii.display import display_redaction
         from app.dependencies import async_session_maker
@@ -1268,9 +1273,38 @@ class CompletionService:
             # the org redactor to this assembly so the shared sync serializers mask
             # content without per-call wiring.
             async with display_redaction(str(organization.id) if organization else None, async_session_maker):
-                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
+                return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before, until)
 
-    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
+    async def search_report_completions(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        organization: Organization,
+        query: str,
+        limit: int = 20,
+    ) -> list[dict]:
+        """Search this report's visible messages (all pages), newest first.
+
+        Snippets are PII-redacted exactly like the transcript, and the match
+        runs on the redacted text, so a viewer finds only what they can read.
+        """
+        from app.ai.llm.pii.display import display_redaction
+        from app.dependencies import async_session_maker
+        from app.services.report_message_search import search_report_messages
+
+        report_exists = await db.scalar(
+            select(Report.id).where(Report.id == report_id, Report.organization_id == organization.id)
+        )
+        if not report_exists:
+            raise HTTPException(status_code=404, detail="Report not found")
+        with tracer.start_as_current_span("completion.search_report_completions") as span:
+            span.set_attribute("report.id", str(report_id))
+            async with display_redaction(str(organization.id) if organization else None, async_session_maker):
+                hits = await search_report_messages(db, report_id, query, limit=limit)
+            span.set_attribute("search.hits", len(hits))
+            return hits
+
+    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before, until=None):
         # The route permission decorator already performs authorization. Keep
         # the service's defensive existence check, but do not build the full
         # ReportSchema (user, shares, agents, connections and count queries)
@@ -1284,20 +1318,9 @@ class CompletionService:
         # answers): (webhook_id OR trigger_source set) AND role='user'. The
         # visible event entry (role='external') and the agent reply
         # (role='system') still show.
-        completions_stmt = select(Completion).options(lazyload("*")).where(
-            Completion.report_id == report_id,
-            ~(
-                (Completion.webhook_id.isnot(None) | Completion.trigger_source.isnot(None))
-                & (Completion.role == 'user')
-            ),
-            # Sub-agent children (mode=subagent) are hidden completions: the
-            # parent's delegate card is their only surface in the timeline.
-            # NULL-safe: a plain `trigger_source == 'sub_agent'` is NULL for every
-            # ordinary row, and NOT NULL filters those rows out too.
-            (Completion.trigger_source.is_(None))
-            | (Completion.trigger_source != 'sub_agent')
-            | (Completion.role != 'system'),
-        )
+        # Sub-agent children are hidden as well (see visible_in_timeline).
+        from app.services.report_message_search import visible_in_timeline
+        conditions = [Completion.report_id == report_id, *visible_in_timeline()]
         if before:
             # Cursor is "<iso timestamp>~<completion id>" (see next_before below).
             # The id tiebreaker keeps pagination exact when several completions
@@ -1309,14 +1332,37 @@ class CompletionService:
                 ts_part, _, before_id = before.partition('~')
                 before_dt = _dt.fromisoformat(ts_part)
                 if before_id:
-                    completions_stmt = completions_stmt.where(
+                    conditions.append(
                         (Completion.created_at < before_dt)
                         | ((Completion.created_at == before_dt) & (Completion.id < before_id))
                     )
                 else:
-                    completions_stmt = completions_stmt.where(Completion.created_at < before_dt)
+                    conditions.append(Completion.created_at < before_dt)
             except Exception:
                 logger.warning(f"Ignoring unparseable completions cursor {before!r} for report {report_id}")
+        if until:
+            # Widen this page so it reaches down to (and includes) the
+            # completion `until`: the client jumps to an old message in one
+            # request instead of paging back N times. Capped; past the cap the
+            # page ends early and has_more/next_before let the client go on.
+            # An unknown or hidden id is ignored (a normal page comes back).
+            target = (await db.execute(
+                select(Completion.created_at, Completion.id).where(
+                    Completion.id == until,
+                    Completion.report_id == report_id,
+                    *visible_in_timeline(),
+                )
+            )).first()
+            if target is not None:
+                reach = await db.scalar(
+                    select(func.count(Completion.id)).where(
+                        *conditions,
+                        (Completion.created_at > target.created_at)
+                        | ((Completion.created_at == target.created_at) & (Completion.id >= target.id)),
+                    )
+                )
+                limit = max(limit, min(int(reach or 0), _UNTIL_MAX_COMPLETIONS))
+        completions_stmt = select(Completion).options(lazyload("*")).where(*conditions)
         # Order newest first (id desc as tiebreaker for identical timestamps so
         # page boundaries are deterministic), fetch one extra to determine has_more
         completions_stmt = completions_stmt.order_by(

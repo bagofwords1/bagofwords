@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, PrivateAttr
 from typing import Optional
 from app.ai.schemas.codegen import CodeGenContext
 
@@ -199,6 +199,16 @@ class TableColumn(BaseModel):
     is_active: bool = True
     description: str | None = None  # Column description/comment from database
     metadata: dict | None = None    # Source-specific metadata (formula, role, __typename, etc.)
+    # Column usage and rank, set by column_ranking for wide tables.
+    usage_count: int | None = None
+    success_count: int | None = None
+    failure_count: int | None = None
+    pos_feedback_count: int | None = None
+    neg_feedback_count: int | None = None
+    score: float | None = None
+    # Why the column ranks where it does: usage | instructions | structural | schema_order
+    selection_signal: str | None = None
+    referenced_by_instructions: bool | None = None
 
 
 class ForeignKey(BaseModel):
@@ -248,6 +258,17 @@ class Table(BaseModel):
     score: Optional[float] = None
     # Instruction reference count (how many instructions reference this table)
     referenced_instructions_count: Optional[int] = None
+    # Column cap: columns rendered in full in the agent's context
+    # (None = the default budget, <= 0 = no cap), and whether `columns` is
+    # already ordered best-first by column_ranking.
+    column_budget: Optional[int] = None
+    columns_ranked: bool = False
+    # column_ranking.curate_columns memo: (key, CuratedColumns). The planner
+    # render and the context snapshot both curate the same table.
+    _curated: Optional[tuple] = PrivateAttr(default=None)
+    # describe_tables column search result: {"terms": [...], "matched": K,
+    # "total": N}; `columns` then holds only the K matching columns.
+    column_match: Optional[dict] = None
     # Columns the agent manager hid from context (see
     # DataSourceTable.excluded_columns). Carried so late column fills — e.g.
     # describe_tables sampling a thin table live — re-apply the same filter.

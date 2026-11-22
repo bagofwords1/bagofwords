@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Utilisation du LLM pour cette conversation",
     "turnTokensTooltip": "Tokens LLM du planificateur pour ce tour",
+    "tokensInOut": "entrée {input} / sortie {output}",
+    "tokensIn": "Entrée",
+    "tokensOut": "Sortie",
+    "tokensCached": "En cache",
+    "stepTokens": "Jetons",
+    "stepTokensTooltip": "Appel du planificateur pour cette étape. L'entrée inclut les jetons en cache. Les appels LLM effectués dans l'outil ne sont pas comptés.",
+    "modelUnknown": "Modèle inconnu",
+    "modelUnknownTooltip": "Aucune utilisation LLM par appel n'a été enregistrée pour cette exécution",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modèles de ce tour",
+    "modelCalls": "{count} appel | {count} appels",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Le routage automatique a exécuté ces appels avec {model} au lieu de {baseline}",
+    "autoRoutedRunTooltip": "Le routage automatique était actif pour cette exécution",
+    "primaryModel": "Principal",
     "turnUsageTooltip": "Utilisation du LLM pour ce tour",
     "setup": "Préparation",
     "setupTooltip": "Temps entre le début et la première étape (construction du contexte, etc.)",
@@ -1409,7 +1424,30 @@
       "copied": "JSON de la trace copié dans le presse-papiers",
       "failed": "Impossible d'exporter la trace"
     },
-    "hiddenTurns": "{count} tour suivant masqué : lui ou un tour précédent a utilisé un agent que vous ne gérez pas | {count} tours suivants masqués : eux ou un tour précédent ont utilisé un agent que vous ne gérez pas"
+    "hiddenTurns": "{count} tour suivant masqué : lui ou un tour précédent a utilisé un agent que vous ne gérez pas | {count} tours suivants masqués : eux ou un tour précédent ont utilisé un agent que vous ne gérez pas",
+    "contextColumns": {
+      "ofTotal": "{shown} colonnes sur {total}",
+      "allColumns": "{total} colonnes",
+      "why": "Pourquoi ces colonnes",
+      "reason": {
+        "usage_ranked": "Classées par utilisation des colonnes",
+        "structural_only": "Pas encore d'utilisation : clés, horodatages et identifiants d'abord",
+        "all_columns": "Toutes les colonnes tiennent dans la limite"
+      },
+      "signal": {
+        "mentioned": "{n} citées dans la tâche",
+        "usage": "{n} par utilisation",
+        "instructions": "{n} citées par des instructions",
+        "structural": "{n} clés, horodatages ou identifiants",
+        "sample": "{n} échantillonnées dans chaque groupe de colonnes",
+        "schema_order": "{n} dans l'ordre du catalogue"
+      },
+      "shown": "Colonnes dans le contexte",
+      "folded": "Regroupées (recherchables avec describe_tables)",
+      "otherColumns": "{count} autres colonnes",
+      "usedTimes": "utilisée {count}×",
+      "score": "score {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2351,19 @@
       "connected": "Connecté",
       "askAgain": "Redemander",
       "readyHint": "Connecté. Relancez votre question pour l’utiliser."
+    },
+    "describeTables": {
+      "searching": "Recherche de {query}…",
+      "searched": "Recherché {names}",
+      "searchedMore": "Recherché {names} +{count}",
+      "columnsMatching": "colonnes correspondant à {terms}",
+      "column": "Colonne",
+      "type": "Type",
+      "used": "Utilisations",
+      "showingOf": "Les {shown} premières colonnes sur {total}, les plus utilisées d'abord",
+      "matchingOf": "{matched} colonnes sur {total} correspondent à {terms}",
+      "noMatch": "Aucune colonne ne correspond à {terms}",
+      "more": "+{count} de plus"
     }
   },
   "entityCreate": {
@@ -3753,6 +3804,10 @@
         "show_world": {
           "name": "Vue Monde",
           "description": "Affiche sur la page Agents un interrupteur qui ouvre Monde : une carte des agents, des connaissances, des sources et du travail qui relient votre organisation. Chaque utilisateur ne voit que ce à quoi il a accès."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colonnes par table",
+          "description": "Nombre de colonnes d'une table large que l'agent voit en entier dans son contexte, classées par utilisation, références dans les instructions et clés/horodatages. Les autres sont résumées par préfixe et restent recherchables avec describe_tables. 0 = sans limite."
         }
       },
       "permissionMode": {
@@ -5860,6 +5915,8 @@
       "colTools": "Outils",
       "colDuration": "Durée",
       "colCost": "Coût",
+      "colModel": "Modèle",
+      "pivotModel": "Afficher les exécutions ayant utilisé ce modèle",
       "colFeedback": "Retour",
       "expandRow": "Afficher les appels d'outils",
       "pivotReport": "Afficher cette conversation",
@@ -6474,7 +6531,22 @@
     "reports": "Rapports récents",
     "suggestInstruction": "Suggérer une instruction",
     "suggestInstructionWithQuery": "Suggérer l'instruction « {query} »",
-    "suggestionHint": "envoyé pour révision"
+    "suggestionHint": "envoyé pour révision",
+    "placeholderInReport": "Rechercher dans ce rapport, les rapports, agents, instructions…",
+    "inThisReport": "Dans ce rapport",
+    "reportScopeHint": "Tapez report: pour chercher uniquement dans ce rapport",
+    "reportPrefix": "rapport:",
+    "tabs": {
+      "all": "Tout",
+      "reports": "Rapports",
+      "agents": "Agents",
+      "instructions": "Instructions",
+      "dashboards": "Tableaux de bord"
+    },
+    "tabsLabel": "Catégories",
+    "tabsHint": "catégories",
+    "dashboards": "Tableaux de bord",
+    "untitledDashboard": "Tableau de bord sans titre"
   },
   "promptParams": {
     "title": "Renseignez les paramètres — {title}",
@@ -7074,7 +7146,10 @@
     "exitFullscreen": "Quitter le plein écran",
     "searchColumns": "Rechercher des colonnes…",
     "noColumns": "Aucune colonne correspondante",
-    "centrality": "Centralité"
+    "centrality": "Centralité",
+    "usedHeader": "Utilisations",
+    "usedTooltip": "Requêtes exécutées ayant utilisé cette colonne (les échecs comptent moins dans le classement)",
+    "sortedByUsage": "Les plus utilisées d'abord"
   },
   "fork": {
     "preparing": "Préparation de votre copie…",
@@ -8083,5 +8158,56 @@
       }
     },
     "builtinBadge": "Intégré"
+  },
+  "cachedColumns": {
+    "title": "Colonnes",
+    "hint": "Les descriptions et l’indicateur de réagrégation proviennent du catalogue source. Ce que vous modifiez ici est conservé à chaque actualisation.",
+    "column": "Colonne",
+    "type": "Type",
+    "description": "Description",
+    "details": "Détails",
+    "aggregation": "Réagrégation",
+    "descriptionPlaceholder": "Aucune description à la source. Décrivez cette colonne pour l’agent.",
+    "additive": "Additive",
+    "notAdditive": "Non additive",
+    "unknown": "Inconnue",
+    "additiveHint": "Les valeurs peuvent être additionnées entre les lignes.",
+    "notAdditiveHint": "Additionner entre les lignes donne un nombre faux. L’agent en est averti.",
+    "unknownHint": "Impossible à déterminer à partir de la requête. Choisissez une option pour que l’agent le sache.",
+    "undecided": "La réagrégation n’a pas pu être déterminée pour : {columns}. Définissez-la pour que l’agent sache si elles peuvent être additionnées.",
+    "copiedFrom": "Copiée depuis {source}",
+    "measureFrom": "Mesure {source}",
+    "computedAs": "Calculée : {expression}",
+    "edited": "Modifiée",
+    "editedHint": "Définie par un administrateur. Une actualisation ne la changera pas.",
+    "reset": "Rétablir la valeur source",
+    "drift": "Définition modifiée",
+    "driftHint": "La définition source de cette colonne a changé depuis la dernière description par la table.",
+    "driftPrevious": "Auparavant : {expression}",
+    "markReviewed": "Marquer comme vérifiée",
+    "rlsTitle": "La source utilise la sécurité au niveau des lignes",
+    "rlsBody": "{tables} est protégée par la sécurité au niveau des lignes à la source. Cette copie contient toutes les lignes que la connexion peut lire, et les rôles de la source ne sont pas repris. Décidez qui voit quelles lignes dans l’onglet Sécurité au niveau des lignes.",
+    "rlsOpen": "Ouvrir Sécurité au niveau des lignes",
+    "rlsSaveFirst": "Disponible une fois la table enregistrée.",
+    "generatedDescription": "Générée à partir des colonnes et tenue à jour à chaque actualisation. Modifiez-la pour écrire la vôtre.",
+    "reasons": {
+      "sum": "somme",
+      "count": "nombre",
+      "numeric_column": "valeur numérique",
+      "distinct_count": "nombre de valeurs distinctes",
+      "average": "moyenne",
+      "ratio": "ratio",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "intelligence temporelle",
+      "share_of_total": "part d’un total",
+      "statistic": "statistique",
+      "offset": "constante ajoutée après agrégation",
+      "unreadable": "définition illisible",
+      "complex": "trop complexe à classer",
+      "not_numeric": "pas un nombre",
+      "grouping_key": "clé de regroupement",
+      "key": "identifiant",
+      "set_by_admin": "définie par un administrateur"
+    }
   }
 }

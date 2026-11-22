@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduler import scheduler
 from app.core.telemetry import telemetry
 from app.data_sources.fast import artifacts, extractor, incremental, loader, rls
+from app.data_sources.fast import column_metadata, lineage
 from app.data_sources.fast import events as table_events
 from app.data_sources.fast import limits as fast_limits
 from app.ee.license import has_feature
@@ -113,6 +114,12 @@ logger = logging.getLogger(__name__)
 # fake endpoints only; neither has been run against a live server. They are
 # offered acceleration as queryable connectors (`is_accelerable_type`) and are
 # deliberately in neither set below.
+#
+# Priority ERP (fast/priority_erp_source.py) is the same: a native source
+# (one form paged with $top/$skip, checked against $count where the server
+# answers it), designed from Priority's public REST documentation and tested
+# against a fake endpoint only. Not run against a live server, so in neither
+# set.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
                   "bigquery", "mssql", "oracledb", "posthog", "powerbi",
                   "clickhouse"}
@@ -459,6 +466,34 @@ class CustomQueryService:
                 ),
             )
 
+    @staticmethod
+    def ensure_definition_allowed(connection: Connection, definition_sql: str, tables: list = None) -> None:
+        """A connector's own rules for what a custom table may be defined as,
+        checked before a row is stored.
+
+        Most connectors have none: the query is whatever the source accepts,
+        and a bad one fails its preview. A connector that must refuse
+        something the source itself would run (Priority's unbounded $expand)
+        declares `check_custom_table_definition`, and it is a 400 here rather
+        than a table saved with a failed first load. `tables` is the
+        connection's indexed catalog (see `_catalog_rows`), for a rule that
+        depends on what a name is there.
+        """
+        kind = (getattr(connection, "type", None) or "").lower()
+        try:
+            from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+            key = next((k for k in REGISTRY if k.lower() == kind), None)
+            check = getattr(resolve_client_class(key), "check_custom_table_definition", None) if key else None
+        except Exception:
+            return
+        if not callable(check):
+            return
+        try:
+            check(definition_sql, tables)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     # -- extraction targets -------------------------------------------------
     #
     # Most sources need nothing beyond the query text: the connection IS the
@@ -488,6 +523,20 @@ class CustomQueryService:
         return meta
 
     @staticmethod
+    def _metadata_with_overrides(existing, columns) -> dict:
+        """`columns` is the admin's complete set of column edits (the API's
+        list form); it replaces whatever was stored. None leaves it alone."""
+        meta = dict(existing) if isinstance(existing, dict) else {}
+        if columns is None:
+            return meta
+        overrides = column_metadata.clean_overrides(columns)
+        if overrides:
+            meta["column_overrides"] = overrides
+        else:
+            meta.pop("column_overrides", None)
+        return meta
+
+    @staticmethod
     def _needs_catalog(client) -> bool:
         # Clients addressed per target (a Power BI semantic model, an Analysis
         # Services catalog) resolve it from the connection's indexed catalog.
@@ -514,6 +563,12 @@ class CustomQueryService:
         client.extraction_limits = await self.limits_for(db, connection)
         if not self._needs_catalog(client):
             return
+        client.attach_table_metadata(await self._catalog_rows(db, connection))
+        client.extraction_target = dict(target) if target else None
+
+    @staticmethod
+    async def _catalog_rows(db: AsyncSession, connection: Connection) -> list:
+        """The connection's indexed tables as `{"name", "metadata_json"}` rows."""
         rows = (
             await db.execute(
                 select(ConnectionTable.name, ConnectionTable.metadata_json).where(
@@ -523,10 +578,20 @@ class CustomQueryService:
                 )
             )
         ).all()
-        client.attach_table_metadata(
-            [{"name": name, "metadata_json": meta} for name, meta in rows]
-        )
-        client.extraction_target = dict(target) if target else None
+        return [{"name": name, "metadata_json": meta} for name, meta in rows]
+
+    async def _check_definition(self, db: AsyncSession, connection: Connection, definition_sql: str) -> None:
+        """`ensure_definition_allowed`, with the catalog for a connector that has rules."""
+        from app.schemas.data_source_registry import REGISTRY, resolve_client_class
+
+        kind = (connection.type or "").lower()
+        key = next((k for k in REGISTRY if k.lower() == kind), None)
+        try:
+            declared = key and callable(getattr(resolve_client_class(key), "check_custom_table_definition", None))
+        except Exception:
+            declared = False
+        if declared:
+            self.ensure_definition_allowed(connection, definition_sql, await self._catalog_rows(db, connection))
 
     @staticmethod
     async def limits_for(db: AsyncSession, connection: Connection) -> fast_limits.FastLimits:
@@ -541,6 +606,107 @@ class CustomQueryService:
             )
         ).scalars().first()
         return fast_limits.resolve(row)
+
+    # -- column metadata ----------------------------------------------------
+    #
+    # What each column means is inherited from the connection's indexed
+    # catalog (fast/lineage.py, fast/column_metadata.py). Nothing here asks the
+    # source anything: it reads rows indexing already stored.
+
+    # Past this many catalog tables a definition is not matched against: a
+    # definition that plausibly names thousands of tables names none we can
+    # be sure of.
+    LINEAGE_TABLE_LIMIT = 2000
+
+    @staticmethod
+    def overrides_of(cq: ConnectionTable) -> dict:
+        """The admin's per-column edits: `{column: {description?, additive?}}`."""
+        meta = cq.metadata_json if isinstance(cq.metadata_json, dict) else {}
+        raw = meta.get("column_overrides")
+        return dict(raw) if isinstance(raw, dict) else {}
+
+    async def _catalog_for(self, db: AsyncSession, connection: Connection, definition: str) -> list:
+        """The indexed tables `definition` could read, with their columns."""
+        names = (
+            await db.execute(
+                select(ConnectionTable.id, ConnectionTable.name, ConnectionTable.metadata_json).where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_TABLE,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        if lineage.family_of(connection.type) == lineage.FAMILY_DAX:
+            # A measure reference does not name the table that holds it, so
+            # the whole model is needed.
+            wanted = [row.id for row in names]
+        else:
+            wanted = [row.id for row in names if lineage.mentions(definition, row.name, row.metadata_json)]
+        if not wanted or len(wanted) > self.LINEAGE_TABLE_LIMIT:
+            return []
+        rows = (
+            await db.execute(select(ConnectionTable).where(ConnectionTable.id.in_(wanted)))
+        ).scalars().all()
+        return [
+            {"name": r.name, "columns": r.columns or [], "pks": r.pks or [], "fks": r.fks or [],
+             "metadata_json": r.metadata_json}
+            for r in rows
+        ]
+
+    async def describe_columns(
+        self, db: AsyncSession, connection: Connection, *, definition: str, target: Optional[dict],
+        columns: list, previous: Optional[list] = None, overrides: Optional[dict] = None,
+    ) -> column_metadata.Enriched:
+        """`columns` with what the catalog knows about each one's origin.
+
+        Never raises: a table whose columns cannot be described is still a
+        table. On failure the previous descriptions are kept as they were.
+        """
+        plain = [{"name": c.get("name"), "dtype": c.get("dtype")} for c in columns or [] if isinstance(c, dict)]
+        try:
+            tables = await self._catalog_for(db, connection, definition or "")
+            found = lineage.trace(definition or "", tables, connection.type,
+                                  [c["name"] for c in plain], target)
+            return column_metadata.enrich(plain, found, tables, previous=previous, overrides=overrides)
+        except Exception:
+            logger.warning("custom_query.column_metadata_failed", exc_info=True)
+            before = {str(c.get("name")).lower(): c for c in previous or [] if isinstance(c, dict)}
+            kept = [{**before.get(str(c["name"]).lower(), {}), **c} for c in plain]
+            return column_metadata.Enriched(columns=kept)
+
+    @staticmethod
+    def _described(cq: ConnectionTable, connection: Connection, enriched: column_metadata.Enriched,
+                   metadata_json) -> dict:
+        """`metadata_json` with the table-level facts of a description pass."""
+        meta = dict(metadata_json) if isinstance(metadata_json, dict) else {}
+        meta["generated_description"] = column_metadata.describe_table(
+            enriched.columns, sources=enriched.sources, connection_name=connection.name,
+            schedule=column_metadata.schedule_text(
+                cq.refresh_schedule_mode, cq.refresh_interval_minutes, cq.refresh_at_time),
+            aggregated=enriched.aggregated,
+        )
+        meta["lineage"] = {"sources": enriched.sources, "rls_sources": enriched.rls_sources,
+                           "aggregated": enriched.aggregated}
+        return meta
+
+    async def redescribe(self, db: AsyncSession, connection: Connection, cq: ConnectionTable,
+                         acknowledge_drift=()) -> None:
+        """Describe the stored columns again without reloading any data: after
+        an admin edited a column, changed the schedule, or reviewed a drift
+        flag."""
+        await db.refresh(cq)
+        if cq.deleted_at is not None or not cq.columns:
+            return
+        previous = column_metadata.acknowledge_drift(cq.columns, acknowledge_drift)
+        enriched = await self.describe_columns(
+            db, connection, definition=cq.definition_sql or "", target=self.target_of(cq),
+            columns=cq.columns, previous=previous, overrides=self.overrides_of(cq),
+        )
+        cq.columns = enriched.columns
+        cq.metadata_json = self._described(cq, connection, enriched, cq.metadata_json)
+        await db.commit()
+        await db.refresh(cq)
+        await self._sync_activations(db, cq)
 
     async def list_targets(self, db: AsyncSession, connection: Connection) -> list:
         """The semantic models a custom table on this connection can target.
@@ -674,6 +840,7 @@ class CustomQueryService:
         current_user: User = None,
         target: dict = None,
         refresh_config: dict = None,
+        schedule: dict = None,
     ) -> dict:
         """Run the admin's SQL bounded to 100 rows and return columns + rows.
 
@@ -683,6 +850,7 @@ class CustomQueryService:
         self.ensure_accelerable(connection)
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        written_sql = definition_sql
 
         client = await self.connection_service.construct_client(
             db, connection, current_user
@@ -720,8 +888,22 @@ class CustomQueryService:
         except extractor.ExtractionRefused as e:
             refused = str(e)
 
+        # What the catalog already knows about these columns, so the admin
+        # sees (and can correct) it before anything is saved.
+        enriched = await self.describe_columns(
+            db, connection, definition=written_sql, target=target, columns=cols)
+        schedule = schedule or {}
         return {
-            "columns": cols,
+            "columns": enriched.columns if len(enriched.columns) == len(cols) else cols,
+            "suggested_description": column_metadata.describe_table(
+                enriched.columns, sources=enriched.sources, connection_name=connection.name,
+                schedule=column_metadata.schedule_text(
+                    schedule.get("refresh_schedule_mode"), schedule.get("refresh_interval_minutes"),
+                    schedule.get("refresh_at_time")),
+                aggregated=enriched.aggregated,
+            ),
+            "sources": enriched.sources,
+            "rls_sources": enriched.rls_sources,
             "rows": [[_jsonable(v) for v in r] for r in rows],
             "row_limit": extractor.PREVIEW_ROW_LIMIT,
             "truncated": len(rows) >= extractor.PREVIEW_ROW_LIMIT,
@@ -911,6 +1093,7 @@ class CustomQueryService:
         target: dict = None,
         refresh_mode: str = None,
         refresh_config: dict = None,
+        columns: list = None,
     ) -> ConnectionTable:
         self.ensure_accelerable(connection)
         name = self.validate_name(name)
@@ -918,6 +1101,7 @@ class CustomQueryService:
 
         if not (definition_sql or "").strip():
             raise HTTPException(status_code=400, detail="Query cannot be empty")
+        await self._check_definition(db, connection, definition_sql)
         refresh_config = dict(refresh_config or {})
         # New tables get the row-drop guard unless the admin said otherwise
         # (an explicit null turns it off); ones that predate it keep
@@ -939,7 +1123,8 @@ class CustomQueryService:
             fks=[],
             no_rows=0,
             last_refresh_status="pending",
-            metadata_json=self._metadata_with_target({}, target),
+            metadata_json=self._metadata_with_overrides(
+                self._metadata_with_target({}, target), columns),
             refresh_mode=config.mode,
             refresh_config=config.to_dict(),
         )
@@ -1048,6 +1233,7 @@ class CustomQueryService:
         target: dict = ...,
         refresh_mode: str = None,
         refresh_config: dict = None,
+        columns: list = None,
     ) -> ConnectionTable:
         sql_changed = False
         before = incremental.RefreshConfig.from_row(cq)
@@ -1057,12 +1243,18 @@ class CustomQueryService:
             if new_meta != (cq.metadata_json or {}):
                 cq.metadata_json = new_meta
                 sql_changed = True
+        if columns is not None:
+            # Column edits are settings, not data: they never force a reload.
+            edited_meta = self._metadata_with_overrides(cq.metadata_json, columns)
+            if edited_meta != (cq.metadata_json or {}):
+                cq.metadata_json = edited_meta
         if name is not None and name != cq.name:
             name = self.validate_name(name)
             await self._ensure_name_free(db, connection.id, name, exclude_id=cq.id)
             cq.name = name
             sql_changed = True
         if definition_sql is not None and definition_sql != cq.definition_sql:
+            await self._check_definition(db, connection, definition_sql)
             cq.definition_sql = definition_sql
             sql_changed = True
         if description is not None:
@@ -1089,9 +1281,17 @@ class CustomQueryService:
         await db.commit()
         await db.refresh(cq)
 
+        reviewed = [
+            c.get("name") for c in columns or []
+            if isinstance(c, dict) and c.get("acknowledge_drift")
+        ]
         if sql_changed:
             await self.refresh(db, connection, cq, current_user=current_user,
                                trigger=TRIGGER_DEFINITION)
+        if not sql_changed or reviewed:
+            # Nothing was reloaded, but an edited column, a new schedule or a
+            # reviewed drift flag all change what the table says about itself.
+            await self.redescribe(db, connection, cq, acknowledge_drift=reviewed)
         # Delete may have won while the refresh was queued: reload before
         # touching the shared job store (404 if the row is gone). The volume
         # lock is the wrong guard here, it does not reach replicas on another
@@ -1779,6 +1979,17 @@ class CustomQueryService:
         db, cq = run.db, run.cq
         old_path = cq.artifact_path
         new_state = self._next_state(run, res, full)
+        # Describe the columns from the catalog as it is now: a reworded
+        # comment follows, an admin's edit stays, a moved definition is flagged.
+        # Read the row again first so edits made while this ran are seen.
+        with suppress(Exception):
+            await db.refresh(cq)
+        enriched = await self.describe_columns(
+            db, run.connection, definition=cq.definition_sql or "", target=self.target_of(cq),
+            columns=res.columns, previous=cq.columns, overrides=self.overrides_of(cq),
+        )
+        for moved in enriched.drift:
+            run.note(moved["message"], "warning")
         try:
             # Conditional on the row still being live: delete takes no
             # lock, so it may have soft-deleted this table mid-extraction.
@@ -1794,7 +2005,7 @@ class CustomQueryService:
                     artifact_path=res.artifact_path,
                     artifact_key_enc=artifacts.encrypt_key(res.artifact_key),
                     artifact_bytes=res.artifact_bytes,
-                    columns=res.columns,
+                    columns=enriched.columns,
                     no_rows=res.row_count,
                     last_refreshed_at=datetime.utcnow(),
                     last_refresh_status="ok",
@@ -1853,6 +2064,12 @@ class CustomQueryService:
         # the schema context reads; leaving them stale would show agents the
         # previous shape of the relation.
         try:
+            await db.refresh(cq)
+            # Merged into the row as it is now, in a statement of its own: the
+            # admin's edits live in the same JSON and must not be overwritten
+            # by a copy read before the load began.
+            cq.metadata_json = self._described(cq, run.connection, enriched, cq.metadata_json)
+            await db.commit()
             await db.refresh(cq)
             await self._sync_activations(db, cq)
         finally:

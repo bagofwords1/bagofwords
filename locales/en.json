@@ -530,7 +530,22 @@
     "instructions": "Instructions",
     "emptyLabel": "Start typing to search",
     "emptyQueryLabel": "No results found",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "placeholderInReport": "Search this report, reports, agents, instructions…",
+    "inThisReport": "In this report",
+    "reportScopeHint": "Type report: to search only this report",
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "All",
+      "reports": "Reports",
+      "agents": "Agents",
+      "instructions": "Instructions",
+      "dashboards": "Dashboards"
+    },
+    "tabsLabel": "Categories",
+    "tabsHint": "categories",
+    "dashboards": "Dashboards",
+    "untitledDashboard": "Untitled dashboard"
   },
   "smoke": {
     "hello": "Hello",
@@ -1424,6 +1439,21 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM usage for this conversation",
     "turnTokensTooltip": "Planner LLM tokens for this turn",
+    "tokensInOut": "in {input} / out {output}",
+    "tokensIn": "In",
+    "tokensOut": "Out",
+    "tokensCached": "Cached",
+    "stepTokens": "Tokens",
+    "stepTokensTooltip": "This step's planner call. Input includes cached tokens. LLM calls made inside the tool are not counted.",
+    "modelUnknown": "Unknown model",
+    "modelUnknownTooltip": "No per-call LLM usage was recorded for this run",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Models in this turn",
+    "modelCalls": "{count} call | {count} calls",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Auto routing ran these calls on {model} instead of {baseline}",
+    "autoRoutedRunTooltip": "Auto routing was on for this run",
+    "primaryModel": "Primary",
     "turnUsageTooltip": "LLM usage for this turn",
     "setup": "Setup",
     "setupTooltip": "Time from run start until the first step began (context building, etc.)",
@@ -1514,7 +1544,30 @@
       "copied": "Trace JSON copied to clipboard",
       "failed": "Couldn't export the trace"
     },
-    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage"
+    "hiddenTurns": "{count} later turn hidden: it or an earlier turn reached an agent you don't manage | {count} later turns hidden: they or an earlier turn reached an agent you don't manage",
+    "contextColumns": {
+      "ofTotal": "{shown} of {total} columns",
+      "allColumns": "{total} columns",
+      "why": "Why these columns",
+      "reason": {
+        "usage_ranked": "Ranked by column usage",
+        "structural_only": "No usage yet: keys, timestamps and IDs first",
+        "all_columns": "All columns fit the budget"
+      },
+      "signal": {
+        "mentioned": "{n} named in the task",
+        "usage": "{n} by usage",
+        "instructions": "{n} referenced by instructions",
+        "structural": "{n} keys, timestamps or IDs",
+        "sample": "{n} sampled across column groups",
+        "schema_order": "{n} in catalog order"
+      },
+      "shown": "Columns in context",
+      "folded": "Folded (searchable with describe_tables)",
+      "otherColumns": "{count} other columns",
+      "usedTimes": "used {count}×",
+      "score": "score {score}"
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2655,6 +2708,19 @@
       "connected": "Connected",
       "askAgain": "Ask again",
       "readyHint": "Connected. Run your question again to use it."
+    },
+    "describeTables": {
+      "searching": "Searching {query}…",
+      "searched": "Searched {names}",
+      "searchedMore": "Searched {names} +{count}",
+      "columnsMatching": "columns matching {terms}",
+      "column": "Column",
+      "type": "Type",
+      "used": "Used",
+      "showingOf": "Top {shown} of {total} columns, most used first",
+      "matchingOf": "{matched} of {total} columns match {terms}",
+      "noMatch": "No column matches {terms}",
+      "more": "+{count} more"
     }
   },
   "entityCreate": {
@@ -4318,6 +4384,10 @@
         "show_world": {
           "name": "World view",
           "description": "Show a switch on the Agents page that opens World: a map of the agents, knowledge, sources and work that connect your organization. Each user sees only what they can access."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K columns per table",
+          "description": "How many columns of a wide table the agent sees in full in its context, ranked by column usage, instruction references and keys/timestamps. The rest are summarized by prefix and stay searchable with describe_tables. 0 = no limit."
         }
       },
       "permissionMode": {
@@ -6688,6 +6758,8 @@
       "colTools": "Tools",
       "colDuration": "Duration",
       "colCost": "Cost",
+      "colModel": "Model",
+      "pivotModel": "Show runs that used this model",
       "colFeedback": "Feedback",
       "expandRow": "Show tool calls",
       "pivotReport": "Show this conversation",
@@ -7784,7 +7856,10 @@
     "showAllColumns": "Show all",
     "hideAllColumns": "Hide all",
     "includeColumn": "Include {name} in agent context",
-    "columnHidden": "hidden"
+    "columnHidden": "hidden",
+    "usedHeader": "Used",
+    "usedTooltip": "Executed queries that used this column (failed attempts count less in ranking)",
+    "sortedByUsage": "Most used first"
   },
   "fork": {
     "preparing": "Preparing your copy…",
@@ -9049,5 +9124,56 @@
       }
     },
     "builtinBadge": "Built-in"
+  },
+  "cachedColumns": {
+    "title": "Columns",
+    "hint": "Descriptions and the re-aggregation flag come from the source catalog. Anything you change here is kept on every refresh.",
+    "column": "Column",
+    "type": "Type",
+    "description": "Description",
+    "details": "Details",
+    "aggregation": "Re-aggregation",
+    "descriptionPlaceholder": "No description at the source. Describe this column for the agent.",
+    "additive": "Additive",
+    "notAdditive": "Not additive",
+    "unknown": "Unknown",
+    "additiveHint": "Values can be summed across rows.",
+    "notAdditiveHint": "Summing across rows gives a wrong number. The agent is told not to.",
+    "unknownHint": "Could not be determined from the query. Choose one so the agent knows.",
+    "undecided": "Re-aggregation could not be determined for: {columns}. Set it so the agent knows whether these may be summed.",
+    "copiedFrom": "Copied from {source}",
+    "measureFrom": "Measure {source}",
+    "computedAs": "Computed: {expression}",
+    "edited": "Edited",
+    "editedHint": "Set by an admin. A refresh will not change it.",
+    "reset": "Reset to source",
+    "drift": "Definition changed",
+    "driftHint": "The source definition of this column changed since the table last described it.",
+    "driftPrevious": "Previously: {expression}",
+    "markReviewed": "Mark reviewed",
+    "rlsTitle": "The source uses row-level security",
+    "rlsBody": "{tables} is protected by row-level security at the source. This copy holds every row the connection can read, and source roles are not carried over. Decide who sees which rows on the Row-level security tab.",
+    "rlsOpen": "Open Row-level security",
+    "rlsSaveFirst": "Available once the table is saved.",
+    "generatedDescription": "Generated from the columns and kept up to date on each refresh. Edit it to write your own.",
+    "reasons": {
+      "sum": "sum",
+      "count": "count",
+      "numeric_column": "numeric value",
+      "distinct_count": "distinct count",
+      "average": "average",
+      "ratio": "ratio",
+      "min_max": "minimum / maximum",
+      "time_intelligence": "time intelligence",
+      "share_of_total": "share of a total",
+      "statistic": "statistic",
+      "offset": "constant added after aggregation",
+      "unreadable": "definition not readable",
+      "complex": "too complex to classify",
+      "not_numeric": "not a number",
+      "grouping_key": "grouping key",
+      "key": "identifier",
+      "set_by_admin": "set by an admin"
+    }
   }
 }

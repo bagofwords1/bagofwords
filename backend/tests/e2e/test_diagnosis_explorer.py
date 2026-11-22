@@ -61,7 +61,8 @@ def world(create_user, login_user, whoami, create_report, seed_agent_executions,
              status="success", duration_ms=4_900, judge={"response": 5, "instructions": 5, "context": 5},
              feedback={"direction": 1},
              tools=[{"name": "create_data", "action": "execute_sql", "status": "success", "duration_ms": 1_100}],
-             usage=[{"model": "claude-haiku", "provider": "anthropic", "prompt_tokens": 3_000, "completion_tokens": 500, "cost": 0.03}]),
+             usage=[{"model": "claude-haiku", "provider": "anthropic", "prompt_tokens": 3_000, "completion_tokens": 500, "cost": 0.03,
+                     "routed": True, "baseline_model": "claude-sonnet"}]),
         # 2: success but a failed *other* tool (search_reports), no feedback
         dict(user_id=member_id, prompt="Which PRs were merged last week without a review?", created_at=NOW - timedelta(days=3),
              status="success", duration_ms=6_300, judge={"response": 4, "instructions": 2, "context": 4},
@@ -187,6 +188,18 @@ FIELD_CASES = [
     ("judge.context:3..4", [0, 2, 3, 5, "o0", "o1"]),  # unscored runs carry the default 4
     ("judge.context:<4", [0]),
     ("model:gpt-4.1", [0, 2, 3]),
+    # model: is the planner's; llm: is any model the run called (run 0's judge
+    # ran on gpt-4.1-mini). Runs without attributed usage records match neither.
+    ("model:gpt-4.1-mini", []),
+    ("llm:gpt-4.1-mini", [0]),
+    ("llm:GPT-4.1", [0, 2, 3]),
+    ("llm:(gpt-4.1-mini OR claude-haiku)", [0, 1]),
+    ("llm:claude*", [1]),
+    ("has:llm", [0, 1, 2, 3]),
+    ("NOT llm:gpt-4.1", [1, 5, "o0", "o1"]),
+    ("routed:true", [1]),
+    ("routed:false", [0, 2, 3, 5, "o0", "o1"]),
+    ("has:routed", [0, 1, 2, 3]),
     ("provider:anthropic", [1]),
     ("provider:(anthropic OR openai)", [0, 1, 2, 3, 5]),
     ("cost:>$0.10", [0, 3]),

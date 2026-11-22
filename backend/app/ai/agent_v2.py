@@ -10842,31 +10842,58 @@ class AgentV2:
             logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
             # Don't re-raise; this is streaming and shouldn't break the main flow
 
-    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id):
-        """Emit TableUsageEvents for a finished step (data model first, then
-        tables_by_source; the recorder dedupes). Best-effort, never raises."""
+    async def _record_failed_step_usage(self, tool_name, tool_input, tool_output, inv) -> None:
+        """A failed create_data still says which tables and columns the agent
+        reached for: record them as a failure (it weighs less than a success
+        in table and column stats). Only when a query actually ran against the
+        source; a code-generation error or a user stop used nothing. Same
+        session routing as the success path: inline on the single writer
+        (SQLite), else a background write drained before completion.finished."""
         try:
-            await self.project_manager.emit_table_usage(
-                db=db, report=report_obj, step=step_obj, data_model=data_model,
-                user_id=user_id, user_role=None,
+            if tool_name != "create_data" or not isinstance(tool_output, dict) or tool_output.get("success"):
+                return
+            queries = [str(q) for q in (tool_output.get("executed_queries") or []) if q]
+            step_id = getattr(inv, "current_step_id", None)
+            report_id = str(self.report_id) if self.report else None
+            if not queries or not step_id or not report_id:
+                return
+            user_id = str(getattr(self.head_completion, 'user_id', None)) if (
+                self.head_completion and getattr(self.head_completion, 'user_id', None)
+            ) else None
+            tbs = copy.deepcopy(tool_input.get("tables_by_source")) if isinstance(tool_input, dict) else None
+            record = self._record_step_table_usage_bg(
+                report_id, str(step_id), {}, tbs, user_id, executed_queries=queries, success=False,
+                session_cm=self._writes_session if self._use_single_write_session() else None,
+            )
+            if self._use_single_write_session():
+                await record
+            else:
+                self._schedule_bg_write("table_usage", record)
+        except Exception:
+            pass
+
+    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id,
+                                       executed_queries=None, success=None):
+        """Record a finished step's table and column usage (data model,
+        tables_by_source and the executed queries; the recorder dedupes per
+        step and table). ``success`` overrides the step status — the failure
+        path records before the step is marked. Best-effort, never raises."""
+        try:
+            await self.project_manager.emit_step_usage(
+                db, report_obj, step_obj, data_model=data_model, tables_by_source=tables_by_source,
+                executed_queries=executed_queries, success=success, user_id=user_id, user_role=None,
             )
         except Exception:
             pass
-        if tables_by_source:
-            try:
-                await self.project_manager.emit_table_usage_from_tables_by_source(
-                    db=db, report=report_obj, step=step_obj, tables_by_source=tables_by_source,
-                    user_id=user_id, user_role=None, source_type="sql",
-                )
-            except Exception:
-                pass
 
-    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id):
-        """Background variant on a short-lived session of its own. The step's
+    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id,
+                                          executed_queries=None, success=None, session_cm=None):
+        """Background variant on a short-lived session of its own (or the
+        given session context, e.g. the single writer). The step's
         status/data were committed before this was scheduled."""
         if not report_id or not step_id:
             return
-        async with self._session_maker() as db:
+        async with (session_cm or self._session_maker)() as db:
             report_obj = (await db.execute(
                 select(Report)
                 .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
@@ -10877,7 +10904,8 @@ class AgentV2:
             )).scalar_one_or_none()
             if report_obj is None or step_obj is None:
                 return
-            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id)
+            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id,
+                                                executed_queries=executed_queries, success=success)
 
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None, inv=None):
         """Handle tool outputs and manage final state updates.
@@ -10897,6 +10925,7 @@ class AgentV2:
         if inv is None:
             inv = _AgentStateProxy(self)
         if not observation or _observation_failed(observation):
+            await self._record_failed_step_usage(tool_name, tool_input, tool_output, inv)
             return  # Don't process failed tool executions
 
         # Only these tools have a state-finalization branch below. Read-only
@@ -11022,9 +11051,12 @@ class AgentV2:
                         if tool_name == "create_data" and isinstance(tool_input, dict):
                             _tbs = tool_input.get("tables_by_source") or None
                         _usage_data_model = getattr(step_obj, "data_model", {}) or {}
+                        # Executed queries: the column-usage signal.
+                        _usage_queries = [str(q) for q in (tool_output.get("executed_queries") or []) if q]
                         if self._use_single_write_session():
                             await self._record_step_table_usage(
                                 fresh_db, report_obj, step_obj, _usage_data_model, _tbs, head_user_id,
+                                executed_queries=_usage_queries, success=True,
                             )
                         else:
                             self._schedule_bg_write(
@@ -11032,6 +11064,7 @@ class AgentV2:
                                 self._record_step_table_usage_bg(
                                     report_id, str(step_obj.id), copy.deepcopy(_usage_data_model),
                                     copy.deepcopy(_tbs), head_user_id,
+                                    executed_queries=_usage_queries, success=True,
                                 ),
                             )
 

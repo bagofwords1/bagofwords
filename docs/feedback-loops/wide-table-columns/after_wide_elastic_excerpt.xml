@@ -1,0 +1,51 @@
+<table name="svc-events-wide" cols="5000" cols_shown="60" score="0.79" usage="12">
+<columns>
+<column name="event.outcome" dtype="string" usage="8"/>
+<column name="svc.request.tenant_tier" dtype="string (full-text; aggregate/sort on svc.request.tenant_tier.keyword)" usage="4"/>
+<column name="event.duration_ms" dtype="integer" usage="2"/>
+<column name="event.kind" dtype="string" usage="5"/>
+<column name="svc.request.tenant_tier.keyword" dtype="string"/>
+<column name="@timestamp" dtype="datetime" usage="1"/>
+<column name="message" dtype="string (full-text; aggregate/sort on message.keyword)" usage="1"/>
+<column name="svc.request.retry_budget_remaining" dtype="integer" usage="1"/>
+<column name="message.keyword" dtype="string"/>
+<column name="event.id" dtype="string"/>
+<column name="geo.client.attr_0132" dtype="datetime"/>
+<column name="host.boot.attr_0148" dtype="datetime"/>
+<column name="net.dns.attr_0076" dtype="datetime"/>
+<column name="process.cpu.attr_0140" dtype="datetime"/>
+<column name="svc.auth.attr_0004" dtype="datetime"/>
+<column name="user.consent.attr_0180" dtype="datetime"/>
+<column name="items" dtype="array"/>
+<column name="items[].price" dtype="number"/>
+<column name="geo.client.attr_0348" dtype="datetime"/>
+<column name="host.boot.attr_0364" dtype="datetime"/>
+<column name="net.dns.attr_0292" dtype="datetime"/>
+<column name="process.cpu.attr_0356" dtype="datetime"/>
+<column name="svc.auth.attr_0220" dtype="datetime"/>
+... [20 lines elided by the probe] ...
+<column name="user.consent.attr_1044" dtype="datetime"/>
+<column name="geo.client.attr_1212" dtype="datetime"/>
+<column name="host.boot.attr_1228" dtype="datetime"/>
+<column name="net.dns.attr_1156" dtype="datetime"/>
+<column name="process.cpu.attr_1220" dtype="datetime"/>
+<column name="svc.auth.attr_1084" dtype="datetime"/>
+<column name="user.consent.attr_1260" dtype="datetime"/>
+<column name="geo.client.attr_1428" dtype="datetime"/>
+<column name="host.boot.attr_1444" dtype="datetime"/>
+<column name="net.dns.attr_1372" dtype="datetime"/>
+<column name="process.cpu.attr_1436" dtype="datetime"/>
+<column name="svc.auth.attr_1300" dtype="datetime"/>
+<column name="user.consent.attr_1476" dtype="datetime"/>
+<column name="geo.client.attr_1644" dtype="datetime"/>
+<column name="host.boot.attr_1660" dtype="datetime"/>
+<column name="net.dns.attr_1588" dtype="datetime"/>
+<column name="process.cpu.attr_1652" dtype="datetime"/>
+</columns>
+<more_columns count="4940" shown="60" total="5000">
+svc.* (920), host.* (915), net.* (914), process.* (914), user.* (731), geo.* (546). Not listed here, but queryable: find them with describe_tables(query=&quot;svc-events-wide&quot;, columns=[&quot;&lt;name or pattern&gt;&quot;]).
+</more_columns>
+<pks>
+<pk name="_id" dtype="string"/>
+</pks>
+</table>

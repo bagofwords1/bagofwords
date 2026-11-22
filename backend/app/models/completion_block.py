@@ -13,6 +13,7 @@ from app.models.tool_execution import ToolExecution
 from app.models.plan_decision import PlanDecision
 from app.services.slack_notification_service import send_step_result_to_slack
 from app.core.fire_and_forget import spawn
+from app.services.outbound_platform import resolve_outbound_platform
 
 
 class CompletionBlock(BaseSchema):
@@ -69,6 +70,12 @@ _error_sent_completion_ids = set()
 _block_locks: Dict[str, asyncio.Lock] = {}
 
 
+def _report_platform_id(completion):
+    """The platform instance this conversation arrived on (see Report.external_platform_id)."""
+    report = getattr(completion, "report", None)
+    return getattr(report, "external_platform_id", None) if report else None
+
+
 async def _send_generated_image_for_block(
     db, completion, te, block_id_str, thread_ts, response_channel, org_id
 ):
@@ -105,14 +112,10 @@ async def _send_generated_image_for_block(
     if file_row.content_type and not file_row.content_type.startswith("image/"):
         return False
 
-    platform = (
-        await db.execute(
-            select(ExternalPlatform).where(
-                ExternalPlatform.organization_id == org_id,
-                ExternalPlatform.platform_type == completion.external_platform,
-            )
-        )
-    ).scalar_one_or_none()
+    platform = await resolve_outbound_platform(
+        db, org_id, completion.external_platform,
+        _report_platform_id(completion),
+    )
     if not platform:
         return False
     adapter = PlatformAdapterFactory.create_adapter(platform)
@@ -179,12 +182,10 @@ async def send_completion_blocks_to_slack(completion_id: str):
             if not org_id:
                 return
 
-            platform_stmt = select(ExternalPlatform).where(
-                ExternalPlatform.organization_id == org_id,
-                ExternalPlatform.platform_type == completion.external_platform
+            platform = await resolve_outbound_platform(
+                db, org_id, completion.external_platform,
+                _report_platform_id(completion),
             )
-            platform_result = await db.execute(platform_stmt)
-            platform = platform_result.scalar_one_or_none()
             if not platform:
                 return
 
@@ -329,11 +330,10 @@ async def send_completion_error_to_slack(completion_id: str):
                 select(Organization).where(Organization.id == org_id)
             )).scalar_one_or_none()
 
-            platform_stmt = select(ExternalPlatform).where(
-                ExternalPlatform.organization_id == org_id,
-                ExternalPlatform.platform_type == completion.external_platform,
+            platform = await resolve_outbound_platform(
+                db, org_id, completion.external_platform,
+                _report_platform_id(completion),
             )
-            platform = (await db.execute(platform_stmt)).scalar_one_or_none()
             if not platform:
                 return
             adapter = PlatformAdapterFactory.create_adapter(platform)
@@ -461,12 +461,10 @@ async def _send_block_to_slack(block_id: str):
                 is_terminal_status = (block.status in ('completed', 'success', 'error'))
 
                 if is_user_facing_source and has_content and is_terminal_status and (block_id_str not in _sent_block_text_ids):
-                    platform_stmt = select(ExternalPlatform).where(
-                        ExternalPlatform.organization_id == org_id,
-                        ExternalPlatform.platform_type == completion.external_platform
+                    platform = await resolve_outbound_platform(
+                        db, org_id, completion.external_platform,
+                        _report_platform_id(completion),
                     )
-                    platform_result = await db.execute(platform_stmt)
-                    platform = platform_result.scalar_one_or_none()
                     if platform:
                         adapter = PlatformAdapterFactory.create_adapter(platform)
 

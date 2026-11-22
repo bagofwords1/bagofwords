@@ -55,6 +55,7 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.data_source_membership import DataSourceMembership
 from app.models.instruction_reference import InstructionReference
 from app.models.table_stats import TableStats
+from app.models.column_stats import ColumnStats
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.models.agent_execution import AgentExecution
