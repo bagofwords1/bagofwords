@@ -51,6 +51,20 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/venv uv sync --frozen --no-dev --no-install-proj
 # carried most of the image's critical/high CVEs (netty, jackson, avro, ...).
 RUN rm -rf /opt/venv/lib/python3*/site-packages/pyspark/jars
 
+# DuckDB's httpfs extension for the locked DuckDB version, installed into
+# /opt/duckdb_extensions, loaded once here so the build fails if its signature
+# does not check, and hashed (httpfs.duckdb_extension.sha256 beside it). The
+# app loads it from there (BOW_DUCKDB_EXTENSION_DIR, set in the final stage)
+# instead of fetching it at run time. A failed install fails the build.
+RUN python3 -c "import duckdb, hashlib, os; \
+d = '/opt/duckdb_extensions'; \
+con = duckdb.connect(config={'extension_directory': d}); \
+con.execute('INSTALL httpfs'); con.execute('LOAD httpfs'); \
+p = con.execute(\"SELECT install_path FROM duckdb_extensions() WHERE extension_name = 'httpfs' AND loaded\").fetchone()[0]; \
+assert p.startswith(d + '/'), p; \
+open(p + '.sha256', 'w').write(hashlib.sha256(open(p, 'rb').read()).hexdigest() + '\n'); \
+print('httpfs:', p, os.path.getsize(p))"
+
 # Copy the full backend source after deps are installed
 COPY ./backend /app/backend
 RUN rm -f /app/backend/db/app.db
@@ -205,6 +219,11 @@ RUN groupadd -r app \
 
 # Copy the Python interpreter, virtual environment and application code
 COPY --from=backend-builder /opt/python /opt/python
+# Owned by root and read-only: the app user cannot change the extension file
+# or its directory (see backend/app/data_sources/fast/extension.py).
+COPY --from=backend-builder /opt/duckdb_extensions /opt/duckdb_extensions
+RUN chmod -R a-w /opt/duckdb_extensions
+ENV BOW_DUCKDB_EXTENSION_DIR=/opt/duckdb_extensions
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend

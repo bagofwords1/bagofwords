@@ -1,4 +1,4 @@
-# -- Docker image settings for the bagofwords application container.
+# -- Docker image settings for the bagofwords application container. The image carries DuckDB's httpfs extension read-only at `/opt/duckdb_extensions`, so extract refreshes need no download and no volume.
 image:
   # -- Image tag to deploy. Use a specific version (e.g. `v1.2.3`) in production.
   tag: latest
