@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.634 (November 22, 2026)
-- Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879)
+- Added a PostgreSQL (multi-database) connector: one server with a database per tenant, queried across tenants (#1879, originally #1808 by @roytev)
 - Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)
 - Added a tappable dashboard link in WhatsApp when the agent builds a dashboard (#1881)
 - Fixed chart images missing from chat channel replies on SQLite installs (#1881)
