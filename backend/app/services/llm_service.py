@@ -270,6 +270,22 @@ class LLMService:
         if credentials is not None:
             self._set_provider_credentials(provider, credentials)
         after_config = dict(provider.additional_config or {})
+        # A stored key is bound to where it was saved for (same rule as
+        # test_connection). A provider manager who points the provider somewhere
+        # new must enter the key again, or the org's stored secret would be
+        # sent to a destination they chose.
+        if as_manager and (before_secret[0] or before_secret[1]):
+            moved = any(
+                before_config.get(k, default) != after_config.get(k, default)
+                for k, default in _DESTINATION_CONFIG_KEYS.items()
+            )
+            new_secret = bool((credentials or {}).get("api_key") or (credentials or {}).get("api_secret"))
+            if moved and not new_secret:
+                await db.rollback()
+                raise AppError.bad_request(
+                    ErrorCode.LLM_PROVIDER_KEY_REQUIRED_FOR_NEW_DESTINATION,
+                    "Enter the API key again when changing where this provider connects.",
+                )
         changed_settings = sorted(
             k for k in set(before_config) | set(after_config) if before_config.get(k) != after_config.get(k)
         )
@@ -1295,8 +1311,13 @@ class LLMService:
         turn existing models on or off and their per-model settings. Not: add a
         model, change a price, or turn off a model others start on."""
         existing = {str(m.id): m for m in (provider.models or []) if m.deleted_at is None}
+        deleted = {str(m.id) for m in (provider.models or []) if m.deleted_at is not None}
         turning_off = []
         for model in models or []:
+            # A soft-deleted model of this provider (a stale dialog can echo
+            # one back) changes nothing; an id from elsewhere is still refused.
+            if model.id and str(model.id) in deleted:
+                continue
             if not model.id or str(model.id) not in existing:
                 raise AppError.forbidden(
                     ErrorCode.LLM_PROVIDER_MANAGER_ADMIN_ONLY,
@@ -1318,8 +1339,14 @@ class LLMService:
             await self._ensure_not_group_default(db, organization, turning_off)
 
     async def managed_provider_ids(self, db: AsyncSession, organization: Organization, user: User) -> set:
-        """Ids of the live providers ``user`` manages (not counting org admins)."""
-        from app.core.permission_resolver import resolve_permissions
+        """Ids of the live providers ``user`` manages (not counting org admins).
+
+        Empty when the llm_access_control feature is off (e.g. a lapsed
+        license): stored grants then confer nothing, so no delegate keeps write
+        access an admin can't see or manage."""
+        from app.core.permission_resolver import resolve_permissions, llm_access_control_active
+        if not llm_access_control_active():
+            return set()
         resolved = await resolve_permissions(db, str(user.id), str(organization.id))
         ids = {rid for (rtype, rid), perms in resolved.resource_permissions.items()
                if rtype == "llm_provider" and "manage" in perms}
@@ -1561,6 +1588,15 @@ class LLMService:
                 )
             await self._ensure_not_group_default(db, organization, [str(m.id) for m in live])
 
+        # Turning a provider back on makes its enabled models available again.
+        # Like a model a manager turns on, those start restricted: a provider
+        # manager never opens a model to the whole org.
+        restricted_on_enable = []
+        if as_manager and enabled and not provider.is_enabled:
+            for m in provider.models or []:
+                if m.deleted_at is None and m.is_enabled and not m.is_restricted:
+                    m.is_restricted = True
+                    restricted_on_enable.append(str(m.id))
         provider.is_enabled = enabled
         await db.commit()
 
@@ -1575,7 +1611,8 @@ class LLMService:
                 user_id=str(current_user.id),
                 resource_type="llm_provider",
                 resource_id=str(provider.id),
-                details={"name": provider.name, "enabled": enabled},
+                details={"name": provider.name, "enabled": enabled, "as_provider_manager": bool(as_manager),
+                         "restricted_on_enable": restricted_on_enable},
             )
         except Exception:
             pass
@@ -2902,11 +2939,17 @@ class LLMService:
                         db_model.max_output_tokens = model.max_output_tokens
                     elif catalog and catalog.get("max_output_tokens") is not None:
                         db_model.max_output_tokens = catalog["max_output_tokens"]
-                    if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
+                    # Prices are an admin's call: a provider manager's save keeps
+                    # the stored prices (no catalog fallback over an admin-set price).
+                    if as_manager:
+                        pass
+                    elif getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
                         db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
                     elif catalog and catalog.get("input_cost_per_million_tokens_usd") is not None:
                         db_model.input_cost_per_million_tokens_usd = catalog["input_cost_per_million_tokens_usd"]
-                    if getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
+                    if as_manager:
+                        pass
+                    elif getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
                         db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
                     elif catalog and catalog.get("output_cost_per_million_tokens_usd") is not None:
                         db_model.output_cost_per_million_tokens_usd = catalog["output_cost_per_million_tokens_usd"]

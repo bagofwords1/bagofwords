@@ -5018,7 +5018,8 @@
       "group_default_priority_admin_only": "Apenas um administrador pode alterar a prioridade de um grupo.",
       "provider_holds_default": "Este provedor tem o modelo padrão da organização. Peça antes a um administrador para alterar o padrão.",
       "provider_manager_admin_only": "Apenas um administrador pode fazer isso neste provedor.",
-      "provider_manager_not_member": "Apenas um membro desta organização pode gerir um provedor."
+      "provider_manager_not_member": "Apenas um membro desta organização pode gerir um provedor.",
+      "provider_key_required_for_new_destination": "Insira a chave de API novamente ao mudar para onde este provedor se conecta."
     },
     "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído.",
     "memory.disabled": "A memória do usuário está desativada nesta organização.",

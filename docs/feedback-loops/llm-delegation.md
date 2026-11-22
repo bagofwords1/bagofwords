@@ -212,6 +212,45 @@ default-model section.
 Evidence: `media/pr/claude-affectionate-franklin-0huizc/` (`before-*`,
 `after-*`, Hebrew `*-he`).
 
+## Review follow-ups (round 1)
+
+Each finding was confirmed against the code, fixed, and given a test that
+fails without the fix (5 of 6 new tests fail on the previous commit; the sixth
+is the admin control):
+
+1. **Saved keys followed a moved destination.** A provider manager who changed
+   `base_url`/`endpoint_url`/`verify_ssl` and left the key blank kept the org's
+   stored key, which later requests would send to the new host. Now refused
+   (`llm.provider_key_required_for_new_destination`) unless they enter a key,
+   the same rule `test_connection` applies. Org LLM admins are unchanged (an
+   existing test changes an admin's base_url without a key).
+   `test_manager_moving_the_destination_must_reenter_the_key`.
+2. **Re-enabling a provider re-opened its models.** A provider an admin turned
+   off can hold enabled, unrestricted models; a manager turning it back on now
+   restricts them in the same transaction (audited as `restricted_on_enable`).
+   `test_manager_reenabling_a_provider_restricts_its_models`, admin control
+   `test_an_admin_reenabling_a_provider_keeps_its_models_open`.
+3. **Grants outlived the license.** `managed_provider_ids` now returns nothing
+   while `llm_access_control` is off, and the managers list/remove routes no
+   longer require the feature, so an admin can always see and revoke a grant.
+   `test_grants_confer_nothing_without_the_license_and_admins_can_still_revoke`.
+4. **Soft-deleted models broke a manager's save.** `LLMProviderSchema` now
+   returns live models only, and the manager check ignores a soft-deleted model
+   of the same provider (an id from another provider is still refused).
+   `test_soft_deleted_models_do_not_block_a_managers_save`.
+5. **A manager's save overwrote admin-set prices.** For a custom model whose id
+   matches a catalog entry, the dialog (which sends no prices) fell back to the
+   catalog price. Delegated updates now keep stored prices.
+   `test_a_managers_save_keeps_an_admin_set_price`.
+
+Swept for the same class elsewhere: the connection test already drops stored
+keys on a destination change; turning a model on and the provider dialog
+already restrict; the group defaults routes are already behind the license.
+
+Re-run: provider/group/decision delegation, `test_llm_providers.py`, LLM model
+access, decision models, group defaults, auto routing, the registry ratchet and
+pricing overrides — 174 passed, 5 skipped.
+
 ## What this proves / regression notes
 
 - The rule "only an org admin widens model access" holds on every write path a

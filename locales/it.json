@@ -5018,7 +5018,8 @@
       "group_default_priority_admin_only": "Solo un amministratore può cambiare la priorità di un gruppo.",
       "provider_holds_default": "Questo provider contiene il modello predefinito dell'organizzazione. Chiedi prima a un amministratore di cambiare il predefinito.",
       "provider_manager_admin_only": "Solo un amministratore può farlo su questo provider.",
-      "provider_manager_not_member": "Solo un membro di questa organizzazione può gestire un provider."
+      "provider_manager_not_member": "Solo un membro di questa organizzazione può gestire un provider.",
+      "provider_key_required_for_new_destination": "Inserisci di nuovo la chiave API quando cambi la destinazione a cui si collega questo provider."
     },
     "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
     "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",

@@ -5745,7 +5745,8 @@
       "group_default_priority_admin_only": "Only an admin can change a group's priority.",
       "provider_holds_default": "This provider holds the organization's default model. Ask an admin to change the default first.",
       "provider_manager_admin_only": "Only an admin can do that on this provider.",
-      "provider_manager_not_member": "Only a member of this organization can manage a provider."
+      "provider_manager_not_member": "Only a member of this organization can manage a provider.",
+      "provider_key_required_for_new_destination": "Enter the API key again when changing where this provider connects."
     },
     "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
     "memory.disabled": "User memory is turned off for this organization.",

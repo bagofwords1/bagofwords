@@ -133,8 +133,9 @@ async def _require_model_manage(db, user, organization, model_id: str, action: s
     await _deny_llm(db, user, organization, action, "llm_model", str(model_id))
 
 
+# Listing and removing managers stay open without the license, so an admin can
+# always see and revoke a grant (which confers nothing while the feature is off).
 @router.get("/llm/providers/{provider_id}/managers")
-@require_enterprise(feature="llm_access_control")
 @requires_permission('manage_llm')
 async def list_provider_managers(
     provider_id: str,
@@ -162,7 +163,6 @@ async def add_provider_manager(
 
 
 @router.delete("/llm/providers/{provider_id}/managers/{user_id}")
-@require_enterprise(feature="llm_access_control")
 @requires_permission('manage_llm')
 async def remove_provider_manager(
     provider_id: str,

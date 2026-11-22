@@ -341,3 +341,111 @@ def test_managing_a_provider_does_not_mean_chatting_with_its_restricted_models(c
     assert c.m.a2 not in picker
     managed = {x["id"] for x in c.call(c.alice, "GET", "llm/models", params={"kind": "all", "manage": "true"}).json()}
     assert c.m.a2 in managed
+
+
+# ── review round 1 ─────────────────────────────────────────────────────────
+
+def _openai_provider(c, name, models, manager):
+    """An OpenAI provider (it takes a base_url) with ``manager`` as its manager."""
+    r = c.call(c.admin, "POST", "llm/providers", json={
+        "name": f"{name}-{uuid.uuid4().hex[:6]}", "provider_type": "openai",
+        "credentials": {"api_key": "sk-org-secret"}, "models": models,
+    })
+    assert r.status_code == 200, r.text
+    pid = r.json()["id"]
+    assert c.call(c.admin, "PUT", f"llm/providers/{pid}/managers/{manager['user_id']}").status_code == 200
+    return pid
+
+
+def _dialog_models(c, actor, pid):
+    """The model list the provider dialog sends back (no prices)."""
+    prov = next(p for p in c.call(actor, "GET", "llm/providers").json() if p["id"] == pid)
+    return prov, [{"id": m["id"], "model_id": m["model_id"], "name": m["name"], "is_enabled": m["is_enabled"],
+                   "is_custom": m.get("is_custom", False), "is_preset": m.get("is_preset", False)}
+                  for m in prov["models"]]
+
+
+@pytest.mark.e2e
+def test_manager_moving_the_destination_must_reenter_the_key(cast):
+    """The stored key is bound to where it was saved for: a manager can't
+    point the provider elsewhere and have the org's key sent there."""
+    c = cast
+    pid = _openai_provider(c, "oai", [], c.alice)
+    moved = {"credentials": {"base_url": "https://collector.example.com/v1"}}
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}", json=moved)
+    assert r.status_code == 400 and r.json().get("error_code") == "llm.provider_key_required_for_new_destination", r.text
+    prov = next(p for p in c.call(c.admin, "GET", "llm/providers").json() if p["id"] == pid)
+    assert not (prov.get("additional_config") or {}).get("base_url"), "the refused change must not be saved"
+    # With a key of their own for the new destination, it's fine.
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}",
+               json={"credentials": {"base_url": "https://collector.example.com/v1", "api_key": "sk-their-own"}})
+    assert r.status_code == 200, r.text
+    # Unchanged for org LLM admins.
+    assert c.call(c.admin, "PUT", f"llm/providers/{pid}",
+                  json={"credentials": {"base_url": "https://other.example.com/v1"}}).status_code == 200
+
+
+@pytest.mark.e2e
+def test_manager_reenabling_a_provider_restricts_its_models(cast):
+    c = cast
+    assert c.call(c.admin, "POST", f"llm/providers/{c.pb}/toggle?enabled=false").status_code == 200
+    assert c.call(c.bob, "POST", f"llm/providers/{c.pb}/toggle?enabled=true").status_code == 200
+    for mid in (c.m.b0, c.m.b1):
+        assert _model(c, mid)["is_restricted"] is True
+    assert c.m.b0 not in {x["id"] for x in c.call(c.fiona, "GET", "llm/models").json()}
+
+
+@pytest.mark.e2e
+def test_an_admin_reenabling_a_provider_keeps_its_models_open(cast):
+    c = cast
+    assert c.call(c.admin, "POST", f"llm/providers/{c.pb}/toggle?enabled=false").status_code == 200
+    assert c.call(c.admin, "POST", f"llm/providers/{c.pb}/toggle?enabled=true").status_code == 200
+    assert _model(c, c.m.b0)["is_restricted"] is False
+
+
+@pytest.mark.e2e
+def test_grants_confer_nothing_without_the_license_and_admins_can_still_revoke(cast, monkeypatch):
+    c = cast
+    from app.ee import license as ee_license
+    monkeypatch.setattr(ee_license, "has_feature", lambda feature: feature != "llm_access_control")
+    assert c.call(c.alice, "PUT", f"llm/providers/{c.pa}", json={"credentials": {"api_key": "x"}}).status_code == 403
+    assert c.call(c.alice, "POST", f"llm/models/{c.m.a0}/set_temperature?temperature=0.5").status_code == 403
+    assert c.call(c.alice, "GET", "llm/models", params={"manage": "true"}).status_code == 403
+    r = c.call(c.admin, "GET", f"llm/providers/{c.pa}/managers")
+    assert r.status_code == 200 and [u["user_id"] for u in r.json()] == [c.alice["user_id"]]
+    assert c.call(c.admin, "DELETE", f"llm/providers/{c.pa}/managers/{c.alice['user_id']}").status_code == 200
+    assert c.call(c.admin, "GET", f"llm/providers/{c.pa}/managers").json() == []
+
+
+@pytest.mark.e2e
+def test_soft_deleted_models_do_not_block_a_managers_save(cast):
+    c = cast
+    assert c.call(c.admin, "DELETE", f"llm/models/{c.m.a1}").status_code == 200
+    prov, models = _dialog_models(c, c.alice, c.pa)
+    assert c.m.a1 not in {m["id"] for m in prov["models"]}, "deleted models are not returned"
+    # Even a stale dialog that still carries the deleted model saves.
+    stale = models + [{"id": c.m.a1, "model_id": "gone", "name": "gone", "is_enabled": True}]
+    r = c.call(c.alice, "PUT", f"llm/providers/{c.pa}", json={"credentials": {"api_key": "rotated"}, "models": stale})
+    assert r.status_code == 200, r.text
+    # An id from another provider is still refused.
+    foreign = models + [{"id": c.m.b0, "model_id": "x", "name": "x", "is_enabled": True}]
+    assert c.call(c.alice, "PUT", f"llm/providers/{c.pa}", json={"models": foreign}).status_code == 403
+
+
+@pytest.mark.e2e
+def test_a_managers_save_keeps_an_admin_set_price(cast):
+    """A custom model whose id matches a catalog entry used to get the catalog
+    price written over the stored one when the dialog (which sends no prices)
+    was saved."""
+    c = cast
+    pid = _openai_provider(c, "priced", [{"model_id": "gpt-6.2-sol", "name": "Sol custom", "is_custom": True}], c.alice)
+    mid = next(m["id"] for m in c.call(c.admin, "GET", "llm/models", params={"kind": "all", "manage": "true"}).json()
+               if m["provider"]["id"] == pid and m["model_id"] == "gpt-6.2-sol")
+    r = c.call(c.admin, "POST", f"llm/models/{mid}/pricing",
+               json={"input_cost_per_million_tokens_usd": 0.5, "output_cost_per_million_tokens_usd": 1.5})
+    assert r.status_code == 200, r.text
+    _prov, models = _dialog_models(c, c.alice, pid)
+    r = c.call(c.alice, "PUT", f"llm/providers/{pid}", json={"credentials": {"api_key": "sk-rotated"}, "models": models})
+    assert r.status_code == 200, r.text
+    after = _model(c, mid)
+    assert after["input_cost_per_million_tokens_usd"] == 0.5 and after["output_cost_per_million_tokens_usd"] == 1.5

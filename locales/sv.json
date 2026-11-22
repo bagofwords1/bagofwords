@@ -5018,7 +5018,8 @@
       "group_default_priority_admin_only": "Bara en administratör kan ändra en grupps prioritet.",
       "provider_holds_default": "Den här leverantören har organisationens standardmodell. Be en administratör ändra standarden först.",
       "provider_manager_admin_only": "Bara en administratör kan göra det hos den här leverantören.",
-      "provider_manager_not_member": "Bara en medlem i den här organisationen kan ansvara för en leverantör."
+      "provider_manager_not_member": "Bara en medlem i den här organisationen kan ansvara för en leverantör.",
+      "provider_key_required_for_new_destination": "Ange API-nyckeln igen när du ändrar vart den här leverantören ansluter."
     },
     "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
     "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
