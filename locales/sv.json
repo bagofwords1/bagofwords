@@ -3927,7 +3927,13 @@
         "fallsBackTo": "faller tillbaka på {model}",
         "noModel": "ingen modell tillgänglig",
         "andMore": "och {count} till",
-        "badge": "Standard för {group}"
+        "badge": "Standard för {group}",
+        "colRouting": "Automatisk routning",
+        "routingTooltip": "Slå på eller av den automatiska routningen för gruppens medlemmar. En medlem i flera grupper får värdet från den grupp med högst prioritet som anger ett; annars gäller organisationens inställning.",
+        "routingInheritOn": "Organisationen (på)",
+        "routingInheritOff": "Organisationen (av)",
+        "routingOn": "På",
+        "routingOff": "Av"
       },
       "access": {
         "restrictedDefaultHint": "Det här är organisationens standardmodell. Medlemmar som inte finns i listan nedan får sin grupps standardmodell i stället.",

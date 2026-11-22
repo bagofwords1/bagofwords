@@ -4406,7 +4406,13 @@
         "fallsBackTo": "usa {model} como alternativa",
         "noModel": "ningún modelo disponible",
         "andMore": "y {count} más",
-        "badge": "Predeterminado de {group}"
+        "badge": "Predeterminado de {group}",
+        "colRouting": "Enrutador automático",
+        "routingTooltip": "Activa o desactiva el enrutador automático para los miembros de este grupo. Un miembro de varios grupos recibe el valor del grupo de mayor prioridad que lo defina; si ninguno lo define, se aplica la configuración de la organización.",
+        "routingInheritOn": "Organización (activado)",
+        "routingInheritOff": "Organización (desactivado)",
+        "routingOn": "Activado",
+        "routingOff": "Desactivado"
       },
       "access": {
         "restrictedDefaultHint": "Este es el modelo predeterminado de la organización. Los miembros que no aparecen abajo usan el predeterminado de su grupo.",

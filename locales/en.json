@@ -4492,7 +4492,13 @@
         "fallsBackTo": "falls back to {model}",
         "noModel": "no model available",
         "andMore": "and {count} more",
-        "badge": "{group} default"
+        "badge": "{group} default",
+        "colRouting": "Auto router",
+        "routingTooltip": "Turn the Auto router on or off for this group's members. A member in several groups gets the value of the highest-priority group that sets one; otherwise the organization setting applies.",
+        "routingInheritOn": "Organization (on)",
+        "routingInheritOff": "Organization (off)",
+        "routingOn": "On",
+        "routingOff": "Off"
       },
       "access": {
         "restrictedDefaultHint": "This is the organization default. Members not listed below get their group's default instead.",

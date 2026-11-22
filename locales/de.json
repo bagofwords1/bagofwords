@@ -3927,7 +3927,13 @@
         "fallsBackTo": "weicht auf {model} aus",
         "noModel": "kein Modell verfügbar",
         "andMore": "und {count} weitere",
-        "badge": "Standard von {group}"
+        "badge": "Standard von {group}",
+        "colRouting": "Auto-Router",
+        "routingTooltip": "Schalten Sie den Auto-Router für die Mitglieder dieser Gruppe ein oder aus. Ein Mitglied mehrerer Gruppen erhält den Wert der Gruppe mit der höchsten Priorität, die einen festlegt; sonst gilt die Einstellung der Organisation.",
+        "routingInheritOn": "Organisation (an)",
+        "routingInheritOff": "Organisation (aus)",
+        "routingOn": "An",
+        "routingOff": "Aus"
       },
       "access": {
         "restrictedDefaultHint": "Das ist das Standardmodell der Organisation. Mitglieder, die unten nicht aufgeführt sind, erhalten stattdessen das Standardmodell ihrer Gruppe.",

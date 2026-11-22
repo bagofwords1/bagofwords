@@ -3927,7 +3927,13 @@
         "fallsBackTo": "usa {model} como alternativa",
         "noModel": "nenhum modelo disponível",
         "andMore": "e mais {count}",
-        "badge": "Padrão de {group}"
+        "badge": "Padrão de {group}",
+        "colRouting": "Roteador automático",
+        "routingTooltip": "Ative ou desative o roteador automático para os membros deste grupo. Um membro de vários grupos recebe o valor do grupo de maior prioridade que o define; caso contrário, vale a configuração da organização.",
+        "routingInheritOn": "Organização (ativado)",
+        "routingInheritOff": "Organização (desativado)",
+        "routingOn": "Ativado",
+        "routingOff": "Desativado"
       },
       "access": {
         "restrictedDefaultHint": "Este é o modelo padrão da organização. Os membros que não estão listados abaixo recebem o padrão do seu grupo.",

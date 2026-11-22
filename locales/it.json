@@ -3927,7 +3927,13 @@
         "fallsBackTo": "ripiega su {model}",
         "noModel": "nessun modello disponibile",
         "andMore": "e altri {count}",
-        "badge": "Predefinito di {group}"
+        "badge": "Predefinito di {group}",
+        "colRouting": "Router automatico",
+        "routingTooltip": "Attiva o disattiva il router automatico per i membri di questo gruppo. Un membro di più gruppi riceve il valore del gruppo con priorità più alta che ne imposta uno; altrimenti vale l'impostazione dell'organizzazione.",
+        "routingInheritOn": "Organizzazione (attivo)",
+        "routingInheritOff": "Organizzazione (disattivo)",
+        "routingOn": "Attivo",
+        "routingOff": "Disattivo"
       },
       "access": {
         "restrictedDefaultHint": "Questo è il modello predefinito dell'organizzazione. I membri non elencati qui sotto ricevono il predefinito del loro gruppo.",

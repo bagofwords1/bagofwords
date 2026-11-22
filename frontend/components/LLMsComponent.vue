@@ -360,6 +360,7 @@
             v-if="canManageAccess && models.length > 0"
             ref="groupDefaultsRef"
             :models="chatModels"
+            :org-routing-on="autoRouterOn"
             @updated="getModels"
             @rows="onGroupDefaultRows"
         />

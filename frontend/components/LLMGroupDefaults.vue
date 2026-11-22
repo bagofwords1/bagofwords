@@ -53,6 +53,14 @@
                                     </span>
                                 </UTooltip>
                             </th>
+                            <th v-if="routingLicensed">
+                                <UTooltip :text="$t('settings.llms.groupDefaults.routingTooltip')">
+                                    <span class="inline-flex items-center gap-1">
+                                        {{ $t('settings.llms.groupDefaults.colRouting') }}
+                                        <UIcon name="i-heroicons-question-mark-circle" class="w-3.5 h-3.5 text-ink-muted" />
+                                    </span>
+                                </UTooltip>
+                            </th>
                         </tr>
                     </thead>
                     <tbody>
@@ -98,6 +106,22 @@
                                     @change="onPriority(row, ($event.target as HTMLInputElement).value)"
                                 >
                             </td>
+                            <td v-if="routingLicensed">
+                                <!-- Auto router for the group: follow the org / force on / force off -->
+                                <select
+                                    class="bow-native-control min-w-[10rem]"
+                                    :value="routingValue(row)"
+                                    :disabled="savingId === row.group_id"
+                                    data-testid="llm-group-routing-select"
+                                    @change="onRouting(row, ($event.target as HTMLSelectElement).value)"
+                                >
+                                    <option value="inherit">
+                                        {{ orgRoutingOn ? $t('settings.llms.groupDefaults.routingInheritOn') : $t('settings.llms.groupDefaults.routingInheritOff') }}
+                                    </option>
+                                    <option value="on">{{ $t('settings.llms.groupDefaults.routingOn') }}</option>
+                                    <option value="off">{{ $t('settings.llms.groupDefaults.routingOff') }}</option>
+                                </select>
+                            </td>
                         </tr>
                     </tbody>
                 </table>
@@ -107,12 +131,17 @@
 </template>
 
 <script setup lang="ts">
-const props = defineProps<{ models: any[] }>();
+// orgRoutingOn: the org Auto-router toggle, shown on the "Inherit" option.
+const props = defineProps<{ models: any[]; orgRoutingOn?: boolean }>();
 const emit = defineEmits(['updated', 'rows']);
 
 const { t } = useI18n();
 const toast = useToast();
 const { getErrorMessage } = useErrorMessage();
+const { hasFeature } = useEnterprise();
+// The per-group Auto-router column needs its own license on top of the
+// access-control one that gates this whole table.
+const routingLicensed = computed(() => hasFeature('model_routing'));
 
 type Row = {
     group_id: string;
@@ -120,6 +149,8 @@ type Row = {
     default_llm_model_id: string | null;
     small_default_llm_model_id: string | null;
     default_llm_priority: number;
+    // null = follow the org Auto-router setting
+    model_routing: boolean | null;
 };
 type Uncovered = { user_id: string; name: string; email: string; fallback_model: { id: string; name: string } | null };
 
@@ -168,6 +199,18 @@ async function save(row: Row, body: Record<string, any>) {
     toast.add({ title: t('settings.llms.groupDefaults.saved'), color: 'green' });
     await loadCoverage();
     emit('updated');
+}
+
+function routingValue(row: Row): 'inherit' | 'on' | 'off' {
+    if (row.model_routing === true) return 'on';
+    if (row.model_routing === false) return 'off';
+    return 'inherit';
+}
+
+function onRouting(row: Row, value: string) {
+    const next = value === 'on' ? true : value === 'off' ? false : null;
+    if (next === row.model_routing) return;
+    save(row, { model_routing: next });
 }
 
 function onPriority(row: Row, raw: string) {

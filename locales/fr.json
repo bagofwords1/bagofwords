@@ -3927,7 +3927,13 @@
         "fallsBackTo": "utilise {model} en repli",
         "noModel": "aucun modèle disponible",
         "andMore": "et {count} de plus",
-        "badge": "Défaut de {group}"
+        "badge": "Défaut de {group}",
+        "colRouting": "Routeur automatique",
+        "routingTooltip": "Activez ou désactivez le routeur automatique pour les membres de ce groupe. Un membre de plusieurs groupes reçoit la valeur du groupe le plus prioritaire qui en définit une ; sinon, le paramètre de l'organisation s'applique.",
+        "routingInheritOn": "Organisation (activé)",
+        "routingInheritOff": "Organisation (désactivé)",
+        "routingOn": "Activé",
+        "routingOff": "Désactivé"
       },
       "access": {
         "restrictedDefaultHint": "C'est le modèle par défaut de l'organisation. Les membres absents de la liste ci-dessous utilisent le modèle par défaut de leur groupe.",
