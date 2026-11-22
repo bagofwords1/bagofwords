@@ -4251,6 +4251,30 @@ function resolveToolEventBlock(sysMessage: any, payload: any) {
 	return blocks[blocks.length - 1]
 }
 
+// create_data visualization refinements seen on this page, by tool execution.
+// A block.upsert can carry a snapshot of the tool execution taken before the
+// refinement (the background persist), and would otherwise undo it.
+const vizRefinedByTe = new Map<string, any>()
+
+function applyVizRefinement(te: any, payload: any) {
+	const rj = { ...(te.result_json || {}) }
+	delete rj.viz_pending
+	if (payload.refined && payload.data_model) {
+		rj.data_model = payload.data_model
+		if (payload.view) rj.view = payload.view
+		if (te.created_step) te.created_step = { ...te.created_step, data_model: payload.data_model }
+		if (Array.isArray(te.created_visualizations) && te.created_visualizations[0] && payload.view) {
+			te.created_visualizations = [{ ...te.created_visualizations[0], view: payload.view }, ...te.created_visualizations.slice(1)]
+		}
+	}
+	te.result_json = rj
+}
+
+function reapplyVizRefinement(te: any) {
+	const payload = te?.id ? vizRefinedByTe.get(String(te.id)) : null
+	if (payload) applyVizRefinement(te, payload)
+}
+
 async function handleStreamingEvent(eventType: string | null, payload: any, sysMessageIndex: number, opts: { ownStream?: boolean } = {}) {
 	// ownStream: this event came from the prompt THIS viewer just sent (default),
 	// vs. the watcher attaching to a run started elsewhere (another tab, another
@@ -4422,6 +4446,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						if (!nextTE.progress_stage) nextTE.progress_stage = prevTE.progress_stage
 					}
 					Object.assign(existing, merged)
+					reapplyVizRefinement(existing.tool_execution)
 				} else {
 					// Stamp client arrival time (naive-UTC, matching server
 					// timestamps): a skeleton upsert can arrive before its
@@ -4438,6 +4463,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 					sysMessage.completion_blocks.splice(insertPos, 0, block)
+					reapplyVizRefinement(block.tool_execution)
 				}
 			}
 			break
@@ -5026,6 +5052,29 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				}
 			}
 			break
+
+		case 'visualization.refined': {
+			// create_data's background visualization inference landed (or gave
+			// up): swap in the refined data_model/view and clear `viz_pending`,
+			// so a figure waiting on it draws and a result card re-renders. The
+			// payload is remembered: a later block.upsert carrying an older
+			// snapshot of this tool execution must not undo it.
+			if (payload.tool_execution_id) vizRefinedByTe.set(String(payload.tool_execution_id), payload)
+			const blocks = sysMessage.completion_blocks || []
+			const blk = blocks.find((b: any) => payload.tool_execution_id && b.tool_execution?.id === payload.tool_execution_id)
+				|| blocks.find((b: any) => payload.step_id && b.tool_execution?.created_step_id === payload.step_id)
+			if (blk?.tool_execution) applyVizRefinement(blk.tool_execution, payload)
+			if (payload.refined && typeof window !== 'undefined') {
+				window.dispatchEvent(new CustomEvent('visualization:refined', { detail: {
+					tool_execution_id: payload.tool_execution_id,
+					step_id: payload.step_id,
+					visualization_id: payload.visualization_id,
+					data_model: payload.data_model,
+					view: payload.view,
+				} }))
+			}
+			break
+		}
 
 		case 'decision.partial':
 		case 'decision.final':
