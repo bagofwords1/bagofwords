@@ -215,20 +215,23 @@
                                                 />
                                             </div>
 
-                                            <RunToolGroupRow v-if="toolGroupHeaderFor(m, block)" :group="toolGroupHeaderFor(m, block)!"
-                :expanded="isToolGroupExpanded(toolGroupHeaderFor(m, block)!.id)" :translate="t"
-                @toggle="toggleToolGroup(toolGroupHeaderFor(m, block)!.id)" />
+                                            <ToolAgentScope v-if="toolGroupHeaderFor(m, block)" :executions="toolGroupExecutions(m, block)">
+                                                <RunToolGroupRow :group="toolGroupHeaderFor(m, block)!"
+                                                    :expanded="isToolGroupExpanded(toolGroupHeaderFor(m, block)!.id)" :translate="t"
+                                                    @toggle="toggleToolGroup(toolGroupHeaderFor(m, block)!.id)" />
+                                            </ToolAgentScope>
             <!-- 3. Tool execution -->
                                             <!-- 3. Tool execution -->
                                             <div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'ps-4': isGroupedTool(m, block) }" :dir="responseDir">
-                                                <component
-                                                    v-if="shouldUseToolComponent(block.tool_execution)"
-                                                    :is="getToolComponent(block.tool_execution.tool_name)"
-                                                    :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
-                                                    :tool-execution="block.tool_execution"
-                                                    :initially-collapsed="!!runFold(m)"
-                                                    :readonly="true"
-                                                />
+                                                <ToolAgentScope v-if="shouldUseToolComponent(block.tool_execution)" :executions="[block.tool_execution]" :nested="isGroupedTool(m, block)">
+                                                    <component
+                                                        :is="getToolComponent(block.tool_execution.tool_name)"
+                                                        :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
+                                                        :tool-execution="block.tool_execution"
+                                                        :initially-collapsed="!!runFold(m)"
+                                                        :readonly="true"
+                                                    />
+                                                </ToolAgentScope>
                                                 <!-- Fallback to generic expandable tool display -->
                                                 <div v-else>
                                                     <!-- Every unmapped tool names itself. 'clarify' and
@@ -295,12 +298,13 @@
                                                     :tool-execution="d.tool_execution"
                                                     :readonly="true"
                                                 />
-                                                <component
-                                                    v-else-if="shouldUseToolComponent(d.tool_execution)"
-                                                    :is="getToolComponent(d.tool_execution.tool_name)"
-                                                    :tool-execution="d.tool_execution"
-                                                    :readonly="true"
-                                                />
+                                                <ToolAgentScope v-else-if="shouldUseToolComponent(d.tool_execution)" :executions="[d.tool_execution]">
+                                                    <component
+                                                        :is="getToolComponent(d.tool_execution.tool_name)"
+                                                        :tool-execution="d.tool_execution"
+                                                        :readonly="true"
+                                                    />
+                                                </ToolAgentScope>
                                             </template>
                                         </div>
 
@@ -739,6 +743,7 @@ function _runActivityFor(m: any): RunActivity | null {
 }
 const {
     toolGroupHeaderFor,
+    toolGroupExecutions,
     isGroupedTool,
     isToolGroupExpanded,
     toggleToolGroup,
