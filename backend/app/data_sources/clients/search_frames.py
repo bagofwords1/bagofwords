@@ -118,6 +118,15 @@ def search_frame(result, body, *, include_index, opensearch=False):
                 frame.insert(len(frame.columns), f"fields.{key}", [hit.get("fields", {}).get(key) for hit in docs])
     if body["size"] == 0 or has_aggs:
         frame.attrs["bow_search_summary"] = list(frame.columns)
+        # The executor includes query notices in captured stdout, including on
+        # failed runs. Give the retry the actual schema without printing data.
+        columns = ", ".join(str(name) for name in frame.columns[:20])[:500]
+        notice = f"Search summary columns: {columns or '(none)'}. "
+        if not has_aggs:
+            notice += "Read row['doc_count'] and row['relation'] for the count. "
+        if isinstance(total, dict):
+            notice += "total_hits metadata is a dict with value and relation."
+        frame.attrs["bow_notice"] = notice.strip()
     if total is not None:
         frame.attrs["total_hits"] = total
     return frame

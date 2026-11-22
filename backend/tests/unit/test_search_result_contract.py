@@ -179,3 +179,21 @@ def test_generated_nested_summary_returns_count_and_peak(monkeypatch):
 '''
     result, _, _ = StreamingCodeExecutor().execute_code(code=code, ds_clients={"search": client}, excel_files=[])
     assert result.to_dict("records") == [{"active.doc_count": 4, "active.peak": 23}]
+
+
+@pytest.mark.parametrize("mode", ["inprocess", "subprocess"])
+def test_bad_total_cast_supplies_schema_to_retry(monkeypatch, mode):
+    from app.ai.code_execution.code_execution import StreamingCodeExecutor
+
+    monkeypatch.setenv("BOW_CODE_SANDBOX", mode)
+    client = ElasticsearchClient(host="localhost")
+    monkeypatch.setattr(client, "_request", lambda *args, **kwargs: {
+        "hits": {"hits": [], "total": {"value": 0, "relation": "eq"}}})
+    code = '''def generate_df(ds_clients, excel_files):
+    frame = ds_clients["search"].execute_query({"index": "events", "size": 0})
+    return pd.DataFrame([{"result": int(frame.attrs["total_hits"])}])
+'''
+    with pytest.raises(Exception, match="int\\(\\)") as error:
+        StreamingCodeExecutor().execute_code(code=code, ds_clients={"search": client}, excel_files=[])
+    assert "doc_count, relation" in error.value.captured_stdout
+    assert "total_hits metadata is a dict" in error.value.captured_stdout
