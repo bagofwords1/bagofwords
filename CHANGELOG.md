@@ -5,6 +5,7 @@
 - Added WhatsApp "typing…" while the agent works on a question; the user's message now shows as read when the run starts (#1880)
 - Added a tappable dashboard link in WhatsApp when the agent builds a dashboard (#1881)
 - Fixed chart images missing from chat channel replies on SQLite installs (#1881)
+- Added the owning agent's icon on tool group headers in reports and shared conversations (#1884)
 - Fixed Slack, Teams, Google Chat and WhatsApp re-sending the previous chart after a dashboard or generated image (#1881)
 - Fixed Elasticsearch and OpenSearch searches dropping filters, count-only searches showing zero matches, and nested aggregation metrics missing from results; unsupported search options now return an error (#1882)
 - Added `result_format=raw` for Elasticsearch and OpenSearch searches, returning the engine response in a single cell (#1882)
