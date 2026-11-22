@@ -124,26 +124,40 @@ def _check_contents(root: str, platform_dir: str) -> None:
             raise _Refused(f"the extension directory holds more than httpfs ({entry.name})")
 
 
-def _check_not_writable(root: str, platform_dir: str, path: str) -> None:
-    if os.geteuid() == 0:
-        raise _Refused("the process runs as root")
+def describe_error(e: BaseException) -> str:
+    """`Type: first line of the message`, short enough for one log line."""
+    lines = str(e).strip().splitlines()
+    first = lines[0].strip()[:240] if lines else ""
+    return f"{type(e).__name__}: {first}" if first else type(e).__name__
+
+
+def _owner_chain(directory: str) -> list[str]:
+    """Every path the owner rule covers: the files in the platform folder,
+    the folders up to the real extension directory, and all its ancestors."""
+    root = os.path.realpath(directory)
+    version, platform = _layout()
+    platform_dir = os.path.join(root, version, platform)
+    chain = [os.path.join(platform_dir, n) for n in sorted(os.listdir(platform_dir))]
+    chain += [platform_dir, os.path.dirname(platform_dir), root]
+    # A parent this process could write or own could swap the whole directory.
+    parent = os.path.dirname(root)
+    while True:
+        chain.append(parent)
+        up = os.path.dirname(parent)
+        if up == parent:
+            return chain
+        parent = up
+
+
+def _check_chain(paths: list[str]) -> None:
     me = os.geteuid()
-    owned = [path, platform_dir, os.path.dirname(platform_dir), root]
-    owned += [os.path.join(platform_dir, n) for n in os.listdir(platform_dir)]
-    for p in owned:
+    if me == 0:
+        raise _Refused("the process runs as root")
+    for p in paths:
         if os.stat(p).st_uid == me:
             raise _Refused(f"{p} is owned by the process's own user")
         if os.access(p, os.W_OK):
             raise _Refused(f"{p} is writable by the process")
-    # A writable parent could swap the whole directory.
-    parent = os.path.dirname(os.path.realpath(root))
-    while True:
-        if os.access(parent, os.W_OK):
-            raise _Refused(f"{parent} is writable by the process")
-        up = os.path.dirname(parent)
-        if up == parent:
-            break
-        parent = up
 
 
 def trusted_httpfs(directory: Optional[str], *, require_foreign_owner: bool = True) -> Optional[str]:
@@ -158,7 +172,8 @@ def trusted_httpfs(directory: Optional[str], *, require_foreign_owner: bool = Tr
     try:
         if not directory or not os.path.isdir(directory):
             raise _Refused(f"no extension directory ({DIRECTORY_ENV})")
-        root = os.path.abspath(directory)
+        # Resolved once: every check and the returned path use the real directory.
+        root = os.path.realpath(directory)
         version, platform = _layout()
         platform_dir = os.path.join(root, version, platform)
         path = os.path.join(platform_dir, EXTENSION_NAME)
@@ -166,7 +181,7 @@ def trusted_httpfs(directory: Optional[str], *, require_foreign_owner: bool = Tr
             raise _Refused(f"no httpfs for DuckDB {version} {platform} in the extension directory")
         _check_contents(root, platform_dir)
         if require_foreign_owner:
-            _check_not_writable(root, platform_dir, path)
+            _check_chain(_owner_chain(root))
         before = os.stat(path)
         digest = _sha256(path)
         if os.path.isfile(path + _HASH_SUFFIX):
@@ -178,7 +193,7 @@ def trusted_httpfs(directory: Optional[str], *, require_foreign_owner: bool = Tr
         try:
             scratch.execute("LOAD '" + path.replace("'", "''") + "'")
         except Exception as e:
-            raise _Refused(f"the signature-checked load failed ({type(e).__name__})")
+            raise _Refused(f"the signature-checked load failed ({describe_error(e)})")
         finally:
             scratch.close()
         after = os.stat(path)
@@ -190,7 +205,7 @@ def trusted_httpfs(directory: Optional[str], *, require_foreign_owner: bool = Tr
         _LAST.reason = str(e)
         return None
     except (OSError, UnicodeDecodeError) as e:
-        _LAST.reason = f"the extension directory could not be read ({type(e).__name__})"
+        _LAST.reason = f"the extension directory could not be read ({describe_error(e)})"
         return None
     _RECORDS[path] = record
     return path
@@ -217,6 +232,48 @@ def directory() -> Optional[str]:
     return d if d and os.path.isdir(d) else None
 
 
+def installed_httpfs(d: Optional[str]) -> Optional[str]:
+    """The httpfs file for this DuckDB build inside extension directory `d`, if present."""
+    if not d:
+        return None
+    try:
+        version, platform = _layout()
+    except Exception:
+        return None
+    path = os.path.join(d, version, platform, EXTENSION_NAME)
+    return path if os.path.isfile(path) else None
+
+
+def open_with_signed_httpfs(config: Optional[dict] = None, *, purpose: str):
+    """An in-memory engine that loaded httpfs by name from `directory()`,
+    with DuckDB's signature check, or None when there is no httpfs there or
+    the load fails (logged at WARNING). The caller then opens as before.
+
+    Used by the extract writer always and by serving engines when the
+    verified load is off or unavailable, so neither depends on a download.
+    """
+    d = directory()
+    if not d:
+        return None
+    if not installed_httpfs(d):
+        if purpose == "writer":
+            logger.warning(f"FAST {purpose}: no httpfs for this DuckDB in {d}; opening without it")
+        return None
+    con = None
+    try:
+        con = duckdb.connect(database=":memory:", config={**(config or {}), "extension_directory": d})
+        con.execute("LOAD httpfs")
+        return con
+    except Exception as e:
+        if con is not None:
+            con.close()
+        logger.warning(
+            f"FAST {purpose}: broken extension directory {d}: it holds httpfs but the "
+            f"signature-checked load failed ({describe_error(e)}); opening without it"
+        )
+        return None
+
+
 class _Verifier:
     """The process's decision about the httpfs file, kept fresh without blocking."""
 
@@ -235,12 +292,15 @@ class _Verifier:
         self._logged = ("unavailable", "not verified yet")
 
     def current(self) -> Optional[str]:
+        # Fields are published before `_path` (see `_verify`); a hash time
+        # not seen yet only means a re-hash is due.
         path = self._path
+        hashed_at = self._hashed_at
         now = self._clock()
         if path is not None:
             if not unchanged(path):
                 due = "verify"
-            elif now - self._hashed_at >= REHASH_SECONDS:
+            elif hashed_at is None or now - hashed_at >= REHASH_SECONDS:
                 due = "rehash"
             else:
                 return path
@@ -264,14 +324,19 @@ class _Verifier:
     def _verify(self, now: float) -> None:
         self._verifications += 1
         self._checked_at = now
-        path = self._check()
+        try:
+            path = self._check()
+            reason = getattr(_LAST, "reason", None) or "not trusted"
+        except Exception as e:  # a query must never see this
+            path, reason = None, describe_error(e)
         if path:
-            self._path, self._status, self._reason = path, "trusted", ""
+            self._status, self._reason = "trusted", ""
             self._hashed_at = now
             self._next_check = None
+            self._path = path  # last: readers see the rest first
             self._log()
         else:
-            self._set_unavailable(getattr(_LAST, "reason", None) or "not trusted", now)
+            self._set_unavailable(reason, now)
 
     def _rehash(self, path: str, now: float) -> None:
         record = _RECORDS.get(path)
@@ -285,11 +350,14 @@ class _Verifier:
             self._set_unavailable("the file's hash changed since it was verified", now)
 
     def mark_unavailable(self, reason: str) -> None:
-        self._set_unavailable(reason, self._clock())
+        # Waits for a verification in flight, so its result cannot overwrite this.
+        with self._flight:
+            self._set_unavailable(reason, self._clock())
 
     def _set_unavailable(self, reason: str, now: float) -> None:
-        self._path, self._status, self._reason = None, "unavailable", reason
+        self._status, self._reason = "unavailable", reason
         self._next_check = now + RETRY_SECONDS
+        self._path = None
         self._log()
 
     def note_off(self) -> None:
@@ -320,6 +388,7 @@ class _Verifier:
             "verifications": self._verifications,
             "checked_at": self._checked_at,
             "hashed_at": self._hashed_at,
+            "next_check": self._next_check,
         }
 
 
@@ -334,7 +403,11 @@ def current() -> Optional[str]:
     if not _enabled():
         _VERIFIER.note_off()
         return None
-    return _VERIFIER.current()
+    try:
+        return _VERIFIER.current()
+    except Exception:
+        logger.exception("FAST verified extension load: the check failed; engines open without it")
+        return None
 
 
 def mark_unavailable(reason: str) -> None:

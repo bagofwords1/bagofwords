@@ -17,6 +17,7 @@ never put in its catalog.
 
 import logging
 import re
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -93,14 +94,17 @@ class FastRelation:
 # Checked before the key is interpolated into the ATTACH.
 _KEY_FORMAT = re.compile(r"[A-Za-z0-9_-]{16,128}={0,2}")
 _key_check_refused = 0
+_key_check_lock = threading.Lock()
 
 
 def _note_key_refused(relation: str) -> None:
     global _key_check_refused
-    _key_check_refused += 1
+    with _key_check_lock:
+        _key_check_refused += 1
+        count = _key_check_refused
     logger.warning(
         "fast.key_check.refused",
-        extra={"relation": relation, "count": _key_check_refused},
+        extra={"relation": relation, "count": count},
     )
 
 
@@ -168,11 +172,15 @@ class FastQueryClient(DataSourceClient):
         the file by path. This is the only engine that accepts unsigned
         extensions, and `_build_session` locks it before any agent SQL runs.
         When the stat differs or the load fails, V is marked unavailable and
-        the engine opens as today.
-        """
-        if trusted_extension:
-            from app.data_sources.fast import extension
+        the engine opens as below.
 
+        Without V, when the image's extension directory holds httpfs, the
+        engine loads it from there by name with DuckDB's signature check;
+        otherwise, or when that load fails, it opens exactly as before.
+        """
+        from app.data_sources.fast import extension
+
+        if trusted_extension:
             if not extension.unchanged(trusted_extension):
                 extension.mark_unavailable("the extension file changed since it was verified")
             else:
@@ -194,8 +202,13 @@ class FastQueryClient(DataSourceClient):
                     if con is not None:
                         con.close()
                     extension.mark_unavailable(
-                        f"the explicit load failed ({type(e).__name__})"
+                        f"the explicit load failed ({extension.describe_error(e)})"
                     )
+        # Without V, httpfs still comes from the image's directory when it
+        # is there, signature-checked, as the extract writer does.
+        con =extension.open_with_signed_httpfs(extra_config, purpose="serving engine")
+        if con is not None:
+            return con
         if extra_config:
             return duckdb.connect(database=":memory:", config=dict(extra_config))
         return duckdb.connect(database=":memory:")

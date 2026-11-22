@@ -36,6 +36,7 @@ from app.data_sources.fast import fast_client as fast_client_module
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
 from tests.fixtures.fast_extension import (
     EXTRA_EXTENSIONS,
+    PREPARED_ENV,
     extension_file,
     make_httpfs_dir,
     prepared_extensions_dir,  # noqa: F401 - fixture
@@ -275,7 +276,10 @@ def row_dir(prepared_extensions_dir, tmp_path):
 )
 def test_every_trigger_row_loads_code_with_nothing_in_the_way(lab, row, who, row_dir, record_property):
     if row.network and not _network_reachable():
-        pytest.skip(f"needs the network: '{row.name}' fetches an extension from DuckDB's repository")
+        reason = f"needs the network: '{row.name}' fetches an extension from DuckDB's repository"
+        if os.environ.get(PREPARED_ENV):
+            pytest.fail(reason + f" ({PREPARED_ENV} is set, so this run must have it)")
+        pytest.skip(reason)
     con = duckdb.connect(":memory:", config={"extension_directory": row_dir})
     try:
         con.execute(f"ATTACH '{lab.extract}' AS bow_a0 (ENCRYPTION_KEY '{lab.key}', READ_ONLY)")

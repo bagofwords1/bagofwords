@@ -498,6 +498,29 @@ def test_no_production_path_relaxes_the_owner_rule():
     assert owners == ["trusted_httpfs"]
 
 
+def test_the_owner_rule_name_and_the_verifier_appear_nowhere_else_in_app():
+    # Catches a `**{"require_foreign_owner": False}` and any second verifier
+    # built outside extension.py, which the AST check above would not see.
+    rel = "app/data_sources/fast/extension.py"
+    elsewhere = [
+        str(path.relative_to(BACKEND)) for path, src in _app_sources()
+        if str(path.relative_to(BACKEND)) != rel
+        and ("require_foreign_owner" in src or "_Verifier" in src)
+    ]
+    assert elsewhere == []
+    tree = ast.parse((BACKEND / rel).read_text(encoding="utf-8"))
+    as_text = [
+        n.lineno for n in ast.walk(tree)
+        if isinstance(n, ast.Constant) and n.value == "require_foreign_owner"
+    ]
+    assert as_text == []
+    built = [
+        n.lineno for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "_Verifier"
+    ]
+    assert len(built) == 1  # the module's own singleton
+
+
 def test_only_two_environment_names_are_read_for_this_and_only_in_extension_py():
     found = {}
     for path, src in _app_sources():
@@ -603,6 +626,209 @@ def test_the_writer_opens_as_today_when_the_directory_cannot_serve(case, tmp_pat
         assert check.execute("SELECT x FROM t").fetchone()[0] == 7
     finally:
         check.close()
+
+
+def _garbage_httpfs_dir(directory):
+    path = extension_file(directory, "httpfs")
+    os.makedirs(os.path.dirname(path))
+    Path(path).write_bytes(b"not an extension " * 1024)
+    return path
+
+
+def test_a_broken_extension_directory_is_logged_at_warning_with_duckdbs_message(
+    tmp_path, monkeypatch, caplog
+):
+    directory = tmp_path / "ext"
+    _garbage_httpfs_dir(directory)
+    monkeypatch.setenv(extension.DIRECTORY_ENV, str(directory))
+    caplog.set_level(logging.DEBUG)
+    key = artifacts.new_artifact_key()
+    con = artifacts.connect_encrypted(tmp_path / "w.duckdb", key)
+    con.close()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in caplog.records]
+    message = warnings[0].getMessage()
+    assert "broken" in message and str(directory) in message
+    assert "not a DuckDB extension" in message
+    assert "\n" not in message
+    assert key not in message
+
+
+# --------------------------------------------------------------------- REM-FIX 1
+
+def test_current_never_raises_into_a_query(extract, monkeypatch):
+    def broken_check():
+        raise duckdb.IOException("boom\nsecond line")
+
+    from tests.fixtures.fast_extension import FakeClock
+    clock = FakeClock()
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    monkeypatch.setattr(extension, "_VERIFIER", extension._Verifier(check=broken_check, clock=clock))
+    assert extension.current() is None
+    state = extension.state()
+    assert state["status"] == "unavailable"
+    assert state["reason"] == "IOException: boom"
+    assert state["next_check"] == clock.now + 60
+    df = FastQueryClient([_relation(*extract)]).execute_query("SELECT COUNT(*) AS n FROM sales")
+    assert int(df.iloc[0]["n"]) == 4
+    clock.advance(59)
+    extension.current()
+    assert extension.state()["verifications"] == 1
+    clock.advance(1)
+    extension.current()
+    assert extension.state()["verifications"] == 2
+
+
+def test_a_path_published_before_its_hash_time_does_not_break_current(trusted_extension_dir):
+    t = trusted_extension_dir
+    assert extension.current() == t.path
+    # What a reader on another thread could see mid-publish.
+    t.verifier._hashed_at = None
+    assert extension.current() == t.path
+    assert extension.state()["hashed_at"] == t.clock.now
+
+
+def test_a_refused_file_says_why_with_duckdbs_message(tmp_path, monkeypatch):
+    directory = tmp_path / "ext"
+    path = _garbage_httpfs_dir(directory)
+    write_hash_record(path)
+    from functools import partial
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    monkeypatch.setattr(extension, "_VERIFIER", extension._Verifier(
+        check=partial(extension.trusted_httpfs, str(directory), require_foreign_owner=False)))
+    assert extension.current() is None
+    reason = extension.state()["reason"]
+    assert "signature-checked load failed" in reason
+    assert "not a DuckDB extension" in reason
+    assert "\n" not in reason
+
+
+def test_a_failed_explicit_load_says_why(trusted_extension_dir, extract, monkeypatch):
+    t = trusted_extension_dir
+    assert extension.current() == t.path
+    st = os.stat(t.path)
+    swap = t.path + ".swap"
+    Path(swap).write_bytes(b"\0" * st.st_size)
+    os.replace(swap, t.path)
+    now = os.stat(t.path)
+    monkeypatch.setitem(extension._RECORDS, t.path, dataclasses.replace(
+        extension._RECORDS[t.path], dev=now.st_dev, ino=now.st_ino,
+        mtime_ns=now.st_mtime_ns, ctime_ns=now.st_ctime_ns))
+    FastQueryClient([_relation(*extract)]).execute_query("SELECT 1 AS x FROM sales LIMIT 1")
+    reason = extension.state()["reason"]
+    assert reason.startswith("the explicit load failed (InvalidInputException: ")
+    assert "not a DuckDB extension" in reason
+    assert "\n" not in reason
+
+
+def test_a_symlinked_root_is_checked_and_returned_as_its_real_directory(
+    prepared_extensions_dir, tmp_path
+):
+    real = tmp_path / "unsafe" / "ext"
+    make_httpfs_dir(prepared_extensions_dir, real)
+    safe = tmp_path / "safe"
+    safe.mkdir()
+    link = safe / "ext"
+    link.symlink_to(real)
+    path = extension.trusted_httpfs(str(link), require_foreign_owner=False)
+    assert path == extension_file(os.path.realpath(real), "httpfs")
+    chain = extension._owner_chain(str(link))
+    assert str(tmp_path / "unsafe") in chain
+    assert str(safe) not in chain
+
+
+def test_an_ancestor_owned_by_the_process_is_refused_even_read_only(tmp_path):
+    # A test cannot make a file another user owns, so the rule is checked on
+    # a chain holding the ancestor alone.
+    ancestor = tmp_path / "anc"
+    ancestor.mkdir()
+    os.chmod(ancestor, 0o555)
+    try:
+        assert not os.access(ancestor, os.W_OK)
+        with pytest.raises(extension._Refused, match="owned by the process"):
+            extension._check_chain([str(ancestor)])
+    finally:
+        os.chmod(ancestor, 0o755)
+
+
+def test_mark_unavailable_is_not_overwritten_by_a_verification_in_flight(
+    prepared_extensions_dir, tmp_path, monkeypatch
+):
+    directory = tmp_path / "ext"
+    make_httpfs_dir(prepared_extensions_dir, directory)
+    entered, release = threading.Event(), threading.Event()
+
+    def slow_check():
+        entered.set()
+        release.wait(10)
+        return extension.trusted_httpfs(str(directory), require_foreign_owner=False)
+
+    monkeypatch.setenv(extension.SWITCH_ENV, "1")
+    monkeypatch.setattr(extension, "_VERIFIER", extension._Verifier(check=slow_check))
+    verifying = threading.Thread(target=extension.current)
+    verifying.start()
+    assert entered.wait(10)
+    marking = threading.Thread(target=extension.mark_unavailable, args=("the explicit load failed (x)",))
+    marking.start()
+    release.set()
+    verifying.join(10)
+    marking.join(10)
+    assert extension.state()["status"] == "unavailable"
+    assert extension.state()["reason"] == "the explicit load failed (x)"
+
+
+# With V off or unavailable, a serving engine still loads httpfs from the
+# image's directory, signature-checked, as the writer does.
+
+def _httpfs_and_unsigned(con):
+    return (
+        con.execute("SELECT loaded, install_path FROM duckdb_extensions() WHERE extension_name = 'httpfs'").fetchone(),
+        con.execute("SELECT current_setting('allow_unsigned_extensions')").fetchone()[0],
+    )
+
+
+@pytest.mark.parametrize("switch", ["0", "1"])
+def test_without_v_a_serving_engine_loads_httpfs_signature_checked_from_the_directory(
+    switch, prepared_extensions_dir, extract, tmp_path, monkeypatch
+):
+    directory = tmp_path / "ext"
+    path = make_httpfs_dir(prepared_extensions_dir, directory)
+    monkeypatch.setenv(extension.DIRECTORY_ENV, str(directory))
+    monkeypatch.setenv(extension.SWITCH_ENV, switch)
+    # Switch on: the directory is the test user's own, so V refuses it.
+    assert extension.current() is None
+    client = FastQueryClient([_relation(*extract)])
+    con = client._open_engine()
+    try:
+        assert _httpfs_and_unsigned(con) == ((True, path), False)
+    finally:
+        con.close()
+    df = client.execute_query("SELECT SUM(amount) AS s FROM sales")
+    assert int(df.iloc[0]["s"]) == 100
+
+
+def test_without_a_directory_a_serving_engine_opens_as_today(extract, tmp_path):
+    client = FastQueryClient([_relation(*extract)])
+    con = client._open_engine()
+    try:
+        (loaded, where), unsigned = _httpfs_and_unsigned(con)
+        assert loaded is False and unsigned is False
+        assert con.execute("SELECT current_setting('extension_directory')").fetchone()[0] == ""
+    finally:
+        con.close()
+
+
+def test_a_broken_directory_at_serving_falls_back_with_one_warning(extract, tmp_path, monkeypatch, caplog):
+    directory = tmp_path / "ext"
+    _garbage_httpfs_dir(directory)
+    monkeypatch.setenv(extension.DIRECTORY_ENV, str(directory))
+    caplog.set_level(logging.DEBUG)
+    caplog.clear()
+    df = FastQueryClient([_relation(*extract)]).execute_query("SELECT SUM(amount) AS s FROM sales")
+    assert int(df.iloc[0]["s"]) == 100
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, [r.getMessage() for r in warnings]
+    assert "not a DuckDB extension" in warnings[0].getMessage()
 
 
 def test_directory_is_the_variable_when_it_names_a_directory(tmp_path, monkeypatch):

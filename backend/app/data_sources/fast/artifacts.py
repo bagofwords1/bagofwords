@@ -80,22 +80,12 @@ def _open_writer_engine():
     (`extension.directory()`), it is loaded from there by name, with
     signature checks on, so a refresh does not depend on a download. This is
     independent of the verified-load switch. When there is no such directory,
-    or the load fails, the engine opens exactly as before.
+    or the load fails (logged at WARNING), the engine opens exactly as before.
     """
     from app.data_sources.fast import extension
 
-    directory = extension.directory()
-    if directory:
-        con = None
-        try:
-            con = duckdb.connect(database=":memory:", config={"extension_directory": directory})
-            con.execute("LOAD httpfs")
-            return con
-        except Exception as e:
-            if con is not None:
-                con.close()
-            logger.info("fast.writer.extension_dir_unused", extra={"error": type(e).__name__})
-    return duckdb.connect(database=":memory:")
+    con = extension.open_with_signed_httpfs(purpose="writer")
+    return con if con is not None else duckdb.connect(database=":memory:")
 
 
 def connect_encrypted(path: str | Path, key: str, read_only: bool = False):
