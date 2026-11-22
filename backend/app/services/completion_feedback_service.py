@@ -97,6 +97,10 @@ class CompletionFeedbackService:
                 return
 
             direction = 'positive' if feedback.direction == 1 else 'negative'
+            # Column feedback (BOW-215): the columns each step's usage events
+            # recorded, one batched write for the whole completion.
+            column_usage: dict[tuple[str, str], set] = {}
+            column_tables: dict[tuple[str, str], str] = {}
 
             for step in target_steps:
                 if not step:
@@ -123,6 +127,12 @@ class CompletionFeedbackService:
                     table_fqn = (getattr(u, "table_fqn", None) or "").lower()
                     if not ds_id or not table_fqn:
                         continue
+                    table_id = getattr(u, "datasource_table_id", None)
+                    cols = [c for c in (getattr(u, "columns", None) or []) if isinstance(c, str) and c]
+                    if table_id and cols:
+                        key = (str(ds_id), str(table_id))
+                        column_usage.setdefault(key, set()).update(cols)
+                        column_tables[key] = table_fqn
                     pair = (ds_id, table_fqn)
                     if pair in seen_pairs:
                         continue
@@ -143,6 +153,16 @@ class CompletionFeedbackService:
                         payload=payload,
                         user_role=getattr(user, 'role', None)
                     )
+            if column_usage:
+                from app.services.column_usage_service import ColumnUsageService, TableColumnUsage
+                await ColumnUsageService().record_feedback(
+                    db,
+                    org_id=str(organization.id),
+                    usages=[TableColumnUsage(ds, tid, column_tables.get((ds, tid), ""), cols)
+                            for (ds, tid), cols in column_usage.items()],
+                    direction=direction,
+                    user_role=getattr(user, 'role', None),
+                )
         except Exception:
             # Never block on attribution failures
             return
