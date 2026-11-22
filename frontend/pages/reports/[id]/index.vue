@@ -471,36 +471,39 @@
 								/>
 											</div>
 
-							<RunToolGroupRow v-if="toolGroupHeaderFor(m, block)" :group="toolGroupHeaderFor(m, block)!"
-                :expanded="isToolGroupExpanded(toolGroupHeaderFor(m, block)!.id)" :translate="responseT"
-                @toggle="toggleToolGroup(toolGroupHeaderFor(m, block)!.id)" />
+							<ToolAgentScope v-if="toolGroupHeaderFor(m, block)" :executions="toolGroupExecutions(m, block)" :agents="toolAgents">
+								<RunToolGroupRow :group="toolGroupHeaderFor(m, block)!"
+									:expanded="isToolGroupExpanded(toolGroupHeaderFor(m, block)!.id)" :translate="responseT"
+									@toggle="toggleToolGroup(toolGroupHeaderFor(m, block)!.id)" />
+							</ToolAgentScope>
             <!-- 3. Tool execution (ALWAYS visible outside thinking) -->
 												<div v-if="block.tool_execution && isRunToolShown(m, block)" class="tool-execution-container text-start" :class="{ 'ps-4': isGroupedTool(m, block) }"  :dir="responseDir" :data-step-id="block.tool_execution?.created_step?.id || block.tool_execution?.created_step_id || ''">
-												<component
-													v-if="shouldUseToolComponent(block.tool_execution)"
-													:is="getToolComponent(block.tool_execution.tool_name)"
-													:key="block.id"
-													:tool-execution="block.tool_execution"
+												<ToolAgentScope v-if="shouldUseToolComponent(block.tool_execution)" :executions="[block.tool_execution]" :nested="isGroupedTool(m, block)" :agents="toolAgents">
+													<component
+														:is="getToolComponent(block.tool_execution.tool_name)"
+														:key="block.id"
+														:tool-execution="block.tool_execution"
 														:initially-collapsed="!!runFold(m)"
-	                                                    :run-status="m.status"
-													:edit-group-count="editRunInfo(m, block)?.count"
-													:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
-													:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
-													:turn-active="m.status === 'in_progress' || !!(block as any)._client_arrived_at"
-													:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
-													:data-sources="report?.data_sources"
-													:report-id="report_id"
-													:system-completion-id="m.system_completion_id || m.id"
-													:can-expand="!isMobile"
-													@openFilePreview="openFilePreview"
-													@openDataPanel="openDataPanel"
-													@openListPanel="openListPanel"
-													@toggleSplitScreen="toggleSplitScreen"
-													@editQuery="handleEditQuery"
-													@openArtifact="handleOpenArtifact"
-													@openInstruction="openInstructionById"
-													@openScheduledTask="openScheduledTaskById"
-												/>
+														:run-status="m.status"
+														:edit-group-count="editRunInfo(m, block)?.count"
+														:edit-group-last-new-text="editRunInfo(m, block)?.lastNewText"
+														:edit-group-last-version="editRunInfo(m, block)?.lastVersion"
+														:turn-active="m.status === 'in_progress' || !!(block as any)._client_arrived_at"
+														:already-answered="block.tool_execution.tool_name === 'clarify' && m.id !== messages[messages.length - 1]?.id"
+														:data-sources="report?.data_sources"
+														:report-id="report_id"
+														:system-completion-id="m.system_completion_id || m.id"
+														:can-expand="!isMobile"
+														@openFilePreview="openFilePreview"
+														@openDataPanel="openDataPanel"
+														@openListPanel="openListPanel"
+														@toggleSplitScreen="toggleSplitScreen"
+														@editQuery="handleEditQuery"
+														@openArtifact="handleOpenArtifact"
+														@openInstruction="openInstructionById"
+														@openScheduledTask="openScheduledTaskById"
+													/>
+												</ToolAgentScope>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
 													<div class="text-xs text-ink-muted mb-1">
@@ -535,27 +538,29 @@
 														<ToolWidgetPreview :tool-execution="d.tool_execution" :can-expand="!isMobile" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 													</div>
 													<div v-else-if="shouldUseToolComponent(d.tool_execution)" class="tool-execution-container" :data-step-id="d.tool_execution?.created_step?.id || d.tool_execution?.created_step_id || ''">
-														<component
-															:is="getToolComponent(d.tool_execution.tool_name)"
-															:tool-execution="d.tool_execution"
-															:run-status="m.status"
-															:edit-group-count="editRunInfo(m, d)?.count"
-															:edit-group-last-new-text="editRunInfo(m, d)?.lastNewText"
-															:edit-group-last-version="editRunInfo(m, d)?.lastVersion"
-															:turn-active="m.status === 'in_progress'"
-															:data-sources="report?.data_sources"
-															:report-id="report_id"
-															:system-completion-id="m.system_completion_id || m.id"
-															:can-expand="!isMobile"
-															@openFilePreview="openFilePreview"
-															@openDataPanel="openDataPanel"
-															@openListPanel="openListPanel"
-															@toggleSplitScreen="toggleSplitScreen"
-															@editQuery="handleEditQuery"
-															@openArtifact="handleOpenArtifact"
-															@openInstruction="openInstructionById"
-															@openScheduledTask="openScheduledTaskById"
-														/>
+														<ToolAgentScope :executions="[d.tool_execution]" :agents="toolAgents">
+															<component
+																:is="getToolComponent(d.tool_execution.tool_name)"
+																:tool-execution="d.tool_execution"
+																:run-status="m.status"
+																:edit-group-count="editRunInfo(m, d)?.count"
+																:edit-group-last-new-text="editRunInfo(m, d)?.lastNewText"
+																:edit-group-last-version="editRunInfo(m, d)?.lastVersion"
+																:turn-active="m.status === 'in_progress'"
+																:data-sources="report?.data_sources"
+																:report-id="report_id"
+																:system-completion-id="m.system_completion_id || m.id"
+																:can-expand="!isMobile"
+																@openFilePreview="openFilePreview"
+																@openDataPanel="openDataPanel"
+																@openListPanel="openListPanel"
+																@toggleSplitScreen="toggleSplitScreen"
+																@editQuery="handleEditQuery"
+																@openArtifact="handleOpenArtifact"
+																@openInstruction="openInstructionById"
+																@openScheduledTask="openScheduledTaskById"
+															/>
+														</ToolAgentScope>
 													</div>
 												</template>
 											</div>
@@ -1790,6 +1795,7 @@ const runActivities = computed(() => {
 })
 const {
 	toolGroupHeaderFor,
+	toolGroupExecutions,
 	isGroupedTool,
 	isToolGroupExpanded,
 	toggleToolGroup,
@@ -2640,6 +2646,11 @@ async function handleAgentConnected() {
 const availableFolders = ref<import('~/composables/useAgentFolderOptions').AgentFolderOption[]>([])
 const folderIds = ref<string[]>([])
 const availableAgents = ref<any[]>([])
+const toolAgents = computed(() => {
+	const agents = new Map((availableAgents.value || []).map(agent => [agent.id, agent]))
+	for (const agent of report.value?.data_sources || []) agents.set(agent.id, agent)
+	return Array.from(agents.values())
+})
 
 // The prompt box is in "Auto" — the report is scoped to every agent because
 // the user hasn't chosen. That's the absence of a choice, so the picker shows
