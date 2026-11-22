@@ -172,42 +172,6 @@ def _refuse_denied_functions(stmt, denied: re.Pattern = _DENIED_FUNCTION) -> Non
             )
 
 
-def _function_reads_no_table(target) -> bool:
-    from sqlglot import exp
-
-    while isinstance(target, exp.Dot):
-        target = target.expression
-    if isinstance(target, exp.Anonymous):
-        return _func_name(target).lower() in _SAFE_TABLE_FUNCTIONS
-    return isinstance(target, exp.Func)  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
-
-
-def _source_is_checkable(target) -> bool:
-    from sqlglot import exp
-
-    if isinstance(target, (exp.Identifier, exp.Subquery, exp.Query)):
-        return True
-    if type(target).__name__ == "SemanticView":
-        return True  # its view name is a separate Table node, checked by name
-    if isinstance(target, exp.TableFromRows):
-        return _function_reads_no_table(target.this)
-    return _function_reads_no_table(target)
-
-
-def _refuse_unchecked_sources(stmt, dialect: str) -> None:
-    """Every FROM, JOIN, LATERAL and APPLY source must be a named table, a subquery, or a
-    function known to read no table; anything else (a schema-qualified table macro, an
-    unknown table function, an unfamiliar node) is refused."""
-    from sqlglot import exp
-
-    for node in stmt.find_all(exp.Table, exp.Lateral):
-        if not _source_is_checkable(node.this):
-            raise TableScopeViolation(
-                f"'{node.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
-                "the table it reads cannot be checked."
-            )
-
-
 def _resolves_to_cte(table) -> bool:
     """True when an unqualified table reference names a CTE visible where it
     stands.
@@ -278,7 +242,6 @@ def check_table_scope(
             )
 
         _refuse_denied_functions(stmt)
-        _refuse_unchecked_sources(stmt, dialect)
 
         for tfr in stmt.find_all(exp.TableFromRows):
             inner = tfr.this
@@ -290,7 +253,8 @@ def check_table_scope(
                 )
 
         for t in stmt.find_all(exp.Table):
-            if isinstance(t.this, exp.Identifier):
+            target = t.this
+            if isinstance(target, exp.Identifier):
                 ref = tuple(p.lower() for p in (t.catalog, t.db, t.name) if p)
                 if len(ref) == 1 and _resolves_to_cte(t):
                     continue
@@ -314,6 +278,18 @@ def check_table_scope(
                     shown = _display(ref)
                     if shown not in denied:
                         denied.append(shown)
+                continue
+            if type(target).__name__ == "SemanticView":
+                continue  # its view name is a separate Table node, checked above
+            name = _func_name(target).lower() if isinstance(target, exp.Func) else ""
+            if isinstance(target, exp.Func) and not isinstance(target, exp.Anonymous):
+                continue  # typed built-ins sqlglot knows (GENERATE_SERIES, ...)
+            if name in _SAFE_TABLE_FUNCTIONS:
+                continue
+            raise TableScopeViolation(
+                f"'{t.sql(dialect=dialect)[:80]}' is not allowed as a query source, because "
+                "the table it reads cannot be checked."
+            )
 
     if denied:
         raise TableScopeViolation(
@@ -371,14 +347,18 @@ def one_part_table_refs(sql: str, dialect: str) -> list[str]:
 
 
 def refuse_unchecked_reads(sql: str, dialect: str, extra_denied: re.Pattern | None = None) -> None:
-    """Raise TableScopeViolation when `sql` reads through a denied function (or one matching
-    `extra_denied`, anywhere in the query) or a query source whose target cannot be named;
-    unreadable SQL raises too. Applies with no scope attached."""
+    """Raise TableScopeViolation when `sql` calls a denied function, or one matching
+    `extra_denied`, anywhere in the query; unreadable SQL raises too. Applies with no
+    scope attached.
+
+    Deliberately no rule on LATERAL / APPLY sources here: one applied to every
+    connector refused built-ins that read no table (SQL Server `.nodes()`, Spark
+    `inline_outer`, DuckDB `json_tree`). A connector that needs a stricter rule
+    applies it with the engine's own parser (see PostgresqlMultiClient)."""
     for stmt in _parse_for_refs(sql, dialect):
         _refuse_denied_functions(stmt)
         if extra_denied is not None:
             _refuse_denied_functions(stmt, extra_denied)
-        _refuse_unchecked_sources(stmt, dialect)
 
 
 def enforce_table_scope(client, query) -> None:

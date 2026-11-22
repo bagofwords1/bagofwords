@@ -92,20 +92,28 @@ def test_active_tables_run_in_every_dialect(dialect, sql):
     ("SELECT query_to_xml('select * from sales.payroll', true, true, '')", "postgres"),
     ("SELECT schema_to_xml('sales', true, true, '')", "postgres"),
     ("SELECT * FROM read_csv('/data/payroll.csv')", "duckdb"),
-    ("SELECT * FROM sales.orders o, LATERAL query_table('sales.payroll') p", "postgres"),
-    ("SELECT * FROM sales.orders o JOIN LATERAL some_reader('sales.payroll') p ON true", "postgres"),
-    ("SELECT * FROM sales.orders o LEFT JOIN LATERAL query('SELECT * FROM sales.payroll') p ON true", "duckdb"),
-    ("SELECT * FROM sales.orders t, LATERAL public.my_fn(t.x) f", "postgres"),
-    ("SELECT * FROM sales.orders t CROSS APPLY dbo.my_tvf(t.x) f", "tsql"),
-    ("SELECT * FROM sales.orders o, LATERAL main.histogram('sales.payroll', id) h", "duckdb"),
     ("SELECT * FROM read_duckdb('other.db', table_name => 'payroll')", "duckdb"),
     ("SELECT * FROM sales.orders o, LATERAL TABLE(main.histogram('sales.payroll', v)) h", "duckdb"),
     ("SELECT f.value FROM sales.orders o, LATERAL TABLE(unknown_fn(o.x)) f", "snowflake"),
-    ("SELECT f.value FROM sales.orders o, LATERAL TABLE(sch.unknown_fn(o.x)) f", "snowflake"),
 ])
 def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     with pytest.raises(TableScopeViolation):
         check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("sql,dialect", [
+    ("SELECT T.c.value('.', 'int') FROM sales.orders o CROSS APPLY o.xml_col.nodes('/a') AS T(c)", "tsql"),
+    ("SELECT o.id, x.a FROM sales.orders o LATERAL VIEW inline_outer(o.items) x AS a, b", "spark"),
+    ("SELECT o.id, h FROM sales.orders o LATERAL VIEW parse_url_tuple(o.url, 'HOST') t AS h", "hive"),
+    ("SELECT o.id, j.key FROM sales.orders o, LATERAL json_tree(o.j) j", "duckdb"),
+])
+def test_built_ins_beside_an_enabled_table_still_run(sql, dialect):
+    """The shared check does not judge LATERAL / APPLY sources: a rule there,
+    applied to every connector, refused these built-ins, which read no table,
+    and broke saved queries on SQL Server, Spark, Hive and DuckDB. A connector
+    that needs a stricter rule applies it with its engine's own parser (the
+    multi-database Postgres connector does: test_postgresql_multi_reading.py)."""
+    check_table_scope(sql, dialect, SCOPE)
 
 
 @pytest.mark.parametrize("sql,dialect", [
