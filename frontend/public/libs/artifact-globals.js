@@ -726,12 +726,16 @@
     // skipSame: an automatic commit drops changes that equal the value already
     // in flight or confirmed (apply() always sends what is pending). After a
     // failed run the same value must go out again, so an error turns it off.
-    function commit(targets, skipSame) {
+    // only(name), when given, limits the commit to those params; the rest stay
+    // pending.
+    function commit(targets, skipSame, only) {
       var changes = {};
       trailing = false;
       var any = false;
       var held = false;
+      var rest = {};
       for (var k in pending) {
+        if (only && !only(k)) { rest[k] = pending[k]; continue; }
         held = true;
         var current = (k in inflight) ? inflight[k] : values[k];
         if (skipSame && !error && JSON.stringify(pending[k]) === JSON.stringify(current)) continue;
@@ -739,7 +743,7 @@
         any = true;
       }
       if (!held) return;
-      pending = {};
+      pending = rest;
       if (!any) { notify(); return; }
       commitSeq += 1;
       for (var c in changes) { inflight[c] = changes[c]; inflightSeq[c] = commitSeq; }
@@ -753,6 +757,9 @@
         cooldown = null;
         if (!trailing) return;
         trailing = false;
+        // Text edited after the latest pick keeps its own debounce; text
+        // that was pending before it rides along with the pick.
+        if (editedAfterPick) { commit(null, true, isDiscrete); return; }
         if (timer) { clearTimeout(timer); timer = null; }
         commit(null, true);
       }, 250);
@@ -766,6 +773,7 @@
     var micro = false;
     var cooldown = null;
     var trailing = false;
+    var editedAfterPick = false;
     function isDiscrete(name) {
       for (var i = 0; i < declarations.length; i++) {
         var d = declarations[i];
@@ -777,10 +785,12 @@
       var now = names.length > 0;
       for (var i = 0; i < names.length && now; i++) now = isDiscrete(names[i]);
       if (!now) {
+        editedAfterPick = true;
         if (timer) clearTimeout(timer);
         timer = setTimeout(function() { timer = null; commit(null, true); }, 250);
         return;
       }
+      editedAfterPick = false;
       if (cooldown) { trailing = true; return; }
       if (micro) return;
       micro = true;

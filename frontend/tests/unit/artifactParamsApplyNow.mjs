@@ -228,6 +228,42 @@ await check('N5: apply() in the same tick leaves no trailing commit for later he
   assert.deepEqual({ ...store.getPending() }, { owner: 'a' }, 'owner stays held until Apply');
 });
 
+for (const [name, typed] of [['search', ['n']], ['search', ['n', 'no']], ['day', ['0002-01-31']]]) {
+  await check(`text edited after the latest pick keeps its own 250 ms debounce through a trailing commit (${name} ${JSON.stringify(typed)})`, async () => {
+    const { store, sets, advance } = await boot();
+    const label = `${name} ${JSON.stringify(typed)}`;
+    store.setParam('region', 'North');          // t=0: leading commit
+    await advance(100);
+    store.setParam('region', 'South');          // t=100: waits for the trailing commit
+    await advance(100);
+    for (const v of typed) { store.setParam(name, v); await advance(100); }  // typing from t=200
+    const last = 200 + (typed.length - 1) * 100;
+    const at = (t) => sets().filter((p) => p.at === t).map((p) => p.msg.changes);
+    await advance(1000);
+    assert.deepEqual(at(0), [{ region: 'North' }], `${label}: the first pick at once`);
+    assert.deepEqual(at(250), [{ region: 'South' }], `${label}: the trailing commit carries the pick only`);
+    const withText = sets().filter((p) => name in p.msg.changes);
+    assert.equal(withText.length, 1, `${label}: the text goes out once, got ${JSON.stringify(sets().map((p) => [p.at, p.msg.changes]))}`);
+    assert.equal(withText[0].at, last + 250, `${label}: 250 ms after the last edit`);
+    assert.deepEqual(withText[0].msg.changes, { [name]: typed[typed.length - 1] }, `${label}: the last value`);
+    const seqs = sets().map((p) => p.msg.seq);
+    assert.ok(seqs.every((s, i) => i === 0 || s > seqs[i - 1]), `${label}: seq increases: ${seqs}`);
+  });
+}
+
+await check('text pending before the latest pick still rides with the trailing commit', async () => {
+  const { store, sets, advance } = await boot();
+  store.setParam('region', 'North');
+  await advance(50);
+  store.setParam('search', 'ab');               // t=50, before the next pick
+  await advance(50);
+  store.setParam('region', 'South');            // t=100
+  await advance(1000);
+  assert.equal(sets().length, 2, `two commits, got ${JSON.stringify(sets().map((p) => [p.at, p.msg.changes]))}`);
+  assert.equal(sets()[1].at, 250);
+  assert.deepEqual(sets()[1].msg.changes, { search: 'ab', region: 'South' });
+});
+
 await check('mixed setParams (declared list + free text) waits 250 ms', async () => {
   const { store, sets, advance } = await boot();
   store.setParams({ region: 'North', search: 'abc' });
