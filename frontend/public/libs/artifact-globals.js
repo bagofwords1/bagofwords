@@ -723,17 +723,74 @@
     function notify() { for (var i = 0; i < listeners.length; i++) { try { listeners[i](); } catch (e) {} } }
     function post(msg) { try { window.parent.postMessage(msg, '*'); } catch (e) {} }
 
-    function commit(targets) {
+    // skipSame: an automatic commit drops changes that equal the value already
+    // in flight or confirmed (apply() always sends what is pending). After a
+    // failed run the same value must go out again, so an error turns it off.
+    function commit(targets, skipSame) {
       var changes = {};
+      trailing = false;
       var any = false;
-      commitSeq += 1;
-      for (var k in pending) { changes[k] = pending[k]; inflight[k] = pending[k]; inflightSeq[k] = commitSeq; any = true; }
-      if (!any) return;
+      var held = false;
+      for (var k in pending) {
+        held = true;
+        var current = (k in inflight) ? inflight[k] : values[k];
+        if (skipSame && !error && JSON.stringify(pending[k]) === JSON.stringify(current)) continue;
+        changes[k] = pending[k];
+        any = true;
+      }
+      if (!held) return;
       pending = {};
+      if (!any) { notify(); return; }
+      commitSeq += 1;
+      for (var c in changes) { inflight[c] = changes[c]; inflightSeq[c] = commitSeq; }
       loading = true;
       error = null;
       notify();
       post({ type: 'ARTIFACT_SET_PARAMS', changes: changes, targets: targets || null, seq: commitSeq });
+      // A burst of discrete picks: the rest wait for one trailing commit.
+      if (cooldown) clearTimeout(cooldown);
+      cooldown = setTimeout(function() {
+        cooldown = null;
+        if (!trailing) return;
+        trailing = false;
+        if (timer) { clearTimeout(timer); timer = null; }
+        commit(null, true);
+      }, 250);
+    }
+
+    // A param whose declaration fixes its choices (options or options_source)
+    // changes in one deliberate pick, so it commits without the 250 ms wait.
+    // Everything else (typed text, numbers, dates, options the host only
+    // derived) keeps the debounce. Same-tick picks share one commit; within
+    // 250 ms of the last commit they go out as one trailing commit.
+    var micro = false;
+    var cooldown = null;
+    var trailing = false;
+    function isDiscrete(name) {
+      for (var i = 0; i < declarations.length; i++) {
+        var d = declarations[i];
+        if (d && d.name === name) return !!((d.options && d.options.length) || d.options_source);
+      }
+      return false;
+    }
+    function schedule(names) {
+      var now = names.length > 0;
+      for (var i = 0; i < names.length && now; i++) now = isDiscrete(names[i]);
+      if (!now) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() { timer = null; commit(null, true); }, 250);
+        return;
+      }
+      if (cooldown) { trailing = true; return; }
+      if (micro) return;
+      micro = true;
+      Promise.resolve().then(function() {
+        micro = false;
+        // apply() in the same tick may already have sent everything.
+        if (cooldown) { trailing = Object.keys(pending).length > 0; return; }
+        if (timer) { clearTimeout(timer); timer = null; }
+        commit(null, true);
+      });
     }
 
     return {
@@ -783,15 +840,13 @@
         pending[name] = value;
         notify();
         if (opts && opts.apply === false) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+        schedule([name]);
       },
       setParams: function(changes, opts) {
         for (var k in (changes || {})) pending[k] = changes[k];
         notify();
         if (opts && opts.apply === false) return;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+        schedule(Object.keys(changes || {}));
       },
       apply: function(targets) { if (timer) { clearTimeout(timer); timer = null; } commit(targets || null); },
       refresh: function(targets) { loading = true; notify(); post({ type: 'ARTIFACT_REFRESH_PARAMS', targets: targets || null }); },
