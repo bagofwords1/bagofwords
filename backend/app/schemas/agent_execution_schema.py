@@ -23,6 +23,10 @@ class AgentExecutionSchema(BaseModel):
     config_json: Optional[Dict[str, Any]] = None
     bow_version: Optional[str] = None
     build_id: Optional[str] = None
+    # The run's main model (the planner's, from the diagnosis rollup); None
+    # until the run is rolled up, and for runs without per-call usage records.
+    primary_model_id: Optional[str] = None
+    primary_provider: Optional[str] = None
     # AI scoring fields (denormalized from Completion for UI convenience)
     instructions_effectiveness: Optional[int] = None
     context_effectiveness: Optional[int] = None

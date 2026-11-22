@@ -35,6 +35,7 @@ from app.schemas.agent_execution_trace_schema import (
     IterationTimingSchema,
     ConversationTraceResponse,
     ConversationTurnSchema,
+    RunModelUsageSchema,
 )
 from app.schemas.agent_execution_schema import AgentExecutionSchema
 from app.schemas.completion_v2_schema import CompletionBlockV2Schema
@@ -113,6 +114,54 @@ def _cache_beside_prompt(provider_type: Optional[str], model_id: Optional[str] =
     in LLMUsageRecorderService and the run rollup follow one rule.
     """
     return not pricing.cache_inside_prompt_tokens(provider_type, model_id)
+
+
+def _input_tokens(provider_type: Optional[str], model_id: Optional[str], prompt, cache_read, cache_write) -> int:
+    """Input tokens with cache reads and writes included, for any provider."""
+    total = int(prompt or 0)
+    if _cache_beside_prompt(provider_type, model_id):
+        total += int(cache_read or 0) + int(cache_write or 0)
+    return total
+
+
+def _run_models(rows) -> List[RunModelUsageSchema]:
+    """A run's usage records grouped by model, largest token share first."""
+    by_model: Dict[tuple, RunModelUsageSchema] = {}
+    for r in rows:
+        m = by_model.setdefault(
+            (r.model_id, r.provider_type),
+            RunModelUsageSchema(model_id=r.model_id, provider=r.provider_type),
+        )
+        m.calls += 1
+        m.input_tokens += _input_tokens(r.provider_type, r.model_id, r.prompt_tokens,
+                                        r.cache_read_tokens, r.cache_creation_tokens)
+        m.output_tokens += int(r.completion_tokens or 0)
+        m.cache_read_tokens += int(r.cache_read_tokens or 0)
+        m.cost_usd += float(r.total_cost_usd or 0)
+        if r.routed:
+            m.routed = True
+            m.baseline_model_id = m.baseline_model_id or r.baseline_model_id
+    return sorted(by_model.values(), key=lambda m: m.input_tokens + m.output_tokens, reverse=True)
+
+
+def _add_step_input_tokens(blocks: List[CompletionBlockV2Schema], provider_type: Optional[str],
+                           model_id: Optional[str]) -> None:
+    """Set plan_decision.metrics_json.token_usage.input_tokens on each block:
+    the planner call's whole prompt, cache included. The raw prompt_tokens
+    leaves cache out for Anthropic and keeps it in for OpenAI-format
+    providers, so it is not comparable across runs. Left unset when the
+    planner's provider is unknown rather than guessed."""
+    if not provider_type:
+        return
+    for b in blocks:
+        pd = b.plan_decision
+        metrics = pd.metrics_json if pd and isinstance(pd.metrics_json, dict) else None
+        usage = metrics.get("token_usage") if metrics else None
+        if not isinstance(usage, dict) or usage.get("prompt_tokens") is None:
+            continue
+        input_tokens = _input_tokens(provider_type, model_id, usage.get("prompt_tokens"),
+                                     usage.get("cache_read_tokens"), usage.get("cache_creation_tokens"))
+        pd.metrics_json = {**metrics, "token_usage": {**usage, "input_tokens": input_tokens}}
 
 
 def _row_total_tokens_expr():
@@ -1823,6 +1872,21 @@ class ConsoleService:
         for b in blocks:
             block_schemas.append(await serialize_block_v2(db, b))
 
+        usage_rows = (await db.execute(
+            select(
+                LLMUsageRecord.scope, LLMUsageRecord.model_id, LLMUsageRecord.provider_type,
+                LLMUsageRecord.prompt_tokens, LLMUsageRecord.completion_tokens,
+                LLMUsageRecord.cache_read_tokens, LLMUsageRecord.cache_creation_tokens,
+                LLMUsageRecord.total_cost_usd, LLMUsageRecord.routed, LLMUsageRecord.baseline_model_id,
+            ).where(LLMUsageRecord.agent_execution_id == agent_execution.id)
+        )).all()
+        # The planner's model: the rollup's choice, else the planner's own
+        # usage record while the run is not rolled up yet.
+        planner_row = next((r for r in usage_rows if r.scope == "planner"), None)
+        planner_provider = agent_execution.primary_provider or (planner_row.provider_type if planner_row else None)
+        planner_model = agent_execution.primary_model_id or (planner_row.model_id if planner_row else None)
+        _add_step_input_tokens(block_schemas, planner_provider, planner_model)
+
         # Head prompt snippet from the user completion that is the parent of the system completion
         # associated with this agent execution (not the first user completion in the report)
         head_prompt = None
@@ -1930,6 +1994,7 @@ class ConsoleService:
             latest_feedback=latest_feedback,
             build=build,
             timing_breakdown=timing_breakdown,
+            models=_run_models(usage_rows),
         )
 
     def _compute_timing_breakdown(

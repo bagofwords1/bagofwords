@@ -63,6 +63,8 @@ export const FIELDS: FieldSpec[] = [
   f('judge.context', 'number', 'run', 'Judge score for context use, 1–5', { sortable: true }),
   f('model', 'text', 'run', 'Planner model for the run', { facetable: true }),
   f('provider', 'text', 'run', 'LLM provider for the run', { facetable: true }),
+  f('llm', 'text', 'run', 'Any model the run called (planner, tool calls, Auto routing)'),
+  f('routed', 'boolean', 'run', 'Auto routing ran the run on the small model'),
   f('cost', 'money', 'run', 'LLM cost of the run in USD', { sortable: true }),
   f('tokens', 'number', 'run', 'LLM tokens used by the run', { sortable: true }),
   f('tokens.in', 'number', 'run', 'Input tokens, cached tokens included', { sortable: true }),
