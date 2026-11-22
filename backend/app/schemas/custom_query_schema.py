@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Union, Any, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +32,19 @@ class CustomQueryRefreshConfig(BaseModel):
     row_drop_guard_pct: Optional[int] = None
 
 
+class CustomQueryColumnEdit(BaseModel):
+    """What an admin set by hand on one column. A field that is sent replaces
+    the inherited value and survives every refresh; one that is left out goes
+    back to what the source says."""
+
+    name: str
+    description: Optional[str] = None
+    # true | false | "unknown"
+    additive: Optional[Union[bool, str]] = None
+    # Clear the "definition changed at the source" flag on this column.
+    acknowledge_drift: bool = False
+
+
 class CustomQueryCreate(BaseModel):
     name: str
     definition_sql: str
@@ -50,6 +63,8 @@ class CustomQueryCreate(BaseModel):
     # is new since the last refresh.
     refresh_mode: Optional[str] = None
     refresh_config: Optional[CustomQueryRefreshConfig] = None
+    # The admin's column edits (all of them; columns left out inherit).
+    columns: Optional[List[CustomQueryColumnEdit]] = None
 
 
 class CustomQueryUpdate(BaseModel):
@@ -63,6 +78,8 @@ class CustomQueryUpdate(BaseModel):
     refresh_at_time: Optional[str] = None
     refresh_mode: Optional[str] = None
     refresh_config: Optional[CustomQueryRefreshConfig] = None
+    # The complete set of column edits; omitted keeps what is stored.
+    columns: Optional[List[CustomQueryColumnEdit]] = None
 
 
 class CustomQueryRlsUpdate(BaseModel):
@@ -124,6 +141,10 @@ class CustomQueryPreviewRequest(BaseModel):
     target: Optional[dict] = None
     # So a query using {{since}} / {{until}} can be previewed before saving.
     refresh_config: Optional[CustomQueryRefreshConfig] = None
+    # The schedule in the dialog, so the suggested description can state it.
+    refresh_schedule_mode: Optional[str] = None
+    refresh_interval_minutes: Optional[int] = None
+    refresh_at_time: Optional[str] = None
 
 
 class CustomQueryFromResult(BaseModel):
@@ -167,7 +188,16 @@ class CustomQueryTarget(BaseModel):
 
 
 class CustomQueryPreviewResponse(BaseModel):
+    # Each column carries what the catalog knows about its origin:
+    # `description` and `metadata` (source, additive, ...), ready to edit.
     columns: List[dict] = []
+    # A fact-based description (grain, measures, source, schedule) to pre-fill
+    # an empty description with. None when there is nothing to say.
+    suggested_description: Optional[str] = None
+    # Indexed tables the query reads, and those of them the indexer marked as
+    # carrying row-level security at the source.
+    sources: List[str] = []
+    rls_sources: List[str] = []
     rows: List[List[Any]] = []
     row_limit: int
     truncated: bool = False
@@ -195,6 +225,11 @@ class CustomQuerySchema(BaseModel):
     name: str
     connection_id: str
     description: Optional[str] = None
+    # Built from the columns on every refresh; what agents read when the
+    # admin wrote no description.
+    generated_description: Optional[str] = None
+    sources: List[str] = []
+    rls_sources: List[str] = []
     definition_sql: Optional[str] = None
     columns: List[dict] = []
     no_rows: int = 0
@@ -254,6 +289,9 @@ class CustomQuerySchema(BaseModel):
             name=cq.name,
             connection_id=str(cq.connection_id),
             description=cq.description,
+            generated_description=meta.get("generated_description") or None,
+            sources=list((meta.get("lineage") or {}).get("sources") or []),
+            rls_sources=list((meta.get("lineage") or {}).get("rls_sources") or []),
             definition_sql=cq.definition_sql,
             columns=cq.columns or [],
             no_rows=cq.no_rows or 0,

@@ -33,6 +33,9 @@ export interface AdminNavItem {
   label: string
   icon: string
   permission: string
+  // With `resourceType`, holding `permission` on any one resource of that type
+  // is enough (a provider manager sees the LLM page for their providers).
+  resourceType?: string
   description?: string
   width?: AdminPageWidth
   feature?: string
@@ -62,7 +65,8 @@ export const ADMIN_NAV_ITEMS: AdminNavItem[] = [
     ],
   },
   // cpu-chip is the model icon everywhere else (the composer's model picker).
-  { name: 'models', label: 'settings.llm', icon: 'i-heroicons-cpu-chip', permission: 'manage_llm', description: 'settings.adminPages.models', width: 'wide' },
+  // `manage_llm` org-wide, or as the manager of at least one LLM provider.
+  { name: 'models', label: 'settings.llm', icon: 'i-heroicons-cpu-chip', permission: 'manage_llm', resourceType: 'llm_provider', description: 'settings.adminPages.models', width: 'wide' },
   { name: 'ai_settings', label: 'settings.aiSettings', icon: 'i-heroicons-adjustments-horizontal', permission: 'manage_settings', description: 'settings.aiSettingsPage.subtitle', width: 'narrow' },
   { name: 'pii', label: 'settings.piiTab', icon: 'i-heroicons-eye-slash', permission: 'manage_settings', feature: 'pii_protection', description: 'settings.pii.subtitle', width: 'narrow' },
   { name: 'general', label: 'settings.general', icon: 'i-heroicons-building-office', permission: 'manage_settings', description: 'settings.subtitle', width: 'narrow' },
@@ -99,7 +103,7 @@ export function useAdminNav() {
 
   const visibleItems = computed(() =>
     ADMIN_NAV_ITEMS
-      .filter(item => allowed(item.permission, item.feature))
+      .filter(item => allowed(item.permission, item.feature, item.resourceType))
       .filter(item => !item.superuserOnly || currentUser.value?.is_superuser === true)
       .filter(item => !item.enabledBySetting || appSettings.value?.[item.enabledBySetting]?.enabled === true)
       .map(item => ({

@@ -1319,6 +1319,21 @@
     "tokensCount": "{count} token",
     "llmUsageTooltip": "Utilizzo LLM per questa conversazione",
     "turnTokensTooltip": "Token LLM del pianificatore per questo turno",
+    "tokensInOut": "input {input} / output {output}",
+    "tokensIn": "Input",
+    "tokensOut": "Output",
+    "tokensCached": "In cache",
+    "stepTokens": "Token",
+    "stepTokensTooltip": "Chiamata del pianificatore per questo passaggio. L'input include i token in cache. Le chiamate LLM effettuate all'interno dello strumento non sono conteggiate.",
+    "modelUnknown": "Modello sconosciuto",
+    "modelUnknownTooltip": "Nessun utilizzo LLM per chiamata registrato per questa esecuzione",
+    "modelsMore": "+{count}",
+    "modelsHeading": "Modelli in questo turno",
+    "modelCalls": "{count} chiamata | {count} chiamate",
+    "autoRouted": "Auto",
+    "autoRoutedTooltip": "Il routing automatico ha eseguito queste chiamate con {model} invece di {baseline}",
+    "autoRoutedRunTooltip": "Il routing automatico era attivo per questa esecuzione",
+    "primaryModel": "Principale",
     "turnUsageTooltip": "Utilizzo LLM per questo turno",
     "setup": "Preparazione",
     "setupTooltip": "Tempo dall'avvio al primo passo (costruzione del contesto, ecc.)",
@@ -1409,7 +1424,30 @@
       "copied": "JSON della traccia copiato negli appunti",
       "failed": "Impossibile esportare la traccia"
     },
-    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci"
+    "hiddenTurns": "{count} turno successivo nascosto: questo o uno precedente ha usato un agente che non gestisci | {count} turni successivi nascosti: questi o uno precedente hanno usato un agente che non gestisci",
+    "contextColumns": {
+      "ofTotal": "{shown} di {total} colonne",
+      "allColumns": "{total} colonne",
+      "why": "Perché queste colonne",
+      "reason": {
+        "usage_ranked": "Ordinate per utilizzo delle colonne",
+        "structural_only": "Nessun utilizzo ancora: prima chiavi, timestamp e ID",
+        "all_columns": "Tutte le colonne rientrano nel limite"
+      },
+      "signal": {
+        "mentioned": "{n} citate nell'attività",
+        "usage": "{n} per utilizzo",
+        "instructions": "{n} citate nelle istruzioni",
+        "structural": "{n} chiavi, timestamp o ID",
+        "sample": "{n} campionate tra i gruppi di colonne",
+        "schema_order": "{n} in ordine di catalogo"
+      },
+      "shown": "Colonne nel contesto",
+      "folded": "Raggruppate (ricercabili con describe_tables)",
+      "otherColumns": "altre {count} colonne",
+      "usedTimes": "usata {count}×",
+      "score": "punteggio {score}"
+    }
   },
   "reportView": {
     "runFold": {
@@ -2313,6 +2351,19 @@
       "connected": "Connesso",
       "askAgain": "Chiedi di nuovo",
       "readyHint": "Connesso. Ripeti la domanda per usarlo."
+    },
+    "describeTables": {
+      "searching": "Ricerca di {query}…",
+      "searched": "Cercato {names}",
+      "searchedMore": "Cercato {names} +{count}",
+      "columnsMatching": "colonne che corrispondono a {terms}",
+      "column": "Colonna",
+      "type": "Tipo",
+      "used": "Utilizzi",
+      "showingOf": "Le prime {shown} di {total} colonne, le più usate per prime",
+      "matchingOf": "{matched} di {total} colonne corrispondono a {terms}",
+      "noMatch": "Nessuna colonna corrisponde a {terms}",
+      "more": "+{count} in più"
     }
   },
   "entityCreate": {
@@ -2563,7 +2614,17 @@
     "noManagedGroupsHint": "Non gestisci alcun gruppo.",
     "toastManagerAdded": "Il membro ora è gestore del gruppo",
     "toastManagerRemoved": "Ruolo di gestore rimosso",
-    "failedToUpdateManager": "Impossibile aggiornare il gestore del gruppo"
+    "failedToUpdateManager": "Impossibile aggiornare il gestore del gruppo",
+    "models": {
+      "title": "Modelli predefiniti",
+      "hint": "Il modello con cui partono i membri del gruppo. Sono elencati solo i modelli che il gruppo può già usare.",
+      "default": "Modello predefinito",
+      "small": "Modello piccolo",
+      "orgDefault": "Predefinito dell'organizzazione",
+      "setByAdmin": "{model} (impostato da un amministratore)",
+      "saved": "Modelli del gruppo aggiornati",
+      "failed": "Impossibile aggiornare i modelli del gruppo"
+    }
   },
   "signupPolicy": {
     "title": "Registrazione basata su dominio",
@@ -3754,6 +3815,10 @@
         "show_world": {
           "name": "Vista Mondo",
           "description": "Mostra nella pagina Agenti un interruttore che apre Mondo: una mappa di agenti, conoscenza, fonti e lavoro che collegano la tua organizzazione. Ogni utente vede solo ciò a cui ha accesso."
+        },
+        "top_k_schema_columns": {
+          "name": "Top K colonne per tabella",
+          "description": "Quante colonne di una tabella ampia l'agente vede per intero nel contesto, ordinate per utilizzo, riferimenti nelle istruzioni e chiavi/timestamp. Le altre sono riassunte per prefisso e restano ricercabili con describe_tables. 0 = nessun limite."
         }
       },
       "permissionMode": {
@@ -3937,7 +4002,27 @@
       },
       "piiBadge": "PII: {policy}",
       "piiBadgeExempt": "PII: non oscurato",
-      "piiBadgeTooltip": "La policy dati personali applicata ai prompt di questo provider. Modificala in Impostazioni → Protezione dei dati personali."
+      "piiBadgeTooltip": "La policy dati personali applicata ai prompt di questo provider. Modificala in Impostazioni → Protezione dei dati personali.",
+      "providerManagers": {
+        "title": "Gestori del provider",
+        "hint": "Membri che gestiscono questo provider senza essere amministratori LLM.",
+        "can": "Possono modificare le credenziali e le impostazioni di connessione, attivare o disattivare i suoi modelli e modificare le impostazioni e le indicazioni di instradamento di quei modelli.",
+        "cannot": "Non possono aggiungere modelli, cambiare prezzi, modelli predefiniti o accesso ai modelli, né attivare il router automatico. Un modello che attivano parte limitato finché un amministratore non lo apre.",
+        "addPlaceholder": "Aggiungi un membro…",
+        "add": "Aggiungi",
+        "remove": "Rimuovi gestore",
+        "loading": "Caricamento…",
+        "none": "Nessun gestore per ora. Solo gli amministratori LLM gestiscono questo provider.",
+        "added": "Gestore aggiunto",
+        "removed": "Gestore rimosso",
+        "failed": "Impossibile aggiornare i gestori del provider",
+        "banner": "Gestisci {providers}. Modelli predefiniti, accesso ai modelli, prezzi e router automatico sono decisi da un amministratore.",
+        "priceAdminOnly": "Solo un amministratore può cambiare i prezzi.",
+        "restricted": "Limitato: solo chi riceve l'accesso da un amministratore può usarlo."
+      },
+      "autoRouterModal": {
+        "decisionRestricted": "Solo i membri che possono usare {model} ricevono la decisione iniziale. Tutti gli altri partono dal modello piccolo."
+      }
     },
     "licensePage": {
       "title": "Licenza",
@@ -4669,6 +4754,14 @@
       "tableExcludeTitle": "Table Exclude Pattern",
       "tableExcludeDescription": "Optional regular expression; tables whose name matches are not indexed, e.g. ^day_\\d{'{'}2{'}'}. Changing it removes newly excluded tables and the agent's selection of them on the next index."
     },
+    "postgresqlMulti": {
+      "databasesTitle": "Database",
+      "databasesDescription": "Nomi di database, pattern glob ed esclusioni con !, separati da virgole, ad es. tenant_*, !tenant_test. La corrispondenza distingue maiuscole e minuscole. Tutti i database corrispondenti vengono uniti in un unico insieme di tabelle con una colonna tenant_db.",
+      "discoveryDatabaseTitle": "Database di rilevamento",
+      "discoveryDatabaseDescription": "Database usato per elencare i database del server. Predefinito: postgres.",
+      "tableExcludeTitle": "Pattern di esclusione tabelle",
+      "tableExcludeDescription": "Espressione regolare facoltativa; le tabelle il cui nome corrisponde non vengono indicizzate, ad es. ^day_\\d{'{'}2{'}'}. Modificarla rimuove alla successiva indicizzazione le tabelle appena escluse e la loro selezione nell'agente."
+    },
     "qlikCloud": {
       "appFilterDescription": "Nomi o ID delle app separati da virgole negli spazi selezionati (facoltativo). Se vuoto, include tutte le app corrispondenti. Usa gli ID per nomi contenenti virgole."
     },
@@ -4931,7 +5024,14 @@
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider",
       "model_is_group_default": "Questo modello è il predefinito dei gruppi: {groups}. Cambia prima il loro predefinito.",
-      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione."
+      "group_default_invalid": "Il modello deve essere abilitato ed essere un modello di chat di questa organizzazione.",
+      "group_default_not_available": "Questo gruppo non può usare quel modello. Chiedi prima a un amministratore di dare accesso al gruppo.",
+      "group_default_priority_admin_only": "Solo un amministratore può cambiare la priorità di un gruppo.",
+      "provider_holds_default": "Questo provider contiene il modello predefinito dell'organizzazione. Chiedi prima a un amministratore di cambiare il predefinito.",
+      "provider_manager_admin_only": "Solo un amministratore può farlo su questo provider.",
+      "provider_manager_not_member": "Solo un membro di questa organizzazione può gestire un provider.",
+      "provider_key_required_for_new_destination": "Inserisci di nuovo la chiave API quando cambi la destinazione a cui si collega questo provider.",
+      "provider_host_identity_admin_only": "Questo provider accede con l'identità cloud del server stesso. Solo un amministratore può cambiare la destinazione o passare a questo tipo di accesso."
     },
     "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
     "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",
@@ -5863,6 +5963,8 @@
       "colTools": "Strumenti",
       "colDuration": "Durata",
       "colCost": "Costo",
+      "colModel": "Modello",
+      "pivotModel": "Mostra le esecuzioni che hanno usato questo modello",
       "colFeedback": "Feedback",
       "expandRow": "Mostra chiamate a strumenti",
       "pivotReport": "Mostra questa conversazione",
@@ -6477,7 +6579,22 @@
     "reports": "Report recenti",
     "suggestInstruction": "Suggerisci istruzione",
     "suggestInstructionWithQuery": "Suggerisci l'istruzione “{query}”",
-    "suggestionHint": "inviata per revisione"
+    "suggestionHint": "inviata per revisione",
+    "placeholderInReport": "Cerca in questo report, report, agenti, istruzioni…",
+    "inThisReport": "In questo report",
+    "reportScopeHint": "Digita report: per cercare solo in questo report",
+    "reportPrefix": "report:",
+    "tabs": {
+      "all": "Tutto",
+      "reports": "Report",
+      "agents": "Agenti",
+      "instructions": "Istruzioni",
+      "dashboards": "Dashboard"
+    },
+    "tabsLabel": "Categorie",
+    "tabsHint": "categorie",
+    "dashboards": "Dashboard",
+    "untitledDashboard": "Dashboard senza titolo"
   },
   "promptParams": {
     "title": "Compila i parametri — {title}",
@@ -7077,7 +7194,10 @@
     "exitFullscreen": "Esci da schermo intero",
     "searchColumns": "Cerca colonne…",
     "noColumns": "Nessuna colonna corrispondente",
-    "centrality": "Centralità"
+    "centrality": "Centralità",
+    "usedHeader": "Utilizzi",
+    "usedTooltip": "Query eseguite che hanno usato questa colonna (i tentativi falliti pesano meno nel ranking)",
+    "sortedByUsage": "Le più usate per prime"
   },
   "fork": {
     "preparing": "Preparazione della tua copia…",
@@ -8086,5 +8206,56 @@
       }
     },
     "builtinBadge": "Integrato"
+  },
+  "cachedColumns": {
+    "title": "Colonne",
+    "hint": "Le descrizioni e l’indicatore di riaggregazione provengono dal catalogo di origine. Ciò che modifichi qui viene mantenuto a ogni aggiornamento.",
+    "column": "Colonna",
+    "type": "Tipo",
+    "description": "Descrizione",
+    "details": "Dettagli",
+    "aggregation": "Riaggregazione",
+    "descriptionPlaceholder": "Nessuna descrizione nell’origine. Descrivi questa colonna per l’agente.",
+    "additive": "Additiva",
+    "notAdditive": "Non additiva",
+    "unknown": "Sconosciuta",
+    "additiveHint": "I valori possono essere sommati tra le righe.",
+    "notAdditiveHint": "Sommare tra le righe dà un numero sbagliato. All’agente viene detto di non farlo.",
+    "unknownHint": "Impossibile determinarla dalla query. Scegli un’opzione perché l’agente lo sappia.",
+    "undecided": "Non è stato possibile determinare la riaggregazione per: {columns}. Impostala perché l’agente sappia se possono essere sommate.",
+    "copiedFrom": "Copiata da {source}",
+    "measureFrom": "Misura {source}",
+    "computedAs": "Calcolata: {expression}",
+    "edited": "Modificata",
+    "editedHint": "Impostata da un amministratore. Un aggiornamento non la cambierà.",
+    "reset": "Ripristina il valore di origine",
+    "drift": "Definizione cambiata",
+    "driftHint": "La definizione di origine di questa colonna è cambiata dall’ultima volta che la tabella l’ha descritta.",
+    "driftPrevious": "In precedenza: {expression}",
+    "markReviewed": "Segna come verificata",
+    "rlsTitle": "L’origine usa la sicurezza a livello di riga",
+    "rlsBody": "{tables} è protetta dalla sicurezza a livello di riga nell’origine. Questa copia contiene ogni riga che la connessione può leggere e i ruoli dell’origine non vengono riportati. Decidi chi vede quali righe nella scheda Sicurezza a livello di riga.",
+    "rlsOpen": "Apri Sicurezza a livello di riga",
+    "rlsSaveFirst": "Disponibile dopo il salvataggio della tabella.",
+    "generatedDescription": "Generata dalle colonne e mantenuta aggiornata a ogni aggiornamento. Modificala per scriverne una tua.",
+    "reasons": {
+      "sum": "somma",
+      "count": "conteggio",
+      "numeric_column": "valore numerico",
+      "distinct_count": "conteggio dei distinti",
+      "average": "media",
+      "ratio": "rapporto",
+      "min_max": "minimo / massimo",
+      "time_intelligence": "intelligenza temporale",
+      "share_of_total": "quota di un totale",
+      "statistic": "statistica",
+      "offset": "costante aggiunta dopo l’aggregazione",
+      "unreadable": "definizione non leggibile",
+      "complex": "troppo complessa da classificare",
+      "not_numeric": "non è un numero",
+      "grouping_key": "chiave di raggruppamento",
+      "key": "identificatore",
+      "set_by_admin": "impostata da un amministratore"
+    }
   }
 }

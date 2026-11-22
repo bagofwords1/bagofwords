@@ -345,6 +345,8 @@ COVERED_ELSEWHERE = {
     "PostgresqlClient": "tests/integrations/test_exact_text_send_live.py",
     # Iceberg names tables namespace.table: QUERY's `orders` is not one.
     "IcebergClient": "test_iceberg_runs_exactly_the_checked_text, below",
+    # Its tables are unified views named schema.table: QUERY's `orders` is not one.
+    "PostgresqlMultiClient": "test_the_multi_database_postgres_client_runs_exactly_the_checked_text, below",
 }
 NOT_SQL_TEXT = {
     "SplunkClient": "SPL: the client sends `search <text>`, the form check_spl reads",
@@ -416,6 +418,40 @@ def test_iceberg_runs_exactly_the_checked_text(monkeypatch):
     assert lock == ["SET temp_directory", "SET allowed_paths", "SET python_enable_replacements",
                     "SET allow_unredacted_secrets", "SET enable_external_access", "SET lock_configuration"]
     assert all(s.startswith("SELECT ") and "current_" in s for s in sent[-3:-1])
+
+
+def test_the_multi_database_postgres_client_runs_exactly_the_checked_text():
+    """The multi-database Postgres client runs the checked text on its DuckDB
+    engine, once and byte for byte (the engine here is an in-memory DuckDB
+    holding the one view the query reads)."""
+    from app.data_sources.clients.postgresql_multi_client import PostgresqlMultiClient
+
+    query = "SELECT 'a--b :x %s %% 12:30' AS a FROM public.orders -- a note :y %s"
+    client = PostgresqlMultiClient(host="unreachable.invalid", port=5432, databases="tenant_*", user="reader")
+    client.attach_table_metadata([
+        {"name": "public.orders", "metadata_json": {"schema": "public", "tenants": ["tenant_a"]}},
+    ])
+    engine = duckdb.connect()
+    engine.execute("CREATE SCHEMA public")
+    engine.execute("CREATE TABLE public.orders AS SELECT 1 AS id")
+    sent: list[str] = []
+
+    class Recording:
+        def __init__(self, cursor):
+            self.cursor = cursor
+
+        def execute(self, sql, *args):
+            sent.append(sql)
+            return self.cursor.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self.cursor, name)
+
+    client._engine = lambda used: SimpleNamespace(cursor=lambda: Recording(engine.cursor()))
+    checked = ensure_read_only(client, query)
+    df = client.execute_query(checked)
+    assert sent == [checked] and checked == query
+    assert df.to_dict("records") == [{"a": "a--b :x %s %% 12:30"}]
 
 
 @pytest.mark.parametrize("query_options", [None, "timeoutMs=1000"])

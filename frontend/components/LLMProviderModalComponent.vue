@@ -410,8 +410,9 @@
                                     </button>
                                 </div>
 
-                                <!-- Add Custom Model Button for existing provider -->
-                                <div class="pt-2">
+                                <!-- Add Custom Model Button for existing provider
+                                     (adding models is an org LLM admin's call) -->
+                                <div v-if="orgAdmin" class="pt-2">
                                     <button
                                         type="button"
                                         @click="addExistingProviderCustomModel"
@@ -423,7 +424,11 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="" v-if="selectedProvider?.type !== 'new_provider'">
+                        <LLMProviderManagers
+                            v-if="orgAdmin && selectedProvider?.id && selectedProvider?.type !== 'new_provider' && hasFeature('llm_access_control')"
+                            :provider-id="selectedProvider.id"
+                        />
+                        <div class="" v-if="orgAdmin && selectedProvider?.type !== 'new_provider'">
                             <div>
                                 <button
                                     type="button"
@@ -848,12 +853,17 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import Spinner from './Spinner.vue';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     editProviderId?: string | null;
     // Jump straight to the "New Provider" step when opening (Add Provider button).
     startWithNew?: boolean;
-}>();
+    // False for a provider manager: they edit their provider's settings and
+    // turn its models on or off, but don't add models, delete the provider or
+    // name managers (the backend refuses those too).
+    orgAdmin?: boolean;
+}>(), { orgAdmin: true });
+const { hasFeature } = useEnterprise();
 
 const emit = defineEmits(['update:modelValue']);
 

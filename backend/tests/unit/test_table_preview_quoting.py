@@ -92,6 +92,7 @@ def test_only_select_able_sql_relations_are_previewable():
         # ROWNUM, not FETCH FIRST: Oracle 11g has no FETCH FIRST.
         ("oracledb", _table("HR.EMP", {"schema": "HR"}), 'SELECT * FROM "HR"."EMP" WHERE ROWNUM <= 50'),
         ("postgresql", _table("public.o", {"schema": "public"}), 'SELECT * FROM "public"."o" LIMIT 50'),
+        ("postgresql_multi", _table("public.o", {"schema": "public"}), 'SELECT * FROM "public"."o" LIMIT 50'),
         ("mysql", _table("orders"), "SELECT * FROM `orders` LIMIT 50"),
         ("bigquery", _table("ds.t", {"dataset": "ds"}), "SELECT * FROM `ds`.`t` LIMIT 50"),
         ("snowflake", _table("S.T", {"schema": "S"}), 'SELECT * FROM "S"."T" LIMIT 50'),

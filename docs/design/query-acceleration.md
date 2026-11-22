@@ -146,7 +146,7 @@ setting there (`backend/app/data_sources/fast/limits.py`):
 | `custom_table_max_rows` | 5,000,000 | 1,000 to 100,000,000 | rows in one table (estimate, mid-load, increment) |
 | `custom_table_max_gb` | 2 | 1 to 64 | estimated result bytes and the artifact on disk |
 | `custom_table_max_scan_gb` | 100 | 1 to 10,240 | bytes the source reads per refresh (BigQuery, Snowflake); also BigQuery's `maximum_bytes_billed` |
-| `custom_table_max_requests` | 512 | 16 to 10,000 | requests per extraction on paged sources (Power BI, Analysis Services, BusinessObjects, PostHog) |
+| `custom_table_max_requests` | 512 | 16 to 10,000 | requests per extraction on paged sources (Power BI, Analysis Services, BusinessObjects, PostHog, Priority ERP) |
 
 A write outside the range is refused (400) and a stored value is clamped on
 read, so a setting moves a limit and never removes it. The limits are attached
@@ -433,6 +433,33 @@ The Analysis Services source subclasses the Power BI one: the count / sample /
 window / verify strategy belongs to DAX, and only the transport, the target
 (a catalog instead of a semantic model) and what a response can carry differ.
 
+### Priority ERP source
+
+`fast/priority_erp_source.py`. Designed from Priority's public REST
+documentation and the connector's code, tested against a fake endpoint and
+the repo's mock service. **Not run against a live Priority server**, so
+`priority_erp` is in neither `VERIFIED_TYPES` nor `UNVERIFIED_TYPES`; the
+module docstring marks each behaviour as documented, read off the client, or
+assumed.
+
+| | Priority ERP |
+|---|---|
+| Definition | one form with OData options: `ORDERS?$filter=CUSTNAME eq '1011'&$select=ORDNAME,CURDATE`. Allowed: `$filter`, `$select`, `$orderby`, `$since`, `$top`, `$skip` (the last two bound the whole table) |
+| Refused when saved | `$expand`, a sub-form named as a table (recognised from the indexed catalog), a single record or navigation path, any other option, SQL, and `{{since}}` / `{{until}}` together with `$top` / `$skip` (`CustomQueryService.ensure_definition_allowed`, a 400 before a row is stored) |
+| Estimate | exact, `FORM/$count` with the definition's filter (one request, no rows). Priority does not document `$count`: when the server does not answer it with a number there is no estimate, and none is invented |
+| Paging | `$top`/`$skip`, 2,000 rows a request: Priority's default `MAXAPILINES`, the most one response holds on a default server whatever `$top` says |
+| Truncation | a short page is never the end (that is what the server's row cap looks like); reading stops only at an empty page. With a count, fewer rows than it fail the refresh. A response longer than asked for fails too |
+| Order | the definition's `$orderby`, with the form's key as tie-breaker where the catalog knows it and the definition returns it |
+| Rate limit | the connector's limiter paces requests; a 429 is waited out (`Retry-After`, else 20 s, at most 60 s) and retried 3 times, then the refresh fails |
+| 3-minute ceiling | each request has the connector's 120 s timeout; a page that times out is retried at half the size, down to 100 rows |
+| Request limit | `custom_table_max_requests`, retries included; a counted result too large for it is refused when saved (one count, one request per page, and the closing empty page unless the definition's `$top` ends the read) |
+| Progress / cancel | one batch per page, so progress, cancellation and the time limit are checked between pages |
+| Incremental | window and-ed onto `$filter` on the cursor column, with the bound written exactly (the loader replaces from the same bound), or placed with `{{since}}` / `{{until}}`; Priority's own change feed is `ORDERS?$since={{since}}`. A definition with its own `$top` / `$skip` is read whole and the window taken from the result, because those bounds apply after `$filter` |
+
+Known limits: sub-forms (order lines) cannot be cached yet; rows added or
+deleted in a form while it is being read can shift a later page, as under any
+offset paging; without `$count` an early end cannot be told from a real one.
+
 ### Saving a cited result as a custom table
 
 A result the agent produced can be the starting point of a custom table. The
@@ -471,6 +498,86 @@ the admin previews and saves.
   the dialog now says so and closes.
 
 Run report: `docs/feedback-loops/save-as-cached-table.md`.
+
+### Column metadata: what a cached table's columns mean
+
+A custom table's columns carry what the connection's catalog already knows
+about where they came from. It is built on publish and on every refresh from
+rows indexing stored; no source is asked anything, so it works for any
+connector whose catalog has descriptions or metadata (Postgres column
+comments, Power BI measures, Priority titles).
+
+- **Lineage** (`fast/lineage.py`, pure). Per output column: the indexed
+  column it copies, or "derived" with its expression. SQL is read with
+  sqlglot (plain and aliased columns, joins, CTEs and subqueries, `*`); DAX
+  matches `Table[Column]` and `[Measure]` against the indexed model, resolved
+  like the extraction target (pinned, else the one model that fits);
+  Priority's OData and a BusinessObjects query map their fields one to one.
+  A UNION, an unqualified column two joined tables share, a table name two
+  schemas share, a relation whose columns are unknown: no lineage. A missing
+  description is better than a wrong one.
+- **What is stored**, on each entry of `ConnectionTable.columns`:
+  `description` (the source's, or the expression of a derived column followed
+  by what the columns it reads mean) and, in `metadata`, the source column's
+  own metadata plus `source`, `additive`, `additive_reason`, `fingerprint`
+  and, where they apply, `recompute`, `edited`, `inherited`, `drift`. The
+  shape is documented at the top of `fast/column_metadata.py`.
+- **Additivity** (`fast/additivity.py`). `true` for SUM, COUNT and plain
+  arithmetic over them, and for a plain numeric column; `false` for
+  COUNT(DISTINCT) / DISTINCTCOUNT, averages, ratios, MIN / MAX, time
+  intelligence, share-of-total; `"unknown"` when the expression is unreadable
+  or more than the classifier understands. A grouping key, an identifier
+  (a primary or foreign key in the catalog) and a non-numeric column are
+  `false` with a reason that produces no note. A measure that references
+  other measures is followed through the model. The SQL walk follows the
+  expression's structure, because where something happens decides the answer:
+  `SUM(cents / 100.0)` and `SUM(cents) / 100.0` add up (a unit conversion),
+  `SUM(a) / SUM(b)` does not (a ratio), and `SUM(cents) + 1` does not either
+  (the constant is added once per group, so twelve monthly rows carry twelve).
+  A reference to another query's computed output (a CTE, a subquery) is
+  replaced by that computation before classifying, so `CAST(users AS BIGINT)`
+  over a monthly `COUNT(DISTINCT ...)` is still a distinct count; when that
+  computation cannot be read, the answer is `"unknown"`.
+- **What the agent reads.** A note on the column,
+  `aggregation="NOT ADDITIVE (distinct count): …"`, rendered by
+  `tables_schema_section._aggregation_attr` in both render paths, only for a
+  numeric column that must not be summed or a computed one nobody could
+  classify. Where the right roll-up is known exactly the note gives it: a
+  ratio whose whole expression is one division of two additive columns of the
+  same table (`SUM(revenue) / SUM(orders)`; not `DIVIDE(a, b) * 100`, where
+  that would be off by the factor), and a direct MIN or MAX (`MIN(lowest)`).
+  It is a note on the data, not a prompt rule. The wording was settled
+  against a live model: a first version that only said "do not SUM" was
+  ignored when the user asked for a "total"
+  (`docs/feedback-loops/cached-table-column-metadata.md`).
+- **Description.** `column_metadata.describe_table` states the grain, the
+  measures with their additivity, the sources and the schedule, by plain
+  code. It is kept in `metadata_json["generated_description"]` and refreshed
+  with the columns; agents read it only when the admin's own `description` is
+  empty. The dialog shows it in the description field and saves an untouched
+  one as empty, so it does not freeze.
+- **Admin edits.** Description and additivity are editable per column in the
+  dialog. The edits are the admin's settings, kept apart from what is derived
+  (`metadata_json["column_overrides"]`), applied on every pass and marked
+  `edited`, with what the source says kept under `inherited`. A create or
+  update request carries the complete set in `columns`; a column left out
+  follows its source again. Editing never reloads data
+  (`CustomQueryService.redescribe`).
+- **Drift.** The fingerprint covers the source's expression (its type when it
+  has none; for a derived column, its expression and what it reads), not its
+  description: a reworded comment follows silently. Same source, different
+  fingerprint on a refresh: the column gets `drift`, the run gets a warning
+  event, and the flag stays until an admin marks it reviewed.
+- **Row-level security.** When a source table carries the indexer's
+  `rowLevelSecurity` marker, the preview and the saved table report it
+  (`rls_sources`) and the dialog points at the Row-level security tab.
+  Source roles are **not** translated or imported (their definitions are
+  usually unreadable), and **no data samples are stored** (they would sit
+  outside the copy's row policy). Both were considered and rejected.
+- **Existing tables** are described by their next refresh; nothing is
+  migrated.
+
+Run report: `docs/feedback-loops/cached-table-column-metadata.md`.
 
 ## Phases
 

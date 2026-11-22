@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema, CompactContextRequest, CompletionSearchHit
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.streaming.completion_event_bus import websocket_manager
@@ -305,6 +305,7 @@ async def get_completions_v2(
     report_id: str,
     limit: int = 10,
     before: str | None = None,
+    until: str | None = None,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -313,8 +314,30 @@ async def get_completions_v2(
 
     - limit: last N completions (user+system), default 10
     - before: ISO datetime cursor to fetch items strictly before it
+    - until: a completion id; the page is widened down to and including it
+      (jump to an old message in one request). Unknown/hidden ids are ignored.
     """
-    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before)
+    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before, until=until)
+
+
+@router.get("/api/reports/{report_id}/completions/search", response_model=list[CompletionSearchHit])
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def search_report_completions(
+    report_id: str,
+    q: str = "",
+    limit: int = Query(20, ge=1, le=50),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Search this report's messages, including pages the client hasn't loaded.
+
+    Same visibility as the transcript (hidden machine prompts and sub-agent
+    children excluded) and the same PII redaction. Newest first. Each hit's
+    ``cursor`` is the message's position in the ``next_before`` format; pass
+    ``until=<completion_id>`` to GET /completions to load down to it.
+    """
+    return await completion_service.search_report_completions(db, report_id, organization, q, limit=limit)
 
 @router.post("/api/completions/{completion_id}/sigkill")
 @requires_permission('create_reports')

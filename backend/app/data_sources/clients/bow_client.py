@@ -43,12 +43,18 @@ Time bounds: relative hours/days, or timezone-aware start/end, maximum 366 days,
 Always state the time window in the table description and answer, especially for zero matches.
 If asked for all history without a time window, request 366d and disclose that supported window.
 10,000 rows / 1,000 aggregate groups maximum; aggregate or narrow on overflow. Unknown cost remains null.
-Permissions are enforced by the service and cannot be supplied or changed by code. Results are saved as normal data tables.'''
+Permissions are enforced by the service and cannot be supplied or changed by code. Results are saved as normal data tables.
+The current conversation (current_report_id) is excluded unless query names it at the top level: "report_id:<current_report_id>" or "run_id:<id>".'''
+
+    @classmethod
+    def description_for(cls, report_id):
+        return f"{cls.description}\ncurrent_report_id: {report_id}" if report_id else cls.description
 
     def __init__(self, session_factory, loop, organization_id, user_id, report_id, writer_db, writer_lock=None,
                  allow_history=True, release_id=None):
         self._factory, self._loop = session_factory, loop
         self._organization_id, self._user_id, self._report_id = organization_id, user_id, report_id
+        self.description = self.description_for(report_id)
         # A published dashboard's release: its access is checked and extended
         # instead of a conversation's; report_id is then the dashboard's source
         # conversation, kept out of the results as a conversation keeps itself out.

@@ -605,6 +605,7 @@ ERROR HANDLING
 
 {row_limit_text}ANALYTICS STANDARDS
 - Verify before building: describe_tables for column-level detail (tables with `instructions>0` carry business rules — read them before querying); read_resources when metadata resources exist.
+- Wide tables list only their top columns; `<more_columns>` names the rest by prefix. A needed column that is not listed most likely exists: find it with describe_tables `columns` before concluding it is missing.
 - Tables under different `<connection>` tags are separate databases — queries CANNOT join across connections. Tables under ONE connection can be joined in a single query, even when their names carry different database prefixes (DB.SCHEMA.TABLE).
 - inspect_data is a peek, not analysis: a few LIMIT-3 queries to check nulls, distincts, join keys, formats. Tracked insights always come from create_data — never present inspect_data output as the result.
 - Cite the source (table/column, time range) for findings; distinguish "data shows X" from "I infer X"; state confidence and limitations; flag anomalies (unexpected zeros, sudden changes, outliers). No sample or fabricated data in final text.
@@ -714,12 +715,18 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "it returns an error (e.g. no image-generation model is enabled for the org), say "
                 "plainly that you can't generate images right now — do not describe an imaginary "
                 "picture as if you made one.\n"
-                "- Still describe the key numbers in your text (e.g. \"Revenue was $1.2M, up "
-                "8% MoM\") — on a phone the text is what the user reads first.\n"
-                "- Do NOT build tables in your text. For tabular results with 10+ rows the user "
-                "also gets a link to open the full table in BOW — describe the top values in "
-                "prose and let the link carry the detail. Smaller results get NO link, so include "
-                "every value in your text."
+                "- The chart image shows ONE series only, and puts exact values on the bars of a "
+                "bar_chart only. For a single-series bar_chart, give the one or two takeaways (the "
+                "leader, a notable gap) in 1-2 sentences, e.g. \"Revenue was $1.2M, up 8% MoM\" — "
+                "do NOT list its values again. For any other chart, also state in your text the "
+                "numbers the picture can't show (exact values, the other series).\n"
+                "- Do NOT build tables in your text. For a table result (no chart) with 10+ rows "
+                "the user also gets a link to open the full table in BOW — describe the top values "
+                "in prose and let the link carry the detail. A smaller table result (no chart) "
+                "gets NO link, so include every value in your text.\n"
+                "- A dashboard you create or edit (create_artifact / edit_artifact) reaches the "
+                "user as a link that opens it in BOW, sent automatically after your tool call. "
+                "Say in a few words what it shows; never write the dashboard's URL yourself."
             )
         if platform == "google_chat":
             return (
@@ -1367,6 +1374,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             "- Act by emitting tool_use blocks; batch independent calls in one response. Text before a call is optional.\n"
             "- Verify before building: describe_tables for column detail; inspect_data to peek at values, nulls, formats "
             "(LIMIT-3 style); then the few targeted queries that settle the goal. Prefer small, decisive checks over one big one.\n"
+            "- A wide table lists only its top columns (`<more_columns>` names the rest by prefix): find an unlisted column with "
+            "describe_tables `columns` before concluding it is missing.\n"
             "- Keep a note (create_note, then edit_note) as your ledger when the goal needs more than ~5 steps: what you checked, "
             "what it showed (with the numbers and query/step ids), what you ruled out. Pass its id as report_note_id when you finish.\n"
             "- LISTS: a submit_<list> tool in your tool set writes typed rows into one of the parent's lists. When the goal "

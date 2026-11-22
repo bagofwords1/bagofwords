@@ -429,7 +429,6 @@ def _collect_frontend_permissions():
 # This set may SHRINK, never grow. Do not add to it to make a build pass.
 KNOWN_STALE_FRONTEND_PERMISSIONS = frozenset({
     "add_organization_members",
-    "manage_llm_settings",
     "manage_roles",
     "modify_settings",
     "remove_organization_members",

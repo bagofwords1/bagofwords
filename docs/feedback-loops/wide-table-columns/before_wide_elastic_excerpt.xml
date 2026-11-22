@@ -1,0 +1,51 @@
+<table name="svc-events-wide" cols="5000" score="0.0">
+<columns>
+<column name="@timestamp" dtype="datetime"/>
+<column name="event.duration_ms" dtype="integer"/>
+<column name="event.id" dtype="string"/>
+<column name="event.kind" dtype="string"/>
+<column name="event.outcome" dtype="string"/>
+<column name="geo.client.attr_0024" dtype="integer"/>
+<column name="geo.client.attr_0051" dtype="string (full-text; aggregate/sort on geo.client.attr_0051.keyword)"/>
+<column name="geo.client.attr_0051.keyword" dtype="string"/>
+<column name="geo.client.attr_0078" dtype="string"/>
+<column name="geo.client.attr_0105" dtype="number"/>
+<column name="geo.client.attr_0132" dtype="datetime"/>
+<column name="geo.client.attr_0159" dtype="number"/>
+<column name="geo.client.attr_0186" dtype="string"/>
+<column name="geo.client.attr_0213" dtype="boolean"/>
+<column name="geo.client.attr_0240" dtype="integer"/>
+<column name="geo.client.attr_0267" dtype="string (full-text; aggregate/sort on geo.client.attr_0267.keyword)"/>
+<column name="geo.client.attr_0267.keyword" dtype="string"/>
+<column name="geo.client.attr_0294" dtype="string"/>
+<column name="geo.client.attr_0321" dtype="number"/>
+<column name="geo.client.attr_0348" dtype="datetime"/>
+<column name="geo.client.attr_0375" dtype="number"/>
+<column name="geo.client.attr_0402" dtype="string"/>
+<column name="geo.client.attr_0429" dtype="boolean"/>
+... [4957 lines elided by the probe] ...
+<column name="user.session.attr_3958" dtype="string"/>
+<column name="user.session.attr_3985" dtype="number"/>
+<column name="user.session.attr_4012" dtype="datetime"/>
+<column name="user.session.attr_4039" dtype="number"/>
+<column name="user.session.attr_4066" dtype="string"/>
+<column name="user.session.attr_4093" dtype="boolean"/>
+<column name="user.session.attr_4120" dtype="integer"/>
+<column name="user.session.attr_4147" dtype="string (full-text; aggregate/sort on user.session.attr_4147.keyword)"/>
+<column name="user.session.attr_4147.keyword" dtype="string"/>
+<column name="user.session.attr_4174" dtype="string"/>
+<column name="user.session.attr_4201" dtype="number"/>
+<column name="user.session.attr_4228" dtype="datetime"/>
+<column name="user.session.attr_4255" dtype="number"/>
+<column name="user.session.attr_4282" dtype="string"/>
+<column name="user.session.attr_4309" dtype="boolean"/>
+<column name="user.session.attr_4336" dtype="integer"/>
+<column name="user.session.attr_4363" dtype="string (full-text; aggregate/sort on user.session.attr_4363.keyword)"/>
+<column name="user.session.attr_4363.keyword" dtype="string"/>
+<column name="user.session.attr_4390" dtype="string"/>
+<column name="user.session.attr_4417" dtype="number"/>
+</columns>
+<pks>
+<pk name="_id" dtype="string"/>
+</pks>
+</table>

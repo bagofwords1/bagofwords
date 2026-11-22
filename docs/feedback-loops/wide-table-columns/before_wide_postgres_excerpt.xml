@@ -1,0 +1,51 @@
+<table name="public.metrics_wide_001" cols="1600" score="0.0">
+<columns>
+<column name="row_id" dtype="bigint"/>
+<column name="event_time" dtype="timestamp without time zone"/>
+<column name="account_id" dtype="bigint"/>
+<column name="host_name" dtype="text"/>
+<column name="cpu_user_pct_000" dtype="real"/>
+<column name="cpu_system_pct_000" dtype="real"/>
+<column name="cpu_iowait_pct_000" dtype="real"/>
+<column name="cpu_steal_pct_000" dtype="real"/>
+<column name="cpu_idle_pct_000" dtype="real"/>
+<column name="cpu_load_1m_000" dtype="real"/>
+<column name="cpu_load_5m_000" dtype="real"/>
+<column name="cpu_load_15m_000" dtype="real"/>
+<column name="mem_used_bytes_000" dtype="real"/>
+<column name="mem_free_bytes_000" dtype="real"/>
+<column name="mem_cached_bytes_000" dtype="real"/>
+<column name="mem_swap_used_bytes_000" dtype="real"/>
+<column name="mem_rss_bytes_000" dtype="real"/>
+<column name="mem_heap_bytes_000" dtype="real"/>
+<column name="disk_read_bytes_000" dtype="real"/>
+<column name="disk_write_bytes_000" dtype="real"/>
+<column name="disk_read_ops_000" dtype="real"/>
+<column name="disk_write_ops_000" dtype="real"/>
+<column name="disk_queue_depth_000" dtype="real"/>
+... [1554 lines elided by the probe] ...
+<column name="kpi_signups_034" dtype="real"/>
+<column name="kpi_logins_034" dtype="real"/>
+<column name="kpi_checkouts_034" dtype="real"/>
+<column name="kpi_refunds_034" dtype="real"/>
+<column name="kpi_active_users_034" dtype="real"/>
+<column name="kpi_conversion_pct_034" dtype="real"/>
+<column name="cpu_user_pct_035" dtype="real"/>
+<column name="cpu_system_pct_035" dtype="real"/>
+<column name="cpu_iowait_pct_035" dtype="real"/>
+<column name="cpu_steal_pct_035" dtype="real"/>
+<column name="cpu_idle_pct_035" dtype="real"/>
+<column name="cpu_load_1m_035" dtype="real"/>
+<column name="cpu_load_5m_035" dtype="real"/>
+<column name="cpu_load_15m_035" dtype="real"/>
+<column name="mem_used_bytes_035" dtype="real"/>
+<column name="mem_free_bytes_035" dtype="real"/>
+<column name="mem_cached_bytes_035" dtype="real"/>
+<column name="mem_swap_used_bytes_035" dtype="real"/>
+<column name="mem_rss_bytes_035" dtype="real"/>
+<column name="mem_heap_bytes_035" dtype="real"/>
+<column name="disk_read_bytes_035" dtype="real"/>
+<column name="disk_write_bytes_035" dtype="real"/>
+<column name="disk_read_ops_035" dtype="real"/>
+</columns>
+</table>

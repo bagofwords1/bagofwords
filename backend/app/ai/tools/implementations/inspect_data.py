@@ -188,6 +188,8 @@ Queries are subject to a per-connection timeout.
                         data_source_ids=ds_scope,
                         name_patterns=name_patterns,
                     )
+                from app.ai.context.column_ranking import promote_mentioned_columns
+                promote_mentioned_columns(ctx, getattr(data, "user_prompt", None))
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
             except Exception:
                 schemas_excerpt = ""

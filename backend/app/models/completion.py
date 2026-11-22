@@ -275,6 +275,15 @@ def after_update_completion(mapper, connection, target):
                 target.external_channel_id, str(target.id), failed=target.status == "error",
             ))
 
+        # WhatsApp "typing…": the run is over, stop refreshing it. (Also
+        # reported from the run's finally; end_run counts each run once.)
+        if (target.external_platform == "whatsapp" and
+            target.role == "system" and
+            target.status in _RUN_ENDED_STATUSES and
+            inspect(target).attrs.status.history.has_changes()):
+            from app.services.platform_adapters import whatsapp_typing
+            whatsapp_typing.end_run(target.external_channel_id, str(target.id))
+
         spawn(broadcast_event(_bus_event("update_completion", target)))
 
     except Exception as e:

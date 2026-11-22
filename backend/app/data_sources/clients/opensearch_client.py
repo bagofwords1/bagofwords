@@ -1,4 +1,6 @@
 from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
+from app.data_sources.clients.elasticsearch_guardrails import parse_duration_seconds
+from app.data_sources.clients.search_frames import SEARCH_KEYS, SEARCH_GUIDE, reject_unknown, search_body, search_frame
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.code_execution.sql_guard import ReadOnlyViolation, check_one_select
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
@@ -29,10 +31,7 @@ class OpenSearchClient(DataSourceClient):
     # parameters reach the envelope only as bare JSON numbers.
     sql_literal_style = "doubled"
     sql_in_json_envelope = True
-
-    # Keys the query envelope may pass through to POST /{index}/_search.
-    SEARCH_KEYS = {"query", "aggs", "aggregations", "size", "sort", "_source",
-                   "from", "search_after", "timeout"}
+    search_summary_results = True
 
     # The engine's default max_result_window: size + from must stay under it.
     MAX_RESULT_WINDOW = 10_000
@@ -48,11 +47,6 @@ class OpenSearchClient(DataSourceClient):
         "(FROM `logs-2024.*`), and search full text with match_query(field, 'text') "
         'or with the DSL "query" key instead of the sql key.'
     )
-
-    # Bucket-level keys that are not sub-aggregations.
-    _BUCKET_META_KEYS = {"key", "key_as_string", "doc_count", "from", "to",
-                         "from_as_string", "to_as_string",
-                         "doc_count_error_upper_bound"}
 
     # (connect, read) timeouts: 5s to connect (Mongo parity), and a read
     # timeout just above the 60s query timeout sent to the engine.
@@ -393,19 +387,20 @@ class OpenSearchClient(DataSourceClient):
         Any other key is refused (ReadOnlyViolation) before a request is made.
         """
         try:
-            envelope = json.loads(query)
+            envelope = json.loads(query) if isinstance(query, str) else query
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON query: {e}")
         if not isinstance(envelope, dict):
             raise ValueError("Query must be a JSON object")
-        unknown = sorted(k for k in envelope if k not in self.SEARCH_KEYS | {"index", "sql"})
+        unknown = sorted(k for k in envelope if k not in SEARCH_KEYS | {"index", "sql", "body", "result_format"})
         if unknown:
             raise ReadOnlyViolation(
                 f"The query envelope does not take {', '.join(unknown)}; "
-                f"use index, sql or {', '.join(sorted(self.SEARCH_KEYS))}."
+                f"use index, sql, body, result_format or {', '.join(sorted(SEARCH_KEYS))}."
             )
 
         if "sql" in envelope:
+            reject_unknown(envelope, {"sql"}, "sql envelope keys")
             return self._execute_sql(envelope["sql"])
 
         index = envelope.get("index")
@@ -413,7 +408,7 @@ class OpenSearchClient(DataSourceClient):
             raise ValueError("Query must specify 'index' (or use the 'sql' key)")
         index = self._check_index(index)
 
-        body = {k: v for k, v in envelope.items() if k in self.SEARCH_KEYS}
+        body, result_format = search_body(envelope, SEARCH_KEYS)
         has_aggs = "aggs" in body or "aggregations" in body
         if "size" not in body:
             body["size"] = 0 if has_aggs else 100
@@ -423,20 +418,13 @@ class OpenSearchClient(DataSourceClient):
                 f"size + from must be <= {self.MAX_RESULT_WINDOW}; "
                 "narrow the query or aggregate instead"
             )
-        body.setdefault("timeout", "60s")
+        asked = parse_duration_seconds(body.get("timeout"))
+        if asked is None or not 0 < asked <= 60:
+            body["timeout"] = "60s"
 
         result = self._request("POST", f"/{index}/_search", json_body=body)
 
-        if has_aggs:
-            rows = self._flatten_aggregations(result.get("aggregations") or {})
-            return pd.DataFrame(rows)
-
-        hits = (result.get("hits") or {}).get("hits") or []
-        if not hits:
-            return pd.DataFrame()
-        df = pd.json_normalize([h.get("_source") or {} for h in hits], sep=".")
-        df.insert(0, "_id", [h.get("_id") for h in hits])
-        return df
+        return search_frame(result, body, result_format=result_format, include_index=False, opensearch=True)
 
     def _execute_sql(self, sql: str) -> pd.DataFrame:
         """Run a statement via the bundled SQL plugin (`POST /_plugins/_sql`).
@@ -455,69 +443,6 @@ class OpenSearchClient(DataSourceClient):
         cols = [c.get("alias") or c.get("name") for c in schema]
         return pd.DataFrame(result.get("datarows") or [], columns=cols or None)
 
-    # ---------- aggregation flattening ---------- #
-
-    @classmethod
-    def _metric_columns(cls, name: str, body: Dict[str, Any]) -> Dict[str, Any]:
-        """Columns for a metric-agg result (`value`, stats dicts, percentiles)."""
-        if "value" in body and not isinstance(body["value"], (dict, list)):
-            return {name: body.get("value_as_string", body["value"])}
-        if "values" in body and isinstance(body["values"], dict):
-            return {f"{name}.{k}": v for k, v in body["values"].items()}
-        scalars = {k: v for k, v in body.items()
-                   if not isinstance(v, (dict, list)) and not k.endswith("_as_string")}
-        if scalars:
-            return {f"{name}.{k}": v for k, v in scalars.items()}
-        # Unrecognized shape — keep the raw JSON rather than dropping data.
-        return {name: json.dumps(body)}
-
-    @classmethod
-    def _flatten_aggregations(cls, aggs: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Flatten an aggregations result tree into rows.
-
-        Each bucket level contributes a key column named after the agg;
-        metric leaves and `doc_count` become value columns. Sibling bucket
-        aggs each produce their own row group (concatenated).
-        """
-        bucket_rows: List[Dict[str, Any]] = []
-        metrics: Dict[str, Any] = {}
-        for name, body in aggs.items():
-            if not isinstance(body, dict):
-                metrics[name] = body
-                continue
-            if "buckets" in body:
-                buckets = body["buckets"]
-                # The `filters` agg returns a dict keyed by bucket name.
-                if isinstance(buckets, dict):
-                    buckets = [{**b, "key": k} for k, b in buckets.items()]
-                for bucket in buckets or []:
-                    key = bucket.get("key_as_string", bucket.get("key"))
-                    sub = {k: v for k, v in bucket.items()
-                           if k not in cls._BUCKET_META_KEYS and isinstance(v, dict)}
-                    base = {name: key, "doc_count": bucket.get("doc_count")}
-                    if sub:
-                        for sub_row in cls._flatten_aggregations(sub):
-                            row = dict(base)
-                            # Inner levels own doc_count when present.
-                            if "doc_count" in sub_row:
-                                row.pop("doc_count", None)
-                            row.update(sub_row)
-                            bucket_rows.append(row)
-                    else:
-                        for k, v in bucket.items():
-                            if k in cls._BUCKET_META_KEYS or not isinstance(v, dict):
-                                continue
-                            base.update(cls._metric_columns(k, v))
-                        bucket_rows.append(base)
-                continue
-            metrics.update(cls._metric_columns(name, body))
-
-        if bucket_rows and metrics:
-            return [{**metrics, **row} for row in bucket_rows]
-        if bucket_rows:
-            return bucket_rows
-        return [metrics] if metrics else []
-
     # ---------- connection / description ---------- #
 
     def test_connection(self):
@@ -534,7 +459,7 @@ class OpenSearchClient(DataSourceClient):
     @property
     def description(self) -> str:
         """Return description for LLM code generation."""
-        return f"""
+        return f"""{SEARCH_GUIDE}
 OpenSearch cluster at {self.base_url}
 
 CRITICAL RULES:

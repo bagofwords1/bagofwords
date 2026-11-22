@@ -93,6 +93,9 @@ def test_active_tables_run_in_every_dialect(dialect, sql):
     ("SELECT query_to_xml('select * from sales.payroll', true, true, '')", "postgres"),
     ("SELECT schema_to_xml('sales', true, true, '')", "postgres"),
     ("SELECT * FROM read_csv('/data/payroll.csv')", "duckdb"),
+    ("SELECT * FROM read_duckdb('other.db', table_name => 'payroll')", "duckdb"),
+    ("SELECT * FROM sales.orders o, LATERAL TABLE(main.histogram('sales.payroll', v)) h", "duckdb"),
+    ("SELECT f.value FROM sales.orders o, LATERAL TABLE(unknown_fn(o.x)) f", "snowflake"),
 ])
 def test_quoted_names_and_indirect_reads_are_refused(sql, dialect):
     with pytest.raises(TableScopeViolation):
@@ -129,8 +132,24 @@ def test_functions_called_as_a_field_are_refused(sql, name, dialect):
 
 
 @pytest.mark.parametrize("sql,dialect", [
+    ("SELECT T.c.value('.', 'int') FROM sales.orders o CROSS APPLY o.xml_col.nodes('/a') AS T(c)", "tsql"),
+    ("SELECT o.id, x.a FROM sales.orders o LATERAL VIEW inline_outer(o.items) x AS a, b", "spark"),
+    ("SELECT o.id, h FROM sales.orders o LATERAL VIEW parse_url_tuple(o.url, 'HOST') t AS h", "hive"),
+    ("SELECT o.id, j.key FROM sales.orders o, LATERAL json_tree(o.j) j", "duckdb"),
+])
+def test_built_ins_beside_an_enabled_table_still_run(sql, dialect):
+    """Built-ins that read no table still run beside an enabled table: the
+    nodes() method of an xml column on SQL Server, the Spark and Hive
+    generators under LATERAL VIEW, and DuckDB's json_tree. (The
+    multi-database Postgres connector applies its own rule with its engine's
+    parser: test_postgresql_multi_reading.py.)"""
+    check_table_scope(sql, dialect, SCOPE)
+
+
+@pytest.mark.parametrize("sql,dialect", [
     ("DESCRIBE TABLE sales.orders", "snowflake"),
     ("SELECT f.value FROM sales.orders o, LATERAL FLATTEN(input => o.items) f", "snowflake"),
+    ("SELECT f.value FROM sales.orders o, LATERAL TABLE(FLATTEN(o.items)) f", "snowflake"),
     ("SELECT seq4() FROM TABLE(GENERATOR(ROWCOUNT => 3))", "snowflake"),
     ("SELECT * FROM SEMANTIC_VIEW(sales.orders DIMENSIONS a.b METRICS c.d)", "snowflake"),
     ("SELECT * FROM generate_series(1, 3) g", "postgres"),
@@ -138,6 +157,14 @@ def test_functions_called_as_a_field_are_refused(sql, name, dialect):
     ("SELECT o.lo_price, lo_bound, o.url, file FROM sales.orders o", "postgres"),
     ("SELECT o.lo_price, o.url FROM sales.orders o", "redshift"),
     ("SELECT * FROM UNNEST([1, 2])", "bigquery"),
+    ("SELECT * FROM sales.orders o, LATERAL jsonb_array_elements(o.items) i", "postgres"),
+    ("SELECT * FROM sales.orders o, LATERAL (SELECT * FROM sales.customers c WHERE c.id = o.id) x", "postgres"),
+    ("SELECT * FROM sales.orders o, LATERAL unnest([1]) u", "duckdb"),
+    ("SELECT * FROM sales.orders t LATERAL VIEW json_tuple(t.j, 'a') v AS a", "spark"),
+    ("SELECT * FROM sales.orders t LATERAL VIEW explode(t.arr) v AS a", "spark"),
+    ("SELECT * FROM sales.orders t LATERAL VIEW stack(2, 1, 2) v AS a", "spark"),
+    ("SELECT * FROM sales.orders t, LATERAL regexp_matches(t.s, 'a') m", "postgres"),
+    ("SELECT * FROM sales.orders t OUTER APPLY (SELECT 1 AS a) f", "tsql"),
 ])
 def test_dialect_features_over_active_tables_still_run(sql, dialect):
     check_table_scope(sql, dialect, SCOPE)
@@ -457,6 +484,25 @@ def test_a_top_that_is_a_name_is_refused(dialect):
 ])
 def test_a_row_limit_that_is_a_number_or_a_parameter_still_runs(dialect, sql):
     check_table_scope(sql, dialect, APPLY_SCOPE)
+
+
+POSTGRES_ROW_FUNCTIONS = [
+    "json_to_record(o.j) AS r(a int)",
+    "jsonb_to_record(o.j) AS r(a int)",
+    "json_populate_record(null::sales.orders, o.j) r",
+    "jsonb_populate_record(null::sales.orders, o.j) r",
+    "jsonb_path_query(o.j, '$.items[*]') r",
+    "json_object_keys(o.j) k",
+    "jsonb_object_keys(o.j) k",
+    "generate_subscripts(o.arr, 1) s",
+    "json_to_recordset(o.j) AS r(a int)",
+]
+
+
+@pytest.mark.parametrize("join", ["{src}, LATERAL {fn}", "{src} LEFT JOIN LATERAL {fn} ON true", "{src}, {fn}"])
+@pytest.mark.parametrize("fn", POSTGRES_ROW_FUNCTIONS)
+def test_postgres_row_functions_over_an_active_table_still_run(fn, join):
+    check_table_scope("SELECT * FROM " + join.format(src="sales.orders o", fn=fn), "postgres", SCOPE)
 
 
 @pytest.mark.parametrize("dialect", ["snowflake", "postgres", "mysql"])
@@ -906,3 +952,33 @@ def test_exact_scope_allows_database_qualified_active_tables_and_ctes(sql):
 def test_default_scope_matching_is_unchanged_by_the_exact_option():
     scope = TableScope.from_names(active=["globex_db.asset", "asset"], inactive=[])
     check_table_scope("SELECT * FROM billing_db.asset", "athena", scope)
+
+
+UNIFIED_SCOPE = TableScope.from_names(active=["public.asset"], inactive=[])
+
+UNIFIED_REFUSED = [
+    "SELECT * FROM postgres_query('__t0001', 'select 1')",
+    "SELECT * FROM postgres_execute('__t0001', 'drop table x')",
+    "SELECT * FROM read_csv('f.csv')",
+    "SELECT * FROM 'f.csv'",
+    "SELECT * FROM __t0001.public.asset",
+    "SELECT postgres_query('__t0001', 'select 1')",
+    "SELECT postgres_execute('__t0001', 'drop table x')",
+    "SELECT postgres_attach('x')",
+]
+
+UNIFIED_ALLOWED = [
+    "SELECT tenant_db, count(*) FROM public.asset GROUP BY 1",
+    "SELECT * FROM memory.public.asset",
+]
+
+
+@pytest.mark.parametrize("sql", UNIFIED_REFUSED)
+def test_duckdb_unified_scope_refuses_escape_hatches(sql):
+    with pytest.raises(TableScopeViolation):
+        check_table_scope(sql, "duckdb", UNIFIED_SCOPE, ("memory",))
+
+
+@pytest.mark.parametrize("sql", UNIFIED_ALLOWED)
+def test_duckdb_unified_scope_allows_unified_views(sql):
+    check_table_scope(sql, "duckdb", UNIFIED_SCOPE, ("memory",))

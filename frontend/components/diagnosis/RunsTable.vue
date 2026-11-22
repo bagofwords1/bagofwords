@@ -96,6 +96,11 @@
                                 <span v-else class="text-ink-muted">—</span>
                             </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white">{{ fmtDuration(item.duration_ms) }}</td>
+                            <td class="px-3 py-3 whitespace-nowrap align-top text-gray-900 dark:text-white max-w-[160px]" data-testid="run-model">
+                                <span v-if="!item.indexed" class="text-gray-300 dark:text-gray-600">…</span>
+                                <button v-else-if="item.model" type="button" class="font-mono truncate max-w-full hover:underline" dir="ltr" :title="$t('monitoring.diagnosis.pivotModel')" @click.stop="$emit('pivot', `llm:${quote(item.model)}`)">{{ item.model }}</button>
+                                <span v-else class="text-ink-muted">—</span>
+                            </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white" :title="item.model ? `${item.model} · ${fmtTokens(item.tokens)} tokens` : (item.indexed ? '' : $t('monitoring.diagnosis.notIndexed'))">
                                 <span v-if="!item.indexed" class="text-gray-300 dark:text-gray-600">…</span>
                                 <template v-else>{{ fmtCost(item.cost_usd, item.cost_is_partial) }}</template>
@@ -111,7 +116,7 @@
                         </tr>
                         <!-- Child rows: the run's tool calls -->
                         <tr v-if="expanded.has(item.id)" :key="item.id + ':calls'" data-testid="tool-calls">
-                            <td colspan="9" class="p-0">
+                            <td colspan="10" class="p-0">
                                 <div v-if="!calls[item.id]" class="px-12 py-2 text-2xs text-ink-muted bg-gray-50 dark:bg-gray-800/50">{{ $t('monitoring.diagnosis.loadingCalls') }}</div>
                                 <div v-else-if="!calls[item.id].length" class="px-12 py-2 text-2xs text-ink-muted bg-gray-50 dark:bg-gray-800/50">{{ $t('monitoring.diagnosis.noCalls') }}</div>
                                 <div
@@ -204,6 +209,7 @@ const columns = computed(() => [
     { key: 'agent', label: t('monitoring.diagnosis.colAgent') },
     { key: 'tools', label: t('monitoring.diagnosis.colTools'), sort: 'tools.failed' },
     { key: 'duration', label: t('monitoring.diagnosis.colDuration'), sort: 'duration', align: 'right' },
+    { key: 'model', label: t('monitoring.diagnosis.colModel') },
     { key: 'cost', label: t('monitoring.diagnosis.colCost'), sort: 'cost', align: 'right' },
     { key: 'feedback', label: t('monitoring.diagnosis.colFeedback') },
 ])

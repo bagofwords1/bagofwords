@@ -2251,7 +2251,7 @@ function _dtDetectDir(cols, rows) {
         if (/^data:/i.test(src)) return Promise.resolve(toBytes(src));
         return fetch(src).then(function(r) { if (!r.ok) throw new Error('fetch ' + r.status); return r.arrayBuffer(); }).then(function(buf) { return new Uint8Array(buf); });
       }
-      loadBytes().then(function(bytes) { return pdfjsLib.getDocument({ data: bytes }).promise; }).then(function(pdf) {
+      loadBytes().then(function(bytes) { return pdfjsLib.getDocument({ data: bytes, isEvalSupported: false }).promise; }).then(function(pdf) {
         if (cancelled) return;
         var container = containerRef.current;
         if (!container) return;

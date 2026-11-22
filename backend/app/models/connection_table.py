@@ -161,6 +161,10 @@ class ConnectionTable(BaseSchema):
             table_description = self.metadata_json.get('description')
         if not table_description and self.description:
             table_description = self.description
+        if not table_description and isinstance(self.metadata_json, dict):
+            # A custom table the admin did not describe: the fact-based
+            # description built from its columns on the last refresh.
+            table_description = self.metadata_json.get('generated_description')
 
         return Table(
             name=self.name,
