@@ -29,7 +29,9 @@ Files
   mode for every write, so a file deleted under a writer is simply created
   again.
 * A file is closed and a new one started when it reaches ``segment_bytes`` or
-  gets older than ``segment_max_age``. ``cleanup`` deletes files whose newest
+  gets older than ``segment_max_age``. A flush larger than the room left (a
+  backlog after the directory was unwritable) is split over several files, so
+  no file outgrows ``segment_bytes`` by more than one line. ``cleanup`` deletes files whose newest
   line is older than the retention period, and above the size cap deletes the
   oldest files first. Reads also skip lines older than the retention period.
 * "Delete all" writes the time to ``.cleared_at`` and deletes every file.
@@ -471,30 +473,56 @@ def flush() -> int:
             lines = [r for r in batch if _after(r, cleared_at)]
             if _state.segment is not None and time.time() - _state.segment_opened >= config.segment_max_age.total_seconds():
                 _state.segment = None
-            if _state.segment is None:
-                _state.segment = _new_segment_name()
-                _state.segment_opened = time.time()
-            path = config.directory / _state.segment
+            encoded = [json.dumps(r, ensure_ascii=False) + "\n" for r in lines]
+            written: list[Path] = []
+            done = 0  # lines of ``encoded`` already on disk
             try:
-                if lines:
-                    data = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in lines)
+                # A backlog (lines kept while the directory could not be
+                # written, or a burst) is spread over files of at most
+                # ``segment_bytes``. Written as one file it could outgrow the
+                # whole size cap, and cleanup would then delete it entirely,
+                # newest lines included.
+                while done < len(encoded):
+                    if _state.segment is None:
+                        _state.segment = _new_segment_name()
+                        _state.segment_opened = time.time()
+                    path = config.directory / _state.segment
+                    try:
+                        size = path.stat().st_size
+                    except FileNotFoundError:
+                        size = 0
+                    room = config.segment_bytes - size
+                    end, chunk_bytes = done, 0
+                    # At least one line per file, however long it is.
+                    while end < len(encoded):
+                        n = len(encoded[end].encode("utf-8"))
+                        if end > done and chunk_bytes + n > room:
+                            break
+                        chunk_bytes += n
+                        end += 1
                     with open(path, "a", encoding="utf-8") as f:
-                        f.write(data)
+                        f.write("".join(encoded[done:end]))
                         size = f.tell()
+                    if path not in written:
+                        written.append(path)
+                    done = end
+                    if size >= config.segment_bytes:
+                        _state.segment = None
+                if written:
                     # A "Delete all" in another process may have landed while
                     # this write was on its way: if the marker moved, take the
-                    # lines from before it out of the file again.
+                    # lines from before it out of the files again.
                     latest = _read_cleared_at(config.directory, fresh=True)
                     if latest is not None and (cleared_at is None or latest > cleared_at):
-                        _purge_before(path, latest)
-                    elif size >= config.segment_bytes:
-                        _state.segment = None
+                        for path in written:
+                            _purge_before(path, latest)
                 _state.write_error = None
             except OSError as e:
                 if _state.write_error != str(e):
                     _logger.warning(f"System logs: could not write to {config.directory}, will retry: {e}")
                 _state.write_error = str(e)
-                _requeue(batch)
+                # Only what is not on disk yet goes back, so nothing is written twice.
+                _requeue(lines[done:])
                 return 0
             finally:
                 _report_health(config)

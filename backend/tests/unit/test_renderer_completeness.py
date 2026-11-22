@@ -45,6 +45,7 @@ B = {
     "AzureCostClient", "CheckPointClient", "CiscoApicClient", "CrowdStrikeClient", "DellOmeClient",
     "F5BigIpClient", "HpeOneViewClient", "IntuneClient", "JaegerClient", "KubernetesClient", "MondayClient",
     "NetAppOntapClient", "ServiceNowClient", "SharepointListsClient", "SpectrumClient", "VCenterClient",
+    "JiraDcClient",
     "ZabbixClient", "MongodbClient",
     # MDX / DAX.
     "SapBwXmlaClient", "InforOlapClient", "AnalysisServicesClient", "PowerBIClient", "InforEpmClient",
@@ -55,6 +56,7 @@ B = {
     "NetworkDirClient", "GitHubRepoClient", "GitLabRepoClient", "BitbucketRepoClient", "OnedriveClient",
     "SharepointClient", "OnenoteClient", "GraphMailClient", "GraphTeamsClient", "GoogleDriveClient", "S3Client",
     "GCSClient", "AzureBlobClient", "DocumentumClient", "SharepointOnpremClient", "KmsLighthouseClient",
+    "ConfluenceDcClient",
     # Query languages with no declared renderer; the client binds its own
     # placeholders through `parameters`.
     "CassandraClient", "CosmosdbClient", "CouchbaseClient", "DynamodbClient",
@@ -102,7 +104,7 @@ def test_the_enumeration_covers_the_registry_and_the_accelerated_client(classes)
 
     names = [c.__name__ for c in classes]
     assert FastQueryClient in classes
-    assert len(names) == len(set(names)) == 108
+    assert len(names) == len(set(names)) == 110
     # Registry entries without a client_path resolve through the naming fallback.
     for key in ("postgresql", "oracledb", "bigquery", "netsuite", "mysql", "mariadb",
                 "clickhouse", "pinot", "druid", "aws_cost", "vertica", "aws_redshift", "sybase"):

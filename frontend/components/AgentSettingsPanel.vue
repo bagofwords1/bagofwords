@@ -135,7 +135,7 @@
                                             <span>{{ gm.user_name || gm.user_email }}</span>
                                             <span v-if="gm.user_name && gm.user_email" class="text-ink-muted">{{ gm.user_email }}</span>
                                         </div>
-                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-gray-300 dark:text-gray-600 italic">No members</div>
+                                        <div v-if="!groupMembers[m.principal_id]?.length" class="text-2xs text-ink-muted italic">No members</div>
                                     </div>
                                     <p v-if="isOwnerPrincipal(m)" class="mt-1 text-2xs text-ink-muted">{{ t('agentAccess.ownerHint') }}</p>
                                 </div>
@@ -222,6 +222,22 @@
                         <p v-if="inheritedHidden" class="text-2xs text-ink-muted" data-testid="agent-inherited-hidden">{{ t('agentAccess.inheritedHidden') }}</p>
                     </div>
                 </div>
+            </div>
+
+            <!-- Permission mode cap: the strictest mode a report using this agent may run in -->
+            <div class="border-b border-gray-100 dark:border-gray-800 pb-5 mb-5" data-testid="agent-permission-cap">
+                <label for="agent-permission-cap" class="block text-2xs font-semibold uppercase tracking-wider text-ink-muted mb-2">{{ t('agentAccess.permissionCap.title') }}</label>
+                <USelect
+                    id="agent-permission-cap"
+                    :model-value="form.permissionCap"
+                    :options="permissionCapOptions"
+                    :disabled="!canManageDs || saving.permissionCap"
+                    size="sm"
+                    class="max-w-[16rem]"
+                    data-testid="agent-permission-cap-select"
+                    @update:model-value="onPermissionCapChange"
+                />
+                <p class="text-2xs text-ink-muted mt-2">{{ t('agentAccess.permissionCap.hint') }}</p>
             </div>
 
             <!-- Channels (MCP / Slack / …) — moved to the bottom -->
@@ -407,6 +423,8 @@ const form = reactive({
     isPublic: true,
     // Custom icon override token ("emoji:<grapheme>" | null).
     icon: null as string | null,
+    // Permission mode cap: '' = no cap, else 'ask' | 'auto'.
+    permissionCap: '' as '' | 'ask' | 'auto',
 })
 
 const original = reactive({
@@ -414,7 +432,13 @@ const original = reactive({
     isPublic: true
 })
 
-const saving = reactive({ name: false, public: false, icon: false })
+const saving = reactive({ name: false, public: false, icon: false, permissionCap: false })
+
+const permissionCapOptions = computed(() => [
+    { value: '', label: t('agentAccess.permissionCap.none') },
+    { value: 'ask', label: t('agentAccess.permissionCap.ask') },
+    { value: 'auto', label: t('agentAccess.permissionCap.auto') },
+])
 
 // ── Channel availability ─────────────────────────────────────────────────
 interface ChannelInfo { key: string; name: string; connected: boolean }
@@ -655,6 +679,7 @@ watch(integration, (ds) => {
         form.name = ds?.name || ''
         form.isPublic = ds?.is_public ?? false
         form.icon = ds?.icon ?? null
+        form.permissionCap = ['ask', 'auto'].includes(ds?.max_permission_mode) ? ds.max_permission_mode : ''
         original.name = form.name
         original.isPublic = form.isPublic
         channelAvailability.value = (ds?.channel_availability && typeof ds.channel_availability === 'object')
@@ -1063,6 +1088,22 @@ async function saveIcon(token: string | null) {
         if (integration.value) integration.value.icon_token = prevToken
     }
     saving.icon = false
+}
+
+// Saves on change; "none" clears the cap. On failure the select goes back.
+async function onPermissionCapChange(value: '' | 'ask' | 'auto') {
+    if (!ready.value || saving.permissionCap) return
+    const previous = form.permissionCap
+    form.permissionCap = value
+    saving.permissionCap = true
+    const ok = await updateDataSource({ max_permission_mode: value || 'none' })
+    if (ok) {
+        if (integration.value) integration.value.max_permission_mode = value || null
+        emit('updated')
+    } else {
+        form.permissionCap = previous
+    }
+    saving.permissionCap = false
 }
 
 async function onTogglePublic(value: boolean) {

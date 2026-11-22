@@ -264,3 +264,36 @@ async def purge_old_runs(days: int = RETENTION_DAYS) -> int:
     removed = await _write(work)
     logger.info("Custom table run history: %d runs older than %d days deleted", removed, days)
     return removed
+
+
+async def live_progress(db, connection_table_ids) -> dict:
+    """How far each table's refresh has got, for the tables that have one
+    running: `{table_id: {"rows", "source_rows", "started_at", "trigger"}}`.
+
+    `source_rows` is the source's own count where the load asked for one and
+    None until then (and for sources that cannot count), so a reader shows a
+    fraction when it can and a plain row count when it cannot. A run that has
+    stopped reporting (see `status_of`) is not live and is left out.
+    """
+    ids = [str(i) for i in connection_table_ids or []]
+    if not ids:
+        return {}
+    rows = (await db.execute(
+        select(CustomTableRun)
+        .where(CustomTableRun.connection_table_id.in_(ids), CustomTableRun.status == STATUS_RUNNING)
+        .order_by(CustomTableRun.started_at.asc())
+    )).scalars().all()
+    now = datetime.utcnow()
+    out: dict = {}
+    for run in rows:
+        if status_of(run, now) != STATUS_RUNNING:
+            continue
+        inputs = run.inputs if isinstance(run.inputs, dict) else {}
+        source_rows = inputs.get("source_rows")
+        out[str(run.connection_table_id)] = {
+            "rows": int(run.rows_read or 0),
+            "source_rows": int(source_rows) if source_rows else None,
+            "started_at": run.started_at.isoformat() if run.started_at else None,
+            "trigger": run.trigger,
+        }
+    return out

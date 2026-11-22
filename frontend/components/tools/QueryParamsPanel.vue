@@ -33,7 +33,7 @@
           <option value="identity">identity (locked to viewer)</option>
           <option value="input_identity_default">input, defaults to viewer</option>
         </select>
-        <label class="text-2xs text-gray-500 flex items-center gap-1">
+        <label class="text-2xs text-ink-muted flex items-center gap-1">
           <input type="checkbox" v-model="spec.required" /> req
         </label>
       </div>
@@ -44,7 +44,7 @@
              space (e.g. 'Genres' feeding the genre control) — choices then
              never self-narrow. -->
         <div v-if="optionQueries.length" class="flex items-center gap-1.5">
-          <span class="text-2xs text-gray-500">choices</span>
+          <span class="text-2xs text-ink-muted">choices</span>
           <select :value="spec.options_source ? 'query' : 'static'" class="px-1.5 py-1 text-xs border rounded" :data-testid="`param-opts-mode-${spec.name || idx}`"
             @change="setOptionsMode(spec, ($event.target as HTMLSelectElement).value)">
             <option value="static">static list</option>
@@ -82,7 +82,7 @@
             <option value="viewer.groups">viewer.groups</option>
             <option v-if="spec.identity_binding && spec.identity_binding.startsWith('viewer.profile_attributes.')" :value="spec.identity_binding">{{ spec.identity_binding }}</option>
           </select>
-          <span class="text-2xs px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 whitespace-nowrap">viewer-scoped</span>
+          <span class="text-2xs px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 whitespace-nowrap">viewer-scoped</span>
         </div>
         <input placeholder="or profile attribute key (e.g. department)" class="w-full px-2 py-1 text-xs border rounded"
           @change="spec.identity_binding = ($event.target as HTMLInputElement).value ? ('viewer.profile_attributes.' + ($event.target as HTMLInputElement).value) : spec.identity_binding" />
@@ -95,7 +95,7 @@
     <div v-if="editable.length" class="border-t pt-2 space-y-1.5">
       <div class="text-xs font-medium text-gray-700 dark:text-gray-300">Test values</div>
       <div v-for="spec in editable" :key="spec.name" class="flex items-center gap-1.5">
-        <span class="text-2xs text-gray-500 font-mono w-24 truncate">{{ spec.name }}=</span>
+        <span class="text-2xs text-ink-muted font-mono w-24 truncate">{{ spec.name }}=</span>
         <input v-model="testValues[spec.name]" :placeholder="testValuePlaceholder(code, spec)"
           class="flex-1 min-w-0 px-2 py-1 text-xs border rounded" :data-testid="`param-value-${spec.name}`" />
       </div>

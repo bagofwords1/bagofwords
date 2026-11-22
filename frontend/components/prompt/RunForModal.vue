@@ -16,13 +16,13 @@
           <button
             type="button"
             class="px-2.5 py-1 text-2xs rounded transition-colors"
-            :class="targetType === 'users' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
+            :class="targetType === 'users' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-2'"
             @click="targetType = 'users'"
           >{{ $t('prompts.targetMembers') }}</button>
           <button
             type="button"
             class="px-2.5 py-1 text-2xs rounded transition-colors"
-            :class="targetType === 'group' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'"
+            :class="targetType === 'group' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm font-medium' : 'text-ink-muted hover:text-ink-2'"
             @click="targetType = 'group'"
           >{{ $t('prompts.targetGroup') }}</button>
         </div>

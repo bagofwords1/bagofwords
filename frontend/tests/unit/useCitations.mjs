@@ -140,4 +140,89 @@ assert.equal(citationKeyFromHref(`http://localhost:3000/reports/1#cite-${s1.key}
 assert.equal(citationKeyFromHref('https://docs.example.com/page#cite-ref-2'), '')
 assert.equal(citationKeyFromHref('#cite-%E0%A4%A'), '%E0%A4%A')
 
+// A saved query materialized by describe_entity (create mode) is a source like
+// a create_data result: the answer can cite it, and the sources row lists it.
+// A describe_entity lookup that created nothing is not a source.
+{
+  const materialized = {
+    id: 'b-entity', status: 'completed',
+    tool_execution: {
+      tool_name: 'describe_entity', status: 'success',
+      arguments_json: { name_or_id: 'Tracks wide', should_create: true },
+      created_step_id: 's-tracks',
+      result_json: { title: 'Tracks wide', data: { rows }, created_visualization_ids: [uuid(7)] },
+    },
+  }
+  const lookup = {
+    id: 'b-lookup', status: 'completed',
+    tool_execution: {
+      tool_name: 'describe_entity', status: 'success',
+      arguments_json: { name_or_id: 'Tracks wide' },
+      result_json: { title: 'Tracks wide', data: { rows }, created_visualization_ids: [uuid(8)] },
+    },
+  }
+  const found = collectSources([lookup, materialized], describeDataOutput)
+  assert.deepEqual(found.map((s) => [s.key, s.output.kind, s.output.title]), [['b-entity', 'table', 'Tracks wide']])
+  const { markdown, cited } = citeText(`The tracks run 3 to 4.5 minutes. ${cite(uuid(7).slice(0, 8))}`, found)
+  assert.deepEqual(cited.map((s) => s.key), ['b-entity'])
+  assert.match(markdown, /\[1\]\(#cite-b-entity/)
+}
+
+// --- figures: {{show:<id>}} --------------------------------------------------
+
+const show = (id) => `{{show:${id}}}`
+// A figure is a <bow-figure> block numbered with the citations: figure 1 is
+// source 1, and a later chip for the same result reuses its number.
+{
+  const text = `Revenue by store. ${cite(uuid(1).slice(0, 8))}\n\n${show(uuid(1).slice(0, 8))}\n\nAnd again. ${cite(uuid(1))}`
+  const { markdown, cited } = citeText(text, sources, [], { figures: true })
+  assert.deepEqual(cited, [s1])
+  assert.match(markdown, new RegExp(`\n\n<bow-figure source="${s1.key}" number="1"></bow-figure>\n\n`))
+  assert.equal((markdown.match(/\[1\]\(#cite-/g) || []).length, 2, 'chips before and after keep number 1')
+  assert.doesNotMatch(markdown, /\n{3,}/)
+}
+// A figure first takes number 1; the chip that follows is 2.
+{
+  const shown = collectSources([result(uuid(5), rows), result(uuid(6), rows)], describeDataOutput)
+  const { markdown } = citeText(`${show(uuid(5))}\n\nThen. ${cite(uuid(6))}`, shown, [], { figures: true })
+  assert.match(markdown, /number="1"/)
+  assert.match(markdown, /\[2\]\(#cite-/)
+}
+// Named mid-sentence, in backticks or parentheses: the sentence is tidied and
+// the figure lands after its paragraph.
+{
+  const text = `The chart is above (\`${show(uuid(1).slice(0, 8))}\`).\n\nNext paragraph.`
+  const { markdown } = citeText(text, sources, [], { figures: true })
+  assert.equal(markdown, `The chart is above.\n\n<bow-figure source="${s1.key}" number="1"></bow-figure>\n\nNext paragraph.`)
+  const inline = citeText(`See ${show(uuid(1))} for the split. ${cite(uuid(2))}`, sources, [], { figures: true }).markdown
+  assert.match(inline, /^See for the split\.\u00A0\[2\]\(#cite-[^)]*\)\n\n<bow-figure source="[^"]+" number="1"><\/bow-figure>$/)
+}
+// highlight="…" travels to the figure as text (escaped, capped); other attributes are dropped.
+{
+  const { markdown } = citeText(`A.\n\n{{show:${uuid(1).slice(0, 8)} highlight="USA, Canada" color="red"}}`, sources, [], { figures: true })
+  assert.match(markdown, new RegExp(`<bow-figure source="${s1.key}" number="1" highlight="USA, Canada"></bow-figure>`))
+  assert.doesNotMatch(markdown, /color/)
+  const evil = citeText(`{{show:${uuid(1)} highlight="<img src=x>"}}`, sources, [], { figures: true }).markdown
+  assert.match(evil, /highlight="&lt;img src=x&gt;"/)
+}
+// Never a figure: a single value, a made-up id, or a surface without figures.
+{
+  const one = citeText(`Total. ${show(uuid(2))}`, sources, [], { figures: true })
+  assert.doesNotMatch(one.markdown, /bow-figure|show/)
+  assert.deepEqual(one.cited, [])
+  assert.doesNotMatch(citeText(show(uuid(9)), sources, [], { figures: true }).markdown, /bow-figure|show/)
+  const off = citeText(`A.\n\n${show(uuid(1))}\n\nB.`, sources)
+  assert.equal(off.markdown, 'A.\n\nB.')
+}
+// Streaming: a half-received figure marker never flashes.
+for (const partial of ['{{s', '{{sho', '{{show:', '{{show:1111', '{{show:11111111}']) {
+  assert.equal(citeText(`Done.\n\n${partial}`, sources, [], { figures: true, streaming: true }).markdown, 'Done.\n\n')
+}
+// Inside a code fence it is quoted text; stripCitations removes it elsewhere.
+{
+  const fenced = '```\n{{show:11111111}}\n```'
+  assert.equal(citeText(fenced, sources, [], { figures: true }).markdown, fenced)
+  assert.equal(stripCitations(`A.\n\n${show(uuid(1))}\n\nB.`), 'A.\n\nB.')
+}
+
 console.log('useCitations: all assertions passed')

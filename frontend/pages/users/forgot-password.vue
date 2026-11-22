@@ -15,7 +15,7 @@
           </div>
         </div>
       </template>
-      <template v-else-if="!emailSent" class="bg-white">
+      <template v-else-if="!emailSent" class="bg-surface">
         <h1 class="font-bold text-lg">{{ $t('auth.forgotPasswordTitle') }}</h1>
         <p class="mt-3 text-sm text-gray-700 dark:text-gray-300">
           {{ $t('auth.forgotPasswordDescription') }}

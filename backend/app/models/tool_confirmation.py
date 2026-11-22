@@ -54,9 +54,17 @@ class ToolConfirmation(BaseSchema):
     connection_tool_id = Column(String(36), nullable=True, index=True)
     tool_name = Column(String, nullable=True)
     arguments = Column(JSON, nullable=True)
+    # Card-only context, kept apart from the call's arguments so the card can
+    # show every argument the tool receives: the agent the call goes through,
+    # a one-line preview and the action's effect.
+    display = Column(JSON, nullable=True)
 
     # The decision.
     remember = Column(Boolean, nullable=False, default=False)
+    # How far the answer reaches: once | report | always. Null on older rows
+    # (once, or always when remember is set). A 'report' answer is reused for
+    # the same tool, user and report without asking again.
+    scope = Column(String(16), nullable=True)
     # Optional structured answer beyond allow/deny (e.g. the agents a user
     # kept ticked on create_demo_dataset's card, or reject feedback).
     response = Column(JSON, nullable=True)

@@ -4,8 +4,8 @@
             :class="[
                 'text-xs items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded border',
                 isPublished
-                    ? 'border-green-200 bg-green-50 dark:bg-green-950 text-green-700'
-                    : 'border-gray-200 dark:border-gray-700 bg-cyan-100 text-cyan-700'
+                    ? 'border-green-200 bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300'
+                    : 'border-gray-200 dark:border-gray-700 bg-cyan-100 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300'
             ]">
             <Icon name="heroicons:globe-alt" class="w-3.5 h-3.5" />
             <span class="text-xs">{{ isPublished ? $t('publish.published') : $t('publish.publish') }}</span>

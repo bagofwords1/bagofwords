@@ -8,6 +8,7 @@ import asyncio
 import importlib
 import logging
 import json
+import uuid
 from datetime import datetime
 from typing import Any, List, Optional
 from uuid import UUID
@@ -1175,6 +1176,12 @@ class ConnectionService:
                 for key in RUNTIME_CONFIG_KEYS:
                     if key not in new_config and key in current_config:
                         new_config = {**new_config, key: current_config[key]}
+                # Server-managed: the scopes the connection's enabled write
+                # actions need (see _refresh_action_scopes). Never taken from
+                # the request, never dropped by a form save.
+                new_config = {k: v for k, v in new_config.items() if k != "action_scopes"}
+                if isinstance(current_config, dict) and current_config.get("action_scopes"):
+                    new_config["action_scopes"] = current_config["action_scopes"]
                 current_config = new_config
             connection.config = json.dumps(new_config) if isinstance(new_config, dict) else new_config
             connection_changed = True
@@ -1871,6 +1878,7 @@ class ConnectionService:
             connection.consecutive_test_failures = 0
             if not connection.is_active:
                 connection.is_active = True
+            connection.unreachable_since = None
             return
         failures = (connection.consecutive_test_failures or 0) + 1
         connection.consecutive_test_failures = failures
@@ -1880,6 +1888,9 @@ class ConnectionService:
             threshold = 3
         if failures >= threshold and connection.is_active:
             connection.is_active = False
+            # Kept for the whole outage (later failed probes do not move it),
+            # so the agent can say since when the source has been unreachable.
+            connection.unreachable_since = datetime.utcnow()
 
     @staticmethod
     def _sync_agents_with_connection(connection: Connection) -> None:
@@ -2055,7 +2066,8 @@ class ConnectionService:
         manual = (
             variant is not None and "user" in (variant.scopes or [])
             and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
-            and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse")
+            and connection.type in ("sharepoint_onprem", "exchange_onprem", "documentum", "kms_lighthouse",
+                                    "confluence_dc", "jira_dc")
         )
         if connection.auth_policy != "user_required" or not manual:
             raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
@@ -2071,6 +2083,9 @@ class ConnectionService:
         if connection.type == "kms_lighthouse":
             # Raises when KMS refuses the login, before anything is stored.
             checked = await self._check_kms_member_login(connection, payload.auth_mode, credentials)
+        elif connection.type in ("confluence_dc", "jira_dc"):
+            # Raises when Confluence / Jira refuses the token or login, before anything is stored.
+            checked = await self._check_confluence_member_login(connection, payload.auth_mode, credentials)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
             row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
@@ -2079,7 +2094,7 @@ class ConnectionService:
         row.last_used_at = None
         row.encrypt_credentials(credentials)
         result = {"success": True, "auth_mode": payload.auth_mode}
-        if connection.type == "kms_lighthouse":
+        if connection.type in ("kms_lighthouse", "confluence_dc", "jira_dc"):
             # The identity belongs to this login only: a new login drops the old one.
             metadata = {k: v for k, v in (row.metadata_json or {}).items() if k != "verified_identity"}
             identity = checked.get("identity") if checked else None
@@ -2092,6 +2107,51 @@ class ConnectionService:
         db.add(row)
         await db.commit()
         return result
+
+    async def _check_confluence_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
+        """Check a member's Confluence or Jira Data Center token or login once before it is saved.
+
+        (Confluence: GET /rest/api/user/current; Jira: GET /rest/api/2/myself — each client's test_connection.)
+
+        Returns ``{"identity": ...}`` when Confluence accepted it, and None when it
+        could not decide (unreachable, a server error, a space setting the admin
+        must fix): that login is saved unchecked. Raises a typed 422 when Confluence
+        refused it (401 or an anonymous answer), or when the account is behind a
+        CAPTCHA, so a wrong token never reads as "Connected".
+        """
+        import json
+        from app.core.egress import acheck_connection_params
+        from app.errors import AppError, ErrorCode
+        from app.schemas.data_source_registry import overlay_system_credentials
+        config = connection.config
+        if isinstance(config, str):
+            config = json.loads(config or "{}")
+        config = config or {}
+        creds = overlay_system_credentials(connection, credentials, auth_mode)
+        try:
+            await acheck_connection_params(connection.type, {**config, **creds})
+            client = self._resolve_client_by_type(data_source_type=connection.type, config=config,
+                                                  credentials={**creds, "auth_type": auth_mode})
+            outcome = await client.atest_connection()
+        except Exception as exc:
+            # The class name only: the text may hold a URL or a secret.
+            logger.info("%s member login not checked: %s", connection.type, type(exc).__name__)
+            return None
+        outcome = outcome if isinstance(outcome, dict) else {}
+        refused = outcome.get("login_refused")
+        if refused:
+            jira = connection.type == "jira_dc"
+            if refused == "captcha":
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_CAPTCHA if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_CAPTCHA
+            else:
+                code = ErrorCode.CONNECTION_JIRA_LOGIN_REJECTED if jira else ErrorCode.CONNECTION_CONFLUENCE_LOGIN_REJECTED
+            raise AppError(code, outcome.get("message") or "The server did not accept this login.", status_code=422)
+        if outcome.get("success"):
+            return {"identity": (outcome.get("details") or {}).get("identity")}
+        if outcome.get("reachable"):
+            # Confluence accepted the login; only the connection's space list is off (an admin fix).
+            return None
+        return None
 
     async def _check_kms_member_login(self, connection, auth_mode: str, credentials: dict) -> dict | None:
         """Log in to KMS once with a member's login before it is saved.
@@ -3519,6 +3579,59 @@ class ConnectionService:
             return False
         return catalog_ownership_for(connection_type, config) == "per_user"
 
+    async def sync_native_actions(self, db: AsyncSession, connection: Connection) -> bool:
+        """Make a built-in connector's write actions exist as tool rows.
+
+        The actions are defined in code (``ConnectorAction``); this keeps the
+        connection's ConnectionTool rows in step: a new action is added with
+        its effect's safe default (off — write tools never start on), an
+        existing row keeps the admin's settings while its description and
+        schema follow the code, and an action the code no longer has is
+        switched off and marked stale rather than deleted (agents' settings
+        and history keep pointing at it). No network. Returns True on change.
+        """
+        from app.data_sources.clients.connector_actions import EFFECT_DEFAULTS, actions_for_type
+
+        actions = actions_for_type(connection.type)
+        if not actions:
+            return False
+        rows = (await db.execute(
+            select(ConnectionTool).where(ConnectionTool.connection_id == str(connection.id))
+        )).scalars().all()
+        existing = {t.name: t for t in rows}
+        changed = False
+        for action in actions:
+            spec = action.to_tool()
+            row = existing.pop(action.name, None)
+            if row is None:
+                enabled, policy = EFFECT_DEFAULTS[action.effect]
+                insert = _dialect_insert(db)
+                await db.execute(insert(ConnectionTool).values(
+                    id=str(uuid.uuid4()), connection_id=str(connection.id), name=action.name,
+                    description=action.description, input_schema=action.input_schema,
+                    is_enabled=enabled, policy=policy, policy_locked=False,
+                    effect=action.effect, source="native", metadata_json=spec["metadata"],
+                ).on_conflict_do_nothing(index_elements=["connection_id", "name"]))
+                changed = True
+                continue
+            if (row.description != action.description or row.input_schema != action.input_schema
+                    or row.effect != action.effect or row.source != "native"
+                    or row.metadata_json != spec["metadata"]):
+                row.description = action.description
+                row.input_schema = action.input_schema
+                row.effect = action.effect
+                row.source = "native"
+                row.metadata_json = spec["metadata"]
+                changed = True
+        for row in existing.values():
+            if row.source == "native" and not (row.metadata_json or {}).get("stale"):
+                row.is_enabled = False
+                row.metadata_json = {**(row.metadata_json or {}), "stale": True}
+                changed = True
+        if changed:
+            await db.commit()
+        return changed
+
     async def refresh_tools(
         self,
         db: AsyncSession,
@@ -3619,6 +3732,8 @@ class ConnectionService:
                         tool.metadata_json = payload["metadata"]
                     if payload.get("explicit_policy"):
                         tool.policy = payload["explicit_policy"]
+                    tool.effect = effect_from_hints(payload.get("metadata")) or tool.effect
+                    tool.source = _tool_source(connection.type)
                     updated_count += 1
                 else:
                     new_tools.append(dict(
@@ -3634,6 +3749,8 @@ class ConnectionService:
                         # allow. Auto-policied tools keep whatever an admin
                         # sets later (only new rows are seeded).
                         policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
+                        effect=effect_from_hints(payload.get("metadata")),
+                        source=_tool_source(connection.type),
                     ))
                     created_count += 1
 
@@ -3710,7 +3827,10 @@ class ConnectionService:
         db: AsyncSession,
         connection_id: str,
     ) -> List[ConnectionTool]:
-        """Get all tools for a connection."""
+        """Get all tools for a connection (built-in actions synced first)."""
+        connection = await db.get(Connection, str(connection_id))
+        if connection is not None:
+            await self.sync_native_actions(db, connection)
         result = await db.execute(
             select(ConnectionTool)
             .filter(ConnectionTool.connection_id == connection_id)
@@ -3725,6 +3845,7 @@ class ConnectionService:
         is_enabled: bool = None,
         policy: str = None,
         connection_id: Optional[str] = None,
+        policy_locked: Optional[bool] = None,
     ) -> ConnectionTool:
         """Update a single tool's enabled state or policy.
 
@@ -3749,7 +3870,15 @@ class ConnectionService:
                     status_code=400,
                     detail=f"policy must be one of {sorted(VALID_TOOL_POLICIES)}",
                 )
+            from app.services.tool_policy_service import policy_not_allowed_for
+            reason = policy_not_allowed_for(tool, normalized)
+            if reason:
+                raise HTTPException(status_code=400, detail=reason)
             tool.policy = normalized
+        if policy_locked is not None:
+            tool.policy_locked = bool(policy_locked)
+        if is_enabled is not None:
+            await self._refresh_action_scopes(db, str(tool.connection_id))
 
         await db.commit()
         await db.refresh(tool)
@@ -3775,5 +3904,54 @@ class ConnectionService:
             raise HTTPException(status_code=404, detail="Tool not found")
         for tool in tools:
             tool.is_enabled = is_enabled
+        if tools:
+            await self._refresh_action_scopes(db, str(tools[0].connection_id))
         await db.commit()
         return tools
+
+    async def _refresh_action_scopes(self, db: AsyncSession, connection_id: str) -> None:
+        """Record on the connection which extra sign-in scopes its enabled
+        write actions need (``config.action_scopes``).
+
+        The Microsoft sign-in, its callback and token refresh all read this
+        (``get_oauth_params``), so turning on send_email makes the next sign-in
+        ask for Mail.Send, and a refresh never silently drops a granted scope.
+        Turning a tool off removes its scope from the next sign-in; the tool is
+        blocked by its row either way. Caller commits.
+        """
+        from app.data_sources.clients.connector_actions import NATIVE_ACTION_TYPES, actions_for_type
+
+        connection = await db.get(Connection, str(connection_id))
+        if connection is None or connection.type not in NATIVE_ACTION_TYPES:
+            return
+        enabled = {t.name for t in (await db.execute(
+            select(ConnectionTool).where(ConnectionTool.connection_id == str(connection_id),
+                                         ConnectionTool.is_enabled.is_(True))
+        )).scalars().all()}
+        scopes = sorted({alts[0] for a in actions_for_type(connection.type) if a.name in enabled
+                         for alts in a.required_scopes})
+        cfg = connection.config
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = {}
+        cfg = dict(cfg or {})
+        if cfg.get("action_scopes", []) == scopes:
+            return
+        if scopes:
+            cfg["action_scopes"] = scopes
+        else:
+            cfg.pop("action_scopes", None)
+        connection.config = json.dumps(cfg) if isinstance(connection.config, str) else cfg
+
+
+def _tool_source(conn_type: Optional[str]) -> Optional[str]:
+    if conn_type in ("remote_ssh", "remote_smb"):
+        return "remote"
+    return conn_type if conn_type in ("mcp", "custom_api") else None
+
+
+def effect_from_hints(metadata):
+    from app.data_sources.clients.connector_actions import effect_from_hints as _f
+    return _f(metadata)

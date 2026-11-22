@@ -107,7 +107,7 @@
             <span class="flex-1"></span>
             <template v-if="!showFeedback">
               <button
-                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-ink-muted hover:text-ink-2 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                 :disabled="responding"
                 data-testid="list-schema-request-changes"
                 @click="showFeedback = true"
@@ -125,7 +125,7 @@
             </template>
             <template v-else>
               <button
-                class="px-2.5 py-1 text-chat-2 rounded-md text-gray-500 hover:text-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"
+                class="px-2.5 py-1 text-chat-2 rounded-md text-ink-muted hover:text-ink-2 hover:bg-gray-50 dark:hover:bg-gray-800"
                 :disabled="responding"
                 @click="showFeedback = false"
               >{{ t('tools.listSchema.cancel') }}</button>

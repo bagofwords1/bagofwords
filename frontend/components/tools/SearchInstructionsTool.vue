@@ -29,7 +29,7 @@
               </div>
               <span v-if="item.category" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.category }}</span>
               <span v-if="item.load_mode" class="ms-1 text-chat-3 px-1 py-0.5 rounded flex-shrink-0"
-                :class="item.load_mode === 'always' ? 'bg-blue-50 dark:bg-blue-950 text-blue-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">
+                :class="item.load_mode === 'always' ? 'bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">
                 {{ getLoadModeLabel(item.load_mode) }}
               </span>
             </div>

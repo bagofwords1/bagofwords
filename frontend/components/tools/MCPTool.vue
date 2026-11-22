@@ -4,9 +4,13 @@
       :progress-stage="progressStage" :run-status="runStatus" :duration="duration"
       :connection-name="resultJson.connection_name" :approval-label="approvalOutcomeLabel"
       :confirmation-target="confirmation?.arguments?._execution_target" />
-    <ToolCallHeader v-if="!isShell" :tool-execution="toolExecution" icon="heroicons-server-stack"
+    <ToolCallHeader v-if="!isShell" :tool-execution="toolExecution" :icon="remoteOpIcon || 'heroicons-server-stack'"
       :label="isRunning ? runningLabel : doneLabel" :running="isRunning"
-      :expanded="isExpanded" @toggle="toggleExpanded" />
+      :expanded="isExpanded" @toggle="toggleExpanded">
+      <template v-if="remoteOp" #label>
+        <span :title="remoteOpPath || undefined" data-testid="remote-op-label">{{ isRunning ? runningLabel : doneLabel }}</span>
+      </template>
+    </ToolCallHeader>
 
     <!-- MCP App: the interactive UI the server attached to this tool. Shown
          open, under the status line — it is the result, not a detail. -->
@@ -25,6 +29,17 @@
       class="mt-1.5 ms-1 border-s-2 border-amber-300/70 dark:border-amber-600/50 ps-2.5 py-0.5 space-y-1.5"
       data-testid="mcp-approval-card"
     >
+      <div v-if="actionPreview" class="text-chat-2 text-ink" data-testid="mcp-approval-preview">
+        <span
+          v-if="actionEffect"
+          class="me-1.5 text-2xs px-1 py-0.5 rounded"
+          :class="actionEffect === 'external' || actionEffect === 'destructive' ? 'bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300' : 'bg-gray-100 dark:bg-gray-800 text-ink-muted'"
+        >{{ t(`connectionTools.effect.${actionEffect}.title`) }}</span>
+        <bdi>{{ actionPreview }}</bdi>
+      </div>
+      <div v-if="viaAgentName" class="text-chat-2 text-ink-muted" data-testid="mcp-approval-via-agent">
+        {{ t('tools.mcp.viaAgent', { name: viaAgentName }) }}
+      </div>
       <button
         v-if="argsOneLine && !isShell"
         type="button"
@@ -53,12 +68,18 @@
           :disabled="responding" @click="respond(true, false)"
         >{{ t('tools.mcp.allowOnce') }}</button>
         <button
-          v-if="!mandatoryApproval"
+          v-if="!mandatoryApproval && actionEffect !== 'destructive' && !display.locked"
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
           :disabled="responding" :title="t('tools.mcp.approvalHint')" @click="respond(true, true)"
         >{{ t(shellPermissions ? 'tools.remoteShell.always' : 'tools.mcp.alwaysAllow') }}</button>
+        <button
+          v-if="!shellPermissions && !mandatoryApproval"
+          data-testid="mcp-allow-for-report"
+          class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
+          :disabled="responding" :title="t('tools.mcp.allowForReportHint')" @click="respond(true, true, 'report')"
+        >{{ t('tools.mcp.allowForReport') }}</button>
         <UButton v-if="shellPermissions && !mandatoryApproval && confirmation?.arguments?._execution_target?.session_permissions"
-          variant="ghost" size="xs" :disabled="responding" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
+          variant="ghost" size="xs" :disabled="responding" :title="t('tools.remoteShell.sessionHint')" @click="respond(true, true, 'session')">{{ t('tools.remoteShell.session') }}</UButton>
         <span class="h-3 w-px bg-gray-200 dark:bg-gray-700"></span>
         <button
           class="px-2 py-0.5 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
@@ -101,7 +122,7 @@
       data-testid="mcp-auto-policy"
     >
       <Icon :name="autoPolicy.approved ? 'heroicons-shield-check' : 'heroicons-shield-exclamation'" class="w-3 h-3 shrink-0" />
-      <span class="truncate">{{ autoPolicy.approved ? t('tools.mcp.autoApproved') : t('tools.mcp.autoDenied') }}<template v-if="autoPolicy.reason"> — {{ autoPolicy.reason }}</template></span>
+      <span class="truncate">{{ autoPolicyLabel }}</span>
     </div>
 
     <!-- Expandable content -->
@@ -244,6 +265,17 @@ const approvalOutcomeLabel = computed(() => {
   return o.approved ? t('tools.mcp.allowedByYou') : t('tools.mcp.deniedByYou')
 })
 
+// Card-only context (the agent the call goes through, a preview and the
+// effect) arrives in `confirmation.display`, apart from the arguments: the
+// card always shows every argument the tool will receive.
+const display = computed(() => (confirmation.value?.display || {}) as Record<string, any>)
+const actionPreview = computed(() => String(display.value.preview || ''))
+const actionEffect = computed(() => {
+  const e = display.value.effect
+  return ['read', 'modify', 'external', 'destructive'].includes(e) ? e : ''
+})
+const viaAgentName = computed(() => display.value.via_agent?.name || '')
+
 const confirmationArgs = computed(() => {
   const a = confirmation.value?.arguments
   if (!a || !Object.keys(a).length) return ''
@@ -266,14 +298,16 @@ const respondError = ref('')
 
 const { markConfirmationAnswered } = useToolConfirmations()
 
-async function respond(approved: boolean, remember: boolean, scope = 'user') {
+// scope: how far the answer reaches — 'always' (saved for this tool), 'report'
+// (this report only), or the shell card's 'session' (= this report).
+async function respond(approved: boolean, remember: boolean, scope = 'always') {
   if (!confirmation.value?.confirmation_id || !props.systemCompletionId || responding.value) return
   responding.value = true
   respondError.value = ''
   try {
     const res = await useMyFetch(
       `/completions/${props.systemCompletionId}/mcp_tool_confirmations/${confirmation.value.confirmation_id}`,
-      { method: 'POST', body: { approved, remember, ...(shellPermissions.value ? { permission_scope: remember ? scope : 'once', command_pattern: commandPattern.value, command_match: commandMatch.value } : {}) } }
+      { method: 'POST', body: { approved, remember, permission_scope: remember ? scope : 'once', ...(shellPermissions.value ? { command_pattern: commandPattern.value, command_match: commandMatch.value } : {}) } }
     )
     if (res?.error?.value) {
       const err = res.error.value as any
@@ -305,7 +339,38 @@ const autoPolicy = computed(() => {
   if (rj.blocked_by_policy === 'auto') {
     return { approved: false, reason: rj.policy_reason || '' }
   }
+  if (rj.blocked_by_policy === 'blocklist') {
+    return { approved: false, reason: rj.policy_reason || '', decided_by: 'rule:blocklist' }
+  }
+  if (rj.blocked_by_policy === 'unattended') {
+    return { approved: false, reason: '', decided_by: 'unattended_setting' }
+  }
+  if (rj.blocked_by_policy === 'unknown_tool') {
+    return { approved: false, reason: '', decided_by: 'rule:unknown_tool' }
+  }
   return null
+})
+
+// Decisions made by a rule or the permission mode get their own wording; a
+// judge's verdict keeps its reason.
+const DECIDED_BY_KEYS: Record<string, string> = {
+  'mode:allow_all': 'allowAll',
+  'rule:read_only': 'readOnly',
+  'rule:blocklist': 'blocklist',
+  'remembered:report': 'rememberedReport',
+  'unattended_setting': 'unattended',
+  'rule:unknown_tool': 'unknownTool',
+}
+const autoPolicyLabel = computed(() => {
+  const p = autoPolicy.value as any
+  if (!p) return ''
+  const key = p.decided_by && DECIDED_BY_KEYS[p.decided_by]
+  if (key) {
+    const base = t(`tools.mcp.decidedBy.${key}.${p.approved ? 'allowed' : 'refused'}`)
+    return key === 'blocklist' && p.reason ? `${base} — ${p.reason}` : base
+  }
+  const base = p.approved ? t('tools.mcp.autoApproved') : t('tools.mcp.autoDenied')
+  return p.reason ? `${base} — ${p.reason}` : base
 })
 // The raw name: execute_mcp after the server's rewrite, but a native
 // mcp__<connection>__<tool> or call_tool while it streams. All three render
@@ -364,6 +429,51 @@ const isShell = computed(() => args.value.tool_name === 'execute_shell' && (
   connectionIcon.value?.type === 'remote_ssh' || shellPermissions.value
 ))
 
+// Read-only operations of a remote-server (SSH/SMB) connection. They run
+// through execute_mcp like any MCP tool, but read like file reads: "Read
+// app.log · web-01", not "read_file · web-01" under a terminal icon. The
+// terminal glyph stays reserved for execute_shell (RemoteShellTool).
+const REMOTE_OPS = ['read_file', 'list_directory', 'search_file', 'system_status'] as const
+type RemoteOp = typeof REMOTE_OPS[number]
+const REMOTE_OP_ICONS: Record<RemoteOp, string> = {
+  read_file: 'heroicons-document-text',
+  list_directory: 'heroicons-folder-open',
+  search_file: 'heroicons-document-magnifying-glass',
+  system_status: 'heroicons-server',
+}
+const remoteOp = computed<RemoteOp | null>(() => {
+  const type = resultJson.value.connection_type || connectionIcon.value?.type
+  if (type !== 'remote_ssh' && type !== 'remote_smb') return null
+  const name = args.value.tool_name
+  return (REMOTE_OPS as readonly string[]).includes(name) ? name as RemoteOp : null
+})
+const remoteOpIcon = computed(() => remoteOp.value ? REMOTE_OP_ICONS[remoteOp.value] : '')
+const remoteOpPath = computed<string>(() => {
+  const p = args.value.arguments?.path
+  return remoteOp.value && typeof p === 'string' ? p : ''
+})
+// Basename of a POSIX, Windows or share-relative path; a bare root keeps its
+// full form so "/" or "C:\\" still says something.
+function pathTail(p: string): string {
+  const trimmed = p.replace(/[\\/]+$/, '')
+  const tail = trimmed.split(/[\\/]/).pop()
+  return tail || p
+}
+// File, search text and server are LTR fragments inside a possibly RTL
+// sentence; first-strong isolates keep "קורא את app.log…" from reordering.
+const isolate = (v: string) => `\u2068${v}\u2069`
+const remoteOpLabel = (phase: 'running' | 'done') => {
+  const op = remoteOp.value
+  if (!op) return ''
+  const a = args.value.arguments || {}
+  const base = t(`tools.remoteOp.${op}.${phase}`, {
+    name: isolate(pathTail(remoteOpPath.value) || '…'),
+    text: isolate(typeof a.text === 'string' ? a.text : ''),
+  })
+  const server = resultJson.value.execution_target?.server || resultJson.value.connection_name
+  return server ? `${base} · ${isolate(server)}` : base
+}
+
 const duration = computed(() => {
   const ms = props.toolExecution?.duration_ms
   if (!ms) return ''
@@ -389,6 +499,7 @@ const runningLabel = computed(() => {
     return t('tools.mcp.autoReviewing', { name: args.value.tool_name || 'tool' })
   }
   if (modelTitle.value) return modelTitle.value
+  if (remoteOp.value) return remoteOpLabel('running')
   if (toolName.value === 'search_mcps') return t('tools.mcp.searching')
   if (toolName.value === 'execute_mcp') {
     const label = args.value.tool_name || resultJson.value.connection_name || 'MCP tool'
@@ -419,6 +530,7 @@ const doneLabel = computed(() => {
       return t('tools.mcp.failed', { name: connName })
     }
     if (modelTitle.value) return modelTitle.value
+    if (remoteOp.value) return remoteOpLabel('done')
     // The tool that ran, with its connection: "find_artist · music-store".
     const called = args.value.tool_name
     const connName = resultJson.value.connection_name

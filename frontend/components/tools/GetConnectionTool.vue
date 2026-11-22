@@ -9,13 +9,13 @@
     <div v-show="toolHeaderExpanded" class="tool-call-details w-full min-w-0 mt-2">
       <div class="mb-2 flex flex-wrap items-center gap-2 text-chat-3 text-ink-muted">
       <template v-if="status === 'running'"></template>
-      <template v-else><span v-if="args.pattern" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 font-mono flex-shrink-0">{{ args.pattern }}</span><span class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('tools.getConnection.matchCount', { count: total }) }}</span><span v-if="hasMore || page > 1" class="ms-1 text-chat-3 text-ink-muted">· {{ t('tools.getConnection.page', { page }) }}</span></template></div>
+      <template v-else><span v-if="args.pattern" class="ms-1.5 text-chat-3 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-ink-muted font-mono flex-shrink-0">{{ args.pattern }}</span><span class="ms-1.5 text-chat-3 text-ink-muted">· {{ t('tools.getConnection.matchCount', { count: total }) }}</span><span v-if="hasMore || page > 1" class="ms-1 text-chat-3 text-ink-muted">· {{ t('tools.getConnection.page', { page }) }}</span></template></div>
 
     <Transition name="fade" appear>
       <div v-if="status !== 'running'" class="text-chat-2 text-gray-600 dark:text-gray-400 ms-1">
         <!-- File scope (file-shaped connections) — always visible, it's tiny. -->
         <div v-if="fileScope" class="mb-1.5 rounded border border-gray-100 dark:border-gray-800 px-2 py-1 text-chat-3 space-y-0.5">
-          <div v-if="fileScope.token_scoped" class="text-gray-500">{{ t('tools.getConnection.tokenScoped') }}</div>
+          <div v-if="fileScope.token_scoped" class="text-ink-muted">{{ t('tools.getConnection.tokenScoped') }}</div>
           <template v-else>
             <div v-if="fileScope.base"><span class="text-ink-muted">{{ t('tools.getConnection.scopeBase') }}:</span> <span class="font-mono">{{ fileScope.base }}</span></div>
             <div><span class="text-ink-muted">{{ t('tools.getConnection.scopeGlobs') }}:</span> <span class="font-mono">{{ (fileScope.include_globs && fileScope.include_globs.length) ? fileScope.include_globs.join(', ') : '*' }}</span></div>

@@ -63,6 +63,8 @@ import math
 from datetime import datetime, timedelta
 from typing import Iterator, List, Optional, Tuple
 
+from app.data_sources.fast import limits as fast_limits
+
 logger = logging.getLogger(__name__)
 
 # Rows a single HogQL response will carry. Measured against a live project:
@@ -73,8 +75,9 @@ SINGLE_RESPONSE_ROWS = 50_000
 
 # A windowed extraction that needs more requests than this has stopped
 # converging (a cursor with no spread, a non-deterministic query). Bounded so a
-# refresh fails with a reason rather than hammering the project.
-MAX_WINDOW_REQUESTS = 512
+# refresh fails with a reason rather than hammering the project. The default;
+# an organization moves it in its settings (fast/limits.py).
+MAX_WINDOW_REQUESTS = fast_limits.DEFAULTS.max_requests
 
 # Finest split a window can be cut to. Below this the cursor cannot separate
 # rows and no further split can help.
@@ -174,14 +177,15 @@ class PostHogSource:
         # so the windows partition the range rather than overlapping at edges.
         # Processed newest-first off the end of the list; the order does not
         # matter, only that the set covers the range exactly once.
-        windows = list(reversed(_initial_windows(lo, hi, total)))
+        max_requests = fast_limits.of(self.client).max_requests
+        windows = list(reversed(_initial_windows(lo, hi, total, max_requests)))
 
         while windows:
             w_lo, w_hi, closed = windows.pop()
             requests += 1
-            if requests > MAX_WINDOW_REQUESTS:
+            if requests > max_requests:
                 raise RuntimeError(
-                    f"Extraction did not converge after {MAX_WINDOW_REQUESTS} "
+                    f"Extraction did not converge after {max_requests:,} "
                     f"requests. This usually means the query returns different "
                     f"rows each time it runs — give it an ORDER BY, or drop a "
                     f"LIMIT that has no ORDER BY."
@@ -289,7 +293,8 @@ def bounded_hogql(sql: str, limit: int) -> str:
     return f"SELECT * FROM ({strip_trailing_semicolon(sql)}) AS bow_sub LIMIT {int(limit)}"
 
 
-def _initial_windows(lo: datetime, hi: datetime, total: int):
+def _initial_windows(lo: datetime, hi: datetime, total: int,
+                     max_requests: int = MAX_WINDOW_REQUESTS):
     """The windows to start from, sized by the count instead of guessed.
 
     Starting from the whole range means the first request is *guaranteed* to
@@ -305,7 +310,7 @@ def _initial_windows(lo: datetime, hi: datetime, total: int):
     """
     span = hi - lo
     target = max(1, SINGLE_RESPONSE_ROWS // 2)
-    count = max(1, min(math.ceil(total / target), MAX_WINDOW_REQUESTS // 2))
+    count = max(1, min(math.ceil(total / target), max_requests // 2))
     if count == 1 or span < MIN_WINDOW * count:
         return [(lo, hi, True)]
 

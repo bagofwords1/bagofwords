@@ -21,7 +21,7 @@
             <span
               v-if="item.status"
               class="ms-1.5 text-chat-3 px-1 py-0.5 rounded flex-shrink-0"
-              :class="item.status === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'"
+              :class="item.status === 'published' ? 'bg-green-50 dark:bg-green-950 text-green-600 dark:text-green-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'"
             >
               {{ item.status }}
             </span>

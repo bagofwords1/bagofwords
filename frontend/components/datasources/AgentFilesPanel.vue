@@ -51,9 +51,13 @@
         <span class="font-mono text-gray-700 dark:text-gray-300 break-all">{{ baseOf(conn) }}</span>
         <span class="text-ink-muted">Scope</span>
         <div>
-          <span v-if="conn.type === 'kms_lighthouse'" class="text-gray-500 italic">{{ $t('kmsFileScope.browsingOnly') }}</span>
+          <span v-if="conn.type === 'kms_lighthouse'" class="text-ink-muted italic">{{ $t('kmsFileScope.browsingOnly') }}</span>
+          <template v-else-if="conn.type === 'confluence_dc'">
+            <template v-if="spacesOf(conn).length"><code v-for="k in spacesOf(conn)" :key="k" class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ k }}</code></template>
+            <span v-else class="text-ink-muted italic">{{ $t('confluenceFileScope.allSpaces') }}</span>
+          </template>
           <template v-else-if="globsOf(conn).length"><code v-for="g in globsOf(conn)" :key="g" class="inline-block mr-1.5 mb-1 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-100 dark:border-blue-800">{{ g }}</code></template>
-          <span v-else class="text-gray-500 italic">whole path</span>
+          <span v-else class="text-ink-muted italic">whole path</span>
         </div>
       </div>
       <div class="mt-3 border-t border-gray-100 dark:border-gray-800 pt-3">
@@ -92,9 +96,13 @@ const baseOf = (c: any) => {
   if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
   if (c.type === 'exchange_onprem') return [g.ews_url, g.shared_mailboxes].filter(Boolean).join(' / ')
   if (c.type === 'documentum') return [g.rest_url, g.repository, g.root_path].filter(Boolean).join(' / ')
+  // Confluence: the URL is admin-only; the space list renders in the Scope row.
+  if (c.type === 'confluence_dc') return g.base_url || ''
   if (c.type === 'azure_blob' && g.container) return `az://${g.account_name ? g.account_name + '/' : ''}${g.container}/${g.prefix || ''}`
   return g.bucket ? `${c.type === 'gcs' ? 'gs' : 's3'}://${g.bucket}/${g.prefix || ''}` : (g.root_path || '—')
 }
+// Confluence space keys the connection is limited to (blank: every space the identity sees).
+const spacesOf = (c: any) => String(cfg(c).spaces || '').split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
 const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
 // Live per-user sources (mailboxes, Teams) keep no catalog at all: every list,
 // search and read goes to the provider with the user's own token. They carry

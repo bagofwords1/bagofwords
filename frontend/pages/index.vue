@@ -58,7 +58,7 @@
 
     <div v-else class="flex flex-col justify-center p-4 flex-grow md:w-2/3 text-center md:mx-auto">
       <div v-if="showSetupComplete" class="mb-10">
-        <div class="mx-auto max-w-xl bg-green-50 dark:bg-green-950 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
+        <div class="mx-auto max-w-xl bg-green-50 dark:bg-green-950 border border-green-200 text-green-800 dark:text-green-300 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
           <span class="me-2 flex items-center">
             <Icon name="heroicons-check" />
           </span>
@@ -104,7 +104,7 @@
       >
         <div class="flex">
           <div class="w-4/5 pe-4">
-            <p class="text-sm text-black flex ">
+            <p class="text-sm text-ink flex ">
               <LLMProviderIcon provider="openai" class="h-3 inline-block " />
               <LLMProviderIcon provider="anthropic" class="h-2 inline-block ms-2" />
               <span class="inline-block ms-2">{{ $t('home.connectYourLLM') }}</span>
@@ -124,7 +124,7 @@
             <div class="flex">
 
                 <div class="w-4/5 pe-4">
-                    <p class="text-sm text-black">
+                    <p class="text-sm text-ink">
                         <DataSourceIcon type="snowflake" class="h-5 inline me-2" />
                         <DataSourceIcon type="salesforce" class="h-5 inline me-2" />
                         <span v-if="useCan('create_data_source')">

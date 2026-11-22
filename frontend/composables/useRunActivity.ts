@@ -23,13 +23,16 @@
  * - The final message is the LAST block, when it carries user-facing prose and
  *   the run is known to be over (the planner marked it `analysis_complete`, or
  *   the run's status is `success`). A run that stopped, errored, or ended on a
- *   question (clarify) has no conclusion and never folds: its failure or its
- *   question must stay in view.
+ *   question (clarify) or a sign-in request (request_agent_signin) has no
+ *   conclusion and never folds: its failure, question or Connect card must
+ *   stay in view.
  * - Prose always breaks a step: a progress message is part of the chain and
  *   keeps its chronological place. Reasoning does not — it rides inside the
  *   step it preceded.
- * - A `create_data` call is always its own step, described by what it produced.
- * - Every `create_data` result — chart, table or single value — folds into its
+ * - A data result (`create_data`, or `describe_entity` materializing a saved
+ *   query — isDataResultCall) is always its own step, described by what it
+ *   produced.
+ * - Every data result — chart, table or single value — folds into its
  *   step. Results stay reachable from the answer itself through its citations
  *   and sources line (composables/useCitations.ts): hover previews them, click
  *   opens them. Keeping charts open above the answer was tried and dropped: a
@@ -52,6 +55,24 @@ export function blockHasMessage(block: any): boolean {
   const pd = block?.plan_decision
   const hasText = (v: any) => typeof v === 'string' && v.trim() !== ''
   return hasText(block?.content) || hasText(pd?.final_answer) || hasText(pd?.assistant)
+}
+
+// ---------------------------------------------------------------------------
+// Data results
+// ---------------------------------------------------------------------------
+
+/** A tool call that produced a tracked data result: a `create_data` call, or a
+    `describe_entity` call in create mode (`should_create`), which materializes
+    a saved query as its own step and visualization. Both fold into a `data`
+    step and both are sources the answer can cite. A plain `describe_entity`
+    lookup is inspection. Mirrored in useCitations (isDataResultCall), which
+    stays dependency-free for the bundler-less unit tests. */
+export function isDataResultCall(te: any): boolean {
+  const name = String(te?.tool_name || '')
+  if (name === 'create_data') return true
+  if (name !== 'describe_entity') return false
+  return te?.arguments_json?.should_create === true
+    || !!(te?.created_step_id || te?.created_step || te?.created_widget)
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +135,9 @@ function singleCell(data: any): any {
     a one-cell "table" has nothing a table preview could add. */
 export function describeDataOutput(te: any): DataOutput {
   const title = String(
-    te?.created_step?.title || te?.created_widget?.title || te?.arguments_json?.title || '',
+    te?.created_step?.title || te?.created_widget?.title || te?.arguments_json?.title
+      // describe_entity names its result after the saved query it materialized.
+      || te?.result_json?.title || '',
   ).trim()
   const none: DataOutput = { kind: 'none', title, rowCount: null, value: '' }
   if (!te || te.status !== 'success') return none
@@ -256,9 +279,11 @@ export interface RunActivity {
   stepOf: Record<string, RunStep>
   /** blockId of each step's first member -> step (header render anchor) */
   headerAt: Record<string, RunStep>
-  /** Blocks whose output stays reachable below the final message, in order. */
+  /** Blocks whose output stays reachable below the final message, in order,
+      followed by still-running work (`keepVisible`). */
   deliverableIds: string[]
-  /** Blocks shown in full — prose and tool card — while folded (approval cards). */
+  /** Blocks shown in full — prose and tool card — while folded (approval
+      cards), and, while live, running work with a Stop control. */
   openIds: string[]
   /** What the run is doing now, for the live row: the latest progress note or
       step title, one line. Empty when finished or unknown. */
@@ -299,7 +324,7 @@ const PATTERN_RE = /[*?^$|()[\]{}+\\]/
 function purposeOf(block: any): { key: string; kind: RunStepKind; subjects: string[] } {
   const te = block.tool_execution
   const name = String(te?.tool_name || '')
-  if (name === 'create_data') return { key: `data:${block.id}`, kind: 'data', subjects: [] }
+  if (isDataResultCall(te)) return { key: `data:${block.id}`, kind: 'data', subjects: [] }
   if (INSPECT_TOOLS.has(name)) {
     const subjects = inspectedSubjects(te)
     const sorted = subjects.map((s) => s.toLowerCase()).sort().join('|')
@@ -406,6 +431,11 @@ function toMs(v: any): number | null {
   return Number.isFinite(t) ? t : null
 }
 
+// A run that ends on one of these is waiting for the user (an answer to a
+// question, a sign-in to an agent): it has no conclusion, and its card must
+// stay in view instead of folding into the steps.
+const WAITS_ON_USER = new Set<string>(['clarify', 'request_agent_signin'])
+
 /**
  * The block that ends the run's conclusion, or null while there is none. When
  * it also carries a tool call, the prose block right before it is part of the
@@ -414,7 +444,7 @@ function toMs(v: any): number | null {
 export function findFinalBlock(blocks: any[], runStatus?: string): any | null {
   const last = (blocks || [])[blocks.length - 1]
   if (!last || !blockHasMessage(last)) return null
-  if (last.status === 'error' || last.tool_execution?.tool_name === 'clarify') return null
+  if (last.status === 'error' || WAITS_ON_USER.has(last.tool_execution?.tool_name)) return null
   const te = last.tool_execution
   if (te && !['success', 'error', 'failed'].includes(String(te.status || ''))) return null
   const over = runStatus === 'success' || (!!last.plan_decision?.analysis_complete && runStatus !== 'error' && runStatus !== 'stopped')
@@ -441,6 +471,10 @@ export function computeRunActivity(
     isSuperseded?: (block: any) => boolean
     /** Blocks that must stay open while folded (a card waiting on the user). */
     keepOpen?: (block: any) => boolean
+    /** Blocks whose work outlives their tool call and that carry its Stop
+        control (a running eval, a sub-agent still investigating). They are
+        never hidden: open while live, kept under the answer once folded. */
+    keepVisible?: (block: any) => boolean
   },
 ): RunActivity | null {
   const list = blocks || []
@@ -499,6 +533,15 @@ export function computeRunActivity(
     latest.delete(key)
     latest.set(key, String(b.id))
   }
+  // Still-running work keeps its card (and Stop) in view: open in place while
+  // the run works, under the answer once it folds.
+  const deliverableIds = Array.from(latest.values())
+  const openIds = live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : []
+  for (const b of list) {
+    if (!opts?.keepVisible?.(b)) continue
+    const target = live ? openIds : deliverableIds
+    if (!target.includes(String(b.id))) target.push(String(b.id))
+  }
 
   const starts = list.map((b) => toMs(b?.started_at) ?? toMs(b?.tool_execution?.started_at)).filter((t): t is number => t !== null)
   const finalStart = final ? toMs(final.started_at) : null
@@ -522,8 +565,8 @@ export function computeRunActivity(
     toolGroups: computeRunToolGroups(list, opts?.breakBefore, !live),
     stepOf,
     headerAt,
-    deliverableIds: Array.from(latest.values()),
-    openIds: live && opts?.keepOpen ? list.filter((b) => opts.keepOpen!(b)).map((b) => String(b.id)) : [],
+    deliverableIds,
+    openIds,
     status: live ? liveStatus(before) : '',
     spanMs,
   }
@@ -552,6 +595,9 @@ export interface RunToolGroup {
   counts: Record<string, number>
   settled: boolean
   failed?: boolean
+  /** Members whose call failed, including ones the run recovered from; shown
+      as a count on the row so a collapsed group never looks clean. */
+  failedCount: number
   current: { name: string; title: string; status: string }
   icon: string
   running: boolean
@@ -583,13 +629,15 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
     if (!te) { group = undefined; continue }
     const category = toolCategory(String(te.tool_name || ''))
     if (!group) {
-      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
+      group = { id: String(block.id), blockIds: [], categories: [], counts: {}, settled, failedCount: 0, current: { name: '', title: '', status: '' }, icon: GROUP_ICONS[category], running: false }
       groups.push(group)
     }
     group.blockIds.push(String(block.id))
     group.counts[category] = (group.counts[category] || 0) + 1
     if (!group.categories.includes(category)) group.categories.push(category)
     const running = RUNNING_STATUSES.has(String(te.status || ''))
+    const callFailed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+    if (callFailed) group.failedCount += 1
     // Prefer the latest running call; otherwise follow the latest completed call.
     if (running || !group.running) {
       group.icon = GROUP_ICONS[category]
@@ -599,7 +647,7 @@ export function computeRunToolGroups(blocks: any[], breakBefore?: (block: any) =
         status: String(te.status || ''),
       }
       // Match the warning to the displayed call; historical failures stay on their own rows.
-      group.failed = !running && (['error', 'failed'].includes(String(te.status || '')) || !!te.error_message || !!te.result_json?.error || te.result_json?.success === false)
+      group.failed = callFailed
     }
     group.running ||= running
   }

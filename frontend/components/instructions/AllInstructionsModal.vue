@@ -75,7 +75,7 @@
           <div v-if="listLoading" class="flex items-center justify-center py-14">
             <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
-          <div v-else-if="listError" class="py-12 text-center text-xs text-gray-500">{{ listError }}</div>
+          <div v-else-if="listError" class="py-12 text-center text-xs text-ink-muted">{{ listError }}</div>
           <div v-else-if="visibleRows.length === 0" class="py-12 text-center text-xs text-ink-muted italic">
             {{ $t('allInstructions.noneMatch') }}
           </div>
@@ -143,7 +143,7 @@
           <div v-if="logLoading" class="flex items-center justify-center py-14">
             <Spinner class="w-5 h-5 text-ink-muted animate-spin" />
           </div>
-          <div v-else-if="logError" class="py-12 text-center text-xs text-gray-500">{{ logError }}</div>
+          <div v-else-if="logError" class="py-12 text-center text-xs text-ink-muted">{{ logError }}</div>
           <div v-else-if="entries.length === 0" class="py-12 text-center text-xs text-ink-muted italic">
             {{ $t('allInstructions.noChanges') }}
           </div>

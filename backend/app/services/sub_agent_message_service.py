@@ -144,12 +144,15 @@ class SubAgentMessageService:
         db.add(event)
         await db.flush()
         from app.services.conversation_surface import parent_app_surface
+        from app.services.machine_turn import unattended_origin
         surface = await parent_app_surface(db, wave.parent_completion_id)
         db.add(Completion(
             parent_id=event.id,
             report_id=wave.report_id, user_id=wave.user_id, role='user', status='queued',
             model=parent.model if parent else None, turn_index=turn + 2,
             message_type='sub_agent_question', trigger_source='sub_agent_message',
+            # The reply of a scheduled, webhook or API-key turn stays unattended.
+            started_via=await unattended_origin(db, wave.parent_completion_id),
             prompt={'content': 'A sub-agent needs your answer. Read <agent_messages>; answer each open question '
                     'with message_sub_agent(kind="answer", recipient=sender, reply_to=message_id). '
                     'Use the user’s existing instructions. If only the user can decide, ask them and tell the child '

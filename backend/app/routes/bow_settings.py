@@ -43,6 +43,8 @@ async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
             "mode": getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
         },
         "ldap": {"enabled": settings.bow_config.ldap.enabled},
+        # Whether Settings → System logs is offered at all (instance admins only).
+        "system_logs": {"enabled": settings.bow_config.system_logs.enabled},
         "oidc_providers": [
             {
                 "name": p.name,

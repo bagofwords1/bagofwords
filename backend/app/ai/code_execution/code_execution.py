@@ -1518,6 +1518,14 @@ class QueryCapturingClientWrapper:
                     "rows": rows,
                     "result_bytes": result_bytes,
                     "sql": capture[:500] if isinstance(capture, str) else None,
+                    # Which connection answered, so the result's viewer can
+                    # offer to cache this query on that connection.
+                    "client_key": self._client_key or getattr(self._original, "_bow_client_key", None),
+                    "connection_id": self._connection_id(),
+                    "data_source_id": (
+                        str(getattr(self._original, "_bow_data_source_id", None))
+                        if getattr(self._original, "_bow_data_source_id", None) else None
+                    ),
                 }
                 _attrs = getattr(result, "attrs", None)
                 sent_request = _attrs.get(SENT_REQUEST_ATTR) if isinstance(_attrs, dict) else None

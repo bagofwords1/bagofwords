@@ -187,6 +187,20 @@ class CreateReportTool(MCPTool):
             usable = {str(ds.id): ds for ds in data_sources}
             unknown = [i for i in picked_ids if i not in usable]
             if unknown:
+                # An agent the user can use once they sign in is not "not
+                # found": say what is missing, by name. Anything else stays
+                # undisclosed.
+                connectable = {
+                    str(ds.id): ds.name for ds in await ds_service.get_active_data_sources(
+                        db, organization, current_user=user, include_unconnected=True, channel="mcp"
+                    )
+                }
+                needs_signin = [connectable[i] for i in unknown if i in connectable]
+                if needs_signin:
+                    raise ValueError(
+                        f"Sign-in required for: {', '.join(needs_signin)}. The user must connect their own "
+                        "account to it in Bag of Words (agent selector, Connect), then retry."
+                    )
                 raise ValueError(
                     f"Agent(s) not found or not available to you: {', '.join(unknown)}. "
                     "Use browse_agents to find the agents you can use."
